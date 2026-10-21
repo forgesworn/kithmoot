@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, offerPairing, open, openCall, openMember } from './browser.js'
+import { createRoom, newDeviceContext, offerPairing, open, openCall, openMember, join } from './browser.js'
 
 /**
  * The per-person volume slider (2026-09-13 dogfood feedback, item 6): one
@@ -23,7 +23,7 @@ import { createRoom, newDeviceContext, offerPairing, open, openCall, openMember 
 /** In, with a microphone only - no camera, no screen. */
 async function joinWithMic(page: Page, url: string, name: string): Promise<void> {
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await openCall(page)
   await page.locator('#toggleMic').click()
@@ -69,7 +69,7 @@ test('one slider governs every device of a paired person, and nobody else change
       open(pagePhone, pairUrl, 'Ada'),
       pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click(),
     ])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
     await openCall(pagePhone)
     await pagePhone.locator('#toggleMic').click()
@@ -158,7 +158,7 @@ test('a level survives a track handed over on renegotiation, and a reload', asyn
     await pageA.reload()
     await expect(pageA.locator('#join')).toBeVisible({ timeout: 60_000 })
     await expect(pageA.locator('#join')).toBeEnabled({ timeout: 60_000 })
-    await pageA.locator('#join').click()
+    await join(pageA)
     await expect(pageA.locator('#roomArea')).toBeVisible()
 
     await openMember(pageA, 'Bob')

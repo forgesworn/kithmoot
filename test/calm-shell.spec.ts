@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, openNewRoomForm, openRoomDetails } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -484,7 +484,7 @@ test('back to the list from the start page keeps the room list reachable at ever
   } finally { await context.close() }
 })
 
-test('creating a room from the New menu closes the sheet and leaves the door clear', async ({ browser, baseURL }) => {
+test('creating a room from the New menu closes the sheet and goes straight into the room, with no door', async ({ browser, baseURL }) => {
   const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
   try {
     const relays = testRelaysFor(baseURL!)!
@@ -493,12 +493,11 @@ test('creating a room from the New menu closes the sheet and leaves the door cle
     await page.locator('#newMenuButton').click()
     await page.getByRole('menuitem', { name: 'New room' }).click()
     await page.locator('#roomName').fill('Door check')
+    await page.locator('#newRoomYourName').fill('Ada')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible({ timeout: 30_000 })
-    await expect(page.locator('dialog[open]')).toHaveCount(0)
-    await page.locator('#displayName').fill('Ada')
-    await page.locator('#join').click()
     await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('dialog[open]')).toHaveCount(0)
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
   } finally { await context.close() }
 })
 
@@ -1595,4 +1594,165 @@ test('Settings › Account still holds the account block after a visit to the do
     await openSettings(page, 'Account')
     await expect(page.locator('#accountHome')).toBeVisible()
   } finally { await context.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6, slice B: the creator skips the door, and a joined room reopens.
+// ---------------------------------------------------------------------------
+
+/** Watches the door of a page from the first paint: true once the name form
+ *  or the Continue button has been on screen at any moment. */
+async function watchDoor(page: Page) {
+  await page.addInitScript(() => {
+    const w = window as unknown as { doorSeen: boolean }
+    w.doorSeen = false
+    const check = () => {
+      for (const id of ['displayName', 'join']) {
+        const el = document.getElementById(id)
+        if (el && el.checkVisibility()) w.doorSeen = true
+      }
+    }
+    new MutationObserver(check).observe(document, { subtree: true, attributes: true, childList: true })
+    setInterval(check, 20)
+  })
+}
+const doorSeen = (page: Page) => page.evaluate(() => (window as unknown as { doorSeen: boolean }).doorSeen)
+
+/** A device about to start a room on the test relays. */
+async function creatorDevice(browser: Browser, baseURL: string, options: { name?: string; account?: boolean; extension?: boolean; touch?: boolean; scheme?: 'dark' | 'light'; viewport?: { width: number; height: number } } = {}) {
+  const relays = testRelaysFor(baseURL)!
+  const { context, page } = await door(browser, baseURL, options.viewport ?? { width: 1280, height: 900 }, { name: options.name, account: options.account ? { named: true } : undefined, extension: options.extension, touch: options.touch, scheme: options.scheme })
+  await context.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+  await watchDoor(page)
+  await page.goto('about:blank')
+  await page.goto(baseURL)
+  await expect(page.locator('#newMenuButton:visible, #newRoom:visible').first()).toBeVisible({ timeout: 30_000 })
+  return { context, page }
+}
+
+test('a creator with no name is asked for one in the form, and then goes straight into the room', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!)
+  try {
+    await openNewRoomForm(page)
+    await expect(page.locator('#newRoomYourNameRow')).toBeVisible()
+    await expect(page.getByLabel('Your name', { exact: true })).toBeVisible()
+    await page.locator('#roomName').fill('Release workshop')
+    await page.locator('#create').click()
+    await expect(page.locator('#newRoomYourNameError')).toHaveText('Type the name people here will see.')
+    await expect(page.locator('#newRoomYourName')).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.locator('#newRoomYourName')).toBeFocused()
+    await page.locator('#newRoomYourName').fill('Ada')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(page), 'the name form or Join was on screen').toBe(false)
+    await expect(page.locator('#joinRoomForm')).toBeHidden()
+    await expect(page.locator('#chatInput')).toBeFocused()
+    await openRoomDetails(page)
+    await expect(page.locator('#sheetRoster')).toContainText('Ada (you)')
+  } finally { await context.close() }
+})
+
+test('a creator with a name remembered is not asked, and goes in as that name', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(page)
+    await expect(page.locator('#newRoomYourNameRow')).toBeHidden()
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(page)).toBe(false)
+    await openRoomDetails(page)
+    await expect(page.locator('#sheetRoster')).toContainText('Ada (you)')
+  } finally { await context.close() }
+})
+
+test('a creator whose account must be reconnected meets the door, which says the room is ready', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { account: true })
+  try {
+    await openNewRoomForm(page)
+    await page.locator('#create').click()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#arrivalLead')).toHaveText('Your room is ready.')
+    await expect(page.locator('#join')).toHaveText('Continue as TheCryptoDonkey')
+  } finally { await context.close() }
+})
+
+test('a link to a room this device has joined opens the room, for the guest and for the creator, and never shows the name form', async ({ browser, baseURL }) => {
+  const { context: hostContext, page: host } = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await openNewRoomForm(host)
+    await host.locator('#roomName').fill('Reload room')
+    await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await host.locator('#shareUrl').inputValue()
+
+    const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 }, { link })
+    try {
+      await watchDoor(page)
+      await page.locator('#displayName').fill('Rowan'); await page.locator('#join').click()
+      await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+      await page.goto('about:blank')
+      await watchDoor(page)
+      await page.goto(link)
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+      await page.reload()
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+      expect(await doorSeen(page), 'the guest saw the door on reload').toBe(false)
+    } finally { await context.close() }
+
+    await host.goto('about:blank')
+    await host.goto(link)
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await host.reload()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await doorSeen(host), 'the creator saw the door on reload').toBe(false)
+  } finally { await hostContext.close() }
+})
+
+test('a link opened but never joined reloads to the door, not into the room', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.reload()
+    await expect(page.locator('#displayName')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('a device that joined as a name and now has an account to reconnect meets the door in reconnect mode, never the room', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    await page.evaluate(account => {
+      localStorage.setItem('kithmoot.last-nostr-account', account)
+      localStorage.setItem('kithmoot.last-nostr-method', 'bunker')
+    }, DOOR_ACCOUNT)
+    await page.reload()
+    await expect(page.locator('#join')).toHaveText('Continue with your Nostr account', { timeout: 60_000 })
+    await expect(page.locator('#joinVisitor')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeHidden()
+  } finally { await context.close() }
+})
+
+test('a device that joined as a name and is now signed in as an account is asked, not walked in', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const accountContext = await accountDevice(browser, baseURL!, secret)
+  const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+  try {
+    const page = await accountContext.newPage()
+    await page.goto(seeds[0]!.link)
+    // Joined here as a name, with the extension left alone.
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await page.locator('#joinVisitor').click()
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    // Now signed in as an account, in the same browser, and the link opened again.
+    await signInAccount(page, baseURL!)
+    await page.goto('about:blank')
+    await page.goto(seeds[0]!.link)
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#join')).toHaveText(/^Continue (as|with your Nostr account)/)
+    void relay
+  } finally { await accountContext.close() }
 })

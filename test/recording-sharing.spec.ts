@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, openCall, open, turnOnMedia, allowTestFileStorage, chooseCallMore } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, openCall, open, turnOnMedia, allowTestFileStorage, chooseCallMore, join } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 test.use({ trace: { mode: 'retain-on-failure', screenshots: false, snapshots: true, sources: true } })
@@ -31,7 +31,7 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     const a = await aContext.newPage(), b = await bContext.newPage()
     const url = await createRoom(a, baseURL!)
     await joinWithMedia(a, url, 'Ada')
-    await open(b, url, 'Bob'); await b.locator('#join').click()
+    await open(b, url, 'Bob'); await join(b)
     await expect(b.locator('#callToggle')).toHaveText('Join call')
     await turnOnMedia(b)
     await openCall(a)

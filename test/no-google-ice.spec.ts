@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, join } from './browser.js'
 
 /**
  * Regression test for the fix in docs/decisions.md, 13 September 2026:
@@ -144,7 +144,7 @@ test('a member can require credentialed relay-only ICE without querying STUN', a
     await pageB.locator('#joinNetworkPrivacy > summary').click()
     await pageB.locator('#joinRelayOnly').check()
     await expect(pageB.locator('#joinNetworkPrivacy')).toContainText('TURN provider can still see')
-    await pageB.locator('#join').click()
+    await join(pageB)
     await expect(pageB.locator('#roomArea')).toBeVisible()
 
     await expect.poll(() => pageB.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), {

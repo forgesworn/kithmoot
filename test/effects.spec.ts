@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 // @ts-expect-error - plain ESM helper, no types, and none wanted for a fixture
 import { writeScene } from './synthetic-scene.mjs'
 import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { openNewRoomForm, openCallEffects } from './browser.js'
+import { openNewRoomForm, openCallEffects, nameCreator } from './browser.js'
 
 /**
  * Does the blur actually blur, and does it survive a camera swap?
@@ -237,6 +237,7 @@ async function openCamera(page: Page): Promise<void> {
 async function goIn(page: Page): Promise<void> {
   await page.goto('/')
   await openNewRoomForm(page)
+  await nameCreator(page, 'Robin')
   await page.locator('#create').click()
   const share = page.locator('#shareUrl')
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
@@ -244,9 +245,7 @@ async function goIn(page: Page): Promise<void> {
   // this file has any business depending on which one. Re-opened on the
   // pinned link, so the room is on the test relay before the door opens.
   await openRoomUrl(page, pinToTestRelays(await share.inputValue()))
-  await page.locator('#displayName').fill('Robin')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   // The camera and microphone are behind the call control in the room's bar
   // now: a message screen carries a header, the conversation and the box to
   // type in, and the camera appears when there is a call to point it at.

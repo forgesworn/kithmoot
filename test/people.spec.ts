@@ -229,12 +229,9 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await signInAccount(alice, baseURL!)
     await openNewRoomForm(alice)
     await alice.locator('#roomName').fill('Saturday walk')
+    if (await alice.locator('#newRoomYourName').isVisible()) await alice.locator('#newRoomYourName').fill('Alice')
     await alice.locator('#create').click()
-    // A new room's creator still meets the door (stage 6 removes it).
-    await expect(alice.locator('#join')).toBeEnabled({ timeout: 30_000 })
-    if (await alice.locator('#displayName').isVisible()) await alice.locator('#displayName').fill('Alice')
-    await alice.locator('#join').click()
-    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 30_000 })
+    await expect(alice.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     await openPeople(alice)
     await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()

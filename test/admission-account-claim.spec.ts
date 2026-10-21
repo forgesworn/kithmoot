@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { writeFileSync } from 'node:fs'
 import { localIdentity } from '../src/identity.js'
-import { newDeviceContext, openNewRoomForm, requestAdmission, openSettings, closeSettings } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, openSettings, closeSettings, nameCreator } from './browser.js'
 import { testRelaysFor, TEST_RELAY_WS } from './relays.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
@@ -20,12 +20,11 @@ for (const verified of [false, true]) test(verified ? 'a matching signed account
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Synthetic authority audit')
     await host.locator('#roomAsk').check()
+    await nameCreator(host, 'Synthetic host')
     await host.locator('#create').click()
     await expect.poll(() => host.locator('#shareUrl').inputValue()).not.toBe('')
     const link = await host.locator('#shareUrl').inputValue()
-    await host.locator('#displayName').fill('Synthetic host')
-    await host.locator('#join').click()
-    await expect(host.locator('#roomArea')).toBeVisible()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const invitedSk = generateSecretKey()
     const invited = getPublicKey(invitedSk)
     await host.evaluate(account => {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall } from './browser.js'
+import { createRoom, newDeviceContext, open, openCall, join } from './browser.js'
 
 /**
  * Does the app actually ask the browser for the screen wake lock, at the
@@ -41,7 +41,7 @@ test('the call requests a screen wake lock and releases it on Leave', async ({ b
 
     const url = await createRoom(page, baseURL!)
     await open(page, url, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
 
     const calls = () => page.evaluate(() => (window as unknown as { __wakeLockCalls: string[] }).__wakeLockCalls)

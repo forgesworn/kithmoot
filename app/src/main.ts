@@ -111,7 +111,7 @@ import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, loadKeptRoomEpoch, lo
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { storeTabAdmission } from './admission-store.js'
-import { destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, markDestruct, markEnded, markRead, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
+import { autoJoinable, clearRoomJoined, destructDue, endLapsedConferences, forgetRoom, knownRoom, knownRooms, markDestruct, markEnded, markRead, markRoomJoined, rememberRoom, roomLabel, setKeepRoom, type KnownRoom } from './rooms-store.js'
 import { showDestructEffect } from './destruct-effect.js'
 import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countdown, countdownClock, fuseRemaining, countdownStage, dismissTombstone, finalBannerText, headsUpText, stageAnnouncement, tombstoneText, tombstones, type CountdownStage } from './self-destruct.js'
 import { scrubStore } from './storage-scrub.js'
@@ -1006,6 +1006,41 @@ function rememberCurrentRoom(): void {
     // Storage may be unavailable. The room still opens; it is only the way
     // back to it that goes unwritten.
   }
+}
+
+/** The pubkey this page would join as now, without minting a key to find out:
+ *  a paired device's credential, else the signed-in account, an account pass,
+ *  or the device's own key. Undefined when there is none yet. */
+function joinIdentityNow(): string | undefined {
+  return loadCredential()?.pubkey ?? currentParticipant()
+}
+
+/** The room on this page, when this device has joined it as the identity it
+ *  would join with now - the one case a link goes straight in. With
+ *  `provisional`, a saved sign-in that is still being restored counts as the
+ *  account that joined last time (its rooms are in that account's list, which
+ *  is not the active one yet): enough to show "Opening" instead of the name
+ *  form, never enough to join. */
+function joinedRoomHere(provisional = false): KnownRoom | undefined {
+  const roomId = currentRoomId()
+  if (!roomId) return undefined
+  const now = joinIdentityNow()
+  const room = knownRoom(roomStore(), roomId)
+  // A room that has ended opens nothing: its door says what became of it.
+  if (room && roomIsEnded(room)) return undefined
+  if (autoJoinable(room, now)) return room
+  // The account's list is not the active one while its signer is away, but a
+  // pass it minted for this room still speaks for it: the join is recorded there.
+  if (expectedAccount !== undefined && !nostrSession) {
+    const held = knownRoom(accountRoomStore(deviceStore, expectedAccount), roomId)
+    if (held && roomIsEnded(held)) return undefined
+    if (autoJoinable(held, now)) return held
+  }
+  if (provisional && identityRestoring && expectedAccount !== undefined) {
+    const held = knownRoom(accountRoomStore(deviceStore, expectedAccount), roomId)
+    if (held && !roomIsEnded(held) && held.joinedAs === expectedAccount && held.joinedAt !== undefined) return held
+  }
+  return undefined
 }
 
 function loadParticipantKey(): Uint8Array | undefined {
@@ -13038,6 +13073,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // the door. It cannot change on a call.
     sessionRelayOnly.set(s, relayOnly)
     meParticipant = s.participant
+    // This device is in the room as this identity: a link to the room opens
+    // it from now on, for the same identity only. Local, never bookmarked.
+    if (generation === roomGeneration) {
+      const joined = currentRoomId()
+      if (joined) { try { markRoomJoined(roomStore(), joined, nowSeconds(), s.participant) } catch { /* Storage may be unavailable; the door is the fallback. */ } }
+    }
 
     s.onChange((views) => {
       const isDocked = dockedCall?.session === s
@@ -13244,6 +13285,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     chatScroll.resume(draftRoomKey())
     restoreConversation()
     repaintActiveChat()
+    // The door that was pressed has gone, taking the focus with it: with a
+    // pointer, the cursor goes to the message box. A touch screen is left
+    // alone, so no keyboard rises over the conversation.
+    if (matchMedia('(pointer: fine)').matches && (!document.activeElement || document.activeElement === document.body)) ($('chatInput') as HTMLElement).focus({ preventScroll: true })
     if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
@@ -16840,6 +16885,20 @@ $('createRoomForm').addEventListener('submit', async event => {
   event.preventDefault()
   const button = $('create') as HTMLButtonElement
   if (button.disabled) return
+  // The one place the name is asked for a room this person starts.
+  const nameRow = $('newRoomYourNameRow'), nameField = $('newRoomYourName') as HTMLInputElement
+  if (!nameRow.hidden) {
+    const chosen = sanitiseDisplayName(nameField.value)
+    if (chosen === undefined) {
+      $('newRoomYourNameError').hidden = false
+      nameField.setAttribute('aria-invalid', 'true')
+      nameField.focus()
+      return
+    }
+    nameField.removeAttribute('aria-invalid')
+    $('newRoomYourNameError').hidden = true
+    storeName(chosen)
+  }
   button.disabled = true
   button.textContent = 'Starting…'
   $('createError').hidden = true
@@ -16852,8 +16911,18 @@ $('createRoomForm').addEventListener('submit', async event => {
     linkArrivalOver = true
     setStatus('')
     showRoomUi()
-    $('identity').scrollIntoView({ block: 'start' })
-    ;(typedName ? $('join') : $('displayName')).focus({ preventScroll: true })
+    const mine = knownRoom(roomStore(), currentRoomId()!)
+    const mode = doorMode()
+    if (mine && joiningName() !== undefined && (mode === 'name' || mode === 'signedIn')) {
+      showOpening(mine)
+      await startSession()
+      if (!session) { $('joinRoomForm').hidden = false; renderArrival(); renderIdentity() }
+      // The sheet that started the room handed the focus back to its opener:
+      // the creator is in, so the cursor goes to the message box.
+      else if (matchMedia('(pointer: fine)').matches) ($('chatInput') as HTMLElement).focus({ preventScroll: true })
+    } else {
+      $('identity').scrollIntoView({ block: 'start' })
+    }
   } catch (error) {
     // The relay's own words stay in the console, for a bug report; the room
     // itself only ever reads the plain instruction (M6).
@@ -17020,7 +17089,19 @@ function openSheet(dialog: HTMLDialogElement, field: string): void {
   $(field).focus()
 }
 const newRoomDialog = $('newRoomDialog') as HTMLDialogElement
-function openNewRoom(): void { openSheet(newRoomDialog, 'roomName') }
+function openNewRoom(): void {
+  // The name this device would go in under: asked here, once, when there is none.
+  // A creator who will meet the door (an account to reconnect, an extension)
+  // is asked there, so only the ones who go straight in are asked here.
+  const mode = doorMode()
+  const askName = joiningName() === undefined && !loadCredential() && (mode === 'name' || mode === 'signedIn')
+  $('newRoomYourNameRow').hidden = !askName
+  const field = $('newRoomYourName') as HTMLInputElement
+  field.value = ''
+  field.removeAttribute('aria-invalid')
+  $('newRoomYourNameError').hidden = true
+  openSheet(newRoomDialog, 'roomName')
+}
 function closeNewRoom(): void { newRoomDialog.close() }
 for (const id of ['newRoomDialog', 'openLink', 'joinCode']) {
   const dialog = $(id) as HTMLDialogElement
@@ -17820,6 +17901,10 @@ async function leaveRoom(): Promise<void> {
   // Leaving the room beside a docked call goes back to the call.
   if (dockedCall) { await switchRoom(dockedCall.room); return }
   ;($('leave') as HTMLButtonElement).disabled = true
+  // Leaving is on purpose: the link to this room is an invitation again, and
+  // the page that reloads below meets its door, not the room it just left.
+  const leaving = currentRoomId()
+  if (leaving) for (const store of new Set([roomStore(), deviceStore])) { try { clearRoomJoined(store, leaving) } catch { /* Storage may be unavailable. */ } }
   await closeRoomSession()
   approvedReload()
 }
@@ -19804,6 +19889,10 @@ if (location.hash.length > 1) {
   lead.hidden = false
 }
 
+/** The door was replaced by "Opening …" before it was known that the room
+ *  may open by itself; undone if it turns out it may not. */
+let provisionalOpening = false
+
 const pendingRoomSwitch = (() => {
   try {
     const raw = sessionStorage.getItem(ROOM_SWITCH_KEY)
@@ -19836,6 +19925,10 @@ roomArrival
     } else {
       showRoomUi()
       renderIdentity()
+      // A room this device has joined opens itself below: say so now, so the
+      // name form never flashes while a signer is being restored.
+      const joined = !guestAdmissionPreview && (identityRestoring || !needsAccountReconnect()) ? joinedRoomHere(true) : undefined
+      if (joined) { provisionalOpening = true; showOpening(joined) }
     }
     // Why the last page left, if the room told it to. A tab taken out by a
     // tidy-up elsewhere comes back to the front page, not the room.
@@ -19978,17 +20071,44 @@ const identityReady = restoreSessionWithExtensionGrace()
     void runDueDestructs()
   })
 
-// Only an explicit switch or safe update in this tab skips the door. A normal invitation
-// never auto-joins, and a failed/different Nostr restore never joins as a guest.
-Promise.all([roomArrival, identityReady]).then(([found]) => {
+// A room this device has joined goes straight in, as the identity that joined
+// it; so does an explicit room switch or safe update in this tab. An
+// invitation never auto-joins (it gets the door), and a failed or different
+// Nostr restore never joins as a guest: the account has to be reconnected, or
+// a name chosen, first.
+Promise.all([roomArrival, identityReady]).then(async ([found]) => {
+  const undo = (): void => {
+    if (!provisionalOpening) return
+    provisionalOpening = false
+    if (session || joining) return
+    setStatus('')
+    $('joinRoomForm').hidden = false
+    renderArrival()
+    renderIdentity()
+  }
+  const join = $('join') as HTMLButtonElement
+  if (!found || session || joining || join.disabled || guestAdmissionPreview) { undo(); return }
   const raw = pendingRoomSwitch
-  if (!raw || !found || session || ($('join') as HTMLButtonElement).disabled) return
-  const intent = JSON.parse(raw) as { hash?: string; account?: string | null; at?: number }
-  const age = Date.now() - (intent.at ?? 0)
-  if (intent.hash !== location.hash || age < 0 || age > 120_000) return
-  if (intent.account !== (nostrSession?.pubkey ?? null)) {
-    setStatus('Check your sign-in before entering: the previous account is not available.')
-    return
+  if (raw) {
+    provisionalOpening = false
+    const intent = JSON.parse(raw) as { hash?: string; account?: string | null; at?: number }
+    const age = Date.now() - (intent.at ?? 0)
+    if (intent.hash !== location.hash || age < 0 || age > 120_000) return
+    if (intent.account !== (nostrSession?.pubkey ?? null)) {
+      setStatus('Check your sign-in before entering: the previous account is not available.')
+      return
+    }
+    return startSession()
+  }
+  const room = needsAccountReconnect() ? undefined : joinedRoomHere()
+  if (!room) { undo(); return }
+  provisionalOpening = false
+  showOpening(room)
+  await startSession()
+  if (!session) {
+    $('joinRoomForm').hidden = false
+    renderArrival()
+    renderIdentity()
   }
 }).catch(() => { /* Admission/sign-in failures leave the normal door available. */ })
 

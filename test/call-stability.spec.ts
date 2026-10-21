@@ -3,7 +3,7 @@ import { test, expect, chromium, firefox, type Browser, type BrowserContext, typ
 import { spawn } from 'node:child_process'
 import { existsSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { createRoom, joinWithMedia, newDeviceContext, open, openCall } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, openCall, join } from './browser.js'
 
 /**
  * Does a call that came up STAY up, in every direction, while people do the
@@ -727,7 +727,7 @@ test.describe('call stability', () => {
 
         // (a) Clicking in, as a person does, then turning media on.
         await open(page, url, 'Win')
-        await page.locator('#join').click()
+        await join(page)
         await expect(page.locator('#roomArea')).toBeVisible()
         await openCall(page)
         await page.locator('#toggleCamera').click()
@@ -822,13 +822,13 @@ test.describe('call stability', () => {
       const watcher = await watcherContext.newPage()
       const url = await createRoom(watcher, baseURL!)
       await open(watcher, url, 'Rowan')
-      await watcher.locator('#join').click()
+      await join(watcher)
       await expect(watcher.locator('#roomArea')).toBeVisible()
 
       const phone = await phoneContext.newPage()
       await phone.setViewportSize({ width: 390, height: 844 })
       await open(phone, url, 'Ada')
-      await phone.locator('#join').click()
+      await join(phone)
       await expect(phone.locator('#roomArea')).toBeVisible()
 
       // Nothing starts a call but the person: the header offers it, the Chat
@@ -859,7 +859,7 @@ test.describe('call stability', () => {
       // Ada opens the same room link in another tab of the same browser.
       const tab2 = await contexts[0]!.newPage()
       await open(tab2, url, 'Ada')
-      await tab2.locator('#join').click()
+      await join(tab2)
       await expect(tab2.locator('#roomArea')).toBeVisible()
       console.log(`tab 2 status: ${await tab2.locator('#status').textContent()}`)
       checkpoints.push(await waitForMatrix([A, B, C], 'second tab joined (Ada media in tab 1)', 30_000,
@@ -1050,7 +1050,7 @@ test.describe('call stability', () => {
           await relay.fault({ newSocketMode: variant.mode })
         }
         const pressed = Date.now()
-        await joiner.locator('#join').click()
+        await join(joiner)
         let restored: number | undefined
         if (variant.restoreAfterMs) {
           const inEarly = await roomAreaVisible(joiner, variant.restoreAfterMs)

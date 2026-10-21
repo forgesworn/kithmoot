@@ -1013,6 +1013,15 @@
       <label for="roomName">Room name <span class="note">(optional)</span></label>
       <input id="roomName" placeholder="e.g. Saturday workshop" maxlength="64" autocomplete="off"
              enterkeyhint="go" aria-label="Room name" />
+      <!-- Asked only when this device has no name to go in under: a person
+           starting a room goes straight into it, so this is the one time the
+           name is asked. -->
+      <div id="newRoomYourNameRow" class="newRoomYourName" hidden>
+        <label for="newRoomYourName">Your name</label>
+        <input id="newRoomYourName" maxlength="64" autocomplete="nickname" enterkeyhint="go"
+               aria-describedby="newRoomYourNameError" />
+        <p id="newRoomYourNameError" class="formError" hidden>Type the name people here will see.</p>
+      </div>
       <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
       <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
       <!-- A conference room: a group room that ends on a date and is

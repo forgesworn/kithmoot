@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openRoomInfoPage } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openRoomInfoPage, nameCreator } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 async function askedRoom(browser: Browser, baseURL: string) {
@@ -18,12 +18,11 @@ async function startAskedRoom(host: Page, guest: Page, baseURL: string) {
   await openNewRoomForm(host)
   await host.locator('#roomName').fill('Admission delivery')
   await host.locator('#roomAsk').check()
+  await nameCreator(host, 'Ada')
   await host.locator('#create').click()
   await expect.poll(() => host.locator('#shareUrl').inputValue()).not.toBe('')
   const link = await host.locator('#shareUrl').inputValue()
-  await host.locator('#displayName').fill('Ada')
-  await host.locator('#join').click()
-  await expect(host.locator('#roomArea')).toBeVisible()
+  await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   await guest.addInitScript(() => localStorage.setItem('kithmoot.name', 'Rowan'))
   await guest.goto(link)
     await requestAdmission(guest)
@@ -194,7 +193,7 @@ test('leaving the room cancels its pending decision without granting entry', asy
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Another room')
     await host.locator('#create').click()
-    await host.locator('#join').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(host.locator('#roomTitle')).toHaveText('Another room')
     await expect(card).toHaveCount(0)
     await expect(host.locator('#chatLog')).not.toContainText('Rowan')
@@ -252,8 +251,8 @@ test('an explicit open-door choice survives reopening a temporary room', async (
     await host.locator('#toggleKnock').click()
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
     await host.reload()
-    await host.locator('#join').click()
-    await expect(host.locator('#roomArea')).toBeVisible()
+    // The creator's own room opens by itself.
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'false')
     const next = await nextContext.newPage()
@@ -306,13 +305,12 @@ test('people with the link ask, and the person in the room lets them in or decli
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Asked in')
     await host.locator('#roomAsk').check()
+    await nameCreator(host, 'Ada')
     await host.locator('#create').click()
     const share = host.locator('#shareUrl')
     await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
     const link = await share.inputValue()
-    await host.locator('#displayName').fill('Ada')
-    await host.locator('#join').click()
-    await expect(host.locator('#roomArea')).toBeVisible()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 
     // Rowan asks. The host sees who, by name, and lets them in.
     // Rowan's name goes in the request, so it is typed before the link

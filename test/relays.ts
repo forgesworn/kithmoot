@@ -118,6 +118,20 @@ export async function openRoomUrl(page: Page, url: string): Promise<void> {
   if (sameDocument(before, url)) await page.reload()
 }
 
+/** Whether two join links are for the same room: the same fragment once the
+ *  relay hints, which a spec rewrites freely, are set aside. */
+export function sameRoomLink(a: string, b: string): boolean {
+  const key = (url: string): string | undefined => {
+    try {
+      const payload = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(url).hash.slice(1)))) as Record<string, unknown>
+      delete payload.r
+      return JSON.stringify(payload)
+    } catch { return undefined }
+  }
+  const left = key(a)
+  return left !== undefined && left === key(b)
+}
+
 function sameDocument(a: string, b: string): boolean {
   try {
     const x = new URL(a)

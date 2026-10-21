@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, offerPairing, open, openCall } from './browser.js'
+import { createRoom, newDeviceContext, offerPairing, open, openCall, join } from './browser.js'
 
 /**
  * A phone sharing its screen in portrait, and nothing on top of it.
@@ -53,7 +53,7 @@ const VIEWPORT = { width: 1320, height: 880 }
 async function enter(page: Page, url: string, name: string, existingCall = false): Promise<void> {
   await page.setViewportSize(VIEWPORT)
   await open(page, url, name)
-  await page.locator('#join').click()
+  await join(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   if (existingCall) await expect(page.locator('#callToggle')).toHaveText('Join call')
   await openCall(page)
@@ -163,14 +163,14 @@ test('a person on two devices, one sharing portrait and one with only a micropho
     await pageLaptop.setViewportSize(VIEWPORT); await pagePhone.setViewportSize(VIEWPORT)
     const url = await createRoom(pageLaptop, baseURL!)
     await open(pageLaptop, url, 'Alex')
-    await pageLaptop.locator('#join').click()
+    await join(pageLaptop)
     await expect(pageLaptop.locator('#roomArea')).toBeVisible()
     const pairUrl = await offerPairing(pageLaptop)
     await Promise.all([
       open(pagePhone, pairUrl, 'Alex'),
       pageLaptop.getByRole('button', { name: 'Add device', exact: true }).click(),
     ])
-    await pagePhone.locator('#join').click()
+    await join(pagePhone)
     await expect(pagePhone.locator('#roomArea')).toBeVisible()
 
     // The laptop: on the call with a microphone, and no picture at all -

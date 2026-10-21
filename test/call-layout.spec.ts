@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { chooseCallLayout, createRoom, inbound, joinWithMedia, newDeviceContext, open } from './browser.js'
+import { chooseCallLayout, createRoom, inbound, joinWithMedia, newDeviceContext, open, join as joinDoor } from './browser.js'
 
 /**
  * The call stage: one box for every face, calm when people come and go.
@@ -40,7 +40,7 @@ async function join(browser: Browser, baseURL: string, url: string, name: string
   // Into a call that is already on, as a person would: the room says there
   // is a call, and they join it.
   await open(page, url, name)
-  await page.locator('#join').click()
+  await joinDoor(page)
   await expect(page.locator('#roomArea')).toBeVisible()
   await expect(page.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
   await page.locator('#callToggle').click()
@@ -267,7 +267,7 @@ test('a remote phone camera has a filled portrait tile and follows live rotation
     const url = await createRoom(page, baseURL!)
     await joinWithMedia(page, url, 'Viewer')
     await source.setViewportSize({ width: 1440, height: 900 })
-    await open(source, url, 'Phone'); await source.locator('#join').click()
+    await open(source, url, 'Phone'); await joinDoor(source)
     await expect(source.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
     await source.locator('#callToggle').click(); await source.locator('#toggleCamera').click()
     const tile = page.locator('#room > .participant[data-name="Phone"]')

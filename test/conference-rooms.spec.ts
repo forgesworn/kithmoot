@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import type { Event } from 'nostr-tools/pure'
-import { openNewRoomForm, openInvite } from './browser.js'
+import { openNewRoomForm, openInvite, nameCreator } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { parseRoomLink } from '../src/link.js'
 import { formatConferenceEnd } from '../app/src/conference.js'
@@ -61,8 +61,9 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     // self-destruct; a dated room self-destructs unless this is chosen.
     await page.locator('#roomWhenEnds').selectOption('keep')
     const madeAt = Math.floor(Date.now() / 1000)
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const link = await page.locator('#shareUrl').inputValue()
     expect(parseRoomLink(link).invitation?.persistent).toBe(true)
 
@@ -72,9 +73,6 @@ test('a conference room ends in a day: it says so, tags what it sends, shows a Q
     expect(ends).toBeGreaterThanOrEqual(madeAt + 86_400)
     expect(ends).toBeLessThanOrEqual(madeAt + 86_400 + 10)
 
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#chatInput').fill('Welcome to the workshop')
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('Welcome to the workshop')

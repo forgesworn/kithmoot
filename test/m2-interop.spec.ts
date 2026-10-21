@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
 import { base64urlnopad } from '@scure/base'
-import { createRoom, newDeviceContext, joinWithMedia, expectToSeeAndHear, open, TEST_RELAY_WS } from './browser.js'
+import { createRoom, newDeviceContext, joinWithMedia, expectToSeeAndHear, open, TEST_RELAY_WS, join as joinDoor } from './browser.js'
 
 const previousUrl = process.env.M2_BASELINE_URL!
 const previous = (path: string) => import(/* @vite-ignore */ pathToFileURL(join(process.env.M2_BASELINE_DIR!, path)).href)
@@ -19,7 +19,7 @@ for (const version of [2, 3]) test(`M2 and the previous release exchange media a
       await creator.locator('#roomType').selectOption('temporary')
       await creator.locator('#create').click()
       await expect.poll(() => creator.locator('#shareUrl').inputValue()).not.toBe('')
-    } else await createRoom(creator, base)
+    } else await createRoom(creator, base, undefined, 'M2')
     const link = await creator.locator('#shareUrl').inputValue()
     expect(JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(link).hash.slice(1)))).v).toBe(version)
     const at = (target: string) => new URL('#' + new URL(link).hash.slice(1), target).href
@@ -42,7 +42,7 @@ test('an unchanged previous-release keeper admits an M2 browser and exchanges en
   try {
     const page = await context.newPage()
     await open(page, keeper.url, 'M2 member')
-    await page.locator('#join').click()
+    await joinDoor(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     await keeper.chat.send('The old keeper still works')
     await expect(page.locator('#chatLog')).toContainText('The old keeper still works')
