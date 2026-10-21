@@ -1797,6 +1797,8 @@ async function openPicker(ada: Page) {
   const opener = ada.getByRole('button', { name: 'Invite Rowan to a room', exact: true })
   await opener.click({ timeout: 60_000 })
   await expect(ada.locator('#inviteToRoom')).toBeVisible()
+  // A bottom sheet slides in over 150 ms: measure it once it has landed.
+  await ada.locator('#inviteToRoom').evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished)))
   return opener
 }
 

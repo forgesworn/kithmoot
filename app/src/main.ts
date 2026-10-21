@@ -2379,15 +2379,13 @@ function openInviteToRoom(participant: string, name: string | undefined): void {
     text.append(roomName)
     const note = here ? `${name ?? 'Somebody'} is already here` : invited ? invitedLine(sent.get(room.roomId)) : undefined
     if (note) {
-      // The comma is for the ear: the radio's name reads "Town hall, Invited today, not joined yet".
-      const comma = document.createElement('span')
-      comma.className = 'sr-only'
-      comma.textContent = ', '
       const sub = document.createElement('span')
       sub.className = 'roomSub'
       sub.textContent = note
-      text.append(comma, sub)
+      text.append(sub)
     }
+    // Said as one phrase: "Town hall, Invited today, not joined yet".
+    radio.setAttribute('aria-label', note ? `${label}, ${note}` : label)
     row.append(radio, avatar, text)
     list.append(row)
   }
