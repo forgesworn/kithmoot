@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open } from './browser.js'
+import { createRoom, newDeviceContext, open, join } from './browser.js'
 
 /**
  * The drag line on the chats list's edge, at 900 px and up.
@@ -34,7 +34,7 @@ test('the rooms rail drags, keys, clamps, is remembered and resets', async ({ br
     await page.setViewportSize({ width: 1440, height: 900 })
     const url = await createRoom(page, baseURL!)
     await open(page, url, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
 
     const divider = page.locator('#railDivider')

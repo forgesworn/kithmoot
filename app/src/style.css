@@ -2029,23 +2029,21 @@ button.primary:hover:not(:disabled) {
  * approval. */
 #identity {
   border-radius: var(--r-m);
-  padding: 0.75rem;
-  background: var(--panel);
 }
 
 /* The question, not a caption. This is the only thing the page asks before
    it lets somebody in, so it reads at the size of a question. */
 #identity label {
   display: block;
-  margin-bottom: 0.4rem;
+  margin-bottom: var(--s1);
   color: var(--text);
-  font-size: var(--fs-3);
+  font-size: var(--fs-2);
   font-weight: 600;
 }
 
 #identity input {
   font-family: system-ui, sans-serif;
-  font-size: var(--fs-3);
+  font-size: max(16px, var(--fs-3));
   padding: 0.6rem 0.7rem;
 }
 
@@ -3300,7 +3298,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 
 .accountReconnect { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: 0 0 .75rem; padding: .6rem .75rem; border-radius: var(--r-m); background: var(--panel); }
 .accountReconnect[hidden] { display: none; }
-.accountReconnect .note { flex: 1 1 16rem; margin: 0; }
+.accountReconnect .note { flex: 1 1 12rem; min-width: 0; margin: 0; overflow-wrap: anywhere; }
 
 /* The rows themselves: an initial, the name and preview, then time and pill
    and presence, and the `⋯` menu in a fixed column. No dividers: the hover
@@ -3336,7 +3334,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   color: inherit;
 }
 #roomList .roomText { display: flex; flex-direction: column; gap: .1rem; min-width: 0; flex: 1 1 auto; }
-#roomList .roomAvatar {
+.roomAvatar {
   flex: 0 0 40px;
   width: 40px;
   height: 40px;
@@ -3349,28 +3347,28 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   color: #fff;
   background: var(--avatar, #0e7fa3);
 }
-#roomList .roomAvatar { position: relative; overflow: hidden; }
-#roomList .roomAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.roomAvatar { position: relative; overflow: hidden; }
+.roomAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* Eight colours, each 4.5:1 or better against its white initial. */
-#roomList .roomAvatar[data-slot='0'] { --avatar: #0e7fa3; }
-#roomList .roomAvatar[data-slot='1'] { --avatar: #7a5fc4; }
-#roomList .roomAvatar[data-slot='2'] { --avatar: #b54c25; }
-#roomList .roomAvatar[data-slot='3'] { --avatar: #357d46; }
-#roomList .roomAvatar[data-slot='4'] { --avatar: #9c4479; }
-#roomList .roomAvatar[data-slot='5'] { --avatar: #6b7020; }
-#roomList .roomAvatar[data-slot='6'] { --avatar: #2a6db0; }
-#roomList .roomAvatar[data-slot='7'] { --avatar: #8c5616; }
+.roomAvatar[data-slot='0'] { --avatar: #0e7fa3; }
+.roomAvatar[data-slot='1'] { --avatar: #7a5fc4; }
+.roomAvatar[data-slot='2'] { --avatar: #b54c25; }
+.roomAvatar[data-slot='3'] { --avatar: #357d46; }
+.roomAvatar[data-slot='4'] { --avatar: #9c4479; }
+.roomAvatar[data-slot='5'] { --avatar: #6b7020; }
+.roomAvatar[data-slot='6'] { --avatar: #2a6db0; }
+.roomAvatar[data-slot='7'] { --avatar: #8c5616; }
 @media (prefers-color-scheme: light) {
-  #roomList .roomAvatar[data-slot='0'] { --avatar: #0b6b8a; }
-  #roomList .roomAvatar[data-slot='1'] { --avatar: #6a4fb3; }
-  #roomList .roomAvatar[data-slot='2'] { --avatar: #a2431f; }
-  #roomList .roomAvatar[data-slot='3'] { --avatar: #2f6f3e; }
-  #roomList .roomAvatar[data-slot='4'] { --avatar: #8a3a6b; }
-  #roomList .roomAvatar[data-slot='5'] { --avatar: #5b5f1c; }
-  #roomList .roomAvatar[data-slot='6'] { --avatar: #1f5f9e; }
-  #roomList .roomAvatar[data-slot='7'] { --avatar: #7a4a12; }
+  .roomAvatar[data-slot='0'] { --avatar: #0b6b8a; }
+  .roomAvatar[data-slot='1'] { --avatar: #6a4fb3; }
+  .roomAvatar[data-slot='2'] { --avatar: #a2431f; }
+  .roomAvatar[data-slot='3'] { --avatar: #2f6f3e; }
+  .roomAvatar[data-slot='4'] { --avatar: #8a3a6b; }
+  .roomAvatar[data-slot='5'] { --avatar: #5b5f1c; }
+  .roomAvatar[data-slot='6'] { --avatar: #1f5f9e; }
+  .roomAvatar[data-slot='7'] { --avatar: #7a4a12; }
 }
-#roomList .roomAvatar[data-slot='ended'] { background: var(--control-hover); color: var(--muted); }
+.roomAvatar[data-slot='ended'] { background: var(--control-hover); color: var(--muted); }
 /* One line, truncated with an ellipsis rather than crowding the time and
    pill beside it - the row's own min-width:0 track still shrinks at 200%
    text, so the ellipsis lands earlier rather than the row ever scrolling
@@ -3527,9 +3525,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
    New room form at 1100px, which read as a different page on resize and
    left most of a wide window empty. */
 
-#identity { padding: clamp(1rem, 4vw, 2rem); border-radius: var(--r-m); }
-#identity .lead { margin: .5rem 0 1.25rem; color: var(--muted); font-size: var(--fs-2); }
-#identity #status { margin: .75rem 0; }
+#identity .lead { margin: var(--s1) 0 var(--s4); color: var(--muted); font-size: var(--fs-2); }
+#identity #status { margin: var(--s3) 0; }
 #identity #join { width: 100%; min-height: 44px; }
 #joinPrivacy { margin-bottom: 0; }
 .formError { color: var(--danger); font-size: var(--fs-2); }
@@ -3907,7 +3904,6 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 .reactionPerson + .reactionPerson { border-top: 1px solid var(--border); }
 .reactionPerson > .avatar, .reactionPerson > .donorRing { flex-shrink: 0; }
 .reactionPersonInfo { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
-.reactionNpub {overflow-wrap: anywhere; font-size: var(--fs-1); }
 .reactionPerson time, .reactionReceipt { color: var(--muted); font-size: var(--fs-1); }
 .agentRequestStatus { color: var(--muted); font-size: var(--fs-1); margin: .25rem 0; }
 
@@ -4366,8 +4362,6 @@ button.primary:hover:not(:disabled) {
 #deviceControls .toggles .toggle { margin: 0; }
 #deviceControls .indicator { margin: .3rem 0 0; font-size: var(--fs-1); }
 #deviceControls .indicator:empty { display: none; }
-/* The extension as the way in: filled, full width, first. */
-#identity #joinNostr.primary { display: block; width: 100%; margin: .6rem 0 0; }
 
 /* Words, not codes: every search box holds what a person typed. */
 input[type="search"] { font-family: inherit; }
@@ -4385,8 +4379,40 @@ input[type="search"] { font-family: inherit; }
 .approvalCard.knock .knockStatus:empty { display: none; }
 .approvalCard.knock:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* Which room to invite somebody to: one full-width button per room. */
-.inviteToRoomList button { display: block; width: 100%; margin: .35rem 0; min-height: 44px; text-align: left; }
+/* The sender picker: one radio row per room, a note, Cancel and Send invite.
+   Centred on wide screens, a bottom sheet under 600 px; the list scrolls and
+   the buttons stay on screen. */
+#inviteToRoom {
+  box-sizing: border-box; width: min(420px, 94vw); max-height: calc(100dvh - 2rem); padding: var(--s4);
+  border: 0; border-radius: var(--r-m); background: var(--panel); color: var(--text); box-shadow: var(--shadow);
+}
+#inviteToRoom::backdrop { background: rgb(0 0 0 / 55%); }
+#inviteToRoom[open] { display: flex; flex-direction: column; }
+#inviteToRoomForm { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; }
+#inviteToRoomTitle { margin: 0; font-size: var(--fs-4); overflow-wrap: anywhere; }
+#inviteToRoomFind input { width: 100%; box-sizing: border-box; min-height: 44px; font-size: max(16px, var(--fs-3)); }
+.inviteToRoomList { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; min-height: 0; }
+.inviteRoomRow { display: flex; align-items: center; gap: var(--s3); min-height: var(--row); padding: var(--s1) var(--s2); border-radius: var(--r-s); cursor: pointer; margin: 0; }
+.inviteRoomRow:hover { background: var(--selected); }
+.inviteRoomRow:has(input:checked) { background: var(--selected); }
+.inviteRoomRow:has(input:disabled) { cursor: default; opacity: .8; }
+.inviteRoomRow input { flex: none; width: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--accent); }
+.inviteRoomRow input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.inviteRoomRow:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 0; }
+.inviteRoomRow .roomText { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.inviteRoomRow .roomName { font-size: var(--fs-2); overflow-wrap: anywhere; }
+.inviteRoomRow .roomSub { font-size: var(--fs-1); color: var(--muted); }
+#inviteToRoom .note { margin: 0; }
+.inviteToRoomButtons { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; }
+.inviteToRoomButtons button { min-height: 44px; margin: 0; }
+@media (max-width: 599px) {
+  #inviteToRoom { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0; padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); animation: inviteSheetUp 150ms ease-out; }
+  .inviteRoomRow { min-height: 48px; }
+}
+@media (max-height: 499px) and (max-width: 899px) { #inviteToRoom { max-height: 100dvh; } .inviteToRoomList { max-height: 40vh; } }
+@keyframes inviteSheetUp { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { #inviteToRoom { animation: none; transition: none; } }
+@media (forced-colors: active) { #inviteToRoom #inviteToRoomSend { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 1px solid Highlight; } }
 
 .contactBox { padding-block: 0.35rem; }
 .contactBox p { margin: 0 0 0.35rem; }
@@ -4720,29 +4746,25 @@ html[data-call-docked] #callStrip,
 html[data-call-docked] #callBanner,
 html[data-call-docked] #callToggle { display: none !important; }
 
-/* "Open in the KithMoot app", shown to Android browsers only. A link that
-   looks like the button beside it, because it is the quicker way in. */
+/* "Open in the app": a text link at the top right of the door, offered to
+   Android browsers and to computers the desktop app runs on. */
 .openInApp {
-  margin-bottom: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--s2);
 }
 
 .openInApp .openInAppLink {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  border-radius: var(--r-m);
-  background: var(--accent-dim);
-  color: var(--text);
-  font-size: var(--fs-3);
-  font-weight: 600;
-  padding: 0.7rem 1.4rem;
-  text-align: center;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: var(--s2);
+  color: var(--link);
+  font-size: var(--fs-2);
+  text-decoration: underline;
+  text-underline-offset: .2em;
 }
-
-.openInApp .note {
-  margin: 0.5rem 0 0;
-}
+.openInApp .openInAppLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-s); }
 
 /* The room's burning fuse stays visible in chat and on a call, at every width. */
 .roomFuse {
@@ -4845,6 +4867,70 @@ html[data-call-docked] #callToggle { display: none !important; }
 #contactsDialog .sheetBody { overflow-y: auto; }
 #signetContactsSearch { width: 100%; }
 
+/* The door (design-calm stage 6): one left-aligned column of 25rem, no card.
+   Selectors carry #workspaceContent so they win over the pane measure in
+   shell.css, which loads after this file. */
+#workspaceContent > #identity {
+  max-width: 25rem;
+  margin-block: 0;
+  padding: var(--s6) var(--s4);
+  padding-inline: max(var(--s4), env(safe-area-inset-left)) max(var(--s4), env(safe-area-inset-right));
+  background: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  scroll-padding-bottom: var(--s6);
+}
+@media (max-width: 899px) { #workspaceContent > #identity { padding-top: var(--s5); } }
+#workspaceContent > #identity > * { margin: 0; }
+.roomAvatarDoor { width: 72px; height: 72px; flex: 0 0 72px; font-size: var(--fs-5); }
+/* A short landscape phone: a smaller avatar, tighter gaps, and the link to
+   the app beside the avatar rather than above it, so the name and Join sit
+   on the first screen. */
+@media (max-height: 499px) {
+  .roomAvatarDoor { width: 48px; height: 48px; flex-basis: 48px; font-size: var(--fs-4); }
+  #workspaceContent > #identity { position: relative; gap: var(--s2); padding-top: var(--s2); }
+  #workspaceContent > #identity > #openInApp { position: absolute; top: var(--s1); right: var(--s4); margin: 0; }
+  #joinRoomForm { gap: var(--s2); }
+}
+#identity #arrivalTitle { margin: 0; font-size: var(--fs-5); font-weight: 600; overflow-wrap: anywhere; }
+#identity #arrivalLead { margin: calc(var(--s2) * -1) 0 0; }
+#identity #status { margin: 0; }
+#identity #status:empty { display: none; }
+#joinRoomForm { display: flex; flex-direction: column; gap: var(--s4); }
+#joinRoomForm > * { margin: 0; }
+#joinRoomForm .doorName { display: flex; flex-direction: column; gap: var(--s1); }
+#joinRoomForm .doorName .note { margin: 0; font-size: var(--fs-1); }
+#joinRoomForm #displayName { min-height: 44px; width: 100%; box-sizing: border-box; }
+#joinRoomForm #join {
+  display: flex; align-items: center; justify-content: center; gap: var(--s2);
+  width: 100%; min-height: 44px; overflow-wrap: anywhere; text-align: center;
+}
+#joinRoomForm #join .joinAvatar {
+  position: relative; flex: 0 0 24px; display: inline-grid; place-items: center; overflow: hidden;
+  width: 24px; height: 24px; border-radius: var(--r-full);
+  background: var(--on-accent); color: var(--accent); font-size: var(--fs-1); font-weight: 600;
+}
+#joinRoomForm #join .joinAvatar::before { content: attr(data-initial); }
+#joinRoomForm #join .joinAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#joinRoomForm .linkish {
+  align-self: flex-start; min-height: 44px; margin: 0; padding: 0;
+  border: 0; background: transparent; color: var(--link); font-size: var(--fs-2);
+  text-decoration: underline; text-underline-offset: .2em; text-align: left;
+}
+#joinRoomForm .linkish:hover { color: var(--text); }
+#joinRoomForm .linkish:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-s); }
+#joinRoomForm .note { font-size: var(--fs-1); color: var(--muted); margin: 0; }
+#joinRoomForm #getAndroidLine { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--s1); }
+#joinRoomForm #getAndroidLine a { color: var(--link); display: inline-flex; align-items: center; min-height: 44px; }
+#joinRoomForm #joinNetworkPrivacy summary { margin: 0; font-size: var(--fs-1); color: var(--link); min-height: 44px; display: flex; align-items: center; }
+#joinRoomForm #joinNetworkPrivacy[open] > * + * { margin-top: var(--s2); }
+@media (forced-colors: active) {
+  #joinRoomForm #join { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 1px solid Highlight; }
+}
+#identity a:focus-visible, #identity summary:focus-visible, #identity input:focus-visible, #identity button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.settingsPage .checkboxRow { display: flex; align-items: center; gap: var(--s2); min-height: 44px; margin: var(--s3) 0 0; }
+.settingsPage .checkboxRow input { flex: none; width: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--accent); }
 /* Ordinary Nostr compose stays explicit and separate from private rooms. */
 #nostrMessageForm { display: grid; gap: .6rem; }
 #nostrMessageForm input, #nostrMessageForm textarea { width: 100%; box-sizing: border-box; }

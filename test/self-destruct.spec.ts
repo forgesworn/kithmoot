@@ -1,6 +1,6 @@
 import { test, expect, request as playwrightRequest, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
-import { allowTestFileStorage, openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_HTTP } from './browser.js'
+import { allowTestFileStorage, openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_HTTP, nameCreator } from './browser.js'
 import { openRoomUrl } from './relays.js'
 import { parseRoomLink } from '../src/link.js'
 import { deriveInvitationId } from '../src/invitation.js'
@@ -42,9 +42,12 @@ function recordPublished(page: Page, sent: Event[] = []): Event[] {
 
 async function enter(page: Page, link: string, name: string) {
   await openRoomUrl(page, link)
-  await expect(page.locator('#join')).toBeVisible()
-  await page.locator('#displayName').fill(name)
-  await page.locator('#join').click()
+  await expect(page.locator('#join:visible, #roomArea:visible').first()).toBeVisible()
+  // A room this device has joined opens by itself; an invitation gets the door.
+  if (!await page.locator('#roomArea').isVisible()) {
+    await page.locator('#displayName').fill(name)
+    await page.locator('#join').click()
+  }
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
@@ -179,13 +182,11 @@ test('a room self-destructs at its end on every device, including one that was a
     await expect(page.locator('#roomWhenEndsLabel')).toHaveText('When it ends')
     await expect(page.locator('#roomWhenEnds')).toHaveValue('destruct')
     await expect(page.locator('#roomWhenEndsHint')).toContainText('Someone could still have kept a copy')
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const link = await page.locator('#shareUrl').inputValue()
     const invitationId = deriveInvitationId(parseRoomLink(link).invitation!)
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
     // The countdown, in words and with a fuse, green while there is time.
@@ -290,12 +291,10 @@ test('the authority makes a room with no end self-destruct now: both devices tid
     await page.locator('#roomName').fill('Planning')
     // No end: no choice at creation; Self-destruct now is the way (D5).
     await expect(page.locator('#roomWhenEndsRow')).toBeHidden()
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await expect(page.locator('#join')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const link = await page.locator('#shareUrl').inputValue()
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
     await expect(page.locator('#roomEndsLine')).toBeHidden()
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
@@ -360,12 +359,10 @@ for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [fal
       // Flagged at creation: a week-long room that self-destructs. Not: a
       // room with no end, made to self-destruct only by its closing rekey.
       if (flagged) await page.locator('#roomEnds').selectOption('7')
+      await nameCreator(page, 'Host')
       await page.locator('#create').click()
-      await expect(page.locator('#join')).toBeVisible()
+      await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
       const link = await page.locator('#shareUrl').inputValue()
-      await page.locator('#displayName').fill('Host')
-      await page.locator('#join').click()
-      await expect(page.locator('#roomArea')).toBeVisible()
       const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
 
       const away = await device(browser, baseURL!); contexts.push(away)
@@ -417,10 +414,9 @@ test('a dated room that keeps a read-only copy counts down in grey and is not wi
     await page.locator('#roomName').fill('Kept')
     await page.locator('#roomEnds').selectOption('test')
     await page.locator('#roomWhenEnds').selectOption('keep')
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomEndsLine')).toHaveAttribute('data-stage', 'neutral')
     await expect(page.locator('#roomEndsLine .fuseText')).toContainText('Ends in')
     // No banner, and at the end the old ending: the room stays listed as ended.
@@ -446,10 +442,9 @@ test('the countdown walks green, amber and red by the clock', async ({ browser, 
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Week')
     await page.locator('#roomEnds').selectOption('7')
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const pill = page.locator('#roomEndsLine')
     await expect(pill).toHaveAttribute('data-stage', 'green')
     await expect(pill.locator('.fuseText')).toHaveText(/Self-destructs in (6 days|7 days)/)
@@ -483,10 +478,9 @@ test('the chats list shows the countdown under the room name, beside the convers
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Railed')
     await page.locator('#roomEnds').selectOption('3')
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const row = page.locator('#roomList .roomRow').filter({ hasText: 'Railed' })
     await expect(row.locator('.fusePill')).toHaveAttribute('data-stage', 'green')
     await expect(page.locator('#roomFuse')).toBeVisible()
@@ -516,10 +510,9 @@ test('Leave and tidy up deletes the files this device shared, and tries again at
     await page.goto(baseURL!)
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Files')
+    await nameCreator(page, 'Host')
     await page.locator('#create').click()
-    await page.locator('#displayName').fill('Host')
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const roomId = await page.evaluate(() => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length))
     await shareFile(page, baseURL!, 'first.txt')
     await shareFile(page, baseURL!, 'second.txt')
@@ -568,8 +561,8 @@ for (const failure of ['quota', 'malformed-journal', 'unsigned-old-operator'] as
     await context.route('https://untrusted-files.example/**', route => {external.push(route.request().url());return route.abort()})
     await page.goto(baseURL!)
     await openNewRoomForm(page);await page.locator('#roomName').fill('Retained file recovery')
-    await page.locator('#create').click();await page.locator('#displayName').fill('Host');await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await nameCreator(page,'Host');await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await shareFile(page,baseURL!,'retained.txt')
     const before = await page.evaluate(failure => {
       const roomId = Object.keys(localStorage).find(key=>key.startsWith('kithmoot.room.'))!.slice('kithmoot.room.'.length)

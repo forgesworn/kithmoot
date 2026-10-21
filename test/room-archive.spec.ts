@@ -24,8 +24,12 @@ async function contextFor(browser: Browser, baseURL: string): Promise<BrowserCon
 
 async function join(page: Page, url: string, name: string): Promise<void> {
   await page.goto(url)
-  await page.locator('#displayName').fill(name)
-  await page.locator('#join').click()
+  // A browser that has joined the room before goes straight back in.
+  await expect(page.locator('#roomArea:visible, #displayName:visible').first()).toBeVisible({ timeout: 60_000 })
+  if (await page.locator('#displayName').isVisible()) {
+    await page.locator('#displayName').fill(name)
+    await page.locator('#join').click()
+  }
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 

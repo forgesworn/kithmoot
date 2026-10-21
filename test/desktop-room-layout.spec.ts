@@ -5,7 +5,7 @@ import { generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { testRelaysFor } from './relays.js'
-import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, openRoomTasks, remoteAudioCount, requestAdmission, turnOnMedia, TEST_RELAY_WS } from './browser.js'
+import { SYNTHETIC_MIC, SYNTHETIC_SCREEN, createRoom, fakeMicMakesSound, inbound, joinWithMedia, newDeviceContext, open, openCall, openNewRoomForm, openRoomTasks, remoteAudioCount, requestAdmission, turnOnMedia, TEST_RELAY_WS, join, nameCreator } from './browser.js'
 
 /**
  * Two screens on the stage, faces beside them, and a chat that slides.
@@ -160,7 +160,7 @@ test('two people each share a screen: both on the stage, faces one size beside t
     const link = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, link, 'Ada')
     await open(pageB, link, 'Bob')
-    await pageB.locator('#join').click()
+    await join(pageB)
     await expect(pageB.locator('#roomArea')).toBeVisible()
     // Join Ada's advertised call before starting capture. Starting media
     // before presence arrives can create an independent call instead.
@@ -270,7 +270,7 @@ test('an empty call pane costs nothing, and the call control says what it does',
     await page.setViewportSize({ width: 1320, height: 880 })
     const link = await createRoom(page, baseURL!)
     await open(page, link, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
 
     // Nobody on a call: no strip - the room bar's own call button already
@@ -360,7 +360,7 @@ test('an empty call pane costs nothing, and the call control says what it does',
     const other = await b.newPage()
     await other.setViewportSize({ width: 1320, height: 880 })
     await open(other, link, 'Bob')
-    await other.locator('#join').click()
+    await join(other)
     await expect(other.locator('#roomArea')).toBeVisible()
     await other.locator('#callToggle').click()
     await expect(other.locator('#callToggle')).toHaveText('Leave call')
@@ -424,7 +424,7 @@ test('with nothing beside it the conversation is the main column, not a strip', 
     await page.setViewportSize({ width: 1744, height: 850 })
     const link = await createRoom(page, baseURL!)
     await open(page, link, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
 
     // Enough conversation that the log genuinely scrolls: a scroll position
@@ -559,10 +559,10 @@ test('a call with no cameras is a strip of names, and a camera brings the pane b
 
     const link = await createRoom(ada, baseURL!)
     await open(ada, link, 'Ada')
-    await ada.locator('#join').click()
+    await join(ada)
     await expect(ada.locator('#roomArea')).toBeVisible()
     await open(bob, link, 'Bob')
-    await bob.locator('#join').click()
+    await join(bob)
     await expect(bob.locator('#roomArea')).toBeVisible()
 
     // Both on the call, microphones on, nobody on camera.
@@ -644,7 +644,7 @@ test('an update notice in a room leaves the composer in the window', async ({ br
     await page.setViewportSize({ width: 1440, height: 900 })
     const link = await createRoom(page, baseURL!)
     await open(page, link, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     // An empty room has room to spare. The conversation holding its floor is
     // what the notice used to push the composer past.
@@ -686,7 +686,7 @@ test('a long list of rooms scrolls in the list column and leaves the composer in
     await page.setViewportSize({ width: 1440, height: 860 })
     const link = await createRoom(page, baseURL!)
     await open(page, link, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     await expect(page.locator('#roomArea')).toBeVisible()
     // Thirty rows of the rail's own markup: joining thirty real rooms costs
     // minutes and proves nothing more about how the column is sized.
@@ -725,13 +725,12 @@ test('switching from the list to a room that has to let you in shows the door, n
     await openNewRoomForm(host)
     await host.locator('#roomName').fill('Asked in')
     await host.locator('#roomAsk').check()
+    await nameCreator(host, 'Ada')
     await host.locator('#create').click()
+    await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     const share = host.locator('#shareUrl')
     await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
     const link = await share.inputValue()
-    await host.locator('#displayName').fill('Ada')
-    await host.locator('#join').click()
-    await expect(host.locator('#roomArea')).toBeVisible()
 
     // Rowan is let in once, then sits in a room of their own.
     const rowan = await b.newPage()
@@ -744,11 +743,9 @@ test('switching from the list to a room that has to let you in shows the door, n
     await expect(card).toContainText('Rowan wants to join', { timeout: 60_000 })
     await card.getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(rowan.locator('#join')).toBeVisible({ timeout: 60_000 })
-    await rowan.locator('#join').click()
+    await join(rowan)
     await expect(rowan.locator('#roomArea')).toBeVisible()
-    const own = await createRoom(rowan, baseURL!)
-    await open(rowan, own, 'Rowan')
-    await rowan.locator('#join').click()
+    await createRoom(rowan, baseURL!, undefined, 'Rowan')
     await expect(rowan.locator('#chatInput')).toBeVisible()
 
     // A room that reached this device without its key, as one saved to the
@@ -790,7 +787,7 @@ test('the chat drawer control says what it will do, not "Chat" beside the Chat c
     await page.setViewportSize({ width: 1440, height: 860 })
     const url = await createRoom(page, baseURL!)
     await open(page, url, 'Ada')
-    await page.locator('#join').click()
+    await join(page)
     const toggle = page.locator('#chatDrawerToggle')
     // With no pictures beside it the chat has the room to itself, so the
     // header keeps to its four controls and the toggle is not there...
@@ -798,7 +795,7 @@ test('the chat drawer control says what it will do, not "Chat" beside the Chat c
     // ...but a drawer somebody closed keeps its button, the way back.
     await page.evaluate(() => localStorage.setItem('kithmoot.desktopChatDrawerOpen', 'closed'))
     await page.reload()
-    await page.locator('#join').click()
+    await join(page)
     await expect(toggle).toBeVisible()
     await expect(toggle).toHaveText('Show chat')
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')

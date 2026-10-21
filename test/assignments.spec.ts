@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { RoomAgent } from '../src/agent.js'
 import { encodeRoomLink, parseRoomLink } from '../src/link.js'
-import { open, TEST_RELAY_WS, openNewRoomForm, showChats, openRoomTasks, openInvite, roomMenuItem } from './browser.js'
+import { open, TEST_RELAY_WS, openNewRoomForm, showChats, openRoomTasks, openInvite, roomMenuItem, nameCreator } from './browser.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 
 test('room cards carry a question and exact-result review through reload at phone width', async ({ browser, baseURL }, testInfo) => {
@@ -106,9 +106,9 @@ test('two people go from creating and sharing a room to an accepted result witho
     await ada.page.goto(baseURL!)
     await openNewRoomForm(ada.page)
     await ada.page.locator('#roomName').fill('Release workshop')
+    await nameCreator(ada.page, 'Ada')
     await ada.page.locator('#create').click()
-    await ada.page.locator('#displayName').fill('Ada')
-    await ada.page.locator('#join').click()
+    await expect(ada.page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openInvite(ada.page)
     const link = await ada.page.locator('#shareUrl').inputValue()
     await grace.page.goto(link)
@@ -177,7 +177,7 @@ test('two people go from creating and sharing a room to an accepted result witho
     await expect(ada.page.locator('#conversationNav button[data-board]')).toBeFocused()
     expect(native).toEqual([])
     await ada.page.reload()
-    await ada.page.locator('#join').click()
+    await expect(ada.page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openRoomTasks(ada.page)
     await expect(a).toContainText('accepted')
     await expect(ada.page.locator('.assignmentCard')).toHaveCount(2)

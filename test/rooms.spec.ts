@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
-import { openRoomUrl, pinToTestRelays } from './relays.js'
-import { newDeviceContext, openNewRoomForm, leaveToChats } from './browser.js'
+import { openRoomUrl, pinToTestRelays, testRelays } from './relays.js'
+import { newDeviceContext, openNewRoomForm, leaveToChats, nameCreator } from './browser.js'
 
 /**
  * Your rooms: the front page remembers the rooms this device has been in.
@@ -23,13 +23,15 @@ import { newDeviceContext, openNewRoomForm, leaveToChats } from './browser.js'
  * another, which is the ordinary shape of it.
  */
 
-/** Starts a room named `name` from the front page, and returns its join
- *  link pinned to the test relays. The page is left on the unpinned link;
- *  the caller re-opens it on the pinned one. */
+/** Starts a room named `name` from the front page, on the test relays, and
+ *  returns its join link. The creator goes straight in, as Ada. */
 async function startNamedRoom(page: Page, baseURL: string, name: string): Promise<string> {
+  const relays = testRelays()
+  if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
   await page.goto(baseURL)
   await openNewRoomForm(page)
   await page.locator('#roomName').fill(name)
+  await nameCreator(page, 'Ada')
   await page.locator('#create').click()
   // The link exists the moment the room does, but the drawer holding it
   // stays shut until somebody is inside. So this waits for the value, not
@@ -39,12 +41,6 @@ async function startNamedRoom(page: Page, baseURL: string, name: string): Promis
   await expect.poll(async () => (await share.inputValue()).length, { timeout: 30_000 }).toBeGreaterThan(0)
   await expect(page.locator('#roomTitle')).toHaveText(name)
   return pinToTestRelays(await share.inputValue())
-}
-
-/** The room page is up and this device is at the door. The way in is the
- *  only control out here now, so it is the only honest thing to wait on. */
-async function expectAtTheDoor(page: Page): Promise<void> {
-  await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
 }
 
 /** Opens a row's `⋯` menu, the native popover built by `roomRowMenu` in
@@ -68,19 +64,11 @@ test('opening an older conversation keeps its message time and position until a 
       await leaveToChats(page)
       await expect(page.locator('#rooms')).toBeVisible()
     }
-    const enter = async (link: string) => {
-      await openRoomUrl(page, link)
-      await expectAtTheDoor(page)
-      await page.locator('#join').click()
-      await expect(page.locator('#roomArea')).toBeVisible()
-    }
-    const older = await startNamedRoom(page, baseURL!, 'Older conversation')
-    await enter(older)
+    await startNamedRoom(page, baseURL!, 'Older conversation')
     await post('First conversation message')
     await home()
     await page.clock.setFixedTime(now + 65_000)
-    const newer = await startNamedRoom(page, baseURL!, 'Newer conversation')
-    await enter(newer)
+    await startNamedRoom(page, baseURL!, 'Newer conversation')
     await post('Second conversation message')
     await home()
     const rows = page.locator('#roomList .roomRow')
@@ -117,22 +105,11 @@ test('the front page lists every room this device has been in, with what is new 
   try {
     const page = await principal.newPage()
 
-    // Two standing rooms, made and named on this device. Each is re-opened
-    // on its pinned link so the room lives on the test relays, and so the
-    // link the list keeps is the one that works.
+    // Two standing rooms, made and named on this device, on the test relays.
     const townHall = await startNamedRoom(page, url, 'Town hall')
-    await openRoomUrl(page, townHall)
-    await expectAtTheDoor(page)
     await expect(page.locator('#roomTitle')).toHaveText('Town hall')
 
-    // The tab that answers the town hall's link. It stays put.
-    const hall = await principal.newPage()
-    await openRoomUrl(hall, townHall)
-    await expectAtTheDoor(hall)
-
-    const bench = await startNamedRoom(page, url, 'Bench')
-    await openRoomUrl(page, bench)
-    await expectAtTheDoor(page)
+    await startNamedRoom(page, url, 'Bench')
 
     // Back to the front page: both rooms, by name. From the DOOR of a
     // room, which is where this page is. Once you are inside, the room's
@@ -162,7 +139,7 @@ test('the front page lists every room this device has been in, with what is new 
     const other = await visitor.newPage()
     await openRoomUrl(other, townHall)
     await other.locator('#displayName').fill('Ada')
-    await expectAtTheDoor(other)
+    await expect(other.locator('#join')).toBeVisible({ timeout: 60_000 })
     await expect(other.locator('#join')).toBeEnabled({ timeout: 60_000 })
     await other.locator('#join').click()
     await expect(other.locator('#roomArea')).toBeVisible()
@@ -227,10 +204,7 @@ test('rows do not reorder while focus is inside the list', async ({ browser, bas
     // says once they all exist, not assumed from the order made here.
     const links = new Map<string, string>()
     for (const name of ['Room A', 'Room B', 'Room C']) {
-      const link = await startNamedRoom(page, url, name)
-      await openRoomUrl(page, link)
-      await expectAtTheDoor(page)
-      links.set(name, link)
+      links.set(name, await startNamedRoom(page, url, name))
     }
 
     await leaveToChats(page)
@@ -252,7 +226,7 @@ test('rows do not reorder while focus is inside the list', async ({ browser, bas
     const other = await visitor.newPage()
     await openRoomUrl(other, links.get(bumpedName)!)
     await other.locator('#displayName').fill('Rowan')
-    await expectAtTheDoor(other)
+    await expect(other.locator('#join')).toBeVisible({ timeout: 60_000 })
     await expect(other.locator('#join')).toBeEnabled({ timeout: 60_000 })
     await other.locator('#join').click()
     await expect(other.locator('#roomArea')).toBeVisible()

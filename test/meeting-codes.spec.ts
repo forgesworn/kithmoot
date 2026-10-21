@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page, type Request } from '@playwright/test'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomDetails, openInvite, openRoomInfoPage } from './browser.js'
+import { openNewRoomForm, openRoomDetails, openInvite, openRoomInfoPage, nameCreator } from './browser.js'
 
 // Meeting codes (docs/meeting-codes.md) against a mocked /codes service:
 // a code reaches the invitation door and never further, each refusal says
@@ -90,6 +90,8 @@ test('Join with code opens the invitation door and does not join', async ({ brow
     expect(new URL(page.url()).hash).toBe(new URL(link).hash)
     expect(new URL(page.url()).search).toBe('')
     await expect(page.locator('#roomArea')).toBeHidden()
+    // A code's door reloads the page, so it cannot carry a media choice: hidden, like a link's.
+    await expect(page.locator('#joinMediaChoice')).toBeHidden()
     await expect(page.locator('#joinMic')).not.toBeChecked()
     await expect(page.locator('#joinCamera')).not.toBeChecked()
     expect(seen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
@@ -140,11 +142,9 @@ async function startRoom(page: Page, baseURL: string, setUp: (page: Page) => Pro
   await page.goto(baseURL)
   await openNewRoomForm(page)
   await setUp(page)
+  await nameCreator(page, 'Host')
   await page.locator('#create').click()
-  await expect(page.locator('#join')).toBeVisible()
-  await page.locator('#displayName').fill('Host')
-  await page.locator('#join').click()
-  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
 }
 
 test('Get a meeting code is offered to the creator of any room, and End room deletes it', async ({ browser, baseURL }) => {
@@ -355,6 +355,8 @@ test('a code with a password: the link carries the words, the guest needs nothin
     await expect(door.locator('#joinCodeError')).toBeHidden()
     expect(new URL(door.url()).hash).toBe(new URL(link).hash)
     await expect(door.locator('#roomArea')).toBeHidden()
+    // A code's door reloads the page, so it cannot carry a media choice: hidden, like a link's.
+    await expect(door.locator('#joinMediaChoice')).toBeHidden()
     await expect(door.locator('#joinMic')).not.toBeChecked()
     await expect(door.locator('#joinCamera')).not.toBeChecked()
     expect(guestSeen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
@@ -427,6 +429,8 @@ test('a code with a password: the link carries the words, the guest needs nothin
     await expect(hand.locator('#join')).toBeVisible()
     expect(new URL(hand.url()).hash).toBe(new URL(link).hash)
     await expect(hand.locator('#roomArea')).toBeHidden()
+    // A code's door reloads the page, so it cannot carry a media choice: hidden, like a link's.
+    await expect(hand.locator('#joinMediaChoice')).toBeHidden()
     await expect(hand.locator('#joinMic')).not.toBeChecked()
     await expect(hand.locator('#joinCamera')).not.toBeChecked()
     // One lookup: the words were tried here, not at the service.

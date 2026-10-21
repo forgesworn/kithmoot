@@ -1,5 +1,5 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, nameCreator } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 async function setup(browser: Browser, baseURL: string, phone = false) {
@@ -11,11 +11,11 @@ async function setup(browser: Browser, baseURL: string, phone = false) {
   await host.goto(baseURL)
   await openNewRoomForm(host)
   await host.locator('#roomName').fill('Guest preview workshop')
+  await nameCreator(host, 'Synthetic host')
   await host.locator('#roomAsk').check(); await host.locator('#create').click()
   await expect.poll(() => host.locator('#shareUrl').inputValue()).not.toBe('')
   const link = await host.locator('#shareUrl').inputValue()
-  await host.locator('#displayName').fill('Synthetic host'); await host.locator('#join').click()
-  await expect(host.locator('#roomArea')).toBeVisible()
+  await expect(host.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   const requests: string[] = [], replies: Array<() => void> = [], kinds: number[] = []
   let holdReplies = false
   await guestContext.routeWebSocket(relay, ws => {
