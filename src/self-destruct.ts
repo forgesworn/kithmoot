@@ -49,9 +49,36 @@ export function deletionRequest(sk: Uint8Array, events: readonly Event[], now: n
   }, sk)
 }
 
-function readEvents(transport: RelayTransport, filter: Filter, deadline: number): Promise<{ events: Event[]; complete: boolean }> {
+async function readEvents(transport: RelayTransport, filter: Filter, deadline: number): Promise<{ events: Event[]; complete: boolean }> {
+  // Reuse the same configured, route-owned query capability as history
+  // recovery. A generic subscribe callback can also mean a local timeout.
+  const queryable = transport as RelayTransport & {
+    query?: (url: string, filters: Filter[], timeoutMs?: number, maxEvents?: number) => Promise<{ events: Event[]; complete: boolean }>
+  }
+  if (typeof queryable.query === 'function' && typeof queryable.describe === 'function') {
+    const events = new Map<string, Event>()
+    let urls: string[]
+    try { urls = [...new Set(queryable.describe().filter(r => r.read).map(r => r.url))] }
+    catch { return { events: [], complete: false } }
+    let complete = urls.length > 0
+    for (const url of urls) {
+      if (Date.now() >= deadline) return { events: [...events.values()], complete: false }
+      try {
+        const read = await queryable.query(url, [filter], Math.max(1, deadline - Date.now()), QUERY_LIMIT)
+        if (!read.complete) complete = false
+        for (const event of read.events.slice(0, QUERY_LIMIT)) {
+          if (events.has(event.id)) continue
+          if (events.size >= QUERY_LIMIT) return { events: [...events.values()], complete: false }
+          events.set(event.id, event)
+        }
+        if (read.events.length > QUERY_LIMIT) return { events: [...events.values()], complete: false }
+      } catch { complete = false }
+    }
+    return { events: [...events.values()], complete }
+  }
   return new Promise((resolve) => {
     const events: Event[] = []
+    const seen = new Set<string>()
     let done = false
     let unsub: (() => void) | undefined
     const finish = (complete: boolean) => {
@@ -62,7 +89,13 @@ function readEvents(transport: RelayTransport, filter: Filter, deadline: number)
       resolve({ events, complete })
     }
     const timer = setTimeout(() => finish(false), Math.max(0, deadline - Date.now()))
-    unsub = transport.subscribe([filter], (event) => { events.push(event) }, () => finish(true))
+    try {
+      unsub = transport.subscribe([filter], event => {
+        if (done || seen.has(event.id)) return
+        if (events.length >= QUERY_LIMIT) { finish(false); return }
+        seen.add(event.id); events.push(event)
+      }, () => finish(false))
+    } catch { finish(false) }
     if (done) try { unsub() } catch { /* As above. */ }
   })
 }

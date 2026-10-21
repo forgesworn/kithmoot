@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { BrowserRoomPool } from './browser-room-pool.js'
-import { NostrRelayPool } from '../../src/relay-pool.js'
+import { NostrRelayPool, type RelayTransport } from '../../src/relay-pool.js'
+import type { RoomConsent } from './browser-room-consent.js'
 import { RelayDialGate } from '../../src/relay-dial-gate.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays } from '../../test/fake-socket.js'
 
 const url = 'wss://guarded-room-route.test'
-const reply = () => finalizeEvent({ kind: 20467, created_at: 1_800_000_000, tags: [], content: 'encrypted refusal' }, new Uint8Array(32).fill(3))
+const reply = (content = 'encrypted refusal') => finalizeEvent({ kind: 20467, created_at: 1_800_000_000, tags: [], content }, new Uint8Array(32).fill(3))
 const pools: BrowserRoomPool[] = []
 afterEach(() => { for (const p of pools.splice(0)) p.close() })
 
@@ -22,6 +23,54 @@ function fixture() {
   pools.push(pool)
   return { pool, publicPool, relay, opened }
 }
+
+function privateFixture() {
+  const room = 'a'.repeat(64), owner = 'b'.repeat(64), eventUrl = 'wss://paired-box.test/events'
+  let account: string | undefined = owner, now = 1_800_000_000, change!: () => void
+  const consent: RoomConsent = { account: owner, room, box: { routeId: 'owned-fixture-route', eventUrl }, device: 'c'.repeat(64), scopes: [room], aliases: [], expires: now + 60, phase: 'active', grants: [] }
+  let receive!: Parameters<RelayTransport['subscribe']>[1], eose!: () => void, ready!: () => void
+  const started = new Promise<void>(resolve => { ready = resolve })
+  let stopped = 0, subscribed = 0, publicCreated = 0
+  const delegate: RelayTransport = {
+    publish: async () => {}, close: () => {},
+    subscribe: (_filters, onEvent, onEose) => { subscribed++; receive = onEvent; eose = onEose!; ready(); return () => { stopped++ } },
+  }
+  const pool = new BrowserRoomPool({ room, account: () => account, now: () => now,
+    store: { all: async () => [consent] }, barrier: { listen: callback => { change = callback; return () => {} }, publicLease: async () => async () => {} },
+    publicPool: () => { publicCreated++; throw new Error('Unexpected public route') }, privatePool: async () => delegate })
+  pools.push(pool)
+  return { pool, eventUrl, started, receive: (event: ReturnType<typeof reply>) => receive(event), eose: () => eose(), change: () => change(),
+    account: (value: string) => { account = value }, expire: () => { now += 61 }, counts: () => ({ stopped, subscribed, publicCreated }) }
+}
+
+describe('private one-shot history ownership', () => {
+  it('keeps only its bounded prefix and cancels on overflow', async () => {
+    const f = privateFixture(), first = reply('first'), second = reply('second')
+    const pending = f.pool.query(f.eventUrl, [{ kinds: [20467] }], 8000, 1)
+    await f.started; f.receive(first); f.receive(second); f.eose()
+    expect(await pending).toEqual({ events: [first], complete: false })
+    expect(f.counts()).toEqual({ stopped: 1, subscribed: 1, publicCreated: 0 })
+  })
+
+  it.each(['account', 'expiry', 'route', 'close'] as const)('cannot complete after its %s changes', async reason => {
+    const f = privateFixture(), pending = f.pool.query(f.eventUrl, [{ kinds: [20467] }], 8000, 1)
+    await f.started
+    if (reason === 'account') f.account('d'.repeat(64))
+    if (reason === 'expiry') f.expire()
+    if (reason === 'route') f.change()
+    if (reason === 'close') f.pool.close()
+    f.eose()
+    expect(await pending).toEqual({ events: [], complete: false })
+    expect(f.counts()).toEqual({ stopped: 1, subscribed: 1, publicCreated: 0 })
+  })
+
+  it('accepts its current native end-of-history response', async () => {
+    const f = privateFixture(), pending = f.pool.query(f.eventUrl, [{ kinds: [20467] }], 8000, 1)
+    await f.started; f.eose()
+    expect(await pending).toEqual({ events: [], complete: true })
+    expect(f.counts()).toEqual({ stopped: 1, subscribed: 1, publicCreated: 0 })
+  })
+})
 
 describe('guarded room route publication', () => {
   it('retains the decision guard while waiting for room storage and route ownership', async () => {

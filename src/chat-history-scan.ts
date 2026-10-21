@@ -19,11 +19,12 @@ export async function scanChatHistory(
     catch { return false }
     // A bad cursor must not become an exhausted-history claim, even when
     // the relay returns fewer than the requested number of events.
-    if (result.events.some(e => !Number.isSafeInteger(e.created_at) || e.created_at < 0 || (until !== undefined && e.created_at > until))) return false
-    await visit(result.events)
-    if (!result.complete) return false
-    if (result.events.length < PAGE_LIMIT) return true
-    const oldest = Math.min(...result.events.map(e => e.created_at))
+    const events = result.events.length > PAGE_LIMIT ? result.events.slice(0, PAGE_LIMIT) : result.events
+    if (events.some(e => !Number.isSafeInteger(e.created_at) || e.created_at < 0 || (until !== undefined && e.created_at > until))) return false
+    await visit(events)
+    if (!result.complete || result.events.length > PAGE_LIMIT) return false
+    if (events.length < PAGE_LIMIT) return true
+    const oldest = events.reduce((at, e) => Math.min(at, e.created_at), Infinity)
     // Do not subtract a second: a saturated same-second page may hide more
     // events at that timestamp. There is no portable event-id cursor.
     if (until !== undefined && oldest >= until) return false

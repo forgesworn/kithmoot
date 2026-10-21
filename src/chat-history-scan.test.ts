@@ -7,6 +7,14 @@ import { scanChatHistory } from './chat-history-scan.js'
 const pageAt = (at: number) => Array.from({ length: 1000 }, (_, i) => ({ id: String(i), created_at: at - i } as Event))
 
 describe('bounded chat history scan', () => {
+  it('visits only the bounded prefix of an oversized result and reports it incomplete', async () => {
+    let reads = 0
+    const seen: Event[] = [], oversized = [...pageAt(3000), { created_at: 1000 } as Event]
+    expect(await scanChatHistory({}, async () => { reads++; return { events: oversized, complete: true } }, events => { seen.push(...events) })).toBe(false)
+    expect(reads).toBe(1)
+    expect(seen).toEqual(oversized.slice(0, 1000))
+  })
+
   it('keeps inclusive boundary events and reaches the short last page', async () => {
     const cursors: Array<number | undefined> = [], seen: number[] = []
     const complete = await scanChatHistory({ kinds: [1460] }, async filter => {

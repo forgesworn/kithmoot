@@ -34,6 +34,7 @@ export class BrowserRoomPool implements ManagedRelayPool {
   #closed = false
   #generation = 0
   #reads = new Set<Read>()
+  #queries = new Set<() => void>()
   #writes = new Set<Promise<void>>()
   #unlisten: () => void
   #consent?: RoomConsent
@@ -55,6 +56,7 @@ export class BrowserRoomPool implements ManagedRelayPool {
   }
   #invalidate(): void {
     ++this.#generation
+    for (const cancel of [...this.#queries]) cancel()
     clearTimeout(this.#expiry)
     for (const r of this.#reads) { r.stop?.(); r.stop = undefined }
     const delegate = this.#delegate, release = this.#release, wasPublic = !!this.#public
@@ -155,16 +157,33 @@ export class BrowserRoomPool implements ManagedRelayPool {
   setAuthentication(entries: Parameters<NostrRelayPool['setAuthentication']>[0]): void { this.#public?.setAuthentication(entries) }
   reconnect(): void { if (this.#public) this.#public.reconnect(); else void this.#refresh() }
   async probe(timeoutMs?: number): Promise<void> { await this.#public?.probe(timeoutMs) }
-  async query(url: string, filters: Filter[], timeoutMs = 8_000): Promise<{ events: Event[]; complete: boolean }> {
+  async query(url: string, filters: Filter[], timeoutMs = 8_000, maxEvents?: number): Promise<{ events: Event[]; complete: boolean }> {
+    if (maxEvents !== undefined && (!Number.isSafeInteger(maxEvents) || maxEvents < 1)) throw new Error('invalid query event limit')
     await this.#open()
-    if (this.#public) return this.#public.query(url, filters, timeoutMs)
+    if (this.#public) return this.#public.query(url, filters, timeoutMs, maxEvents)
     if (url !== this.#consent?.box.eventUrl) throw new Error('Public history is unavailable for this Bothy room.')
+    const generation = this.#generation, delegate = this.#delegate, consent = this.#consent
+    const current = () => !this.#closed && generation === this.#generation && delegate === this.#delegate &&
+      consent?.phase === 'active' && consent.account === this.opts.account() && consent.expires > this.#now()
+    if (!current() || !delegate) throw new Error('Bothy room permission is unavailable.')
     return new Promise(resolve => {
-      const events: Event[] = []; let stop: (() => void) | undefined, finished = false
-      const done = (complete: boolean) => { finished = true; clearTimeout(timer); stop?.(); resolve({ events, complete }) }
+      const events: Event[] = [], seen = new Set<string>(); let stop: (() => void) | undefined, finished = false
+      const done = (complete: boolean) => { if (finished) return; finished = true; this.#queries.delete(cancel); clearTimeout(timer); stop?.(); resolve({ events, complete: complete && current() }) }
+      const cancel = () => done(false)
       const timer = setTimeout(() => done(false), timeoutMs)
-      stop = this.subscribe(filters, e => { if (events.length < 4096) events.push(e) }, () => done(true))
-      if (finished) stop()
+      this.#queries.add(cancel)
+      try {
+        // A one-shot query stays on this delegate; route changes cancel it
+        // rather than rebinding its request onto a different lane.
+        stop = delegate.subscribe(filters, e => {
+          if (finished) return
+          if (!current()) { done(false); return }
+          if (seen.has(e.id)) return
+          if (events.length >= Math.min(maxEvents ?? 4096, 4096)) { done(false); return }
+          seen.add(e.id); events.push(e)
+        }, () => done(true))
+        if (finished) stop()
+      } catch { done(false) }
     })
   }
   async publishQuietly(url: string, event: Event): Promise<void> {
