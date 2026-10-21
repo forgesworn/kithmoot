@@ -2997,7 +2997,7 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .keyboardHelp dd { margin: .25rem 0 0; overflow-wrap: anywhere; }
 /* The log is one tab stop: it shows when it has the keyboard. */
 #chatLog:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
-#chatLog > .msg:focus-visible, #chatLog .thread > .msg:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-m); }
+#chatLog > .msg:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: var(--r-m); }
 
 .sheetBar button {
   margin: 0;
@@ -3734,18 +3734,83 @@ main:has(#roomArea:not([hidden])) #chatViewport { flex: 1 1 0; height: auto; min
 /* Keep a full line visible when text size changes after the composer was
    measured. The inline pixel height must not clip larger type. */
 
-/* The message layer: threads, edits, retractions, mentions on the wire.
-   See docs/messages.md. */
-.thread {
-  align-self: stretch;
+/* The message layer: replies, edits, retractions, mentions on the wire.
+   See docs/messages.md. A reply is an ordinary bubble in time order; the
+   quote at its top (.replyQuote) says what it answers. */
+/* The quote at the top of a reply: a bar in the accent, the name of whoever
+   said the message being answered, one line of it. A button when the
+   original is on screen, a plain note when it is not. */
+.bubble .replyQuote {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin: -0.25rem 0 0.35rem 0.9rem;
-  padding-left: 0.75rem;
-  border-left: 2px solid var(--border);
+  align-items: flex-start;
+  gap: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 22rem;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 0 var(--s1);
+  padding: 3px var(--s2) 3px var(--s2);
+  border: 0;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-s);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-1);
+  line-height: var(--lh-1);
+  text-align: left;
+  box-shadow: none;
 }
-.thread .msg { max-width: min(96%, 44rem); }
+.msg.mine .bubble .replyQuote { border-left-color: var(--on-mine); }
+.bubble .replyQuote .quoteName {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.bubble .replyQuote .quoteLine {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.msg.mine .bubble .replyQuote .quoteLine { color: var(--on-mine); opacity: 0.9; }
+.bubble .replyQuote.missing .quoteLine,
+.bubble .replyQuote.deleted .quoteLine { font-style: italic; }
+button.replyQuote { cursor: pointer; }
+button.replyQuote:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+button.replyQuote:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+@media (pointer: coarse) {
+  .bubble button.replyQuote { min-height: 44px; justify-content: center; }
+}
+/* The message a quote has just taken you to: an outline, never colour alone,
+   and a short fade of the fill unless motion is reduced. Gone after about
+   two seconds (main.ts removes the class). */
+.msg.jumpTarget .bubble { outline: 2px solid var(--focus); outline-offset: 2px; animation: jumpFlash 2s ease-out; }
+@keyframes jumpFlash { from { background-color: color-mix(in srgb, var(--accent) 40%, var(--bubble)); } }
+@media (prefers-reduced-motion: reduce) {
+  .msg.jumpTarget .bubble { animation: none; }
+}
+@media (forced-colors: active) {
+  .bubble .replyQuote { border: 1px solid CanvasText; border-left-width: 3px; background: Canvas; color: CanvasText; forced-color-adjust: none; }
+  .bubble .replyQuote .quoteLine, .msg.mine .bubble .replyQuote .quoteLine { color: CanvasText; opacity: 1; }
+  button.replyQuote:focus-visible { outline: 2px solid Highlight; }
+  .msg.jumpTarget .bubble { outline: 3px solid Highlight; animation: none; }
+}
+@media (prefers-contrast: more) {
+  .bubble .replyQuote { border: 1px solid currentColor; border-left-width: 3px; }
+  .bubble .replyQuote .quoteLine, .msg.mine .bubble .replyQuote .quoteLine { color: inherit; opacity: 1; }
+}
+/* The composer's bar for a reply wears the same bar. */
+.composerContext.replying { border-left: 3px solid var(--accent); border-radius: var(--r-s); }
+.composerContext.replying .contextExcerpt { color: var(--muted); }
+@media (forced-colors: active) {
+  .composerContext.replying { border: 1px solid CanvasText; border-left-width: 3px; }
+}
 .msg.retracted .bubble { opacity: 0.7; font-style: italic; }
 /* The lane a message took is a lock on the bubble's last line, its name and
    tooltip the words. Public is the muted default because it is the honest

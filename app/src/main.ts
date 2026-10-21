@@ -5,6 +5,8 @@ import { ParticipantCard } from './participant-card.js'
 import { ChatArtPicker } from './chat-art-picker.js'
 import { catalogueArtwork } from './media-catalogue.js'
 import { artworkCards, artworkMessageText } from './chat-artwork.js'
+import { quoteSnippet, replyQuoteOf, type ReplyQuote } from './reply-quote.js'
+import { compareMessages } from '../../src/message-order.js'
 import { artworkFallbackText, MAX_CHAT_ARTWORK } from '../../src/artwork.js'
 import { unlockCultPack } from './nostr-packs.js'
 import { emojiGlyph, paintCustomEmoji } from './custom-emoji.js'
@@ -11044,6 +11046,66 @@ function announceArrivals(channelKey: string, conversation: { byKey: Map<string,
   requestAnimationFrame(() => { region.textContent = arrivals.join('; ') })
 }
 
+/** The message a followed quote has just taken the reader to, kept across
+ *  repaints for the couple of seconds it is marked. */
+let jumpHighlight: { id: string; author: string; timer: ReturnType<typeof setTimeout> } | undefined
+
+/** Take the reader to a message in the log: centred, smooth unless motion is
+ *  reduced, focused, and marked for about two seconds. The latest button
+ *  then offers the way back. */
+function jumpToMessage(ref: { messageId: string; participant: string }): void {
+  const rows = () => Array.from($('chatLog').querySelectorAll<HTMLElement>('[data-message-id]'))
+  const row = rows().find(el => el.dataset.messageId === ref.messageId && el.dataset.messageAuthor === ref.participant)
+  if (!row) return
+  if (jumpHighlight) { clearTimeout(jumpHighlight.timer); for (const el of rows()) el.classList.remove('jumpTarget') }
+  const id = ref.messageId, author = ref.participant
+  jumpHighlight = { id, author, timer: setTimeout(() => {
+    jumpHighlight = undefined
+    for (const el of rows()) el.classList.remove('jumpTarget')
+  }, 2000) }
+  row.classList.add('jumpTarget')
+  chatScroll.jumpTo(row, !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+}
+
+/**
+ * The small quote at the top of a reply's bubble: who said the message it
+ * answers, and one line of what it says now. A button that goes to the
+ * original when the original is on screen; a plain note when it is not.
+ * The quote sits before the text in the bubble, so a screen reader hears
+ * the name, the quote, then the reply, in that order.
+ */
+function replyQuoteBlock(quote: ReplyQuote): HTMLElement {
+  const author = quote.ref.participant
+  const mineToo = author === meParticipant
+  const named = quote.state === 'missing'
+    ? shownAs(author, session?.participants().find(v => v.participant === author)?.name).name
+    : senderLabel(quote.target.original)
+  const who = mineToo ? 'You' : (named ?? 'Somebody')
+  const words = quote.state === 'ready' ? quote.snippet : quote.state === 'deleted' ? 'Message deleted' : 'Original message not loaded'
+  const name = document.createElement('span')
+  name.className = 'quoteName'
+  name.textContent = who
+  const line = document.createElement('span')
+  line.className = 'quoteLine'
+  line.textContent = words
+  if (quote.state !== 'ready' || !words) {
+    const note = document.createElement('div')
+    note.className = `replyQuote ${quote.state}`
+    note.append(name, line)
+    return note
+  }
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'replyQuote'
+  button.dataset.focusKey = 'reply-quote'
+  button.setAttribute('aria-label', `Go to ${mineToo ? 'your' : `${who}'s`} message: ${words}`)
+  button.append(name, line)
+  // Click only: the press itself still reaches the bubble, so holding it for
+  // the menu and right-clicking it keep working.
+  button.addEventListener('click', event => { event.stopPropagation(); jumpToMessage(quote.ref) })
+  return button
+}
+
 function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
   const log = $(logId)
   // A receipt or roster update replaces the rows while someone may be
@@ -11075,8 +11137,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   }
   // The log as a person reads it rather than as the relay holds it: the
   // latest edit's words on each message, a retracted one shown as such,
-  // replies under the message they answer. See `resolveConversation` and
-  // docs/messages.md.
+  // replies in time order with a quote of the message they answer. See
+  // `resolveConversation` and docs/messages.md.
   const conversation = resolveConversation(messages)
   const requestStatuses = readAgentRequestStatuses(messages)
   const agentNames = new Map<string, string>()
@@ -11121,10 +11183,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     return span
   }
 
-  const paint = (r: ResolvedMessage, into: HTMLElement, nested: boolean): void => {
+  const paint = (r: ResolvedMessage, into: HTMLElement): void => {
     const m = r.shown
     const original = r.original
-    if (!nested) systemUpTo(original.sentAt)
+    systemUpTo(original.sentAt)
 
     // A transcript line is not a message somebody sent: it is a note of
     // what a microphone heard, written down by a third party. It keeps the
@@ -11167,7 +11229,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     row.dataset.senderGroup = JSON.stringify([original.participant, original.name, original.owner, original.ownerClaim, fromAgent, original.kind])
     const previous = into.lastElementChild as HTMLElement | null
     const previousAt = Number(previous?.dataset.sentAt)
-    if (!r.retracted && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
+    if (!r.retracted && !(r.reply ?? r.thread) && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
       previous.dataset.senderGroup === row.dataset.senderGroup && original.sentAt - previousAt >= 0 &&
       original.sentAt - previousAt < 5 * 60 && new Date(original.sentAt * 1000).toDateString() === new Date(previousAt * 1000).toDateString()) row.classList.add('continuation')
     // Addressed to the reader, by the field on the wire or by name on a
@@ -11221,11 +11283,6 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (r.edited && !r.retracted) {
       header.append(chip('edited', `Edited${r.edits.length > 1 ? ` ${r.edits.length} times` : ''}. Earlier versions are kept on every device that received them.`, 'edited'))
     }
-    if (r.orphan) header.append(chip('in a thread', 'Part of a thread whose first message is not loaded here.', 'orphan'))
-    if (nested && r.reply && r.thread && !sameRef(r.reply, r.thread)) {
-      const target = conversation.byKey.get(refKey(r.reply))
-      header.append(chip(`replying to ${target ? senderLabel(target.original) : personLabel(r.reply.participant)}`, 'Answers a message further up this thread.', 'replyTo'))
-    }
     row.append(header)
 
     const body = document.createElement('div')
@@ -11234,6 +11291,8 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     bubble.className = 'bubble'
     const text = document.createElement('span')
     text.className = 'text'
+    const quote = r.retracted ? undefined : replyQuoteOf(r, conversation.byKey, shown => artworkMessageText(shown.text, shown.artwork))
+    if (quote) bubble.append(replyQuoteBlock(quote))
     if (r.retracted) {
       // A placeholder rather than nothing: something was said here, and a
       // gap where a message was is a thing people argue about. Cooperative,
@@ -11243,7 +11302,6 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       bubble.append(text)
       row.append(bubble)
       into.append(row)
-      if (!nested && r.replies.length) paintThread(r, into)
       return
     }
     // textContent, never innerHTML: this is somebody else's text. The line
@@ -11483,23 +11541,14 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       reactionBar.append(chip)
     }
     if (reactionBar.childElementCount) row.append(reactionBar)
+    if (jumpHighlight && jumpHighlight.id === original.id && jumpHighlight.author === original.participant) row.classList.add('jumpTarget')
     into.append(row)
-    if (!nested && r.replies.length) paintThread(r, into)
   }
 
-  // Replies sit under their root, indented and ruled, in time order. One
-  // level: a reply to a reply still sits in the same thread and says which
-  // message it answers in a chip, which is how Slack shows the same thing.
-  const paintThread = (root: ResolvedMessage, into: HTMLElement): void => {
-    const thread = document.createElement('div')
-    thread.className = 'thread'
-    thread.setAttribute('role', 'group')
-    thread.setAttribute('aria-label', `${root.replies.length} ${root.replies.length === 1 ? 'reply' : 'replies'}`)
-    for (const reply of root.replies) paint(reply, thread, true)
-    into.append(thread)
-  }
-
-  for (const r of conversation.stream) paint(r, log, false)
+  // Every message in time order, replies among them wherever their original
+  // is: the quote inside a reply says what it answers.
+  const inOrder = [...conversation.byKey.values()].sort((a, b) => compareMessages(a.original, b.original))
+  for (const r of inOrder) paint(r, log)
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
@@ -18952,7 +19001,7 @@ $('emojiToggle').addEventListener('click', () => openChatArt('emoji'))
 // ---------------------------------------------------------------------------
 // What the box is doing besides saying something new
 //
-// Answering a message puts the reply in its thread; editing replaces one of
+// Answering a message sends a reply that quotes it; editing replaces one of
 // ours. Either is shown above the box with a way out, and cleared when the
 // message goes. Reply and edit targets stay with their draft in this tab;
 // they never carry over to a different room or conversation.
@@ -18984,6 +19033,7 @@ function renderComposerContext(): void {
   const bar = $('composerContext')
   bar.innerHTML = ''
   const target = composing.editing ?? composing.replyTo
+  bar.classList.toggle('replying', !!composing.replyTo && !composing.editing)
   if (!target) {
     bar.hidden = true
     return
@@ -18993,7 +19043,10 @@ function renderComposerContext(): void {
   label.textContent = composing.editing ? 'Editing your message' : `Replying to ${senderLabel(target)}`
   const excerpt = document.createElement('span')
   excerpt.className = 'contextExcerpt'
-  excerpt.textContent = resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: target.id, participant: target.participant }))?.shown.text ?? target.text
+  const targetShown = resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: target.id, participant: target.participant }))?.shown ?? target
+  // A reply is quoted the way it will be in the log: one line, or what kind
+  // of thing it was. An edit shows the whole text it is correcting.
+  excerpt.textContent = composing.editing ? targetShown.text : quoteSnippet(artworkMessageText(targetShown.text, targetShown.artwork), targetShown) || targetShown.text
   const cancel = document.createElement('button')
   cancel.type = 'button'
   cancel.className = 'quiet'

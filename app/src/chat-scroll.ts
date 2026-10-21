@@ -17,6 +17,9 @@ export class ChatScroll {
   #places = new Map<string, ReadingPlace>()
   #boundary: string | undefined
   #enterLatest = false
+  /** Set while the reader has been taken to a message further up (a quote
+   *  followed): the latest button stays until they scroll or press it. */
+  #jumped = false
   readonly #log: HTMLElement
   readonly #button: HTMLButtonElement
 
@@ -28,7 +31,8 @@ export class ChatScroll {
       log.focus({ preventScroll: true })
     })
     log.addEventListener('scroll', () => {
-      if (!this.#pending && this.#atBottom()) button.hidden = true
+      if (this.#jumped) { if (!this.#atBottom()) button.hidden = false }
+      else if (!this.#pending && this.#atBottom()) button.hidden = true
       // Scrollbars and accessibility tools can move the reader without a
       // pointer event. A scroll in an unchanged layout abandons follow mode;
       // WebKit's automatic anchoring during a resize does not.
@@ -36,7 +40,7 @@ export class ChatScroll {
       if (painted && log.scrollTop !== painted.top && log.clientHeight === painted.height && log.scrollHeight === painted.total) this.#painted = undefined
     })
     // An explicit reading gesture takes precedence over history arriving late.
-    const readingGesture = () => { this.#pending = undefined; this.#painted = undefined }
+    const readingGesture = () => { this.#pending = undefined; this.#painted = undefined; this.#jumped = false }
     // Pressing a control inside the log (React, More, a link) still ends a
     // pending restore, as any gesture does, but it is not reading: it must
     // not drop a reader who is at the bottom out of follow mode, or the
@@ -107,7 +111,34 @@ export class ChatScroll {
 
   get restoring(): boolean { return this.#paused || this.#pending !== undefined }
 
+  /**
+   * Take the reader to a message: centred, smooth only when asked, focus on
+   * the row, and the way back one press away on the latest button. Used by
+   * the quote inside a reply. The row is made focusable here when it has no
+   * focusable target of its own.
+   */
+  jumpTo(row: HTMLElement, smooth: boolean): void {
+    this.#pending = undefined
+    this.#painted = undefined
+    this.#jumped = true
+    row.tabIndex = -1
+    row.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' })
+    row.focus({ preventScroll: true })
+    this.#button.hidden = false
+    const settle = () => {
+      this.#log.removeEventListener('scrollend', settle)
+      clearTimeout(timer)
+      this.#jumped = false
+      this.#button.hidden = this.#atBottom()
+      this.#paint()
+    }
+    // `scrollend` is not everywhere; a smooth scroll is done well inside a second.
+    const timer = setTimeout(settle, smooth ? 900 : 60)
+    this.#log.addEventListener('scrollend', settle, { once: true })
+  }
+
   latest(): void {
+    this.#jumped = false
     this.#pending = undefined
     this.#button.hidden = true
     this.#log.scrollTop = this.#log.scrollHeight
