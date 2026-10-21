@@ -110,9 +110,9 @@ test('a browser never asks any relay about the name-only key it made itself, and
     // on its message, and no relay was asked about it.
     expect(asks(sent).flatMap(ask => ask.authors)).not.toContain(ownKey)
     // Nor is it asked when the room is left for the list and opened again.
+    // A room this browser has joined opens again from its link by itself.
     await page.reload()
-    await page.locator('#join').click()
-    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await expect.poll(() => asks(sent).length, { timeout: 60_000 }).toBeGreaterThan(0)
     expect(asks(sent).flatMap(ask => ask.authors)).not.toContain(ownKey)
   } finally {
