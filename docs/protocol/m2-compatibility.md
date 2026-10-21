@@ -75,6 +75,8 @@ step 6). Each change, both ways:
 | Window of 16 left epochs, 30 days | An old client reads 4 left epochs. On a weekly schedule that is still about a month; removals shorten it | Unchanged |
 | Chat filters folded past the fifth | A relay sees one REQ with at most six filters, the last with several `#d` values, which NIP-01 allows | Unchanged |
 | A rooms list following 1462 | Old lists read a room under the epoch they last held and go quiet after a rekey until it is opened | Follows only rekeys with a copy for its device, as a session does |
+| Chat envelope 2 (1460 signed by a one-time key) | Dropped: an old reader requires the event's signer to be the body's device. This is why writers stay on envelope 1 until every reader has shipped and had a release | Envelope 1 is read exactly as before |
+| `from` tag on a 1462 rekey or 20469 grant (fold-kit 0.13.0) | Rekey: the old reader opens no copy, reads the rekey without a secret and asks for the epoch. Grant: it cannot open it, so writers stay off until readers have shipped | No tag: the copies are opened from the signer, as before |
 | `kithmoot.room-epoch.v2.<room>` | An older web build reads `room-epoch.v1`, which is still written beside it, and replays from epoch 0 as it always has | No v2 record: the session opens from epoch 0, as before, and writes one from then on |
 
 - The keeper's desk hands every grant the window (`hostRoomEpoch`'s `past`,
