@@ -59,7 +59,7 @@ names('ui', ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.f
 add('ui', `kithmoot\\.room-name\\.v1\\.${H}|kithmoot\\.(?:nudge|destruct-heads-up)\\.${H}|kithmoot\\.home\\.fold\\.(?:pinned|unread|recent|older|other|ended)`)
 names('ui', ['kithmoot.notice'], ['tab'])
 names('navigation', ['kithmoot.way-back', 'kithmoot.room-switch.v1'], ['tab'])
-names('entryLayout', ['kithmoot.notify', 'kithmoot.notify-text', 'kithmoot.call-chat-panel', 'kithmoot.call-chat-divider', 'kithmoot.call-view', 'kithmoot.call-self-corner', 'kithmoot.call-hide-self', 'kithmoot.call-hide-no-video',
+names('entryLayout', ['kithmoot.notify', 'kithmoot.notify-text', 'kithmoot.hide-ip.v1', 'kithmoot.call-chat-panel', 'kithmoot.call-chat-divider', 'kithmoot.call-view', 'kithmoot.call-self-corner', 'kithmoot.call-hide-self', 'kithmoot.call-hide-no-video',
   'kithmoot.desktopChatDrawerOpen', 'kithmoot.desktopProjectsRailOpen', 'kithmoot.desktopProjectsRailWidth'])
 add('entryLayout', `kithmoot\\.(?:knock|invited)\\.v1\\.${H}`)
 add('entryLayout', `kithmoot\\.conversation\\.v1\\.${A}\\.(?:${H}|undefined)`, ['tab'])

@@ -1999,3 +1999,44 @@ test('a member with no name is Somebody in the log, the roster, the came-in line
     } finally { await guest.context.close() }
   } finally { await context.close() }
 })
+
+// ---------------------------------------------------------------------------
+// Stage 6 follow-up: Hide my IP address on calls is a Settings › Privacy default.
+// ---------------------------------------------------------------------------
+
+test('Hide my IP address on calls is a switch in Settings › Privacy kept as one device key, above Blocked', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    await openSettings(page, 'Privacy')
+    const toggle = page.getByLabel('Hide my IP address on calls', { exact: true })
+    await expect(toggle).not.toBeChecked()
+    await expect(page.locator('[data-settings-page="privacy"]')).toContainText('other people on the call don’t see your IP address')
+    // Above the Blocked section in the page.
+    expect(await page.evaluate(() => { const a = document.getElementById('privacyHideIp')!, b = document.getElementById('blockedSection')!; return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) })).toBe(true)
+    await toggle.check()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBe('1')
+    await toggle.uncheck()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBeNull()
+  } finally { await context.close() }
+})
+
+test('with the setting on, the door starts with the IP choice checked, and a creator joins under it', async ({ browser, baseURL }) => {
+  const { context, page } = await door(browser, baseURL!, { width: 1280, height: 900 })
+  try {
+    await page.evaluate(() => localStorage.setItem('kithmoot.hide-ip.v1', '1'))
+    await page.reload()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
+    await page.locator('#joinNetworkPrivacy > summary').click()
+    await expect(page.locator('#joinRelayOnly')).toBeChecked()
+  } finally { await context.close() }
+  // A creator never sees the door: the choice is read from the same checkbox, already set.
+  const made = await creatorDevice(browser, baseURL!, { name: 'Ada' })
+  try {
+    await made.page.evaluate(() => localStorage.setItem('kithmoot.hide-ip.v1', '1'))
+    await made.page.reload()
+    await openNewRoomForm(made.page)
+    await made.page.locator('#create').click()
+    await expect.poll(() => made.page.locator('#joinRelayOnly').isChecked()).toBe(true)
+  } finally { await made.context.close() }
+})

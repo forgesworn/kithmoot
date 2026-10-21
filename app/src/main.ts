@@ -3565,6 +3565,7 @@ function focusDoor(mode: DoorMode): void {
 }
 
 function renderDoorMode(): void {
+  applyHideIpDefault()
   // The knock door keeps its own controls (Request to join).
   if (guestAdmissionPreview) return
   const mode = doorMode()
@@ -12851,6 +12852,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   const generation = roomGeneration
   if (!retry && (joining || session || loginBusy)) return
   legacyMessagesPanel?.close()
+  if (!retry) applyHideIpDefault()
   const requestedMedia = entryMediaChoice()
   // Beside a docked call this room is for reading and writing: it never
   // carries this device's microphone, camera or relaying.
@@ -16865,7 +16867,20 @@ function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
   else $('settingsTitle').focus({ preventScroll: true })
 }
 
+/** Hide my IP address on calls, kept on this device: "1" when on, absent when off. */
+const HIDE_IP_KEY = 'kithmoot.hide-ip.v1'
+function hideIpDefault(): boolean { try { return localStorage.getItem(HIDE_IP_KEY) === '1' } catch { return false } }
+let hideIpAppliedGeneration: number | undefined
+/** The door's own choice starts from the setting, once per room, before any
+ *  join (the door, a creator, a reopened room) reads it. */
+function applyHideIpDefault(): void {
+  if (hideIpAppliedGeneration === roomGeneration) return
+  hideIpAppliedGeneration = roomGeneration
+  if (hideIpDefault()) ($('joinRelayOnly') as HTMLInputElement).checked = true
+}
+
 function renderSettingsRows(): void {
+  ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
   setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
 }
@@ -16902,6 +16917,11 @@ $('settingsBack').addEventListener('click', () => {
   else openDestination('chats')
 })
 ONE_PANE_SETTINGS.addEventListener('change', () => { if (!settingsPane.hidden) $('settingsBack').hidden = settingsPage === 'main' && !ONE_PANE_SETTINGS.matches })
+$('privacyHideIp').addEventListener('change', event => {
+  const on = (event.target as HTMLInputElement).checked
+  try { if (on) localStorage.setItem(HIDE_IP_KEY, '1'); else localStorage.removeItem(HIDE_IP_KEY) } catch { /* Still applies to this page. */ }
+  ;($('joinRelayOnly') as HTMLInputElement).checked = on
+})
 $('privacyProfiles').addEventListener('click', () => openProfileSettings($('privacyProfiles')))
 /** The dialogs Settings opens sit over it and give it back when they close:
  *  Settings is a pane now, so there is nothing to close or reopen. */
