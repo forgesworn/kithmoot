@@ -5838,7 +5838,7 @@ function renderRoomTitle(): void {
   if (!roomId) return
   const me = meParticipant || currentParticipant()
   const peer = me ? dmPeer(roomPolicy, me) : undefined
-  title.textContent = peer ? currentRoomLabel() : roomName ?? 'Room'
+  title.textContent = peer ? currentRoomLabel() : roomName ?? 'Untitled room'
   title.title = peer ? currentRoomLabel() : roomName ?? `Room ${shortKey(roomId)}`
   // The countdown pill, in place of the plain "Ends …" line.
   const ends = $('roomEndsLine')
