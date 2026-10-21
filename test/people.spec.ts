@@ -155,6 +155,91 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
+test('Decline and block clears an invitation, lists the sender under Privacy, and Unblock does not bring it back', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey()
+  const a = getPublicKey(aKey), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
+    const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
+    await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('#peopleMessage').click()
+    await expect(alice.locator('#roomArea')).toBeVisible()
+
+    // Alice is a stranger to Bob: named by her key, and blocked from the row's ⋯.
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    const waiting = bob.locator('#chatInvitations li[data-invitation]')
+    await expect(waiting).toHaveCount(1)
+    await bob.setViewportSize({ width: 390, height: 844 })
+    await waiting.getByRole('button', { name: `More for the invitation from ${shortNpub(a)}` }).click()
+    await expect(bob.getByRole('menuitem', { name: `Decline and block ${shortNpub(a)}` })).toBeVisible()
+    await bob.screenshot({ path: test.info().outputPath('decline-block-menu-phone.png') })
+    await bob.getByRole('menuitem', { name: `Decline and block ${shortNpub(a)}` }).click()
+    await expect(bob.locator('#chatInvitations')).toBeHidden()
+    await expect(bob.locator('#roomArea')).toBeHidden()
+
+    // Listed on this device only, by the key the invitation showed, never looked up.
+    await openSettings(bob, 'Privacy')
+    const blocked = bob.locator('#blockedList li')
+    await expect(blocked).toHaveCount(1)
+    await expect(blocked).toContainText(shortNpub(a))
+    await bob.screenshot({ path: test.info().outputPath('blocked-list-phone.png') })
+    await blocked.getByRole('button', { name: `Unblock ${shortNpub(a)}` }).click()
+    await expect(blocked).toHaveCount(0)
+    await expect(bob.locator('#blockedNone')).toBeVisible()
+
+    // The declined invitation stays declined.
+    await bob.reload()
+    await expect(bob.getByRole('navigation', { name: 'Chats' })).toBeVisible()
+    await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+  } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
+test('a person blocked from People leaves it, their invitations are dropped, and Unblock in Privacy brings them back', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey()
+  const a = getPublicKey(aKey), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  try {
+    // Each follows the other, so each is in the other's People.
+    await seed(publisher, baseURL!, { account: bKey, peers: [aKey] }, [a], new Map([[a, 'Alice on Nostr']]))
+    const now = Math.floor(Date.now() / 1000)
+    await publisher.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', b]], content: '' }, aKey))
+    await publisher.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Bob on Nostr' }) }, bKey))
+
+    const bob = await bc.newPage(); await bob.setViewportSize({ width: 1280, height: 900 }); await signInAccount(bob, baseURL!)
+    await openPeople(bob)
+    await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
+    await bob.locator('#peopleBlock').scrollIntoViewIfNeeded()
+    await bob.screenshot({ path: test.info().outputPath('contact-block.png') })
+    await bob.locator('#peopleBlock').click()
+    // Gone from People, as a Signet block is, with a line saying where to.
+    await expect(bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ })).toHaveCount(0)
+    await expect(bob.locator('#peopleList')).toContainText('Alice on Nostr is blocked on this device.')
+
+    const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
+    await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    await alice.locator('#peopleRows').getByRole('button', { name: /^Bob on Nostr/ }).click()
+    await alice.locator('#peopleMessage').click()
+    await expect(alice.locator('#roomArea')).toBeVisible()
+
+    // Her invitation is dropped as it arrives, as for a Signet block.
+    await bob.waitForTimeout(3_000)
+    await expect(bob.locator('#chatInvitations li[data-invitation]')).toHaveCount(0)
+    await openSettings(bob, 'Privacy')
+    await bob.locator('#blockedList').getByRole('button', { name: 'Unblock Alice on Nostr' }).click()
+    await expect(bob.locator('#blockedNone')).toBeVisible()
+    // Back in People, with Block offered again.
+    await openPeople(bob)
+    await bob.locator('#peopleRows').getByRole('button', { name: /^Alice on Nostr/ }).click()
+    await expect(bob.locator('#peopleBlock')).toContainText('Block Alice on Nostr')
+  } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
 test('Invite from People opens the private chat and sends the room there, sealed', async ({ browser, baseURL }) => {
   test.setTimeout(180_000)
   const aKey = generateSecretKey(), bKey = generateSecretKey()

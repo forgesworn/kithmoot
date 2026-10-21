@@ -1,4 +1,5 @@
 import './invitations.css'
+import { menuItem, wireMenu } from './menu.js'
 import { personAvatar, shortNpub } from './people.js'
 
 /**
@@ -24,6 +25,8 @@ export interface WaitingInvitation {
 export interface InvitationActions {
   accept(id: string): Promise<void>
   decline(id: string): Promise<void>
+  /** Decline, and block the sender on this device. They are not told. */
+  declineAndBlock(id: string): Promise<void>
   /** "2 minutes ago" and so on, worded as everywhere else in the app. */
   when(sentAt: number): string
 }
@@ -119,10 +122,22 @@ export class InvitationsView {
     accept.dataset.action = 'accept'
     accept.textContent = 'Accept'
     accept.addEventListener('click', () => this.#answer(id, 'accept'))
+    // The row's ⋯ (spec §6.3): Decline and block. Two deliberate presses, so
+    // no confirmation; Settings › Privacy lists blocks and undoes them.
+    const more = document.createElement('button')
+    more.type = 'button'
+    more.className = 'rowMenu'
+    more.textContent = '⋯'
+    more.dataset.action = 'more'
+    const menu = document.createElement('div')
+    menu.id = `invitationMenu-${id}`
+    menu.className = 'rowMenuPopover'
+    menuItem(menu, 'Decline and block', () => this.#answer(id, 'block'), { danger: true, action: 'decline-block' })
+    wireMenu(more, menu)
     const answers = document.createElement('span')
     answers.className = 'invitationAnswers'
-    answers.append(decline, accept)
-    row.append(document.createElement('span'), text, answers)
+    answers.append(decline, accept, more)
+    row.append(document.createElement('span'), text, answers, menu)
     return row
   }
 
@@ -136,17 +151,19 @@ export class InvitationsView {
     row.querySelector('.invitationTitle')!.textContent = invitationTitle(invitation)
     row.querySelector('.invitationSub')!.textContent = `Sealed for you · ${this.#actions.when(invitation.sentAt)}`
     const busy = this.#busy.has(invitation.id)
-    for (const button of row.querySelectorAll<HTMLButtonElement>('button')) {
+    for (const button of row.querySelectorAll<HTMLButtonElement>('.invitationAnswers > button')) {
       button.disabled = busy
-      button.setAttribute('aria-label', `${button.dataset.action === 'accept' ? 'Accept' : 'Decline'} private chat with ${who}`)
+      button.setAttribute('aria-label', button.dataset.action === 'more' ? `More for the invitation from ${who}`
+        : `${button.dataset.action === 'accept' ? 'Accept' : 'Decline'} private chat with ${who}`)
     }
+    row.querySelector('[data-action="decline-block"] .menuLabel')!.textContent = `Decline and block ${who}`
   }
 
-  async #answer(id: string, answer: 'accept' | 'decline'): Promise<void> {
+  async #answer(id: string, answer: 'accept' | 'decline' | 'block'): Promise<void> {
     if (this.#busy.has(id)) return
     this.#busy.add(id); this.#error = ''; this.render()
     try {
-      await (answer === 'accept' ? this.#actions.accept(id) : this.#actions.decline(id))
+      await (answer === 'accept' ? this.#actions.accept(id) : answer === 'block' ? this.#actions.declineAndBlock(id) : this.#actions.decline(id))
     } catch (error) {
       this.#error = error instanceof Error && error.message ? error.message : answer === 'accept' ? 'That chat could not be opened. Try again.' : 'That invitation could not be cleared. Try again.'
     } finally {

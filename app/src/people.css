@@ -324,6 +324,10 @@
 .peoplePane :is(.contactRooms .contactLink, #peopleCheckWords) > svg { flex: 0 0 auto; color: var(--muted); }
 .peoplePane #peopleCheckWords.check-verified > svg:first-child { color: var(--ok); }
 .peoplePane #peopleCheckWords.check-key-changed .contactLinkSub { color: var(--danger); white-space: normal; }
+/* Block: a plain row, red while it would block, its line allowed to wrap. */
+.peoplePane #peopleBlock { min-height: 48px; }
+.peoplePane #peopleBlock.danger .contactLinkTitle { color: var(--danger); }
+.peoplePane #peopleBlock .contactLinkSub { white-space: normal; }
 .peoplePane .contactRoomAvatar {
   flex-basis: 28px;
   width: 28px;

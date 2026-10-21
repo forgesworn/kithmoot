@@ -2256,10 +2256,25 @@ already known or followed. A stranger is shown by their key and never looked
 up, so nobody can arrive calling themselves "Mum" and no public relay learns
 who wrote to this account. Decline clears the invitation on this device; the
 sender is not told (D1). Accept opens the private chat straight away, with no
-door. Not built yet: "Decline and block", because web has no block of its
-own, only Signet's. Somebody you follow is named even before People has been
+door. "Decline and block" (the row's ⋯) declines and blocks the sender on
+this device: see the block entry below. Somebody you follow is named even before People has been
 opened: a waiting invitation fetches the account's own follow list once,
 which names nobody else.
+
+Blocks are this account's, on this device, and never published (owner
+decision, 20 October 2026). Not the NIP-51 mute list: its public tags tell
+anybody who you have had trouble with, and writing it replaces whatever
+mutes your other Nostr apps keep. The person is never told, and declining
+never tells the sender either: that would prove the account is live to a
+spammer, needs a wire change, and Signal tells nobody either. A block
+refuses what a Signet block refuses (`contactIsBlocked`): their private
+invitations, dropped as they arrive, their knocks and requests to join, and
+starting a private chat with them; they leave People, as Signet's blocks
+do. A private chat already open with them stays until it is left. Settings ›
+Privacy › Blocked on this device lists blocks and undoes them, naming each
+person only from what the device already holds. Each device blocks on its
+own; syncing through the mute list's encrypted private part is possible
+later and not built.
 
 A private chat is called by the person (spec §6.2): "Rowan" in the list, as
 the room title, in "Back to …" and in "Call with …", with their initial and

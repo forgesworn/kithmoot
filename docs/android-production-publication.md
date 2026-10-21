@@ -6,6 +6,19 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.99 Decline and block and no suggested file server, 21 October 2026
+
+Version **0.6.99**, code **122**, adds Decline and block, kept on the phone
+and never published, as on the web (kithmoot-android #294, kithmoot #488),
+and stops the image dialog pre-filling ForgeSworn's file server
+(kithmoot-android #295, kithmoot #489). No wire change.
+
+The production APK is built from Android source
+`ba147779` (pull request #296 merged, all checks passed), SHA-256
+`ed312cbfd3204fbdf67607f9fd59070c5ea933e7fe675c0633f06b8e3e8755d9`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over public relays; not yet observed on a device.
+
 ## Android 0.6.98 ring window, same-name keys and Effects headings, 20 October 2026
 
 Version **0.6.98**, code **121**, follows the web's calm shell stage 5

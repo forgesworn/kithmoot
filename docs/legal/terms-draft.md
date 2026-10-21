@@ -4,6 +4,10 @@
 > by a lawyer and it is not legal advice. HTML comments name the code
 > behind each statement about the service. Text in `[square brackets]` is
 > a placeholder or a decision still open.
+>
+> Changed 21 October 2026: a note at the end of section 6 corrects what
+> these terms say about what we can read, the file store and the drop tier,
+> pending a revision (risk assessment, section 8).
 
 ## 1. About these terms
 
@@ -54,7 +58,8 @@ These terms do not take away any rights you have by law as a consumer.
   someone already received on their device.
 - **We cannot see who is in your room, or what your room contains.**
   Everything meaningful in a room is end-to-end encrypted; we have no
-  membership list and no content to review (section 6).
+  membership list and no content to review (section 6). Two exceptions
+  are in the note of 21 October 2026 at the end of section 6.
 
 ## 4. Your identity and your keys
 
@@ -114,6 +119,24 @@ reports or removal.
   itself read or display.** It cannot serve a viewable image, video or
   document under any circumstances; what is stored there is meaningless
   bytes without a room's own key.
+
+**Note, 21 October 2026.** Corrections, pending a revision of these terms
+(`docs/legal/online-safety-risk-assessment-draft.md`, section 8):
+
+- Where these terms say we cannot see or read a room (sections 3, 6 and 8),
+  there are two exceptions. A keeper we run for a room holds that room's
+  key, because it created the room. Our meeting code service stores the
+  full invitation link for a code made without a password; for a room with
+  no waiting room, that link lets the service enter the room while the code
+  lives.
+  <!-- deploy/keeper@.service; deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
+- "The default file store" above means the store we run. From the web
+  release after 20 October 2026 the web app no longer suggests it. It lists
+  a public file server run by somebody else, which sets its own rules; what
+  the app uploads there is sealed on your device first.
+  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
+- No app names the drop tier. Where these terms call it a default, read it
+  as a service we run that anyone can reach.
 
 ## 7. Reporting content and complaints
 

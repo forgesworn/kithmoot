@@ -5,6 +5,9 @@
 > KithMoot. Checked against the code on `main`. Where a removal capability
 > does not exist, this says so plainly and does not promise it in the
 > terms or elsewhere. **This is not legal advice.**
+>
+> Changed 21 October 2026: notes in sections 2 and 3.2, pending a revision
+> (risk assessment, section 8).
 
 ## 1. How a notice arrives
 
@@ -29,6 +32,13 @@ without the room's own key, which we never hold
 (`docs/legal/online-safety-risk-assessment-draft.md`, section 2.1). A
 notice to us is therefore always **metadata plus the sender's own account
 of what happened**, never content we can independently view to verify.
+
+*Note, 21 October 2026.* "Which we never hold" has two exceptions. A keeper
+we run for a room holds that room's key, because it created the room. The
+meeting code service stores the full invitation link for a code made
+without a password. Neither changes the rule in section 6 against viewing
+reported material.
+<!-- deploy/keeper@.service; deploy/README.md "Meeting codes" -->
 
 Ask the sender for, and act on:
 
@@ -93,6 +103,11 @@ directly, on the host, outside the server's own API. This is a **manual
 operator action, not a supported feature of the deployed software**, and
 should be logged as such (section 5) precisely because it bypasses the
 server's own authorisation model.
+
+*Note, 21 October 2026.* This applies only to the store we run. A file on
+a public server the app lists, or on one a person names, is on a server we
+do not operate (section 3.5).
+<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
 
 **Block a pubkey from future uploads:** `[UNVERIFIED]`. `deploy/blossom.yml`
 sets `upload.requireAuth: true` and `requirePubkeyInRule: false`, with no

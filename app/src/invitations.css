@@ -70,6 +70,18 @@
   color: var(--text);
 }
 .chatInvitations .invitationAnswers button.tonal:hover:not(:disabled) { filter: brightness(0.96); }
+/* The row's ⋯ after Accept: quiet and round, as on a chat row. */
+.chatInvitations .invitationAnswers button.rowMenu {
+  min-width: 36px;
+  width: 36px;
+  padding: 0;
+  border-radius: var(--r-full);
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-3);
+}
+.chatInvitations .invitationAnswers button.rowMenu:hover:not(:disabled) { background: var(--selected); }
 
 .chatInvitations .note {
   margin: 0 var(--s2);
@@ -93,4 +105,5 @@
 
 @media (forced-colors: active) {
   .chatInvitations .invitationAnswers button.tonal { border: 1px solid ButtonText; }
+  .chatInvitations .invitationAnswers button.rowMenu { border: 1px solid ButtonText; }
 }

@@ -69,6 +69,10 @@ export interface PeopleActions {
   sharedRooms(pubkey: string): SharedRoom[]
   /** Rooms this device invited this person to, and whether they came. */
   sentInvitations(pubkey: string): SentInvitation[]
+  /** Block on this device. Nothing is published and the person is not
+   *  told. They leave People, as Signet's blocks do; Settings › Privacy
+   *  lists them and undoes it. Throws with a sentence to show when it cannot. */
+  block(pubkey: string): void
   /** Look up names and pictures for these keys (the public-profile switch decides). */
   want(pubkeys: string[]): void
   pasteCard(opener: HTMLElement): void
@@ -471,6 +475,37 @@ export class PeopleView {
       section.append(compare)
       card.append(section)
     }
+    // Block, last (spec §6.1). Never published; they are not told.
+    const blockSection = document.createElement('div')
+    blockSection.className = 'contactSection'
+    const block = document.createElement('button')
+    block.type = 'button'
+    block.id = 'peopleBlock'
+    block.className = 'contactLink danger'
+    const blockText = document.createElement('span')
+    blockText.className = 'contactLinkText'
+    const blockTitle = document.createElement('span')
+    blockTitle.className = 'contactLinkTitle'
+    blockTitle.textContent = `Block ${name}`
+    const blockSub = document.createElement('span')
+    blockSub.className = 'contactLinkSub'
+    blockSub.textContent = 'They can’t invite you or ask to join your rooms on this device. They aren’t told.'
+    blockText.append(blockTitle, blockSub)
+    block.append(blockText)
+    block.disabled = this.#busy
+    block.addEventListener('click', () => {
+      try {
+        this.#actions.block(person.pubkey)
+        // They leave the list, so the page closes and says where they went.
+        this.#note = `${name} is blocked on this device. Settings › Privacy lists who you have blocked.`
+        this.#actions.closeDetail()
+      } catch (error) {
+        this.#note = error instanceof Error ? error.message : String(error)
+      }
+      this.render()
+    })
+    blockSection.append(block)
+    card.append(blockSection)
     const focusHeading = this.#pane.contains(document.activeElement) && document.activeElement !== heading
     this.#pane.replaceChildren(back, card)
     if (focusHeading) heading.focus({ preventScroll: true })

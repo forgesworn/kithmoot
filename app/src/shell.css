@@ -524,3 +524,10 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 #settingsPane #notify > h3 { margin: 0 0 var(--s2); font-size: var(--fs-2); }
 #settingsPane #accountHome { margin: 0; }
 @media (max-width: 599px) { #settingsPane { padding-inline: var(--s2); } }
+
+/* Settings › Privacy › Blocked on this device: a name and Unblock per row. */
+#settingsPane .blockedSection h3 { margin: var(--s5) 0 var(--s1); font-size: var(--fs-2); }
+#settingsPane .blockedList { list-style: none; margin: 0; padding: 0; }
+#settingsPane .blockedList li { display: flex; align-items: center; gap: var(--s3); min-height: 48px; border-bottom: 1px solid var(--line); }
+#settingsPane .blockedList .blockedName { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+#settingsPane .blockedList button { flex: 0 0 auto; margin: 0; }

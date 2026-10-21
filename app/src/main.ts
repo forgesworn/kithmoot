@@ -32,7 +32,7 @@ import { NostrMessageInboxPanel } from './nostr-message-inbox-panel.js'
 import { rememberOrdinaryCopy } from './nostr-message-history.js'
 import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
-import { PeopleView, type PeopleModel, type Person } from './people.js'
+import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { NostrMessagePanel } from './nostr-message-panel.js'
 import { LegacyMessagePanel } from './legacy-message-panel.js'
@@ -144,6 +144,7 @@ import { readCallProfile } from './call-profile.js'
 import { loadVolumeLevel, storeVolumeLevel, volumeLevelCount } from './volume-store.js'
 import { contactCheckView } from './contact-check-view.js'
 import { participantVerification, rememberVerified, scopedVerificationStore, verifiedParticipants } from './verified-store.js'
+import { BLOCK_PREFIX, blockParticipant, blocksFor, unblockParticipant } from './block-store.js'
 import { Notifier, notifySettings, setNotifySettings, titleWithCount, type Arrival, type NotificationContent } from './notify.js'
 import {
   RoomSession,
@@ -3188,6 +3189,7 @@ function renderContactInbox(): void {
   }
   for (const row of previous.values()) row.remove()
   for (const id of ['roomContacts']) $(id).textContent = invitations.length ? `Contacts (${invitations.length})` : 'Contacts'
+  renderBlockedList()
   // The same invitations are rows above the chats, and count on the rail. The
   // inbox can start before the list's own state exists (at load, restoring a
   // sign-in), and its first paint then picks them up instead.
@@ -3247,7 +3249,74 @@ async function messageContact(peer: string, name?: string): Promise<void> {
   finally { startingContactMessage = false }
 }
 function contactIsBlocked(participant: string): boolean {
-  return grantedContactView?.status === 'unavailable' || grantedContactView?.blocked.has(participant) === true
+  return grantedContactView?.status === 'unavailable' || grantedContactView?.blocked.has(participant) === true || blockedHere(participant)
+}
+/** This account's own blocks on this device (block-store.ts), read once per
+ *  account and kept: `contactIsBlocked` runs for every invitation and knock. */
+let localBlocks: { account: string; blocked: Set<string> } | undefined
+function blockedHere(participant: string): boolean {
+  const self = nostrSession?.pubkey
+  if (!self) return false
+  if (localBlocks?.account !== self) localBlocks = { account: self, blocked: new Set(blocksFor(deviceStore, self).map(entry => entry.participant)) }
+  return localBlocks.blocked.has(participant)
+}
+/** Blocks or unblocks somebody for the signed-in account on this device.
+ *  Nothing is published and they are not told (docs/decisions.md). */
+function setBlocked(participant: string, blocked: boolean): void {
+  const self = nostrSession?.pubkey
+  if (!self) throw new Error('Sign in with Nostr to block somebody.')
+  if (blocked) blockParticipant(deviceStore, self, participant, Date.now())
+  else unblockParticipant(deviceStore, self, participant)
+  localBlocks = undefined
+  renderContactInbox()
+  renderPeople()
+}
+// Another tab blocked or unblocked somebody: read the blocks again.
+window.addEventListener('storage', event => {
+  if (event.key !== null && !event.key.startsWith(BLOCK_PREFIX)) return
+  localBlocks = undefined
+  renderContactInbox()
+  renderPeople()
+})
+/** Settings › Privacy › Blocked on this device. A blocked person is named
+ *  as their invitation named them, from what this device already holds,
+ *  else by key, and never looked up: showing this list must not tell a
+ *  public relay who was blocked. */
+function renderBlockedList(): void {
+  const section = document.getElementById('blockedSection')
+  if (!section) return
+  const self = nostrSession?.pubkey
+  section.hidden = !self
+  if (!self) return
+  const blocks = blocksFor(deviceStore, self)
+  const view = grantedContactView
+  const signet = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts : []
+  $('blockedNone').hidden = blocks.length > 0
+  $('blockedList').replaceChildren(...blocks.map(({ participant }) => {
+    // Named as their invitation names them, from what this device already
+    // holds: a profile name only for somebody known, and nothing fetched.
+    const contact = signet.find(entry => entry.pubkey === participant), card = contactFor(deviceStore, participant)
+    const known = !!contact || !!card || follows.follows(participant)
+    const profile = known ? profiles.get(participant) : undefined
+    const name = inviterIdentity({ ...(contact?.name ? { signetName: contact.name } : {}), ...(card?.name ? { cardName: contactLabel(card) } : {}), known,
+      ...(profile?.name ? { profile: { name: profile.name } } : {}) }).name ?? personKey(participant)
+    const row = document.createElement('li')
+    const label = document.createElement('span')
+    label.className = 'blockedName'
+    label.textContent = name
+    const unblock = document.createElement('button')
+    unblock.type = 'button'
+    unblock.className = 'tonal'
+    unblock.textContent = 'Unblock'
+    unblock.setAttribute('aria-label', `Unblock ${name}`)
+    unblock.addEventListener('click', () => {
+      setBlocked(participant, false)
+      setStatus(`${name} is no longer blocked on this device.`)
+      $('blockedHeading').focus()
+    })
+    row.append(label, unblock)
+    return row
+  }))
 }
 function renderIdentity(): void {
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
@@ -15823,6 +15892,12 @@ function renderInvitations(): void {
       if (invitation) await openContactInvitation(invitation)
     },
     decline: async id => { await contactInbox?.dismiss(id) },
+    declineAndBlock: async id => {
+      const invitation = waitingInvitations().find(entry => entry.id === id)
+      // Dismissed first, so unblocking later never brings this one back.
+      await contactInbox?.dismiss(id)
+      if (invitation) setBlocked(invitation.sender, true)
+    },
     when: sentAt => whenWords(sentAt),
   })
   invitationsView.render()
@@ -15835,6 +15910,7 @@ function renderPeople(): void {
 function peopleBlockedReason(pubkey: string): string | undefined {
   if (!nostrSession) return 'Sign in with Nostr to message people.'
   if (!nostrSession.signer.nip44 || !nostrSession.signer.capabilities.canSignEvents) return 'Your signer cannot encrypt, so it cannot start a private chat.'
+  if (blockedHere(pubkey)) return 'Blocked on this device. Settings › Privacy lists who you have blocked.'
   if (contactIsBlocked(pubkey)) return 'You have blocked this person in Signet.'
   if (!mayMessageContact(pubkey)) return 'Only your contacts and the people you follow can be messaged from here.'
   return undefined
@@ -16071,6 +16147,7 @@ function linkSignetContacts(opener: HTMLElement): void {
   const list = document.getElementById('peopleList'), pane = document.getElementById('peoplePane')
   if (list && pane) people = new PeopleView(list, pane, peopleModel, {
     blockedReason: peopleBlockedReason,
+    block: peer => { setBlocked(peer, true) },
     message: messagePerson,
     call: callPerson,
     invite: invitePerson,
