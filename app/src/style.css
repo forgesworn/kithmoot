@@ -4361,8 +4361,40 @@ input[type="search"] { font-family: inherit; }
 .approvalCard.knock .knockStatus:empty { display: none; }
 .approvalCard.knock:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-/* Which room to invite somebody to: one full-width button per room. */
-.inviteToRoomList button { display: block; width: 100%; margin: .35rem 0; min-height: 44px; text-align: left; }
+/* The sender picker: one radio row per room, a note, Cancel and Send invite.
+   Centred on wide screens, a bottom sheet under 600 px; the list scrolls and
+   the buttons stay on screen. */
+#inviteToRoom {
+  box-sizing: border-box; width: min(420px, 94vw); max-height: calc(100dvh - 2rem); padding: var(--s4);
+  border: 0; border-radius: var(--r-m); background: var(--panel); color: var(--text); box-shadow: var(--shadow);
+}
+#inviteToRoom::backdrop { background: rgb(0 0 0 / 55%); }
+#inviteToRoom[open] { display: flex; flex-direction: column; }
+#inviteToRoomForm { display: flex; flex-direction: column; gap: var(--s3); min-height: 0; }
+#inviteToRoomTitle { margin: 0; font-size: var(--fs-4); overflow-wrap: anywhere; }
+#inviteToRoomFind input { width: 100%; box-sizing: border-box; min-height: 44px; font-size: max(16px, var(--fs-3)); }
+.inviteToRoomList { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; min-height: 0; }
+.inviteRoomRow { display: flex; align-items: center; gap: var(--s3); min-height: var(--row); padding: var(--s1) var(--s2); border-radius: var(--r-s); cursor: pointer; margin: 0; }
+.inviteRoomRow:hover { background: var(--selected); }
+.inviteRoomRow:has(input:checked) { background: var(--selected); }
+.inviteRoomRow:has(input:disabled) { cursor: default; opacity: .8; }
+.inviteRoomRow input { flex: none; width: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--accent); }
+.inviteRoomRow input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.inviteRoomRow:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 0; }
+.inviteRoomRow .roomText { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.inviteRoomRow .roomName { font-size: var(--fs-2); overflow-wrap: anywhere; }
+.inviteRoomRow .roomSub { font-size: var(--fs-1); color: var(--muted); }
+#inviteToRoom .note { margin: 0; }
+.inviteToRoomButtons { display: flex; justify-content: flex-end; gap: var(--s2); flex-wrap: wrap; }
+.inviteToRoomButtons button { min-height: 44px; margin: 0; }
+@media (max-width: 599px) {
+  #inviteToRoom { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0; padding-bottom: max(var(--s4), env(safe-area-inset-bottom)); animation: inviteSheetUp 150ms ease-out; }
+  .inviteRoomRow { min-height: 48px; }
+}
+@media (max-height: 499px) and (max-width: 899px) { #inviteToRoom { max-height: 100dvh; } .inviteToRoomList { max-height: 40vh; } }
+@keyframes inviteSheetUp { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { #inviteToRoom { animation: none; transition: none; } }
+@media (forced-colors: active) { #inviteToRoom #inviteToRoomSend { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 1px solid Highlight; } }
 
 .contactBox { padding-block: 0.35rem; }
 .contactBox p { margin: 0 0 0.35rem; }

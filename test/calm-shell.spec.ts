@@ -6,7 +6,7 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, openNewRoomForm, openRoomDetails } from './browser.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, openNewRoomForm, openRoomDetails, openMember } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -1755,4 +1755,211 @@ test('a device that joined as a name and is now signed in as an account is asked
     await expect(page.locator('#join')).toHaveText(/^Continue (as|with your Nostr account)/)
     void relay
   } finally { await accountContext.close() }
+})
+
+// ---------------------------------------------------------------------------
+// Stage 6, slice C: the sender picker.
+// ---------------------------------------------------------------------------
+
+/** Ada, who knows Town hall and Book club already, in a room of her own with
+ *  Rowan in it: the page Ada invites from, and Rowan's. */
+async function pickerSetup(browser: Browser, baseURL: string, viewport = { width: 1280, height: 900 }, options: { touch?: boolean; scheme?: 'dark' | 'light'; reducedMotion?: boolean; forcedColors?: boolean } = {}) {
+  const relays = testRelaysFor(baseURL)!
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({
+    ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport, hasTouch: !!options.touch, isMobile: !!options.touch, colorScheme: options.scheme ?? 'dark',
+    ...(options.reducedMotion ? { reducedMotion: 'reduce' as const } : {}), ...(options.forcedColors ? { forcedColors: 'active' as const } : {}),
+  })
+  await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== relay.href, ws => ws.close())
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.addInitScript(({ urls, rooms }) => {
+    if (sessionStorage.getItem('picker-seeded')) return
+    sessionStorage.setItem('picker-seeded', '1')
+    localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) }))
+    localStorage.setItem('kithmoot.name', 'Ada')
+    for (const room of rooms) localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify({ roomId: room.roomId, name: room.name, link: room.link, openedAt: Math.floor(Date.now() / 1000) - 600, readAt: 0 }))
+  }, { urls: relays, rooms: [seeds[2]!, seeds[3]!] })
+  const ada = await context.newPage()
+  await ada.goto(baseURL)
+  await openNewRoomForm(ada)
+  await ada.locator('#roomName').fill('Release workshop')
+  await ada.locator('#create').click()
+  await expect(ada.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+  const link = await ada.locator('#shareUrl').inputValue()
+  const rowanDoor = await door(browser, baseURL, { width: 1280, height: 900 }, { link })
+  await rowanDoor.page.locator('#displayName').fill('Rowan'); await rowanDoor.page.locator('#join').click()
+  await expect(rowanDoor.page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+  await openMember(ada, 'Rowan')
+  return { ada, context, rowan: rowanDoor.page, close: async () => { await context.close(); await rowanDoor.context.close() } }
+}
+
+async function openPicker(ada: Page) {
+  const opener = ada.getByRole('button', { name: 'Invite Rowan to a room', exact: true })
+  await opener.click({ timeout: 60_000 })
+  await expect(ada.locator('#inviteToRoom')).toBeVisible()
+  return opener
+}
+
+test('the picker names the person, lists every room including this one, and sends only what was chosen', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await openPicker(ada)
+    const picker = ada.locator('#inviteToRoom')
+    await expect(picker.getByRole('heading', { name: 'Invite Rowan to a room' })).toBeVisible()
+    await expect(picker.getByRole('radiogroup', { name: 'Invite Rowan to a room' })).toBeVisible()
+    const here = picker.getByRole('radio', { name: 'Release workshop, Rowan is already here' })
+    await expect(here).toBeDisabled()
+    await expect(picker.getByRole('radio', { name: 'Town hall', exact: true })).toBeEnabled()
+    await expect(picker.locator('input:checked')).toHaveCount(0)
+    await expect(ada.locator('#inviteToRoomSend')).toBeDisabled()
+    await expect(ada.locator('#inviteToRoomLead')).toHaveText('The invite goes to Rowan sealed. Only Rowan can open it.')
+    await expect(ada.locator('#inviteToRoomClose')).toHaveText('Cancel')
+    await expect(ada.locator('#inviteToRoomFind')).toBeHidden()
+    await picker.getByRole('radio', { name: 'Town hall', exact: true }).check()
+    await expect(ada.locator('#inviteToRoomSend')).toBeEnabled()
+    await ada.locator('#inviteToRoomSend').click()
+    await expect(picker).toBeHidden()
+    await ada.locator('#roomSheetClose').click()
+    await expect(ada.locator('#chatLog')).toContainText('You invited Rowan to Town hall.')
+    // Asked again, Town hall says it has been, with the day.
+    await openMember(ada, 'Rowan')
+    const opener = await openPicker(ada)
+    await expect(picker.getByRole('radio', { name: 'Town hall, Invited today, not joined yet' })).toBeEnabled()
+    await ada.keyboard.press('Escape')
+    await expect(picker).toBeHidden()
+    await expect(opener).toBeFocused()
+  } finally { await set.close() }
+})
+
+test('with no group room going, the picker says so and offers one Close', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await ada.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('kithmoot.room.')) continue
+        const room = JSON.parse(localStorage.getItem(key)!)
+        room.endedAt = Math.floor(Date.now() / 1000) - 60
+        localStorage.setItem(key, JSON.stringify(room))
+      }
+    })
+    await openPicker(ada)
+    await expect(ada.locator('#inviteToRoomLead')).toHaveText('You have no rooms to invite Rowan to yet. Start a room from Chats, then invite Rowan.')
+    await expect(ada.locator('#inviteToRoomClose')).toHaveText('Close')
+    await expect(ada.locator('#inviteToRoomSend')).toBeHidden()
+    await expect(ada.locator('#inviteToRoomList')).toBeHidden()
+  } finally { await set.close() }
+})
+
+test('in the picker the radio group is one Tab stop, the arrows skip the room Rowan is already in, and Enter sends the choice', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!)
+  const { ada } = set
+  try {
+    await openPicker(ada)
+    const picker = ada.locator('#inviteToRoom')
+    const rows = picker.getByRole('radio')
+    await expect(rows).toHaveCount(3)
+    // On open, the first room that can be chosen has the focus.
+    const first = await ada.evaluate(() => (document.activeElement as HTMLInputElement).closest('label')?.textContent ?? '')
+    expect(first).not.toContain('already here')
+    // Arrows move through the choosable rooms and never land on the disabled one.
+    const seen = new Set<string>()
+    for (let i = 0; i < 4; i++) {
+      await ada.keyboard.press('ArrowDown')
+      seen.add(await ada.evaluate(() => (document.activeElement as HTMLInputElement).closest('label')?.textContent ?? ''))
+    }
+    expect([...seen].some(text => text.includes('already here'))).toBe(false)
+    // One stop for the group: Tab goes to Cancel, not to the next radio.
+    await ada.keyboard.press('Tab')
+    await expect(ada.locator('#inviteToRoomClose')).toBeFocused()
+    await ada.keyboard.press('Shift+Tab')
+    await ada.keyboard.press('Enter')
+    await expect(picker).toBeHidden()
+    await expect(ada.locator('#roomSheet').getByText('You invited Rowan to').first().or(ada.locator('#chatLog').getByText('You invited Rowan to').first())).toBeVisible()
+  } finally { await set.close() }
+})
+
+for (const [label, size, touch] of [['1440', { width: 1440, height: 900 }, false], ['390', { width: 390, height: 844 }, true]] as const) {
+  for (const scheme of ['dark', 'light'] as const) {
+    test(`axe finds nothing on the picker and on the New room form with its name error at ${label} in ${scheme}`, async ({ browser, baseURL }) => {
+      const set = await pickerSetup(browser, baseURL!, size, { touch, scheme })
+      try {
+        await openPicker(set.ada)
+        const scan = await new AxeBuilder({ page: set.ada }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), 'picker').toEqual([])
+      } finally { await set.close() }
+      const { context, page } = await creatorDevice(browser, baseURL!, { viewport: size, touch, scheme })
+      try {
+        await openNewRoomForm(page)
+        await page.locator('#create').click()
+        await expect(page.locator('#newRoomYourNameError')).toBeVisible()
+        const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+        expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), 'new room form').toEqual([])
+      } finally { await context.close() }
+    })
+  }
+}
+
+test('axe finds nothing on the picker in forced colours at 1440', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 1440, height: 900 }, { forcedColors: true })
+  try {
+    await openPicker(set.ada)
+    const scan = await new AxeBuilder({ page: set.ada }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+  } finally { await set.close() }
+})
+
+test('at 390 by 844 the picker is a bottom sheet with both buttons on screen, and its targets are at least 44 px', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 390, height: 844 }, { touch: true })
+  try {
+    await openPicker(set.ada)
+    const sheet = (await set.ada.locator('#inviteToRoom').boundingBox())!
+    expect(sheet.width).toBeGreaterThanOrEqual(389)
+    expect(sheet.y + sheet.height).toBeGreaterThanOrEqual(843)
+    for (const id of ['inviteToRoomClose', 'inviteToRoomSend']) {
+      const box = (await set.ada.locator(`#${id}`).boundingBox())!
+      expect(box.y + box.height, id).toBeLessThanOrEqual(844)
+      expect(box.height, id).toBeGreaterThanOrEqual(44)
+    }
+    const small = await set.ada.evaluate(() => [...document.querySelectorAll<HTMLElement>('#inviteToRoom .inviteRoomRow, #inviteToRoom button, #inviteToRoom input[type=search]')]
+      .filter(el => el.checkVisibility()).map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.className, h: Math.round(r.height) } }).filter(r => r.h < 44))
+    expect(small).toEqual([])
+  } finally { await set.close() }
+})
+
+test('the picker does not scroll sideways at 320 by 640, and at 844 by 390 its buttons are on screen', async ({ browser, baseURL }) => {
+  for (const [size, landscape] of [[{ width: 320, height: 640 }, false], [{ width: 844, height: 390 }, true]] as const) {
+    const set = await pickerSetup(browser, baseURL!, size, { touch: true })
+    try {
+      await openPicker(set.ada)
+      expect(await set.ada.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      expect(await set.ada.evaluate(() => { const el = document.getElementById('inviteToRoom')!; return el.scrollWidth <= el.clientWidth })).toBe(true)
+      if (landscape) for (const id of ['inviteToRoomClose', 'inviteToRoomSend']) {
+        const box = (await set.ada.locator(`#${id}`).boundingBox())!
+        expect(box.y + box.height, id).toBeLessThanOrEqual(390)
+        expect(box.y, id).toBeGreaterThanOrEqual(0)
+      }
+    } finally { await set.close() }
+  }
+})
+
+test('under reduced motion the picker sheet runs no transform transition', async ({ browser, baseURL }) => {
+  const set = await pickerSetup(browser, baseURL!, { width: 390, height: 844 }, { touch: true, reducedMotion: true })
+  try {
+    await openPicker(set.ada)
+    const style = await set.ada.locator('#inviteToRoom').evaluate(el => ({ property: getComputedStyle(el).transitionProperty, animation: getComputedStyle(el).animationName }))
+    expect(style.property).not.toContain('transform')
+    expect(style.animation).toBe('none')
+  } finally { await set.close() }
+})
+
+test('every control in the New room form is at least 44 px at 390 by 844 on a touch screen', async ({ browser, baseURL }) => {
+  const { context, page } = await creatorDevice(browser, baseURL!, { viewport: { width: 390, height: 844 }, touch: true })
+  try {
+    await openNewRoomForm(page)
+    const small = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('#createRoomForm button, #createRoomForm input:not([type=checkbox]):not([type=radio]), #createRoomForm select, #createRoomForm label.checkboxRow')]
+      .filter(el => el.checkVisibility()).map(el => { const r = el.getBoundingClientRect(); return { id: el.id || el.className || el.tagName, h: Math.round(r.height), w: Math.round(r.width) } }).filter(r => r.h < 44 || r.w < 44))
+    expect(small).toEqual([])
+  } finally { await context.close() }
 })

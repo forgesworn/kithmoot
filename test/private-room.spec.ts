@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator } from './browser.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator, chooseInviteRoom } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 // A private room: a room that asks first, whose link is never handed out.
@@ -43,9 +43,7 @@ test('somebody invited from a shared room is let straight into a room that asks 
     // Ada invites Rowan to the private room from Rowan's row.
     await openMember(ada, 'Rowan')
     await ada.getByRole('button', { name: 'Invite Rowan to a room', exact: true }).click({ timeout: 60_000 })
-    const chooser = ada.locator('#inviteToRoom')
-    await expect(chooser).toBeVisible()
-    await chooser.getByRole('button', { name: 'Private build', exact: true }).click()
+    await chooseInviteRoom(ada, 'Private build')
     await ada.locator('#roomSheetClose').click()
     await expect(ada.locator('#chatLog')).toContainText('You invited Rowan to Private build.')
     await expect(rowan.locator('#chatLog')).toContainText('invited you to Private build', { timeout: 60_000 })

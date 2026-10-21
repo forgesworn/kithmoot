@@ -2300,43 +2300,126 @@ function noteInvited(roomId: string, participant: string): void {
 }
 
 let invitingPeer: { participant: string; name?: string } | undefined
+/** The rooms the sender picker offered, by id. */
+let pickerRooms = new Map<string, KnownRoom>()
 
+/** When an invitation went, said in words a person says: "Invited today,
+ *  not joined yet". */
+function invitedLine(at: number | undefined): string {
+  if (at === undefined) return 'Invited, not joined yet'
+  const day = new Date(at * 1000), now = new Date()
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const ago = Math.round((start(now) - start(day)) / 86_400_000)
+  if (ago === 0) return 'Invited today, not joined yet'
+  if (ago === 1) return 'Invited yesterday, not joined yet'
+  return `Invited on ${day.toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}, not joined yet`
+}
+
+/** The sender picker: which room to invite one person to. Every group room
+ *  still going on this device is a row, the one on screen included, with
+ *  what is already so about that person in it. Nothing is chosen for you. */
 function openInviteToRoom(participant: string, name: string | undefined): void {
-  const here = currentRoomId()
-  const rooms = knownRooms(roomStore()).filter((room) => room.roomId !== here && !dmPeerOf(room))
-  if (rooms.length === 0) {
-    setStatus('No other rooms to invite to yet. Start one from Rooms first.')
-    return
-  }
   invitingPeer = { participant, ...(name ? { name } : {}) }
-  const who = name ?? shortKey(participant)
-  $('inviteToRoomLead').textContent = `Which room should ${who} be invited to?`
+  const title = $('inviteToRoomTitle')
+  title.textContent = name ? `Invite ${name} to a room` : 'Invite to a room'
+  const rooms = contactPageRooms().sort((a, b) => b.openedAt - a.openedAt)
+  // The day an invite went: from the private chat with the person, and from
+  // this room, where an invite sent from a member's sheet is a message too.
+  const days = new Map<string, number>()
+  for (const message of heldMessages(currentRoomId() ?? '')) {
+    if (message.participant !== meParticipant || message.invite?.to !== participant) continue
+    days.set(message.invite.room, Math.max(days.get(message.invite.room) ?? 0, message.sentAt))
+  }
+  const sent = new Map(invitationsSentTo(participant).map(entry => [entry.room.roomId, days.get(entry.room.roomId) ?? entry.at]))
   const list = $('inviteToRoomList')
+  const send = $('inviteToRoomSend') as HTMLButtonElement
+  const search = $('inviteToRoomSearch') as HTMLInputElement
+  const none = $('inviteToRoomNone')
+  const error = $('inviteToRoomError')
   list.replaceChildren()
-  for (const room of rooms.sort((a, b) => b.openedAt - a.openedAt)) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = knownRoomLabel(room)
-    button.addEventListener('click', () => { void sendRoomInvite(room) })
-    list.append(button)
+  error.hidden = true
+  error.textContent = ''
+  none.hidden = true
+  search.value = ''
+  send.disabled = true
+  send.textContent = 'Send invite'
+  const empty = rooms.length === 0
+  list.hidden = empty
+  send.hidden = empty
+  $('inviteToRoomFind').hidden = rooms.length < 6
+  $('inviteToRoomClose').textContent = empty ? 'Close' : 'Cancel'
+  const lead = $('inviteToRoomLead')
+  lead.textContent = empty
+    ? `You have no rooms to invite ${name ?? 'them'} to yet. Start a room from Chats, then invite ${name ?? 'them'}.`
+    : name ? `The invite goes to ${name} sealed. Only ${name} can open it.` : 'The invite goes to them sealed. Only they can open it.'
+  pickerRooms = new Map(rooms.map(room => [room.roomId, room]))
+  for (const room of rooms) {
+    const here = personSeenIn(room.roomId, participant)
+    const invited = sent.has(room.roomId)
+    const row = document.createElement('label')
+    row.className = 'inviteRoomRow'
+    row.dataset.label = knownRoomLabel(room).toLocaleLowerCase()
+    const radio = document.createElement('input')
+    radio.type = 'radio'
+    radio.name = 'inviteRoom'
+    radio.value = room.roomId
+    radio.disabled = here
+    const label = knownRoomLabel(room)
+    const avatar = document.createElement('span')
+    avatar.className = 'roomAvatar roomAvatarPicker'
+    avatar.dataset.slot = String(avatarSlot(room.roomId))
+    avatar.setAttribute('aria-hidden', 'true')
+    avatar.textContent = avatarInitial(label)
+    if (!isQuietRoom(room)) renderLogo(avatar, displayedRoomLogo(room.roomId), label)
+    const text = document.createElement('span')
+    text.className = 'roomText'
+    const roomName = document.createElement('span')
+    roomName.className = 'roomName'
+    roomName.textContent = label
+    text.append(roomName)
+    const note = here ? `${name ?? 'Somebody'} is already here` : invited ? invitedLine(sent.get(room.roomId)) : undefined
+    if (note) {
+      // The comma is for the ear: the radio's name reads "Town hall, Invited today, not joined yet".
+      const comma = document.createElement('span')
+      comma.className = 'sr-only'
+      comma.textContent = ', '
+      const sub = document.createElement('span')
+      sub.className = 'roomSub'
+      sub.textContent = note
+      text.append(comma, sub)
+    }
+    row.append(radio, avatar, text)
+    list.append(row)
+  }
+  if (!navigator.onLine && !empty) {
+    send.disabled = true
+    error.textContent = 'You are offline. The invite can be sent when you are back.'
+    error.hidden = false
   }
   const dialog = $('inviteToRoom') as HTMLDialogElement
   if (!dialog.open) dialog.showModal()
+  ;(search.closest('[hidden]') ? list.querySelector<HTMLInputElement>('input:not(:disabled)') : search)?.focus()
 }
 
 async function sendRoomInvite(room: KnownRoom): Promise<void> {
   const s = session
   const peer = invitingPeer
   const dialog = $('inviteToRoom') as HTMLDialogElement
-  if (!s || !peer || contactIsBlocked(peer.participant)) return
-  const who = peer.name ?? shortKey(peer.participant)
+  const send = $('inviteToRoomSend') as HTMLButtonElement
+  const error = $('inviteToRoomError')
+  const fail = (message: string): void => { error.textContent = message; error.hidden = false }
+  error.hidden = true
+  if (!s || !peer || contactIsBlocked(peer.participant)) { fail('This invitation is no longer allowed.'); return }
+  const who = peer.name ?? 'Somebody'
   const crypt = peerCrypt()
   if (!crypt) {
-    setStatus(nostrSession
+    fail(nostrSession
       ? 'This signer cannot encrypt, so it cannot send an invite. Sign in with a signer that supports NIP-44.'
       : 'A paired device cannot send an invite. Use the device that holds your identity.')
     return
   }
+  send.disabled = true
+  send.textContent = 'Sending…'
   try {
     const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
     const text = 'Invited you to a room.'
@@ -2349,11 +2432,12 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
     noteInvited(room.roomId, peer.participant)
     addSystemLine(`You invited ${who} to ${knownRoomLabel(room)}.`)
     setStatus(`${who} is invited to ${knownRoomLabel(room)}. They will find it in their rooms.`, 'done')
-  } catch (err) {
-    setStatus(describeError(err))
-  } finally {
     invitingPeer = undefined
     if (dialog.open) dialog.close()
+  } catch (err) {
+    fail(describeError(err))
+    send.textContent = 'Send invite'
+    send.disabled = false
   }
 }
 
@@ -16631,6 +16715,27 @@ async function saveDmRelaySettings(): Promise<void> {
 }
 $('profileSettingsClose').addEventListener('click', () => ($('profileSettings') as HTMLDialogElement).close())
 $('inviteToRoomClose').addEventListener('click', () => { invitingPeer = undefined; ($('inviteToRoom') as HTMLDialogElement).close() })
+$('inviteToRoom').addEventListener('close', () => { invitingPeer = undefined })
+$('inviteToRoomForm').addEventListener('change', () => {
+  ;($('inviteToRoomSend') as HTMLButtonElement).disabled = !navigator.onLine || !document.querySelector('#inviteToRoomList input:checked')
+})
+$('inviteToRoomSearch').addEventListener('input', () => {
+  const query = ($('inviteToRoomSearch') as HTMLInputElement).value.trim().toLocaleLowerCase()
+  let shown = 0
+  for (const row of $('inviteToRoomList').querySelectorAll<HTMLElement>('.inviteRoomRow')) {
+    const match = !query || (row.dataset.label ?? '').includes(query)
+    row.hidden = !match
+    if (match) shown++
+  }
+  $('inviteToRoomNone').hidden = shown > 0
+})
+$('inviteToRoomForm').addEventListener('submit', event => {
+  event.preventDefault()
+  const chosen = document.querySelector<HTMLInputElement>('#inviteToRoomList input:checked')
+  const room = chosen && pickerRooms.get(chosen.value)
+  if (!room || ($('inviteToRoomSend') as HTMLButtonElement).disabled) return
+  void sendRoomInvite(room)
+})
 $('profileSettings').addEventListener('close', () => {
   profileReturnFocus.focus({ preventScroll: true })
 })

@@ -317,6 +317,16 @@ export async function openRoomInfoPage(page: Page, name: RoomInfoPage): Promise<
   await expect(page.locator('#roomSheetTitle')).toHaveText(name)
 }
 
+/** In the sender picker: choose the room by its name and send the invite. The
+ *  picker closes when the invite has gone. */
+export async function chooseInviteRoom(page: Page, roomName: string): Promise<void> {
+  const picker = page.locator('#inviteToRoom')
+  await expect(picker).toBeVisible()
+  await picker.getByRole('radio', { name: new RegExp(`^${roomName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`) }).check()
+  await picker.getByRole('button', { name: 'Send invite', exact: true }).click()
+  await expect(picker).toBeHidden()
+}
+
 /** One member of the room, opened in Room info's list: what can be done with
  *  them (volume, message, invite, the word check) shows once it is open. */
 export async function openMember(page: Page, name: string | RegExp): Promise<import('@playwright/test').Locator> {

@@ -238,7 +238,8 @@ test('Invite from People opens the private chat and sends the room there, sealed
     await alice.locator('#peopleInvite').click()
     await expect(alice.locator('#inviteToRoom')).toBeVisible()
     expect(parseRoomLink(alice.url()).policy?.members).toContain(b)
-    await alice.locator('#inviteToRoomList').getByRole('button', { name: 'Saturday walk' }).click()
+    await alice.locator('#inviteToRoomList').getByRole('radio', { name: /^Saturday walk/ }).check()
+    await alice.locator('#inviteToRoomSend').click()
     await expect(alice.locator('#inviteToRoom')).toBeHidden()
     await expect(alice.locator('#chatLog')).toContainText('You invited Bob on Nostr to Saturday walk.')
 
