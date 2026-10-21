@@ -49,7 +49,7 @@ export const GROUP_STORAGE_MESSAGES = {
   'node-open': 'One of the group\'s computers is giving files to anyone who asks, so this app has stopped using it. Tell the person who runs it.',
 } as const
 
-export type GroupStorageReason = 'no-grant' | 'unreachable' | 'refused' | 'clock' | 'locked-out'
+export type GroupStorageReason = 'no-grant' | 'unreachable' | 'refused' | 'clock' | 'locked-out' | 'node-open'
 
 /** What an authenticated `HEAD` found: the blob is there, is not, the device may no longer read (`403`), or the node could not say. */
 export type HeadOutcome = 'present' | 'absent' | 'unconfirmed' | 'failed'
@@ -92,6 +92,7 @@ export interface GroupStorageOptions {
   onNoGrant?: () => void
   /** The device's grants have ended everywhere (a revocation or a reset): contract 11. */
   onLockedOut?: () => void
+  /** Ends every call on this instance. Each of `upload`, `get`, `getRange` and `head` also takes a `signal` of its own, which ends only that call. */
   signal?: AbortSignal
   /** Tests: how long a node may take to answer before its headers arrive. Default `GROUP_REQUEST_TIMEOUT_MS`. */
   requestTimeoutMs?: number
@@ -188,11 +189,19 @@ export class GroupStorage {
     return this.#opts.receiver.grantsFor(server, this.#now()).some((g) => g.scopes.includes(scope))
   }
 
-  /** Candidates for a verb: usable, granted that scope, not found open. `prefer` goes first when it is listed. */
-  #candidates(scope: GrantScope, prefer?: string): { base: string; server: string }[] {
+  /**
+   * Candidates for a verb: usable, granted that scope, not found open, with
+   * `prefer` first when it is listed. `allOpen` is set when the device holds
+   * the scope at listed nodes and every one of them was found serving an
+   * unauthenticated read: that is not a missing grant and must not be reported
+   * as one.
+   */
+  #candidates(scope: GrantScope, prefer?: string): { nodes: { base: string; server: string }[]; allOpen: boolean } {
     const listed = this.#listed()
     const ordered = prefer ? [...listed.filter((n) => n.base === prefer), ...listed.filter((n) => n.base !== prefer)] : listed
-    return ordered.filter((n) => !this.#open.has(n.base) && this.#hasScope(n.server, scope))
+    const granted = ordered.filter((n) => this.#hasScope(n.server, scope))
+    const nodes = granted.filter((n) => !this.#open.has(n.base))
+    return { nodes, allOpen: granted.length > 0 && nodes.length === 0 }
   }
 
   /** Said when no candidate exists or every one refused: locked out if every listed node has ended this device's grants, else no grant. */
@@ -212,30 +221,37 @@ export class GroupStorage {
   // Requests
   // -------------------------------------------------------------------------
 
+  /** Whether this call, or the whole instance, has been told to stop. */
+  #stopped(sig?: AbortSignal): boolean {
+    return this.#opts.signal?.aborted === true || sig?.aborted === true
+  }
+
   /**
    * One request. `timed` gives it the headers timeout (A3): the probe, `HEAD`,
    * `POST /groups/v1/events` and a `GET` wait at most that long for a node's
    * headers, then no longer limit the body. A `PUT /upload` is not timed: a
    * large file on a slow link must not be cut off by a clock of ours, so, like
    * the existing Blossom upload (`uploadEnvelopeBody`), it relies on the
-   * caller's abort signal alone.
+   * caller's abort signals alone. There are two: the instance's, which ends
+   * every call, and the call's own, which ends only that call.
    */
-  async #request(url: string, init: RequestInit, timed: boolean): Promise<Response | 'network' | 'cancelled'> {
-    const caller = this.#opts.signal
-    if (caller?.aborted) return 'cancelled'
+  async #request(url: string, init: RequestInit, timed: boolean, sig?: AbortSignal): Promise<Response | 'network' | 'cancelled'> {
+    if (this.#stopped(sig)) return 'cancelled'
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
-    caller?.addEventListener('abort', onAbort, { once: true })
+    const signals = [this.#opts.signal, sig].filter((x): x is AbortSignal => x !== undefined)
+    for (const s of signals) s.addEventListener('abort', onAbort, { once: true })
     const timer = timed ? setTimeout(() => controller.abort(), this.#timeoutMs) : undefined
     try {
+      // `redirect` defaults to `error`: a token must never follow a redirect. Only the unauthenticated probe overrides it.
       return await this.#fetch(url, {
-        ...init, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', redirect: 'error', signal: controller.signal,
+        redirect: 'error', ...init, credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal: controller.signal,
       })
     } catch {
-      return caller?.aborted ? 'cancelled' : 'network'
+      return this.#stopped(sig) ? 'cancelled' : 'network'
     } finally {
       if (timer !== undefined) clearTimeout(timer)
-      caller?.removeEventListener('abort', onAbort)
+      for (const s of signals) s.removeEventListener('abort', onAbort)
     }
   }
 
@@ -257,10 +273,10 @@ export class GroupStorage {
   }
 
   /** `POST /groups/v1/events`: `200`, `201` and `409` are an answer; anything else leaves the event for the next session. */
-  async #post(base: string, server: string, event: GroupEvent): Promise<'accepted' | 'refused' | 'network' | 'cancelled'> {
+  async #post(base: string, server: string, event: GroupEvent, sig?: AbortSignal): Promise<'accepted' | 'refused' | 'network' | 'cancelled'> {
     const res = await this.#request(`${base}/groups/v1/events`, {
       method: 'POST', body: JSON.stringify(event), headers: { 'Content-Type': 'application/json' },
-    }, true)
+    }, true, sig)
     if (res === 'network' || res === 'cancelled') return res
     drain(res)
     if (res.status === 200 || res.status === 201 || res.status === 409) {
@@ -277,15 +293,29 @@ export class GroupStorage {
    * unless the node has already acknowledged it (A2). A node that serves an
    * unauthenticated read is marked open and used no more. Failure to reach a
    * node is not remembered, so the next call tries again.
+   *
+   * The work is shared by concurrent calls and runs under the instance signal
+   * and the 30 s headers timeout only: a call that is cancelled stops waiting
+   * for it (and gets 'cancelled'), while the work finishes for the next call,
+   * so one cancelled upload leaves the instance usable.
    */
-  async #ensureReady(base: string, server: string, hash: string): Promise<'ready' | 'open' | 'unreachable'> {
+  async #ensureReady(base: string, server: string, hash: string, sig?: AbortSignal): Promise<'ready' | 'open' | 'unreachable' | 'cancelled'> {
     if (this.#open.has(base)) return 'open'
     if (this.#ready.has(base)) return 'ready'
-    const running = this.#readying.get(base)
-    if (running) return running
-    const task = this.#bringUp(base, server, hash).finally(() => this.#readying.delete(base))
-    this.#readying.set(base, task)
-    return task
+    let task = this.#readying.get(base)
+    if (!task) {
+      task = this.#bringUp(base, server, hash).finally(() => this.#readying.delete(base))
+      this.#readying.set(base, task)
+    }
+    if (!sig) return task
+    if (sig.aborted) return 'cancelled'
+    let off = (): void => {}
+    const cancelled = new Promise<'cancelled'>((resolve) => {
+      const on = (): void => resolve('cancelled')
+      sig.addEventListener('abort', on, { once: true })
+      off = () => sig.removeEventListener('abort', on)
+    })
+    try { return await Promise.race([task, cancelled]) } finally { off() }
   }
 
   async #bringUp(base: string, server: string, hash: string): Promise<'ready' | 'open' | 'unreachable'> {
@@ -306,14 +336,20 @@ export class GroupStorage {
     return 'ready'
   }
 
-  /** `HEAD <base>/<hash>` with no `Authorization`. Group mode answers `401` whether or not the blob exists (6.2). */
+  /**
+   * `HEAD <base>/<hash>` with no `Authorization`. Group mode answers `401`
+   * whether or not the blob exists (6.2). The probe carries no token, so it
+   * alone does not refuse redirects: a `3xx` (or, in a browser, an opaque
+   * redirect) is a node that answers without asking who is asking, and is open.
+   */
   async #probe(base: string, hash: string): Promise<Probe> {
-    const res = await this.#request(`${base}/${hash}`, { method: 'HEAD' }, true)
+    const res = await this.#request(`${base}/${hash}`, { method: 'HEAD', redirect: 'manual' }, true)
     if (res === 'network' || res === 'cancelled') return 'unknown'
     drain(res)
+    if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) return 'open'
     if (res.status === 401) return 'closed'
     if (res.status === 429 || res.status >= 500) return 'unknown'
-    // Any 2xx, 3xx, 404 or 410 (and any other answer that is not a demand for a token): a node that gives or denies a blob without asking who is asking.
+    // Any 2xx, 404 or 410 (and any other answer that is not a demand for a token): a node that gives or denies a blob without asking who is asking.
     return 'open'
   }
 
@@ -323,20 +359,20 @@ export class GroupStorage {
    * request once (with the same token if it has 15 s left, else a fresh one).
    * Never loops: at most one post and one repeat per call.
    */
-  async #authed(verb: 'get' | 'upload', node: { base: string; server: string }, hash: string, url: string, init: (auth: string) => RequestInit, timed: boolean): Promise<Sent> {
+  async #authed(verb: 'get' | 'upload', node: { base: string; server: string }, hash: string, url: string, init: (auth: string) => RequestInit, timed: boolean, sig?: AbortSignal): Promise<Sent> {
     let token = this.#token(verb, node.base, node.server, hash)
-    let res = await this.#request(url, init(token.header), timed)
+    let res = await this.#request(url, init(token.header), timed, sig)
     if (res === 'network') return { kind: 'network' }
     if (res === 'cancelled') return { kind: 'cancelled' }
     if (res.status === 403 && reasonOf(res) === 'not-granted') {
       drain(res)
       const grant = this.#newestGrant(node.server)
       if (!grant) return { kind: 'response', res: new Response(null, { status: 403, headers: { 'x-reason': 'not-granted' } }), server: node.server }
-      const posted = await this.#post(node.base, node.server, grant)
+      const posted = await this.#post(node.base, node.server, grant, sig)
       if (posted === 'network') return { kind: 'network' }
       if (posted === 'cancelled') return { kind: 'cancelled' }
       if (this.#now() >= token.expiration - GROUP_TOKEN_REUSE_MARGIN_SECONDS) token = this.#token(verb, node.base, node.server, hash, true)
-      res = await this.#request(url, init(token.header), timed)
+      res = await this.#request(url, init(token.header), timed, sig)
       if (res === 'network') return { kind: 'network' }
       if (res === 'cancelled') return { kind: 'cancelled' }
     }
@@ -375,14 +411,20 @@ export class GroupStorage {
    * not found open. A node that fails moves the call on to the next; nothing
    * is retried within one call beyond the `403` post-and-retry (6.4).
    * `sha256` is the envelope's hash, as sealing computed it.
+   *
+   * No clock of ours caps the `PUT` (A3). It ends when the node answers, when
+   * `opts.signal` aborts this call (the instance stays usable), or when the
+   * instance's own signal aborts every call.
    */
-  async upload(envelope: Blob | Uint8Array, sha256: string): Promise<GroupUploadResult> {
+  async upload(envelope: Blob | Uint8Array, sha256: string, opts: { signal?: AbortSignal } = {}): Promise<GroupUploadResult> {
+    const sig = opts.signal
     const hash = sha256.toLowerCase()
     if (!HEX64.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
     const size = envelope instanceof Blob ? envelope.size : envelope.length
     if (this.#clockWrong) return { status: 'held', reason: 'clock', detail: GROUP_STORAGE_MESSAGES.clock }
-    const candidates = this.#candidates('upload')
+    const { nodes: candidates, allOpen } = this.#candidates('upload')
     if (candidates.length === 0) {
+      if (allOpen) return { status: 'held', reason: 'node-open', detail: GROUP_STORAGE_MESSAGES['node-open'] }
       const why = this.#noGrant()
       return { status: 'held', reason: why.reason, detail: GROUP_STORAGE_MESSAGES[why.reason] }
     }
@@ -391,8 +433,9 @@ export class GroupStorage {
     let refused = 0
     let denied = 0
     for (const node of candidates) {
-      if (this.#opts.signal?.aborted) throw new Error('The upload was cancelled.')
-      const ready = await this.#ensureReady(node.base, node.server, hash)
+      if (this.#stopped(sig)) throw new Error('The upload was cancelled.')
+      const ready = await this.#ensureReady(node.base, node.server, hash, sig)
+      if (ready === 'cancelled') throw new Error('The upload was cancelled.')
       if (ready === 'open') continue
       if (ready === 'unreachable') { unreachable++; continue }
       body ??= await uploadBody(envelope)
@@ -400,7 +443,7 @@ export class GroupStorage {
         method: 'PUT',
         headers: { Authorization: auth, 'Content-Type': ENVELOPE_MEDIA_TYPE, 'X-SHA-256': hash },
         body,
-      }), false)
+      }), false, sig)
       if (sent.kind === 'cancelled') throw new Error('The upload was cancelled.')
       if (sent.kind === 'network') { unreachable++; continue }
       const { res } = sent
@@ -411,7 +454,9 @@ export class GroupStorage {
         return { status: 'held', reason: 'clock', detail: GROUP_STORAGE_MESSAGES.clock }
       }
       if (res.status === 200 || res.status === 201) {
-        const text = await res.text().catch(() => '')
+        // The descriptor is small by contract; a node that sends more is not describing a blob.
+        const chunks = await readBounded(res, DESCRIPTOR_MAX_CHARS * 4, [this.#opts.signal, sig])
+        const text = chunks ? new TextDecoder().decode(concat(chunks)) : ''
         if (descriptorFits(text, node.base, hash, size)) return { status: 'stored', url: `${node.base}/${hash}`, base: node.base, server: node.server, size }
         refused++
         continue
@@ -428,54 +473,65 @@ export class GroupStorage {
     }
     if (unreachable > 0) return { status: 'held', reason: 'unreachable', detail: GROUP_STORAGE_MESSAGES.unreachable }
     if (refused > 0) return { status: 'held', reason: 'refused', detail: GROUP_STORAGE_MESSAGES.refused }
-    // Every candidate was found open this session: nothing is left to use.
-    return { status: 'held', reason: 'unreachable', detail: GROUP_STORAGE_MESSAGES.unreachable }
+    // Every candidate was found open in this call.
+    return { status: 'held', reason: 'node-open', detail: GROUP_STORAGE_MESSAGES['node-open'] }
   }
 
   // -------------------------------------------------------------------------
   // Reads
   // -------------------------------------------------------------------------
 
-  /** Fetch a whole envelope by hash, from `prefer` first if listed, then in list order. The caller checks the hash and opens it. */
-  async get(sha256: string, opts: { prefer?: string; maxBytes?: number } = {}): Promise<Blob> {
+  /**
+   * Fetch a whole envelope by hash, from `prefer` first if listed, then in list
+   * order. The caller checks the hash and opens it. The body is read through a
+   * byte counter and the node's stream is cancelled the moment it passes
+   * `maxBytes`, so a node that never stops cannot fill memory.
+   */
+  async get(sha256: string, opts: { prefer?: string; maxBytes?: number; signal?: AbortSignal } = {}): Promise<Blob> {
     const limit = opts.maxBytes ?? DEFAULT_MAX_BLOB_ATTACHMENT_BYTES
-    const res = await this.#read(sha256, {}, opts.prefer, (r) => {
-      const length = Number(r.headers.get('content-length'))
-      return !(Number.isFinite(length) && length > limit)
-    })
-    const blob = await res.blob()
-    if (blob.size > limit) throw new GroupStorageError('refused', 'The file is bigger than this app will take.')
-    return blob
+    const chunks = await this.#read(sha256, {}, opts.prefer, limit, false, opts.signal)
+    return new Blob(chunks as BlobPart[])
   }
 
-  /** One range of a blob, `start` to `endInclusive`. Reuses the `get` token for (node, hash) while 15 s of it remain. */
-  async getRange(sha256: string, start: number, endInclusive: number, opts: { prefer?: string } = {}): Promise<Uint8Array> {
+  /**
+   * One range of a blob, `start` to `endInclusive`. Reuses the `get` token for
+   * (node, hash) while 15 s of it remain. A node that sends more than the range
+   * asked for is cancelled as soon as it does.
+   */
+  async getRange(sha256: string, start: number, endInclusive: number, opts: { prefer?: string; signal?: AbortSignal } = {}): Promise<Uint8Array> {
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(endInclusive) || start < 0 || endInclusive < start) throw new Error('A range needs a start and an end, in order.')
     const wanted = endInclusive - start + 1
-    const res = await this.#read(sha256, { Range: `bytes=${start}-${endInclusive}` }, opts.prefer, (r) => r.status === 206)
-    const bytes = new Uint8Array(await res.arrayBuffer())
-    if (bytes.length !== wanted) throw new GroupStorageError('refused', 'A node answered a range with the wrong number of bytes.')
-    return bytes
+    const chunks = await this.#read(sha256, { Range: `bytes=${start}-${endInclusive}` }, opts.prefer, wanted, true, opts.signal)
+    return concat(chunks)
   }
 
-  /** The one read loop: nodes in order, `404` and failures move on, the whole read fails only after every candidate. */
-  async #read(sha256: string, headers: Record<string, string>, prefer: string | undefined, accept: (r: Response) => boolean): Promise<Response> {
+  /**
+   * The one read loop: nodes in order, `404` and failures move on, the whole
+   * read fails only after every candidate. `limit` is the most a node may send;
+   * with `exact` it must send exactly that many (a range), else a node that
+   * sends fewer or more is skipped as having answered wrongly.
+   */
+  async #read(sha256: string, headers: Record<string, string>, prefer: string | undefined, limit: number, exact: boolean, sig?: AbortSignal): Promise<Uint8Array[]> {
     const hash = sha256.toLowerCase()
     if (!HEX64.test(hash)) throw new Error('The blob hash must be 64 hex characters.')
     if (this.#clockWrong) throw new GroupStorageError('clock', GROUP_STORAGE_MESSAGES.clock)
-    const candidates = this.#candidates('get', prefer)
+    const { nodes: candidates, allOpen } = this.#candidates('get', prefer)
     if (candidates.length === 0) {
+      if (allOpen) throw new GroupStorageError('node-open', GROUP_STORAGE_MESSAGES['node-open'])
       const why = this.#noGrant()
       throw new GroupStorageError(why.reason, GROUP_STORAGE_MESSAGES[why.reason])
     }
     let reached = 0
     let refused = 0
+    let wrong = 0
+    let opened = 0
     for (const node of candidates) {
-      if (this.#opts.signal?.aborted) throw new Error('The read was cancelled.')
-      const ready = await this.#ensureReady(node.base, node.server, hash)
-      if (ready === 'open') continue
+      if (this.#stopped(sig)) throw new Error('The read was cancelled.')
+      const ready = await this.#ensureReady(node.base, node.server, hash, sig)
+      if (ready === 'cancelled') throw new Error('The read was cancelled.')
+      if (ready === 'open') { opened++; continue }
       if (ready === 'unreachable') continue
-      const sent = await this.#authed('get', node, hash, `${node.base}/${hash}`, (auth) => ({ method: 'GET', headers: { Authorization: auth, ...headers } }), true)
+      const sent = await this.#authed('get', node, hash, `${node.base}/${hash}`, (auth) => ({ method: 'GET', headers: { Authorization: auth, ...headers } }), true, sig)
       if (sent.kind === 'cancelled') throw new Error('The read was cancelled.')
       if (sent.kind === 'network') continue
       const { res } = sent
@@ -486,7 +542,21 @@ export class GroupStorage {
         throw new GroupStorageError('clock', GROUP_STORAGE_MESSAGES.clock)
       }
       reached++
-      if ((res.status === 200 || res.status === 206) && accept(res)) return res
+      const right = exact ? res.status === 206 : res.status === 200 || res.status === 206
+      if (right) {
+        const header = res.headers.get('content-length')
+        const declared = header === null ? NaN : Number(header)
+        if (Number.isFinite(declared) && (declared > limit || (exact && declared !== limit))) {
+          drain(res)
+          wrong++
+          continue
+        }
+        const chunks = await readBounded(res, limit, [this.#opts.signal, sig])
+        if (this.#stopped(sig)) throw new Error('The read was cancelled.')
+        if (chunks && (!exact || chunks.reduce((n, c) => n + c.length, 0) === limit)) return chunks
+        wrong++
+        continue
+      }
       drain(res)
       if (res.status === 403) refused++
     }
@@ -494,6 +564,8 @@ export class GroupStorage {
       const why = this.#noGrant()
       throw new GroupStorageError(why.reason === 'locked-out' ? 'locked-out' : 'refused', GROUP_STORAGE_MESSAGES[why.reason === 'locked-out' ? 'locked-out' : 'refused'])
     }
+    if (wrong > 0) throw new GroupStorageError('refused', exact ? 'A node answered a range with the wrong number of bytes.' : 'The file is bigger than this app will take.')
+    if (opened === candidates.length) throw new GroupStorageError('node-open', GROUP_STORAGE_MESSAGES['node-open'])
     throw new GroupStorageError('absent', GROUP_STORAGE_MESSAGES.absent)
   }
 
@@ -501,17 +573,21 @@ export class GroupStorage {
    * An authenticated `HEAD` of a blob on a listed base, with a `get` token.
    * `200` is present, `404` absent, `403` unconfirmed (this device's `get`
    * grant has ended, so it can no longer look), anything else, or a base the
-   * room does not list, failed. Not covered by the spec's table, so this
-   * mapping is this module's.
+   * room does not list, failed. Like every other first contact, it probes the
+   * node first and brings it up to date: a node found open or not answering is
+   * `failed`, and no token is sent to it. Not covered by the spec's table, so
+   * this mapping is this module's.
    */
-  async head(base: string, sha256: string): Promise<HeadOutcome> {
+  async head(base: string, sha256: string, opts: { signal?: AbortSignal } = {}): Promise<HeadOutcome> {
+    const sig = opts.signal
     const hash = sha256.toLowerCase()
     if (!HEX64.test(hash)) return 'failed'
     const node = this.#listed().find((n) => n.base === base)
     if (!node || this.#open.has(base)) return 'failed'
     // No active `get` grant: this device can no longer look, which is not the same as the node being down.
     if (!this.#hasScope(node.server, 'get')) return 'unconfirmed'
-    const sent = await this.#authed('get', node, hash, `${base}/${hash}`, (auth) => ({ method: 'HEAD', headers: { Authorization: auth } }), true)
+    if (await this.#ensureReady(base, node.server, hash, sig) !== 'ready') return 'failed'
+    const sent = await this.#authed('get', node, hash, `${base}/${hash}`, (auth) => ({ method: 'HEAD', headers: { Authorization: auth } }), true, sig)
     if (sent.kind !== 'response') return 'failed'
     drain(sent.res)
     if (sent.res.status === 200) return 'present'
@@ -519,6 +595,46 @@ export class GroupStorage {
     if (sent.res.status === 403) return 'unconfirmed'
     return 'failed'
   }
+}
+
+/**
+ * Read a response body up to `limit` bytes through its stream, cancelling it
+ * the moment it passes. Undefined when the node sent more than that, or the
+ * stream failed or was cancelled. (The context library's `readBoundedBlob`
+ * does the same for attachments but is private to that package and words its
+ * error for attachments, so it is not reused.)
+ */
+async function readBounded(res: Response, limit: number, signals: (AbortSignal | undefined)[]): Promise<Uint8Array[] | undefined> {
+  if (!res.body) {
+    const bytes = new Uint8Array(await res.arrayBuffer().catch(() => new ArrayBuffer(0)))
+    return bytes.length > limit ? undefined : [bytes]
+  }
+  const reader = res.body.getReader()
+  const stop = (): void => { void reader.cancel().catch(() => {}) }
+  const live = signals.filter((x): x is AbortSignal => x !== undefined)
+  for (const s of live) s.addEventListener('abort', stop, { once: true })
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return chunks
+      total += value.length
+      if (total > limit) { stop(); return undefined }
+      chunks.push(value)
+    }
+  } catch {
+    return undefined
+  } finally {
+    for (const s of live) s.removeEventListener('abort', stop)
+  }
+}
+
+function concat(chunks: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+  let at = 0
+  for (const c of chunks) { out.set(c, at); at += c.length }
+  return out
 }
 
 /** A Blob body for a PUT. WebKit can read and hash an OPFS-backed File, yet send it as a zero-byte body: it is read into memory there only. */

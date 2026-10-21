@@ -539,7 +539,11 @@ describe('what is never done', () => {
     })
     await wrapped.upload(envelope, HASH)
     expect(seen.length).toBeGreaterThan(0)
-    for (const i of seen) expect(i).toMatchObject({ credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', redirect: 'error' })
+    for (const i of seen) {
+      expect(i).toMatchObject({ credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store' })
+      // Only the unauthenticated probe may look at a redirect; anything carrying a token refuses to follow one.
+      expect(i.redirect).toBe(new Headers(i.headers).get('authorization') === null && i.method === 'HEAD' ? 'manual' : 'error')
+    }
   })
 })
 
@@ -614,5 +618,189 @@ describe('deleteGroupBlob', () => {
     const url = `${N3}/${HASH}`
     const auth = finalizeEvent(buildGroupToken('delete', HASH, 'n3.example.net', NOW, undefined, url), deviceSk)
     expect(await deleteGroupBlob(url, auth, { fetch: answers(200, 404).fetchFn })).toEqual({ status: 'deleted' })
+  })
+})
+
+
+/** A body that never ends, counting how much of it was asked for. */
+function endless(counter: { pulled: number; cancelled: boolean }, chunk = 16384): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    // Yields to the event loop between chunks, as a network does: a stream that never lets timers run could not be aborted by anything.
+    async pull(controller) { await new Promise((r) => setTimeout(r, 0)); counter.pulled += chunk; controller.enqueue(new Uint8Array(chunk)) },
+    cancel() { counter.cancelled = true },
+  })
+}
+
+describe('bounded reads', () => {
+  it('get stops a node that never ends at maxBytes, cancelling its stream, and tries the next node', async () => {
+    const counter = { pulled: 0, cancelled: false }
+    const base = defaultNode()
+    const r = rig({ handler: (c, n) => (c.method === 'GET' && new URL(c.url).hostname === 'n1.example.net' ? new Response(endless(counter), { status: 200 }) : base(c, n)) })
+    const blob = await r.storage.get(HASH, { maxBytes: 100_000 })
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(envelope)
+    expect(counter.cancelled).toBe(true)
+    // A little read-ahead is fine; the whole offer is not.
+    expect(counter.pulled).toBeLessThan(1_000_000)
+  })
+
+  it('get with only an endless node fails refused, not out of memory', async () => {
+    const counter = { pulled: 0, cancelled: false }
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' ? new Response(endless(counter), { status: 200 }) : base(c, n)) })
+    await expect(r.storage.get(HASH, { maxBytes: 50_000 })).rejects.toMatchObject({ reason: 'refused' })
+    expect(counter.cancelled).toBe(true)
+    expect(counter.pulled).toBeLessThan(1_000_000)
+  })
+
+  it('getRange stops a node that sends more than the range asked for', async () => {
+    const counter = { pulled: 0, cancelled: false }
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' ? new Response(endless(counter), { status: 206 }) : base(c, n)) })
+    await expect(r.storage.getRange(HASH, 0, 9)).rejects.toMatchObject({ reason: 'refused' })
+    expect(counter.cancelled).toBe(true)
+    expect(counter.pulled).toBeLessThan(100_000)
+  })
+
+  it('a node that answers an upload with an endless descriptor is refused, not read to the end', async () => {
+    const counter = { pulled: 0, cancelled: false }
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'PUT' ? new Response(endless(counter), { status: 201 }) : base(c, n)) })
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'refused' })
+    expect(counter.cancelled).toBe(true)
+    expect(counter.pulled).toBeLessThan(2_000_000)
+  })
+})
+
+describe('a call of its own can be cancelled', () => {
+  const hung = (base: Handler): Handler => (c, n) => (c.method === 'PUT'
+    ? new Promise<Response>((_, reject) => c.signal?.addEventListener('abort', () => reject(new Error('aborted'))))
+    : base(c, n))
+
+  it('aborting one upload leaves the instance usable, and the next call goes through', async () => {
+    const base = defaultNode()
+    let silent = true
+    const r = rig({ nodes: [N1], handler: (c, n) => (silent ? hung(base)(c, n) : base(c, n)) })
+    const controller = new AbortController()
+    const pending = r.storage.upload(envelope, HASH, { signal: controller.signal }).then(() => 'done', (e: Error) => e.message)
+    await new Promise((res) => setTimeout(res, 40))
+    controller.abort()
+    expect(await pending).toBe('The upload was cancelled.')
+    silent = false
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'stored' })
+  })
+
+  it('an already aborted call does nothing, and one slow node does not hold the others', async () => {
+    const r = rig()
+    const done = new AbortController()
+    done.abort()
+    await expect(r.storage.upload(envelope, HASH, { signal: done.signal })).rejects.toThrow('cancelled')
+    await expect(r.storage.get(HASH, { signal: done.signal })).rejects.toThrow('cancelled')
+    await expect(r.storage.getRange(HASH, 0, 3, { signal: done.signal })).rejects.toThrow('cancelled')
+    expect(r.calls).toEqual([])
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'stored' })
+  })
+
+  it('aborting a read stops it mid-body, and the instance still reads afterwards', async () => {
+    const base = defaultNode()
+    const counter = { pulled: 0, cancelled: false }
+    let endlessNode = true
+    const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' && endlessNode ? new Response(endless(counter), { status: 200 }) : base(c, n)) })
+    const controller = new AbortController()
+    const pending = r.storage.get(HASH, { signal: controller.signal, maxBytes: 1e12 }).then(() => 'done', (e: Error) => e.message)
+    await new Promise((res) => setTimeout(res, 30))
+    controller.abort()
+    expect(await pending).toBe('The read was cancelled.')
+    expect(counter.cancelled).toBe(true)
+    endlessNode = false
+    expect(new Uint8Array(await (await r.storage.get(HASH)).arrayBuffer())).toEqual(envelope)
+  })
+
+  it('head takes a signal of its own', async () => {
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'HEAD' && c.headers.Authorization ? new Promise<Response>((_, rej) => c.signal?.addEventListener('abort', () => rej(new Error('aborted')))) : base(c, n)) })
+    const controller = new AbortController()
+    const pending = r.storage.head(N1, HASH, { signal: controller.signal })
+    await new Promise((res) => setTimeout(res, 30))
+    controller.abort()
+    expect(await pending).toBe('failed')
+  })
+
+  it('the instance signal still ends every call', async () => {
+    const instance = new AbortController()
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], over: { signal: instance.signal }, handler: hung(base) })
+    const pending = r.storage.upload(envelope, HASH).then(() => 'done', (e: Error) => e.message)
+    await new Promise((res) => setTimeout(res, 30))
+    instance.abort()
+    expect(await pending).toBe('The upload was cancelled.')
+  })
+})
+
+describe('head is a first contact like any other', () => {
+  it('probes first, carries what it holds, and sends no token to an open node', async () => {
+    const open = rig({ nodes: [N1], handler: () => new Response(null, { status: 200 }) })
+    expect(await open.storage.head(N1, HASH)).toBe('failed')
+    expect(open.calls.length).toBe(1)
+    expect(open.calls[0]!.headers.Authorization).toBeUndefined()
+    expect(open.events.open).toEqual(['n1.example.net'])
+
+    const closed = rig({ nodes: [N1] })
+    expect(await closed.storage.head(N1, HASH)).toBe('present')
+    expect(closed.calls.map((c) => c.method)).toEqual(['HEAD', 'POST', 'HEAD'])
+    expect(closed.calls[0]!.headers.Authorization).toBeUndefined()
+    expect(closed.calls[2]!.headers.Authorization).toMatch(/^Nostr /)
+  })
+
+  it('a node that does not answer the probe is failed, with no token sent', async () => {
+    const r = rig({ nodes: [N1], handler: () => { throw new TypeError('down') } })
+    expect(await r.storage.head(N1, HASH)).toBe('failed')
+    expect(r.calls.every((c) => !c.headers.Authorization)).toBe(true)
+  })
+})
+
+describe('every listed node open', () => {
+  it('is its own outcome on later calls, with its own text, and never asks the keeper for a grant', async () => {
+    const r = rig({ nodes: [N1, N2], handler: () => new Response(null, { status: 404 }) })
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'node-open' })
+    expect(r.events.open).toEqual(['n1.example.net', 'n2.example.net'])
+    const again = await r.storage.upload(envelope, HASH)
+    expect(again).toMatchObject({ status: 'held', reason: 'node-open', detail: GROUP_STORAGE_MESSAGES['node-open'] })
+    expect(GROUP_STORAGE_MESSAGES['node-open']).toContain('giving files to anyone who asks')
+    await expect(r.storage.get(HASH)).rejects.toMatchObject({ reason: 'node-open', message: GROUP_STORAGE_MESSAGES['node-open'] })
+    expect(r.events.noGrant).toBe(0)
+    expect(r.events.open.length).toBe(2)
+  })
+
+  it('a mix of an open node and one without a grant is still no grant', async () => {
+    const r = rig({ nodes: [N1, N2], grants: [grant('n1.example.net')], handler: () => new Response(null, { status: 200 }) })
+    await r.storage.upload(envelope, HASH)
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ reason: 'node-open' })
+  })
+})
+
+describe('a redirecting node', () => {
+  it('is open on the probe (3xx or opaque redirect), and the probe alone does not refuse redirects', async () => {
+    for (const make of [() => new Response(null, { status: 302, headers: { location: 'https://elsewhere.example.net/' } }), () => Object.defineProperty(new Response(null, { status: 200 }), 'type', { value: 'opaqueredirect' })]) {
+      const seen: RequestInit[] = []
+      const r = rig({ nodes: [N1], handler: () => make() })
+      const wrapped = new GroupStorage({ roomId: ROOM, nodes: () => [N1], deviceSk, receiver: r.receiver, now: () => NOW, onNodeOpen: (s) => r.events.open.push(s), fetch: ((u: string, i: RequestInit) => { seen.push(i); return Promise.resolve(make()) }) as never })
+      expect(await wrapped.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'node-open' })
+      expect(seen.length).toBe(1)
+      expect(seen[0]!.redirect).toBe('manual')
+      expect(r.events.open).toEqual(['n1.example.net'])
+    }
+  })
+
+  it('every authenticated request still refuses a redirect', async () => {
+    const seen: RequestInit[] = []
+    const base = defaultNode()
+    const r = rig({ nodes: [N1], handler: (c, n) => base(c, n) })
+    const wrapped = new GroupStorage({ roomId: ROOM, nodes: () => [N1], deviceSk, receiver: r.receiver, now: () => NOW, fetch: ((u: string, i: RequestInit) => { seen.push(i); return Promise.resolve(base({ url: String(u), method: i.method ?? 'GET', headers: (i.headers ?? {}) as never }, 0)) }) as never })
+    await wrapped.upload(envelope, HASH)
+    await wrapped.get(HASH)
+    await wrapped.head(N1, HASH)
+    const authed = seen.filter((i) => new Headers(i.headers).get('authorization') !== null)
+    expect(authed.length).toBeGreaterThan(2)
+    expect(authed.every((i) => i.redirect === 'error')).toBe(true)
   })
 })
