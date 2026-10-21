@@ -39,6 +39,23 @@ export function formatActivityTime(seconds: number, now: number = Date.now() / 1
   return at.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+/** What a muted room says about itself, in the header and on its row: the
+ *  end of a timed mute in the same en-GB 24-hour style as the activity time,
+ *  or just "Muted" for a room set to Nothing, which has no end. Today and
+ *  tomorrow are named, a weekday out to six days, then the date. */
+export function mutedUntilText(mute: { until: number } | 'always', now: number = Date.now() / 1000): string {
+  if (mute === 'always') return 'Muted'
+  const end = new Date(mute.until * 1000)
+  const today = new Date(now * 1000)
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((startOfDay(end) - startOfDay(today)) / 86_400_000)
+  const clock = end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  if (days <= 0) return `Muted until ${clock}`
+  if (days === 1) return `Muted until tomorrow, ${clock}`
+  if (days <= 6) return `Muted until ${end.toLocaleDateString('en-GB', { weekday: 'short' })}, ${clock}`
+  return `Muted until ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${clock}`
+}
+
 /** A message worth a preview line: enough to say who sent it and what it
  *  held, without needing the whole `ChatMessage` shape. */
 export interface PreviewMessage {

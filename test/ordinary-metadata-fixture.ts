@@ -1,10 +1,10 @@
 import { memoryDeviceStore } from '../app/src/device-store.js'
 import { setPinned } from '../app/src/room-pins.js'
 import { storeVolumeLevel } from '../app/src/volume-store.js'
-import { setNotificationMode } from '../app/src/notification-scopes.js'
+import { muteRoom, setNotificationMode } from '../app/src/notification-scopes.js'
 import { setRoomProject } from '../app/src/room-projects.js'
 
-export const METADATA_MODES = ['all', 'empty', 'volume', 'pins', 'notifications', 'projects'] as const
+export const METADATA_MODES = ['all', 'empty', 'volume', 'pins', 'notifications', 'projects', 'mutes'] as const
 export type MetadataMode = typeof METADATA_MODES[number]
 export function metadataFixture(mode: MetadataMode = 'all') {
   const store = memoryDeviceStore(), room = '1'.repeat(64), person = '2'.repeat(64), account = '3'.repeat(64)
@@ -20,13 +20,14 @@ export function metadataFixture(mode: MetadataMode = 'all') {
   if (mode === 'all' || mode === 'projects') {
     setRoomProject(store, undefined, room, ' Home 🧭 '); setRoomProject(store, account, room, 'Work')
   }
+  if (mode === 'all' || mode === 'mutes') muteRoom(store, account, room, 1_900_000_000)
   return { records: new Map(store.keys().map(key => [key, store.get(key)!])), room, person, account }
 }
 export const METADATA_FAULTS = ['volume-version', 'volume-person', 'volume-null', 'volume-range', 'volume-default', 'volume-extra',
   'volume-duplicate-json', 'volume-whitespace', 'pins-version', 'pins-duplicate', 'pins-unsorted', 'pins-person', 'pins-shape',
   'notification-version', 'notification-account', 'notification-kind', 'notification-default-id', 'notification-empty-project',
   'notification-room', 'notification-key-json', 'notification-mode', 'project-version', 'project-account', 'project-room',
-  'project-name', 'project-empty', 'wrapped', 'nested-wrapped'] as const
+  'project-name', 'project-empty', 'mute-version', 'mute-account', 'mute-room', 'mute-value', 'wrapped', 'nested-wrapped'] as const
 export type MetadataFault = typeof METADATA_FAULTS[number]
 export function damageMetadataFixture(fixture: ReturnType<typeof metadataFixture>, records: Map<string, string>, fault: MetadataFault): void {
   const volume = `kithmoot.volume.v1.${fixture.person}`, pins = 'kithmoot.pinned-rooms.v1'
@@ -65,6 +66,11 @@ export function damageMetadataFixture(fixture: ReturnType<typeof metadataFixture
   if (fault === 'project-room') move(project, project + '.extra')
   if (fault === 'project-name') records.set(project, ' Home\u202e ')
   if (fault === 'project-empty') records.set(project, '')
+  const mute = `kithmoot.mute-until.v1.${fixture.account}.${fixture.room}`
+  if (fault === 'mute-version') move(mute, mute.replace('.v1.', '.v2.'))
+  if (fault === 'mute-account') move(mute, mute.replace(fixture.account, 'account'))
+  if (fault === 'mute-room') move(mute, mute + '.extra')
+  if (fault === 'mute-value') records.set(mute, '01')
   if (fault === 'wrapped') move(volume, `kithmoot.account.${fixture.account}.${volume}`)
   if (fault === 'nested-wrapped') move(project, `kithmoot.account.${fixture.account}.kithmoot.account.${fixture.account}.${project}`)
 }

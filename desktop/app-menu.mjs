@@ -18,7 +18,9 @@ export const MENU_COMMANDS = Object.freeze([
   'show-chats', 'show-people', 'show-boards', 'find', 'room-info',
   'text-size-standard', 'text-size-large', 'text-size-huge',
   'call', 'search', 'invite', 'agent',
-  'notify-all', 'notify-off', 'notify-inherit', 'pin', 'leave',
+  'notify-all', 'notify-off', 'notify-inherit',
+  'mute-1h', 'mute-8h', 'mute-1d', 'mute-1w', 'unmute',
+  'pin', 'leave',
   'shortcuts',
 ])
 
@@ -29,7 +31,7 @@ const CALL_LABELS = ['Start call', 'Join call', 'Leave call']
 /** What the menu knows when nothing has been said: no room, nobody signed in. */
 export const EMPTY_STATE = Object.freeze({
   room: false, people: false, call: 'Start call', search: false, invite: false, agent: false,
-  pinned: false, notify: undefined, textSize: 'standard', leaveLabel: 'Leave room…',
+  pinned: false, notify: undefined, muted: false, textSize: 'standard', leaveLabel: 'Leave room…',
 })
 
 const bool = value => value === true
@@ -55,6 +57,8 @@ export function sanitiseRoomMenuState(value) {
     agent: room && bool(state.agent),
     pinned: room && bool(state.pinned),
     notify: room && NOTIFY_MODES.includes(/** @type {string} */ (state.notify)) ? /** @type {string} */ (state.notify) : undefined,
+    // Whether a timed mute is running: a boolean, never a label, so the words stay ours.
+    muted: room && bool(state.muted),
     textSize: TEXT_SIZES.includes(/** @type {string} */ (state.textSize)) ? /** @type {string} */ (state.textSize) : 'standard',
     leaveLabel: state.leaveLabel === 'Leave private chat…' ? 'Leave private chat…' : 'Leave room…',
   }
@@ -138,7 +142,16 @@ export function buildAppMenuTemplate({ platform, appName, state, run, about, rep
         { type: 'separator' },
         {
           label: 'Notifications', enabled: state.room,
-          submenu: radios([['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']], state.notify, 'notify', { enabled: state.room }),
+          submenu: [
+            ...radios([['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']], state.notify, 'notify', { enabled: state.room }),
+            // A room set to Nothing has no sound left to take away, so no durations.
+            ...(state.notify === 'off' ? [] : [
+              { type: 'separator' },
+              ...(state.muted
+                ? [item('Unmute', 'unmute', inRoom())]
+                : [['Mute for 1 hour', 'mute-1h'], ['Mute for 8 hours', 'mute-8h'], ['Mute for 1 day', 'mute-1d'], ['Mute for 1 week', 'mute-1w']].map(([label, command]) => item(label, command, inRoom()))),
+            ]),
+          ],
         },
         item(state.pinned ? 'Unpin' : 'Pin', 'pin', inRoom()),
         { type: 'separator' },

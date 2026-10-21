@@ -119,6 +119,69 @@ test('background saved room delivery, private notification clicks and unread bad
   }
 })
 
+test('muting from the Room menu leaves the room out of the dock badge and the banners, and Unmute brings them back', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'kithmoot-mute-'))
+  const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop,
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+  ], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
+  const secret = generateRoomSecret()
+  const room = { name: 'Studio', roomId: deriveRoom(secret).roomId, link: encodeRoomLink(HOME, { secret, name: 'Studio', relays: [relay], iceUrls: [] }), openedAt: Date.now() / 1000, readAt: 0 }
+  let writer: RoomAgent | undefined
+  try {
+    await app.evaluate(({ ipcMain }) => {
+      ;(globalThis as any).banners = []
+      ipcMain.removeAllListeners('desktop:notify')
+      ipcMain.on('desktop:notify', (_event, content) => (globalThis as any).banners.push(content))
+    })
+    await app.context().routeWebSocket(relay, socket => { socket.connectToServer() })
+    const page = await app.firstWindow()
+    await page.addInitScript(({ room, relay }) => {
+      ;(window as any).testFocused = false
+      document.hasFocus = () => (window as any).testFocused
+      Object.defineProperty(document, 'visibilityState', { get: () => 'visible' })
+      Object.defineProperty(document, 'hidden', { get: () => false })
+      localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room))
+      localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: [{ url: relay, read: true, write: true }] }))
+      localStorage.setItem('kithmoot.notify', 'true')
+      localStorage.setItem('kithmoot.desktop-bell', 'false')
+    }, { room, relay })
+    await openRoomUrl(page, room.link)
+    await page.locator('#displayName').fill('Synthetic desktop reader')
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    writer = await RoomAgent.join({ link: room.link, identity: localIdentity(generateSecretKey()), relays: [relay], name: 'Synthetic sender', agent: false })
+    // Room › Notifications › the item, by its words, as the menu itself offers it.
+    const choose = (label: string) => app.evaluate(({ Menu }, label) => {
+      const notifications = Menu.getApplicationMenu()?.items.find(item => item.label === 'Room')?.submenu?.items.find(item => item.label === 'Notifications')
+      const item = notifications?.submenu?.items.find(entry => entry.label === label)
+      if (!item?.enabled) return false
+      item.click()
+      return true
+    }, label)
+    await expect.poll(() => choose('Mute for 8 hours')).toBe(true)
+    await expect(page.locator('#roomMutedText')).toContainText('Muted until')
+    await writer.chat.send('Said while muted')
+    await expect(page.locator('#chatLog')).toContainText('Said while muted')
+    await page.waitForTimeout(1500)
+    expect(await app.evaluate(({ app }) => app.getBadgeCount())).toBe(0)
+    expect(await app.evaluate(() => (globalThis as any).banners)).toHaveLength(0)
+    expect(await page.title()).toBe('KithMoot')
+    // The menu now offers Unmute and no lengths.
+    await expect.poll(() => app.evaluate(({ Menu }) => Menu.getApplicationMenu()?.items.find(item => item.label === 'Room')?.submenu?.items.find(item => item.label === 'Notifications')?.submenu?.items.map(item => item.label).join('|')))
+      .toBe('Every message|Nothing|Use my default||Unmute')
+    await expect.poll(() => choose('Unmute')).toBe(true)
+    await expect(page.locator('#roomMuted')).toBeHidden()
+    await expect.poll(() => app.evaluate(({ app }) => app.getBadgeCount())).toBe(1)
+    await writer.chat.send('Said after Unmute')
+    await expect.poll(() => app.evaluate(({ app }) => app.getBadgeCount())).toBe(2)
+  } finally {
+    await writer?.leave()
+    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
+    await app.close().catch(() => {})
+    await rm(profile, { recursive: true, force: true })
+  }
+})
+
 test('zen bell renders a soft decaying tone without clipping, through the preview control', async () => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-bell-'))
   const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
