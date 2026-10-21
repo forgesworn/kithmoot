@@ -158,7 +158,7 @@ export interface GroupGrantLedger {
   refused: RefusedDevice[]
   resets: ResetRecord[]
   /** Per node and device (`server|device`): no new grant is signed before `until` (unix seconds) after a refusal. */
-  cooldown?: Record<string, { until: number; n: number }>
+  cooldown?: Record<string, { until: number; n: number; participant?: string }>
   /**
    * Nodes that refused this keeper for a reason signing again cannot cure (it is not enrolled there, the host name is
    * wrong, ...). Nothing is minted for them; after `probeAt` one probe grant is tried, and a node that takes any grant
@@ -526,11 +526,11 @@ export class GroupGrantKeeper {
   }
 
   /** After a refusal for good, wait longer each time before signing for this device at this node again. */
-  #coolDown(server: string, device: string, now: number): void {
+  #coolDown(server: string, device: string, now: number, participant?: string): void {
     const cd = this.#ledger.cooldown ?? (this.#ledger.cooldown = {})
     const key = `${server}|${device}`
     const n = (cd[key]?.n ?? 0) + 1
-    cd[key] = { n, until: now + Math.min(COOLDOWN_MAX_SECONDS, COOLDOWN_BASE_SECONDS * 2 ** Math.min(n - 1, 10)) }
+    cd[key] = { n, until: now + Math.min(COOLDOWN_MAX_SECONDS, COOLDOWN_BASE_SECONDS * 2 ** Math.min(n - 1, 10)), ...(participant ? { participant } : {}) }
   }
 
   // -------------------------------------------------------------------------
@@ -568,6 +568,11 @@ export class GroupGrantKeeper {
     let capHit = false
 
     for (const g of this.#ledger.grants) if (g.status === 'active' && g.expiration <= now) { g.status = 'ended'; this.#touch() }
+    // A cooldown belongs to the person the device spoke for: a device back under another participant key (re-admitted) starts clean.
+    for (const [key, c] of Object.entries(this.#ledger.cooldown ?? {})) {
+      const who = heardBy.get(key.slice(key.indexOf('|') + 1))
+      if (who !== undefined && c.participant !== undefined && c.participant !== who) { delete this.#ledger.cooldown![key]; this.#touch() }
+    }
     // A safety net: a participant removed by any route has nothing live.
     for (const g of this.#ledger.grants) if (live(g, now) && removed.has(g.participant)) this.#revoke(g, now)
 
@@ -963,7 +968,7 @@ export class GroupGrantKeeper {
           if (record.recorded === false && reason !== '409 revoked') this.#revoke(record, now)
           else if (record.recorded === false || reason === '409 revoked') { record.status = 'ended'; record.recorded = false }
           else record.needsRenewal = true
-          this.#coolDown(held.server, record.device, now)
+          this.#coolDown(held.server, record.device, now, record.participant)
         }
       } else {
         // Signing again cannot cure these (the keeper is not enrolled, the host name is wrong, ...): stop signing for the
@@ -1008,6 +1013,9 @@ export class GroupGrantKeeper {
         if (reason === 'revoked' && entry.kind === 'grant') return { kind: 'stop', reason: '409 revoked' }
         return !reason || BENIGN_409.has(reason) ? { kind: 'done' } : { kind: 'stop', reason: `409 ${reason}` }
       }
+      // A revocation or a reset ends grants: it is never given up on for a 5xx, but retried until the event runs out, as for
+      // `future`. Only a grant counts a few 500s as the node refusing.
+      if (status >= 500 && entry.kind !== 'grant') return { kind: 'retry' }
       if (status === 500) return { kind: 'retry', flaky: '500' } // a few tries before the node is taken to refuse
       if (status === 403 && reason === 'future') {
         // The node's clock is behind ours by more than 30 seconds: a condition that mends itself, so keep trying until the event's own end.

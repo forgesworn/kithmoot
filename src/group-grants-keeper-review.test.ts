@@ -568,3 +568,41 @@ describe('round 3', () => {
     expect(t3.nodes.posts.filter((p) => p.status === 501).length).toBe(1)
   })
 })
+
+describe('round 4', () => {
+  it('Q6: a revocation is never given up on for a 5xx: it is retried until the node recovers', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    const dev = t.addDevice(P1)
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.journal.length === 0)
+    t.nodes.script('node-a.test', { status: 500 }, { status: 500 }, { status: 500 }, { status: 500 }, { status: 501 }, { status: 505 })
+    const removing = keeper.beforeRemoval(P1)
+    // Six 5xx answers in a row on the revocation, more than the three that count against a grant; then the node recovers.
+    await waitFor(() => t.nodes.posts.filter((p) => p.status >= 500).length === 6, 5_000)
+    await removing
+    // Another member is admitted: the node takes its grant, and the revocation lands too.
+    const other = t.addDevice(P2)
+    await keeper.sweep()
+    await waitFor(() => [...t.nodes.state('node-a.test').grants.values()].some((g) => g.device === dev && g.status === 'revoked'), 5_000)
+    await waitFor(() => keeper.ledger.grants.some((g) => g.device === other && g.recorded === true))
+    expect(keeper.ledger.journal.every((j) => j.stopped === undefined)).toBe(true)
+    expect(t.errors()).toEqual([])
+  })
+
+  it('a device re-admitted under a new participant key is not held back by the old participant\'s cooldown', async () => {
+    const t = setup({}, new MemoryStore(), [A])
+    const x = t.addDevice(P1)
+    t.nodes.reserved.add(x)
+    const keeper = await t.make()
+    await keeper.start()
+    await waitFor(() => keeper.ledger.cooldown?.['node-a.test|' + x] !== undefined)
+    expect(keeper.ledger.cooldown!['node-a.test|' + x]!.participant).toBe(P1)
+    // The same device key comes back as another participant, and the node no longer has the conflict. No time has passed.
+    t.nodes.reserved.delete(x)
+    t.world.devices = [{ device: x, participant: P2 }]
+    await keeper.sweep()
+    await waitFor(() => keeper.ledger.grants.some((g) => g.device === x && g.participant === P2 && g.status === 'active'))
+    expect(keeper.ledger.cooldown!['node-a.test|' + x]).toBeUndefined()
+  })
+})
