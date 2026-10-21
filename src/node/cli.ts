@@ -46,6 +46,7 @@ import type { RoomFiles } from './self-destruct.js'
 import { validateAssignmentActions } from '../assignments.js'
 import { STDIO_PROTOCOL } from './stdio-protocol.js'
 import { acquireStateLock, StateLockHeldError } from './state-lock.js'
+import { groupGrantLedgerPath, groupGrantsFromFlags, movedAsideLedgers } from './group-grants-config.js'
 
 const USAGE = `kithmoot-agent - be in a KithMoot room without a browser
 
@@ -159,6 +160,24 @@ Options
                            has said something since the last turn. 0, the default,
                            is off. Old app releases show each turn as a line in
                            the room, so leave it off until members have updated.
+  --group-node <url>       (create) A group storage node (an https base URL, for example
+                           https://files.example.net; http only for a node on this
+                           machine, localhost or 127.x) whose grants this
+                           keeper signs for every device it admits, sends in the
+                           room, renews and revokes. Repeatable (or comma separated
+                           in KITHMOOT_GROUP_NODES). Needs --state and --group-bytes.
+                           Experimental: no client uses group nodes yet. Onion nodes
+                           are not supported.
+  --group-bytes <n>        (create) The most one device may upload to a group node,
+                           in bytes (KITHMOOT_GROUP_BYTES). No default: whoever
+                           runs the nodes chooses it.
+  --group-reset            (create) Start even though the grant ledger (<state>.grants)
+                           is unreadable: move it aside (never deleted), sign a reset
+                           at every group node so nothing issued before it stands,
+                           then issue fresh grants. Ignored when the ledger reads.
+                           A ledger that is missing for a room that already existed
+                           needs no flag: the keeper signs that reset on its own. To
+                           distrust a ledger that reads, move it aside by hand first.
   --quiet                  No log lines on stderr
 
 Every option can also come from the environment, for a systemd unit's
@@ -169,8 +188,13 @@ KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
 KITHMOOT_NUDGE (1 to turn it on), KITHMOOT_DESTRUCT (1 to turn it on), KITHMOOT_REKEY_EVERY (days),
+KITHMOOT_GROUP_NODES (comma separated), KITHMOOT_GROUP_BYTES, KITHMOOT_GROUP_RESET (1 to turn it on),
 KITHMOOT_TURN_CREDENTIAL (user:pass). A flag wins over the environment. With --state, the room link is also written
 beside the state file as <state>.link, readable by the keeper's user only.
+
+A keeper with group nodes keeps what it has signed and what it has yet to
+deliver in <state>.grants (private, replaced whole, never logged), under the
+same lock. Without --group-node nothing about group storage runs.
 
 A keeper with --state holds <state>.lock while it runs, so two keepers
 cannot share one state file (each would rekey the room its own way). The
@@ -274,6 +298,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       destruct: { type: 'boolean', default: false },
       nudge: { type: 'boolean', default: false },
       'rekey-every': { type: 'string' },
+      'group-node': { type: 'string', multiple: true },
+      'group-bytes': { type: 'string' },
+      'group-reset': { type: 'boolean', default: false },
       'owner-proof': { type: 'string' },
       'expect-pubkey': { type: 'string' },
       'forbid-pubkey': { type: 'string', multiple: true },
@@ -338,6 +365,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const nudge = values.nudge || envFlag('NUDGE')
   const rekeyEveryDays = rekeyEvery(values['rekey-every'] ?? env('REKEY_EVERY'))
   const log = common.quiet ? () => {} : (line: string) => process.stderr.write(`[kithmoot-agent] ${line}\n`)
+  // Group storage nodes, refused here when the flags cannot work, before a lock is taken or a relay dialled.
+  let groupGrants: ReturnType<typeof groupGrantsFromFlags>
+  try {
+    groupGrants = groupGrantsFromFlags({
+      nodes: [...(values['group-node'] ?? []), ...envList('GROUP_NODES')].flatMap((v) => v.split(',')).map((v) => v.trim()).filter(Boolean),
+      bytes: values['group-bytes'] ?? env('GROUP_BYTES'),
+      reset: values['group-reset'] || envFlag('GROUP_RESET'),
+      command, statePath, log,
+    })
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err))
+  }
 
   // One keeper per state file, taken before anything else is read or
   // written: two would each rekey the room their own way. Released on any
@@ -381,7 +420,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   // take it with it. A shared --memory directory loses its log.jsonl whole.
   const keptFiles = (room?: { roomId: string }): RoomFiles => ({
     files: [
-      ...(command === 'create' && statePath ? [statePath, `${statePath}.link`, `${statePath}.lock`] : []),
+      ...(command === 'create' && statePath ? [statePath, `${statePath}.link`, `${statePath}.lock`, groupGrantLedgerPath(statePath), ...movedAsideLedgers(statePath)] : []),
       ...(command === 'join' && statePath ? [join(statePath, 'private.json')] : []),
       ...(common.memory ? [join(common.memory, 'log.jsonl')] : []),
       ...(values.context ? [values.context, `${values.context}.lock`] : []),
@@ -430,6 +469,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       admins,
       forwarders,
       rekeyEverySeconds: Math.round(rekeyEveryDays * 86_400),
+      ...(groupGrants ? { groupGrants } : {}),
       onState: statePath ? (next) => (keeperWrites ? saveKeeperState(statePath, next) : undefined) : undefined,
     })
     if (statePath) {
@@ -446,6 +486,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     )
     if (admins.length) log(`admins: ${admins.map((a) => a.slice(0, 8)).join(', ')}`)
     else log('no admins: only this process can remove a member or close the room')
+    if (groupGrants) {
+      log(`group storage: grants signed for ${groupGrants.nodes.length} node${groupGrants.nodes.length === 1 ? '' : 's'} (${groupGrants.nodes.map((n) => new URL(n).hostname).join(', ')}), up to ${groupGrants.bytes} bytes per device; ledger ${groupGrantLedgerPath(statePath!)}`)
+    }
     for (const f of forwarders) log(`forwarder: ${f.url}${f.pubkey ? ` (${f.pubkey.slice(0, 8)})` : ''}${f.label ? ` ${f.label}` : ''}, in the room descriptor`)
     log(
       rekeyEveryDays > 0

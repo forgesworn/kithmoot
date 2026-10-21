@@ -158,6 +158,119 @@ full period after the cadence is turned on. Only a keeper rekeys on a
 schedule: it is the room's only authority desk, so a browser that rekeyed
 would leave every device that was away waiting for another member.
 
+**Group storage grants (experimental).** `--group-node <url>` (repeatable, or
+`KITHMOOT_GROUP_NODES` comma separated) and `--group-bytes <n>`
+(`KITHMOOT_GROUP_BYTES`) make a keeper the signer of group grants for a
+Wildbloom node running in group mode (`wildbloomd --group-mode`; contract:
+wildbloom-node `docs/GROUP-GRANTS.md`). Both are needed, with `--state`: the
+byte ceiling per device is the node owner's choice and has no default, and
+the keeper keeps what it has signed in `<state>.grants` beside the state
+file, under the same lock. Copy it with the state file when a keeper moves to
+another machine or is restored from a backup. Without `--group-node` nothing
+here runs and the keeper behaves as it always did. Nodes are `https`, or
+`http` for a node on the same machine (`localhost`, `127.x`); an onion node is
+refused. The node's own `--server-name` must be the node's host name as
+written in the URL, lower case and without the port, because that is the
+grant's `server` tag.
+
+What the keeper does:
+
+- For every device it hears in the room's current epoch, whose participant
+  is not removed, it signs one kind 27541 grant per node with the room's
+  authority key: scopes `upload`, `get` and `delete`, the byte ceiling, a
+  fresh 16-byte grant id, valid for 30 days. It sends each as a
+  `storage-grant` control op in the room and pushes it to its node with
+  `POST /groups/v1/events`, once the ledger has recorded it. A device that
+  appears while the keeper is offline is granted when the keeper next hears
+  it. A device heard only before the room's last rekey does not count until it
+  speaks again in the current epoch.
+- It renews a grant (same id, later times) when 10 days or fewer are left,
+  while the device is still being heard in the current epoch under a
+  credential that is still valid. A device that is not heard is not renewed
+  and its grant ends.
+- A participant has at most five devices with a live grant. A sixth gets
+  none; the keeper says so once with an `error` control op (shown to every
+  member, and repeated to somebody who asks for the catalogue, at most every
+  ten minutes) and grants it if a slot frees. Agents' devices count like any
+  other.
+- A device may send `{"op":"storage-grant?"}` to be sent its grants again,
+  at most once every 30 seconds.
+- When a host removes a participant the keeper records the removal, signs a
+  revocation of every grant id it issued to that participant's devices at
+  every node, pushes them (waiting at most five seconds, so a node that is
+  down never holds the rekey back), publishes the rekey as ever, and then
+  posts the revocations in the room's new epoch. A removal never waits on a
+  group node (the rekey itself still needs a relay, as it always did), nor on
+  the ledger being writable: if the ledger cannot be saved the revocations are
+  pushed from memory, the rekey still happens, and the hosts are told. A removal begun before a
+  restart is finished on the next start.
+- Closing the room signs a `reset` at every node, sends it in the room and
+  pushes it, waiting at most five seconds. From the moment the close begins
+  nothing is granted, renewed or re-sent. A closed room is never reopened, so
+  a node that was down for that wait is not retried by the keeper: today
+  nothing else delivers the reset to it (no client carries revocations or
+  resets yet), and what that node holds ends when the grants run out, 30 days
+  at the most, because nothing renews after the close.
+- A push is kept in the ledger's journal until the node answers 200, 201 or
+  409. 429, 502, 503, 504, `403 future` (the node's clock is behind) and
+  network errors are retried with a growing delay, never sooner than a
+  `Retry-After`, across restarts, until the event runs out (502, 504 and
+  `future` are this keeper's own policy beyond the contract). A 409 that means
+  the grant was not recorded (`key-conflict`, `scope-taken`, `floor`,
+  `scope-changed`), and any other answer, stop the retries for that event and
+  are reported with an `error` op. A first grant the node refused for good is
+  revoked, so it can never land later, and signed afresh after a cooldown that
+  grows each time; a refused renewal is signed again the same way. An event
+  that runs out before a node takes it is dropped with a log line.
+- A node that refuses the keeper for a reason that is about the node (it does
+  not enrol this keeper, the host name is wrong, the path is wrong, it keeps
+  answering 500 or 501 and upward) is reported once, with its reason, and
+  nothing more is signed for it. A single 500 is tried three times first. Once a day one
+  probe grant is tried there, for one device; if the node takes it (or a reset),
+  it is trusted again, every device is granted at the next look, and the
+  revocations it had refused are sent. Other nodes are not affected. The probe
+  picks only a device the keeper would grant anyway: within the five-device
+  rule, not removed, and with no refusal of its own at that node. Refusals
+  about one device or one grant (`key-conflict`, `scope-changed`, `scope-taken`,
+  `floor`, a grant the node holds revoked) never mark the node: that device is
+  signed afresh after a cooldown that doubles from an hour to a day, and
+  everybody else keeps their grants.
+- On a node, a pending reset is pushed before anything else there, and one
+  device's events go in the order they were signed.
+- Grants, revocations and resets are never published on a relay. They travel
+  only in the room's encrypted control channel and by HTTP to the node.
+- A node dropped from the flags is still sent the revocations of a removal,
+  at the address the keeper remembers, and events already waiting for it are
+  retried for a day and then given up.
+- Today the keeper's own journal, and the grants running out, are the only
+  ways a node learns of a revocation. The room carries them for clients to
+  pass on later (phase S5); no client does yet.
+
+If the ledger is missing for a room that already existed (a keeper moved or
+restored without `<state>.grants`, or group nodes only now switched on), the
+keeper signs a reset at every node before it issues anything, so that no grant
+it no longer remembers outlives the next removal, and says why. A brand-new
+room needs none. An unreadable ledger is another matter: the keeper refuses to
+start, before it joins the room or contacts a relay, and leaves the file
+alone. `--group-reset` lets it start: the unreadable file is moved to
+`<state>.grants.unreadable-<unix seconds>` (never deleted), a reset is signed
+at every node so that nothing issued before it stands, and fresh grants
+follow. A ledger that reads is used as it is and the flag is ignored.
+`<state>.grants` and any `<state>.grants.unreadable-*` beside it are removed
+when a room self-destructs.
+
+A ledger that reads but is out of date (an old backup of `<state>.grants`
+restored beside a newer state file) is not noticed: grants issued after the
+backup are unknown to the keeper, which cannot revoke them. The cure is to move
+the old ledger aside by hand and start the keeper: with the ledger missing for a
+room that already existed it signs a reset at every node first, as above.
+`--group-reset` does not do this for a ledger that reads, on purpose: a service
+unit that keeps the flag set must not reset every node at each restart.
+
+Group grants are not offered to a keeper started with a live-keeper journal,
+and MLS rooms have no authority key to sign them. Clients do not yet upload to
+or read from group nodes (phase S5), so today the grants only prepare the nodes.
+
 `--state <file>` also takes `<file>.lock` while the keeper runs, so two
 keepers cannot share one state file and rekey the room two ways. A second
 one refuses to start and names the process that holds it. A lock left by a
@@ -541,7 +654,8 @@ At the end, or on starting up and finding the room already over, `kithmoot-agent
   and the link's retirement stay, so a member who was away still learns the
   room ended.
 - closes the room, when it is the keeper.
-- removes the keeper's state file, `<state>.link` and `<state>.lock`, the
+- removes the keeper's state file, `<state>.link`, `<state>.lock`, the group
+  grant ledger `<state>.grants` and any `<state>.grants.unreadable-*`, the
   `private.json` of a joined agent, the `log.jsonl` in `--memory`, the
   assignment files for the room, and the `--context` file and its lock.
 - drops the room's content from memory by exiting.

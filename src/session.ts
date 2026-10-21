@@ -760,6 +760,10 @@ export class RoomSession {
    *  epoch it was at: what the authority adds to the member list it writes,
    *  so somebody offline as it rekeys stays a member. */
   readonly #seen = new Set<string>()
+  /** The epoch each device was last heard in, from a roster entry decoded under
+   *  that epoch's key. Only entries of the current epoch are ever decoded, so
+   *  this is the epoch the session was in when it heard the device. */
+  readonly #credentialEpoch = new Map<string, number>()
   /** Participants let in from this device while the room did not know them. */
   readonly #letIn = new Set<string>()
   /** True while the room's answer is that it does not know this participant. */
@@ -1178,6 +1182,7 @@ export class RoomSession {
       const oldest = this.#newestCredentials.keys().next().value!
       this.#newestCredentials.delete(oldest)
       this.#deviceSeen.delete(oldest)
+      this.#credentialEpoch.delete(oldest)
     }
   }
 
@@ -1208,6 +1213,21 @@ export class RoomSession {
       out.push({ device, participant: normaliseHex(credential.pubkey), credential, seen })
     }
     return out.sort((a, b) => b.seen - a.seen)
+  }
+
+  /**
+   * The devices of `recentCredentials` this session has heard in its CURRENT
+   * epoch: a roster entry decoded under the current epoch's key, after the last
+   * rekey. A device only remembered (restored from a keeper's state, or heard
+   * before the room moved on) is not here until it speaks again in this epoch.
+   *
+   * What a keeper may act on when it hands out anything for a device (group
+   * storage grants). It covers one thing: a device heard only in an earlier
+   * epoch, or only remembered, is left out. A device of a current member that
+   * was offline across a rekey follows it and is here once it announces.
+   */
+  devicesHeardThisEpoch(now: number = this.#now()): { device: string; participant: string; credential: DeviceCredential; seen: number }[] {
+    return this.recentCredentials(now).filter((d) => this.#credentialEpoch.get(d.device) === this.#epoch.epoch)
   }
 
   /**
@@ -3226,6 +3246,7 @@ export class RoomSession {
     // only a newer one is kept.
     this.#noteCredential(entry.device, entry.credential)
     this.#noteSeen(entry.device, entry.updatedAt)
+    if (this.#newestCredentials.has(normaliseHex(entry.device))) this.#credentialEpoch.set(normaliseHex(entry.device), this.#epoch.epoch)
 
     // The presence identity, which is the device key only for an entry that
     // names no page session - see `presenceKey`. Two tabs of one browser

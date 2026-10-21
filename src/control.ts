@@ -5,6 +5,7 @@ import { validateAssignmentActions, type AssignmentAction } from './assignments.
 import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 import { readRoomLogoOp, type RoomLogoOp } from './room-logo-payload.js'
+import { GROUP_GRANT_KIND, type GroupEvent } from './group-grants.js'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -124,6 +125,20 @@ export type ControlMessage =
    *  credential-bound participant, like `nudge`, so there is nothing to
    *  name and nothing to sign. */
   | { op: 'hand'; up: boolean }
+  /**
+   * A group grant, revocation or reset (kind 27541), as the keeper signed it,
+   * whole and unaltered: one event per op, about 750 characters, at most 1,070
+   * (docs/GROUP-GRANTS.md in wildbloom-node, 7.1). Signed by the authority, so
+   * believed whoever sent it and whenever it is read; any member may repost a
+   * revocation or reset, so it has no `host`. Reading it for what it says is
+   * `parseGroupEvent` and `GrantReceiver` in `group-grants.ts`; this decoder
+   * checks only that it has the shape of an event. Never published on a relay
+   * bare: it travels only inside this encrypted channel and by HTTP to a node.
+   */
+  | { op: 'storage-grant'; event: GroupEvent }
+  /** Any member: keeper, send my storage grants again. The asker is the
+   *  message's credential-bound device, as for `hand`, so it names nothing. */
+  | { op: 'storage-grant?' }
   /** An admin: keeper, remove this participant. Acted on only when the
    *  sender is on the announced list; the keeper checks. */
   | { op: 'remove'; participant: string }
@@ -389,6 +404,20 @@ export function decodeControl(text: string): ControlMessage | null {
       if (typeof m.recorder !== 'string' || !HEX64.test(m.recorder) || typeof m.device !== 'string' || !HEX64.test(m.device)) return null
       if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
       return { op: 'recording-capture', id: m.id, version: m.version as number, capture: m.capture, recorder: m.recorder, device: m.device, sig: m.sig.toLowerCase() }
+    }
+    case 'storage-grant?':
+      // Strict: the web app's snapshot custody refuses a control message whose
+      // decoded form differs from what was sent, so nothing may be dropped.
+      return Object.keys(m).length === 1 ? { op: 'storage-grant?' } : null
+    case 'storage-grant': {
+      if (Object.keys(m).length !== 2) return null
+      const e = m.event
+      if (typeof e !== 'object' || e === null || Array.isArray(e)) return null
+      const ev = e as Record<string, unknown>
+      if (Object.keys(ev).length !== 7 || ev.kind !== GROUP_GRANT_KIND || typeof ev.id !== 'string' || typeof ev.pubkey !== 'string' ||
+          typeof ev.sig !== 'string' || typeof ev.content !== 'string' || !Number.isSafeInteger(ev.created_at) ||
+          !Array.isArray(ev.tags) || !ev.tags.every((t) => Array.isArray(t) && t.every((v) => typeof v === 'string'))) return null
+      return { op: 'storage-grant', event: ev as unknown as GroupEvent }
     }
     case 'hand':
       if (typeof m.up !== 'boolean') return null

@@ -126,6 +126,22 @@ deployment of your own: see "Deploying coturn and the credential service" in
 [deploy/README.md](../deploy/README.md). Letting a room carry its own TURN
 server, with credentials only for its members, is planned.
 
+## Group storage nodes (experimental)
+
+A room's keeper can be told of a group's own storage nodes, so that a node
+serves only the devices the keeper has admitted. A node is `wildbloomd`
+started with `--group-mode` and `--group-keeper <authority key>:<ceiling>`,
+and `--server-name` set to its host name; the keeper is started with
+`--group-node <https://that-host>` (`http` only for a node on the same machine) and `--group-bytes <n>`, and `--state`
+(see `agents.md`, "Group storage grants", for what it signs and when). The
+contract both sides follow is wildbloom-node's `docs/GROUP-GRANTS.md`.
+
+What exists today is the keeper's side and the node's side. The app and the
+agent do not yet upload to or read from a group node (phase S5), so setting
+this up does not change where files go. The keeper does not run a node, and
+nothing here makes a node public: a node in group mode refuses everyone the
+keeper has not named, and every read needs a signed token.
+
 ## Planned
 
 A switch in the desktop app to keep a group's files on your own computer,
