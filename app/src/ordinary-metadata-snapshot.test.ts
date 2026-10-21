@@ -9,7 +9,7 @@ describe('private UI metadata custody', () => {
     const result = validate(records, false, { kind: 'browser' })
     expect([...records]).toEqual(before); expect(Object.isFrozen(result)).toBe(true)
     expect(result).toEqual({ volumes: ['all', 'volume'].includes(mode) ? 2 : 0, pinLists: ['all', 'pins'].includes(mode) ? 1 : 0,
-      notificationScopes: ['all', 'notifications'].includes(mode) ? 4 : 0, projects: ['all', 'projects'].includes(mode) ? 2 : 0, boardContexts: 0 })
+      notificationScopes: ['all', 'notifications'].includes(mode) ? 4 : 0, projects: ['all', 'projects'].includes(mode) ? 2 : 0, mutes: ['all', 'mutes'].includes(mode) ? 1 : 0, boardContexts: 0 })
     expect(validate(records, true, { kind: 'browser' })).toEqual(result)
   })
   it.each(METADATA_FAULTS)('holds %s intact before or after completed custody', fault => {
@@ -18,7 +18,7 @@ describe('private UI metadata custody', () => {
     for (const migrated of [false, true]) expect(() => validate(records, migrated, { kind: 'browser' })).toThrow(OrdinaryStateHold)
     expect([...records]).toEqual(before)
   })
-  it.each(['volume', 'pins', 'notifications', 'projects'] as const)('holds %s relocated into a temporary tab owner', mode => {
+  it.each(['volume', 'pins', 'notifications', 'projects', 'mutes'] as const)('holds %s relocated into a temporary tab owner', mode => {
     const { records } = metadataFixture(mode), before = [...records]
     expect(() => validate(records, true, { kind: 'tab' })).toThrow(OrdinaryStateHold); expect([...records]).toEqual(before)
   })
@@ -26,6 +26,13 @@ describe('private UI metadata custody', () => {
     expect(validate(new Map([['kithmoot.pinned-rooms.v1', '[]']]), false, { kind: 'browser' }).pinLists).toBe(1)
   })
   it('keeps other families for the mandatory complete composite to classify', () => {
-    expect(validate(new Map([['kithmoot.channel-checks.v1.private', 'not metadata']]), false, { kind: 'browser' })).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, boardContexts: 0 })
+    expect(validate(new Map([['kithmoot.channel-checks.v1.private', 'not metadata']]), false, { kind: 'browser' })).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 0 })
+  })
+  it.each(['0', '01', '-1', '1.5', 'abc', '9007199254740993', ''])('holds a mute end of %j', value => {
+    const records = new Map([[`kithmoot.mute-until.v1.visitor.${'1'.repeat(64)}`, value]])
+    expect(() => validate(records, false, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+  })
+  it('holds a mute moved into a temporary tab owner', () => {
+    expect(() => validate(metadataFixture('mutes').records, true, { kind: 'tab' })).toThrow(OrdinaryStateHold)
   })
 })

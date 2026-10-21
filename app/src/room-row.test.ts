@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
+import { activityAt, formatActivityTime, mutedUntilText, presenceText, previewLine, sortByActivity } from './room-row.js'
 
 describe('activityAt / sortByActivity', () => {
   it('sorts by newest activity, newest first', () => {
@@ -96,5 +96,21 @@ describe('presenceText', () => {
 
   it('speaks nobody here for an empty room', () => {
     expect(presenceText([])).toEqual({ visible: '0 here', spoken: 'nobody here' })
+  })
+})
+
+describe('mutedUntilText', () => {
+  // Local-time constructors, so the table holds in any time zone. Wed 21 Oct 2026, 10:00.
+  const at = (month: number, day: number, hour: number, minute = 0) => new Date(2026, month, day, hour, minute).getTime() / 1000
+  const now = at(9, 21, 10)
+  it.each([
+    [{ until: at(9, 21, 11) }, 'Muted until 11:00'],
+    [{ until: at(9, 22, 9) }, 'Muted until tomorrow, 09:00'],
+    [{ until: at(9, 23, 10) }, 'Muted until Fri, 10:00'],
+    [{ until: at(9, 27, 10) }, 'Muted until Tue, 10:00'],
+    [{ until: at(9, 28, 10) }, 'Muted until 28 Oct, 10:00'],
+    ['always' as const, 'Muted'],
+  ])('reads %j as %s', (mute, text) => {
+    expect(mutedUntilText(mute, now)).toBe(text)
   })
 })

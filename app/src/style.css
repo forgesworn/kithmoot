@@ -658,6 +658,18 @@ section {
   color: var(--muted);
 }
 
+/* The who line and, after it, what the room is doing about notifications.
+   The who line gives way first: it is repeated in Room info. */
+.roomSubline { display: flex; align-items: center; gap: var(--s2); min-width: 0; max-width: 100%; }
+.roomSubline .roomWho { flex: 0 1 auto; min-width: 0; }
+.roomMuted { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--fs-1); color: var(--muted); white-space: nowrap; }
+.roomMuted[hidden] { display: none; }
+.roomMuted svg.i { width: 14px; height: 14px; }
+/* On a phone the who line gives way entirely rather than shrinking to a letter. */
+@media (max-width: 599px) {
+  .roomSubline:has(.roomMuted:not([hidden])) .roomWho { display: none; }
+}
+
 /* A conference room's end, under its name: the one fact about the room
    that changes what a reader should do with it. */
 .roomIdentity .roomEndsLine {
@@ -3369,6 +3381,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 #roomList .hasUnread .roomName { font-weight: 600; }
 #roomList .hasUnread .roomTime { font-weight: 600; color: var(--text); }
 #roomList .roomPin { display: inline-flex; vertical-align: -2px; margin-right: .3rem; color: var(--muted); }
+#roomList .roomMute { display: inline-flex; vertical-align: -2px; margin-right: .3rem; color: var(--muted); }
+#roomList .roomMute svg.i { width: 14px; height: 14px; }
 #roomList .roomSection { list-style: none; margin: 1rem 0 .25rem; padding: 0 .5rem; }
 #roomList .roomSection:first-child { margin-top: 0; }
 #roomList .roomSection h3 { margin: 0; font-size: var(--fs-1); font-weight: 600; text-transform: none; color: var(--muted); }
@@ -3396,6 +3410,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
   background: var(--accent);
 }
 #roomList .unread.agent { color: var(--on-agent); background: var(--agent-fill); }
+/* A muted room keeps its number, drawn quiet: still true, no longer calling. */
+#roomList .unread[data-muted='true'] { color: var(--muted); background: var(--selected); }
 #roomList .here { white-space: nowrap; }
 #roomList .rowMenu {
   grid-column: 3;
@@ -3470,6 +3486,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
     border-color: Highlight;
   }
   #roomList .unread, #roomList .unread.agent { border: 1px solid transparent; }
+  /* Quiet by shape, not colour: an outline where the live pill is filled. */
+  #roomList .unread[data-muted='true'] { background: Canvas; color: CanvasText; border: 1px solid CanvasText; forced-color-adjust: none; }
   .bubble,
   .composerField,
   .messageActionPanel,

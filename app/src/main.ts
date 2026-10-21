@@ -53,7 +53,7 @@ import './desktop-layout.js'
 import { showMobileRoomView } from './mobile-room-view.js'
 import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
-import { notificationMode, setNotificationMode, roomNotificationsEnabled, type NotificationScope, type NotificationMode } from './notification-scopes.js'
+import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, retireSuggestedForgeSwornConsent, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
@@ -79,7 +79,7 @@ import './call-surface.css'
 import './shell.css'
 import './room-info.css'
 import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
-import { wireMenu, menuItem, menuGroups, menuSubmenu, type MenuHandle } from './menu.js'
+import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
@@ -124,7 +124,7 @@ import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, SECTION_THRESHOLD, avatarInitial, avatarSlot, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
 import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, readCodeArrival, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
-import { activityAt, formatActivityTime, presenceText, previewLine, sortByActivity } from './room-row.js'
+import { activityAt, formatActivityTime, mutedUntilText, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
 import { SharedProjectsPanel } from './shared-projects.js'
@@ -962,6 +962,27 @@ const roomLogoCache = new RoomLogoCache(deviceStore)
 forgetLegacyStorage(deviceStore)
 
 const nowSeconds = () => Math.floor(Date.now() / 1000)
+
+/** A room is muted when it is set to Nothing or a timed mute is still running
+ *  (design-calm-stage7). A project's or the account's Nothing is a broader
+ *  choice and does not count: those rooms keep their glyph and their numbers. */
+const roomMuteOf = (roomId: string) => roomMute(deviceStore, nostrSession?.pubkey, roomId, nowSeconds())
+const roomIsMuted = (roomId: string): boolean => roomMuteOf(roomId) !== undefined
+/** The soonest end of any timed mute on this device, so the 1 s tick knows
+ *  when something on screen has to change. Ended keys are tidied at launch. */
+pruneMutes(deviceStore, nowSeconds())
+let muteEnd: number | undefined = nextMuteEnd(deviceStore, nowSeconds())
+/** After a mute starts, ends or changes: tidy, find the next end and redraw
+ *  everything that shows a muted room. */
+function refreshMutes(): void {
+  const now = nowSeconds()
+  pruneMutes(deviceStore, now)
+  muteEnd = nextMuteEnd(deviceStore, now)
+  renderRooms()
+  renderRoomMuted()
+  publishDesktopMenu()
+  updateDesktopUnread()
+}
 
 /** Deletes the file server did not carry out when a room was tidied away,
  *  tried again at launch and then at most hourly while the app stays open
@@ -5263,6 +5284,8 @@ function renderCallState(views: ParticipantView[]): void {
     if (roomId && ringFor > 0 && !$('roomArea').hidden && !docked() && !onCall()) {
       showRingBanner(shownAs(callChange.call.caller, starter?.name).name ?? 'Somebody')
     }
+    // A room that is muted, for a while or set to Nothing, keeps its ring
+    // quiet here (sound and system alert); the banner above is not gated.
     if (ringFor > 0 && settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
       void startCallRing()
       const caller = shownAs(callChange.call.caller, starter?.name)
@@ -7366,7 +7389,17 @@ $('emptyCopyLink').addEventListener('click', () => {
 })
 $('emptyShowQr').addEventListener('click', () => openInviteDialog(true, $('emptyShowQr')))
 
+/** The header's mute line: what the room is doing about notifications, in
+ *  words, beside the who line. Drawn from the same fact as the row's glyph. */
+function renderRoomMuted(): void {
+  const roomId = session ? currentRoomId() : undefined
+  const mute = roomId ? roomMuteOf(roomId) : undefined
+  $('roomMuted').hidden = mute === undefined
+  $('roomMutedText').textContent = mute === undefined ? '' : mutedUntilText(mute, nowSeconds())
+}
+
 function renderRoomWho(): void {
+  renderRoomMuted()
   const line = $('roomWho')
   const views = session?.participants() ?? []
   const where = conversationLabel(currentChannel)
@@ -13729,7 +13762,8 @@ function renderRooms(): void {
     lastRoomOrder = sorted.map(room => room.roomId)
   }
   const invitations = waitingInvitations()
-  setCounts({ chats: [...rooms].reduce((total, room) => total + unreadOf(room), 0) + invitations.length })
+  // A muted room's number stays on its row, but is not counted on the rail.
+  setCounts({ chats: [...rooms].reduce((total, room) => total + (roomIsMuted(room.roomId) ? 0 : unreadOf(room)), 0) + invitations.length })
   renderInvitations()
   const hidden = disconnectedAccountRooms()
   // A signed-in account keeps the list on screen even before its first room
@@ -13916,6 +13950,18 @@ const NO_MESSAGES = 'No messages yet'
 /** A room whose history this device has not loaded has no last line to show. */
 const CATCH_UP = 'Open it to catch up.'
 /** A drawing pin, in the text's own colour: an emoji pin is red in every theme. */
+/** A symbol from the icon sprite, for decoration beside text. */
+function spriteIcon(name: string): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('class', 'i')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('focusable', 'false')
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use')
+  use.setAttribute('href', `#i-${name}`)
+  svg.append(use)
+  return svg
+}
+
 function pinIcon(): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', '0 0 24 24')
@@ -13970,7 +14016,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
   const presence = present.length > 0 ? presenceText(present) : undefined
   if (present.length) profiles.want(present.map((p) => p.participant))
 
-  const description = [unreadSpoken, mention ? 'Mentions you' : '', preview, time, presence?.spoken].filter(Boolean).join('. ')
+  const description = [unreadSpoken, mention ? 'Mentions you' : '', preview, time, presence?.spoken].filter(Boolean).map(part => part!.replace(/([^.])\.$/, '$1')).join('. ')
   return { preview, time, unreadVisible, unreadSpoken, unreadCount: split.people, agentCount: split.agents, presence, presenceCount: present.length, mention, description }
 }
 
@@ -14056,6 +14102,14 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
     pin.append(pinIcon())
     time.append(pin)
   }
+  const mute = roomMuteOf(room.roomId)
+  if (mute !== undefined) {
+    const glyph = document.createElement('span')
+    glyph.className = 'roomMute'
+    glyph.setAttribute('aria-hidden', 'true')
+    glyph.append(spriteIcon('bellOff'))
+    time.append(glyph)
+  }
   time.append(state.time)
   aside.append(time)
   if (state.mention) {
@@ -14069,6 +14123,7 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
     const pill = document.createElement('span')
     pill.className = 'unread'
     pill.dataset.count = String(state.unreadCount)
+    if (mute !== undefined) pill.dataset.muted = 'true'
     pill.textContent = state.unreadVisible
     pill.setAttribute('aria-label', state.unreadSpoken!)
     aside.append(pill)
@@ -14087,7 +14142,11 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   description.id = descId
   description.className = 'sr-only'
   const spokenFuse = countingDown ? fuseSpoken(room) : undefined
-  description.textContent = [pinned ? 'Pinned.' : '', spokenFuse ? `${spokenFuse}.` : '', state.description].filter(Boolean).join(' ')
+  // Each part loses its own full stop before they are joined, so no pair of
+  // them reads "one.. 01:49".
+  const unstopped = (part: string): string => part.replace(/([^.])\.$/, '$1')
+  const spoken = [pinned ? 'Pinned' : '', mute !== undefined ? mutedUntilText(mute, nowSeconds()) : '', spokenFuse ?? '', state.description].filter(Boolean).map(unstopped)
+  description.textContent = spoken.join('. ') + (state.description || !spoken.length ? '' : '.')
 
   const [menuOpener, menu] = roomRowMenu(room, label)
   row.append(open, aside, menuOpener, menu)
@@ -15197,9 +15256,10 @@ window.kithmootDesktop?.onOpenRoom(roomId => {
 function updateDesktopUnread(): void {
   const self = meParticipant || currentParticipant() || ''
   const selfName = joiningName()
-  let { people, agents } = currentRoomUnreadSplit()
+  let { people, agents } = session && currentRoomId() && roomIsMuted(currentRoomId()!) ? { people: 0, agents: 0 } : currentRoomUnreadSplit()
   for (const room of knownRooms(roomStore())) {
     if (session && room.roomId === currentRoomId()) continue
+    if (roomIsMuted(room.roomId)) continue
     const watched = roomWatches.get(room.roomId)
     if (!watched) continue
     const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
@@ -15231,7 +15291,8 @@ function senderLabel(m: ChatMessage): string {
 const notifier = new Notifier({
   settings: roomId => {
     const settings = notifySettings(deviceStore)
-    return { ...settings, enabled: settings.enabled && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId)) }
+    const level = roomNotificationLevel(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId), nowSeconds())
+    return { ...settings, enabled: settings.enabled && level !== 'off', mentionsOnly: level === 'mentions' }
   },
   hidden: () => document.hidden || Boolean(window.kithmootDesktop && !document.hasFocus()),
   shownRoomId: () => (session ? currentRoomId() : undefined),
@@ -15608,22 +15669,47 @@ function togglePinned(room: KnownRoom): void {
   publishDesktopMenu()
 }
 
-/** Notifications for one room: Every message, Nothing, or what this person
- *  chose for everything else. "Only mentions and replies" waits for a notifier
- *  that can tell them apart (design-calm-shell 5.3). */
+/** Mute one room for a while, or take the mute off. The same two functions
+ *  serve the page's menus and the desktop Room menu. */
+function muteRoomFor(roomId: string, length: keyof typeof MUTE_FOR): void {
+  const until = nowSeconds() + MUTE_FOR[length]
+  muteRoom(deviceStore, nostrSession?.pubkey, roomId, until)
+  refreshMutes()
+  setStatus(`${mutedUntilText({ until }, nowSeconds())}.`, 'done')
+}
+
+function unmuteRoomNow(roomId: string): void {
+  unmuteRoom(deviceStore, nostrSession?.pubkey, roomId)
+  refreshMutes()
+  setStatus('Unmuted.', 'done')
+}
+
+function chooseNotificationMode(roomId: string, mode: NotificationMode): void {
+  setNotificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId }, mode)
+  renderNotificationScopes()
+  refreshMutes()
+}
+
+/** Notifications for one room: which messages tell this person, and for
+ *  how long the room stays quiet. A mute is separate from the mode, so it
+ *  ends back at the mode chosen; Nothing is a mute with no end, so it has no
+ *  durations to offer. */
 function notificationsSubmenu(menu: HTMLElement, roomId: string): void {
+  const mute = roomMuteOf(roomId)
   menuSubmenu(menu, 'Notifications', sub => {
-    const scope: NotificationScope = { kind: 'room', id: roomId }
-    const mode = notificationMode(deviceStore, nostrSession?.pubkey, scope)
-    for (const [value, label] of [['all', 'Every message'], ['off', 'Nothing'], ['inherit', 'Use my default']] as const) {
-      menuItem(sub, label, () => {
-        setNotificationMode(deviceStore, nostrSession?.pubkey, scope, value)
-        renderNotificationScopes()
-        renderRooms()
-        publishDesktopMenu()
-      }, { checked: mode === value, action: `notify-${value}` })
+    const mode = notificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId })
+    for (const [value, label] of [['all', 'Every message'], ['mentions', 'Only mentions and replies'], ['off', 'Nothing'], ['inherit', 'Use my default']] as const) {
+      menuItem(sub, label, () => chooseNotificationMode(roomId, value), { checked: mode === value, action: `notify-${value}` })
     }
-  }, { icon: 'bell' })
+    if (mute === 'always') return
+    menuSeparator(sub)
+    if (mute) menuItem(sub, 'Unmute', () => unmuteRoomNow(roomId), { action: 'unmute' })
+    else {
+      for (const [key, label] of [['1h', 'Mute for 1 hour'], ['8h', 'Mute for 8 hours'], ['1d', 'Mute for 1 day'], ['1w', 'Mute for 1 week']] as const) {
+        menuItem(sub, label, () => muteRoomFor(roomId, key), { action: `mute-${key}` })
+      }
+    }
+  }, { icon: mute ? 'bellOff' : 'bell' })
 }
 
 /** What this room's menu offers, worked out once for the ⋯ menu and for the
@@ -15641,6 +15727,8 @@ interface RoomMenuModel {
   end: boolean
   pinned: boolean
   notify?: NotificationMode
+  /** A timed mute is running (not Nothing, which has no end to cancel). */
+  muted: boolean
 }
 
 function roomMenuModel(): RoomMenuModel {
@@ -15658,6 +15746,7 @@ function roomMenuModel(): RoomMenuModel {
     end: canEndRoom(),
     pinned: Boolean(room) && loadPins(localStorage).has(room!.roomId),
     notify: roomId ? notificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId }) : undefined,
+    muted: typeof (roomId ? roomMuteOf(roomId) : undefined) === 'object',
   }
 }
 
@@ -17173,7 +17262,7 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
         people: Boolean(nostrSession),
         call: $('callToggle').getAttribute('aria-label') ?? 'Start call',
         search: model.open, invite: model.open && model.invite, agent: model.open && model.agent,
-        pinned: model.pinned, notify: model.notify, textSize: currentTextSize(),
+        pinned: model.pinned, notify: model.notify, muted: model.muted, textSize: currentTextSize(),
         leaveLabel: model.peer ? 'Leave private chat…' : 'Leave room…',
       }
       const key = JSON.stringify(state)
@@ -17186,9 +17275,9 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
     const notify = (mode: NotificationMode) => inRoom(() => {
       const roomId = currentRoomId()
       if (!roomId) return
-      setNotificationMode(deviceStore, nostrSession?.pubkey, { kind: 'room', id: roomId }, mode)
-      renderNotificationScopes(); renderRooms(); publishDesktopMenu()
+      chooseNotificationMode(roomId, mode)
     })
+    const muteFor = (length: keyof typeof MUTE_FOR) => inRoom(() => { const roomId = currentRoomId(); if (roomId) muteRoomFor(roomId, length) })
     const commands: Record<string, () => void> = {
       'new-room': openNewRoom, 'open-link': openLinkSheet, 'join-code': joinCodeSheet,
       settings: () => openDestination('settings'),
@@ -17204,7 +17293,9 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
       search: inRoom(() => conversationSearch.open($('chatSearch'))),
       invite: inRoom(() => { if (roomMenuModel().invite) openInviteDialog(false) }),
       agent: inRoom(() => { if (roomMenuModel().agent) addAnAgent() }),
-      'notify-all': notify('all'), 'notify-off': notify('off'), 'notify-inherit': notify('inherit'),
+      'notify-all': notify('all'), 'notify-mentions': notify('mentions'), 'notify-off': notify('off'), 'notify-inherit': notify('inherit'),
+      'mute-1h': muteFor('1h'), 'mute-8h': muteFor('8h'), 'mute-1d': muteFor('1d'), 'mute-1w': muteFor('1w'),
+      unmute: inRoom(() => { const roomId = currentRoomId(); if (roomId) unmuteRoomNow(roomId) }),
       pin: inRoom(() => { const room = currentKnownRoom(); if (room) togglePinned(room) }),
       leave: inRoom(() => $('leave').click()),
       shortcuts: () => $('keyboardHelp').click(),
@@ -18285,6 +18376,7 @@ const HEADS_UP_PREFIX = 'kithmoot.destruct-heads-up.'
  *  heads-up at the start of red for any self-destructing room. */
 function tickFuses(): void {
   const now = nowSeconds()
+  if (muteEnd !== undefined && now >= muteEnd) refreshMutes()
   for (const el of document.querySelectorAll<HTMLElement>('.fusePill[data-fuse-ends]')) fillFuse(el, now)
   const roomId = session ? currentRoomId() : undefined
   const banner = $('fuseBanner')
