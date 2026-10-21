@@ -14,6 +14,9 @@
 > and asks people who accepted that suggestion to choose again (4.2). It
 > lists one public file server run by somebody else, which a person may
 > choose (section 8).
+>
+> Changed 21 October 2026: notes in sections 3 and 4.3 on what we can read
+> and on the drop tier, pending a revision (risk assessment, section 8).
 
 ## 1. Who we are
 
@@ -28,7 +31,8 @@ see section 2). Contact us about anything in this notice at
 ## 2. The short version
 
 - KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot
-  read, your messages, your files, or your calls.
+  read, your messages, your files, or your calls. Two exceptions are
+  noted in section 3.
 - Joining a room needs only its link. We do not run accounts, and most
   people never give us anything we would call personal data.
 - Our default infrastructure (a TURN server, a file store, a drop tier,
@@ -54,6 +58,14 @@ see section 2). Contact us about anything in this notice at
   encrypted; the traffic key lives in the room's own link, not on our
   servers.
   <!-- docs/protocol.md, "Identities and trust boundaries" -->
+
+  *Note, 21 October 2026.* Two things we run are exceptions. A keeper we
+  run for a room holds that room's key, because it created the room. Our
+  meeting code service stores the full invitation link for a code made
+  without a password; for a room with no waiting room, that link lets the
+  service enter the room while the code lives. This notice does not yet
+  describe the meeting code service.
+  <!-- deploy/keeper@.service; deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
 - **A membership list.** There is no server-side record of who is in a
   room. The room's own capability, held only by its members' devices and
   clients, is what "membership" means here.
@@ -135,6 +147,9 @@ filter by.
 
 **How long.** Bounded by total size (1 GiB by default), a 30-day maximum
 age, and each wrap's own expiry; oldest-out when the bound is reached.
+
+*Note, 21 October 2026.* No app names the drop tier. It is a service we run
+that anyone can reach, not a default of the apps.
 
 ### 4.4 A relay we also run
 

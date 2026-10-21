@@ -10,6 +10,9 @@
 > user condition is actually *met* depends on evidence this record does not
 > have (section, Stage 2) and on decisions the owner has not yet made. This
 > is honestly unresolved, not resolved in either direction.
+>
+> Changed 21 October 2026: a note under B2 on file sharing. The illegal
+> content risk assessment, section 8, records a change in progress.
 
 ## Sources
 
@@ -158,6 +161,12 @@ review and rate.
 | Calls (audio/video) | Any of the above, live | No recording by the service; a keeper-run room may record separately (out of scope here) |
 | File sharing (opt-in) | Cannot itself carry viewable media through the default store (illegal content risk assessment, 2.3) | The exchange risk, if any, is anonymous bulk storage, not on-service viewing |
 | Agents in a room | Content an agent might generate or relay | `docs/agents.md` governs agent consent and scope; not separately assessed here |
+
+*Note, 21 October 2026.* From the web release after 20 October 2026 a file
+can also go to a public server the app lists, run by somebody else, which
+sets its own rules. What the app uploads is sealed on the device first, so
+for that server the file sharing row rests on the app, not on a store rule.
+<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
 
 ### B3. Age groups
 
