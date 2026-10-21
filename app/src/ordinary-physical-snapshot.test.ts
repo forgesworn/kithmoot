@@ -15,7 +15,7 @@ const cases: [string, 'browser' | 'tab', string][] = [
   [`kithmoot.room-epoch.v1.${h}`, 'browser', 'epoch'], [`${a}kithmoot.room-epoch.v2.${j}`, 'browser', 'epoch'], [`kithmoot.bookmarks.${h}.${j}`, 'browser', 'bookmarks'],
   [`kithmoot.quiet.v1.${h}`, 'browser', 'quiet'], [`${a}kithmoot.quiet.v1.${j}`, 'browser', 'quiet'], [`kithmoot.cadence-lease.v1.${h}.${j}.${'c'.repeat(32)}.1`, 'browser', 'cadence'],
   [`${a}kithmoot.pending.${j}`, 'browser', 'pending'], [`${a}kithmoot.pending.${j}`, 'tab', 'pending'],
-  [`kithmoot.contact.v1.${h}`, 'browser', 'contacts'], ['kithmoot.rendezvous.v1', 'browser', 'contacts'], [`kithmoot.verified.${h}`, 'browser', 'contacts'], [`kithmoot.checks.v2.${h}.kithmoot.verified.${j}`, 'browser', 'contacts'],
+  [`kithmoot.contact.v1.${h}`, 'browser', 'contacts'], ['kithmoot.rendezvous.v1', 'browser', 'contacts'], [`kithmoot.blocks.v1.${h}.${j}`, 'browser', 'contacts'], [`kithmoot.verified.${h}`, 'browser', 'contacts'], [`kithmoot.checks.v2.${h}.kithmoot.verified.${j}`, 'browser', 'contacts'],
   [`kithmoot.contacts.v2.${h}.pairing`, 'browser', 'grantedContacts'], [`kithmoot.contacts.v2.${h}.signet-contacts:state:${'c'.repeat(32)}`, 'browser', 'grantedContacts'], [`kithmoot.contacts.v2.${h}.signet-contacts:pending:${'c'.repeat(32)}`, 'browser', 'grantedContacts'],
   [`kithmoot.volume.v1.${h}`, 'browser', 'metadata'], ['kithmoot.pinned-rooms.v1', 'browser', 'metadata'], [`kithmoot.project.v1.visitor.${h}`, 'browser', 'metadata'], [`kithmoot.project.v1.${h}.${j}`, 'browser', 'metadata'],
   ['kithmoot.notification-scopes.v1.["visitor","default",""]', 'browser', 'metadata'], [`kithmoot.notification-scopes.v1.${JSON.stringify([h, 'project', 'private.label'])}`, 'browser', 'metadata'],
