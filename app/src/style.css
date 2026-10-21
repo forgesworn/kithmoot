@@ -1083,9 +1083,20 @@ video {
 .msg {
   display: flex;
   flex-direction: column;
-  max-width: min(75ch, 88%);
+  /* The controls sit outside the bubble (see .messageControls), so a row
+     leaves their width free beside it. 12% of a 320px log is 32px, short of
+     a 44px More button, and the button overhung the log's edge: the log
+     (overflow-x: hidden, still scrollable by focus and scrollIntoView) slid
+     sideways and cut the first letters off every bubble. */
+  --message-controls: 46px;
+  max-width: min(75ch, 88%, calc(100% - var(--message-controls)));
   min-width: 0;
   margin-top: var(--s3);
+}
+
+/* Two 32px buttons and their gap, shown on hover on a fine pointer. */
+@media (hover: hover) and (pointer: fine) {
+  .msg { --message-controls: 68px; }
 }
 
 .msg.continuation {
@@ -1834,7 +1845,7 @@ button.primary:hover:not(:disabled) {
    minutes is a document to read, not a remark, and it gets the whole log
    rather than a bubble two thirds of the way across it. */
 #chatLog.minutes .msg {
-  max-width: 100%;
+  max-width: calc(100% - var(--message-controls));
 }
 
 /* A conversation nobody has used yet does not need a screen-tall empty box
