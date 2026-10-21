@@ -26,7 +26,7 @@
  */
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { deriveEpoch, epochsInWindow, type EpochKeys, type LeftEpoch, type RekeyNotice, type RoomEpoch } from '../../src/epoch.js'
-import type { PastEpoch } from '../../src/chat.js'
+import type { EpochRoot, PastEpoch } from '../../src/chat.js'
 import type { DeviceStore } from './device-store.js'
 
 export const ROOM_EPOCH_PREFIX = 'kithmoot.room-epoch.v1.'
@@ -160,6 +160,24 @@ export function pastRootsOf(kept: KeptRoomEpoch): PastEpoch[] {
     const keys = deriveEpoch(e)
     return { root: { id: keys.id, key: keys.key }, leftAt: e.leftAt }
   })
+}
+
+/** Every epoch root after 0 the records name for a room: the current one
+ *  and each left epoch kept. What a device reads its own chat back under
+ *  when it takes its messages back from a room it no longer has open. */
+export function keptEpochRoots(store: DeviceStore, roomId: string): EpochRoot[] {
+  const roots = new Map<string, EpochRoot>()
+  const v1 = loadRoomEpochV1(store, roomId)
+  if (v1) roots.set(v1.id, { id: v1.id, key: v1.key })
+  const kept = loadKeptRoomEpoch(store, roomId)
+  if (kept) {
+    for (const e of [kept.epoch, ...kept.past]) {
+      if (e.epoch === 0) continue
+      const keys = deriveEpoch(e)
+      roots.set(keys.id, { id: keys.id, key: keys.key })
+    }
+  }
+  return [...roots.values()]
 }
 
 /** Every epoch id the records name for a room, epoch 0's (the room id)

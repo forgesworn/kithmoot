@@ -141,6 +141,10 @@ describe('a self-destructing room (agent)', () => {
     await settle()
     const mine = relay.published.filter((e) => e.pubkey === ada.device && e.kind < 20_000)
     expect(mine.length).toBeGreaterThan(0)
+    // Every stream ada wrote chat in is one her session names, so chat
+    // envelope 2 messages there would be found too.
+    const streams = new Set(ada.session.chatStreams().map((s) => s.d))
+    for (const e of mine.filter((m) => m.kind === KINDS.CHAT)) expect(streams.has(e.tags.find((t) => t[0] === 'd')![1]!)).toBe(true)
     const report = await ada.deleteOwnEvents({ timeoutMs: 2_000 })
     expect(report.found).toBeGreaterThanOrEqual(mine.length)
     expect(report.failed).toBe(0)

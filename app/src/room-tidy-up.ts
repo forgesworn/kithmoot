@@ -25,6 +25,7 @@ import type { Filter } from 'nostr-tools/filter'
 import type { HistoryReadResult } from '../../src/history-import.js'
 import type { PublicDeletionRelayOutcome } from './public-deletion-relay-writer.js'
 import { KINDS } from '../../src/kinds.js'
+import { ownEnvelope2Events, type ChatStream } from '../../src/chat.js'
 import type { FileDeletionReport } from './blob-deletion.js'
 
 export type TidyStepId = 'end' | 'invitations' | 'retirement' | 'tabs' | 'device' | 'files' | 'bookmark' | 'account' | 'local' | 'check'
@@ -77,6 +78,12 @@ export interface TidyUpDeps {
   /** The link keys, when this browser started the room. */
   inviter?: { sk: Uint8Array; invitationId: string }
   device: { sk: Uint8Array }
+  /** The room's chat streams this device may have written in
+   *  (`RoomSession.chatStreams`). Chat envelope 2 messages are signed by a
+   *  key of their own, so no `authors` query finds them: these streams are
+   *  read and each message this device wrote is asked for under its own key.
+   *  Omitted, only what the device key signed is found. */
+  chatStreams?: readonly ChatStream[]
   /** The signed-in account, when there is one. */
   account?: {
     pubkey: string
@@ -208,6 +215,30 @@ async function requestDeletion(
 
 const secretSigner = (sk: Uint8Array) => async (template: EventTemplate) => finalizeEvent(template, sk)
 
+/** Chat streams named in one filter's `#d`. */
+const STREAMS_PER_FILTER = 20
+
+/** This device's chat envelope 2 messages on the room's relays, with the
+ *  outer key of each, and how many each relay holds. */
+async function gatherOwnChat(deps: TidyUpDeps, streams: readonly ChatStream[]): Promise<{ own: Array<{ event: Event; sk: Uint8Array }>; gathered: Gathered }> {
+  const byId = new Map<string, { event: Event; sk: Uint8Array }>()
+  const unread = new Set<string>()
+  const perRelay = new Map<string, number>()
+  for (const group of chunks(streams, STREAMS_PER_FILTER)) {
+    await Promise.all(deps.roomRelays.map(async relay => {
+      let result: HistoryReadResult
+      try { result = await deps.read(relay, { kinds: [KINDS.CHAT], '#d': group.map(s => s.d), limit: QUERY_LIMIT }) }
+      catch { unread.add(relay); return }
+      if (result.terminal !== 'complete') unread.add(relay)
+      const mine = ownEnvelope2Events(result.events, group, deps.device.sk)
+      perRelay.set(relay, (perRelay.get(relay) ?? 0) + mine.length)
+      for (const m of mine) byId.set(m.event.id, m)
+    }))
+  }
+  const own = [...byId.values()].sort((a, b) => a.event.created_at - b.event.created_at || (a.event.id < b.event.id ? -1 : 1))
+  return { own, gathered: { events: own.map(o => o.event), unread: [...unread].sort(), perRelay } }
+}
+
 export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   const steps: TidyStepReport[] = []
   const labels = new Map(tidyUpSteps({ creator: !!deps.inviter, account: !!deps.account, deleteTombstone: !!deps.account?.deleteTombstone, end: !!deps.endRoom, files: !!deps.files }).map(step => [step.id, step.label]))
@@ -261,8 +292,16 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
   record({ id: 'tabs', found: 0, answers: [], unread: [], ...(left ? {} : { skipped: 'A tab did not confirm it left. Close any other tab with this room open.' }) })
 
   const device = await gather(deps, deps.roomRelays, { authors: [devicePub] })
-  record({ id: 'device', found: device.events.length, unread: device.unread,
-    answers: await requestDeletion(deps, deps.roomRelays, device.events, secretSigner(deps.device.sk)) })
+  const deviceAnswers = await requestDeletion(deps, deps.roomRelays, device.events, secretSigner(deps.device.sk))
+  // Chat envelope 2: one request per message, each under its own outer key.
+  const chat = deps.chatStreams?.length ? await gatherOwnChat(deps, deps.chatStreams) : undefined
+  const chatAnswers: PublicDeletionRelayOutcome[][] = []
+  for (const { event, sk } of chat?.own ?? []) {
+    try { chatAnswers.push(await requestDeletion(deps, deps.roomRelays, [event], secretSigner(sk))) } finally { sk.fill(0) }
+  }
+  record({ id: 'device', found: device.events.length + (chat?.own.length ?? 0),
+    unread: [...new Set([...device.unread, ...(chat?.gathered.unread ?? [])])].sort(),
+    answers: chatAnswers.length ? worst([deviceAnswers, ...chatAnswers]) : deviceAnswers })
 
   // After the relays are asked, before the wipe: the record of what this
   // device uploaded goes with the room. A delete that does not go through
@@ -314,6 +353,11 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
     for (const relay of found.unread) remaining.push({ what: `${what} (this relay did not answer)`, relay, count: -1 })
   }
   tally('This device’s events', await gather(deps, deps.roomRelays, { authors: [devicePub] }))
+  if (deps.chatStreams?.length) {
+    const left = await gatherOwnChat(deps, deps.chatStreams)
+    for (const { sk } of left.own) sk.fill(0)
+    tally('This device’s chat', left.gathered)
+  }
   if (inviterPub) tally('Link-key records', await gather(deps, deps.roomRelays, { authors: [inviterPub], '#d': [deps.inviter!.invitationId] }))
   if (deps.account) {
     const ds = [deps.account.readPositionD, deps.account.deleteTombstone ? tombstoneD : undefined].filter((d): d is string => !!d)

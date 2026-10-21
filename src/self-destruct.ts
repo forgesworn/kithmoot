@@ -2,6 +2,8 @@ import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
 import type { RelayTransport } from './relay-pool.js'
+import { KINDS } from './kinds.js'
+import { ownEnvelope2Events, type ChatStream } from './chat.js'
 
 /**
  * Take back what a device signed in a room that self-destructs, as far as
@@ -15,6 +17,8 @@ export const DELETION_IDS_PER_REQUEST = 300
 const QUERY_LIMIT = 1_000
 /** Rounds of ask-then-delete, so a room with more than a page is emptied. */
 const MAX_ROUNDS = 5
+/** Chat streams named in one filter's `#d`. */
+const STREAMS_PER_FILTER = 20
 
 export interface DeletionKey {
   sk: Uint8Array
@@ -73,6 +77,12 @@ export async function deleteSignedEvents(opts: {
   /** Unix seconds. */
   now: () => number
   timeoutMs?: number
+  /** This device's chat streams, to find what it wrote in chat envelope 2:
+   *  each such message is signed by its own outer key, which no `authors`
+   *  query names, so the streams are read and each message the device wrote
+   *  is asked for under its own key (see `ownEnvelope2Events`). Omitted,
+   *  only what the keys above signed is asked for. */
+  chat?: { deviceSk: Uint8Array; streams: readonly ChatStream[] }
 }): Promise<DeletionReport> {
   const deadline = Date.now() + (opts.timeoutMs ?? 15_000)
   const report: DeletionReport = { found: 0, requested: 0, failed: 0, complete: true }
@@ -104,5 +114,51 @@ export async function deleteSignedEvents(opts: {
       if (fresh.length < QUERY_LIMIT) break
     }
   }
+  if (opts.chat && opts.chat.streams.length > 0) await deleteOwnEnvelope2(opts.transport, opts.chat, opts.now, deadline, report)
   return report
+}
+
+/** The envelope-2 pass of `deleteSignedEvents`: one request per message,
+ *  each signed by that message's outer key. */
+async function deleteOwnEnvelope2(
+  transport: RelayTransport,
+  chat: { deviceSk: Uint8Array; streams: readonly ChatStream[] },
+  now: () => number,
+  deadline: number,
+  report: DeletionReport,
+): Promise<void> {
+  const asked = new Set<string>()
+  for (let i = 0; i < chat.streams.length; i += STREAMS_PER_FILTER) {
+    const streams = chat.streams.slice(i, i + STREAMS_PER_FILTER)
+    let until: number | undefined
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const filter: Filter = { kinds: [KINDS.CHAT], '#d': streams.map((s) => s.d), limit: QUERY_LIMIT, ...(until !== undefined ? { until } : {}) }
+      const read = await readEvents(transport, filter, deadline)
+      if (!read.complete) report.complete = false
+      const own = ownEnvelope2Events(read.events.filter((e) => !asked.has(e.id)), streams, chat.deviceSk)
+      const fresh = [...new Map(own.map((o) => [o.event.id, o])).values()]
+      report.found += fresh.length
+      for (const { event, sk } of fresh) {
+        asked.add(event.id)
+        if (Date.now() >= deadline) { report.complete = false; report.failed += 1; continue }
+        try {
+          await Promise.race([
+            transport.publish(deletionRequest(sk, [event], now())),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timed out')), Math.max(1, deadline - Date.now())).unref?.()),
+          ])
+          report.requested += 1
+        } catch {
+          report.failed += 1
+        } finally {
+          sk.fill(0)
+        }
+      }
+      // Other members' messages fill pages too, so page back by time until a
+      // short page, skipping what was already asked for.
+      if (read.events.length < QUERY_LIMIT) break
+      const oldest = Math.min(...read.events.map((e) => e.created_at))
+      if (until !== undefined && oldest >= until) break
+      until = oldest
+    }
+  }
 }

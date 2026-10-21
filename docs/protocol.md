@@ -489,19 +489,26 @@ may ever be called `v`.
 
 **Before writers switch on.**
 
-- Deletion by author misses every envelope-2 message. `src/self-destruct.ts`
-  queries `authors: [device]` and batches NIP-09 deletions signed by the
-  device key, and its callers do the same: the agent's `deleteOwnEvents`
-  (`src/agent.ts`), the keeper wipe (`src/node/cli.ts`) and the web tidy-up
-  (`app/src/room-tidy-up.ts`). Each must instead read its channels' and
-  epochs' `#d` streams, keep the messages whose inner `device` is its own,
-  and sign one deletion per message with `chatOuterSecretKey(device key, d,
-  message id)`. That keeps every left epoch's channel key until tidy-up runs,
-  costs one request per message instead of 300, and links the deletions by
-  their timing.
-- Quiet rooms: the envelope adds the signature, the wrapper and the escaping
-  of `body`, so a message near `QUIET_BUCKET_BYTES` that fits today may not.
-  Measure before switching quiet rooms over.
+- Deletion (done here; Android open). A device's own envelope-2 messages
+  are found by stream, not by author: `RoomSession.chatStreams()` (or, for a
+  room not open, epoch 0 and the kept epochs in the channels every client
+  writes in) is read, `ownEnvelope2Events` keeps the events whose author is
+  the outer key derived from this device's key, stream and message id, and
+  each is asked for alone under that key. `deleteSignedEvents` takes them as
+  `chat`; self-destruct, the agent's `deleteOwnEvents`, the keeper wipe
+  (`src/node/cli.ts`) and the web tidy-up (`TidyUpDeps.chatStreams`) pass
+  them. It costs one request per message, and the requests share a moment,
+  which links them by timing. Named channels of a room that is not open in
+  this browser are not known, so its messages there stay.
+- Quiet rooms: the envelope adds the signature, the wrapper and a second
+  escaping of `body`. Measured 2026-10-21 with a seal-keyed credential and a
+  display name against `QUIET_BUCKET_BYTES` (4096): the longest plain-text
+  message that fits falls from 1,696 to 1,480 characters, and one made only
+  of double quotes from 848 to 370, since each is escaped twice. A writer
+  that switches quiet rooms over refuses more long messages with
+  `QUIET_TOO_LONG`; either accept that, or carry quiet chat as envelope 1
+  inside its drop, where the wrap's one-time author already hides the
+  device.
 - Relay rate limits and write allowlists keyed on the author no longer apply
   to chat; the sender limit inside the room (`MAX_CHAT_MESSAGES_PER_MINUTE`)
   is the one that counts.

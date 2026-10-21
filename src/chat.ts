@@ -489,6 +489,60 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
   }
 }
 
+/** One stream of chat on the wire: its `d` tag and the key its content is
+ *  sealed under (`deriveChannel` of an epoch root and a channel name). */
+export interface ChatStream {
+  d: string
+  key: Uint8Array
+}
+
+/** Every stream for these roots and channels: the main chat (`undefined`)
+ *  and each named channel, in each root, once each. */
+export function chatStreamsOf(roots: readonly EpochRoot[], channels: readonly (string | undefined)[]): ChatStream[] {
+  const out = new Map<string, ChatStream>()
+  for (const root of roots) {
+    for (const name of new Set(channels)) {
+      const { id, key } = deriveChannel(root.id, root.key, name)
+      if (!out.has(id)) out.set(id, { d: id, key })
+    }
+  }
+  return [...out.values()]
+}
+
+/**
+ * The envelope-2 chat events among `events` that this device wrote, each
+ * with the outer key that signed it, so the device can ask for its deletion
+ * (NIP-09 takes a deletion only from the event's own author). An event is
+ * this device's when its stream opens it, its body names this device, and
+ * the outer key derived from this device's key, the stream and the
+ * message id is the event's author: nobody else can produce an event signed
+ * by that key, so the inner signature need not be checked. Envelope-1
+ * events are left out: the device key signed them, and is asked by author
+ * as before. Never throws.
+ */
+export function ownEnvelope2Events(events: readonly Event[], streams: readonly ChatStream[], deviceSk: Uint8Array): Array<{ event: Event; sk: Uint8Array }> {
+  const device = getPublicKey(deviceSk)
+  const byD = new Map(streams.map((s) => [normaliseHex(s.d), s]))
+  const out: Array<{ event: Event; sk: Uint8Array }> = []
+  for (const event of events) {
+    try {
+      if (event.kind !== KINDS.CHAT || hexEquals(event.pubkey, device)) continue
+      const d = event.tags.find((t) => t[0] === 'd')?.[1]
+      const stream = d === undefined ? undefined : byD.get(normaliseHex(d))
+      if (!stream) continue
+      const envelope = openEnvelope2(JSON.parse(nip44.v2.decrypt(event.content, stream.key)))
+      if (!envelope) continue
+      const body = JSON.parse(envelope.body) as { id?: unknown; device?: unknown }
+      if (typeof body.id !== 'string' || typeof body.device !== 'string' || !hexEquals(body.device, device)) continue
+      const sk = chatOuterSecretKey(deviceSk, stream.d, body.id)
+      if (hexEquals(getPublicKey(sk), event.pubkey)) out.push({ event, sk })
+    } catch {
+      // Not ours, or not readable here: nothing to ask for.
+    }
+  }
+  return out
+}
+
 /** The message inside an envelope-2 plaintext, and the device signature to
  *  check it against; null for envelope 1. Throws on a malformed envelope 2,
  *  which the caller refuses. */
