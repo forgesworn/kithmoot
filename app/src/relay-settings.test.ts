@@ -25,7 +25,7 @@ describe('device relay preferences', () => {
   })
 
   it('adds nothing to a room fixed to the three current defaults', () => {
-    const current = ['wss://relay.primal.net/', 'wss://nostr.oxtr.dev/', 'wss://relay.nostr.net/']
+    const current = ['wss://relay.primal.net/', 'wss://nostr.oxtr.dev/', 'wss://relay.ditto.pub/']
     expect(currentRoomRelayHints(current)).toBe(current)
   })
 

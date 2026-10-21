@@ -159,7 +159,7 @@ if [[ -n "$ROOM" ]]; then
 # The standing room "$ROOM" this box keeps. Edit and \`systemctl restart kithmoot-keeper@$ROOM\`.
 KITHMOOT_BASE=${KITHMOOT_BASE:?KITHMOOT_BASE is required}
 KITHMOOT_NAME="$name"
-KITHMOOT_RELAYS=${KITHMOOT_RELAYS:-wss://relay.primal.net/,wss://nostr.oxtr.dev/,wss://relay.nostr.net/}
+KITHMOOT_RELAYS=${KITHMOOT_RELAYS:-wss://relay.primal.net/,wss://nostr.oxtr.dev/,wss://relay.ditto.pub/}
 # A forwarder this room may promote to: the line kithmoot-forwarder prints,
 # {"url","pubkey","label"}. The keeper publishes it in the room descriptor at
 # start, after every rekey and for every arrival. Empty means no forwarder.

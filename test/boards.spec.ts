@@ -45,7 +45,7 @@ async function device(browser: Browser, base: string, offline = false): Promise<
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const known = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.nostr.net']
+        const known = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
         if (!known.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay refused by board acceptance')
         super(relay, protocols)
       }
