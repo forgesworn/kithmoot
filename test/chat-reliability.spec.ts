@@ -26,6 +26,36 @@ async function join(page: Page, url: string, name: string): Promise<void> {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
+test('a reachable relay sends while the browser reports offline', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  // Model the browser's heuristic only. The actual relay, socket, queue,
+  // publication and received message remain real acceptance-test paths.
+  await context.addInitScript(() => Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false }))
+  const relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const sent: string[] = []
+  await context.routeWebSocket(relay, ws => {
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) sent.push(frame[1].id)
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    expect(await page.evaluate(() => navigator.onLine)).toBe(false)
+    await page.locator('#chatInput').fill('A local relay is still reachable')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('A local relay is still reachable')
+    await expect(page.locator('#outbox')).toBeHidden()
+    expect(sent).toHaveLength(1)
+    expect(await page.evaluate(() => navigator.onLine)).toBe(false)
+  } finally { await context.close() }
+})
+
 test('a lost acknowledgement keeps the message until it shows, and never sends it twice', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
