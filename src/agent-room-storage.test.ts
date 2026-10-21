@@ -54,7 +54,7 @@ function harness() {
     const c = decodeControl(m.text)
     return c?.op === 'storage' ? [c] : []
   })
-  return { relay, fake, store, states, start, join, invitations, ops, tick: (s: number) => { clock += s }, get clock() { return clock }, last: () => latest!.keeperState!, states }
+  return { relay, fake, store, states, start, join, invitations, ops, tick: (s: number) => { clock += s }, get clock() { return clock }, last: () => latest!.keeperState! }
 }
 
 describe('a keeper that lists the room\'s storage nodes', { timeout: 30_000 }, () => {
