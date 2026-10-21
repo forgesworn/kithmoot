@@ -6,6 +6,22 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.100 invite to a room and new default relays, 21 October 2026
+
+Version **0.6.100**, code **123**, brings the calm shell's stage 6 to
+Android: invite a contact to one of your rooms from People or from their
+details in a room, invitation cards that name the sender and never show a
+key, and the web's words at the ask-first door (kithmoot-android #297). It
+also moves the default relays to relay.primal.net, nostr.oxtr.dev and
+relay.nostr.net, as the web did (kithmoot-android #298, kithmoot #498). No
+wire change.
+
+The production APK is built from Android source
+`7e6c10ee` (pull request #299 merged, all checks passed), SHA-256
+`46cfe3ac6e38c7ada959527d5ae0926817d099552e32f92c182732b92c71d544`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started a room over the new default relays; not yet observed on a device.
+
 ## Android 0.6.99 Decline and block and no suggested file server, 21 October 2026
 
 Version **0.6.99**, code **122**, adds Decline and block, kept on the phone
