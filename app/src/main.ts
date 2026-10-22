@@ -20191,13 +20191,15 @@ function renderStaged(): void {
   }
   draft.attachments.forEach((a, i) => {
     const name = a.name ?? 'Encrypted file'
-    chip(name, a.size !== undefined ? formatBytes(a.size) : 'Ready', `Remove ${name}`, () => {
+    // A file no group computer has taken yet is staged all the same, and says so.
+    const waiting = heldEnvelopes.has(a.sha256)
+    chip(name, waiting ? 'Waiting' : a.size !== undefined ? formatBytes(a.size) : 'Ready', `Remove ${name}`, () => {
       draft.attachments.splice(i, 1)
       draftChanged(draft)
     })
   })
   // A Bothy room lists its held files in its own panel, as it always has.
-  for (const file of roomUsesBothy ? [] : draft.pendingFiles ?? []) {
+  for (const file of bothyFiles() ? [] : draft.pendingFiles ?? []) {
     const refused = draft.refusedFiles?.get(file)
     const state = refused ? (file.size === 0 ? 'Not uploaded' : 'Too large') : draft.job ? 'Uploading…' : 'Not uploaded'
     const stopping = draft.uploading === file
@@ -20240,7 +20242,11 @@ function renderStaged(): void {
   const stateShown = !!state && (held.length > 0 || (destination.kind === 'group' && draft.attachments.length > 0))
   $('fileTrayState').hidden = !stateShown
   if (state && stateShown) {
-    $('fileTrayStateText').textContent = state.text
+    // A staged file that is waiting for the group's storage says what for, in the contract's words.
+    const waitingFor = destination.kind === 'group' ? draft.attachments.map(a => heldEnvelopes.get(a.sha256)?.reason).find(reason => reason !== undefined) : undefined
+    $('fileTrayStateText').textContent = waitingFor === 'no-grant' ? GROUP_STORAGE_MESSAGES['no-grant']
+      : waitingFor ? `${GROUP_STORAGE_WAITING} The message will go once one of the group’s computers takes the file.`
+      : state.text
     const action = $('fileTrayStateAction') as HTMLButtonElement
     action.hidden = !state.action
     action.textContent = state.action?.label ?? ''
