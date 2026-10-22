@@ -24,7 +24,7 @@ import { DEVICE_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, KEPT_ADMISSION_P
   deviceKeyFor, storeOwnCredentialFor, storeKeptAdmission, type DeviceStore } from './device-store.js'
 import { storeTabAdmission, TAB_ADMISSION_PREFIX } from './admission-store.js'
 import { rememberRoom, setKeepRoom, ROOM_PREFIX } from './rooms-store.js'
-import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmissionProofs, persistentAdmissionDeviceInPair,
+import { accountPrefix, makePersistentAdmissionProof, inspectPersistentAdmissionProofs, proofsStillNameActor, persistentAdmissionDeviceInPair,
   persistentProofName, persistentTabProofName, tabProofBytes, FIXED_INVITATION_RELAYS, MAX_PERSISTENT_PROOF_BYTES,
   PERSISTENT_PROOF_V2_PREFIX, PERSISTENT_TAB_PROOF_V2_PREFIX,
   type PersistentDeviceCustody, type VerifiedPersistentProof } from './persistent-admission-proof.js'
@@ -1194,11 +1194,15 @@ export class OrdinaryPersistentBootstrap {
       browser.remove(prefix + KEPT_ADMISSION_PREFIX + this.#id)
       tab.remove(prefix + PERSISTENT_TAB_PROOF_V2_PREFIX + this.#id); tab.remove(prefix + TAB_ADMISSION_PREFIX + this.#id)
       if (roomId !== undefined) {
-        const members = inspectPersistentAdmissionProofs(browser, tab), creators = inspectPersistentCreatorProofs(browser)
+        // Deleting on the strength of what is left: a proof this copy cannot read may still
+        // depend on the device key, credential, seal and relays below, so it counts as present.
+        const members = inspectPersistentAdmissionProofs(browser, tab, { isolateUnreadable: true }), creators = inspectPersistentCreatorProofs(browser)
         try {
+          if (members.skipped.length) console.warn(`${members.skipped.length} stored invitation proof(s) could not be read by this version, so this room's device records were kept.`)
+          const unreadable = members.skipped.length > 0
           const remaining = [...members.proofs.values(), ...members.selected.values()]
-          const sameActor = remaining.some(value => value.proof.binding.participant === this.#participant && value.proof.binding.roomId === roomId) ||
-            [...creators.proofs.values()].some(value => value.proof.binding.participant === this.#participant && value.proof.binding.roomId === roomId)
+          const sameActor = proofsStillNameActor({ participant: this.#participant, roomId, skipped: members.skipped.length,
+            readable: [...remaining, ...creators.proofs.values()].map(value => value.proof.binding) })
           if (!sameActor) {
             const device = this.#options.keep ? browser : tab
             for (const name of [DEVICE_PREFIX, DEVICE_OWNER, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX]) device.remove(prefix + name + roomId)
@@ -1212,7 +1216,7 @@ export class OrdinaryPersistentBootstrap {
           const rawFixed = browser.get(FIXED_INVITATION_RELAYS)
           if (rawFixed !== null) {
             const fixed = JSON.parse(rawFixed) as Record<string, { c: string[]; signed: boolean }>, row = fixed[roomId]
-            if (row && !remaining.some(value => value.proof.binding.roomId === roomId && value.proof.selection.relays !== null &&
+            if (row && !unreadable && !remaining.some(value => value.proof.binding.roomId === roomId && value.proof.selection.relays !== null &&
                 JSON.stringify(value.proof.selection.relays) === JSON.stringify(row.c)) &&
                 ![...creators.proofs.values()].some(value => value.proof.binding.roomId === roomId &&
                   creatorIsSelected(browser, value.proof) && JSON.stringify(value.admission.relays) === JSON.stringify(row.c))) {

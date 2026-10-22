@@ -376,15 +376,21 @@ export interface SkippedPersistentProof {
  * other tabs remain inert historical custody. A tab proof must have its exact
  * browser counterpart and actual admission writer records.
  *
- * One proof this copy cannot read is skipped and reported (`skipped`), not
- * allowed to hold every room: a tab on an older release, or a rollback, cannot
- * read evidence a newer release kept, and the rooms whose proofs it can read
- * are no less true for that. Only a failure to READ is isolated. A row that
- * reads but is out of place (wrong name, a repeated slot, too many for an
- * invitation, a tab record that disagrees with its browser counterpart) still
- * holds, and so does everything a caller checks afterwards against these
- * proofs: a room that depended on a skipped one is held by that check. */
-export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: DeviceStore, options: { requireSelectedContinuity?: boolean } = {}): {
+ * A proof this copy cannot read HOLDS, as it always did, unless the caller says
+ * it is only loading (`isolateUnreadable`). A loader may skip it and carry on
+ * with the rooms whose proofs it can read (`skipped` says which it left): a tab
+ * on an older release, or a rollback, cannot read evidence a newer release
+ * kept, and the rooms it can read are no less true for that. Even then only a
+ * failure to READ is isolated. A row that reads but is out of place (wrong
+ * name, a repeated slot, too many for an invitation, a tab record that
+ * disagrees with its browser counterpart) still holds, and so does everything
+ * a caller checks afterwards against these proofs.
+ *
+ * A caller that DELETES on the strength of what is here (forgetting an
+ * invitation, retiring a key) must not isolate: a proof nobody can read is not
+ * a proof nobody depends on. If it does isolate, it must treat any `skipped`
+ * entry as a proof that is present. */
+export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: DeviceStore, options: { requireSelectedContinuity?: boolean; isolateUnreadable?: boolean } = {}): {
   readonly proofs: ReadonlyMap<string, VerifiedPersistentProof>
   readonly selected: ReadonlyMap<string, VerifiedPersistentProof>
   readonly skipped: readonly SkippedPersistentProof[]
@@ -400,7 +406,8 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
     for (const name of browser.keys()) {
       if (![PERSISTENT_PROOF_PREFIX, PERSISTENT_PROOF_V2_PREFIX].some(prefix => name.includes(prefix))) continue
       let verified: VerifiedPersistentProof
-      try { verified = readPersistentAdmissionProof(browser.get(name)!) } catch {
+      try { verified = readPersistentAdmissionProof(browser.get(name)!) } catch (error) {
+        if (!options.isolateUnreadable) throw error
         skipped.push({ name, why: 'unreadable' })
         const operation = operationOf(browser.get(name)!)
         if (operation) unreadable.add(operation)
@@ -427,7 +434,10 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
       const bound = binding(value.binding, value.version)
       let privateProof: VerifiedPersistentProof | undefined
       if (value.privateProof !== null) {
-        try { privateProof = readPersistentAdmissionProof(JSON.stringify(value.privateProof)) } catch { skipped.push({ name, why: 'unreadable' }); continue }
+        try { privateProof = readPersistentAdmissionProof(JSON.stringify(value.privateProof)) } catch (error) {
+          if (!options.isolateUnreadable) throw error
+          skipped.push({ name, why: 'unreadable' }); continue
+        }
       }
       if (privateProof) owned.push(privateProof)
       // Its counterpart is a browser proof this copy could not read: nothing here to check it against.
@@ -466,6 +476,16 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
     }
     return { proofs, selected, skipped, close }
   } catch (error) { close(); throw error }
+}
+
+/**
+ * Whether other proofs still name this actor in this room, so that forgetting
+ * one invitation must leave the room's device key, credential, seal and relays
+ * alone. A proof that was skipped because it could not be read counts as
+ * present: nobody can say it does not depend on them.
+ */
+export function proofsStillNameActor(input: { participant: string; roomId: string; readable: readonly { participant: string; roomId: string }[]; skipped: number }): boolean {
+  return input.skipped > 0 || input.readable.some(proof => proof.participant === input.participant && proof.roomId === input.roomId)
 }
 
 /** The operation id a stored proof claims, read without trusting the rest of it. */
