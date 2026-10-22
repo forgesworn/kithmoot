@@ -166,7 +166,12 @@ choice written down, whatever the person chose for their own files. A device
 needs a grant from the keeper first. Until it has one, or while every node is
 down, the file is sealed and held in the page's memory, the message waits in the
 outbox as "Waiting for the group's storage.", and the page warns before it is
-closed (a held file is not kept across a reload). An app uses `https` nodes only:
+closed (a held file is not kept across a reload, and a file waiting in a draft
+is kept while the draft is, across a visit to another room). Leaving a room with
+such a message waiting asks first, because it and its files would be lost; Delete
+on the row stops an upload that is still going. A problem that waiting will not
+mend (the device's clock is wrong, its grants have ended, every node gives files
+to anyone) is said in its own words and not tried again on a timer. An app uses `https` nodes only:
 a node on `localhost`, on a LAN address or behind an onion address cannot be used
 from a browser, so a group that wants to share files from browsers needs a node
 with a TLS name. An app also refuses a node that answers a read without a token,
@@ -177,7 +182,9 @@ The keeper does not run a node, and nothing here makes a node public: a node in
 group mode refuses everyone the keeper has not named, and every read needs a
 signed token. A node must answer a browser's preflight (`Authorization`,
 `Content-Type`, `X-SHA-256`, `Range`; `GET, HEAD, PUT, DELETE`) and expose
-`X-Reason`, which `wildbloomd` group mode does.
+`X-Reason`, which `wildbloomd` group mode does. To let a browser tell a wrong
+clock from a refusal it must also expose `Date`, which `wildbloomd` does not yet:
+without it a device with a wrong clock sees its tokens refused and keeps waiting.
 
 ## Planned
 
