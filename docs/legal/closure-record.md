@@ -58,9 +58,10 @@ shipped was not checked.
   `kithmoot.forgesworn.dev`, that is ForgeSworn's server, answering anyone.
   STUN carries no user's content to another user. The law note does not say
   whether a server like that bears on the Online Safety Act (not covered).
-  It is a ForgeSworn default. `[DECISION: an earlier decision of 22
-  October 2026 kept ForgeSworn's STUN; the later one says no ForgeSworn
-  defaults anywhere (section 6). Which stands.]`
+  The owner decided on 22 October 2026 to keep it: it carries no content,
+  and the alternatives are a large company's STUN, which sees the same
+  addresses, or calls that fail more often. It does see users' IP
+  addresses, which is data protection (law note 3.1).
 - **Same-origin calls in the apps.** On `main`, and still on PR #525, the
   web app asks its own origin for `/turn` (`app/src/main.ts`,
   `TURN_CREDENTIAL_ENDPOINT`) and `/codes` (`meetingCodeClient`). On
@@ -70,8 +71,8 @@ shipped was not checked.
   operator's own rooms, were retired on 4 September 2026 and their state
   is kept on the box only (host's report).
 - **Meeting code data.** The service is stopped and disabled. Its store of
-  room links, about 1 KB, is still on the box's disk. `[DECISION: delete
-  it.]`
+  room links, about 1 KB, sits in the same trash folder as the stored
+  files, waiting to be emptied.
 - **The drop tier** still runs on the box's loopback. Whether anything
   other than the box can reach it was not checked.
 - **The app and the update check.** `kithmoot.forgesworn.dev` still serves
@@ -98,8 +99,8 @@ others do with it (law note 6.1, Serious Crime Act 2007 sections 44, 45
 and 50, `[P]`). The privacy notice still owes an account of the third
 parties the defaults contact (law note 3.2).
 
-**Today:** close to that. What is left is ForgeSworn's STUN (a decision),
-the same-origin defaults in section 3 that now meet 410, and the data in
+**Today:** close to that. What is left is ForgeSworn's STUN (kept by
+decision), the same-origin defaults in section 3 that now meet 410, and the data in
 section 3 still on the box.
 
 ## 5. Why no assessment fell due
@@ -126,7 +127,7 @@ Any ForgeSworn default that lets one user's content reach another: a relay,
 a TURN server, a file store, or a same-origin path on a ForgeSworn host
 that the apps use by default. The owner has decided against all of them:
 no ForgeSworn or company-run TURN, and no ForgeSworn defaults anywhere.
-STUN run by third parties is acceptable.
+STUN, which carries no content, is the one exception, whoever runs it.
 
 Self-hosted TURN is to be made easy (plan item S9) on these rules: setup
 runs on the deployer's own machine; ForgeSworn never holds their secrets;
