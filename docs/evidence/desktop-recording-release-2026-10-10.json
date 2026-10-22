@@ -300,7 +300,7 @@
     }
   ],
   "mac": {
-    "developerId": "Epona Solutions Ltd (2GLP954N6A)",
+    "developerId": "(the project's Apple certificate)",
     "notarisedAndStapled": true,
     "gatekeeperAccepted": true,
     "independentM4Assessment": true,
