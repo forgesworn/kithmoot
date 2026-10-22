@@ -372,6 +372,7 @@ import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
 import { icon, installIcons } from './icons.js'
+import { forgeSwornStorageNotice } from './forgesworn-stored-file.js'
 
 // The icon sprite, written once, before anything draws a button that uses it.
 installIcons()
@@ -10169,6 +10170,15 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       redraw: next => render(next),
       show: button => { void openAttachment(button) },
     })
+    // Under the file, visible without opening it. Only ForgeSworn-held files.
+    const ending = forgeSwornStorageNotice(a.url)
+    if (ending) {
+      const notice = document.createElement('p')
+      notice.className = 'attWhy'
+      notice.dataset.storageEnding = 'true'
+      notice.textContent = ending
+      card.append(notice)
+    }
     focusInto(focus)
   }
   const openAttachment = async (button: HTMLButtonElement): Promise<void> => {
