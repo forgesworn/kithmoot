@@ -18702,6 +18702,8 @@ interface TidyUpContext {
   invitation?: RoomInvitation
   inviterSk?: Uint8Array
   deviceSk: Uint8Array
+  /** The room's own storage nodes, when it lists any this app can reach, and how a delete there is confirmed. */
+  groups?: GroupDeletes
   /** Where this device's chat envelope 2 messages can be found
    *  (`TidyUpDeps.chatStreams`). */
   chatStreams?: ReturnType<typeof chatStreamsOf>
@@ -18728,13 +18730,15 @@ async function openTidyUp(): Promise<void> {
     return
   }
   const owner = invitationDelegation.length === 0 && invitationAuthoritySk && roomInvitationCapability ? roomInvitationCapability : undefined
+  const deviceSk = deviceKey()
   tidyUpContext = {
     roomId,
     roomKey: deriveRoom(roomSecret).roomKey,
     roomRelays: [...relays],
     invitation: owner,
     inviterSk: owner ? invitationAuthoritySk : undefined,
-    deviceSk: deviceKey(),
+    deviceSk,
+    groups: tidyUpGroupDeletes(roomId, deviceSk, roomAuthority()),
     chatStreams: s.chatStreams(),
     account: tidyUpAccount(roomId),
     canEnd: canEndRoom(),
@@ -18826,18 +18830,41 @@ function showTidyReport(report: TidyUpReport): void {
 /** The tidy-up's file step for a room: delete every file this device
  *  recorded uploading there, and those its own announcements name, from a
  *  server this app uploads to. See app/src/blob-deletion.ts. */
-/** Where this room's file deletes may go. S5b adds a listed room's nodes. */
-function fileDeleteOrigins(recorded: readonly UploadedBlob[]): string[] {
-  return uploadOrigins(recorded, [blossomServer()])
+/** Where this room's file deletes may go: the origins of what this device
+ *  recorded uploading (a device that changed server can still tidy up the old
+ *  one), the server it uploads to now, and the nodes its room lists. The one
+ *  place that decides it. */
+function fileDeleteOrigins(recorded: readonly UploadedBlob[], groupBases: readonly string[] = []): string[] {
+  return uploadOrigins(recorded, [blossomServer(), ...groupBases.map(base => new URL(base).origin)])
+}
+
+/**
+ * The room's group nodes for a tidy-up, and how a delete on one is confirmed:
+ * a signed read while this device holds the room's key and a `get` grant there.
+ * Built here, while the room is known, because the room is left before its
+ * files are deleted; the grants come from the room's own receiver when it is
+ * open, else from what this device kept. A room with no nodes this app can
+ * reach has none.
+ */
+function tidyUpGroupDeletes(roomId: string, deviceSk: Uint8Array, authority: string | undefined): GroupDeletes | undefined {
+  const record = (currentRoomId() === roomId ? roomStorageRecord() : undefined) ?? loadRoomStorageRecord(localStorage, roomId)
+  const bases = record?.nodes.filter(usableGroupBase) ?? []
+  if (!bases.length) return undefined
+  const receiver = roomGroup?.roomId === roomId ? roomGroup.receiver
+    : authority ? loadGrantReceiver(localStorage, roomId, { authority, device: getPublicKey(deviceSk) }) : undefined
+  if (!receiver) return { bases }
+  const storage = new GroupStorage({ roomId, deviceSk, receiver, usable: usableGroupBase, nodes: () => bases })
+  return { bases, confirm: (url, sha256) => storage.head(listedBaseOf(bases, url, sha256) ?? '', sha256) }
 }
 
 function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrEvent[]) => Promise<FileDeletionReport> {
   return async deviceEvents => {
     const recorded = roomUploads(deviceStore, context.roomId)
-    const origins = fileDeleteOrigins(recorded)
+    const origins = fileDeleteOrigins(recorded, context.groups?.bases)
     return deleteUploads({
       blobs: [...recorded, ...uploadsFromEvents(deviceEvents, getPublicKey(context.deviceSk))],
       origins,
+      ...(context.groups ? { groups: context.groups } : {}),
       signedUploads: deviceEvents,
       sk: context.deviceSk,
       now: nowSeconds,
@@ -19218,6 +19245,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
+  const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation?.inviter)
   // The room on screen knows every channel it opened; one in the background
   // is read in epoch 0 and the epochs its records keep, in the channels every
   // client writes in. Named channels of a room not open here are not known.
@@ -19234,6 +19262,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
     roomRelays,
     ...(owner && link?.invitation ? { invitation: link.invitation, inviterSk: owner.inviterSk } : {}),
     deviceSk,
+    ...(tidyGroups ? { groups: tidyGroups } : {}),
     ...(chatStreams ? { chatStreams } : {}),
     account: tidyUpAccount(roomId),
     canEnd: false,
