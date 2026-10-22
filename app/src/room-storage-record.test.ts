@@ -8,7 +8,7 @@ import { validateOrdinaryPrivateFamilySnapshot } from './ordinary-private-family
 import { classifyOrdinaryPhysicalName } from './ordinary-physical-snapshot.js'
 import {
   ROOM_STORAGE_PREFIX, adoptRoomStorage, forgetRoomStorageRecord, listedBaseOf, loadRoomStorageRecord, parseRoomStorageRecord,
-  recordFromAdmission, recordFromOp, storeRoomStorageRecord, usableGroupBase, type RoomStorageRecord,
+  newerRoomStorage, recordFromAdmission, recordFromOp, storeRoomStorageRecord, usableGroupBase, type RoomStorageRecord,
 } from './room-storage-record.js'
 
 const ROOM = 'ab'.repeat(32)
@@ -100,6 +100,28 @@ describe('which list this device holds (the record from the invitation and from 
     // The order is signed: a member cannot put a node of their choosing first.
     expect(recordFromOp({ ...op, nodes: [B, A] }, ROOM, authority)).toBeUndefined()
     expect(recordFromOp({ ...op, nodes: [A, B, 'https://x.example.net'] }, ROOM, authority)).toBeUndefined()
+  })
+})
+
+describe('what another tab wrote', () => {
+  const old: RoomStorageRecord = { nodes: [A], version: 100 }
+  const newer: RoomStorageRecord = { nodes: [A, B], version: 200, sig: SIG }
+
+  it('the newer of two is the one kept, whichever way round, and a tie keeps the first', () => {
+    expect(newerRoomStorage(old, newer)).toBe(newer)
+    expect(newerRoomStorage(newer, old)).toBe(newer)
+    expect(newerRoomStorage(old, { nodes: [B], version: 100 })).toBe(old)
+  })
+
+  it('a missing record yields the other: a removal by another tab does not remove what this tab holds', () => {
+    expect(newerRoomStorage(old, undefined)).toBe(old)
+    expect(newerRoomStorage(undefined, newer)).toBe(newer)
+    expect(newerRoomStorage(undefined, undefined)).toBeUndefined()
+  })
+
+  it('a stale tab that writes an older list over a newer one is not believed', () => {
+    const held = newerRoomStorage(newer, old)
+    expect(adoptRoomStorage(held, { nodes: [A], version: 150, sig: SIG })).toBeUndefined()
   })
 })
 

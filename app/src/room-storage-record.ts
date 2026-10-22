@@ -78,6 +78,17 @@ export function adoptRoomStorage(held: RoomStorageRecord | undefined, offered: R
   return undefined
 }
 
+/**
+ * The newer of two records for the same room: the higher version, and `a` on a
+ * tie (what is held stays). Either may be missing. What another tab wrote, or an
+ * older tab left behind, never replaces a newer list this one holds.
+ */
+export function newerRoomStorage(a: RoomStorageRecord | undefined, b: RoomStorageRecord | undefined): RoomStorageRecord | undefined {
+  if (!a) return b
+  if (!b) return a
+  return b.version > a.version ? b : a
+}
+
 function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((n, i) => n === b[i])
 }
