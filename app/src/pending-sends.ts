@@ -18,6 +18,10 @@
  * - `moved`: the conversation closed or changed its key first. It was
  *   never sent, and never will be as it stands.
  *
+ * A message whose files no group computer has taken yet is `waiting` too, and
+ * says what for (`storage`): nothing of it has left this device either, so it
+ * can still be deleted without a trace.
+ *
  * Every retry publishes the same signed event, so a relay that already has
  * it keeps one copy. A row leaves when its message arrives in the chat, not
  * when a relay acknowledges it, so it never disappears before the message
@@ -28,6 +32,7 @@
 import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
+import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 import { MAX_CHAT_ARTWORK, normaliseArtwork, type ChatArtwork } from '../../src/artwork.js'
 
 export type PendingState = 'holding' | 'waiting' | 'sending' | 'refused' | 'unknown' | 'moved'
@@ -47,6 +52,8 @@ export interface PendingSend {
   ready?: boolean
   /** Storage failure holds automatic sending until an explicit retry. */
   held?: boolean
+  /** What it is waiting for is the group's own storage to take its files, not a relay. */
+  storage?: true
   /** Whether this row is kept across a reload. */
   durable: boolean
   /** A plain new message, which Edit can put back in the message box as it
@@ -61,7 +68,7 @@ export interface PendingSend {
   acknowledged?: boolean
 }
 
-export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'storage'> & { publish?: (event: Event) => Promise<void> }
 type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
 
 export interface PendingSendsOptions {
@@ -107,6 +114,8 @@ function message(error: unknown): string {
 export function stateAfter(error: unknown): PendingState {
   const text = message(error)
   if (text === CONVERSATION_MOVED) return 'moved'
+  // Not a relay's answer: no group computer has the files yet. Nothing has left, so it stays Delete-able.
+  if (text === GROUP_STORAGE_WAITING) return 'waiting'
   if (REFUSED.test(text) && !UNANSWERED.test(text)) return 'refused'
   return 'unknown'
 }
@@ -225,6 +234,11 @@ export class PendingSends {
     for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) &&
       (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && (item.retryAt ?? 0) <= now) void this.#attempt(item)
   }
+  /** A grant or a node list arrived: messages waiting on the group's storage try again now, not at their next turn. */
+  wakeStorage(): void {
+    for (const item of this.#items.values()) if (item.storage) item.retryAt = undefined
+    this.wake()
+  }
   async retry(id: string): Promise<void> {
     const item = this.#items.get(id)
     if (!item || item.state === 'sending' || item.state === 'moved' || !item.publish) return
@@ -326,8 +340,10 @@ export class PendingSends {
     this.#check(item.roomId, version)
     await this.#change(item.roomId, items => {
       const saved = items.get(item.id); if (!saved) return false
-      if (failed) saved.state = stateAfter(error)
-      else { saved.acknowledged = true; saved.durable = false }
+      if (failed) {
+        saved.state = stateAfter(error)
+        saved.storage = message(error) === GROUP_STORAGE_WAITING ? true : undefined
+      } else { saved.acknowledged = true; saved.durable = false; saved.storage = undefined }
       return true
     }, version)
     if (failed && this.#items.get(item.id) === item && item.state !== 'moved') this.#later(item)

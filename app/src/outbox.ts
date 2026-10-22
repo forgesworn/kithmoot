@@ -1,6 +1,7 @@
 import { confirmAction } from './confirm-action.js'
 import { neverLeft, type PendingSend, type PendingSends } from './pending-sends.js'
 import { artworkCards, artworkMessageText } from './chat-artwork.js'
+import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 
 /**
  * Shows this device's unsent messages at the foot of the conversation, as
@@ -141,7 +142,9 @@ export class Outbox {
         return `Sending in ${seconds} s${where}`
       }
       case 'sending': return this.sending()
-      case 'waiting': return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
+      case 'waiting':
+        if (item.storage) return GROUP_STORAGE_WAITING
+        return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
       case 'refused': return `Not sent${where}: the relays turned it down. Trying again shortly.`
       case 'unknown': return `Not confirmed${where}: no relay answered in time. Trying again shortly.`
       case 'moved': return `Not sent${where}: this conversation changed its key before it went. Copy it into the conversation to send it.`
