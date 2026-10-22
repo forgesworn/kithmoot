@@ -285,9 +285,22 @@
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
         </div>
-        <label for="iceServers">Call servers</label>
-        <p class="note">Servers that help two devices connect for a call, separated by commas. Rooms you start hand these to everyone who joins. Leave blank to use this site’s own.</p>
+        <label for="iceServers">STUN servers for new rooms</label>
+        <p class="note">Optional addresses, separated by commas. Rooms you start share these addresses with everyone who joins. STUN helps devices connect directly.</p>
         <input id="iceServers" />
+        <fieldset>
+          <legend>Call relay (TURN)</legend>
+          <p class="note">Use a relay you trust when devices cannot connect directly. Set it on each device that needs it. Saved in this browser; the password is never added to room links. After changing it, leave and reopen the room.</p>
+          <label for="callRelayUrls">Relay addresses</label>
+          <input id="callRelayUrls" placeholder="turn:relay.example:3478, turns:relay.example:5349" autocomplete="off" spellcheck="false" />
+          <label for="callRelayUsername">Relay username</label>
+          <input id="callRelayUsername" autocomplete="off" spellcheck="false" />
+          <label for="callRelayPassword">Relay password</label>
+          <input id="callRelayPassword" type="password" autocomplete="off" />
+          <button id="callRelaySave" type="button">Save call relay</button>
+          <button id="callRelayRemove" type="button">Remove call relay</button>
+          <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
+        </fieldset>
         </section>
         <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
         <p class="note">

@@ -293,6 +293,7 @@ import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritanc
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
+import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { BrowserHistoryIndexStorage, LocalHistoryIndex, importedHistoryCoverage } from './history-index.js'
@@ -4443,8 +4444,8 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
 /** The room's ICE servers; see `resolveIceServers` in ice-resolve.ts. A
  *  missing or failing credential endpoint (the open mint is being retired)
  *  returns plain STUN within a short bound and never throws. */
-function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
-  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location })
+function resolveIceServers(urls: string[], relay?: CallRelay): Promise<RTCIceServer[]> {
+  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location, relay })
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
@@ -13080,9 +13081,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // unless this device explicitly requires a relay before any media can
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
+    const deviceRelay = loadCallRelay(localStorage)
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
-    let resolvedIceServers = relayOnly
-      ? await resolveIceServers(roomIceUrls)
+    let resolvedIceServers = deviceRelay ? callRelayServers(deviceRelay) : relayOnly
+      ? await resolveIceServers(roomIceUrls, deviceRelay)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
     if (generation !== roomGeneration) return
     // With no usable relay the room is still joined: chat and everything
@@ -13121,7 +13123,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     let created: RoomSession | undefined
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     const refreshIce = (): void => {
-      resolveIceServers(roomIceUrls)
+      resolveIceServers(roomIceUrls, deviceRelay)
         .then((fresh) => {
           if (!alive()) return
           // Do not replace a working relay-only allocation list with a STUN
@@ -13141,7 +13143,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(resolvedIceServers)
         : { iceServers: context?.tier === 'turn' ? resolvedIceServers : stunOnly }
-      const pc = new RTCPeerConnection(configuration)
+      const pc = deviceRelay ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
       // only honest source for whether this device could carry anybody.
@@ -17233,11 +17235,42 @@ function applyHideIpDefault(): void {
 }
 
 function renderSettingsRows(): void {
+  renderCallRelay()
   ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
   setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
   renderFilesSettings()
 }
+
+function renderCallRelay(): void {
+  try {
+    const relay = loadCallRelay(localStorage)
+    ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
+    ;($('callRelayUsername') as HTMLInputElement).value = relay?.username ?? ''
+    ;($('callRelayPassword') as HTMLInputElement).value = relay?.credential ?? ''
+    $('callRelayStatus').textContent = relay ? 'A call relay is saved on this device.' : 'No call relay is saved.'
+  } catch { $('callRelayStatus').textContent = 'The saved call relay could not be read. Save it again or remove it.' }
+}
+
+$('callRelaySave').addEventListener('click', () => {
+  try {
+    const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
+      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    saveCallRelay(localStorage, relay)
+    $('callRelayStatus').textContent = relay ? 'Call relay saved. Leave and reopen the room to use it.' : 'Call relay removed. Leave and reopen the room to apply this.'
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    $('callRelayStatus').textContent = message.startsWith('Enter a TURN') || message.startsWith('Use turn:')
+      ? message : 'The call relay could not be saved. Check browser storage and try again.'
+  }
+})
+$('callRelayRemove').addEventListener('click', () => {
+  try {
+    saveCallRelay(localStorage, undefined)
+    renderCallRelay()
+    $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
+  } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+})
 
 function enterSettings(): void {
   renderIdentity()
@@ -17255,6 +17288,8 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  // Do not keep a saved password in the hidden settings form.
+  ;($('callRelayPassword') as HTMLInputElement).value = ''
   closeAccountMessageViews()
   reconcileAccountMessageViews()
   if (!settingsHomes) return

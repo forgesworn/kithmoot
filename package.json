@@ -66,6 +66,7 @@
     "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
     "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
+    "test:call-relay": "playwright test --config playwright.call-relay.config.ts",
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
     "test:context-packages": "node test/context-package-smoke.mjs",
