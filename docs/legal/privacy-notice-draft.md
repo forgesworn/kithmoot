@@ -25,6 +25,14 @@
 > the file choice kept on the device (section 8); deleting your own files
 > (section 7). This replaces the 20 October entry's "lists one public file
 > server, which a person may choose": it is now the default.
+>
+> Changed 22 October 2026, from the code at `edf32cd0` on `main`: the
+> corrections of 28 September 2026 that still hold are carried in. Rooms
+> kept on a keeper we run (2, 3, 4.7, 5, 6), what the app keeps on the
+> device (3), payments (3), agents (8), and the right to complain to us (7).
+>
+> What a notice must contain is written up in
+> [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), sections 3.2 and 3.3.
 
 ## 1. Who we are
 
@@ -41,9 +49,11 @@ verified 28 September 2026, [P]).]`
 
 ## 2. The short version
 
-- KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot
-  read, your messages, your files, or your calls. Two exceptions are
-  noted in section 3.
+- KithMoot's rooms are end-to-end encrypted. For a room we do not keep,
+  we do not hold, and cannot read, your messages, your files, or your
+  calls. A room kept on a keeper we run is different: the keeper holds
+  that room's key, so we can read that room the way any member can
+  (section 4.7). Section 3 notes one other exception.
 - Joining a room needs only its link. We do not run accounts, and most
   people never give us anything we would call personal data.
 - In the web app and the desktop app, files you send go to a public file
@@ -57,8 +67,9 @@ verified 28 September 2026, [P]).]`
   connect or store a sealed file, and is designed to keep as little of it
   as possible.
 - We keep no server-side account, session or membership record for a
-  room. There is nothing to delete on request because there is nothing
-  held.
+  room we do not keep. There is nothing to delete on request because
+  there is nothing held. A keeper we run is a member of its room and sees
+  who is in it, as any member does (section 4.7).
 - Some defaults make your device contact other parties: relays asked for
   people's public profiles and the hosts of their profile pictures, and,
   for the desktop app, our site for updates and GitHub (section 8).
@@ -70,22 +81,49 @@ verified 28 September 2026, [P]).]`
 ## 3. Things we never collect
 
 - **Your private key.** Never sent to us in any KithMoot flow.
-- **Room content.** Messages, files and call media are end-to-end
-  encrypted; the traffic key lives in the room's own link, not on our
-  servers.
-  <!-- docs/protocol.md, "Identities and trust boundaries" -->
+- **Room content**, for a room we do not keep. Messages, files and call
+  media are end-to-end encrypted; the traffic key lives in the room's own
+  link, not on our servers. The exception is a room kept on a keeper we
+  run (section 4.7).
+  <!-- docs/protocol.md, "Identities and trust boundaries"; deploy/keeper@.service:13 "this process DOES hold the room key" -->
 
-  *Note, 21 October 2026.* Two things we run are exceptions. A keeper we
-  run for a room holds that room's key, because it created the room. Our
+  *Note, 21 October 2026.* One other thing we run is an exception. Our
   meeting code service stores the full invitation link for a code made
   without a password; for a room with no waiting room, that link lets the
   service enter the room while the code lives. This notice does not yet
   describe the meeting code service.
-  <!-- deploy/keeper@.service; deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
-- **A membership list.** There is no server-side record of who is in a
-  room. The room's own capability, held only by its members' devices and
-  clients, is what "membership" means here.
-- **Card or bank details.** KithMoot has no payments functionality.
+  <!-- deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
+- **A membership list**, for a room we do not keep. There is no
+  server-side record of who is in a room. The room's own capability, held
+  only by its members' devices and clients, is what "membership" means
+  here. A keeper we run holds that capability for its room.
+- **Card or bank details.** The KithMoot app never asks for them and takes
+  no payments: nobody is asked to pay to be in a room.
+  <!-- src/node/l402.ts: "A participant is never asked to pay to be in a room"; app/src/main.ts:855 DONATION_RECIPIENT is empty, so the donor ring in src/donations.ts is dark -->
+
+**What the app keeps on your device.** To work, the web and desktop app
+stores these in your browser's storage for the site:
+
+- keys: the device key and credential it uses in each room, and, if you
+  sign in with Nostr, which account and sign-in method you last used;
+- settings: text size, call devices and effects, notification and sound
+  choices, your relay list, the profile lookup switches (section 8), and
+  where files go, with the server your choice names (section 8);
+- saved rooms: the rooms you have been in, with their links and what this
+  device needs to rejoin them, and how far you have read;
+- history: an encrypted archive of the signed, still room-encrypted
+  events of rooms you have been in, and an encrypted index of any history
+  you import;
+- your contacts and projects.
+
+This stays on your device. We never receive it. Two things leave it: if
+you sign in with a Nostr account, your saved rooms and read positions are
+published to your relays, encrypted, so your other devices can find them;
+and a room's relay that has lost some of that room's events can be handed
+back the original encrypted copies. Clearing the site's data in your
+browser removes it from the device. `[INPUT: what the Android app keeps
+on the device; it is built from another repository.]`
+<!-- app/src/device-store.ts (device keys and credentials in localStorage); app/src/rooms-store.ts (saved rooms); app/src/relay-settings.ts (relays, profile and address switches); app/src/file-storage.ts:6 FILE_STORAGE_KEY 'kithmoot.file-storage.v1'; app/src/room-archive.ts and app/src/history-index.ts (IndexedDB, AES-GCM under a non-extractable device key); app/src/room-bookmarks.ts:25 (kind 30078, NIP-44) and src/read-position.ts; app/src/room-archive.ts reseedRelays. The list is grouped from the storage keys in app/src and src, not a reading of every storage call. -->
 
 ## 4. What our default infrastructure sees, and why
 
@@ -215,6 +253,29 @@ address it came from, the time, and the file it asked for, which says
 what kind of build is asking. The site's access log is discarded
 (section 4.5), so these requests are not kept.
 
+### 4.7 A room kept on a keeper we run
+
+**What.** A keeper is a program that holds a standing room open, so the
+room keeps admitting people who present its link while nobody else is
+online. It made the room, and it holds the room's key: its traffic secret
+and its root inviter key, kept on the box's disk and in memory.
+<!-- deploy/keeper@.service:6-17, :25 room.json "the room: secret, inviter key, bearer", mode 0600 -->
+
+**What holding the key means.** Whoever runs a keeper can read that room
+the way any member can: its messages, the files shared in it, and who is
+in it. The keeper is also the room's admission desk and the only party
+that can remove a member. A keeper as we ship it starts with no agent
+brain and joins no call. It can be set up to listen to calls (`--listen`)
+or to keep a log of everything it sees and says (`--memory`). If we run the keeper for a room, we can read that room.
+<!-- deploy/keeper@.service:62 ExecStart ... create --brain none; src/node/cli.ts:140 --memory, :150 --listen; deploy/README.md "Running a keeper" and "Hosts: who may remove people" -->
+
+`[INPUT: whether any keeper ForgeSworn runs is set up to listen or to keep
+a memory, whether ForgeSworn runs keepers for rooms that other people use,
+and if so which rooms and how their members are told.]`
+
+A room whose creator runs their own keeper, on their own machine, is
+their business, not ours; this section is about keepers we run.
+
 ## 5. How long we keep information
 
 We hold almost nothing described in section 4 for long, by design:
@@ -229,6 +290,9 @@ We hold almost nothing described in section 4 for long, by design:
   services' own operational logs) are bounded by our journald retention
   policy: two weeks, or 500 MB, whichever comes first.
   <!-- deploy/journald-kithmoot.conf: MaxRetentionSec=2week, SystemMaxUse=500M -->
+- A keeper we run: the room's key for as long as the keeper keeps the
+  room (section 4.7).
+  <!-- deploy/keeper@.service: state files "reused on every restart, so the same link reopens the same room" -->
 
 We keep no server-side account record to delete, because we do not run
 accounts. If you have contacted us by email (for a report or a complaint),
@@ -245,6 +309,7 @@ need it, and you can ask us to delete it (section 7).
 | Choosing the default file server the app sends files to (section 8) | `[LEGAL REVIEW: whether ForgeSworn is a controller at all for uploads it chose the destination of but never receives; if it is, which basis applies]` |
 | Rate limiting, quotas and abuse prevention on default infrastructure | Legitimate interests; legal obligation under the Online Safety Act 2023 |
 | Reports and complaints | Legal obligation under the Online Safety Act 2023 |
+| Keeping a room on a keeper we run (section 4.7) | `[LEGAL REVIEW: basis, if we keep rooms other people use.]` |
 
 ## 7. Your rights
 
@@ -275,8 +340,14 @@ files your device sent to that room. Only your device can ask, and only for
 its own files. Whether the server deletes them is up to the server.
 <!-- app/src/blob-deletion.ts: a BUD-02 kind 24242 delete authorisation signed by the room's device key, sent only to a server this app uploads to -->
 
-You can complain to the Information Commissioner's Office (ico.org.uk). We
-would like the chance to put things right first.
+**Complaints.** You have the right to complain to us about how we use
+your personal data. Email `abuse@safety.forgesworn.dev`; no form or
+account is needed. We will acknowledge your complaint within 30 days and
+answer it without undue delay.
+<!-- law note 3.3: Data Protection Act 2018 s164A, in force 19 June 2026 [S]; the notice must mention the right [P] -->
+
+You can also complain to the Information Commissioner's Office
+(ico.org.uk). We would like the chance to put things right first.
 
 ## 8. Who else receives data
 
@@ -385,6 +456,19 @@ The desktop app also makes your device contact:
 Every connection the desktop app makes, and a command to check each one,
 is listed at https://kithmoot.app/check/.
 
+**Agents.** A room can have agents (programs) as members. An agent reads
+what any member of the room can read, and hears a call if it is set to
+listen. The person who runs the agent decides where that goes: to a model
+on their own machine, to a model provider such as Anthropic, to another
+program of their choosing, or, for a listening agent, to a transcriber
+they choose, on their own machine by default. We are not that person
+unless we run the agent, and we do not see what an agent run by somebody
+else sends.
+<!-- src/node/brains.ts:122 StdioBrain (a program the runner names), :590 OllamaBrain (default http://127.0.0.1:11434, url configurable), :638 AnthropicBrain (@anthropic-ai/sdk messages.create); src/node/transcriber.ts:36 DEFAULT_WHISPERX_ENDPOINT http://127.0.0.1:8765, endpoint configurable; src/node/cli.ts --brain -->
+
+`[INPUT: whether ForgeSworn runs any agent in rooms other people use, and
+if so where it sends what it reads.]`
+
 We do not use an email marketing service, an analytics company or an
 error-tracking company for this site.
 
@@ -426,3 +510,8 @@ If we change this notice, we will say so on the site.
 6. Our file store's closure to new uploads rests on the host's report of
    22 October 2026; the Caddy file in the repository still shows the
    upload route and must catch up before this notice is published.
+7. Whether ForgeSworn runs keepers, or agents, in rooms other people use
+   (sections 4.7 and 8), and a basis for keeping rooms if it does
+   (section 6).
+8. What the Android app keeps on the device (section 3); it is built from
+   another repository.

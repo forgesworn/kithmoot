@@ -14,6 +14,18 @@
 > `design/files-public-first`: the public file server becomes the apps'
 > default for web and desktop, and ForgeSworn's file store takes no new
 > uploads (8.2 to 8.7).
+>
+> Changed 22 October 2026, from the code at `edf32cd0` on `main`: the
+> corrections of 28 September 2026 that still hold are carried into the
+> body. The claim that the operator cannot read any room is narrowed to
+> rooms it does not keep (2.1); the deadline is dated and the record is
+> kept, not filed (1); the duty to report child sexual abuse content to the
+> NCA is added (6.1); what exists for payments is stated (3, row 11 in 4).
+
+The law this record applies is written up, with its sources and evidence
+marks, in [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), verified 28 September 2026
+and due for review by 28 March 2027. This record holds only this project's
+facts and decisions.
 
 ## How this record is laid out
 
@@ -71,7 +83,18 @@ of KithMoot event kinds if someone chooses to query one directly (see
 section 2.3).
 
 **Timing.** The service already runs with real users, so on our reading it
-is in scope now and this assessment is due.
+is in scope now. A new service has three months from launch to carry out
+this assessment (law note 2.4, `[P]`). Counting from the first deploy
+commit in the repository, 24 August 2026, three calendar months run to
+**24 November 2026**. `[INPUT: the date the service launched to users other
+than the maintainers. If it is not 24 August 2026, count three months from
+that date instead.]`
+<!-- git log: first deploy commit 2026-08-24, "feat: add deploy kit for a default TURN server and PWA hosting" -->
+
+**Kept, not filed.** The assessment is carried out and recorded, and the
+record is kept (section 7). Nothing read for the law note asks a small
+service to send it to Ofcom unless Ofcom asks for it; the note marks that
+unchecked `[U]` (law note 2.3).
 
 **Copyright and intellectual property.** Excluded from "illegal content"
 under the Act (section 59) and not covered here.
@@ -90,14 +113,36 @@ plaintext content.
 <!-- docs/protocol.md kind table (1460 chat, 1462 rekey, 1463 group invitation, 20462 KithMoot signal); "Relays see event kinds, event authors, recipient/room selectors, sizes and timing... Encryption hides payloads, not these observations" -->
 
 This is the central fact this assessment turns on: **the operator cannot
-read messages, files or calls on any room**, by design, even under a court
-order, short of compromising a member's device. The Act's illegal content
-duties still apply to a user-to-user service that cannot read its own
-traffic (Ofcom's guidance addresses E2EE services directly: technical
-inability to view content does not remove the duties, though it does shape
-which measures are proportionate and possible). Everything this record can
-act on is **metadata**: who reported what, an event id, a file hash, a
-room link, a pubkey, not the plaintext itself.
+read messages, files or calls in a room it does not keep**, by design,
+short of compromising a member's device. The relays, TURN server, file
+store and drop tier it runs see ciphertext only.
+
+**The exception is a kept room.** A keeper is the process that holds a
+standing room open and answers its link. It made the room, so it holds the
+room's traffic secret and root inviter key and sits in the room as a
+member. Whoever runs the machine a keeper runs on can read that room the
+way any member can: its messages, the files shared in its chat and its
+member list. If the operator runs a keeper for a room, the operator can
+read that room. A keeper as shipped joins with no agent brain
+(`--brain none`), so it does not listen to calls unless it is set up to.
+<!-- deploy/keeper@.service:6-17 ("It holds the room's traffic secret and the root inviter key"; "this process DOES hold the room key"); deploy/keeper@.service:62 ExecStart ... create --brain none; deploy/README.md, "Running a keeper" -->
+`[INPUT: whether the operator runs keepers for rooms that people other than
+the maintainers use, and for which rooms.]`
+
+A key the operator holds is one it can be required to disclose, under
+section 49 of the Regulation of Investigatory Powers Act 2000 (law note
+[5.4](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), `[P]`).
+
+The Act's illegal content duties still apply to a user-to-user service that
+cannot read its own traffic (Ofcom's guidance addresses E2EE services
+directly: technical inability to view content does not remove the duties,
+though it does shape which measures are proportionate and possible). For
+every room the operator does not keep, everything this record can act on
+is **metadata**: who reported what, an event id, a file hash, a room link,
+a pubkey, not the plaintext itself. For a room the operator keeps, the
+operator is a member and can also act as the room's keeper does: remove a
+member by moving the room to a new key, or close the room.
+<!-- deploy/README.md, "Hosts: who may remove people": a keeper is the room's authority and the only party that can remove a member -->
 
 ### 2.2 Who can do what
 
@@ -116,8 +161,9 @@ room link, a pubkey, not the plaintext itself.
 
 ### 2.3 Things that lower risk
 
-- **End-to-end encryption everywhere it matters**, described above. The
-  operator has no plaintext to review, mis-serve or leak.
+- **End-to-end encryption everywhere it matters**, described above. For
+  rooms it does not keep, the operator has no plaintext to review,
+  mis-serve or leak. For a room it keeps, it holds the key (2.1).
 - **No content discovery.** There is no feed, search, trending list or
   recommendation surface. A person reaches a room, a file, or a relay
   event only by already holding a link or a hash. This removes most of the
@@ -190,18 +236,25 @@ room link, a pubkey, not the plaintext itself.
    on any relay a room's creator adds instead, the operator has no control
    at all. This record does not name that relay's address.
 7. **No content the operator can review exists for any of this**, by
-   design (section 2.1), so "swift takedown of illegal content" as Ofcom's
-   Codes measures describe it cannot mean removing a message's *content*
-   here. It can only mean acting on metadata: refusing a hash, blocking a
-   pubkey where the software supports it, taking a room or credential
-   endpoint offline, or referring a report to the police. See
+   design, except in a room the operator keeps (section 2.1). Outside such
+   rooms, "swift takedown of illegal content" as Ofcom's Codes measures
+   describe it cannot mean removing a message's *content* here. It can
+   only mean acting on metadata: refusing a hash, blocking a pubkey where
+   the software supports it, taking a room or credential endpoint offline,
+   or referring a report to the police. See
    `docs/legal/report-handling.md`.
+8. **A room the operator keeps is readable by the operator.** That is a
+   control as well as a risk: in such a room the operator can see what is
+   reported and remove a member. It is also a store of readable content
+   on a machine the operator runs, and a key it can be required to
+   disclose (2.1).
 
 ## 3. Step 1: Ofcom's Risk Profile
 
 Outcome of the U2U Risk Profile questionnaire, as it applies to KithMoot's
 own default, operator-run surfaces (a self-hosted keeper's own box is that
-keeper's own operation, not covered by this record).
+keeper's own operation, not covered by this record; a keeper the operator
+runs is the operator's, and is covered).
 
 | Risk factor | Applies? | Why |
 | --- | --- | --- |
@@ -217,7 +270,7 @@ keeper's own operation, not covered by this record).
 | 7a Content searching | No | No search across other people's content; search is local to a room a member already has |
 | 8a Content recommender systems | No | None exist |
 | User base | `[INPUT]` | |
-| Business model | No advertising, no revenue mechanism identified in the code | |
+| Business model | No advertising. Nothing in the default service takes payment. The repository holds a kit for a separately hosted, paid TURN endpoint and a donor ring that ships switched off (row 11 in section 4) | `[INPUT: whether either is switched on anywhere.]` |
 | Commercial profile | Small; `[INPUT: operator capacity for moderation]` | |
 
 **Multi-risk factors present:** encrypted messaging, anonymous users,
@@ -225,7 +278,8 @@ group messaging, direct messaging and no age assurance are all present at
 once. Ofcom's guidance treats this combination as a materially higher-risk
 shape even where the service is small, because several of the factors that
 usually let a provider detect and act on harm (visible content, identity,
-account history) are absent simultaneously and by design.
+account history) are absent simultaneously and by design. Visible content
+is the exception in a room the operator keeps (2.1).
 
 ## 4. Step 2: risk levels
 
@@ -242,7 +296,7 @@ of the harm to a person; likelihood reflects this service's actual design.
 | 5 | Controlling or coercive behaviour | Low | Same shape as 4, but this Act priority mainly concerns targeted, sustained relationships, which is harder to sustain through a per-device, per-room identity that does not follow a person between rooms |
 | 6 | Intimate image abuse | Low | As image-based CSAM (row 2): the store cannot serve viewable media |
 | 7 | Extreme pornography | Low | As above |
-| 11 | Fraud and financial services offences | Low | No payments, no marketplace, no financial functionality identified in the code |
+| 11 | Fraud and financial services offences | Low | No marketplace, and nothing in the default service takes payment. Two payment-related pieces exist in the repository. `deploy/l402/` is a kit for a second, separately hosted TURN endpoint that charges a keeper, never a participant, a few satoshis per credential; its client, `src/node/l402.ts`, is imported by nothing outside its own tests. `src/donations.ts` sums public zap receipts to draw a ring on a profile picture; it takes no payment, and the app ships it switched off, because its recipient key is empty. `[INPUT: whether the paid TURN endpoint or the donor ring is switched on anywhere.]` If either is, revisit this row and the law note's section 8 <!-- deploy/l402/README.md, "What this does not change" and "Who pays"; src/node/l402.ts has no importer outside its test; app/src/main.ts:847 DONATION_ADDRESS is set, app/src/main.ts:855 DONATION_RECIPIENT = '', and both are required --> |
 | 15 | Suicide and self-harm | Low | Text and voice/video calls between room members only; no public or broadcast surface |
 | 18 | Cyberflashing | Low | No unsolicited image delivery mechanism to a stranger; a person only receives what a room they joined sends, and files require the recipient's own opt-in to accept shared storage |
 | — | Abuse of the unauthenticated `/turn` and `/drops` endpoints for purposes unrelated to illegal *content* (bandwidth theft, using the box as a relay, denial of service) | Low as an illegal-content matter, but a live operational and cost risk in its own right | Out of scope for this content risk assessment; tracked as an infrastructure risk |
@@ -254,6 +308,15 @@ or a message, and no persistent identity to act against across rooms. Every
 other kind is low, mainly because KithMoot has no discovery, search or
 recommendation surface for anyone to find content through, and the default
 file store cannot serve viewable media.
+
+**Effect of narrowing the "cannot read" claim.** No level above rests on the
+operator being unable to read a room: the low levels rest on the absence of
+discovery and on what the file store accepts, and the two medium levels on
+anonymous, private messaging. In a room the operator keeps, content is
+visible to the operator and a member can be removed, which makes detection
+and action possible there and weakens the "absent by design" point in
+section 3 for those rooms only. On this evidence no level changes; all
+remain provisional for the owner.
 
 ## 5. Existing controls and how they changed the levels
 
@@ -281,6 +344,12 @@ file store cannot serve viewable media.
 | ICU D7 | Act on complaints about suspected illegal content | Not yet written down | `docs/legal/report-handling.md` |
 | ICU G1/G3 | Terms say, clearly, how people are protected from illegal content | No terms today | `docs/legal/terms-draft.md` |
 | ICU H1 | Remove accounts of proscribed organisations | No accounts exist to remove in the ordinary sense (per-device, per-room keys); a room or link can be shut down | Add to the report-handling runbook |
+| Section 66 (law note 2.6) | Report child sexual exploitation and abuse content the service becomes aware of to the National Crime Agency, in force 7 April 2026 `[P]` | Written up in the report-handling runbook, section 6, with registration left as a decision there (6.1) | `docs/legal/report-handling.md` |
+
+The duty to report child sexual exploitation and abuse content to the
+National Crime Agency applies to this service whatever its size (law note
+[2.6](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), `[P]`); it does not require the service to detect or scan for
+anything. `docs/legal/report-handling.md` sets out how the operator does it.
 
 ### 6.2 Measures worth building, in priority order
 
