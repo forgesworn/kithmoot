@@ -74,6 +74,11 @@ export class ConversationDrafts {
     return [...this.#drafts.values()].filter(draftHasWork)
   }
 
+  /** The hash of every file any of these drafts is holding as an attachment. */
+  attachmentHashes(): string[] {
+    return [...this.#drafts.values()].flatMap(draft => draft.attachments.map(attachment => attachment.sha256.toLowerCase()))
+  }
+
   discard(draft: ConversationDraft): void {
     draft.job?.abort()
     draft.job = undefined

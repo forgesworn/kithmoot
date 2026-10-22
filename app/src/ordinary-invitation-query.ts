@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools/pure'
-import { requestPersistentRoomAdmissionEvidence, type PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
+import { requestPersistentRoomAdmissionEvidence, MAX_PERSISTENT_INVITATION_EVIDENCE_DELIVERIES, type PersistentInvitationEvidenceResult } from '@forgesworn/fold-kit/persistent-invitation-evidence'
 import { deriveInvitationId, type RoomInvitation } from '../../src/invitation.js'
 import { KINDS } from '../../src/kinds.js'
 import type { NetworkProfile } from '../../src/anonymous.js'
@@ -28,6 +28,22 @@ export interface OrdinaryInvitationQueryOptions extends OrdinaryInvitationQueryC
   readonly maxQueuedFrames?: number
   readonly maxQueuedBytes?: number
   readonly signal?: AbortSignal
+}
+/**
+ * The most frames one invitation query reads, counted as they arrive and before
+ * any is parsed or compared with another: every delivery fold-kit's reader will
+ * charge itself for, and one end-of-stored-events marker from each relay.
+ *
+ * This used to be 128 for the lot, so with eight relays an honest room whose
+ * keeper had republished its invitation a dozen times could not load: the
+ * ceiling here stopped the query before fold-kit's own did. The two now agree
+ * by construction, and fold-kit still keeps at most 64 distinct events of what
+ * it reads. Frames are not de-duplicated by event id first, on purpose: a relay
+ * that repeats one event over and over should reach the ceiling, not stay under
+ * it, and fold-kit counts deliveries the same way.
+ */
+export function invitationQueryFrameCeiling(relays: number): number {
+  return MAX_PERSISTENT_INVITATION_EVIDENCE_DELIVERIES + relays
 }
 export const INVITATION_QUERY_QUEUE_FRAMES = 32
 export const INVITATION_QUERY_QUEUE_BYTES = 512 * 1024
@@ -63,6 +79,7 @@ export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitati
   const signingTails=new Map<OrdinaryForegroundSigner,Promise<void>>()
   let active = true, failed = false, queuedFrames = 0, queuedBytes = 0, messages = 0
   const deadline = Date.now() + timeout
+  const frameCeiling = invitationQueryFrameCeiling(options.destinations.length)
   const stop = (failure = true) => {
     if (failure) failed = true
     active = false; controller.abort()
@@ -163,7 +180,7 @@ export async function queryInvitationOnProtectedCarrier(invitation: RoomInvitati
           socket.onclose = () => { if (active && !completed.has(url)) stop() }
           socket.onmessage = message => {
             try {
-              if (!current() || typeof message.data !== 'string' || ++messages > 128) hold()
+              if (!current() || typeof message.data !== 'string' || ++messages > frameCeiling) hold()
               const data = message.data, bytes = ordinaryUtf8Length(data, 264_192)
               enqueue(bytes, () => {
                 if (!reqSent || completed.has(url)) hold()
