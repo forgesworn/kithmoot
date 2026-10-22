@@ -20765,6 +20765,11 @@ function renderAttachButton(destination: FileDestination): void {
     for (const name of ['popovertarget', 'aria-haspopup', 'aria-controls', 'aria-expanded']) button.removeAttribute(name)
   }
 }
+// wireMenu opens the menu on ArrowDown whatever the button is doing. Outside
+// menu mode + is a plain button for the picker, so the arrows do nothing.
+$('attachToggle').addEventListener('keydown', event => {
+  if (!attachMenuMode && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) event.stopImmediatePropagation()
+}, true)
 $('attachToggle').addEventListener('click', () => {
   if (attachMenuMode) return
   // A Bothy room keeps its own panel, with its own controls (unchanged).
