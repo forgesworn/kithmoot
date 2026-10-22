@@ -34,7 +34,9 @@ const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, HEAD, PUT, DELETE, OPTIONS',
   'access-control-allow-headers': 'authorization, content-type, content-length, range, x-sha-256, x-content-length, x-content-type',
-  'access-control-expose-headers': 'x-reason, content-range, content-length',
+  // `date` is not in wildbloomd's list (`x-reason, content-range, content-length`), and a browser cannot read it cross-origin
+  // unless it is exposed: without it a device cannot tell a wrong clock from a refusal. Exposed here so the app's handling can be driven.
+  'access-control-expose-headers': 'x-reason, content-range, content-length, date',
 }
 
 interface Blob { bytes: Buffer; uploaders: Set<string> }
@@ -52,6 +54,8 @@ export class GroupNodeServer {
   open = false
   /** Answer every request `503`, as a node that is down or overloaded does. */
   down = false
+  /** This node's clock is this many seconds ahead of the world's, and its `Date` says so: tokens look expired to it and the device is told its clock is wrong. */
+  skew = 0
   /** Do not take the keeper's events (a node the keeper has not reached yet). */
   refuseEvents = false
 
@@ -102,12 +106,12 @@ export class GroupNodeServer {
     const [status, headers, payload, reason] = this.#answer(method, path, auth, req.headers, body)
     if (method === 'PUT' && this.uploadDelayMs) await new Promise((resolve) => setTimeout(resolve, this.uploadDelayMs))
     this.hits.push({ method, path, token: auth !== undefined, status, ...(reason ? { reason } : {}) })
-    res.writeHead(status, { ...CORS, ...(reason ? { 'x-reason': reason } : {}), ...headers })
+    res.writeHead(status, { ...CORS, date: new Date((Date.now() / 1000 + this.skew) * 1000).toUTCString(), ...(reason ? { 'x-reason': reason } : {}), ...headers })
     res.end(method === 'HEAD' ? undefined : payload)
   }
 
   #answer(method: string, path: string, auth: string | undefined, headers: IncomingMessage['headers'], body: Buffer): [number, Record<string, string>, Buffer | string | undefined, string?] {
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(Date.now() / 1000) + this.skew
     if (method === 'OPTIONS') return [204, {}, undefined]
     if (this.down) return [503, {}, undefined, 'busy']
     if (method === 'POST' && path === '/groups/v1/events') return this.#takeEvent(body, now)
@@ -202,7 +206,12 @@ export async function routeGroupNode(context: BrowserContext, node: GroupNodeSer
   await context.route((url) => url.origin === node.origin, async (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    const response = await route.fetch({ url: `http://127.0.0.1:${node.port}${url.pathname}${url.search}`, headers: { ...request.headers(), origin: 'https://localhost' } })
-    await route.fulfill({ response })
+    try {
+      const response = await route.fetch({ url: `http://127.0.0.1:${node.port}${url.pathname}${url.search}`, headers: { ...request.headers(), origin: 'https://localhost' } })
+      await route.fulfill({ response })
+    } catch {
+      // The page gave up on the request (an upload it stopped), or the context closed: the node's answer has nowhere to go.
+      await route.abort().catch(() => {})
+    }
   })
 }

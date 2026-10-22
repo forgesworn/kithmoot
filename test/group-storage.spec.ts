@@ -7,7 +7,7 @@ import { RoomAgent, type KeeperState } from '../src/agent.js'
 import { CONTROL_CHANNEL } from '../src/control.js'
 import { signRoomStorage } from '../src/room-storage.js'
 import { GROUP_STORAGE_MESSAGES, GROUP_STORAGE_WAITING } from '../src/group-storage.js'
-import { open, openRoomInfoPage, leaveRoom, newDeviceContext, TEST_RELAY_HTTP, createRoom } from './browser.js'
+import { open, openRoomInfoPage, leaveRoom, newDeviceContext, showChats, startRoom, switchToRoom, TEST_RELAY_HTTP, createRoom } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 import { MemoryStore } from './group-grants-fixtures.js'
 import { GroupNodeServer, routeGroupNode } from './group-node.js'
@@ -433,6 +433,206 @@ test.describe('a room that keeps its files on its group’s own computers', () =
       const looks = r.node.hits.filter((h) => h.method === 'HEAD' && h.token)
       expect(looks.at(-1)).toMatchObject({ status: 404 })
       await expect(p.locator('#tidyUpSteps li[data-step="files"] .tidyResult')).not.toContainText('not confirmed')
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
+  /** A second room this device is in, so a visit to it is a room switch, then the room with the keeper away: no grant to be had until it returns. */
+  async function waitingRoom(browser: Browser, baseURL: string, r: Rig, ada: Device): Promise<void> {
+    const p = ada.page
+    await p.goto(baseURL)
+    await startRoom(p, { name: 'Ada', roomName: 'Side room' })
+    await r.keeper.leave()
+    await enter(p, r.link, 'Ada')
+    await holdsList(p, [r.node.origin])
+  }
+
+  test('a file waiting in a room’s draft is still waiting after a visit to another room, and Send never publishes without it', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    let back: RoomAgent | undefined
+    try {
+      const p = ada.page
+      const state = r.state()!
+      await waitingRoom(browser, baseURL!, r, ada)
+      await pick(p, PHOTO())
+      await expect(chip(p)).toHaveText('Waiting', { timeout: 30_000 })
+
+      // Away to the other room and back: the draft is where it was, and so is the file it names.
+      await switchToRoom(p, 'Side room')
+      await expect(p.locator('#roomIdentity')).toContainText('Side room')
+      await switchToRoom(p, 'Our group')
+      await expect(p.locator('#roomIdentity')).toContainText('Our group')
+      await expect(chip(p)).toHaveText('Waiting')
+      await expect(p.locator('#fileTrayStateText')).toHaveText(GROUP_STORAGE_MESSAGES['no-grant'])
+
+      // Send: the message waits for the file; it is not published without it.
+      await send(p)
+      await expect(p.locator('#outbox .pendingMsg .pendingStatus')).toHaveText(GROUP_STORAGE_WAITING)
+      await expect(p.locator('#chatLog .attachment')).toHaveCount(0)
+      expect(r.node.blobs.size).toBe(0)
+
+      // The keeper lets the device in: the file goes up, and only then the message.
+      back = await bringKeeperBack(baseURL!, r, state)
+      await expect(p.locator('#chatLog .attachment')).toHaveCount(1, { timeout: 90_000 })
+      expect(r.node.blobs.size).toBe(1)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(1)
+    } finally { await ada.context.close(); await back?.leave().catch(() => {}); await r.stop() }
+  })
+
+  test('a message waiting for the group’s storage does not trap the person: leaving asks, and Stay stays', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await waitingRoom(browser, baseURL!, r, ada)
+      await pick(p, PHOTO())
+      await expect(chip(p)).toHaveText('Waiting', { timeout: 30_000 })
+      await send(p)
+      await expect(p.locator('#outbox .pendingMsg .pendingStatus')).toHaveText(GROUP_STORAGE_WAITING)
+
+      // The room list is not shut: the other room can be opened.
+      await showChats(p)
+      const side = p.locator('#roomList').getByRole('button', { name: 'Open Side room', exact: true })
+      await expect(side).toBeEnabled()
+      await side.click()
+      const dialog = p.locator('#actionDialog')
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText('Leave with a message still waiting?')
+      await expect(dialog).toContainText('it will not be sent, and the files waiting with it will be lost')
+      // Stay: nothing changed.
+      await dialog.getByRole('button', { name: 'Stay' }).click()
+      await expect(p.locator('#roomIdentity')).toContainText('Our group')
+      await expect(p.locator('#outbox .pendingMsg')).toHaveCount(1)
+
+      // Leave: in the other room, and the message and its file are gone, as the person was told.
+      await side.click()
+      await p.locator('#actionDialog').getByRole('button', { name: 'Leave and drop it' }).click()
+      await expect(p.locator('#roomIdentity')).toContainText('Side room')
+      await switchToRoom(p, 'Our group')
+      await expect(p.locator('#roomIdentity')).toContainText('Our group')
+      await expect(p.locator('#outbox .pendingMsg')).toHaveCount(0)
+      await expect(p.locator('#chatLog .attachment')).toHaveCount(0)
+      await expect(p.locator('#attachStaged .attachChip')).toHaveCount(0)
+      expect(r.node.blobs.size).toBe(0)
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
+  test('a stalled upload in the outbox is stopped by Delete, and the message is gone', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsGrants(p, r.node)
+      // The node is down when the file is picked, so it is held and waits in the outbox...
+      r.node.down = true
+      await pick(p, PHOTO())
+      await expect(chip(p)).toHaveText('Waiting', { timeout: 30_000 })
+      await send(p)
+      const row = p.locator('#outbox .pendingMsg')
+      await expect(row.locator('.pendingStatus')).toHaveText(GROUP_STORAGE_WAITING)
+      // ...then it is back, and takes the file so slowly that the upload is still going.
+      r.node.down = false
+      r.node.uploadDelayMs = 120_000
+      await row.getByRole('button', { name: 'Retry' }).click()
+      await expect(row.locator('.pendingStatus')).toHaveText('Sending…')
+      await expect.poll(() => r.node.hitsTo('PUT').length + r.node.blobs.size, { timeout: 30_000 }).toBeGreaterThan(0)
+      // Delete works while it is sending: the upload is stopped and the message is gone.
+      await row.getByRole('button', { name: 'Delete' }).click()
+      await p.getByRole('button', { name: 'Delete message' }).click()
+      await expect(p.locator('#outbox .pendingMsg')).toHaveCount(0, { timeout: 30_000 })
+      await expect(p.locator('#chatLog .attachment')).toHaveCount(0)
+      // And nothing goes later: the message was never published.
+      r.node.uploadDelayMs = 0
+      await p.waitForTimeout(2_000)
+      await expect(p.locator('#chatLog .attachment')).toHaveCount(0)
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
+  test('a wrong clock is said in its own words in the tray, with no Try again that could not succeed', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsGrants(p, r.node)
+
+      // In the tray: its words, and no Try again, which could not succeed this session.
+      r.node.skew = 300
+      await pick(p, PHOTO('first.png'))
+      await expect(p.locator('#fileTrayErrorText')).toContainText(GROUP_STORAGE_MESSAGES.clock, { timeout: 30_000 })
+      await expect(p.locator('#fileTryAgain')).toBeHidden()
+      await expect(chip(p)).toHaveText('Not uploaded')
+      // The node refused the token as expired, and nothing was stored.
+      expect(r.node.hitsTo('PUT').map((h) => [h.status, h.reason])).toEqual([[401, 'expired']])
+      expect(r.node.blobs.size).toBe(0)
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
+  test('a message that cannot go because of the clock says so in the outbox, and the outbox leaves it alone', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsGrants(p, r.node)
+      r.node.down = true
+      await pick(p, PHOTO())
+      await expect(chip(p)).toHaveText('Waiting', { timeout: 30_000 })
+      await send(p)
+      const row = p.locator('#outbox .pendingMsg')
+      await expect(row.locator('.pendingStatus')).toHaveText(GROUP_STORAGE_WAITING)
+      r.node.down = false
+      r.node.skew = 300
+      await row.getByRole('button', { name: 'Retry' }).click()
+      await expect(row.locator('.pendingStatus')).toHaveText(GROUP_STORAGE_MESSAGES.clock, { timeout: 30_000 })
+      // The first back-off is fifteen seconds: past it, nothing has been asked of the node again.
+      const asked = r.node.hits.length
+      await p.waitForTimeout(17_000)
+      expect(r.node.hits.length).toBe(asked)
+      await expect(row.locator('.pendingStatus')).toHaveText(GROUP_STORAGE_MESSAGES.clock)
+      // It can still be deleted, with nothing of it having left.
+      await row.getByRole('button', { name: 'Delete' }).click()
+      await p.getByRole('button', { name: 'Delete message' }).click()
+      await expect(p.locator('#outbox .pendingMsg')).toHaveCount(0)
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
+  test('another tab’s older list, or its removal of the record, does not change a room that is open here', async ({ browser, baseURL }) => {
+    test.setTimeout(180_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsList(p, [r.node.origin])
+      await holdsGrants(p, r.node)
+      const other = await ada.context.newPage()
+      await other.goto(baseURL!)
+      const key = await p.evaluate(() => Object.keys(localStorage).find((k) => k.startsWith('kithmoot.room-storage.v1.'))!)
+
+      // A stale tab writes an older, empty list over the newer one: this tab goes on sending to the node.
+      await other.evaluate((k) => localStorage.setItem(k, JSON.stringify({ nodes: [], version: 1 })), key)
+      await p.waitForTimeout(500)
+      await pick(p, PHOTO('one.png'))
+      await expect(chip(p)).toHaveText(/^\d+ B$|^[\d.]+ KB$/, { timeout: 30_000 })
+      await expect(p.locator('#fileTrayStateText')).toHaveText(LISTED)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(1)
+
+      // Another tab forgets the record: the room is still open here, still the group's.
+      await other.evaluate((k) => localStorage.removeItem(k), key)
+      await p.waitForTimeout(500)
+      await pick(p, PHOTO('two.png', [90, 60, 160]))
+      await expect(p.locator('#attachStaged .attachChip')).toHaveCount(2)
+      await expect(p.locator('#attachStaged .attachChip .s').nth(1)).toHaveText(/^\d+ B$|^[\d.]+ KB$/, { timeout: 30_000 })
+      await expect(p.locator('#fileTrayStateText')).toHaveText(LISTED)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(2)
+      await expect(p.locator('#fileNotice')).toBeHidden()
     } finally { await ada.context.close(); await r.stop() }
   })
 
