@@ -2171,7 +2171,8 @@ test('a muted room keeps its number but leaves the counts, and comes back on its
     await expect.poll(() => page.title()).toBe(before - own > 0 ? `(${before - own}) KithMoot` : 'KithMoot')
     await expect(row.locator('.unread')).toHaveAttribute('data-muted', 'true')
     await expect(row.locator('.roomMute')).toHaveCount(1)
-    expect(await row.locator('.sr-only').textContent()).toMatch(/^Muted until \d\d:\d\d\./)
+    // On the real clock: an hour's mute set after 23:00 ends tomorrow, and says so.
+    expect(await row.locator('.sr-only').textContent()).toMatch(/^Muted until (tomorrow, )?\d\d:\d\d\./)
     // The hour passes with the page open: within two seconds all of it goes.
     await page.clock.fastForward('01:00:02')
     await expect(row.locator('.roomMute')).toHaveCount(0, { timeout: 2000 })
