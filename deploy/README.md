@@ -1094,9 +1094,10 @@ minute; do not loop it.
 
 Every unit in this kit sends `stdout`/`stderr` to the systemd journal
 (`StandardOutput=journal`, `StandardError=journal`); coturn runs under
-Docker and logs to its own `json-file` driver instead. Nothing here changes
-what a service *does* - only what ends up sitting in a log for as long as
-that log is kept.
+Docker and keeps no log at all (`log-file=/dev/null` and `no-stdout-log` in
+`deploy/coturn/turnserver.conf`, which says how to turn it on for a session
+when debugging). Nothing here changes what a service *does* - only what
+ends up sitting in a log for as long as that log is kept.
 
 **What each one writes.** A forwarder's startup banner (`server/forwarder.mjs`)
 names its room and its own pubkey as an 8-character prefix - enough for an
@@ -1126,11 +1127,11 @@ that runs only KithMoot services; a shared box wanting per-unit limits
 instead needs a
 [journal namespace](https://www.freedesktop.org/software/systemd/man/latest/systemd-journald.service.html#Journal%20Namespaces)
 (`LogNamespace=` in the unit, a matching `journald@<namespace>.conf`), which
-is more moving parts than this kit sets up by default. coturn's
-`deploy/coturn/docker-compose.yml` already caps its `json-file` driver at
-`max-size: 10m`, `max-file: 3` - update those two values there if a box's
-retention policy wants something else; Docker enforces them itself, no
-separate service to restart.
+is more moving parts than this kit sets up by default. coturn writes
+nothing, but if its logging is switched on to debug,
+`deploy/coturn/docker-compose.yml` caps its `json-file` driver at
+`max-size: 10m`, `max-file: 3`, so a log that is left on stays bounded.
+Docker enforces those itself, with no separate service to restart.
 
 ## Turning the donor ring on
 

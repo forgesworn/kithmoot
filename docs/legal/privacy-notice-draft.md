@@ -10,6 +10,8 @@
 > from the desktop app, and the default relay count. Later the same day:
 > desktop 0.1.91 stops the Google dictionary download.
 >
+> Changed 22 October 2026: the TURN server keeps no log.
+>
 > Changed 20 October 2026: the web app no longer suggests our file store,
 > and asks people who accepted that suggestion to choose again (4.2). It
 > lists one public file server run by somebody else, which a person may
@@ -107,8 +109,10 @@ every process restart and is never written to disk.
 
 **During a relayed call**, coturn itself necessarily sees both sides' IP
 addresses, because that is what a TURN relay does; this is inherent to how
-TURN works, not a KithMoot-specific choice, and coturn's own logs go to
-`stdout` under our journald retention policy (section 5).
+TURN works, not a KithMoot-specific choice. coturn is configured to keep
+no log, so nothing about a call or the addresses at either end is written
+down.
+<!-- deploy/coturn/turnserver.conf: log-file=/dev/null, no-stdout-log; "Never add `verbose`" -->
 
 **Quotas**, not identity, are what stands between an unauthenticated
 credential and abuse of our bandwidth: per-username and total allocation
@@ -225,8 +229,8 @@ We hold almost nothing described in section 4 for long, by design:
 - The default drop tier: up to 30 days, or sooner under its size bound
   (section 4.3).
 - System logs across the box that runs our default services (including
-  any service logs that are not discarded, such as the TURN and Blossom
-  services' own operational logs) are bounded by our journald retention
+  any service logs that are not discarded, such as the Blossom
+  service's own operational logs) are bounded by our journald retention
   policy: two weeks, or 500 MB, whichever comes first.
   <!-- deploy/journald-kithmoot.conf: MaxRetentionSec=2week, SystemMaxUse=500M -->
 
