@@ -9,6 +9,11 @@
 > Changed 21 October 2026: section 8 records a significant change in
 > progress (20 and 21 October 2026). Sections 1 to 7 still describe the
 > service that runs today and are not rewritten.
+>
+> Changed 22 October 2026, drafted from the code at `243af551` on
+> `design/files-public-first`: the public file server becomes the apps'
+> default for web and desktop, and ForgeSworn's file store takes no new
+> uploads (8.2 to 8.7).
 
 ## How this record is laid out
 
@@ -350,7 +355,7 @@ One open endpoint is enough for this position.
 
 | Deployment | Planned position | What it takes |
 | --- | --- | --- |
-| The apps (web, desktop, Android) | Publisher with defaults that point only at servers other people run: three public relays, and one listed public file server | No app-wide default names a ForgeSworn server. Today the web app asks its own origin for `/turn` and for meeting codes, and Android pre-fills ForgeSworn's file store and names ForgeSworn's host for STUN and TURN |
+| The apps (web, desktop, Android) | Publisher with defaults that point only at servers other people run: three public relays, and one default public file server | No app-wide default names a ForgeSworn server. Today the web app asks its own origin for `/turn` and for meeting codes, and Android pre-fills ForgeSworn's file store and names ForgeSworn's host for STUN and TURN |
 | ForgeSworn's own box | Closed operator: serves only the members of the owner's rooms, admitted by grants the room's keeper issues and revokes, and carried to members by the room as its relays are | Every open surface in 8.4 closes (8.5), and grants exist (plan S2 to S4) before anything reopens for the owner's rooms |
 <!-- app/src/main.ts TURN_CREDENTIAL_ENDPOINT = '/turn'; app/src/meeting-codes.ts; plan section 1.1 for Android MediaComposer.kt and CallIceServers.kt (not read here) -->
 
@@ -383,29 +388,44 @@ own relay, the room adds it to its fixed relays; that relay's provider is
 the member who runs it.
 <!-- app/src/main.ts DEFAULT_RELAYS; app/src/main.ts PROFILE_RELAYS -->
 
-**The listed public file server.** The web app lists one public file
-server, blossom.yakihonne.com, run by Yakihonne LLC in the United States.
-Uploads stay off until the person chooses a server; they may name any
-other, their own included. The same middle reading applies `[U]`: the
-listed server's operator controls who can use it and is its provider.
+**The default public file server (22 October 2026).** In the web app, and
+the desktop app that loads it, files go by default to
+blossom.yakihonne.com, run by Yakihonne LLC, a Wyoming company in the
+United States. The first time a device sends a file, a notice names the
+server and what it sees; pressing Send uploads the file and records the
+choice on that device. Settings › Privacy › Where files go offers another
+server, the person's own, or Nowhere. This is now a default in the full
+sense, so 2.2's middle reading is the one in play `[U]`: ForgeSworn chose
+the default and controls nobody's admission to it; Yakihonne controls who
+can use its server and is its provider (section 226 `[P]`). What the
+reading still owes is the privacy notice's account of the recipient and
+what it learns (law note 3.2 `[P]`), which `privacy-notice-draft.md`
+section 8 gives.
+<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS, defaultFileServer, resolveFileDestination, acceptDefaultFileServer; app/src/main.ts fileNoticeBody; app/index.html #fileWhere; desktop/policy.mjs HOME. Location from https://yakihonne.com/terms, "Last updated: July 15, 2026", fetched 22 October 2026. -->
 
-Why a short vetted list and not none: with no list, a person must find a
-working server unaided, and most would not, so the feature would not work
-on first use. A suggested list may still be read as a default (the plan's
-own reading, section 7), and the note says the software reading weakens
-once a default server is shipped (2.2) `[U]`, so neither choice removes the
-question. What the list does is keep the
-suggestion to a server with a named operator, published terms, and a
-round trip that passed on 20 October 2026: an encrypted upload, a fetch by
-hash from the app's origin, and a delete. Servers that named no operator or
-published no terms were left out. The code forbids any ForgeSworn host on
-the list, and a self-hoster can suggest their own server with
-`VITE_KITHMOOT_FILE_SERVER`. What the app uploads is sealed before it leaves
-the device; the rule in 2.3 that a store accepts only the sealed envelope
-type is a rule of ForgeSworn's store, not of the listed server.
-`[DECISION: how often the listed server is checked again, and what removes
+Why this server: it has a named operator, published terms, and a round
+trip that passed on 20 October 2026: an encrypted upload, a fetch by hash
+from the app's origin, and a delete. Servers that named no operator or
+published no terms were left out. The code forbids any ForgeSworn host as
+a default or a choice, and a self-hoster's build can set its own default
+with `VITE_KITHMOOT_FILE_SERVER`. A choice given to the default names that
+server, so a later change of default shows the notice again.
+
+What does not carry across from ForgeSworn's store: the rule in 2.3 that a
+store accepts only the sealed envelope type, and the reasoning in 2.4 and 4
+that rests on it (risk factor 1g; rows 2 image-based CSAM, 6 and 7). The
+default server's own status page, read on 22 October 2026, lists accepted
+types `text/* image/* video/* model/* *` with media optimisation on: it is
+a general file host. What KithMoot uploads is sealed and padded on the
+device, so KithMoot's own uploads stay unreadable there, but the server
+would serve viewable media uploaded by anyone; that is Yakihonne's
+service, not a surface ForgeSworn provides `[U]`.
+<!-- packages/context/src/blossom.ts paddedPlaintextLength; https://blossom.yakihonne.com/ "Accepted types" -->
+
+`[DECISION: whether pressing Send after the one-time notice is the act of
+choice the owner relies on ("Send is the act").]`
+`[DECISION: how often the default server is checked again, and what removes
 it from the list.]`
-<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS (line 49), the comment on what qualifies and what was left out, "No ForgeSworn host may ever appear here (the test suite checks)"; suggestedFileServer; docs/run-your-own.md -->
 
 **ForgeSworn's own servers, for the owner's rooms.** The owner's position,
 given after the plan: a room the owner starts may use the owner's servers
@@ -480,7 +500,7 @@ on 21 October 2026 with that go (8.5, step 1).
 | --- | --- |
 | TURN credentials, `GET /turn` | An anonymous request got working TURN credentials |
 | Drop tier, `wss://kithmoot.forgesworn.dev/drops` | On (`BOTHY_DROPS_ENABLED=true`), and served a stored kind 1059 wrap to an anonymous query. It was switched off on 9 September 2026 pending the agreement of the drop tier software's joint maintainer; who switched it back on is not known. No app default names it. **21 October 2026:** no longer fronted. The `/drops` route was removed from the Caddy file and a WebSocket upgrade to it gets 404 from outside. The tier still runs on the box's loopback, reachable only from the box, because the box's cadence work will not start without it, and the box no longer advertises its address |
-| Blossom file store | Uploads accepted from any key with a signed BUD-01 authorisation; reads by hash open to anyone; a read-only onion front serves the same store |
+| Blossom file store | Uploads accepted from any key with a signed BUD-01 authorisation; reads by hash open to anyone; a read-only onion front serves the same store. **22 October 2026, from the host's report:** uploads switched off at 09:42Z with the owner's go; PUT, HEAD and OPTIONS on `/upload` answer 410. Reads by hash and owners' deletes still work. Not checked by the drafter, and the repository's Caddy file has not caught up |
 | Meeting codes, `/codes` | Live, and stores full room links |
 | Keepers on the box | Two keeper instances, both crash-looping since 19 October 2026: with the box's Node 22 and nostr-tools 2.25.2, a relay that times out (two of the default relays were unreachable) sends the relay client into unbounded recursion. They hold no room open while they fail. `[INPUT: whose rooms they serve.]` |
 
@@ -494,6 +514,10 @@ lists the public server above, and asks anyone who accepted the old
 suggestion to choose again, with a notice that names no host (PR #489). The
 matching Android change is open (kithmoot-android PR #295).
 
+On branch `design/files-public-first`, not merged: the public server becomes
+the web default behind a one-time notice, and a saved choice naming any
+ForgeSworn host is removed (8.3). Android was not checked for this change.
+
 ### 8.5 The switch-off order
 
 From the plan's section 10. Before each step, a client release removes the
@@ -504,7 +528,7 @@ route goes after.
 | --- | --- | --- | --- | --- |
 | 0 | None | Verify each surface (done on 20 October 2026 except the keepers' rooms and the Link relay) | | |
 | 1. Drop tier | Release note | Switch the tier off; remove the `/drops` route. Held wraps age out within 30 days. **Route removed 21 October 2026**; the tier stays on loopback while the box's cadence work needs it | Removed | Removed |
-| 2. New Blossom uploads | On the file picker: ForgeSworn's shared storage has closed to new files; set up the group's own storage or send files directly. Gives the read-window date (step 5) | Web and Android releases with no pre-filled ForgeSworn server; then remove the upload route; stop archive enrolment | Removed | `[DECISION: a closed store for the owner's rooms behind grants (S2 to S4), or none]` |
+| 2. New Blossom uploads | On the file picker: ForgeSworn's shared storage has closed to new files; set up the group's own storage or send files directly. Gives the read-window date (step 5) | Web and Android releases with no pre-filled ForgeSworn server; then remove the upload route; stop archive enrolment. **Upload route answering 410 from 22 October 2026** (host's report). The web release that names no ForgeSworn host is on `design/files-public-first`; its notice says "KithMoot no longer sends files to ForgeSworn's storage." and gives no read-window date | Removed | `[DECISION: a closed store for the owner's rooms behind grants (S2 to S4), or none]` |
 | 3. Meeting codes | "Meeting codes are going. Share the room link instead." | Refuse new codes; let live codes run out (at most 7 days); keep the 30-day tombstones; then remove the route and service | Removed (D6) | `[DECISION: retire as D6, or keep for the owner's rooms only behind grants]` |
 | 4. Open `/turn` mint | In a call with no relay: "Some calls need a relay. Your group has none, so this call may not connect on some networks." | Clients take ICE servers from the room or group only; then remove `/turn` and the KithMoot credential service. coturn stays, with its separate secret, for the owner's own Wildbloom direct send | Removed | `[DECISION: TURN for the owner's rooms through a grant-checked issuer the room carries (plan S9), or none]` |
 | 5. Blossom reads | Announced at step 2 and repeated: "Files shared before <date> will disappear on <date>. Save any you want to keep." | After the read window (D4: a fixed window from the stop date; 90 days matches the store's rule), remove the blob route, the onion front, the service and its store; retire the archive nodes (D5) | Removed | Removed for files other people sent. `[DECISION: whether a closed store for the owner's rooms replaces it]` |
@@ -532,7 +556,9 @@ replaces has closed and grants work.
   access assessment (law note 2.4). Counted from the first deploy commit,
   24 August 2026, since the owner has not given a launch date, that is 24
   November 2026. `[INPUT: the launch date, if different.]`
-- Until the web release, the live web app still suggests ForgeSworn's store.
+- Until the web release, the live web app still suggests ForgeSworn's store,
+  whose upload route has answered 410 since 22 October 2026 (8.4), so an
+  upload there fails.
   Until kithmoot-android PR #295 is released, Android still pre-fills it and
   names ForgeSworn's host for STUN and TURN.
 - The report route, `abuse@safety.forgesworn.dev` and the `/report/` page,
@@ -555,11 +581,18 @@ change is complete (plan section 10 step 7, and S13).
   add it to 2.2, 2.4 and 3, or retire it under step 3 first.]`
 - **"The default Blossom store".** From the web release after 20 October
   2026 it is no longer the web app's suggestion. It stays Android's until PR
-  #295 is released, and it stays open to anyone who names it until step 2.
+  #295 is released. From 22 October 2026 it takes no new uploads (8.4).
+- **"Uploads are off by default" and "opt-in per person" (2.2, 2.3, row 18
+  in 4).** From the `design/files-public-first` release, files go to the
+  default public server after a one-time notice at Send. The rows that
+  relied on an off-by-default switch are to be revised with the rest.
+- **The envelope rule as a reason for low levels (2.3, 1g in 3, rows 2, 6
+  and 7 in 4, 5).** True of ForgeSworn's store only. The default server is a
+  general file host run by somebody else (8.3).
 
 ### 8.8 Decisions and sign-off
 
-Open in this section: the six `[DECISION]` markers in 8.3 and 8.5, the
+Open in this section: the seven `[DECISION]` markers in 8.3 and 8.5, the
 `[LEGAL REVIEW]` on the provider limb of paragraph 7, and the `[INPUT]` on
 the keepers' rooms and the launch date, and the `[OWNER TO DO]` on meeting
 codes in 8.7.

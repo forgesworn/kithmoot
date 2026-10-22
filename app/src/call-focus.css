@@ -107,14 +107,14 @@ html[data-call-first]:not([data-desktop]) #workspaceContent > #callSurface {
   z-index: 1;
 }
 html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #workspaceContent > #callSurface { right: 0; }
-html[data-call-first]:not([data-desktop]) #roomArea > :is(#conversationNav, #workAttention, #presenceNotice, .conversationTools, #approvals, #chatViewport, #outbox, #readOnlyNote, #pasteSizeNote, #chatForm, #attachStaged, #attachPanel, #status) {
+html[data-call-first]:not([data-desktop]) #roomArea > :is(#conversationNav, #workAttention, #presenceNotice, .conversationTools, #approvals, #chatViewport, #outbox, #readOnlyNote, #pasteSizeNote, #chatForm, #fileTray, #attachStaged, #attachPanel, #status) {
   align-self: flex-end;
   width: var(--call-chat-w);
   max-width: var(--call-chat-w);
   margin-left: 0;
   margin-right: 0;
 }
-html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #roomArea > :is(#conversationNav, #workAttention, #presenceNotice, .conversationTools, #chatViewport, #outbox, #readOnlyNote, #pasteSizeNote, #chatForm, #attachStaged, #attachPanel, #status) {
+html[data-call-first][data-call-chat="closed"]:not([data-desktop]) #roomArea > :is(#conversationNav, #workAttention, #presenceNotice, .conversationTools, #chatViewport, #outbox, #readOnlyNote, #pasteSizeNote, #chatForm, #fileTray, #attachStaged, #attachPanel, #status) {
   display: none !important;
 }
 /* Somebody drew on this device's share: said on the stage, not in a

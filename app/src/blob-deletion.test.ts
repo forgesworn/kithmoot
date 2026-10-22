@@ -11,6 +11,7 @@ import {
   recordUpload,
   retryPendingBlobDeletes,
   roomUploads,
+  uploadOrigins,
   uploadsFromEvents,
 } from './blob-deletion.js'
 
@@ -63,6 +64,39 @@ describe('the record of what this device uploaded', () => {
     const announce = (key: Uint8Array, hash: string) => finalizeEvent({ kind: 1063, created_at: NOW, content: '', tags: [['url', `${SERVER}/${hash}`], ['x', hash]] }, key)
     const events = [announce(sk, A), announce(other, B), finalizeEvent({ kind: 1460, created_at: NOW, content: '', tags: [['url', 'x'], ['x', C]] }, sk)]
     expect(uploadsFromEvents(events, getPublicKey(sk))).toEqual([{ url: `${SERVER}/${A}`, sha256: A }])
+  })
+})
+
+describe('where a room’s deletes may go', () => {
+  it('is every origin its recorded uploads used, plus the current server once', () => {
+    const recorded = [
+      { url: `${SERVER}/blossom/${A}`, sha256: A, key: 'device' as const },
+      { url: `${SERVER}/blossom/${B}`, sha256: B, key: 'device' as const },
+      { url: `https://old.example/${C}`, sha256: C, key: 'device' as const },
+    ]
+    expect(uploadOrigins(recorded, [SERVER])).toEqual([SERVER, 'https://old.example'])
+    expect(uploadOrigins(recorded, ['https://new.example', ''])).toEqual([SERVER, 'https://old.example', 'https://new.example'])
+    expect(uploadOrigins([], [])).toEqual([])
+    expect(uploadOrigins([{ url: 'not a url', sha256: A, key: 'device' }], [])).toEqual([])
+  })
+  it('never lets a record that does not say how it was written name a place to send a delete', () => {
+    expect(uploadOrigins([{ url: `https://untrusted.example/${A}`, sha256: A }], [SERVER])).toEqual([SERVER])
+  })
+  it('remembers which key signed an upload, and nothing else', () => {
+    const store = memoryDeviceStore()
+    recordUpload(store, ROOM, { url: `${SERVER}/blossom/${A}`, sha256: A, key: 'device' })
+    expect(roomUploads(store, ROOM)).toEqual([{ url: `${SERVER}/blossom/${A}`, sha256: A, key: 'device' }])
+  })
+  it('deletes from a server the device no longer uploads to, as well as the current one', async () => {
+    const sk = generateSecretKey()
+    const store = memoryDeviceStore()
+    const old = 'https://old.example'
+    const held = new Map([[A, getPublicKey(sk)], [B, getPublicKey(sk)]])
+    const { fetch, requests } = blossom(held)
+    const blobs = [{ url: `${SERVER}/blossom/${A}`, sha256: A, key: 'device' as const }, { url: `${old}/blossom/${B}`, sha256: B, key: 'device' as const }]
+    const report = await deleteUploads({ blobs, origins: uploadOrigins(blobs, [SERVER]), sk, now: () => NOW, store, fetch: fetch as unknown as typeof globalThis.fetch })
+    expect(report.deleted).toBe(2)
+    expect(requests.filter(r => r.method === 'DELETE').map(r => r.url).sort()).toEqual([`${SERVER}/blossom/${A}`, `${old}/blossom/${B}`])
   })
 })
 

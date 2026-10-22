@@ -4788,7 +4788,7 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
   main:has(#roomArea:not([hidden])) { min-height: 0; overflow: hidden; }
   main:has(#roomArea:not([hidden])) > #workspaceContent > #roomArea { padding: 0; margin: 0; min-height: 0; overflow: hidden; }
   .roomBar { flex-shrink: 0; margin: 0; padding: 0 0 .3rem; }
-  #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#attachStaged,#attachPanel,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
+  #roomArea[data-mobile-view="call"] > :is(#conversationNav,.conversationTools,#approvals,#chatViewport,#outbox,#readOnlyNote,#chatForm,#fileTray,#attachStaged,#attachPanel,#workAttention,#presenceNotice,#sharerMarksNotice,#callBanner) { display: none !important; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage { display: flex; position: static; inset: auto; width: auto; padding: 0; margin: 0; border: 0; flex: 1 1 0; min-height: 0; overflow: hidden; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #whoIsHere:not([hidden]) { order: 0; display: block; flex: 1 1 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0; }
   #workspaceContent:has(> #roomArea[data-mobile-view="call"]) #callStage > #callBay { order: 1; flex: 0 0 auto; padding: .5rem 0 .2rem; border: 0; }
@@ -5092,3 +5092,91 @@ html[data-call-docked] #callToggle { display: none !important; }
 #nostrInboxList > li { border-top: 1px solid currentColor; margin-top: 1rem; padding-top: 1rem; }
 .ordinaryMessageAuthor { overflow-wrap: anywhere; }
 .ordinaryMessageText { white-space: pre-wrap; overflow-wrap: anywhere; unicode-bidi: plaintext; }
+
+/* The staged-files tray (design-files-public-first, 5.1): the files waiting
+   to be sent, directly above the composer, in the composer's own column. A
+   chip each, one notice the first time a device sends to the default server,
+   and the line saying why a file is held or did not go. It scrolls inside
+   itself rather than push the message box off a short screen. */
+.fileTray {
+  box-sizing: border-box;
+  max-width: 46rem;
+  margin-top: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  overflow-y: auto;
+  max-height: min(60dvh, 28rem);
+}
+.fileTray p { margin: 0 0 var(--s2); overflow-wrap: anywhere; }
+.fileTray p:last-child { margin-bottom: 0; }
+.trayChips { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.trayChips:empty { display: none; }
+.fileTray .attachChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  max-width: 100%;
+  margin: 0;
+  padding: var(--s1) var(--s1) var(--s1) var(--s2);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-s);
+  font-size: var(--fs-2);
+}
+.fileTray .attachChip .i { flex: none; }
+.fileTray .attachChip .n { overflow-wrap: anywhere; min-width: 0; }
+.fileTray .attachChip .s { flex: none; font-size: var(--fs-1); color: var(--muted); }
+.fileTray .attachChip button { margin: 0; }
+.fileTray .attachChip .chipRemove {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+@media (any-pointer: coarse) {
+  .fileTray .attachChip .chipRemove { width: 44px; height: 44px; margin: -6px -2px -6px 0; }
+}
+.trayNotice, .trayState { margin-top: var(--s3); }
+.trayLead { font-weight: 600; }
+.trayNotice button.quiet, .trayState button.quiet { margin-left: calc(var(--s2) * -1); }
+.trayActions { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.trayErrorText p { margin: 0 0 var(--s2); }
+@media (max-height: 500px) {
+  .fileTray { max-height: min(40dvh, 12rem); }
+}
+/* While the one-time notice shows, pressing Send agrees to it, so it must be
+   readable in full without scrolling: on a short screen the tray may take more
+   of it, once per device. */
+@media (max-height: 500px) {
+  .fileTray:has(#fileNotice:not([hidden])) { max-height: min(75dvh, 26rem); }
+  main:has(#roomArea:not([hidden])) #roomArea:has(#fileNotice:not([hidden])) #chatViewport { min-height: 0; }
+}
+@media (forced-colors: active) {
+  .fileTray, .fileTray .attachChip { border: 1px solid CanvasText; }
+}
+
+/* Settings › Privacy › Where files go: one radio group, the chosen option's
+   own controls under it, indented to the option's text. */
+.fileWhere { border: 0; margin: 0; padding: 0; min-width: 0; max-width: 40rem; }
+.fileWhere legend { padding: 0; margin-bottom: var(--s2); font-weight: 600; }
+.fileWhere .opt {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--s3);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.fileWhere .opt input[type=radio] { margin: 3px 0 0; width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
+.fileWhere .opt .t { font-weight: 600; }
+.fileWhere .opt .d { grid-column: 2; font-size: var(--fs-1); color: var(--muted); }
+.fileWhere .opt .more { grid-column: 2; margin-top: var(--s2); display: flex; flex-direction: column; gap: var(--s2); cursor: auto; }
+.fileWhere .opt .more input[type=url] { width: 100%; box-sizing: border-box; }
+.fileWhere .opt .more .note { margin: 0; }
+.filesCheck[hidden] { display: none; }

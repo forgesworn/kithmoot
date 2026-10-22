@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { fetchFromTestBlossom } from './blossom.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
-import { allowTestFileStorage, openCall, leaveToChats, showChats, switchToRoom, openRoomSearch, openRoomInfoPage, chooseCallMore } from './browser.js'
+import { allowTestFileStorage, openWildbloomAttach, openCall, leaveToChats, showChats, switchToRoom, openRoomSearch, openRoomInfoPage, chooseCallMore } from './browser.js'
 
 async function setup(browser: Browser, base: string, beforeJoin?: (context: BrowserContext, roomId: string, relay: string) => Promise<void>) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
@@ -78,8 +78,8 @@ test('room switches retain separate drafts, selections and staged files without 
     await expect(page.locator('#chatInput')).toHaveValue('Keep this unfinished message')
     expect(page.url()).toBe(original)
     const event = finalizeEvent(buildFileEvent({ url: `https://files.example/${'ab'.repeat(32)}`, sha256: 'ab'.repeat(32), size: 65608 }), generateSecretKey())
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await openWildbloomAttach(page)
     await page.locator('#attachEvent').fill(JSON.stringify(event))
     await page.locator('#attachKey').fill('cd'.repeat(32))
     await page.locator('#attachAdd').click()
@@ -273,8 +273,6 @@ test('stopping an upload releases room switching and ignores its late result', a
   })
   try {
     await page.locator('#chatInput').fill('Keep this while stopping the upload')
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Room-bound file') })
     await expect.poll(() => uploading).toBe(true)
@@ -282,8 +280,8 @@ test('stopping an upload releases room switching and ignores its late result', a
     await expect(page.locator('#roomList').getByRole('button', { name: 'Open Project room', exact: true })).toBeDisabled()
     await expect(page.locator('#workspaceNote')).toContainText('stop adding files')
     await page.locator('#roomList').getByRole('button', { name: 'Open Town hall', exact: true }).click()
-    await page.locator('#cancelFileWork').click()
-    await expect(page.locator('#cancelFileWork')).toBeHidden()
+    await page.getByRole('button', { name: 'Stop and remove late.txt' }).click()
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(0)
     await switchToRoom(page, 'Project room')
     await expect(page.locator('#roomTitle')).toHaveText('Project room')
     release()

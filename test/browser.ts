@@ -11,12 +11,24 @@ export { TEST_RELAY_PORT, TEST_RELAY_WS, TEST_RELAY_HTTP } from './relays.js'
 /** Explicit opt-in for synthetic uploads to local fixtures only. */
 export async function allowTestFileStorage(page: Page, origin: string): Promise<void> {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname)) throw new Error('File fixture must stay local')
-  if (!await page.locator('#attachPanel').isVisible()) await page.locator('#attachToggle').click()
-  await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+  await openSettings(page, 'Privacy')
+  await page.locator('#settingsPane .infoRow', { has: page.locator('.infoRowTitle', { hasText: /^Where files go$/ }) }).click()
+  await expect(page.locator('#settingsTitle')).toHaveText('Where files go')
+  await page.getByRole('radio', { name: 'My own server' }).check()
   await page.locator('#attachServer').fill(origin)
-  await page.locator('#allowSharedFiles').check()
   await page.locator('#saveFileStorage').click()
-  await expect(page.locator('#fileStorageStatus')).toContainText(`Uploads go to ${origin}`)
+  await expect(page.locator('#fileOwnCheck')).toContainText(`Files you send go to ${new URL(origin).host}.`)
+  await closeSettings(page)
+}
+
+/** The form for a file that is already on Wildbloom: + is a menu once the
+ *  device has its own server (see `allowTestFileStorage`), and this picks
+ *  the second item. */
+export async function openWildbloomAttach(page: Page): Promise<void> {
+  await page.locator('#attachToggle').click()
+  await page.getByRole('menuitem', { name: 'File already on Wildbloom…' }).click()
+  await expect(page.locator('#attachPanel')).toBeVisible()
+  await expect(page.locator('#attachEvent')).toBeVisible()
 }
 
 /**

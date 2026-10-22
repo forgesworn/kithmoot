@@ -9,7 +9,7 @@ import { addContactFromCard } from '../app/src/contact-store.js'
 import { BoxDiscovery } from '../app/src/box-discovery.js'
 import { saveHistoryRecoveryProgress } from '../app/src/history-recovery-progress.js'
 import { recordUpload, deleteUploads, PENDING_BLOB_DELETES_KEY } from '../app/src/blob-deletion.js'
-import { allowSharedFileServer } from '../app/src/file-storage.js'
+import { chooseFileServer } from '../app/src/file-storage.js'
 import { RoomLogoCache } from '../app/src/room-logo-store.js'
 import { readLogoImage, type LogoImage } from '../src/logo-image.js'
 
@@ -79,7 +79,7 @@ export async function privateFamilyFixture(mode: PrivateMode = 'all') {
     await deleteUploads({blobs: [{url: `${origin}/blossom/${hash}`, sha256: hash}], origins: [origin], sk: f.boxKey,
       now: () => mode === 'pending-delete-t0' ? 0 : f.now, store, fetch: async () => {throw TypeError('Synthetic offline operator')}})
   }
-  if (mode === 'all' || mode === 'file-consent') allowSharedFileServer({getItem: store.get, setItem: store.set, removeItem: store.remove}, origin, true)
+  if (mode === 'all' || mode === 'file-consent') chooseFileServer({getItem: store.get, setItem: store.set, removeItem: store.remove}, origin)
   if (mode === 'all' || mode === 'legacy-only') store.set(keys.legacy, 'display-only arbitrary legacy suggestion')
   if (mode === 'all' || mode.startsWith('logo-')) {
     if (!readLogoImage(image)) throw Error('Original logo bytes no longer verify')

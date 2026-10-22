@@ -2381,3 +2381,27 @@ interleave with everyone else in time order, each reply carrying its quote.
 The "in a thread" and "replying to" chips are gone, because the quote says
 both. The cost is that a long back-and-forth under one message no longer
 reads as a block; the quote on each reply is what ties it back.
+
+## Files go to a vetted public server by default (22 October 2026)
+
+Nobody could send a file until they had picked a server, ticked a box and
+pressed a button inside a panel that took over a phone screen. Uploads now
+default to the first entry of `PUBLIC_FILE_SERVERS`, or a deployer's
+`VITE_KITHMOOT_FILE_SERVER`. The 28 September position is unchanged: it is
+somebody else's server, and no ForgeSworn host may be a default (the test
+stays). ForgeSworn's own servers are closed separately, on the server side.
+
+Consent stays an act: the first file on a device is held, a notice names the
+server and what it sees, and pressing Send is the act that uploads and
+records the choice (`kithmoot.file-storage.v1`, disclosure 3, with how the
+server was chosen). A consent given to the default names that server, so a
+later change of default asks again rather than moving uploads silently. One
+function, `resolveFileDestination`, decides where a file goes and every
+caller asks it. Where files go is chosen in Settings > Privacy, per device.
+
+KithMoot no longer sends files to ForgeSworn's own storage. A stored choice
+naming a ForgeSworn host, however it was made, is removed at start, the next
+one-time notice says why, and typing one in Settings is refused. Files already
+stored there are not touched by the app; closing the upload route on the
+server is a separate step.
+

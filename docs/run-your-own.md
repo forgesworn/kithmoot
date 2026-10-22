@@ -38,14 +38,19 @@ encrypted copy; only the people in the room hold the key that opens it. The
 server sees your device's address, when files are uploaded and fetched, and
 how big they are.
 
-File uploads are off until you choose a server, in the panel beside the
-message box under **Choose where files go**.
+Files go to the first public server below unless you choose otherwise. The
+first time a device sends a file, a notice above the message box names the
+server and says what it sees, and pressing **Send** uploads the file and
+remembers the choice. Nothing is sent to it before that. If a later release
+changes the default server, the notice appears again naming the new one.
+**Settings > Privacy > Where files go** changes it: a public server, your own
+server, or nowhere (you can still open files other people send).
 
 ### A public server run by somebody else
 
 The app lists public file servers we have checked: the operator is named,
 publishes terms, and an encrypted upload, download and delete worked from
-the app. Today that is one.
+the app. Today that is one, and it is the default.
 
 | Server | Run by | Largest file | Checked |
 |---|---|---|---|
@@ -68,12 +73,15 @@ Any [Blossom](https://github.com/hzrd149/blossom) server works if it:
 KithMoot's deploy kit sets one up on a Linux box: blossom-server-ts behind
 Caddy, with a fixed-size quota, a 270 MiB cap per file and an expiry 90 days
 after a file was last fetched. See "Running a Blossom server" in
-[deploy/README.md](../deploy/README.md). Then type its address in the file
-panel.
+[deploy/README.md](../deploy/README.md). Then type its address under
+**Settings > Privacy > Where files go > My own server** and press **Use this
+server**. People who open your files connect to your server.
 
 If you deploy KithMoot itself on your own domain, build it with
-`VITE_KITHMOOT_FILE_SERVER` set to your server's address and the app will
-suggest it. Each person still chooses whether to use it.
+`VITE_KITHMOOT_FILE_SERVER` set to your server's address and it becomes that
+build's default, in place of the public server. It is never a ForgeSworn
+host, and a person still sees the one-time notice naming it before anything
+is uploaded.
 
 ## Relays
 
