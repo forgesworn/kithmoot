@@ -540,10 +540,13 @@ note 2.10). Whether the Act's duties attach turns on who the members are.
   servers for private life are outside both it and the fee `[U]` (3.9);
   "purely" is the limit, and servers also used for a project's work are not
   household `[U]`. Plan D8 recommended keeping such a group off ForgeSworn's
-  names, domains and boxes. Decided 22 October 2026 (D4): the weekly
-  friends' chat runs on the owner's private host with the project team, not
-  on the public box, and the owner accepts that no exemption names friends
-  by invitation (9.2).
+  names, domains and boxes. Decided 22 October 2026 (D4, revised the same
+  day): the owner's private host serves only the people working on the
+  project, volunteers included, under the internal business reading above.
+  The weekly chat is part of that work (building, testing and running
+  KithMoot), not a social group, and nobody who is not working on the
+  project is admitted (9.2). `[LEGAL REVIEW: whether an unpaid open-source
+  project meets the "business" and "internal resource or tool" limbs.]`
 - *Closed means closed.* A closed deployment should carry no public page
   that shows user content, no open sign-up, and no endpoint that takes
   content from whoever finds it `[U]` (2.10). While `/turn`, `/drops`,
@@ -720,8 +723,8 @@ enough for this position (8.2).
 | Deployment | Position aimed at | What the move still takes |
 | --- | --- | --- |
 | The apps and the public host | Publisher with defaults that point at servers other people run, plus ForgeSworn's own STUN (D1) | Close `/turn`, its credential service and the TLS listener on 5349 (pending, 9.3); end file reads and the onion front (23 October 2026, pending); remove the `/turn` default and the meeting code client from the app (`app/src/main.ts:815`, `app/src/main.ts:2091`); bring `deploy/Caddyfile.kithmoot` into line with the live box |
-| The relay ForgeSworn also runs | Closed: the owner's own relay | Done for writes (9.3). `[INPUT: whether reads are also closed to strangers.]` A closed service should have no endpoint that serves content to whoever finds it (law note 2.10, `[U]`) |
-| The weekly friends' chat (D4) | Closed, on the owner's private host with the project team | The owner accepts that no exemption names friends by invitation (law note 2.10, `[U]`). That host is not described in this record and is not one of the surfaces it covers |
+| The relay ForgeSworn also runs | Closed: the owner's own relay | Done for writes (9.3). Reads: decided 22 October 2026 that every request, for every kind, needs relay authentication (NIP-42) from an allowlisted key, with only the relay information document left public. Pending: the change on each relay-like endpoint ForgeSworn runs. A closed service should have no endpoint that serves content to whoever finds it (law note 2.10, `[U]`) |
+| The owner's private host (D4) | Closed: the people working on the project, volunteers included (law note 2.10, Schedule 1 paragraph 7 `[P]`) | Admit nobody who is not working on the project. That host is not described in this record and is not one of the surfaces it covers |
 
 **STUN kept (D1).** After TURN closes, the app still asks the host that
 served it for STUN on port 3478, and coturn answers anyone. STUN tells a
@@ -756,8 +759,8 @@ content between users.]`
   only if they were kept (the input marker in 9.3). The owner's to-do in
   8.7 and the decision in 8.5, step 3 are closed by retirement.
 - **The family and friends decision in 8.3** is closed by D4: the
-  weekly friends' chat runs on the owner's private host, not on the public
-  box, and the owner accepts the unchecked reading.
+  owner's private host serves only the people working on the project, so
+  the unchecked family-and-friends row no longer applies to it.
 - **File reads.** From 23 October 2026, the rows that rest on ForgeSworn's
   store (risk factor 1g in 3; rows 2, 6 and 7 in 4; the removal measures in
   6.2, items 2 and 3) describe a store that no longer serves anything.
