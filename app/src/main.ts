@@ -69,7 +69,7 @@ import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends, type PendingSend } from './pending-sends.js'
+import { PendingSends, StorageStuckError, type PendingSend } from './pending-sends.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
 import { signerLabel } from './signer-label.js'
@@ -312,10 +312,11 @@ import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
 import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
-import { HeldEnvelopes } from './held-envelopes.js'
+import { HeldEnvelopes, lostAttachments } from './held-envelopes.js'
+import { removeStaleTemporaryUploadsHere } from './temp-upload-cleanup.js'
 import type { GroupDeletes } from './blob-deletion.js'
-import { ROOM_STORAGE_PREFIX, adoptRoomStorage, forgetRoomStorageRecord, listedBaseOf, loadRoomStorageRecord, recordFromAdmission, recordFromOp, storeRoomStorageRecord, usableGroupBase, type RoomStorageRecord } from './room-storage-record.js'
-import { forgetGrantReceiver, grantsEndingSoon, grantsEndingWords, holdsAnyGrant, loadGrantReceiver, saveGrantReceiver } from './group-room-grants.js'
+import { ROOM_STORAGE_PREFIX, adoptRoomStorage, forgetRoomStorageRecord, listedBaseOf, loadRoomStorageRecord, newerRoomStorage, recordFromAdmission, recordFromOp, storeRoomStorageRecord, usableGroupBase, type RoomStorageRecord } from './room-storage-record.js'
+import { forgetGrantReceiver, grantsEndingSoon, grantsEndingWords, holdsAnyGrant, loadGrantReceiver, sayOnce, saveGrantReceiver } from './group-room-grants.js'
 import type { GrantReceiver } from '../../src/group-grants.js'
 import { BLOB_DELETE_RETRY_SECONDS, deleteUploads, forgetRoomUploads, recordUpload, retryPendingBlobDeletes, roomUploads, uploadOrigins, uploadsFromEvents, type FileDeletionReport, type UploadedBlob } from './blob-deletion.js'
 import { RoomTabs } from './room-tabs.js'
@@ -441,7 +442,7 @@ const pendingSends = new PendingSends({
 const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () => currentRoomId(), () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…',
   item => editPending(item), item => item.channel === (currentChannel ?? 'Chat') && channelAvailable(currentChannel),
-  item => pendingDoomed(item), WILL_NOT_BE_SENT)
+  item => pendingDoomed(item), WILL_NOT_BE_SENT, item => stopGroupUpload(item))
 
 /** Take an unsent message back into the message box. Only offered while
  *  nothing of it has reached a relay, so the old copy leaves no trace: it
@@ -480,7 +481,7 @@ function sendDelaySeconds(): number {
 /** Queue a prepared message in the conversation it was written in. `durable`
  *  keeps it across a reload: only ordinary main-chat messages, which can be
  *  sent again from the room's own keys alone. */
-async function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; holdSeconds?: number; publish?: () => Promise<void> } = {}): Promise<void> {
+async function queueSend(prepared: PreparedSend, channel: string, opts: { files?: string[]; durable?: boolean; editable?: boolean; holdSeconds?: number; publish?: () => Promise<void>; storage?: boolean } = {}): Promise<void> {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('Open a room to send a message.')
   const sendingSession = session
@@ -492,6 +493,7 @@ async function queueSend(prepared: PreparedSend, channel: string, opts: { files?
       await (opts.publish ?? prepared.publish)()
     }, durable: opts.durable ?? false,
     ...(opts.editable ? { editable: true } : {}),
+    ...(opts.storage ? { storage: true as const } : {}),
   }, (opts.holdSeconds ?? 0) * 1000)
   if (session !== sendingSession || currentRoomId() !== roomId) throw new Error(CONVERSATION_MOVED)
 }
@@ -507,23 +509,46 @@ async function queueSend(prepared: PreparedSend, channel: string, opts: { files?
  */
 function groupSendPublisher(prepared: PreparedSend, preparedIn: { readonly epoch: number }, epoch: number, roomId: string, waitingFiles: readonly string[]): () => Promise<void> {
   const uploaded = new Set<string>()
+  const id = prepared.message.id
   return async () => {
     if (preparedIn.epoch !== epoch || currentRoomId() !== roomId) throw new Error(CONVERSATION_MOVED)
     const group = roomGroup?.roomId === roomId ? roomGroup : undefined
     if (!group) throw new Error(GROUP_STORAGE_WAITING)
-    for (const hash of waitingFiles) {
-      if (uploaded.has(hash)) continue
-      const waiting = heldEnvelopes.get(hash)
-      // The sealed file is gone (its room was left): the message names a file nobody has, so it must never go.
-      if (!waiting) throw new Error(CONVERSATION_MOVED)
-      const result = await group.storage.upload(waiting.envelope, hash)
-      if (result.status !== 'stored') throw new Error(GROUP_STORAGE_WAITING)
-      recordUpload(deviceStore, roomId, { url: result.url, sha256: hash, key: 'device' })
-      uploaded.add(hash)
-      await heldEnvelopes.release(hash)
+    // An upload has no clock of ours to end it (a large file on a slow link is not a fault), so the row's Delete is what ends one: it aborts this.
+    const run = { abort: new AbortController(), publishing: false }
+    groupSends.set(id, run)
+    try {
+      for (const hash of waitingFiles) {
+        if (uploaded.has(hash)) continue
+        const waiting = heldEnvelopes.get(hash)
+        // The sealed file is gone: the message names a file nobody has, so it must never go.
+        if (!waiting) throw new Error(CONVERSATION_MOVED)
+        const result = await group.storage.upload(waiting.envelope, hash, { signal: run.abort.signal })
+        if (result.status !== 'stored') {
+          // A clock that is wrong, grants that have ended, or only nodes that give files to anyone will not mend by waiting: say so, and do not try on a timer.
+          if (result.reason === 'clock' || result.reason === 'locked-out' || result.reason === 'node-open') throw new StorageStuckError(result.detail)
+          throw new Error(GROUP_STORAGE_WAITING)
+        }
+        recordUpload(deviceStore, roomId, { url: result.url, sha256: hash, key: 'device' })
+        uploaded.add(hash)
+        await heldEnvelopes.release(hash)
+      }
+      run.publishing = true
+      await prepared.publish()
+    } finally {
+      if (groupSends.get(id) === run) groupSends.delete(id)
     }
-    await prepared.publish()
   }
+}
+
+/** The uploads the outbox is running, by message, for a row's Delete to stop. */
+const groupSends = new Map<string, { abort: AbortController; publishing: boolean }>()
+/** Stop a message's upload to the group's storage, if its files are still going up. False once it has begun to go out. */
+async function stopGroupUpload(item: PendingSend): Promise<boolean> {
+  const run = groupSends.get(item.id)
+  if (!run || run.publishing) return false
+  run.abort.abort()
+  return true
 }
 
 /** Let go of sealed files nothing refers to any more: a draft that dropped them, a message that was deleted or can no longer go. */
@@ -671,10 +696,23 @@ function closeAllDrafts(): void {
   for (const collection of roomDrafts.values()) collection.close()
   roomDrafts.clear()
   roomReadSets.clear()
+  // No draft is left to name a waiting file.
+  void heldEnvelopes.clear()
 }
 
 function switchingBlocked(): boolean {
-  return joining || roomOperation > 0 || startingDm || assignmentPanel.busy || outbox.pending || drafts.pending().some(draft => draft.job)
+  // A message waiting for a group's storage can wait for days: it does not hold a person in the room. Leaving asks first (`confirmLeavingWaitingMessage`).
+  return joining || roomOperation > 0 || startingDm || assignmentPanel.busy || outbox.blocking || drafts.pending().some(draft => draft.job)
+}
+
+/** Leaving a room with a message waiting for its group's storage loses the message and the files waiting with it: say so, and let the person stay. */
+async function confirmLeavingWaitingMessage(): Promise<boolean> {
+  if (!outbox.waitingOnStorage) return true
+  return confirmRoomAction({
+    title: 'Leave with a message still waiting?',
+    message: 'A message in this room is waiting for the group’s storage. If you leave, it will not be sent, and the files waiting with it will be lost.',
+    confirmLabel: 'Leave and drop it', cancelLabel: 'Stay', danger: true,
+  })
 }
 
 function refreshRoomNavigation(): void {
@@ -711,9 +749,10 @@ installUpdates(() => {
   approvedReload()
 })
 
-function hasUnsentWork(): boolean {
+/** `includeWaiting` false leaves out messages waiting for a group's storage, which a person may leave behind after being asked. */
+function hasUnsentWork(includeWaiting = true): boolean {
   captureDraft()
-  return outbox.pending || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
+  return (includeWaiting ? outbox.pending : outbox.blocking) || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
 // The relays a new device starts on: three third-party public relays, none run
@@ -754,8 +793,10 @@ let roomUsesBothy = false
  *  authority signed, held across visits. Read through `roomStorageRecord()`;
  *  declared up here because the file tray asks for it before a room opens. */
 let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } | undefined
-/** Sealed files no group computer has taken yet, in memory only. */
+/** Sealed files no group computer has taken yet, held by this page only. */
 const heldEnvelopes = new HeldEnvelopes()
+/** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
+const waitingAttachments = new WeakSet<ChatAttachment>()
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
   if (session?.roomId === room && !roomUsesBothy) {
@@ -8297,12 +8338,21 @@ function roomStorageRecord(): RoomStorageRecord | undefined {
   return roomStorageCache.record
 }
 
-// Another tab of this browser may hear of a newer list first. This one reads it from the device when it next asks, and the tray follows.
+// Another tab of this browser may hear of a newer list first. This tab takes
+// the newer of what it holds and what the device now says, never the other way:
+// a stale tab's write cannot put an older list over a newer one here. A room
+// this tab has open does not lose its list because another tab removed the
+// record (Forget in that tab): the room is still open here, and still its own.
 window.addEventListener('storage', event => {
   if (event.key !== null && !event.key.startsWith(ROOM_STORAGE_PREFIX)) return
   const roomId = currentRoomId()
-  if (event.key !== null && (!roomId || event.key !== ROOM_STORAGE_PREFIX + roomId)) return
-  roomStorageCache = undefined
+  if (!roomId || (event.key !== null && event.key !== ROOM_STORAGE_PREFIX + roomId)) return
+  const held = roomStorageCache?.roomId === roomId ? roomStorageCache.record : undefined
+  const stored = loadRoomStorageRecord(localStorage, roomId)
+  const live = session?.roomId === roomId
+  const next = live ? newerRoomStorage(held, stored) : stored
+  if (JSON.stringify(next) === JSON.stringify(held)) return
+  roomStorageCache = { roomId, record: next }
   if (fileStorageBooted) { fileDestinationChanged(); pendingSends.wakeStorage() }
 })
 
@@ -8313,20 +8363,22 @@ function bothyFiles(): boolean {
 
 /** Hold a list the room's authority signed if it is newer than the one held. True when it changed what is held. */
 function adoptRoomStorageRecord(roomId: string, offered: RoomStorageRecord): boolean {
-  const held = roomStorageCache?.roomId === roomId ? roomStorageCache.record : loadRoomStorageRecord(localStorage, roomId)
+  // Against what this tab holds and what the device holds: another tab may have kept a newer list than this one has heard of.
+  const cached = roomStorageCache?.roomId === roomId ? roomStorageCache.record : undefined
+  const held = newerRoomStorage(cached, loadRoomStorageRecord(localStorage, roomId))
   const next = adoptRoomStorage(held, offered)
-  if (!next) return false
-  storeRoomStorageRecord(localStorage, roomId, next)
+  if (next) storeRoomStorageRecord(localStorage, roomId, next)
+  const settled = next ?? held
   if (currentRoomId() === roomId) {
-    roomStorageCache = { roomId, record: next }
+    roomStorageCache = { roomId, record: settled }
     // The tray, the composer, Room info and the outbox all follow a change of nodes.
-    if (JSON.stringify(held?.nodes) !== JSON.stringify(next.nodes)) {
+    if (JSON.stringify(cached?.nodes) !== JSON.stringify(settled?.nodes)) {
       fileDestinationChanged()
       pendingSends.wakeStorage()
       checkGrantsSoon()
     }
   }
-  return true
+  return next !== undefined
 }
 
 /** A signed `storage` op on the control channel. Any member may post one again; only the authority's signature counts. */
@@ -8362,7 +8414,7 @@ function scheduleRoomStorageRepost(s: RoomSession): void {
 }
 
 /** This device's way into the room's storage for the room on screen. */
-interface RoomGroup { roomId: string; receiver: GrantReceiver; storage: GroupStorage; abort: AbortController; deviceSk: Uint8Array }
+interface RoomGroup { roomId: string; receiver: GrantReceiver; storage: GroupStorage; abort: AbortController; deviceSk: Uint8Array; lockedOut: { say(): void; reset(): void } }
 let roomGroup: RoomGroup | undefined
 let grantSaveTimer: ReturnType<typeof setTimeout> | undefined
 let grantCheckTimer: ReturnType<typeof setTimeout> | undefined
@@ -8379,6 +8431,8 @@ function startRoomGroup(s: RoomSession): void {
   const deviceSk = deviceKey()
   const receiver = loadGrantReceiver(localStorage, roomId, { authority, device: getPublicKey(deviceSk) })
   const abort = new AbortController()
+  // Every retry of a message that cannot go would say it again, once a minute: it is said once until a grant arrives.
+  const lockedOut = sayOnce(() => setStatus(GROUP_STORAGE_MESSAGES['locked-out']))
   const storage = new GroupStorage({
     roomId, deviceSk, receiver, signal: abort.signal,
     // A browser reaches https nodes only; an onion address or a node on this machine is not one it can use.
@@ -8388,9 +8442,9 @@ function startRoomGroup(s: RoomSession): void {
     onNodeOpen: () => setStatus(GROUP_STORAGE_MESSAGES['node-open']),
     onClockWrong: () => setStatus(GROUP_STORAGE_MESSAGES.clock),
     onNoGrant: () => askKeeperForGrants(s),
-    onLockedOut: () => setStatus(GROUP_STORAGE_MESSAGES['locked-out']),
+    onLockedOut: () => lockedOut.say(),
   })
-  roomGroup = { roomId, receiver, storage, abort, deviceSk }
+  roomGroup = { roomId, receiver, storage, abort, deviceSk, lockedOut }
   checkGrantsSoon(s)
 }
 
@@ -8417,6 +8471,7 @@ function ingestStorageGrant(control: Extract<ControlMessage, { op: 'storage-gran
   if (!group || group.roomId !== session?.roomId) return
   // The receiver checks the keeper's signature against the authority pinned in the link, and keeps only what concerns this device.
   if (!group.receiver.offer(control.event, nowSeconds())) return
+  group.lockedOut.reset()
   scheduleGrantSave(group.roomId, group.receiver)
   pendingSends.wakeStorage()
   checkGrantsSoon()
@@ -15082,6 +15137,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     return
   }
   if (switchingBlocked()) { renderRooms(); return }
+  if (!await confirmLeavingWaitingMessage()) return
   // Nothing a person navigates to ends a call. See `DockedCall`.
   let intent = switchIntent({ onCall: callIsLive() || onCall(), dockedRoomId: dockedCall?.room.roomId, destination: room.roomId })
   const dockRoom = intent === 'dock' ? dockableRoom() : undefined
@@ -15307,7 +15363,10 @@ function resetRoomState(): void {
   roomStorageCache = undefined
   grantEndingWarned = false
   storageGrantAskedAt = 0
-  void heldEnvelopes.clear()
+  // A file waiting in this room's draft is kept: the draft stays with the tab
+  // and the person may come back to it. Only a message that was dropped, or a
+  // file no draft names, is let go (`sweepHeldEnvelopes`).
+  sweepHeldEnvelopes()
   clearTimeout(roomNameCarryTimer)
   channels = []
   channelLogs.clear()
@@ -16187,9 +16246,12 @@ $('conversationNav').addEventListener('keydown', event => {
 /** Leave the room for the start page. A reload, because a reload is what
  *  ends a room's session cleanly; a call is kept docked instead. */
 function goHome(): void {
-  if (hasUnsentWork()) { setStatus('Your drafts stay in this tab while you switch chats. Send or discard them before leaving for the start page.'); renderRooms(); return }
-  if (callIsLive() || onCall()) { void homeKeepingCall(); return }
-  void backToRooms()
+  if (hasUnsentWork(false)) { setStatus('Your drafts stay in this tab while you switch chats. Send or discard them before leaving for the start page.'); renderRooms(); return }
+  void (async () => {
+    if (!await confirmLeavingWaitingMessage()) return
+    if (callIsLive() || onCall()) { await homeKeepingCall(); return }
+    await backToRooms()
+  })()
 }
 function goToStartPage(): void {
   if (roomsListShown && !pendingJoin) return
@@ -19965,6 +20027,15 @@ $('chatForm').addEventListener('submit', async (event) => {
     (attachments.length === 0 && artwork.length ? artworkFallbackText(artwork) : attachments.length === 1
       ? `Shared a file${attachments[0]?.name ? `: ${cleanFileName(attachments[0].name).name}` : ''}`
       : `Shared ${attachments.length} files`)
+  // A file that was waiting for the group's storage and is no longer held here
+  // (its sealed bytes went with something that was dropped) is not sent as if
+  // it were ready: the message would name a file no computer has.
+  const lost = lostAttachments(attachments, waitingAttachments, heldEnvelopes)
+  if (lost.length) {
+    draft.fileError = { text: `${cleanFileName(lost[0]!.name ?? 'A file').name} is no longer waiting on this device, so the message was not sent. Remove it and add the file again.` }
+    draftChanged(draft)
+    return
+  }
   const log = activeChat() ?? session.chat
   const sendOpts: SendOptions = attachments.length ? { attachments } : {}
   if (artwork.length) sendOpts.artwork = artwork
@@ -19998,7 +20069,7 @@ $('chatForm').addEventListener('submit', async (event) => {
   // Files no group computer has taken yet go up when the outbox sends the
   // message, which then waits for them: it cannot be kept across a reload,
   // because the sealed files live in this page's memory alone.
-  const waitingFiles = attachments.filter(a => heldEnvelopes.has(a.sha256)).map(a => a.sha256)
+  const waitingFiles = attachments.filter(a => waitingAttachments.has(a)).map(a => a.sha256)
   let groupPublish: (() => Promise<void>) | undefined
   if (waitingFiles.length) {
     heldEnvelopes.attach(waitingFiles, prepared.message.id)
@@ -20010,7 +20081,7 @@ $('chatForm').addEventListener('submit', async (event) => {
       durable: currentChannel === undefined && !quietTransport && !groupPublish,
       editable: !attachments.length && !sendOpts.replaces && !sendOpts.replyTo,
       holdSeconds: sendDelaySeconds(),
-      ...(groupPublish ? { publish: groupPublish } : {}),
+      ...(groupPublish ? { publish: groupPublish, storage: true } : {}),
     })
   } catch (err) {
     setStatus(describeError(err))
@@ -20193,7 +20264,8 @@ function renderStaged(): void {
     const name = a.name ?? 'Encrypted file'
     // A file no group computer has taken yet is staged all the same, and says so.
     const waiting = heldEnvelopes.has(a.sha256)
-    chip(name, waiting ? 'Waiting' : a.size !== undefined ? formatBytes(a.size) : 'Ready', `Remove ${name}`, () => {
+    const lost = waitingAttachments.has(a) && !waiting
+    chip(name, lost ? 'Add again' : waiting ? 'Waiting' : a.size !== undefined ? formatBytes(a.size) : 'Ready', `Remove ${name}`, () => {
       draft.attachments.splice(i, 1)
       draftChanged(draft)
     })
@@ -20738,6 +20810,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     throw error
   }
   let url = `${reachable[0]}/${sealed.sha256}`
+  let held = false
   if (result.status === 'stored') {
     url = result.url
     // Written down at once, before anything below can give up on it: a blob
@@ -20747,15 +20820,19 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     await sealed.dispose?.()
   } else if (result.reason === 'clock' || result.reason === 'locked-out' || result.reason === 'node-open') {
     await sealed.dispose?.()
-    throw new TrayError({ text: result.detail, retry: true, file })
+    throw new TrayError({ text: result.detail, retry: false, file })
   } else {
-    // Kept sealed in memory, and in the same step as the attachment below, so a sweep never sees it unowned.
-    await heldEnvelopes.hold(sealed.sha256, {
+    // Held, and staged below in the same step: nothing is awaited between the
+    // two, so a sweep (which any change to the outbox or a draft can run) never
+    // meets the file held and not yet named by a draft. A file already held
+    // under this hash is the same file; the copy just made is freed.
+    held = true
+    if (!heldEnvelopes.add(sealed.sha256, {
       roomId, envelope: sealed.envelope, reason: result.reason, ...(sealed.dispose ? { dispose: sealed.dispose } : {}),
-    })
+    })) void sealed.dispose?.()
   }
   if (signal.aborted || roomGeneration !== startGeneration) {
-    if (result.status !== 'stored') await heldEnvelopes.release(sealed.sha256)
+    if (held) await heldEnvelopes.release(sealed.sha256)
     settled?.(file)
     signal.throwIfAborted()
     throw new TrayError({ text: `This room changed while ${file.name} was uploading, so it wasn’t sent. Add it again to send it here.` })
@@ -20769,6 +20846,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
+  if (held) waitingAttachments.add(attachment)
   settled?.(file)
   if (pendingRecording?.file === file && pendingRecording.roomId === roomId) {
     pendingRecording.addedTo = draft
@@ -21021,6 +21099,8 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
 // default and says why.
 forgeSwornStorageClosed = retireForgeSwornConsent(localStorage)
 fileStorageBooted = true
+// Sealed files an earlier page left in the browser's private file system: cleared when old, once the page is idle.
+setTimeout(() => { void removeStaleTemporaryUploadsHere() }, 10_000)
 renderFileStorage()
 $('allowPrivateFiles').addEventListener('click', () => {
   const draft = captureDraft()
