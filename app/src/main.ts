@@ -19614,10 +19614,12 @@ $('chatForm').addEventListener('submit', async (event) => {
   if ((!typed && attachments.length === 0 && artwork.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
   // caption is all a client that has never heard of attachments will show.
+  // The name is cleaned as a card shows it, so a name built to read
+  // backwards is never repeated in the caption.
   const text =
     typed ||
     (attachments.length === 0 && artwork.length ? artworkFallbackText(artwork) : attachments.length === 1
-      ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
+      ? `Shared a file${attachments[0]?.name ? `: ${cleanFileName(attachments[0].name).name}` : ''}`
       : `Shared ${attachments.length} files`)
   const log = activeChat() ?? session.chat
   const sendOpts: SendOptions = attachments.length ? { attachments } : {}

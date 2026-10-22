@@ -1765,6 +1765,7 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 .attachment .attachmentText,
 .attachment .attTools { grid-column: 1 / -1; margin: 0; }
 .attachment .attWhy { color: var(--muted); font-size: var(--fs-1); overflow-wrap: anywhere; }
+.attachment .say p { overflow-wrap: break-word; }
 .attachment.hasMedia { width: 32rem; }
 
 /* A button or an anchor, drawn as the one button: a tonal patch at the
