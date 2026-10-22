@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { HeldEnvelopes } from './held-envelopes.js'
+import { HeldEnvelopes, lostAttachments } from './held-envelopes.js'
 
 const H1 = 'a1'.repeat(32), H2 = 'b2'.repeat(32), H3 = 'c3'.repeat(32)
 const entry = (roomId = 'room', dispose = vi.fn()) => ({ roomId, envelope: new Blob(['sealed']), reason: 'no-grant' as const, dispose })
@@ -82,5 +82,50 @@ describe('sealed files waiting for the group’s storage', () => {
     await held.hold(H1, stuck)
     await expect(held.release(H1)).resolves.toBeUndefined()
     expect(held.size).toBe(0)
+  })
+
+  it('holds a file the moment it is added, so it can be staged before anything is awaited', async () => {
+    const held = new HeldEnvelopes()
+    const a = entry()
+    // Synchronous: a draft names the file in the same turn, and a sweep that runs after finds it named.
+    expect(held.add(H1, a)).toBe(true)
+    expect(held.has(H1)).toBe(true)
+    await held.sweep({ draftHashes: new Set([H1]), messageIds: new Set() })
+    expect(held.has(H1)).toBe(true)
+    expect(a.dispose).not.toHaveBeenCalled()
+    // The same file again is not taken; the caller frees its own copy.
+    expect(held.add(H1, entry())).toBe(false)
+  })
+
+  it('a file whose room was left stays while its draft names it, and goes only when no draft does', async () => {
+    const held = new HeldEnvelopes()
+    const a = entry('room-a')
+    held.add(H1, a)
+    // Leaving the room frees nothing by itself: only a sweep decides, by what still refers to the file.
+    await held.sweep({ draftHashes: new Set([H1]), messageIds: new Set() })
+    expect(held.has(H1)).toBe(true)
+    await held.sweep({ draftHashes: new Set(), messageIds: new Set() })
+    expect(held.has(H1)).toBe(false)
+    expect(a.dispose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a message that names a file nobody holds', () => {
+  const a = { sha256: H1, name: 'a.png' }, b = { sha256: H2, name: 'b.png' }, c = { sha256: H3, name: 'c.png' }
+
+  it('is known by an attachment that waited for storage and whose sealed file is gone', async () => {
+    const held = new HeldEnvelopes()
+    held.add(H1, entry())
+    const waiting = new WeakSet<object>([a, b])
+    // a is still held; b waited and was lost; c never waited (it is on a node already).
+    expect(lostAttachments([a, b, c], waiting, held)).toEqual([b])
+  })
+
+  it('is nothing once the file is held again or was never waiting', () => {
+    const held = new HeldEnvelopes()
+    held.add(H2, entry())
+    expect(lostAttachments([b], new WeakSet<object>([b]), held)).toEqual([])
+    expect(lostAttachments([c], new WeakSet<object>(), held)).toEqual([])
+    expect(lostAttachments([], new WeakSet<object>(), held)).toEqual([])
   })
 })

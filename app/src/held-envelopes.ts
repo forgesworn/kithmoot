@@ -3,14 +3,24 @@
  *
  * A file dropped into a room that keeps its files on the group's own computers
  * is sealed here first. When no computer will take it yet (this device has no
- * grant, or every node is down), the sealed bytes wait in this page's memory,
- * and the message that names them waits in the outbox until one does. Nothing
- * here is written to the device: a held file is lost with the page, which is
- * why the outbox warns before the page unloads. Durable custody of a sealed
- * file would be its own step.
+ * grant, or every node is down), the sealed bytes wait in this page, and the
+ * message that names them waits in the outbox until one does.
  *
- * No DOM. The envelope is a Blob that may sit on disk (OPFS) under a dispose
- * hook; an entry is disposed the moment nothing refers to it.
+ * What is held is a handle to the sealed bytes, not a copy this module keeps
+ * safe. In Chromium the bytes are a temporary file in the origin's private
+ * file system (`.kithmoot-upload-*.wbenc`), so they use disk, not the page's
+ * heap, and a page that closes or crashes leaves that file behind: the person
+ * loses the held file with the page (which is why the outbox warns before it
+ * unloads), and `temp-upload-cleanup.ts` removes what such a page left on a
+ * later start. Nothing here puts a sealed file anywhere a later visit can read
+ * it back as the file. Durable custody of a sealed file would be its own step.
+ *
+ * A file lives exactly as long as something refers to it: a draft in any room
+ * of this tab that still has it as an attachment, or a message in the outbox
+ * that can still go (`sweep`). Nothing else decides that, so leaving a room
+ * with a file waiting in its draft does not lose the file.
+ *
+ * No DOM. An entry is disposed the moment nothing refers to it.
  */
 
 export type HeldReason = 'no-grant' | 'unreachable' | 'refused'
@@ -36,11 +46,23 @@ export class HeldEnvelopes {
 
   get(sha256: string): HeldEnvelope | undefined { return this.#held.get(sha256.toLowerCase()) }
 
-  /** Hold a sealed file under its hash. A file already held under it is not replaced: the new bytes are the same file, so the newer backing is freed. */
-  async hold(sha256: string, entry: HeldEnvelope): Promise<void> {
+  /**
+   * Hold a sealed file under its hash, at once. A caller stages the attachment
+   * that names it before it awaits anything, so a sweep can never meet the file
+   * between being held and being owned. False when a file is already held under
+   * the hash (the new bytes are the same file): nothing is replaced, and the
+   * caller frees its own copy.
+   */
+  add(sha256: string, entry: HeldEnvelope): boolean {
     const key = sha256.toLowerCase()
-    if (this.#held.has(key)) { await this.#free(entry); return }
+    if (this.#held.has(key)) return false
     this.#held.set(key, entry)
+    return true
+  }
+
+  /** `add`, freeing the copy offered when a file is already held under the hash. */
+  async hold(sha256: string, entry: HeldEnvelope): Promise<void> {
+    if (!this.add(sha256, entry)) await this.#free(entry)
   }
 
   /** The message now carries these files: from here its fate decides theirs. */
@@ -88,3 +110,13 @@ export class HeldEnvelopes {
     try { await entry.dispose?.() } catch { /* A temporary file that will not go is not a reason to keep the bytes. */ }
   }
 }
+
+/**
+ * The staged attachments that were waiting for a group's storage and whose
+ * sealed files are no longer held here. A message must not be sent with one: it
+ * would name a file no computer has.
+ */
+export function lostAttachments<T extends { sha256: string }>(attachments: readonly T[], waiting: { has(attachment: T): boolean }, held: { has(sha256: string): boolean }): T[] {
+  return attachments.filter(attachment => waiting.has(attachment) && !held.has(attachment.sha256))
+}
+
