@@ -35,11 +35,8 @@ credential service, were both committed on 24 August 2026.
 | 21 October 2026 | `/drops` no longer fronted; the tier runs on the box's loopback only | `deploy/Caddyfile.kithmoot` on `main` has no `/drops` route; loopback-only is the host's report |
 | 22 October 2026 | New file uploads and `/codes` answer 410 Gone; the meeting code service stopped | Host's report; `deploy/Caddyfile.kithmoot` on `main` since PR #526 |
 | 22 October 2026 | The relay ForgeSworn also runs closed to an allowlist of the operator's own keys, reads and writes, behind relay authentication (NIP-42) | Host's report |
-| 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front, answer 410 Gone; the TURN credential and file store services disabled | Host's report. The repository catches up in PR #534, open, not merged |
-
-TURN credentials last one hour by default (`server/turn-credentials.mjs`,
-`DEFAULT_TTL_SECONDS`), so none minted before the switch-off is still good
-unless the box set a longer one. Not checked on the box.
+| 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
+| 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
@@ -50,13 +47,11 @@ shipped was not checked.
 
 ## 3. What remains
 
-- **Stored files.** About 164 MB of encrypted blobs remain on the box's
-  disk, unreachable from outside (host's report). Whether to delete them is pending the
-  owner's decision. Until they are deleted ForgeSworn still holds that data,
-  and data protection still applies to it (law note 3.1). `[DECISION:
-  delete the stored blobs, and any copies on the archive nodes, or keep
-  them, and for how long.]` `[INPUT: whether the archive nodes still hold
-  copies.]`
+- **Stored files.** The 84 encrypted blobs, about 164 MB, sit in a trash
+  folder on the box, unreachable from outside, waiting for the owner to
+  empty it. Until then ForgeSworn still holds that data, and data
+  protection still applies to it (law note 3.1). `[INPUT: whether the
+  archive nodes still hold copies.]`
 - **STUN on ForgeSworn's host.** The app derives `stun:<host>:3478` from
   the host that served it (`src/ice-defaults.ts`, `originStunGuess`), and
   Android 0.6.103 keeps STUN there. When the app is loaded from
@@ -71,11 +66,12 @@ shipped was not checked.
   `TURN_CREDENTIAL_ENDPOINT`) and `/codes` (`meetingCodeClient`). On
   ForgeSworn's host both now answer 410, so nothing is served, but the
   defaults are still in the code.
-- **Keepers on the box.** Last checked 20 October 2026: two instances,
-  crash-looping. A keeper holds its room's key (`deploy/keeper@.service`).
-  `[INPUT: whose rooms they serve, and whether they still run.]`
-- **Meeting code data.** `[INPUT: whether the stored room links and their
-  tombstones were deleted when the service stopped.]`
+- **Keepers on the box.** None runs. The two the box held, for the
+  operator's own rooms, were retired on 4 September 2026 and their state
+  is kept on the box only (host's report).
+- **Meeting code data.** The service is stopped and disabled. Its store of
+  room links, about 1 KB, is still on the box's disk. `[DECISION: delete
+  it.]`
 - **The drop tier** still runs on the box's loopback. Whether anything
   other than the box can reach it was not checked.
 - **The app and the update check.** `kithmoot.forgesworn.dev` still serves
@@ -102,17 +98,15 @@ others do with it (law note 6.1, Serious Crime Act 2007 sections 44, 45
 and 50, `[P]`). The privacy notice still owes an account of the third
 parties the defaults contact (law note 3.2).
 
-**Today, on the host's report:** close to that, with ForgeSworn's STUN (a
-decision) and the same-origin defaults in section 3 still in the code, and the stored blobs still
-held. On the repository at `main`, before PR #534 merges, the deploy kit
-still describes a public operator: `deploy/Caddyfile.kithmoot` proxies
-`/turn` and stored-file reads.
+**Today:** close to that. What is left is ForgeSworn's STUN (a decision),
+the same-origin defaults in section 3 that now meet 410, and the data in
+section 3 still on the box.
 
 ## 5. Why no assessment fell due
 
-KithMoot was a user-to-user service with UK links and no exemption while
-ForgeSworn ran it for strangers (law note 2.1, `[P]`), and ForgeSworn took
-the cautious reading that it was the provider of what it ran (2.2).
+While ForgeSworn ran these surfaces for strangers it took the cautious
+reading: that what it ran could be a user-to-user service with UK links
+(law note 2.1) and that it was the provider of it (2.2).
 
 A new service owes its illegal content risk assessment three months after
 launch (law note 2.4, `[P]`) and its children's access assessment on the
