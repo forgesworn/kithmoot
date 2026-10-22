@@ -23,8 +23,10 @@ const CONSENT = 'kithmoot.file-storage.v1'
  *  local test store; a number answers with that status. */
 interface Gate { mode: 'block' | 'serve' | number; hits: string[]; uploads: number }
 
-async function setup(browser: Browser, baseURL: string, viewport = { width: 390, height: 844 }) {
+async function setup(browser: Browser, baseURL: string, viewport = { width: 390, height: 844 }, consent?: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport, hasTouch: viewport.width < 700, isMobile: viewport.width < 700 })
+  // A choice this device made in an earlier version, there before the app starts.
+  if (consent) await context.addInitScript(([key, value]) => { localStorage.setItem(key!, value!) }, [CONSENT, consent])
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
@@ -88,6 +90,23 @@ test('the first file is held with the one-time notice, and Send is the act', asy
     await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ B|\d+ KB/, { timeout: 30_000 })
     await expect(page.locator('#fileNotice')).toBeHidden()
     expect(gate.uploads).toBe(2)
+  } finally { await context.close() }
+})
+
+test('a device whose choice named ForgeSworn’s host meets the notice, which says that storage takes no new files', async ({ browser, baseURL }) => {
+  const forgeSworn: string[] = []
+  const { page, context, gate } = await setup(browser, baseURL!, undefined, JSON.stringify({ mode: 'shared', disclosure: 2, origin: 'https://kithmoot.forgesworn.dev' }))
+  await context.route(url => url.hostname.endsWith('forgesworn.dev'), route => { forgeSworn.push(route.request().url()); return route.abort() })
+  try {
+    expect(await stored(page)).toBeNull()
+    await pick(page, JPEG('IMG_2041.jpg'))
+    await expect(page.locator('#fileNoticeClosed')).toHaveText('ForgeSworn’s shared storage no longer takes new files.')
+    await expect(page.locator('#fileNoticeTitle')).toHaveText(NOTICE_TITLE)
+    gate.mode = 'serve'
+    await page.locator('#chatForm button[type=submit]').click()
+    await expect(page.locator('#chatLog .attachment')).toHaveCount(1, { timeout: 30_000 })
+    expect(gate.uploads).toBe(1)
+    expect(forgeSworn).toEqual([])
   } finally { await context.close() }
 })
 
@@ -246,8 +265,13 @@ test('phone landscape with the notice showing keeps the field and Send in view',
       expect(box!.y, `${selector} top`).toBeGreaterThanOrEqual(0)
       expect(box!.y + box!.height, `${selector} bottom`).toBeLessThanOrEqual(390)
     }
+    // Send agrees to the notice, so all of it is readable without scrolling
+    // the tray, and the tray still leaves the field and Send in view.
     const tray = await page.locator('#fileTray').boundingBox()
-    expect(tray!.height).toBeLessThanOrEqual(390 * 0.4 + 2)
+    expect(tray!.height).toBeLessThanOrEqual(390 * 0.75 + 2)
+    expect(await page.locator('#fileTray').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true)
+    const choose = await page.locator('#fileNotice').getByRole('button', { name: 'Choose another server' }).boundingBox()
+    expect(choose!.y + choose!.height).toBeLessThanOrEqual(tray!.y + tray!.height + 1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   } finally { await context.close() }
 })

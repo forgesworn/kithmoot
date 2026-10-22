@@ -67,9 +67,9 @@ export function storedFileServer(store: Store): StoredFileServer | undefined {
     if (entry.disclosure !== 1 && entry.disclosure !== 2 && entry.disclosure !== CONSENT_VERSION) return undefined
     const origin = normaliseBlossomServer(entry.origin)
     if (origin !== entry.origin) return undefined
-    // Version 1 came from the old pre-filled suggestion of ForgeSworn's own
-    // host, so it is not taken as a choice. Typing the host is one.
-    if (entry.disclosure === 1 && isForgeSwornHost(origin)) return undefined
+    // ForgeSworn's shared storage takes no new files, so a choice naming
+    // one of its hosts, however it was made, is never a destination.
+    if (isForgeSwornHost(origin)) return undefined
     if (entry.disclosure !== CONSENT_VERSION) return { origin, via: 'typed' }
     if (entry.via !== 'default' && entry.via !== 'typed' && entry.via !== 'wildbloom') return undefined
     return { origin, via: entry.via }
@@ -196,6 +196,7 @@ export function acceptDefaultFileServer(store: Store, origin: string): string {
  * or an address the person typed. */
 export function chooseFileServer(store: Store, value: string, via: FileServerVia = 'typed'): string {
   const origin = normaliseBlossomServer(value)
+  if (isForgeSwornHost(origin)) throw new Error(FORGESWORN_STORAGE_CLOSED)
   store.setItem(FILE_STORAGE_KEY, JSON.stringify({ mode: 'shared', disclosure: CONSENT_VERSION, origin, via }))
   return origin
 }
@@ -206,13 +207,19 @@ export function stopFileUploads(store: Store): void {
   store.setItem(FILE_STORAGE_KEY, JSON.stringify({ mode: 'off', disclosure: CONSENT_VERSION }))
 }
 
-/** Removes a version 1 consent that names a ForgeSworn host. The device is
- * then "never chosen" and meets the one-time notice, which names the current
- * default. Nothing else is touched. */
-export function retireSuggestedForgeSwornConsent(store: Store): boolean {
+/** Said once, in the one-time notice, to a device whose choice named a
+ * ForgeSworn host, and in Settings to anyone who types one. */
+export const FORGESWORN_STORAGE_CLOSED = 'ForgeSworn’s shared storage no longer takes new files.'
+
+/** Removes a stored choice that names a ForgeSworn host, whichever version
+ * wrote it: ForgeSworn's shared storage takes no new files. The device is then
+ * "never chosen" and meets the one-time notice, which names the current
+ * default; true means the caller should say why, once. Files already stored
+ * there are not touched. */
+export function retireForgeSwornConsent(store: Store): boolean {
   try {
     const entry = consentEntry(store)
-    if (!entry || entry.mode !== 'shared' || entry.disclosure !== 1) return false
+    if (!entry || entry.mode !== 'shared') return false
     if (typeof entry.origin !== 'string' || !isForgeSwornHost(entry.origin)) return false
     store.removeItem(FILE_STORAGE_KEY)
     return true

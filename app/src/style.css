@@ -5150,6 +5150,13 @@ html[data-call-docked] #callToggle { display: none !important; }
 @media (max-height: 500px) {
   .fileTray { max-height: min(40dvh, 12rem); }
 }
+/* While the one-time notice shows, pressing Send agrees to it, so it must be
+   readable in full without scrolling: on a short screen the tray may take more
+   of it, once per device. */
+@media (max-height: 500px) {
+  .fileTray:has(#fileNotice:not([hidden])) { max-height: min(75dvh, 26rem); }
+  main:has(#roomArea:not([hidden])) #roomArea:has(#fileNotice:not([hidden])) #chatViewport { min-height: 0; }
+}
 @media (forced-colors: active) {
   .fileTray, .fileTray .attachChip { border: 1px solid CanvasText; }
 }

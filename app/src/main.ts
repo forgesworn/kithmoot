@@ -63,7 +63,7 @@ import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStan
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
-import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireSuggestedForgeSwornConsent, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
@@ -723,6 +723,9 @@ const privateFileUploadsPanel = new PrivateFileUploadsPanel(privateFileVault, pr
 let privateFileReady = false
 let privateFileRender = 0
 let fileStorageBooted = false
+/** This device's stored choice named a ForgeSworn host and was removed at
+ *  start: the one-time notice says why, for this session. */
+let forgeSwornStorageClosed = false
 /** Whether + opens a menu (a person with their own server) rather than the picker. */
 let attachMenuMode = false
 relayConnections.routeRooms((room, make) => browserRoomRoutes.pool(room, make))
@@ -19930,6 +19933,9 @@ function renderStaged(): void {
     const host = fileHost(destination.origin)
     const operator = publicFileServer(destination.origin)?.operator
     $('fileNoticeTitle').textContent = `Files you send are stored on ${host}`
+    const closed = $('fileNoticeClosed')
+    closed.textContent = FORGESWORN_STORAGE_CLOSED
+    closed.hidden = !forgeSwornStorageClosed
     $('fileNoticeBody').textContent = `It’s a public server${operator ? ` run by ${plainOperator(operator)}` : ''}. Files are encrypted on this device first, so only people in this chat can open them. The server sees your IP address and file sizes, and decides how long to keep files.`
   }
   const send = $('chatForm').querySelector('button[type=submit]')!
@@ -20598,10 +20604,11 @@ async function shareDroppedFiles(files: FileList | File[] | null): Promise<void>
   if (destination.kind === 'server') await uploadStaged(draft, destination)
 }
 
-// Before anything reads the stored choice: a consent made only by the old
-// pre-filled suggestion is removed here. The device is then "never chosen",
-// and meets the one-time notice, which names the current default.
-retireSuggestedForgeSwornConsent(localStorage)
+// Before anything reads the stored choice: a choice naming a ForgeSworn host
+// is removed here, since that storage takes no new files. The device is then
+// "never chosen", and meets the one-time notice, which names the current
+// default and says why.
+forgeSwornStorageClosed = retireForgeSwornConsent(localStorage)
 fileStorageBooted = true
 renderFileStorage()
 $('allowPrivateFiles').addEventListener('click', () => {
@@ -20662,8 +20669,8 @@ $('saveFileStorage').addEventListener('click', () => {
     fileOwnDirty = false
     check.textContent = `Files you send go to ${fileHost(origin)}.`
     input.removeAttribute('aria-invalid')
-  } catch {
-    check.textContent = 'Type an address that starts with https://.'
+  } catch (error) {
+    check.textContent = error instanceof Error && error.message === FORGESWORN_STORAGE_CLOSED ? `${FORGESWORN_STORAGE_CLOSED} Choose another server.` : 'Type an address that starts with https://.'
     input.setAttribute('aria-invalid', 'true')
   }
   check.hidden = false

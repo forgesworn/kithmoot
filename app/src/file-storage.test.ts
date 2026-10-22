@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FILE_STORAGE_KEY, LEGACY_FILE_STORAGE_KEY, PUBLIC_FILE_SERVERS, FILE_STORAGE_REQUIRED, isForgeSwornHost, retireSuggestedForgeSwornConsent, sharedFileServer, storedFileServer, chooseFileServer, acceptDefaultFileServer, stopFileUploads, resolveFileDestination, defaultFileServer, destinationLimit, formatLimit, describeUploadFailure, type FileDestinationInput } from './file-storage.js'
+import { FILE_STORAGE_KEY, LEGACY_FILE_STORAGE_KEY, PUBLIC_FILE_SERVERS, FILE_STORAGE_REQUIRED, isForgeSwornHost, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, sharedFileServer, storedFileServer, chooseFileServer, acceptDefaultFileServer, stopFileUploads, resolveFileDestination, defaultFileServer, destinationLimit, formatLimit, describeUploadFailure, type FileDestinationInput } from './file-storage.js'
 
 function storage() {
   const values = new Map<string, string>()
@@ -58,7 +58,7 @@ describe('file storage consent', () => {
   it('fails closed if storage cannot be read', () => {
     const store = { ...storage(), getItem: () => { throw new Error('denied') } }
     expect(sharedFileServer(store)).toBe('')
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
+    expect(retireForgeSwornConsent(store)).toBe(false)
   })
 })
 
@@ -98,9 +98,18 @@ describe('where a file goes', () => {
     const store = storage(); store.setItem(FILE_STORAGE_KEY, JSON.stringify({ mode: 'shared', disclosure: 1, origin: 'https://kithmoot.forgesworn.dev' }))
     expect(resolve(store).kind).toBe('default')
   })
-  it('a version 3 consent to a ForgeSworn host is honoured only as something typed', () => {
-    const store = storage(); chooseFileServer(store, 'https://kithmoot.forgesworn.dev')
-    expect(resolve(store)).toEqual({ kind: 'server', origin: 'https://kithmoot.forgesworn.dev', via: 'typed' })
+  it('a consent of any version to a ForgeSworn host is not honoured: that storage takes no new files', () => {
+    for (const disclosure of [2, 3]) {
+      const store = storage(); store.setItem(FILE_STORAGE_KEY, JSON.stringify({ mode: 'shared', disclosure, origin: 'https://kithmoot.forgesworn.dev', ...(disclosure === 3 ? { via: 'typed' } : {}) }))
+      expect(resolve(store).kind).toBe('default')
+      expect(retireForgeSwornConsent(store)).toBe(true)
+      expect(store.getItem(FILE_STORAGE_KEY)).toBeNull()
+    }
+  })
+  it('refuses to choose a ForgeSworn host, and stores nothing', () => {
+    const store = storage()
+    expect(() => chooseFileServer(store, 'https://kithmoot.forgesworn.dev')).toThrow(FORGESWORN_STORAGE_CLOSED)
+    expect(store.getItem(FILE_STORAGE_KEY)).toBeNull()
   })
   it('a Bothy room wins over everything below it', () => {
     for (const setup of [() => {}, (s: ReturnType<typeof storage>) => chooseFileServer(s, 'https://mine.example'), (s: ReturnType<typeof storage>) => stopFileUploads(s)]) {
@@ -196,37 +205,38 @@ describe('consent written by the old pre-filled suggestion', () => {
   it.each(FORGESWORN_ORIGINS)('does not honour a version 1 consent to %s, and retires it once', origin => {
     const store = storage(); store.setItem(FILE_STORAGE_KEY, v1(origin))
     expect(sharedFileServer(store)).toBe('')
-        expect(retireSuggestedForgeSwornConsent(store)).toBe(true)
+        expect(retireForgeSwornConsent(store)).toBe(true)
     expect(store.getItem(FILE_STORAGE_KEY)).toBeNull()
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
+    expect(retireForgeSwornConsent(store)).toBe(false)
   })
   it('keeps the legacy key when it retires a consent', () => {
     const store = storage(); store.setItem(FILE_STORAGE_KEY, v1('https://kithmoot.forgesworn.dev'))
     store.setItem(LEGACY_FILE_STORAGE_KEY, 'https://old.example')
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(true)
+    expect(retireForgeSwornConsent(store)).toBe(true)
     expect(store.getItem(LEGACY_FILE_STORAGE_KEY)).toBe('https://old.example')
   })
   it('still honours a version 1 consent to another host and leaves it alone', () => {
     const store = storage(); store.setItem(FILE_STORAGE_KEY, v1('https://files.example'))
     expect(sharedFileServer(store)).toBe('https://files.example')
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
+    expect(retireForgeSwornConsent(store)).toBe(false)
     expect(store.getItem(FILE_STORAGE_KEY)).toBe(v1('https://files.example'))
   })
-  it('honours a fresh consent to a ForgeSworn host, which a person must have typed', () => {
-    const store = storage()
-    expect(chooseFileServer(store, 'https://kithmoot.forgesworn.dev')).toBe('https://kithmoot.forgesworn.dev')
-    expect(sharedFileServer(store)).toBe('https://kithmoot.forgesworn.dev')
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
-    expect(sharedFileServer(store)).toBe('https://kithmoot.forgesworn.dev')
+  it('retires a typed consent to a ForgeSworn host too, keeping any other choice', () => {
+    const store = storage(); store.setItem(FILE_STORAGE_KEY, JSON.stringify({ mode: 'shared', disclosure: 2, origin: 'https://kithmoot.forgesworn.dev' }))
+    expect(sharedFileServer(store)).toBe('')
+    expect(retireForgeSwornConsent(store)).toBe(true)
+    chooseFileServer(store, 'https://files.example')
+    expect(retireForgeSwornConsent(store)).toBe(false)
+    expect(sharedFileServer(store)).toBe('https://files.example')
   })
-  it.each(['bad json', 'null', '{}', '[]', '{"mode":"shared","disclosure":2,"origin":"https://kithmoot.forgesworn.dev"}', '{"mode":"private","disclosure":1,"origin":"https://kithmoot.forgesworn.dev"}'])('retires nothing else: %s', raw => {
+  it.each(['bad json', 'null', '{}', '[]', '{"mode":"private","disclosure":1,"origin":"https://kithmoot.forgesworn.dev"}'])('retires nothing else: %s', raw => {
     const store = storage(); store.setItem(FILE_STORAGE_KEY, raw)
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
+    expect(retireForgeSwornConsent(store)).toBe(false)
     expect(store.getItem(FILE_STORAGE_KEY)).toBe(raw)
   })
   it('does nothing when there is no consent', () => {
     const store = storage()
-    expect(retireSuggestedForgeSwornConsent(store)).toBe(false)
+    expect(retireForgeSwornConsent(store)).toBe(false)
   })
 })
 

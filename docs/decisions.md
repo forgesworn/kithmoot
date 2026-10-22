@@ -2399,3 +2399,8 @@ later change of default asks again rather than moving uploads silently. One
 function, `resolveFileDestination`, decides where a file goes and every
 caller asks it. Where files go is chosen in Settings > Privacy, per device.
 
+ForgeSworn's own shared storage takes no new files. A stored choice naming a
+ForgeSworn host, however it was made, is removed at start, the next one-time
+notice says why, and typing one in Settings is refused. Files already stored
+there are not touched by the app.
+
