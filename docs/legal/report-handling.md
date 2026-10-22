@@ -154,6 +154,11 @@ reopens.
 
 ### 3.3 The default drop tier (`/drops`, bothy-node)
 
+**Not reachable from outside since 21 October 2026.** The `/drops` route was
+removed and the tier runs on the box's loopback only; what it held ages out
+within 30 days. What follows applies only to wraps it took before then.
+<!-- deploy/Caddyfile.kithmoot:166-172 "No /drops here" -->
+
 **Delete by id, block a pubkey: not possible, by design, and this is a
 verified, deliberate property of the software, not a gap that was merely
 missed.** The tier's own documentation states it directly:

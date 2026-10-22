@@ -64,7 +64,7 @@ the rest low or negligible with a short reason.
 
 | Item | Entry |
 | --- | --- |
-| Service | KithMoot, at `kithmoot.forgesworn.dev`: the web app (`/j`), the desktop and Android clients, and what the operator runs for them on 22 October 2026: STUN, the TURN server and its credential path (`/turn`, closing, 9.3), its file store (no uploads; reads until 23 October 2026), the relay it also runs (closed to strangers' writes), and any keeper it runs. The drop tier (not reachable from outside since 21 October 2026) and meeting codes (stopped 22 October 2026) are recorded in sections 8 and 9 |
+| Service | KithMoot, at `kithmoot.forgesworn.dev`: the web app (`/j`), the desktop and Android clients, and what the operator runs for them on 22 October 2026: STUN, the TURN server and its credential path (`/turn`, closing, 9.3), its file store (no uploads; reads until 23 October 2026, pending), the relay it also runs (closed to strangers' writes), and any keeper it runs. The drop tier (not reachable from outside since 21 October 2026) and meeting codes (stopped 22 October 2026) are recorded in sections 8 and 9 |
 | Provider | ForgeSworn. `[DECISION: who the provider is in law; a project name that is not a registered legal person cannot be one (law note 9, [U]).]` |
 | Date completed | `[date signed]`, on or before 24 November 2026 (draft of 25 September 2026) |
 | Date reviewed or updated | Draft reviews of 21 and 22 October 2026, before a significant change: sections 8 and 9. Not yet signed |
@@ -135,9 +135,9 @@ room's traffic secret and root inviter key and sits in the room as a
 member. Whoever runs the machine a keeper runs on can read that room the
 way any member can: its messages, the files shared in its chat and its
 member list. If the operator runs a keeper for a room, the operator can
-read that room. A keeper as shipped joins with no agent brain
-(`--brain none`), so it does not listen to calls unless it is set up to.
-<!-- deploy/keeper@.service:6-17 ("It holds the room's traffic secret and the root inviter key"; "this process DOES hold the room key"); deploy/keeper@.service:62 ExecStart ... create --brain none; deploy/README.md, "Running a keeper" -->
+read that room. A keeper as shipped is started without `--listen`, so it
+does not listen to calls unless it is set up to.
+<!-- deploy/keeper@.service:6-17 ("It holds the room's traffic secret and the root inviter key"; "this process DOES hold the room key"); deploy/keeper@.service:62 ExecStart ... create --brain none, no --listen; src/node/cli.ts:150 --listen, default false at :306; deploy/README.md, "Running a keeper" -->
 `[INPUT: whether the operator runs keepers for rooms that people other than
 the maintainers use, and for which rooms.]`
 
@@ -305,7 +305,7 @@ of the harm to a person; likelihood reflects this service's actual design.
 | --- | --- | --- | --- |
 | 1 | Terrorism | Low | Nothing here can be viewed or found by anyone but a room's own members; a room cannot be discovered, browsed or recommended. The drop tier and the relay we run carry unreadable ciphertext only |
 | 2 | CSEA: grooming | **Medium** | Private, encrypted, one-to-one and small-group messaging with anonymous, throwaway identity by default is close to the shape Ofcom's guidance treats as the clearest grooming risk. What lowers it from higher: KithMoot is invitation-based, not a public discovery surface a stranger can use to find and approach a child with no prior link at all; there is no public profile browsing or "people near you" feature |
-| 2 | CSEA: image-based CSAM | Low, provisional | Nothing the operator runs serves a viewable file (2.3): its store takes no uploads and serves only sealed envelopes, until 23 October 2026. Files a member sends go sealed to a server somebody else runs, readable only by the room's members. The risk inside a room is exchange between members who already share its link, which the operator cannot see outside a room it keeps (2.1) |
+| 2 | CSEA: image-based CSAM | Low, provisional | Nothing the operator runs serves a viewable file (2.3): its store takes no uploads and serves only sealed envelopes, until 23 October 2026 (pending). Files a member sends go sealed to a server somebody else runs, readable only by the room's members. The risk inside a room is exchange between members who already share its link, which the operator cannot see outside a room it keeps (2.1) |
 | 3 | Hate | Low | No public or discoverable surface for it to reach beyond a room's own members |
 | 4 | Harassment, stalking, threats and abuse | **Medium** | Direct messaging plus anonymous, throwaway identity plus no admin action available within a room (see 6.1) is a real route to sustained one-to-one harassment, made harder to escalate because there is no persistent account to block system-wide, only a room to leave |
 | 5 | Controlling or coercive behaviour | Low | Same shape as 4, but this Act priority mainly concerns targeted, sustained relationships, which is harder to sustain through a per-device, per-room identity that does not follow a person between rooms |
@@ -611,7 +611,7 @@ route goes after.
 | 2. New Blossom uploads | On the file picker: ForgeSworn's shared storage has closed to new files; set up the group's own storage or send files directly. Gives the read-window date (step 5) | Web and Android releases with no pre-filled ForgeSworn server; then remove the upload route; stop archive enrolment. **Upload route answering 410 from 22 October 2026** (host's report). The web release that names no ForgeSworn host is on `design/files-public-first`; its notice says "KithMoot no longer sends files to ForgeSworn's storage." and gives no read-window date | Removed | `[DECISION: a closed store for the owner's rooms behind grants (S2 to S4), or none]` |
 | 3. Meeting codes | "Meeting codes are going. Share the room link instead." | Refuse new codes; let live codes run out (at most 7 days); keep the 30-day tombstones; then remove the route and service. **Service stopped and `/codes` answering 410 from 22 October 2026** (9.3) | Removed (D6) | Retired, 22 October 2026 |
 | 4. Open `/turn` mint | In a call with no relay: "Some calls need a relay. Your group has none, so this call may not connect on some networks." | Clients take ICE servers from the room or group only; then remove `/turn` and the KithMoot credential service. coturn stays, with its separate secret, for the owner's own Wildbloom direct send | Removed | `[DECISION: TURN for the owner's rooms through a grant-checked issuer the room carries (plan S9), or none]` |
-| 5. Blossom reads | Announced at step 2 and repeated: "Files shared before <date> will disappear on <date>. Save any you want to keep." | After the read window (D4: a fixed window from the stop date; 90 days matches the store's rule), remove the blob route, the onion front, the service and its store; retire the archive nodes (D5) | Removed | Removed for files other people sent. `[DECISION: whether a closed store for the owner's rooms replaces it]` |
+| 5. Blossom reads | Announced at step 2 and repeated: "Files shared before <date> will disappear on <date>. Save any you want to keep." | **Owner, 22 October 2026: reads and the onion front end on 23 October 2026, replacing the 90-day window below (9.3).** After the read window (D4: a fixed window from the stop date; 90 days matches the store's rule), remove the blob route, the onion front, the service and its store; retire the archive nodes (D5) | Removed | Removed for files other people sent. `[DECISION: whether a closed store for the owner's rooms replaces it]` |
 | 6. Keepers for other people's rooms, if any | In the room, from the keeper | Hand each to a member, or end it | Ended or handed over | Keepers for the owner's rooms stay; they hold those rooms' keys as members |
 | 7. Legal records | Updated terms and privacy pages | Revise this record and the children's access assessment; keep old versions for three years | | |
 

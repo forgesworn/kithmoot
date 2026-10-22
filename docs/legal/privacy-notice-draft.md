@@ -43,7 +43,10 @@
 
 ## 1. Who we are
 
-KithMoot is run by **ForgeSworn**. For UK data protection law we are the
+KithMoot is run by **ForgeSworn**. `[DECISION: who the controller is in
+law; a project name that is not a registered legal person cannot be one
+(law note 9, [U]), and the notice must give the controller's identity
+(law note 3.2).]` For UK data protection law we are the
 controller of the personal data described here, to the extent described
 below (most of what happens in a room is not something we hold at all;
 see section 2). Contact us about anything in this notice at
@@ -69,7 +72,7 @@ verified 28 September 2026, [P]).]`
   first, so that server cannot open them (section 8).
 - Our default infrastructure (a STUN server; a TURN server, until it
   closes; a file store that takes no new files and serves the ones it
-  holds until 23 October 2026; and, for rooms whose links name it, a relay
+  holds until 23 October 2026 (pending); and, for rooms whose links name it, a relay
   we also run, which takes writes only from keys we allow) sees
   connection-level information, such as device keys, IP addresses, timing
   and sizes, while helping your room connect, and is designed to keep as
@@ -323,7 +326,7 @@ We hold almost nothing described in section 4 for long, by design:
 - TURN rate-limit counters: in memory only, gone on every restart.
 - coturn: no log since about 10:30Z on 22 October 2026 (section 4.1).
 - Our file store: a file already sent, served until 23 October 2026
-  (section 4.2).
+  (pending on 22 October; section 4.2).
 - The default drop tier: up to 30 days, or sooner under its size bound
   (section 4.3).
 - System logs across the box that runs our default services (including
@@ -405,10 +408,11 @@ You can also complain to the Information Commissioner's Office
   its link, and the app gives such a room the current third default
   alongside.
   <!-- src/public-relays.ts:67-71 (default: true for three; offchain.pub and relay.damus.io default: false); app/src/relay-settings.ts:20 LEGACY_PUBLIC_RELAYS and :21 PUBLIC_FALLBACK_RELAY -->
-- **Our hosting provider**, Hetzner, which hosts the box our STUN and
-  TURN server, file store, drop tier and relay run on.
-  <!-- README.md, "Publishing": "both served by Caddy from a Hetzner box" -->
-  `[INPUT: the provider's legal name and the country the box is in.]`
+- **Our hosting provider**, `[INPUT: the provider's legal name and the
+  country the box is in. The repository's README says the site is served
+  "from a Hetzner box"; that is prose, not configuration, and was not
+  checked against the box in use today.]`, which hosts the box our STUN
+  and TURN server, file store, drop tier and relay run on.
   <!-- app/src/main.ts DEFAULT_RELAYS (src/public-relays.ts): relay.primal.net, nostr.oxtr.dev, relay.ditto.pub, none run by the project -->
 
 The app also makes your device contact the following. Each learns your

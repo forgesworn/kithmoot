@@ -34,6 +34,8 @@
 
 These terms apply when you use KithMoot: its website, its web app, and its
 desktop and Android apps. KithMoot is run by **ForgeSworn** ("we", "us").
+`[DECISION: who "we" is in law; a project name that is not a registered
+legal person cannot be the provider (law note 9, [U]).]`
 You can reach us at `abuse@safety.forgesworn.dev` for anything to do with content,
 safety or reports, and `[general contact address]` for anything else.
 
@@ -128,7 +130,8 @@ it (relays, TURN, our file store, the default drop tier), for:
 4. **scams or fraud**, including pretending to be someone else to gain a
    person's trust in a room;
 5. **abusing the default infrastructure itself**: minting TURN credentials
-   or posting to the default drop tier for any purpose other than using
+   or posting to the drop tier (not reachable from outside since 21
+   October 2026) for any purpose other than using
    KithMoot as intended, running automated load against any default
    endpoint, or using the relay we run, TURN server or file store to
    relay or store material unconnected to a KithMoot room;
@@ -167,7 +170,8 @@ reports or removal.
 - **TURN is closing; STUN stays.** On 22 October 2026 our TURN server still
   relays calls that cannot connect directly. It closes once Android 0.6.103
   and the matching web release are both live (pending); after that a call
-  that needs a relay connects only through one the room names. Our STUN
+  that cannot connect directly goes through a member who offers to carry
+  it, a forwarder the room names, or a TURN server the room names. Our STUN
   server stays: it tells your device its own address and carries nothing
   you say or send.
   <!-- app/src/main.ts:815 TURN_CREDENTIAL_ENDPOINT; src/ice-defaults.ts:137-140 -->

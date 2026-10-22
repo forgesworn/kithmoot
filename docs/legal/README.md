@@ -13,7 +13,7 @@ and decisions.
 - [`online-safety-risk-assessment-draft.md`](online-safety-risk-assessment-draft.md)
   is the illegal content risk assessment, covering rooms, calls, and what
   the operator runs on 22 October 2026: STUN, TURN (closing), the file
-  store (no uploads; reads until 23 October 2026), the relay it also runs
+  store (no uploads; reads until 23 October 2026, pending), the relay it also runs
   and any keeper it runs. Section 8 records a significant change
   in progress, 21 October 2026, and the default public file server and the
   file store's closure to new uploads, 22 October 2026. Section 9 records
