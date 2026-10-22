@@ -34,36 +34,10 @@ test('the homepage offers the same installers as the downloads page', async () =
   for (const installer of installers) expect(downloads, installer).toContain(`href="/apk/${installer}"`)
 })
 
-test('phone visitors can enter a room code without JavaScript under the live website policy', async ({ browser }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 320, height: 640 } })
-  await website(context)
-  const arrivals: string[] = []
-  await context.route('https://kithmoot.forgesworn.dev/j/**', async route => {
-    expect(route.request().method()).toBe('GET')
-    arrivals.push(route.request().url())
-    await route.fulfill({ contentType: 'text/html', body: '<title>Room join</title><h1>Room join</h1>' })
-  })
-  const page = await context.newPage()
-  try {
-    for (const code of ['abc-def-gh', 'ABCDEFGH']) {
-      await page.goto('https://site.kithmoot.test/')
-      const input = page.getByRole('textbox', { name: 'Room code', exact: true })
-      const submit = page.getByRole('button', { name: 'Join room', exact: true })
-      await expect(input).toBeInViewport(); await expect(submit).toBeInViewport()
-      expect(await input.evaluate(element => Number.parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
-      await submit.click()
-      expect(await input.evaluate(element => (element as HTMLInputElement).validity.valueMissing)).toBe(true)
-      await input.fill('INVALID!')
-      await submit.click()
-      expect(await input.evaluate(element => (element as HTMLInputElement).validity.patternMismatch)).toBe(true)
-      expect(page.url()).toBe('https://site.kithmoot.test/')
-      await input.fill(code)
-      await input.press('Enter')
-      await page.waitForURL('https://kithmoot.forgesworn.dev/j/?c=' + code)
-      expect(new URL(page.url()).searchParams.size).toBe(1)
-    }
-    expect(arrivals.map(value => new URL(value).searchParams.get('c'))).toEqual(['abc-def-gh', 'ABCDEFGH'])
-  } finally { await context.close() }
+test('the home page no longer offers a room-code form, since meeting codes are gone', async () => {
+  const home = await readFile(new URL('../site/index.html', import.meta.url), 'utf8')
+  expect(home).not.toContain('id="room-code"')
+  expect(home).not.toContain('Room code')
 })
 
 for (const colour of ['light', 'dark'] as const) {
