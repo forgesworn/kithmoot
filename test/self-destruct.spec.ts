@@ -53,8 +53,9 @@ async function enter(page: Page, link: string, name: string) {
 
 /** Everything this browser still holds that names the room or its link:
  *  local and session storage, keys and values. */
-async function traces(page: Page, names: string[]): Promise<string[]> {
-  return page.evaluate(names => {
+async function traces(page: Page, names: string[], expectedOrigin?: string): Promise<string[]> {
+  return page.evaluate(({ names, expectedOrigin }) => {
+    if (expectedOrigin !== undefined && location.origin !== expectedOrigin) return ['storage inspection awaits the app origin']
     const found: string[] = []
     for (const storage of [localStorage, sessionStorage]) {
       for (const key of Object.keys(storage)) {
@@ -63,7 +64,7 @@ async function traces(page: Page, names: string[]): Promise<string[]> {
       }
     }
     return found
-  }, names)
+  }, { names, expectedOrigin })
 }
 
 /** How many sealed events the room archive holds, in every conversation. */
@@ -393,7 +394,15 @@ for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [fal
         if (await other.locator('#join').isVisible()) await other.locator('#join').click()
       }
       await expect.poll(() => deletionsAsked(awaySent).has(memberChat.id), { timeout: 45_000 }).toBe(true)
-      await expect.poll(() => traces(other, [roomId]), { timeout: 30_000 }).toEqual([])
+      await expect.poll(async () => {
+        try { return await traces(other, [roomId], new URL(baseURL!).origin) }
+        catch (error) {
+          // Self-destruct reloads this tab. A lost context is pending, never
+          // proof of erasure: the next audit must read the app's own storage.
+          if (error instanceof Error && error.message.includes('Execution context was destroyed, most likely because of a navigation')) return ['storage inspection awaits navigation']
+          throw error
+        }
+      }, { timeout: 30_000 }).toEqual([])
       await other.goto(baseURL!)
       await expect(other.locator('#roomList .tombstoneRow')).toHaveCount(1)
     } finally {
