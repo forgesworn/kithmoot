@@ -388,10 +388,10 @@ describe('the plain copy of a new room', { timeout: 30_000 }, () => {
       t.publish = async (e: Event) => { if (failing && e.kind === KINDS.GROUP_INVITATION) throw new Error('relay refused'); return publish(e) }
       return t
     }
-    const start = async (state?: KeeperState) => {
+    const start = async (state?: KeeperState, nodes: string[] = [A, B]) => {
       latest = await RoomAgent.create({
         base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: flaky, announceJitterMs: 0, state,
-        onState: (s) => { states.push(s) }, groupGrants: config(fake, [A, B]),
+        onState: (s) => { states.push(s) }, groupGrants: config(fake, nodes),
       })
       return latest
     }
@@ -418,6 +418,37 @@ describe('the plain copy of a new room', { timeout: 30_000 }, () => {
     expect(inv().length).toBe(3)
     expect(inv()[2]!.id).toBe(copies[1]!.id)
     await third.leave()
+  })
+
+  it('if the list changes before the plain copy went out, the stale one is dropped and a new plain copy is signed for the new body, once', async () => {
+    const relay = new SimRelay({ replay: true })
+    const fake = new FakeNodes('')
+    let failing = true
+    const states: KeeperState[] = []
+    const flaky = () => {
+      const t = new SimTransport(relay)
+      const publish = t.publish.bind(t)
+      t.publish = async (e: Event) => { if (failing && e.kind === KINDS.GROUP_INVITATION) throw new Error('relay refused'); return publish(e) }
+      return t
+    }
+    const start = (state: KeeperState | undefined, nodes: string[]) => RoomAgent.create({
+      base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: flaky, announceJitterMs: 0, state,
+      onState: (s) => { states.push(s) }, groupGrants: config(fake, nodes),
+    })
+    await expect(start(undefined, [A])).rejects.toThrow()
+    const stalePlain = states[0]!.compat!
+    failing = false
+    const again = await start(states[0]!, [A, B])
+    const copies = relay.published.filter((e) => e.kind === KINDS.GROUP_INVITATION)
+    const decoded = copies.map((e) => decodePersistentInvitation(e, again.link.invitation!)!)
+    // Exactly two copies: a plain one signed for the new body, then the one with the new list. The stored plain copy never went out.
+    expect(decoded.length).toBe(2)
+    expect('storage' in decoded[0]!).toBe(false)
+    expect(decoded[1]!.storage).toEqual([A, B])
+    expect(copies.some((e) => e.id === stalePlain.id)).toBe(false)
+    expect(copies[0]!.created_at).toBe(copies[1]!.created_at - 1)
+    expect(again.keeperState!.compat).toBeUndefined()
+    await again.leave()
   })
 })
 
