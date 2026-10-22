@@ -75,7 +75,7 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     const attachment = b.locator('#chatLog .attachment').filter({ hasText: original.name }).first()
     await expect(attachment).toBeVisible()
     expect(downloads).toBe(0)
-    await attachment.getByRole('button', { name: 'Show', exact: true }).click()
+    await attachment.getByRole('button', { name: /^Show/ }).click()
     const video = attachment.locator('video')
     await expect(video).toBeVisible()
     await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2)

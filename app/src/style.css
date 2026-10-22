@@ -1725,36 +1725,106 @@ body.sharePopup main.shareViewer { width: 100%; height: 100%; margin: 0; padding
 }
 
 /* A file shared through Wildbloom, under the message that carried it.
-   Nothing in it is fetched until the button is pressed. */
+   Nothing in it is fetched until Show is pressed. The card is its own
+   container so its actions can drop under the meta line when it is narrow
+   (320 px, 200% text, a narrow chat drawer). Its width is stated, not
+   measured: a size container has no content width of its own, and the bubble
+   is as wide as what is in it. */
 .attachment {
   display: block;
-  margin: 0.25rem 0 0.35rem;
-  padding: 0.4rem 0.6rem;
+  width: 26rem;
+  max-width: 100%;
+  margin: var(--s1) 0;
+  container-type: inline-size;
+}
+
+.attachment .attBody {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--s1) var(--s3);
+  align-items: center;
+  padding: var(--s2) var(--s3);
   border-radius: var(--r-s);
   background: var(--surface);
+  color: var(--text);
 }
 
-.attachment .label {
-  color: var(--muted);
-  margin-right: 0.5rem;
-}
+.attachment .attIcon { grid-row: 1; grid-column: 1; width: 22px; height: 22px; color: var(--muted); }
+.attachment .attLabel { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
+.attachment .attName { font-weight: 600; overflow-wrap: anywhere; }
+.attachment .attMeta { font-size: var(--fs-1); color: var(--muted); overflow-wrap: anywhere; }
+.attachment .attActions { grid-column: 3; display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: flex-end; }
+.attachment .attPreview { grid-column: 1 / -1; grid-row: 1; margin: 0 0 var(--s1); }
+.attachment .attPreview + .attIcon,
+.attachment .attPreview ~ .attIcon { grid-row: 2; }
+.attachment .attPreview ~ .attLabel { grid-row: 2; }
+.attachment .attPreview ~ .attActions { grid-row: 2; }
+.attachment .attWhy,
+.attachment .say,
+.attachment .attConfirm,
+.attachment .attachmentText,
+.attachment .attTools { grid-column: 1 / -1; margin: 0; }
+.attachment .attWhy { color: var(--muted); font-size: var(--fs-1); overflow-wrap: anywhere; }
+.attachment.hasMedia { width: 32rem; }
 
-.attachment .why {
-  color: var(--muted);
-  margin-left: 0.5rem;
-  font-style: italic;
+/* A button or an anchor, drawn as the one button: a tonal patch at the
+   control height, never a blue underlined link. */
+.attachment .actBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  margin: 0;
+  min-height: var(--ctl);
+  padding: 0.5rem var(--s4);
+  font-size: var(--fs-2);
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  background: var(--control);
+  color: var(--text);
+  border: 0;
+  border-radius: var(--r-s);
+  cursor: pointer;
 }
+.attachment .actBtn:hover { background: var(--control-hover); }
+.attachment .actBtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.attachment .say {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  margin-top: var(--s1);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-s);
+}
+.attachment .say p { margin: 0; font-weight: 400; min-width: 0; overflow-wrap: anywhere; }
+.attachment .say strong { font-weight: 600; }
+.attachment .say svg.i { flex: none; width: 20px; height: 20px; margin-top: 1px; }
+.attachment .say.warn { background: var(--fuse-amber); color: var(--on-fuse-amber); }
+.attachment .say.block { background: var(--fuse-red); color: var(--on-fuse-red); }
+.attachment .say p:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.attachment .attConfirm,
+.attachment .attTools { display: flex; flex-wrap: wrap; gap: var(--s2); }
 
 .attachment img {
   display: block;
   max-width: 100%;
   max-height: 320px;
   border-radius: var(--r-s);
-  margin: 0.4rem 0;
 }
 
-.attachment a {
-  margin-right: 0.5rem;
+/* Narrow: the actions go under the meta line, level with the name. */
+@container (max-width: 22rem) {
+  .attachment .attActions { grid-column: 2; grid-row: auto; justify-content: flex-start; }
+  .attachment .attPreview ~ .attActions { grid-row: 3; }
+}
+
+@media (forced-colors: active) {
+  .attachment .attBody { border: 1px solid CanvasText; }
+  .attachment .say { border: 2px solid CanvasText; }
+  .attachment .actBtn { border: 1px solid ButtonText; }
+  .attachment .say svg.i { color: CanvasText; }
 }
 
 .attachPanel {
@@ -4704,9 +4774,13 @@ textarea::placeholder { color: var(--muted); opacity: 1; }
    tinted row in the dark theme. */
 .channelBar button[aria-pressed='true'] .channelDesc { color: var(--text); }
 
-.attachment video { width: 100%; max-width: 32rem; max-height: 22rem; }
+.attachment video { display: block; width: 100%; max-width: 32rem; max-height: 22rem; }
 .attachment audio { width: 100%; max-width: 24rem; }
-.attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-2); }
+.attachmentText { max-height: 20rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-2); font-family: ui-monospace, Menlo, monospace; }
+.attachmentText { line-height: 1.45; }
+/* Nine lines, however they wrap, then Read more. */
+.attachmentText.collapsed { max-height: calc(9 * 1.45em); overflow: hidden; }
+.attachmentText:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Phone rooms have one main activity at a time, like the native app. */
 @media (max-width: 700px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {

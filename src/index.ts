@@ -382,6 +382,8 @@ export type {
   BlossomDescriptor,
   UploadEnvelopeOptions,
 } from './attachment.js'
+export { cleanFileName, sniffKind, assessAttachment, classifyAttachment, familyLabel, labelPhrase } from './attachment-safety.js'
+export type { CleanedFileName, SniffKind, AttachmentInput, AttachmentDecision, FamilyLabel } from './attachment-safety.js'
 export { mintTurnCredential } from './turn.js'
 export type { TurnCredential } from './turn.js'
 export { needsForwarding, selectForwarder, DEFAULT_HEADROOM } from './forwarder.js'
