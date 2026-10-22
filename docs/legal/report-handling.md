@@ -197,8 +197,10 @@ still name it. It runs strfry. We can delete a specific event by id with
 from what the relay stores and serves. From 10:58Z on 22 October 2026 the
 relay takes writes only from keys on its allowlist, and other people's
 data and its old backups were deleted (the host's report), so a key not on
-the list cannot write to it at all. `[INPUT: whether it still serves reads
-to anyone.]`
+the list can write only sealed messages and remote-signer requests
+addressed to a key on it. Since 22 October 2026 it serves reads only to
+keys on its allowlist after relay authentication (NIP-42), on clearnet
+and onion.
 
 On the independent default relays, and on any relay a room's creator
 adds instead, **we have no control of any kind.** A notice naming content

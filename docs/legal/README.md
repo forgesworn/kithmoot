@@ -19,7 +19,7 @@ and decisions.
   file store's closure to new uploads, 22 October 2026. Section 9 records
   the significant change of 22 October 2026: meeting codes retired, file
   reads ending 23 October 2026, coturn keeping no log, the relay the
-  operator also runs closed to strangers' writes, TURN pending closure and
+  operator also runs closed to strangers' reads and writes, TURN pending closure and
   STUN kept.
 - [`childrens-access-assessment-draft.md`](childrens-access-assessment-draft.md)
   asks whether children can and do access KithMoot. Honest answer: they can,
