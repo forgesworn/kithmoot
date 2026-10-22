@@ -139,13 +139,24 @@ describe('a keeper started without flags over a ledger that names nodes', () => 
     )
   })
 
-  it('lets a fresh room, a room with no ledger, an empty ledger and an unreadable one through, and leaves a state that records storage to the room agent', async () => {
+  it('lets a fresh room, a room with no ledger and an empty ledger through, and leaves a state that records storage to the room agent', async () => {
     const named = await room(ledgerNaming({ 'node-a.test': 'https://node-a.test' }))
     await expect(refuseSilentWithdrawal(named, undefined)).resolves.toBeUndefined()
     await expect(refuseSilentWithdrawal(named, keeperState({ storage: [] }))).resolves.toBeUndefined()
     await expect(refuseSilentWithdrawal(named, keeperState({ storage: ['https://node-a.test'] }))).resolves.toBeUndefined()
     await expect(refuseSilentWithdrawal(await room(), keeperState())).resolves.toBeUndefined()
     await expect(refuseSilentWithdrawal(await room(ledgerNaming({})), keeperState())).resolves.toBeUndefined()
-    await expect(refuseSilentWithdrawal(await room('not a ledger'), keeperState())).resolves.toBeUndefined()
+  })
+
+  it('refuses an unreadable ledger too, naming the flags that move it aside and the hand move', async () => {
+    const statePath = await room('not a ledger')
+    const refusal = refuseSilentWithdrawal(statePath, keeperState())
+    await expect(refusal).rejects.toThrow(/cannot be read, so the nodes it names cannot be known/)
+    await expect(refusal).rejects.toThrow('--group-withdraw --group-reset')
+    await expect(refusal).rejects.toThrow('--group-node and --group-bytes flags and --group-reset')
+    await expect(refusal).rejects.toThrow('move it aside by hand')
+    await expect(refusal).rejects.toThrow(groupGrantLedgerPath(statePath))
+    // The state that records its list is still the room agent's to judge.
+    await expect(refuseSilentWithdrawal(statePath, keeperState({ storage: [] }))).resolves.toBeUndefined()
   })
 })

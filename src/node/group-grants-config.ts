@@ -122,14 +122,20 @@ export function withdrawnGroupGrants(statePath: string, log: (line: string) => v
  * node, the start is refused with the same message as a state that lists them,
  * and the hosts are the ledger's. `--group-withdraw` is the way out. A state
  * that records `storage` (even `[]`) is judged by the room agent itself.
- * Throws an Error whose message is fit to print; resolves for a fresh room, a
- * room with no ledger, or a ledger that names nothing.
+ * A ledger that cannot be read is refused too, with the way out. Throws an
+ * Error whose message is fit to print; resolves for a fresh room, a room with
+ * no ledger, or a ledger that names nothing.
  */
 export async function refuseSilentWithdrawal(statePath: string, state: KeeperState | undefined): Promise<void> {
   if (!state || state.storage !== undefined) return
   const text = await new FileGroupGrantStore(groupGrantLedgerPath(statePath)).load()
   if (text === undefined) return
   let hosts: string[]
-  try { hosts = Object.keys(parseLedger(text).bases).sort() } catch { return }
+  try { hosts = Object.keys(parseLedger(text).bases).sort() } catch {
+    // The file's existing is the signal, whatever it holds: a damaged ledger is what a bad restore or a downgrade leaves.
+    throw new Error(`this room's group grant ledger (${groupGrantLedgerPath(statePath)}) cannot be read, so the nodes it names cannot be known; ` +
+      'start with the room\'s --group-node and --group-bytes flags and --group-reset, or with --group-withdraw --group-reset ' +
+      '(either moves the unreadable file aside, never deleting it), or move it aside by hand to start without it')
+  }
   if (hosts.length) throw new Error(roomListsNodesMessage(hosts))
 }

@@ -647,9 +647,32 @@ describe('bounded reads', () => {
     const counter = { pulled: 0, cancelled: false }
     const base = defaultNode()
     const r = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' ? new Response(endless(counter), { status: 200 }) : base(c, n)) })
-    await expect(r.storage.get(HASH, { maxBytes: 50_000 })).rejects.toMatchObject({ reason: 'refused' })
+    await expect(r.storage.get(HASH, { maxBytes: 50_000 })).rejects.toMatchObject({ reason: 'refused', message: 'The file is bigger than this app will take.' })
     expect(counter.cancelled).toBe(true)
     expect(counter.pulled).toBeLessThan(1_000_000)
+  })
+
+  /** A body that sends `sent` bytes and then breaks off, as a reset connection does. */
+  const breaksOff = (sent: number): Response => new Response(new ReadableStream<Uint8Array>({
+    start(controller) { controller.enqueue(envelope.slice(0, sent)); setTimeout(() => controller.error(new TypeError('terminated')), 5) },
+  }), { status: 200 })
+
+  it('a download that breaks off partway is not "bigger than this app will take": it is a node not answering', async () => {
+    const base = defaultNode()
+    const alone = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' ? breaksOff(5) : base(c, n)) })
+    const error = await alone.storage.get(HASH).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(GroupStorageError)
+    expect((error as GroupStorageError).message).not.toMatch(/bigger/)
+    expect((error as GroupStorageError).reason).toBe('absent')
+    // Another node is tried, and gives the file.
+    const two = rig({ nodes: [N1, N2], handler: (c, n) => (c.method === 'GET' && new URL(c.url).hostname === 'n1.example.net' ? breaksOff(5) : base(c, n)) })
+    expect(new Uint8Array(await (await two.storage.get(HASH)).arrayBuffer())).toEqual(envelope)
+    // A range that breaks off is the same.
+    const range = rig({ nodes: [N1], handler: (c, n) => (c.method === 'GET' ? new Response(new ReadableStream<Uint8Array>({ start(ctl) { ctl.enqueue(envelope.slice(0, 2)); setTimeout(() => ctl.error(new TypeError('terminated')), 5) } }), { status: 206 }) : base(c, n)) })
+    await expect(range.storage.getRange(HASH, 0, 9)).rejects.toMatchObject({ reason: 'absent' })
+    // An endless descriptor is still a refusal, and a descriptor that breaks off is a node not answering.
+    const broken = rig({ nodes: [N1], handler: (c, n) => (c.method === 'PUT' ? new Response(new ReadableStream<Uint8Array>({ start(ctl) { ctl.enqueue(new TextEncoder().encode('{"sha')); setTimeout(() => ctl.error(new TypeError('terminated')), 5) } }), { status: 201 }) : base(c, n)) })
+    expect(await broken.storage.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'unreachable' })
   })
 
   it('getRange stops a node that sends more than the range asked for', async () => {
@@ -771,10 +794,16 @@ describe('every listed node open', () => {
     expect(r.events.open.length).toBe(2)
   })
 
-  it('a mix of an open node and one without a grant is still no grant', async () => {
+  it('a mix of an open node and one without a grant is still no grant, and the keeper is asked', async () => {
     const r = rig({ nodes: [N1, N2], grants: [grant('n1.example.net')], handler: () => new Response(null, { status: 200 }) })
-    await r.storage.upload(envelope, HASH)
-    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ reason: 'node-open' })
+    // The call that finds n1 open: n2 has no grant, so what is left to do is ask the keeper for one.
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'no-grant' })
+    expect(r.events.noGrant).toBe(1)
+    // And on every later call, for uploads and reads alike.
+    expect(await r.storage.upload(envelope, HASH)).toMatchObject({ status: 'held', reason: 'no-grant', detail: GROUP_STORAGE_MESSAGES['no-grant'] })
+    await expect(r.storage.get(HASH)).rejects.toMatchObject({ reason: 'no-grant' })
+    expect(r.events.noGrant).toBe(3)
+    expect(r.events.open).toEqual(['n1.example.net'])
   })
 })
 

@@ -202,7 +202,17 @@ export class GroupStorage {
     const ordered = prefer ? [...listed.filter((n) => n.base === prefer), ...listed.filter((n) => n.base !== prefer)] : listed
     const granted = ordered.filter((n) => this.#hasScope(n.server, scope))
     const nodes = granted.filter((n) => !this.#open.has(n.base))
-    return { nodes, allOpen: granted.length > 0 && nodes.length === 0 }
+    return { nodes, allOpen: granted.length > 0 && nodes.length === 0 && !this.#couldAsk(scope) }
+  }
+
+  /**
+   * Whether some listed node is neither open nor one this device holds the scope
+   * at: there the keeper may yet grant it, so the device should ask (no grant),
+   * and "every computer is open" would hide that. `node-open` is only for when
+   * every listed node that could serve the call is open.
+   */
+  #couldAsk(scope: GrantScope): boolean {
+    return this.#listed().some((n) => !this.#open.has(n.base) && !this.#hasScope(n.server, scope))
   }
 
   /** Said when no candidate exists or every one refused: locked out if every listed node has ended this device's grants, else no grant. */
@@ -457,7 +467,8 @@ export class GroupStorage {
       if (res.status === 200 || res.status === 201) {
         // The descriptor is small by contract; a node that sends more is not describing a blob.
         const chunks = await readBounded(res, DESCRIPTOR_MAX_CHARS * 4, [this.#opts.signal, sig])
-        const text = chunks ? new TextDecoder().decode(concat(chunks)) : ''
+        if (chunks === 'broken') { unreachable++; continue }
+        const text = typeof chunks === 'string' ? '' : new TextDecoder().decode(concat(chunks))
         if (descriptorFits(text, node.base, hash, size)) return { status: 'stored', url: `${node.base}/${hash}`, base: node.base, server: node.server, size }
         refused++
         continue
@@ -474,7 +485,11 @@ export class GroupStorage {
     }
     if (unreachable > 0) return { status: 'held', reason: 'unreachable', detail: GROUP_STORAGE_MESSAGES.unreachable }
     if (refused > 0) return { status: 'held', reason: 'refused', detail: GROUP_STORAGE_MESSAGES.refused }
-    // Every candidate was found open in this call.
+    // Every candidate was found open in this call; if a listed node has no grant for this device, that is what to ask the keeper about.
+    if (this.#couldAsk('upload')) {
+      const why = this.#noGrant()
+      return { status: 'held', reason: why.reason, detail: GROUP_STORAGE_MESSAGES[why.reason] }
+    }
     return { status: 'held', reason: 'node-open', detail: GROUP_STORAGE_MESSAGES['node-open'] }
   }
 
@@ -554,7 +569,9 @@ export class GroupStorage {
         }
         const chunks = await readBounded(res, limit, [this.#opts.signal, sig])
         if (this.#stopped(sig)) throw new Error('The read was cancelled.')
-        if (chunks && (!exact || chunks.reduce((n, c) => n + c.length, 0) === limit)) return chunks
+        // A body that breaks off is a node not answering, like a network error; only one that overruns the cap, or a range of the wrong length, is a wrong answer.
+        if (chunks === 'broken') continue
+        if (chunks !== 'over' && (!exact || chunks.reduce((n, c) => n + c.length, 0) === limit)) return chunks
         wrong++
         continue
       }
@@ -566,7 +583,13 @@ export class GroupStorage {
       throw new GroupStorageError(why.reason === 'locked-out' ? 'locked-out' : 'refused', GROUP_STORAGE_MESSAGES[why.reason === 'locked-out' ? 'locked-out' : 'refused'])
     }
     if (wrong > 0) throw new GroupStorageError('refused', exact ? 'A node answered a range with the wrong number of bytes.' : 'The file is bigger than this app will take.')
-    if (opened === candidates.length) throw new GroupStorageError('node-open', GROUP_STORAGE_MESSAGES['node-open'])
+    if (opened === candidates.length) {
+      if (this.#couldAsk('get')) {
+        const why = this.#noGrant()
+        throw new GroupStorageError(why.reason, GROUP_STORAGE_MESSAGES[why.reason])
+      }
+      throw new GroupStorageError('node-open', GROUP_STORAGE_MESSAGES['node-open'])
+    }
     throw new GroupStorageError('absent', GROUP_STORAGE_MESSAGES.absent)
   }
 
@@ -600,15 +623,15 @@ export class GroupStorage {
 
 /**
  * Read a response body up to `limit` bytes through its stream, cancelling it
- * the moment it passes. Undefined when the node sent more than that, or the
- * stream failed or was cancelled. (The context library's `readBoundedBlob`
+ * the moment it passes. 'over' when the node sent more than that, 'broken' when
+ * the stream failed before its end (a reset, a dropped connection). (The context library's `readBoundedBlob`
  * does the same for attachments but is private to that package and words its
  * error for attachments, so it is not reused.)
  */
-async function readBounded(res: Response, limit: number, signals: (AbortSignal | undefined)[]): Promise<Uint8Array[] | undefined> {
+async function readBounded(res: Response, limit: number, signals: (AbortSignal | undefined)[]): Promise<Uint8Array[] | 'over' | 'broken'> {
   if (!res.body) {
-    const bytes = new Uint8Array(await res.arrayBuffer().catch(() => new ArrayBuffer(0)))
-    return bytes.length > limit ? undefined : [bytes]
+    const bytes = await res.arrayBuffer().then((b) => new Uint8Array(b), () => undefined)
+    return bytes === undefined ? 'broken' : bytes.length > limit ? 'over' : [bytes]
   }
   const reader = res.body.getReader()
   const stop = (): void => { void reader.cancel().catch(() => {}) }
@@ -621,11 +644,11 @@ async function readBounded(res: Response, limit: number, signals: (AbortSignal |
       const { done, value } = await reader.read()
       if (done) return chunks
       total += value.length
-      if (total > limit) { stop(); return undefined }
+      if (total > limit) { stop(); return 'over' }
       chunks.push(value)
     }
   } catch {
-    return undefined
+    return 'broken'
   } finally {
     for (const s of live) s.removeEventListener('abort', stop)
   }

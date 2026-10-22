@@ -380,9 +380,10 @@ export class GrantReceiver {
 
   /** Offer one event as read off the control channel. True when it was kept. */
   offer(event: unknown, now?: number): boolean {
-    // Rule 7 judges a node's clock, not a reader's: a device whose clock lags must still keep the revocation it is to carry.
-    // Expiry is applied when events are handed out (`grantsFor`, `carry`).
-    void now
+    // Rule 7 judges a node's clock, not a reader's: a device whose clock lags must still keep the revocation it is to carry,
+    // so nothing is refused here for its time. Expiry is applied when events are handed out (`grantsFor`, `carry`).
+    // `now`, when given, is used for one thing only: it moves the time after which the device lets go of its own grants a week
+    // past their end (`#letGoOfOldOwn`). A reader's clock is trusted there, so a caller passes its real clock or none.
     const verdict = parseGroupEvent(event, { keepers: [this.#authority] })
     const parsed = verdict.ok ? verdict.parsed : undefined
     if (!parsed || parsed.roomId !== this.#roomId) return false
