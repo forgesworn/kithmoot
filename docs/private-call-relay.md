@@ -138,3 +138,8 @@ because its protocol lacks `PushAPIEnabled`; no application code ran there.
 The same constructor compatibility case subsequently passed in Playwright
 1.62.1's Ubuntu 24.04 container, using the actual application function and
 a relay-only policy. Physical Safari acceptance remains separate.
+
+The [private deployment record](evidence/private-call-relay-stall-20261022.json)
+records a separate authenticated UDP instance on stall, including outside
+relay-only decoded audio/video proof and rejection of a wrong password.
+It does not establish a real call with the friend or physical phone acceptance.

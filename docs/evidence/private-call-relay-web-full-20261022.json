@@ -1,0 +1,59 @@
+{
+  "recordedAt": "2026-10-22T22:46:31.132506+00:00",
+  "sourceCommit": "d5ba73b243a10629ebd4cd78a790601cc4f0bfdd",
+  "scope": "Local browser and unit validation before Android 0.6.105 publication metadata",
+  "typecheck": "passed",
+  "productionBuild": "passed",
+  "noTelemetryGuard": "passed",
+  "unitSuite": {
+    "files": 397,
+    "passed": 7066,
+    "skipped": 3,
+    "firstRunPassed": 7064,
+    "firstRunTimeouts": 2,
+    "timeoutMs": 5000,
+    "retryFiles": 2,
+    "retryTestsPassed": 138,
+    "retryTimeoutMs": 20000,
+    "note": "The two timeouts were in unchanged ordinary snapshot tests; both files passed unchanged on retry with one worker and a larger time allowance."
+  },
+  "focusedUnitTests": 38,
+  "privateRelayGeneratorTests": 5,
+  "chromium": {
+    "cases": 2,
+    "status": "passed",
+    "proof": "Per-device Settings persistence/removal, existing room, authenticated relay-only decoded audio/video, wrong-password refusal and no passwords in invitations",
+    "coturnPrivilegeDrop": "same nobody/nogroup flags as deployment"
+  },
+  "webkit": {
+    "status": "passed",
+    "cases": 1,
+    "runtime": "Playwright 1.62.1 Ubuntu 24.04 arm64 container",
+    "imageDigest": "sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e",
+    "proof": "Actual application URI fallback preserves configured UDP/TLS alternatives, credentials and relay-only policy",
+    "physicalSafariAcceptance": false
+  },
+  "privateDeployment": "private-call-relay-stall-20261022.json",
+  "hostedCI": "pending",
+  "physicalGrapheneOSAcceptance": false,
+  "realFriendCallAcceptance": false,
+  "signedManifestValidation": "passed for desktop and Android; existing update keys retained",
+  "websiteAndPwaUpdateBrowserTests": {
+    "status": "passed",
+    "cases": 9,
+    "browser": "Chromium",
+    "checks": "Production CSP, 320/390/768/1440 widths, light/dark, update activation/retry/draft/call guards"
+  },
+  "desktopNodeTests": {
+    "status": "passed",
+    "tests": 126
+  },
+  "androidCandidate": "private-call-relay-signed-105-20261022.json",
+  "publicationFilesSha256": {
+    "site/android-release.json": "6615499ea2f372173b83314f22cd6b668440bc77025256faeeb9d8635929d4be",
+    "site/android-release.json.sig": "2229e4629f352618d28110e2e1e6fcc236264c002ca8215102bcfa2bda81ea44",
+    "site/downloads/versions.json": "9e93b3b44bdf9145dd0a93426cb884b33d6c05745b58da60c75260f691432df4",
+    "site/index.html": "090bca52ae2d64a9ecfe7ad162a0570486137366f5b234365b413df2c4c6ee9f",
+    "site/downloads/index.html": "150acd1d3366d006104a9fc7b454ce2a046c73380db0efde2b77d4882d088282"
+  }
+}
