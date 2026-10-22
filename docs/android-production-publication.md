@@ -6,6 +6,25 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.103 reply quotes, and no ForgeSworn call relay or file storage, 22 October 2026
+
+Version **0.6.103**, code **126**, brings reply quotes to Android: Reply on
+any message, replies in time order with a quote of what they answer, and a
+tap on the quote goes to the original (kithmoot-android #309, kithmoot #506).
+It stops asking ForgeSworn's host for a TURN credential, keeps STUN there,
+says when a call has no relay, and says why a call with Hide my IP address on
+calls cannot start in a room without one (kithmoot-android #310, kithmoot
+#525). A stored ForgeSworn file server is retired and cannot be chosen
+(kithmoot #527), and a file its server no longer has reads as gone (kithmoot
+#530). It also carries kithmoot-android #307 (envelope 2 groundwork; writers
+stay off). No wire change.
+
+The production APK is built from Android source
+`6a4f3544` (the head of pull request #311), SHA-256
+`e2314cb6d6ea439ac2105540f2f8f1e12d8483d4144c4971585fc3dbf330e087`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started; not yet observed on a device.
+
 ## Android 0.6.102 room notifications and timed mutes, 21 October 2026
 
 Version **0.6.102**, code **125**, brings the calm shell's stage 7 to
