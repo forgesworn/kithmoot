@@ -89,3 +89,16 @@ export function grantsEndingWords(date: number, locale?: string): string {
   const day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(date * 1000))
   return `The group’s keeper has not been online for a while. Group files stop working on ${day} unless it comes back.`
 }
+
+/**
+ * Something said once and not again until `reset`: a notice that a retrying
+ * upload would otherwise repeat every minute. `reset` is for when what it
+ * reported has changed (a grant arrived), so that a later lock-out is told afresh.
+ */
+export function sayOnce(say: () => void): { say(): void; reset(): void } {
+  let said = false
+  return {
+    say: () => { if (!said) { said = true; say() } },
+    reset: () => { said = false },
+  }
+}

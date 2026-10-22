@@ -20,7 +20,11 @@
  *
  * A message whose files no group computer has taken yet is `waiting` too, and
  * says what for (`storage`): nothing of it has left this device either, so it
- * can still be deleted without a trace.
+ * can still be deleted without a trace. When what stops it cannot change by
+ * waiting (this device's clock is wrong, its grants have ended, the only nodes
+ * give files to anyone) it is `stuck`: it says so in those words, is not tried
+ * again on a timer, and goes only when something about the storage changes
+ * (`wakeStorage`) or the person presses Retry.
  *
  * Every retry publishes the same signed event, so a relay that already has
  * it keeps one copy. A row leaves when its message arrives in the chat, not
@@ -33,6 +37,14 @@ import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
+
+/** Thrown by a publisher that cannot put a message's files on the group's storage and will not be able to by waiting. Its message is what the row says. */
+export class StorageStuckError extends Error {
+  constructor(words: string) {
+    super(words)
+    this.name = 'StorageStuckError'
+  }
+}
 import { MAX_CHAT_ARTWORK, normaliseArtwork, type ChatArtwork } from '../../src/artwork.js'
 
 export type PendingState = 'holding' | 'waiting' | 'sending' | 'refused' | 'unknown' | 'moved'
@@ -52,8 +64,10 @@ export interface PendingSend {
   ready?: boolean
   /** Storage failure holds automatic sending until an explicit retry. */
   held?: boolean
-  /** What it is waiting for is the group's own storage to take its files, not a relay. */
+  /** Its files go on the group's own storage before the message goes: what it waits for is a group computer, not a relay, and it is not tried again as long as it cannot be, whatever the page's timers do. */
   storage?: true
+  /** Set while a storage problem that waiting will not mend stops it: the words the row shows. */
+  stuck?: string
   /** Whether this row is kept across a reload. */
   durable: boolean
   /** A plain new message, which Edit can put back in the message box as it
@@ -68,7 +82,7 @@ export interface PendingSend {
   acknowledged?: boolean
 }
 
-export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'storage'> & { publish?: (event: Event) => Promise<void> }
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck'> & { publish?: (event: Event) => Promise<void> }
 type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
 
 export interface PendingSendsOptions {
@@ -115,7 +129,7 @@ export function stateAfter(error: unknown): PendingState {
   const text = message(error)
   if (text === CONVERSATION_MOVED) return 'moved'
   // Not a relay's answer: no group computer has the files yet. Nothing has left, so it stays Delete-able.
-  if (text === GROUP_STORAGE_WAITING) return 'waiting'
+  if (text === GROUP_STORAGE_WAITING || error instanceof StorageStuckError) return 'waiting'
   if (REFUSED.test(text) && !UNANSWERED.test(text)) return 'refused'
   return 'unknown'
 }
@@ -231,13 +245,17 @@ export class PendingSends {
   }
   wake(): void {
     const now = this.#opts.now()
-    for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) &&
+    for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) && !item.stuck &&
       (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && (item.retryAt ?? 0) <= now) void this.#attempt(item)
   }
-  /** A grant or a node list arrived: messages waiting on the group's storage try again now, not at their next turn. */
+  /** A grant or a node list arrived: messages waiting on the group's storage try again now, not at their next turn, and one that a storage problem had stopped gets another look. */
   wakeStorage(): void {
-    for (const item of this.#items.values()) if (item.storage) item.retryAt = undefined
+    for (const item of this.#items.values()) if (item.storage) { item.retryAt = undefined; item.stuck = undefined }
     this.wake()
+  }
+  /** Resolves once an attempt to send this message that is in flight has ended, however it ended. */
+  settled(id: string): Promise<void> {
+    return this.#attempting.get(id) ?? Promise.resolve()
   }
   async retry(id: string): Promise<void> {
     const item = this.#items.get(id)
@@ -332,7 +350,7 @@ export class PendingSends {
     } catch (error) { this.#hold(error); return Promise.resolve() }
   }
   async #send(item: PrivatePendingSend, version: number): Promise<void> {
-    await this.#change(item.roomId, items => { const saved = items.get(item.id); if (!saved || saved.state === 'moved') return false; saved.state = 'sending'; saved.attempts++; return true }, version)
+    await this.#change(item.roomId, items => { const saved = items.get(item.id); if (!saved || saved.state === 'moved') return false; saved.state = 'sending'; saved.attempts++; saved.stuck = undefined; return true }, version)
     this.#check(item.roomId, version)
     if (this.#items.get(item.id) !== item || !this.#here(item)) return
     let error: unknown, failed = false
@@ -342,11 +360,13 @@ export class PendingSends {
       const saved = items.get(item.id); if (!saved) return false
       if (failed) {
         saved.state = stateAfter(error)
-        saved.storage = message(error) === GROUP_STORAGE_WAITING ? true : undefined
-      } else { saved.acknowledged = true; saved.durable = false; saved.storage = undefined }
+        saved.stuck = error instanceof StorageStuckError ? error.message : undefined
+        if (saved.stuck !== undefined) saved.retryAt = undefined
+      } else { saved.acknowledged = true; saved.durable = false; saved.stuck = undefined }
       return true
     }, version)
-    if (failed && this.#items.get(item.id) === item && item.state !== 'moved') this.#later(item)
+    // A problem that waiting will not mend is not tried again on a timer.
+    if (failed && this.#items.get(item.id) === item && item.state !== 'moved' && item.stuck === undefined) this.#later(item)
   }
   #later(item: PrivatePendingSend): void {
     const seconds = RETRY_SECONDS[Math.min(item.attempts, RETRY_SECONDS.length - 1)]!

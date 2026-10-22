@@ -25,13 +25,26 @@ export class Outbox {
     private readonly edit?: (item: PendingSend) => void | Promise<void>, private readonly canEdit: (item: PendingSend) => boolean = () => false,
     /** A message that cannot leave before its room self-destructs, and
      *  what its row says then. */
-    private readonly doomed: (item: PendingSend) => boolean = () => false, private readonly doomedText = 'Will not be sent') {
+    private readonly doomed: (item: PendingSend) => boolean = () => false, private readonly doomedText = 'Will not be sent',
+    /** Stops a message's upload to the group's storage that is in flight, so the row can be deleted. True when it stopped; false when the message has already begun to go out. */
+    private readonly stopUpload: (item: PendingSend) => Promise<boolean> = async () => false) {
     this.#root = root
   }
 
   /** Unsent messages a reload would lose: those not kept on this device,
    *  and any on their way out, whose outcome a reload cannot learn. */
   get pending(): boolean { return this.queue.items().some(item => !item.acknowledged && (!item.durable || item.state === 'sending')) }
+
+  /** The same, without the messages that wait for a group's storage. Those can
+   *  wait for days (a keeper that is away), so they do not hold a person in a
+   *  room: leaving asks first (`waitingOnStorage`). */
+  get blocking(): boolean { return this.queue.items().some(item => !item.acknowledged && (!item.durable || item.state === 'sending') && !item.storage) }
+
+  /** Whether this room has a message waiting for the group's storage, which leaving the room would lose with its files. */
+  get waitingOnStorage(): boolean {
+    const roomId = this.room()
+    return !!roomId && this.queue.items(roomId).some(item => !item.acknowledged && item.storage === true)
+  }
 
   render(): void {
     const roomId = this.room()
@@ -122,10 +135,23 @@ export class Outbox {
     if (this.edit && item.editable && neverLeft(item) && this.canEdit(item)) {
       actions.append(this.#button('Edit', 'edit', () => this.edit!(item)))
     }
-    if (!item.acknowledged && item.state !== 'sending') {
-      const clean = neverLeft(item)
+    // A message whose files are still going up can be stopped and deleted: nothing of it has left until its files are on a node.
+    const uploading = item.state === 'sending' && item.storage === true
+    if (!item.acknowledged && (item.state !== 'sending' || uploading)) {
+      const clean = neverLeft(item) || uploading
       actions.append(this.#button(clean ? 'Delete' : 'Remove from list', 'remove', async () => {
-        if (await confirmAction({ ...this.#removal(item), confirmLabel: clean ? 'Delete message' : 'Remove from list', danger: true, isCurrent: () => row.isConnected })) await this.queue.dismiss(item.id)
+        if (!await confirmAction({ ...this.#removal(item, clean), confirmLabel: clean ? 'Delete message' : 'Remove from list', danger: true, isCurrent: () => row.isConnected })) return
+        const live = this.queue.items(item.roomId).find(saved => saved.id === item.id)
+        if (live?.state === 'sending') {
+          if (!await this.stopUpload(live)) {
+            // Its files are on a node and it has begun to go out: too late to take back.
+            const status = row.querySelector('.pendingStatus')
+            if (status) status.textContent = 'It is already being sent.'
+            return
+          }
+          await this.queue.settled(item.id)
+        }
+        await this.queue.dismiss(item.id)
       }))
     }
     if (actions.childElementCount) row.append(actions)
@@ -133,27 +159,12 @@ export class Outbox {
   }
 
   #status(item: PendingSend): string {
-    if (item.acknowledged) return 'Sent'
-    if (item.held) return 'Message held: could not save its state. Retry when storage is available.'
-    const where = item.channel === 'Chat' ? '' : ` in ${item.channel}`
-    switch (item.state) {
-      case 'holding': {
-        const seconds = Math.max(1, Math.ceil(((item.holdUntil ?? Date.now()) - Date.now()) / 1000))
-        return `Sending in ${seconds} s${where}`
-      }
-      case 'sending': return this.sending()
-      case 'waiting':
-        if (item.storage) return GROUP_STORAGE_WAITING
-        return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
-      case 'refused': return `Not sent${where}: the relays turned it down. Trying again shortly.`
-      case 'unknown': return `Not confirmed${where}: no relay answered in time. Trying again shortly.`
-      case 'moved': return `Not sent${where}: this conversation changed its key before it went. Copy it into the conversation to send it.`
-    }
+    return pendingStatusWords(item, this.sending(), Date.now())
   }
 
   /** What removing a row can promise depends on whether it ever left. */
-  #removal(item: PendingSend): { title: string; message: string } {
-    if (!neverLeft(item)) return {
+  #removal(item: PendingSend, clean = neverLeft(item)): { title: string; message: string } {
+    if (!clean) return {
       title: 'Remove this message from the list?',
       message: 'A relay may have received it even if its acknowledgement did not arrive, so people may still see it. Removing it only takes it off this list.',
     }
@@ -176,5 +187,30 @@ export class Outbox {
       }).finally(() => { button.disabled = false })
     })
     return button
+  }
+}
+
+/** What a row says about its message: pure, so every state's words can be checked without a page. `sending` is what a row says while its publish is in flight. */
+export function pendingStatusWords(item: PendingSend, sending: string, now: number): string {
+  if (item.acknowledged) return 'Sent'
+  if (item.held) return 'Message held: could not save its state. Retry when storage is available.'
+  const where = item.channel === 'Chat' ? '' : ` in ${item.channel}`
+  switch (item.state) {
+    case 'holding': {
+      const seconds = Math.max(1, Math.ceil(((item.holdUntil ?? now) - now) / 1000))
+      return `Sending in ${seconds} s${where}`
+    }
+    case 'sending': return sending
+    case 'waiting':
+      // A storage problem waiting will not mend says so in its own words; otherwise a message that has tried and has files for the group's storage is waiting for that.
+      if (item.storage && item.stuck) return item.stuck
+      if (item.storage && item.attempts) return GROUP_STORAGE_WAITING
+      return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
+    case 'refused': return `Not sent${where}: the relays turned it down. Trying again shortly.`
+    case 'unknown': return `Not confirmed${where}: no relay answered in time. Trying again shortly.`
+    // Its files were put aside with it, and Edit does not offer to take a message with files back: copying its words carries no file.
+    case 'moved': return item.files.length
+      ? `Not sent${where}: this conversation changed its key before it went. Copy its text into the conversation to send it, and add its files again.`
+      : `Not sent${where}: this conversation changed its key before it went. Copy it into the conversation to send it.`
   }
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { GrantReceiver, buildGrant, buildRevocation, parseGroupEvent } from '../../src/group-grants.js'
 import {
-  GRANT_WARNING_SECONDS, STORAGE_GRANTS_PREFIX, forgetGrantReceiver, grantsEndingSoon, grantsEndingWords, holdsAnyGrant, loadGrantReceiver, saveGrantReceiver,
+  GRANT_WARNING_SECONDS, STORAGE_GRANTS_PREFIX, forgetGrantReceiver, grantsEndingSoon, grantsEndingWords, holdsAnyGrant, loadGrantReceiver, sayOnce, saveGrantReceiver,
 } from './group-room-grants.js'
 
 const ROOM = 'ab'.repeat(32)
@@ -111,5 +111,17 @@ describe('whether the keeper has gone quiet', () => {
 
   it('words the warning with the date group files stop', () => {
     expect(grantsEndingWords(Date.UTC(2026, 10, 3, 12) / 1000, 'en-GB')).toBe('The group’s keeper has not been online for a while. Group files stop working on 3 November 2026 unless it comes back.')
+  })
+})
+
+describe('a notice a retry would repeat', () => {
+  it('is said once, however many times it is asked for, until what it reported changes', () => {
+    const said: string[] = []
+    const notice = sayOnce(() => said.push('locked out'))
+    for (let i = 0; i < 5; i++) notice.say()
+    expect(said).toEqual(['locked out'])
+    notice.reset()
+    notice.say(); notice.say()
+    expect(said).toEqual(['locked out', 'locked out'])
   })
 })
