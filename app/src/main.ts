@@ -778,11 +778,12 @@ window.addEventListener('online', () => { void relayConnections.probeAll() })
 let turnRelayConfigured = false
 
 /** Says in the call that no relay is available (`missing`), or puts the note
- *  away (false, or undefined while it is not yet known). */
-function noteRelayMissing(missing: boolean | undefined): void {
+ *  away. Shown only when it matters: a refused relay-only call, or a failed
+ *  connection with no relay. */
+function noteRelayMissing(missing: boolean): void {
   const note = $('relayMissingNote')
   note.textContent = RELAY_MISSING_NOTICE
-  note.hidden = missing !== true
+  note.hidden = !missing
 }
 /** How often a joined page re-fetches its TURN credential. The credential
  *  service mints for an hour; forty minutes keeps a fresh one in hand. */
@@ -5242,7 +5243,8 @@ async function joinCall(): Promise<void> {
   // “Hide my IP address” with no relay: refuse the call, never fall back to direct.
   if (sessionRelayBlocked.get(s) === true) {
     noteRelayMissing(true)
-    throw new Error(RELAY_ONLY_NO_RELAY)
+    // The call screen is not open, so the status line carries both.
+    throw new Error(`${RELAY_ONLY_NO_RELAY} ${RELAY_MISSING_NOTICE}`)
   }
   // The user gesture the gain path needs to open an AudioContext that is
   // not born suspended - see remote-volume.ts. Harmless to call whether or
@@ -5287,6 +5289,7 @@ function stopLocalMedia(): void {
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
   $('voiceFailureNotice').hidden = true
+  noteRelayMissing(false)
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   shareMayShowItself = false
   clearShareError()
@@ -13077,8 +13080,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // peer factory below still never builds a non-relay configuration.
     const relayBlocked = relayOnly && !relayOnlyAvailable(resolvedIceServers)
     turnRelayConfigured = hasRelay(resolvedIceServers)
-    // Default rooms learn about a relay only once the background fetch settles.
-    noteRelayMissing(chatOnly || relayBlocked ? undefined : (relayOnly || !isDefaultIceUrls(roomIceUrls)) ? !turnRelayConfigured : undefined)
+    // Never shown merely because no relay is configured: only when a
+    // relay-only call is refused, or a connection fails with no relay.
+    noteRelayMissing(false)
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -13118,7 +13122,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
           turnRelayConfigured = hasRelay(fresh)
-          noteRelayMissing(!turnRelayConfigured)
         })
         .catch(() => {})
     }
@@ -13143,6 +13146,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       openConnections.set(key, pc)
       ownConnections.add(key)
       pc.addEventListener('connectionstatechange', () => {
+        if ((pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !turnRelayConfigured) noteRelayMissing(true)
         if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
         openConnections.delete(key)
         uplink.forget(key)
