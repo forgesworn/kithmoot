@@ -224,14 +224,20 @@ jobs:
   # Chromium completed 210 of 211 acceptance cases at the 30-minute job limit
   # after all 634 regression cases passed. Each browser now retains its own
   # complete regression gate, with unchanged test timeouts and no retries.
+  # Firefox's 618 MLS controls exceeded this separate 20-minute job budget.
+  # Run that same suite in two disjoint shards; vault and Link still run once.
   browser-regressions:
-    name: browser regressions (${{ matrix.project }})
+    name: browser regressions (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit]
+        include:
+          - { name: chromium, project: chromium }
+          - { name: webkit, project: webkit }
+          - { name: firefox 1 of 2, project: firefox, shard: 1/2 }
+          - { name: firefox 2 of 2, project: firefox, shard: 2/2 }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -260,13 +266,15 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.project }}
 
       - name: MLS vault cross-tab regression tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npm run test:vault -- --project=${{ matrix.project }}
 
       - name: Browser Link ownership tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
 
       - name: Browser MLS storage, coordination and recovery controls
-        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }}
+        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }} ${{ matrix.shard && format('--shard={0}', matrix.shard) || '' }}
 
       - name: Browser MLS preview account lifecycle and production gate
         if: matrix.project == 'chromium'
@@ -276,7 +284,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-browser-regressions-${{ matrix.project }}
+          name: playwright-traces-browser-regressions-${{ matrix.name }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
