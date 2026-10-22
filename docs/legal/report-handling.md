@@ -82,10 +82,10 @@ beyond their current IP.
 
 ### 3.2 Our file store (Blossom, `blossom-server-ts` 5.2.0)
 
-**No new uploads from 22 October 2026.** The app no longer sends files
-here, and the upload route answers 410 (host's report, 22 October 2026,
-09:42Z). Reads by hash and owners' deletes still work, so what follows
-still applies to files already stored.
+**No new uploads from 22 October 2026.** The web app and the desktop app
+no longer send files here, and the upload route answers 410 (host's
+report, 22 October 2026, 09:42Z). Reads by hash and owners' deletes still
+work, so what follows still applies to files already stored.
 <!-- app/src/file-storage.ts: no ForgeSworn host is ever a destination. deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
 
 **Delete by hash:** blossom-server-ts implements a `DELETE` route per

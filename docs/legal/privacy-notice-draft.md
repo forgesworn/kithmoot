@@ -46,7 +46,8 @@ verified 28 September 2026, [P]).]`
   noted in section 3.
 - Joining a room needs only its link. We do not run accounts, and most
   people never give us anything we would call personal data.
-- Files you send go to a public file server run by somebody else, unless
+- In the web app and the desktop app, files you send go to a public file
+  server run by somebody else, unless
   you choose another server or none. They are encrypted on your device
   first, so that server cannot open them (section 8).
 - Our default infrastructure (a TURN server, a file store that takes no
@@ -116,8 +117,8 @@ caps, and a per-allocation bandwidth cap.
 
 ### 4.2 Our file store (Blossom)
 
-**No new uploads.** The app no longer sends files to our file store, and
-from 22 October 2026 the store takes no new uploads. Files already there
+**No new uploads.** From 22 October 2026 our file store takes no new
+uploads, and the web app and the desktop app no longer send files there. Files already there
 are still served to anyone with their link, and the device that sent one
 can still delete it, until they expire.
 <!-- app/src/file-storage.ts storedFileServer, usableFileServer, chooseFileServer and retireForgeSwornConsent: no ForgeSworn host is ever a destination. Server side: the host's report of 22 October 2026 that PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z, with Blossom reads and owners' deletes still working. Not verified from code: deploy/Caddyfile.kithmoot in this tree still passes /upload to the store, and is not the live state. -->
@@ -290,15 +291,14 @@ would like the chance to put things right first.
 The app also makes your device contact the following. Each learns your
 device's IP address and the time, as any web request does.
 
-- **A public file server, when you send a file.** Files you send go to
-  blossom.yakihonne.com, a public server run by Yakihonne LLC in the
+- **A public file server, when you send a file.** In the web app, and the
+  desktop app that loads it, files you send go to blossom.yakihonne.com, a public server run by Yakihonne LLC in the
   United States, unless you choose another server, or "Nowhere", under
   Settings, Privacy, "Where files go". The first time your device sends a
   file, the app names the server and says what it sees, and nothing goes
   to it until you press Send. Your file is encrypted and padded on your
   device first, so the server cannot open it. The server receives the
-  encrypted file; its size, rounded up so it shows only roughly how big
-  the file is; the upload, signed by a key made for your device in that
+  encrypted file; its size, rounded up so it is not exact; the upload, signed by a key made for your device in that
   room, which lets the server tell that uploads in one room came from the
   same device; your IP address; and when files are uploaded and opened.
   Anyone who opens the file, the people in your room included, connects to

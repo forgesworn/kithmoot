@@ -25,8 +25,8 @@ KithMoot is an encrypted workspace: rooms, messages, files and calls
 between the people you invite. It is built on Nostr, an open network, and
 uses relays, TURN servers and file servers that you can choose; some of
 those are run by us by default, and you can point a room at others
-instead. Files you send go by default to a public file server run by
-somebody else (section 6).
+instead. In the web app and the desktop app, files you send go by default
+to a public file server run by somebody else (section 6).
 
 By using KithMoot you agree to these terms. If we change them, we will say
 so on the site before the change takes effect. If you do not agree to a
@@ -122,15 +122,16 @@ reports or removal.
   it stores and serves. We have no such control over any other relay,
   including the defaults, or any relay a room's creator chooses instead.
 - **Files you send go to a server run by somebody else.** Unless you
-  choose another server, the app sends files to blossom.yakihonne.com, a
+  choose another server, the web app and the desktop app send files to
+  blossom.yakihonne.com, a
   public server run by Yakihonne LLC in the United States, which has its
   own rules (https://yakihonne.com/terms). Each file is encrypted on your
   device before it leaves, so that server cannot open it. We do not run
   that server and cannot remove anything from it.
   <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS, defaultFileServer, resolveFileDestination; location from https://yakihonne.com/terms ("a Wyoming limited liability company"), fetched 22 October 2026 -->
 - **Our own file store takes no new uploads** from 22 October 2026, and
-  the app no longer sends files there. It accepted only sealed, encrypted
-  files it cannot read or display. Files already there can still be
+  the web app and the desktop app no longer send files there. It accepted
+  only sealed, encrypted files it cannot read or display. Files already there can still be
   fetched by anyone with their link, and deleted by the device that sent
   them, until they expire.
   <!-- deploy/blossom.yml: the one accepted type is application/vnd.forgesworn.encrypted. App: app/src/file-storage.ts, no ForgeSworn host is ever a destination. Server: the host's report of 22 October 2026 (PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z; reads and owners' deletes still work). deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
