@@ -136,11 +136,29 @@ and `--server-name` set to its host name; the keeper is started with
 (see `agents.md`, "Group storage grants", for what it signs and when). The
 contract both sides follow is wildbloom-node's `docs/GROUP-GRANTS.md`.
 
-What exists today is the keeper's side and the node's side. The app and the
-agent do not yet upload to or read from a group node (phase S5), so setting
-this up does not change where files go. The keeper does not run a node, and
-nothing here makes a node public: a node in group mode refuses everyone the
-keeper has not named, and every read needs a signed token.
+The nodes are also listed in the room. The keeper signs them, in the order
+given and at most eight, into the room's invitation and into a `storage` control
+op; a restart with different flags changes the list, and with none refuses to
+start while the room (or `<state>.grants`) still names nodes. To stop listing
+them, start the keeper with `--group-withdraw` (with `--state`, not with
+`--group-node` or `--group-bytes`; add `--group-reset` to move an unreadable
+ledger aside): it signs an empty list, mints and renews nothing more, and still
+revokes at the nodes in `<state>.grants` when somebody is removed. Do not run
+an older keeper on a state that has used group nodes: it drops the list from
+the state, and the nodes then go unrenewed and unrevoked.
+
+The list is the rule for clients: a client that implements group storage keeps
+a listed room's files on its nodes, keeps them off when the list is empty, and
+never falls back to a public file server. Today only the library does
+(`GroupStorage`); the web app does not yet, and still uploads to the member's
+own file server.
+
+What exists today is the keeper's side and the node's side, and the library a
+client uses to upload to and read from the listed nodes (`GroupStorage`). The
+web app does not yet use it (a later phase), so setting this up does not change
+where a person's files go in the app. The keeper does not run a node, and nothing
+here makes a node public: a node in group mode refuses everyone the keeper has
+not named, and every read needs a signed token.
 
 ## Planned
 

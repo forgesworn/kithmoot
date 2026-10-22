@@ -170,6 +170,38 @@ that predates it ignores the key. When two valid copies disagree, the newest
 about them, and between equal timestamps the first heard stays. (Contrast
 `ends`, where the earliest stands.)
 
+**Room storage nodes.** The body MAY also carry `storage`, after `relays` (key
+order `v, room, secret, ends, destruct, relays, storage`): the base URLs of the
+group storage nodes the room's keeper grants at, in order of preference. It is
+an array of zero to eight strings, no two with the same host name. Each is a
+canonical node base URL, defined by grammar and pinned by fold-kit's
+`storage-vectors.json`: `https`, or `http` only for `localhost`, a loopback
+address `127.a.b.c` or an onion v3 host; a lower-case host; no default port
+(`:443` on `https`, `:80` on `http`); no trailing slash (the root is written
+with no path); no user info, query or fragment; path segments of letters,
+digits and `. _ ~ -` only; at most 256 characters. A host whose last label is
+all digits must be exactly four decimal octets. `[]` means the authority
+withdrew every node; a body with no `storage` key says nothing about nodes and
+is byte-identical to one written before the field. A reader MUST reject the
+whole invitation when `storage` is present and is not such a list, never trim
+it. When two valid copies disagree, the newest `created_at` that has the key
+stands, `[]` included; a copy without it says nothing. Between equal
+timestamps the first heard stays. `relays` and `storage` merge independently.
+A reader that predates the field ignores the key, except fold-kit's strict
+evidence reader before 0.14.0, which drops an envelope that carries it: a
+keeper creating a room with storage therefore first publishes the same
+invitation without `storage` one second earlier, so such a reader still has a
+copy to admit from. The version stays 3.
+
+The `storage` key in the invitation is signed by the room's authority and is
+written from the keeper's `--group-node` flags, so the two cannot disagree. A
+keeper republishes its last signed invitation byte for byte when nothing in its
+body has changed since (a fresh copy per start would eventually exceed the 64
+copies fold-kit's strict reader will hold), and signs a new one only when the
+body changes. A room made by a browser has no keeper and so no grants; it never
+carries `storage`. See the `storage` control op under
+"Credentials, roster and room state" below, and the `roomStorage` vectors.
+
 Every member's pool is the room's relays - these, then the relays its
 authority's newest `relays` control op added - first, reading and writing,
 never cut; then the member's own relays for the room, up to sixteen in all.
@@ -355,7 +387,7 @@ the sender is the message's credential-bound participant. See `src/meeting.ts`,
 "A meeting is moderated by the room's authority" in [decisions](decisions.md),
 and the `meeting` vectors.
 
-Group storage grants (experimental, phase S4; no client uses a group node yet).
+Group storage grants (experimental, phase S4; the nodes are listed in the room by phase S5, below).
 When a keeper is configured with group storage nodes, it signs a kind 27541
 event with the room's authority key for each admitted device at each node, and
 sends each as `{"op":"storage-grant","event":{...}}`, one event per op, whole
@@ -373,6 +405,29 @@ credential-bound device, as for `hand`. A grant is never published bare on a
 relay: it travels only in this encrypted channel and by HTTP `POST
 /groups/v1/events` to the node it names. Readers that do not know the op ignore
 it.
+
+Room storage nodes (experimental, phase S5). The room's authority posts
+`{"op":"storage","nodes":[<node base URL>…],"version":<int>,"sig":"<128 hex>"}`
+on the control channel: the same list the invitation's `storage` key carries,
+for members who are already in the room. `sig` is BIP-340 by the authority over
+`sha256("kithmoot/v1/storage:" + roomId + ":" + version + ":" + JSON.stringify(nodes))`,
+the list in its given order (it is a preference order, so it is not sorted), and
+every entry MUST be canonical as above. Unlike a `relays` op, an empty `nodes`
+is valid and is the withdrawal of every node. `version` is Unix seconds, the
+`created_at` of the invitation copy the keeper signed at the same time, so a
+member comparing the two carriers sees one number. A member keeps the record
+with the highest version from either carrier; a tie keeps what it holds. Any
+member may repost an op, so it has no `host`; only the signature counts, and a
+list that is not canonical fails verification rather than being corrected. A
+keeper posts it when it opens the control channel and again after 20 days, so a
+newcomer reading the channel's history window finds it. Readers that do not know
+the op ignore it.
+
+This is the rule for clients, not a description of today's apps. A client that
+implements group storage keeps a listed room's files on its nodes, keeps them
+off in a room whose list is `[]`, and never falls back to a public file server
+for either. The library implements it (`GroupStorage`); the web app does not
+yet, and still uploads to the member's own file server in such a room.
 
 Rekeys and the encrypted control channel are authority-bound. A room advances
 one verified epoch at a time; a removed device can read the removal notice but

@@ -72,6 +72,23 @@ describe('configuration', { timeout: 30_000 }, () => {
   })
 })
 
+describe('configuration: the room\'s list', () => {
+  const urls = (n: number) => Array.from({ length: n }, (_, i) => `https://n${i}.example.net`)
+
+  it('allows eight nodes and refuses nine, saying why', () => {
+    const base = { store: new MemoryStore(), bytes: 1 }
+    expect(GroupGrantKeeper.validate({ ...base, nodes: urls(8) }).nodes.length).toBe(8)
+    expect(() => GroupGrantKeeper.validate({ ...base, nodes: urls(9) })).toThrow('group grants: at most 8 group nodes (the room\'s invitation lists at most 8)')
+  })
+
+  it('accepts an empty list only when withdrawn, and then needs no byte ceiling', () => {
+    const store = new MemoryStore()
+    expect(GroupGrantKeeper.validate({ store, nodes: [], bytes: '', withdrawn: true })).toEqual({ nodes: [], bytes: '' })
+    expect(() => GroupGrantKeeper.validate({ store, nodes: [], bytes: 1 })).toThrow(/at least one/)
+    expect(() => GroupGrantKeeper.validate({ store, nodes: [A], bytes: 1, withdrawn: true })).toThrow(/lists no group nodes/)
+  })
+})
+
 describe('admission: minting', { timeout: 30_000 }, () => {
   it('signs one grant per device per node: authority key, fresh 16-byte id, three scopes, the ceiling, thirty days', async () => {
     const t = setup()
@@ -361,6 +378,39 @@ describe('removal, in the order of 4.8', { timeout: 30_000 }, () => {
     await third.start()
     expect(third.ledger.removing).toEqual([])
     expect(t.grantOps().length).toBe(1)
+  })
+})
+
+describe('a withdrawn room keeps undelivered revocations', { timeout: 30_000 }, () => {
+  /** A node that is down at a removal; two days pass; does the revocation still wait for it? */
+  async function afterTwoDays(over: Partial<GroupGrantsConfig>): Promise<{ journal: number; gaveUp: boolean }> {
+    const store = new MemoryStore()
+    let skewMs = 0
+    const t = setup({ clockMs: () => Date.now() + skewMs }, store)
+    t.addDevice(P1)
+    const first = await t.make()
+    await first.start()
+    await waitFor(() => first.ledger.journal.length === 0)
+    first.close()
+    t.nodes.setOffline('node-b.test', true)
+    const second = await t.make({ ...t.config, ...over })
+    await second.beforeRemoval(P1)
+    t.world.removed.add(P1)
+    await second.afterRemoval(P1)
+    await new Promise((r) => setTimeout(r, 40))
+    expect(second.ledger.journal.some((j) => j.kind === 'revoked' && j.server === 'node-b.test')).toBe(true)
+    skewMs = 2 * 86_400_000
+    // The pump keeps trying the offline node, and each try saves the ledger, which is when old entries are pruned.
+    await new Promise((r) => setTimeout(r, 120))
+    return { journal: second.ledger.journal.filter((j) => j.kind === 'revoked' && j.server === 'node-b.test').length, gaveUp: t.logs.some((l) => l.includes('gave up on an event for node-b.test')) }
+  }
+
+  it('a node dropped from the flags is given up on after a day, as before', async () => {
+    expect(await afterTwoDays({ nodes: [A] })).toEqual({ journal: 0, gaveUp: true })
+  })
+
+  it('a withdrawn room, where no member contacts a node any more, keeps the revocation until it expires', async () => {
+    expect(await afterTwoDays({ nodes: [], bytes: '', withdrawn: true })).toEqual({ journal: 1, gaveUp: false })
   })
 })
 

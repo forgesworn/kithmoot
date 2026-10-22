@@ -1,4 +1,5 @@
 import { randomBytes as nobleRandomBytes } from '@noble/hashes/utils'
+import { MAX_INVITATION_STORAGE_NODES } from '@forgesworn/fold-kit'
 import type { ControlMessage } from './control.js'
 import {
   GRANT_LIFETIME_SECONDS, GRANT_RENEW_WITHIN_SECONDS, KEEPER_SCOPES, buildGrant, buildReset, canonicalBytes, groupNodeFromBase,
@@ -26,6 +27,9 @@ import {
  * revocation or a reset may go earlier: they end grants, never add them), and
  * a removal never depends on the ledger being writable.
  */
+
+/** The most nodes a room's invitation can list. */
+const MAX_GROUP_NODES = MAX_INVITATION_STORAGE_NODES
 
 /** Devices one participant may have with a live grant (decision O5). */
 export const MAX_DEVICES_PER_PARTICIPANT = 5
@@ -56,6 +60,14 @@ const PER_DEVICE = /^409 (key-conflict|scope-changed)$/
 /** A 500 is tried this many times before it counts as the node refusing. */
 const FLAKY_TRIES = 3
 
+/**
+ * A1's refusal: a keeper restarted without the flags that named its nodes. The
+ * hosts are those the room lists (from its state), or, for a state that lost
+ * the list, those its grant ledger names.
+ */
+export const roomListsNodesMessage = (hosts: readonly string[]): string =>
+  `this room lists group storage nodes (${hosts.join(', ')}); start the keeper with the same --group-node and --group-bytes flags, or with --group-withdraw to stop listing them`
+
 /** Where the ledger lives. The CLI gives a file beside the keeper's state. */
 export interface GroupGrantStore {
   load(): Promise<string | undefined>
@@ -65,8 +77,16 @@ export interface GroupGrantStore {
 }
 
 export interface GroupGrantsConfig {
-  /** Base URLs of the group nodes (`http` or `https`; the `server` tag is each one's host name). */
+  /** Base URLs of the group nodes (`http` or `https`; the `server` tag is each one's host name). At most 8: the room's invitation lists at most 8. */
   nodes: readonly string[]
+  /**
+   * The room has withdrawn its storage nodes (`--group-withdraw`, or a later start with none given whose state holds
+   * `storage: []`): `nodes` is empty and needs no byte ceiling. The keeper runs over the existing ledger only. It mints
+   * and renews nothing and signs no resets, but a removal still signs revocations at every node in the ledger, pushed
+   * with the ledger's `bases`, and the journal rules apply unchanged. This is the only mode in which `validate` accepts
+   * an empty node list.
+   */
+  withdrawn?: true
   /** The per-device byte ceiling. No default: whoever configures the nodes chooses it. */
   bytes: bigint | number | string
   store: GroupGrantStore
@@ -254,7 +274,12 @@ export class GroupGrantKeeper {
 
   /** Refuse a configuration that cannot work, before anything is dialled. Returns what it parsed. */
   static validate(config: GroupGrantsConfig): { nodes: GroupNode[]; bytes: string } {
+    if (config.withdrawn) {
+      if (config.nodes.length) throw new Error('group grants: a withdrawn room lists no group nodes')
+      return { nodes: [], bytes: '' }
+    }
     if (!config.nodes.length) throw new Error('group grants need at least one group node')
+    if (config.nodes.length > MAX_GROUP_NODES) throw new Error(`group grants: at most ${MAX_GROUP_NODES} group nodes (the room's invitation lists at most ${MAX_GROUP_NODES})`)
     if (config.bytes === undefined || config.bytes === null || config.bytes === '') {
       throw new Error('group grants need a byte ceiling per device: it is the node owner\'s choice and has no default')
     }
@@ -285,6 +310,11 @@ export class GroupGrantKeeper {
         return { ledger, resetting: false }
       } catch (error) {
         if (!config.resetUnreadable) {
+          if (config.withdrawn) {
+            throw new Error(`the group grant ledger cannot be read (${error instanceof Error ? error.message : 'damaged'}). ` +
+              'Its file is left as it is. This room lists no group nodes, so it mints nothing; to start anyway, run with --group-withdraw --group-reset: ' +
+              'the unreadable file is moved aside, never deleted, and the room starts with no grant keeper (nothing is left to revoke by).')
+          }
           throw new Error(`the group grant ledger cannot be read (${error instanceof Error ? error.message : 'damaged'}). ` +
             'Its file is left as it is. To start anyway, sign a reset at every group node and issue fresh grants, run with --group-reset: ' +
             'the unreadable file is moved aside, never deleted.')
@@ -401,7 +431,10 @@ export class GroupGrantKeeper {
       // A revocation the node refused is kept until it could no longer matter: a node that takes the keeper again is sent it.
       if (j.stopped) return j.kind === 'revoked' ? this.#expirationOf(j.event) > now : (j.stoppedAt ?? 0) + KEEP_STOPPED_SECONDS * 1000 > nowMs
       if (this.#expirationOf(j.event) <= now) { expired++; this.#unsaved.delete(j); return false }
-      if (!this.#nodes.some((n) => n.server === j.server) && j.since + UNCONFIGURED_NODE_SECONDS * 1000 < nowMs) {
+      // In a withdrawn room no member contacts a node any more (the list is empty), so a revocation or reset the keeper has yet to deliver
+      // is the only thing that will ever reach it: it is kept until it expires, not given up after a day.
+      const withdrawnEnding = this.#config.withdrawn === true && (j.kind === 'revoked' || j.kind === 'reset')
+      if (!withdrawnEnding && !this.#nodes.some((n) => n.server === j.server) && j.since + UNCONFIGURED_NODE_SECONDS * 1000 < nowMs) {
         this.#log(`group grants: gave up on an event for ${j.server}, a node that is no longer configured`)
         this.#unsaved.delete(j)
         return false
@@ -826,6 +859,8 @@ export class GroupGrantKeeper {
       this.#closing = true
       this.#stopTimers()
       const now = this.#host.now()
+      // Closing a room ends everything it granted, even a withdrawn one: a reset is signed at every node the ledger names
+      // (the "signs no resets" of a withdrawn room is about its running life, not about its close).
       const servers = new Set([...this.#nodes.map((n) => n.server), ...Object.keys(this.#ledger.bases)])
       for (const s of servers) this.#signReset(s, now)
       this.#touch()

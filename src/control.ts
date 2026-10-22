@@ -1,6 +1,7 @@
 import { MAX_CHAT_TEXT_LENGTH } from './chat.js'
 import { canonicalChannels } from './epoch.js'
 import { MAX_ROOM_RELAYS } from './room-relays.js'
+import { MAX_ROOM_STORAGE_NODES } from './room-storage.js'
 import { validateAssignmentActions, type AssignmentAction } from './assignments.js'
 import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
@@ -103,6 +104,15 @@ export type ControlMessage =
    * counts, so it has no `host`.
    */
   | { op: 'relays'; relays: string[]; version: number; sig: string }
+  /**
+   * The room's group storage nodes, in order of preference: the nodes its
+   * keeper grants at, signed by the authority over the room id, `version` and
+   * the list (`signRoomStorage` in `room-storage.ts`). A client takes only the
+   * highest version, and checks it against the inviter pinned in its link. `[]`
+   * is the withdrawal of every node. Like `relays`, any member may repost it,
+   * so it has no `host`.
+   */
+  | { op: 'storage'; nodes: string[]; version: number; sig: string }
   /**
    * The room in meeting mode or out of it, and who its speakers are. Signed
    * by the authority over the room id, `version`, the mode and the list
@@ -376,6 +386,18 @@ export function decodeControl(text: string): ControlMessage | null {
       // Kept as sent: the signature is over the canonical list, and one that
       // is not canonical fails `verifyRoomRelays` rather than being mended.
       return { op: 'relays', relays: [...(m.relays as string[])], version: m.version as number, sig: m.sig.toLowerCase() }
+    }
+    case 'storage': {
+      // Exactly these keys: the web app's snapshot custody refuses a control
+      // message whose decoded form differs from what was sent.
+      if (Object.keys(m).length !== 4 || !Array.isArray(m.nodes) || m.nodes.length > MAX_ROOM_STORAGE_NODES) return null
+      if (!m.nodes.every((url) => typeof url === 'string' && url.length <= 256)) return null
+      if (!Number.isSafeInteger(m.version) || (m.version as number) < 0) return null
+      if (typeof m.sig !== 'string' || !/^[0-9a-f]{128}$/i.test(m.sig)) return null
+      // Kept as sent, like `relays`: a list that is not canonical fails
+      // `verifyRoomStorage` rather than being mended. An empty list is the
+      // withdrawal of every node, not an error.
+      return { op: 'storage', nodes: [...(m.nodes as string[])], version: m.version as number, sig: m.sig.toLowerCase() }
     }
     case 'meeting': {
       if (typeof m.on !== 'boolean' || !Array.isArray(m.speakers)) return null

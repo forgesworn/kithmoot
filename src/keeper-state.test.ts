@@ -11,6 +11,51 @@ const inviterSk = new Uint8Array(32).fill(2)
 const bearer = new Uint8Array(32).fill(3)
 const epochSecret = new Uint8Array(32).fill(4)
 
+describe('keeper state: group storage', () => {
+  const nodes = ['https://grove.example.net', 'http://127.0.0.1:3742']
+  const plain = { secret, inviterSk, bearer, persistent: true as const }
+
+  it('keeps the listed nodes in order, and `[]` for a withdrawal; writes neither when absent', () => {
+    expect(parseKeeperState(serialiseKeeperState({ ...plain, storage: nodes })).storage).toEqual(nodes)
+    expect(parseKeeperState(serialiseKeeperState({ ...plain, storage: [] })).storage).toEqual([])
+    const bare = JSON.parse(serialiseKeeperState(plain))
+    expect(bare).not.toHaveProperty('storage')
+    expect(bare).not.toHaveProperty('invitation')
+    expect(parseKeeperState(serialiseKeeperState(plain)).storage).toBeUndefined()
+  })
+
+  it('refuses a damaged list rather than let a keeper start as if the room listed nothing', () => {
+    const stored = JSON.parse(serialiseKeeperState({ ...plain, storage: nodes }))
+    for (const bad of ['https://grove.example.net', [1], ['https://grove.example.net/'], ['http://files.example.net'], null]) {
+      expect(() => parseKeeperState(JSON.stringify({ ...stored, storage: bad })), JSON.stringify(bad)).toThrow(/storage/)
+    }
+    expect(() => serialiseKeeperState({ ...plain, storage: ['nope'] })).toThrow(/storage/)
+  })
+
+  it('keeps the pending plain copy and the list\'s version, and drops damaged ones without touching the rest', () => {
+    const event = { id: 'a'.repeat(64), pubkey: 'b'.repeat(64), sig: 'c'.repeat(128), kind: 1463, created_at: 1_800_000_000, content: 'x', tags: [['d', 'y']] }
+    const back = parseKeeperState(serialiseKeeperState({ ...plain, storage: nodes, compat: event, storageAt: 1_800_000_005 }))
+    expect(back.compat).toEqual(event)
+    expect(back.storageAt).toBe(1_800_000_005)
+    const bare = JSON.parse(serialiseKeeperState({ ...plain, storage: nodes }))
+    expect(bare).not.toHaveProperty('compat')
+    expect(bare).not.toHaveProperty('storageAt')
+    const damaged = parseKeeperState(JSON.stringify({ ...bare, compat: { id: 'short' }, storageAt: -3 }))
+    expect(damaged.compat).toBeUndefined()
+    expect(damaged.storageAt).toBeUndefined()
+    expect(damaged.storage).toEqual(nodes)
+  })
+
+  it('keeps the signed invitation, and drops an unreadable one without touching the rest', () => {
+    const event = { id: 'a'.repeat(64), pubkey: 'b'.repeat(64), sig: 'c'.repeat(128), kind: 1463, created_at: 1_800_000_000, content: 'x', tags: [['d', 'y']] }
+    expect(parseKeeperState(serialiseKeeperState({ ...plain, invitation: event })).invitation).toEqual(event)
+    const stored = JSON.parse(serialiseKeeperState({ ...plain, storage: nodes, invitation: event }))
+    const back = parseKeeperState(JSON.stringify({ ...stored, invitation: { id: 'short' } }))
+    expect(back.invitation).toBeUndefined()
+    expect(back.storage).toEqual(nodes)
+  })
+})
+
 describe('keeper state', () => {
   it('retains v3 creation across disk persistence without upgrading old rooms', () => {
     const state = { secret, inviterSk, bearer, persistent: true as const }

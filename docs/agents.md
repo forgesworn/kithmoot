@@ -162,7 +162,8 @@ would leave every device that was away waiting for another member.
 `KITHMOOT_GROUP_NODES` comma separated) and `--group-bytes <n>`
 (`KITHMOOT_GROUP_BYTES`) make a keeper the signer of group grants for a
 Wildbloom node running in group mode (`wildbloomd --group-mode`; contract:
-wildbloom-node `docs/GROUP-GRANTS.md`). Both are needed, with `--state`: the
+wildbloom-node `docs/GROUP-GRANTS.md`). The same flags also list the nodes in
+the room (see below). Both are needed, with `--state`: the
 byte ceiling per device is the node owner's choice and has no default, and
 the keeper keeps what it has signed in `<state>.grants` beside the state
 file, under the same lock. Copy it with the state file when a keeper moves to
@@ -172,6 +173,40 @@ here runs and the keeper behaves as it always did. Nodes are `https`, or
 refused. The node's own `--server-name` must be the node's host name as
 written in the URL, lower case and without the port, because that is the
 grant's `server` tag.
+
+The nodes are also listed in the room, in the order given (the first is
+preferred; at most eight, one per host name): the keeper signs the list into
+the group invitation (kind 1463, a `storage` key) and posts it as a signed
+`{"op":"storage","nodes":[…],"version":…,"sig":…}` control op, once at start
+and again after 20 days; members learn it from the invitation or the op
+(`RoomAgent.storageNodes`). It is the rule for clients: one that implements
+group storage keeps the group's files on those nodes. Today that is the
+library's `GroupStorage`; the web app does not yet, and agents do not upload
+files. A keeper restarted with different `--group-node` flags changes the list;
+one restarted with none, while the room lists nodes (or while `<state>.grants`
+names any, which also catches a state an older keeper has rewritten), refuses to
+start naming the hosts, so a forgotten flag never takes a room's files away. Do
+not run an older keeper on a state that has used group nodes. `--group-withdraw`
+(`KITHMOOT_GROUP_WITHDRAW=1`; needs `--state`, not with `--group-node` or
+`--group-bytes`; `--group-reset` with it moves an unreadable ledger aside and the
+room starts with no grant keeper) is the deliberate way to stop listing them: it signs an empty list into the
+invitation and the op, records it in the state, and signs it again on every
+later start (without the flag), so an older copy that listed nodes cannot
+stand again. A withdrawn keeper runs its grant ledger with no configured
+nodes: it mints and renews nothing and signs no resets, but a removal still
+signs revocations at every node the ledger names, and keeps a revocation or
+reset it has yet to deliver until it expires (members no longer contact the
+nodes, so the keeper's journal is the only way left; a node merely dropped
+from the flags is still given up on after a day). With no ledger file the grant
+keeper does not run. Existing
+grants end at their own expiry, 30 days at most. A new room with nodes first
+publishes its invitation without `storage` one second earlier, for readers
+that predate the field (kept in the state until it has gone out once). A changed
+list is always signed later than the copy it replaces, even if the keeper's
+clock is behind, since members take the newest. The keeper also keeps the last invitation it signed in
+its state and republishes it unchanged on a start when nothing in its body
+changed, whether or not it has group nodes: a fresh copy is signed only when
+the body changes.
 
 What the keeper does:
 
@@ -268,8 +303,12 @@ room that already existed it signs a reset at every node first, as above.
 unit that keeps the flag set must not reset every node at each restart.
 
 Group grants are not offered to a keeper started with a live-keeper journal,
-and MLS rooms have no authority key to sign them. Clients do not yet upload to
-or read from group nodes (phase S5), so today the grants only prepare the nodes.
+and MLS rooms have no authority key to sign them. The library has the client
+side (`GroupStorage`: tokens, the probe that refuses a node serving an
+unauthenticated read, carrying revocations and resets, and the device's own
+grant, uploads and reads by hash across the listed nodes); the web app does not
+use it yet, so today the grants and the list prepare the nodes. Agents do not
+upload files.
 
 `--state <file>` also takes `<file>.lock` while the keeper runs, so two
 keepers cannot share one state file and rekey the room two ways. A second
