@@ -95,7 +95,7 @@ jobs:
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:
       image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
-      options: --init --ipc=host
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -123,8 +123,11 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict'
-          import { existsSync, readFileSync } from 'node:fs'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
           import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
           const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
           for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
             assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
@@ -239,7 +242,7 @@ jobs:
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:
       image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
-      options: --init --ipc=host
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -267,8 +270,11 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict'
-          import { existsSync, readFileSync } from 'node:fs'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
           import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
           const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
           for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
             assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
@@ -326,7 +332,7 @@ jobs:
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:
       image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
-      options: --init --ipc=host
+      options: --init --ipc=host --user 1001
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
@@ -373,8 +379,11 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict'
-          import { existsSync, readFileSync } from 'node:fs'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
           import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
           const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
           for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
             assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
