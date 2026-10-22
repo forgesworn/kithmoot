@@ -10382,6 +10382,21 @@ function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
 }
 
 /**
+ * The file behind an attachment on one of the room's own nodes: asked for by
+ * its hash from `base` first and then from the room's other nodes, each with a
+ * token signed by this device, checked against the hash the message named
+ * before the key touches it, then opened. The result is the same decrypted file
+ * a plain fetch gives, so the one safety decision runs on it unchanged.
+ */
+async function openGroupAttachment(a: ChatAttachment, base: string): Promise<DecryptedEnvelopeBlob> {
+  const group = roomGroup
+  if (!group || group.roomId !== currentRoomId()) throw new Error('Join the room first.')
+  const envelope = await group.storage.get(a.sha256, { prefer: base, maxBytes: DEFAULT_MAX_BLOB_ATTACHMENT_BYTES })
+  if (await sha256BlobHex(envelope) !== a.sha256.toLowerCase()) throw new Error('The download is not the file the message named.')
+  return decryptEnvelopeBlob(envelope, a.key)
+}
+
+/**
  * One attachment under a message. Nothing is fetched until the person
  * clicks: a fetch reaches the Blossom server, and that is a fact about
  * this device that a message from somebody else must not create on its
@@ -10438,9 +10453,13 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     try {
       if (generation !== roomGeneration) return
       const location = privateAttachmentLocation(a.url, a.sha256)
-      if (!location && roomUsesBothy) throw new Error('This file uses a public store. Public downloads are held on this Bothy route.')
+      // A file on one of the room's own nodes is read with a signed token; a
+      // node never answers an unauthenticated read.
+      const groupBase = location ? undefined : listedBaseOf(roomStorageRecord()?.nodes ?? [], a.url, a.sha256)
+      if (!location && !groupBase && bothyFiles()) throw new Error('This file uses a public store. Public downloads are held on this Bothy route.')
       const file = location
         ? await privateFiles.download(a, new AbortController().signal)
+        : groupBase ? await openGroupAttachment(a, groupBase)
         : await fetchAttachmentBlob(a)
       if (generation !== roomGeneration) return
       // One decision, on the decrypted file, whichever fetch produced it.
