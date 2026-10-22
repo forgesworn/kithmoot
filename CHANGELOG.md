@@ -1,5 +1,12 @@
 # Changelog
 
+## Desktop 0.1.101, 22 October 2026
+
+- A room whose keeper lists the group's own storage keeps its files there. Only the room's admitted devices can upload or open them, with passes the keeper signs; no public server is involved, and nothing about a file is announced in the open. Room info says "Files in this room go to the group’s own storage."
+- If the keeper withdraws the group's storage, files stay off in that room ("This group has no storage right now.") and never fall back to a public server.
+- A device the keeper has not let in yet keeps its file waiting, says so, and sends it when the keeper grants the device. You can switch rooms meanwhile.
+- Leaving a room tidies up its group files on the group's storage through the same signed delete as before.
+
 ## Desktop 0.1.100, 22 October 2026
 
 - With "Hide my IP address" on, you can join a room and chat again even when the room has no relay. Only a call is refused, saying why, and it is never made direct.
