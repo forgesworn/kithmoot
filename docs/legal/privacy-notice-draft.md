@@ -327,9 +327,11 @@ We hold almost nothing described in section 4 for long, by design:
 - The default drop tier: up to 30 days, or sooner under its size bound
   (section 4.3).
 - System logs across the box that runs our default services (including
-  any service logs that are not discarded, such as the TURN and Blossom
-  services' own operational logs) are bounded by our journald retention
-  policy: two weeks, or 500 MB, whichever comes first.
+  any service logs that are not discarded, such as the TURN credential
+  and Blossom services' own operational logs) are bounded by our journald
+  retention policy: two weeks, or 500 MB, whichever comes first. coturn
+  runs in a container and logged to the container's own log, not the
+  journal (section 4.1).
   <!-- deploy/journald-kithmoot.conf: MaxRetentionSec=2week, SystemMaxUse=500M -->
 - A keeper we run: the room's key for as long as the keeper keeps the
   room (section 4.7).
@@ -366,9 +368,11 @@ identifiable to you (for example, an email you sent us), you can ask us to:
 
 Write to `abuse@safety.forgesworn.dev`. We will answer within one month.
 
-**Content in a room.** We cannot delete a message, a file, or a call
-recording (if a keeper's own setup makes one) from a room, because we
-never held it. If you want something removed from a room you are in, leave
+**Content in a room.** For a room we do not keep, we cannot delete a
+message, a file, or a call recording from it, because we never held it.
+For a room we keep, we can do what its keeper can: remove a member or
+close the room, which does not erase what members already received
+(section 4.7). If you want something removed from a room you are in, leave
 the room, ask a keeper who runs it to remove you or close it, or, for your
 own signed public events, use the in-app tool that asks relays to delete
 them (results depend on each relay's own cooperation, and are shown to you
@@ -395,7 +399,12 @@ You can also complain to the Information Commissioner's Office
 - **Public Nostr relays**, including the independent relays the app
   suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing
   any room necessarily produces to function, wherever those relays are
-  operated.
+  operated. The app also lists two public relays a person may pick,
+  offchain.pub and relay.damus.io; neither is used unless chosen. A room
+  made before the current defaults may name nos.lol, a former default, in
+  its link, and the app gives such a room the current third default
+  alongside.
+  <!-- src/public-relays.ts:67-71 (default: true for three; offchain.pub and relay.damus.io default: false); app/src/relay-settings.ts:20 LEGACY_PUBLIC_RELAYS and :21 PUBLIC_FALLBACK_RELAY -->
 - **Our hosting provider**, Hetzner, which hosts the box our STUN and
   TURN server, file store, drop tier and relay run on.
   <!-- README.md, "Publishing": "both served by Caddy from a Hetzner box" -->
@@ -498,6 +507,19 @@ The desktop app also makes your device contact:
 
 Every connection the desktop app makes, and a command to check each one,
 is listed at https://kithmoot.app/check/.
+
+**A shared board link.** When a member shares a board in a room, the app
+posts a link to girnel.app in the chat. Opening it loads Girnel, a separate
+app; nothing is sent there unless somebody opens the link.
+<!-- app/src/room-boards.ts:181 new URL('https://girnel.app/app/') with the invitation in the fragment -->
+
+Hosts named in the code that the app does not contact: Google's STUN
+server (stun.l.google.com) is named only so that links from before 13
+September 2026 that carry it are moved to the site's own STUN; a short
+invitation module names z1p.app but nothing in the app uses it; and the
+Zapstore hosts (relay.zapstore.dev and cdn.zapstore.dev) are used by the
+maintainers' release tooling, not by the app.
+<!-- src/ice-defaults.ts:46 LEGACY_DEFAULT_ICE_URLS and :62 isDefaultIceUrls; app/src/short-invitation-envelope.ts:4, imported by no other file in app/src; deploy/zapstore-downloads.mjs:9, deploy/verify-zapstore-publication.mjs:31 -->
 
 **Agents.** A room can have agents (programs) as members. An agent reads
 what any member of the room can read, and hears a call if it is set to
