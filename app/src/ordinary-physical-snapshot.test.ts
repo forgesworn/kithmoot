@@ -23,7 +23,7 @@ const cases: [string, 'browser' | 'tab', string][] = [
   [`kithmoot.channel-checks.v1.${h}.${j}`, 'browser', 'channelChecks'], [`kithmoot.context.v1.${h}`, 'browser', 'journals'], [`kithmoot.shared-projects.v1.${h}`, 'browser', 'journals'], [`kithmoot.assignments.v1.${h}.${j}`, 'browser', 'journals'],
   ...['box-discovery', 'history-recovery'].map(f => [`kithmoot.${f}.v1.${h}.${j}`, 'browser', 'private'] as [string, 'browser', string]),
   ...['uploads', 'room-logo', 'storage-grants'].map(f => [`kithmoot.${f}.v1.${h}`, 'browser', 'private'] as [string, 'browser', string]),
-  ...['kithmoot.blob-deletes.v1', 'kithmoot.file-storage.v1', 'kithmoot.blossom-server'].map(n => [n, 'browser', 'private'] as [string, 'browser', string]),
+  ...['kithmoot.blob-deletes.v1', 'kithmoot.blob-delete-groups.v1', 'kithmoot.file-storage.v1', 'kithmoot.blossom-server'].map(n => [n, 'browser', 'private'] as [string, 'browser', string]),
   ...['effectMode', 'background', 'blurStrength', 'voicePreset', 'cameraDeviceId', 'micDeviceId', 'facePrivacy'].map(f => [`kithmoot.call.${f}`, 'browser', 'media'] as [string, 'browser', string]),
   ['kithmoot.callProfile', 'browser', 'media'], ['kithmoot.callProfile', 'tab', 'media'],
   ...['kithmoot.relays.v1', 'kithmoot.circle.v1', 'kithmoot.room-relays-fixed.v1', `kithmoot.room-relays.v1.${h}`, `kithmoot.room-storage.v1.${h}`].map(n => [n, 'browser', 'routing'] as [string, 'browser', string]),

@@ -25,6 +25,16 @@
  * names) whose last path
  * segment is the hash: the checks an upload's descriptor is held to.
  *
+ * A file on one of the room's own storage nodes is deleted the same way, with
+ * the same signed permission, but a group node answers `401` to every
+ * unauthenticated read, so "is it gone?" is asked with a signed read while the
+ * room's key is at hand (`GroupDeletes.confirm`), and otherwise the node's
+ * acceptance of the delete is all there is to go on and is reported as such
+ * (`deleteGroupBlob`). Which kept rows are group deletes is written beside the
+ * journal (`PENDING_GROUP_DELETES_KEY`), because the journal's rows are a
+ * closed shape an older copy of the app must still be able to read, and a
+ * delete retried at a later launch no longer has the room to ask.
+ *
  * A server that cannot be reached, or still serves a file afterwards, does
  * not hold the wipe up once a week's exact-target permission is durably
  * kept under a key that names no room, and this device tries it again at
@@ -44,12 +54,15 @@ import {
   type BlobDeleteOutcome,
 } from '../../src/attachment.js'
 import { verifyEventUncached } from '../../src/verify.js'
+import { deleteGroupBlob, type GroupBlobDeleteOutcome, type HeadOutcome } from '../../src/group-storage.js'
 import type { DeviceStore } from './device-store.js'
 import { ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 export const UPLOADS_PREFIX = 'kithmoot.uploads.v1.'
 /** Deletes still to send, for rooms already wiped. Names no room. */
 export const PENDING_BLOB_DELETES_KEY = 'kithmoot.blob-deletes.v1'
+/** Which of the deletes still to send go to a group node: their delete URLs, a subset of the journal's. Names no room. */
+export const PENDING_GROUP_DELETES_KEY = 'kithmoot.blob-delete-groups.v1'
 /** How long a delete that did not go through is tried again: a week, the
  *  same as a self-destructed room's row in the list. */
 export const BLOB_DELETE_RETRY_SECONDS = 7 * 86_400
@@ -172,6 +185,37 @@ export function readPendingBlobDeleteJournal(raw: string | null): PendingDelete[
   } catch { throw new Error('Saved file deletions could not be verified; the journal was retained.') }
 }
 
+/** The delete URLs marked as group deletes, validated whole. Throws on anything else. */
+export function readGroupDeleteMarks(raw: string | null): string[] {
+  if (raw === null) return []
+  try {
+    ordinaryUtf8Length(raw)
+    const parsed: unknown = JSON.parse(raw)
+    if (JSON.stringify(parsed) !== raw || !Array.isArray(parsed) || !parsed.length || parsed.length > MAX_PENDING ||
+        new Set(parsed).size !== parsed.length || parsed.some(u => typeof u !== 'string' || u.length > 2048 || !/^https:\/\//.test(u))) throw Error()
+    return parsed as string[]
+  } catch { throw new Error('Saved group file deletions could not be verified; the list was retained.') }
+}
+
+/** The marks, or none: they only decide how a delete's outcome is read, so a damaged list never holds a delete up. */
+function groupMarks(store: DeviceStore): Set<string> {
+  try { return new Set(readGroupDeleteMarks(store.get(PENDING_GROUP_DELETES_KEY))) } catch { return new Set() }
+}
+
+/** Keep the marks of deletes still in the journal, and no others. */
+function writeGroupMarks(store: DeviceStore, marks: Iterable<string>, pending: readonly PendingDelete[]): void {
+  try {
+    const live = new Set(pending.map(p => p.url))
+    const kept = [...new Set(marks)].filter(url => live.has(url)).sort()
+    if (kept.length) store.set(PENDING_GROUP_DELETES_KEY, JSON.stringify(kept)); else store.remove(PENDING_GROUP_DELETES_KEY)
+  } catch { /* Read as a plain delete next time, which fails to confirm and is tried again. */ }
+}
+
+/** Whether a delete URL is exactly `<base>/<hash>` for one of a room's group nodes. */
+export function isGroupDeleteUrl(url: string, sha256: string, bases: readonly string[]): boolean {
+  return bases.some(base => url === `${base}/${sha256.toLowerCase()}`)
+}
+
 function writePending(store: DeviceStore, pending: PendingDelete[]): void {
   if (pending.length > MAX_PENDING) throw new Error('File deletion retry journal is full; existing entries were retained.')
   const raw = pending.length ? JSON.stringify(pending) : null
@@ -208,18 +252,33 @@ async function inParallel<T>(items: readonly T[], work: (item: T) => Promise<voi
   }))
 }
 
+/** Where a room's group deletes go, and how one is confirmed. */
+export interface GroupDeletes {
+  /** The room's listed node bases. A delete URL exactly `<base>/<hash>` is a group delete. */
+  bases: readonly string[]
+  /** An authenticated read of the blob, while this device still holds the room's key and a `get` grant. Without it the node's acceptance decides, and is reported as unconfirmed. */
+  confirm?: (url: string, sha256: string) => Promise<HeadOutcome>
+}
+
 interface Sender {
   fetch?: typeof fetch
   timeoutMs?: number
+  /** The room's group nodes, for a tidy-up that has them. A retry at a later launch has none, and reads the marks. */
+  groups?: GroupDeletes
 }
 
+type DeleteOutcome = BlobDeleteOutcome | GroupBlobDeleteOutcome
+
 /** Send one delete, unless its host was already found unreachable in this
- *  run: then it is not tried again until the next. */
-async function send(url: string, auth: Event, unreachable: Set<string>, opts: Sender): Promise<BlobDeleteOutcome> {
+ *  run: then it is not tried again until the next. A group delete is read
+ *  by `deleteGroupBlob`, which does not mistake a node's `401` for failure. */
+async function send(url: string, auth: Event, unreachable: Set<string>, opts: Sender, group = false): Promise<DeleteOutcome> {
   const host = hostOf(url)
   if (unreachable.has(host)) return { status: 'failed', detail: `Could not reach ${host}.` }
   const signal = AbortSignal.timeout(opts.timeoutMs ?? BLOB_DELETE_TIMEOUT_MS)
-  const outcome = await deleteBlob(url, auth, { ...(opts.fetch ? { fetch: opts.fetch } : {}), signal })
+  const outcome: DeleteOutcome = group
+    ? await deleteGroupBlob(url, auth, { ...(opts.fetch ? { fetch: opts.fetch } : {}), signal, ...(opts.groups?.confirm ? { confirm: opts.groups.confirm } : {}) })
+    : await deleteBlob(url, auth, { ...(opts.fetch ? { fetch: opts.fetch } : {}), signal })
   if (outcome.status === 'failed' && outcome.detail.startsWith('Could not reach')) unreachable.add(host)
   return outcome
 }
@@ -274,6 +333,8 @@ export async function deleteUploads(opts: DeleteUploadsOptions): Promise<FileDel
   if (existing.filter(p => !targets.has(p.url)).length + targets.size > MAX_PENDING) {
     throw new Error('File deletion retry journal is full; existing entries were retained.')
   }
+  const groupBases = opts.groups?.bases ?? []
+  const groupTargets = new Set([...targets.values()].filter(target => isGroupDeleteUrl(target.url, target.sha256, groupBases)).map(target => target.url))
   const retry: PendingDelete[] = [...targets.values()].map(target => {
     const auth = finalizeEvent(buildDeleteAuthorisation(target.sha256, new URL(target.url).origin, now, BLOB_DELETE_RETRY_SECONDS + 1, target.url), opts.sk)
     const prior = existing.find(p => p.url === target.url)
@@ -282,26 +343,39 @@ export async function deleteUploads(opts: DeleteUploadsOptions): Promise<FileDel
   })
   // All permissions, including the worst-case byte/count capacity, must be
   // saved and read back before the first request. No lost keys after quota failure.
-  writePending(opts.store, [...existing.filter(p => !targets.has(p.url)), ...retry])
+  const kept = [...existing.filter(p => !targets.has(p.url)), ...retry]
+  writePending(opts.store, kept)
+  // Marked before the first request, with the permissions, so a delete that is cut off is still read as a group's when it is retried.
+  const marks = groupMarks(opts.store)
+  for (const url of groupTargets) marks.add(url)
+  writeGroupMarks(opts.store, marks, kept)
   const unreachable = new Set<string>()
   const left = new Map<string, { count: number; detail: string }>()
   const done = new Set<string>()
+  const unconfirmed = new Set<string>()
   await inParallel(retry, async target => {
-    const outcome = target.until > validClock(opts.now)
-      ? await send(target.url, target.auth, unreachable, opts)
+    const outcome: DeleteOutcome = target.until > validClock(opts.now)
+      ? await send(target.url, target.auth, unreachable, opts, marks.has(target.url))
       : { status: 'failed' as const, detail: 'File deletion permission expired before sending.' }
-    if (outcome.status === 'deleted') { report.deleted++; done.add(JSON.stringify(target)); return }
+    if (outcome.status === 'deleted') {
+      report.deleted++; done.add(JSON.stringify(target))
+      if ('detail' in outcome && outcome.detail) unconfirmed.add(outcome.detail)
+      return
+    }
     const host = hostOf(target.url)
     left.set(host, { count: (left.get(host)?.count ?? 0) + 1, detail: outcome.detail })
   })
   if (done.size) {
     const after = readPendingBlobDeleteJournal(opts.store.get(PENDING_BLOB_DELETES_KEY)).filter(p => !done.has(JSON.stringify(p)))
     writePending(opts.store, after)
+    writeGroupMarks(opts.store, marks, after)
   }
   report.pending = retry.length - report.deleted
   for (const [host, { count, detail }] of [...left].sort(([a], [b]) => a < b ? -1 : 1)) {
     report.details.push(`${count} on ${host}: ${detail}`)
   }
+  // The node took the delete but this device could not look afterwards: said, not hidden.
+  for (const detail of [...unconfirmed].sort()) report.details.push(detail)
   return report
 }
 
@@ -319,16 +393,18 @@ export function retryPendingBlobDeletes(store: DeviceStore, now: () => number, o
     const clock = () => validClock(now)
     clock()
     const due = readPendingBlobDeleteJournal(store.get(PENDING_BLOB_DELETES_KEY)).filter(p => p.until > clock() && isDeleteAuthorisation(p.auth, p.sha256, clock()))
+    const marks = groupMarks(store)
     const done = new Set<string>()
     const unreachable = new Set<string>()
     await inParallel(due, async p => {
       if (p.until <= clock() || !isDeleteAuthorisation(p.auth, p.sha256, clock())) return
-      if ((await send(p.url, p.auth, unreachable, opts)).status === 'deleted') done.add(JSON.stringify(p))
+      if ((await send(p.url, p.auth, unreachable, opts, marks.has(p.url))).status === 'deleted') done.add(JSON.stringify(p))
     })
     // Read again: a tidy-up may have added to the list meanwhile.
     const after = readPendingBlobDeleteJournal(store.get(PENDING_BLOB_DELETES_KEY))
       .filter(p => !done.has(JSON.stringify(p)) && p.until > clock() && isDeleteAuthorisation(p.auth, p.sha256, clock()))
     writePending(store, after)
+    writeGroupMarks(store, marks, after)
     return after.length
   })().finally(() => { retrying = undefined })
   return retrying

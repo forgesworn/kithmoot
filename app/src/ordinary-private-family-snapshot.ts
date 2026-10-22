@@ -6,11 +6,11 @@ import { readBoxClaim } from '../../src/box-status.js'
 import { readLogoImage } from '../../src/logo-image.js'
 import { roomLogoOp } from '../../src/room-logo.js'
 import { normaliseBlossomServer } from '../../src/attachment.js'
-import { readPendingBlobDeleteJournal } from './blob-deletion.js'
+import { readGroupDeleteMarks, readPendingBlobDeleteJournal } from './blob-deletion.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 const HEX = /^[0-9a-f]{64}$/
-const families = ['kithmoot.box-discovery', 'kithmoot.uploads', 'kithmoot.blob-deletes', 'kithmoot.storage-grants',
+const families = ['kithmoot.box-discovery', 'kithmoot.uploads', 'kithmoot.blob-deletes', 'kithmoot.blob-delete-groups', 'kithmoot.storage-grants',
   'kithmoot.history-recovery', 'kithmoot.file-storage', 'kithmoot.blossom-server', 'kithmoot.room-logo']
 const DISCOVERY = /^kithmoot\.box-discovery\.v1\.([0-9a-f]{64})\.([0-9a-f]{64})$/
 const HISTORY = /^kithmoot\.history-recovery\.v1\.([0-9a-f]{64})\.([0-9a-f]{64})$/
@@ -76,9 +76,9 @@ function discovery(value: unknown, box: string): { status: boolean; claim: boole
 export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
   options: { kind: 'browser' | 'tab' }): Readonly<{ discoveries: number; statusFloors: number; claimFloors: number;
     uploadJournals: number; uploadCandidates: number; pendingDeletes: number; histories: number; windows: number;
-    sharedFileConsent: number; legacyFileSuggestions: number; logos: number; grantJournals: number }> {
+    sharedFileConsent: number; legacyFileSuggestions: number; logos: number; grantJournals: number; groupDeleteMarks: number }> {
   const counts = { discoveries: 0, statusFloors: 0, claimFloors: 0, uploadJournals: 0, uploadCandidates: 0,
-    pendingDeletes: 0, histories: 0, windows: 0, sharedFileConsent: 0, legacyFileSuggestions: 0, logos: 0, grantJournals: 0 }
+    pendingDeletes: 0, histories: 0, windows: 0, sharedFileConsent: 0, legacyFileSuggestions: 0, logos: 0, grantJournals: 0, groupDeleteMarks: 0 }
   if (!['browser', 'tab'].includes(options.kind)) hold()
   try {
     for (const [name, raw] of records) {
@@ -93,6 +93,12 @@ export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<strin
       }
       if (name === 'kithmoot.blob-deletes.v1') {
         counts.pendingDeletes += readPendingBlobDeleteJournal(raw).length; continue
+      }
+      if (name === 'kithmoot.blob-delete-groups.v1') {
+        // Which pending deletes go to a group node. It names no more than the
+        // journal already does, and cannot widen where a delete may go: the
+        // target is bound into each signed permission.
+        counts.groupDeleteMarks += readGroupDeleteMarks(raw).length; continue
       }
       const value = canonical(raw), d = DISCOVERY.exec(name), h = HISTORY.exec(name)
       if (d) {
