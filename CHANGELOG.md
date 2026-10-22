@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.98, 22 October 2026
+
+- Looking up a contact's name and picture no longer asks the relays of the room you have open. A room's relays see lookups only for people in that room, and a name-only key this device made for you is never looked up.
+
 ## Desktop 0.1.97, 21 October 2026
 
 - A reply sits at the bottom of the chat in time order, like any other message, with a short quote of the message it answers. Press the quote to jump back to the original, which is briefly highlighted.
