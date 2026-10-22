@@ -204,6 +204,12 @@ store rule this row leans on does not apply to it (illegal content risk
 assessment, 8.3).
 <!-- app/src/file-storage.ts defaultFileServer, resolveFileDestination; app/src/main.ts fileNoticeBody -->
 
+*Note, 22 October 2026.* ForgeSworn's own store serves the files it holds
+only until Friday 23 October 2026 (pending on 22 October); after that the
+file sharing row rests wholly on the default public server and any server a
+person names. The illegal content risk assessment, section 9, records the
+change.
+
 ### B3. Age groups
 
 Unknown. `[INPUT]` Without any age signal at all, this record cannot even

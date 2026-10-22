@@ -21,6 +21,12 @@
 > rooms it does not keep (2.1); the deadline is dated and the record is
 > kept, not filed (1); the duty to report child sexual abuse content to the
 > NCA is added (6.1); what exists for payments is stated (3, row 11 in 4).
+>
+> Changed 22 October 2026, significant change: section 9 records the
+> owner's decision to be outside the Online Safety Act, meeting codes
+> retired, uploads off, file reads ending 23 October 2026, coturn keeping
+> no log, the relay the operator also runs closed to strangers' writes, and
+> TURN pending closure with STUN kept.
 
 The law this record applies is written up, with its sources and evidence
 marks, in [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), verified 28 September 2026
@@ -563,7 +569,8 @@ privacy notice matter (3.1, 3.2); Caddy discards the site's access log.
 
 Checked on 20 October 2026, from outside and read-only on the box. Each
 switch-off needs the owner's explicit go; the drop tier's route was removed
-on 21 October 2026 with that go (8.5, step 1).
+on 21 October 2026 with that go (8.5, step 1). The state on 22 October 2026
+is in 9.3.
 
 | Surface | State on 20 October 2026 |
 | --- | --- |
@@ -674,6 +681,95 @@ codes in 8.7.
 | Approved by | `[Operator]` |
 | Date signed | `[date signed]` |
 
+## 9. Significant change, 22 October 2026
+
+> **Draft, 22 October 2026.** Drafted by an AI assistant from the code at
+> `edf32cd0` on `main`, the owner's decisions of 22 October 2026, and the
+> report of the session that runs the box, the same day. Not legal advice;
+> no lawyer has read it. Law note verified 28 September 2026; its marks are
+> kept. Where this section says the repository has not caught up, the
+> live state rests on the host's report and was not checked by the drafter.
+
+### 9.1 Why this is recorded
+
+Ofcom recommends reviewing this assessment before any significant change
+(law note 2.3, `[P]`). On 22 October 2026 the owner decided that ForgeSworn
+is to be outside the Online Safety Act always, and several surfaces in 8.4
+closed or were given a closing date. This section records what changed,
+what is still open, and what is pending. Nothing pending is presented as
+done.
+
+### 9.2 Position
+
+**Today: a public operator.** On 22 October 2026 `GET /turn` still answers
+200 and mints a working TURN credential for anyone, coturn answers TURN and
+STUN for anyone, and the file store still serves reads by hash, on the
+public host and through its read-only onion front. One open endpoint is
+enough for this position (8.2).
+<!-- deploy/Caddyfile.kithmoot:131-132 handle /turn; app/src/main.ts:815 TURN_CREDENTIAL_ENDPOINT = '/turn'; deploy/Caddyfile.kithmoot:216-218 blob reads; deploy/Caddyfile.kithmoot:389-412 onion front. /turn answering 200 on 22 October 2026: the host's check, confirmed to the drafting session -->
+
+**Aimed at, as the owner decided on 22 October 2026:**
+
+| Deployment | Position aimed at | What the move still takes |
+| --- | --- | --- |
+| The apps and the public host | Publisher with defaults that point at servers other people run, plus ForgeSworn's own STUN (D1) | Close `/turn`, its credential service and the TLS listener on 5349 (pending, 9.3); end file reads and the onion front (23 October 2026, pending); remove the `/turn` default and the meeting code client from the app (`app/src/main.ts:815`, `app/src/main.ts:2091`); bring `deploy/Caddyfile.kithmoot` into line with the live box |
+| The relay ForgeSworn also runs | Closed: the owner's own relay | Done for writes (9.3). `[INPUT: whether reads are also closed to strangers.]` A closed service should have no endpoint that serves content to whoever finds it (law note 2.10, `[U]`) |
+| The weekly friends' chat (D4) | Closed, on the owner's private host with the project team | The owner accepts that no exemption names friends by invitation (law note 2.10, `[U]`). That host is not described in this record and is not one of the surfaces it covers |
+
+**STUN kept (D1).** After TURN closes, the app still asks the host that
+served it for STUN on port 3478, and coturn answers anyone. STUN tells a
+device its own public address; it carries no user's content to anybody
+else. The law note does not say whether a server that carries no content
+between users, such as STUN, bears on the user-to-user position (not
+covered; not checked). It is still processing of IP addresses, which the
+privacy notice describes (section 4.1 there).
+<!-- src/ice-defaults.ts:137-140 originStunGuess returns stun:<host>:3478 for an https origin; src/ice-defaults.ts:93 stunFromTurnUrl; deploy/coturn/turnserver.conf:17 listening-port=3478, no no-stun -->
+`[LEGAL REVIEW: whether answering STUN for anyone who loads the app keeps
+ForgeSworn a provider of anything under the Act, given that STUN carries no
+content between users.]`
+
+### 9.3 State of each surface on 22 October 2026
+
+| Surface | State | Done or pending |
+| --- | --- | --- |
+| Meeting codes, `/codes` | Answers 410; the meeting code service is stopped and disabled. The repository has not caught up: the Caddy file still proxies `/codes` and the web app still calls it | Done on the box (host's report). `[INPUT: whether the stored invitation links and the 30-day tombstones were deleted.]` <!-- deploy/Caddyfile.kithmoot:158-163; app/src/main.ts:2091 --> |
+| File store uploads, `/upload` | Answer 410 since 09:42Z | Done on the box (host's report, 8.4) |
+| File store reads by hash, and the onion front | Still served | **Pending:** end on Friday 23 October 2026 (owner, D5). This replaces the 90-day read window in 8.5, step 5. Once reads end, a file card in the web app reads "This file is no longer on" the host <!-- app/src/attachment-card.ts:79 --> |
+| TURN credentials, `GET /turn`, and TURN relaying | Open: answers 200 and mints credentials | **Pending:** `/turn` and its credential service close once Android 0.6.103 and web PR #525 are both live; then coturn serves STUN only and 5349 closes. D2: no TURN on the public app |
+| coturn's log | No log kept since about 10:30Z. The repository has not caught up: `deploy/coturn/turnserver.conf:214` still logs to stdout, kept by the container's json-file driver (`deploy/coturn/docker-compose.yml:55-59`) | Done on the box (host's report) |
+| STUN on 3478 | Open to anyone, kept (D1) | Stays |
+| Drop tier, `/drops` | Route removed 21 October 2026; the tier runs on the box's loopback only | Done (8.4) |
+| The relay ForgeSworn also runs | Kept as the owner's own closed relay. Writes allowlist-only since 10:58Z; strangers' data and old backups purged. A key not on the allowlist can no longer post to it from an old room link | Done for writes (host's report). Reads: `[INPUT]` above |
+| Keepers on the box | Last checked 20 October 2026: two instances, crash-looping (8.4) | `[INPUT: whose rooms they serve, and whether they are to keep running.]` |
+
+### 9.4 What this changes in sections 1 to 8
+
+- **Meeting codes** are retired, so the second exception to "cannot read"
+  (8.2, 8.7) applies only to links stored before the service stopped, and
+  only if they were kept (`[INPUT]` in 9.3). The `[OWNER TO DO]` in 8.7 and
+  the owner's `[DECISION]` in 8.5, step 3 are closed by retirement.
+- **The family and friends `[DECISION]` in 8.3** is closed by D4: the
+  weekly friends' chat runs on the owner's private host, not on the public
+  box, and the owner accepts the unchecked reading.
+- **File reads.** From 23 October 2026, the rows that rest on ForgeSworn's
+  store (risk factor 1g in 3; rows 2, 6 and 7 in 4; the removal measures in
+  6.2, items 2 and 3) describe a store that no longer serves anything.
+  Until then they stand.
+- **TURN.** Every mention of `/turn` in sections 2 to 6 stands until the
+  pending closure lands, and is to be revised then.
+- **coturn's log.** The privacy notice's account of coturn's log is
+  corrected (its section 4.1).
+
+### 9.5 Sign-off
+
+| Item | Entry |
+| --- | --- |
+| Change recorded | Owner's decisions and surface states of 22 October 2026 |
+| Drafted by | An AI assistant, from the code at `edf32cd0` and the host's report of 22 October 2026 |
+| Reviewed by | `[name]` |
+| Approved by | `[Operator]` |
+| Date signed | `[date signed]` |
+
 ## Decisions for the owner
 
 1. The named role accountable (ICU A2).
@@ -681,6 +777,7 @@ codes in 8.7.
    underlying software already exposes (section 6.2, items 2 and 3).
 3. Confirm the `abuse@safety.forgesworn.dev` mailbox exists and is monitored
    before relying on this record or the terms that reference it.
-4. The decisions and sign-off for the change in progress (section 8.8).
+4. The decisions and sign-off for the change in progress (section 8.8),
+   and for the change of 22 October 2026 (section 9.5).
 
 Still to do: the evidence marked `[INPUT]`.

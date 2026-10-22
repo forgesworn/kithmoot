@@ -20,6 +20,12 @@
 > 6, 9 and 10); a new section 7 covers agents and transcription; payments
 > are described as they are (section 1); later sections are renumbered.
 >
+>
+> Changed 22 October 2026, later: meeting codes stopped, the relay we also
+> run closed to other people's writes, file reads ending 23 October 2026,
+> and TURN closing while STUN stays (sections 1 and 6). Pending changes are
+> marked as pending.
+>
 > The law behind these terms is written up in
 > [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md) (section 2.3 for what terms must
 > explain).
@@ -33,9 +39,10 @@ safety or reports, and `[general contact address]` for anything else.
 
 KithMoot is an encrypted workspace: rooms, messages, files and calls
 between the people you invite. It is built on Nostr, an open network, and
-uses relays, TURN servers and file servers that you can choose; some of
-those are run by us by default, and you can point a room at others
-instead. In the web app and the desktop app, files you send go by default
+uses relays, STUN and TURN servers and file servers that you can choose.
+Today we run a STUN server and a TURN server that the app uses when a room
+names none; the TURN server is closing (section 6), and you can point a
+room at others instead. In the web app and the desktop app, files you send go by default
 to a public file server run by somebody else (section 6).
 
 By using KithMoot you agree to these terms. If we change them, we will say
@@ -91,7 +98,8 @@ These terms do not take away any rights you have by law as a consumer.
   contains.** Everything meaningful in a room is end-to-end encrypted; for
   a room we do not keep, we have no membership list and no content to
   review (section 6). If we run the keeper for a room, we can read that
-  room. The note at the end of section 6 gives the one other exception.
+  room. The note at the end of section 6 gives the one other exception,
+  now stopped.
   `[INPUT: whether the operator keeps any room that people other than the
   maintainers use; if so, say which rooms, or how their members are told.]`
 
@@ -152,8 +160,17 @@ reports or removal.
 - **The default relays are independent public relays.** Rooms whose links
   were written before September 2026 may also name a relay we run. On that
   relay, and only that one, we have relay-operator-level control over what
-  it stores and serves. We have no such control over any other relay,
-  including the defaults, or any relay a room's creator chooses instead.
+  it stores and serves. From 22 October 2026 it takes writes only from keys
+  we allow, so such a room cannot post there unless its key is allowed. We
+  have no control over any other relay, including the defaults, or any
+  relay a room's creator chooses instead.
+- **TURN is closing; STUN stays.** On 22 October 2026 our TURN server still
+  relays calls that cannot connect directly. It closes once Android 0.6.103
+  and the matching web release are both live (pending); after that a call
+  that needs a relay connects only through one the room names. Our STUN
+  server stays: it tells your device its own address and carries nothing
+  you say or send.
+  <!-- app/src/main.ts:815 TURN_CREDENTIAL_ENDPOINT; src/ice-defaults.ts:137-140 -->
 - **Files you send go to a server run by somebody else.** Unless you
   choose another server, the web app and the desktop app send files to
   blossom.yakihonne.com, a
@@ -166,7 +183,8 @@ reports or removal.
   the web app and the desktop app no longer send files there. It accepted
   only sealed, encrypted files it cannot read or display. Files already there can still be
   fetched by anyone with their link, and deleted by the device that sent
-  them, until they expire.
+  them, until reads end on Friday 23 October 2026 (pending on 22
+  October).
   <!-- deploy/blossom.yml: the one accepted type is application/vnd.forgesworn.encrypted. App: app/src/file-storage.ts, no ForgeSworn host is ever a destination. Server: the host's report of 22 October 2026 (PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z; reads and owners' deletes still work). deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
 
 `[LEGAL REVIEW: whether these terms should say anything about the
@@ -177,11 +195,12 @@ app, not the person, chose it as the default.]`
 **Note, 21 October 2026.** Corrections, pending a revision of these terms
 (`docs/legal/online-safety-risk-assessment-draft.md`, section 8):
 
-- Besides a room we keep (sections 3 and 6), there is one other exception
-  to what we can read. Our meeting code service stores the full invitation
+- Besides a room we keep (sections 3 and 6), there was one other exception
+  to what we can read. Our meeting code service stored the full invitation
   link for a code made without a password; for a room with no waiting
-  room, that link lets the service enter the room while the code lives.
-  <!-- deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
+  room, that link let the service enter the room while the code lived. The
+  service was stopped on 22 October 2026 and `/codes` answers 410.
+  <!-- deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model"; host's report of 22 October 2026 -->
 - The file store bullet that stood here on 21 October is replaced by the
   two file bullets above (22 October 2026).
 - No app names the drop tier. Where these terms call it a default, read it

@@ -19,6 +19,11 @@
 > the statutory timing (sections 4 to 6), the abuse mailbox is recorded as
 > existing (1), and a room we keep is named as the exception to what we can
 > see (2).
+>
+> Changed 22 October 2026, later: meeting codes stopped (2), TURN closing
+> (3.1), file reads ending 23 October 2026 (3.2), and the relay we also run
+> taking writes only from allowed keys (3.4). Pending changes are marked
+> as pending.
 
 ## 1. How a notice arrives
 
@@ -52,9 +57,10 @@ room, so we are a member of that room and can see it. That does not change
 the rule in section 6 against viewing reported material.
 <!-- deploy/keeper@.service:13 -->
 
-*Note, 21 October 2026.* The meeting code service stores the full
-invitation link for a code made without a password, which is the other
-exception.
+*Note, 21 and 22 October 2026.* The meeting code service stored the full
+invitation link for a code made without a password, which was the other
+exception. It was stopped and disabled on 22 October 2026, and `/codes`
+answers 410 (the host's report).
 <!-- deploy/README.md "Meeting codes" -->
 
 Ask the sender for, and act on:
@@ -93,12 +99,18 @@ our default TURN, not just an abusive one), or block a source IP address
 at the network or Caddy level. Neither is targeted at a specific abuser
 beyond their current IP.
 
+**Closing.** On 22 October 2026 `/turn` is still open. It and its
+credential service close once Android 0.6.103 and the matching web release
+are both live (pending); after that coturn answers STUN only, which carries
+no content, and this section has nothing left to act on.
+
 ### 3.2 Our file store (Blossom, `blossom-server-ts` 5.2.0)
 
 **No new uploads from 22 October 2026.** The web app and the desktop app
 no longer send files here, and the upload route answers 410 (host's
 report, 22 October 2026, 09:42Z). Reads by hash and owners' deletes still
-work, so what follows still applies to files already stored.
+work until reads end on Friday 23 October 2026 (pending on 22 October), so
+until then what follows still applies to files already stored.
 <!-- app/src/file-storage.ts: no ForgeSworn host is ever a destination. deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
 
 **Delete by hash:** blossom-server-ts implements a `DELETE` route per
@@ -185,10 +197,11 @@ The relay we operate (never named by hostname in these documents) is no
 longer a default, but rooms whose links were written before September 2026
 still name it. It runs strfry. We can delete a specific event by id with
 `strfry delete --filter '{"ids":["<id>"]}'` on the host, which removes it
-from what the relay stores and serves. Refusing future writes from a
-specific pubkey needs the relay's write-policy ban list, which is drafted
-but not yet deployed: until it is, a ban means deleting that key's events
-and repeating. `[INPUT: update this once the ban list is live.]`
+from what the relay stores and serves. From 10:58Z on 22 October 2026 the
+relay takes writes only from keys on its allowlist, and other people's
+data and its old backups were deleted (the host's report), so a key not on
+the list cannot write to it at all. `[INPUT: whether it still serves reads
+to anyone.]`
 
 On the independent default relays, and on any relay a room's creator
 adds instead, **we have no control of any kind.** A notice naming content

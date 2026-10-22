@@ -31,6 +31,13 @@
 > kept on a keeper we run (2, 3, 4.7, 5, 6), what the app keeps on the
 > device (3), payments (3), agents (8), and the right to complain to us (7).
 >
+>
+> Changed 22 October 2026, later: our meeting code service is stopped
+> (3); TURN is closing and our STUN stays (4.1); coturn keeps no log
+> (4.1, 5); file reads end on 23 October 2026 (4.2); the relay we also run
+> takes writes only from keys we allow (4.4). Pending changes are marked
+> as pending.
+>
 > What a notice must contain is written up in
 > [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), sections 3.2 and 3.3.
 
@@ -60,12 +67,13 @@ verified 28 September 2026, [P]).]`
   server run by somebody else, unless
   you choose another server or none. They are encrypted on your device
   first, so that server cannot open them (section 8).
-- Our default infrastructure (a TURN server, a file store that takes no
-  new files, a drop tier,
-  and, for rooms whose links name it, a relay we also run) sees connection-level information —
-  device keys, IP addresses, timing, sizes — while helping your room
-  connect or store a sealed file, and is designed to keep as little of it
-  as possible.
+- Our default infrastructure (a STUN server; a TURN server, until it
+  closes; a file store that takes no new files and serves the ones it
+  holds until 23 October 2026; and, for rooms whose links name it, a relay
+  we also run, which takes writes only from keys we allow) sees
+  connection-level information, such as device keys, IP addresses, timing
+  and sizes, while helping your room connect, and is designed to keep as
+  little of it as possible.
 - We keep no server-side account, session or membership record for a
   room we do not keep. There is nothing to delete on request because
   there is nothing held. A keeper we run is a member of its room and sees
@@ -87,12 +95,15 @@ verified 28 September 2026, [P]).]`
   run (section 4.7).
   <!-- docs/protocol.md, "Identities and trust boundaries"; deploy/keeper@.service:13 "this process DOES hold the room key" -->
 
-  *Note, 21 October 2026.* One other thing we run is an exception. Our
-  meeting code service stores the full invitation link for a code made
-  without a password; for a room with no waiting room, that link lets the
-  service enter the room while the code lives. This notice does not yet
-  describe the meeting code service.
-  <!-- deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
+  *Note, 21 and 22 October 2026.* Until 22 October 2026 one other thing we
+  ran was an exception. Our meeting code service stored the full
+  invitation link for a code made without a password; for a room with no
+  waiting room, that link let the service enter the room while the code
+  lived. On 22 October 2026 the service was stopped and disabled, and
+  `/codes` answers 410 (the host's report; the repository's Caddy file and
+  the web app still name `/codes`). `[INPUT: whether the links it stored
+  were deleted.]`
+  <!-- deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model"; deploy/Caddyfile.kithmoot:158-163; app/src/main.ts:2091 -->
 - **A membership list**, for a room we do not keep. There is no
   server-side record of who is in a room. The room's own capability, held
   only by its members' devices and clients, is what "membership" means
@@ -130,7 +141,13 @@ on the device; it is built from another repository.]`
 If you use the default services we run (rather than a room configured to
 use only other relays and stores), each does the following, and no more:
 
-### 4.1 The default TURN server (`/turn`)
+### 4.1 The default TURN server (`/turn`), and our STUN server
+
+**Closing, not yet closed.** On 22 October 2026 `/turn` still gives a
+credential to anyone who asks. It and its credential service close once
+Android 0.6.103 and the matching web release are both live; after that our
+server answers STUN only, and its TLS port, 5349, closes. Until then, what
+follows applies.
 
 **What.** When your call cannot connect device to device, your browser
 asks `/turn` for a short-lived credential, then relays media through
@@ -145,8 +162,20 @@ every process restart and is never written to disk.
 
 **During a relayed call**, coturn itself necessarily sees both sides' IP
 addresses, because that is what a TURN relay does; this is inherent to how
-TURN works, not a KithMoot-specific choice, and coturn's own logs go to
-`stdout` under our journald retention policy (section 5).
+TURN works, not a KithMoot-specific choice.
+
+**coturn's log.** Until about 10:30Z on 22 October 2026 coturn logged to
+its container's log, capped at three files of 10 MB each. Since then it
+keeps no log (the host's report; the repository's configuration has not
+caught up and still logs).
+<!-- deploy/coturn/turnserver.conf:214 log-file=stdout, :215 simple-log; deploy/coturn/docker-compose.yml:55-59 json-file, max-size 10m, max-file 3 -->
+
+**STUN, which stays.** When a room names no call servers of its own, the
+app asks the site that served it for STUN on port 3478. STUN tells your
+device its own public address, so two devices can try to reach each other
+directly. Our STUN server sees your device's IP address and port and the
+time of each request. It carries nothing you say or send.
+<!-- src/ice-defaults.ts:137-140 originStunGuess: stun:<host>:3478 for an https origin; src/ice-defaults.ts:93 stunFromTurnUrl; deploy/coturn/turnserver.conf:17 listening-port=3478 -->
 
 **Quotas**, not identity, are what stands between an unauthenticated
 credential and abuse of our bandwidth: per-username and total allocation
@@ -158,7 +187,11 @@ caps, and a per-allocation bandwidth cap.
 **No new uploads.** From 22 October 2026 our file store takes no new
 uploads, and the web app and the desktop app no longer send files there. Files already there
 are still served to anyone with their link, and the device that sent one
-can still delete it, until they expire.
+can still delete it, until reads end on Friday 23 October 2026 (pending
+on 22 October). After that a file there reads as no longer available in
+the app. `[INPUT: whether the stored files are deleted when reads end, and
+when.]`
+<!-- app/src/attachment-card.ts:79 "This file is no longer on {host}." -->
 <!-- app/src/file-storage.ts storedFileServer, usableFileServer, chooseFileServer and retireForgeSwornConsent: no ForgeSworn host is ever a destination. Server side: the host's report of 22 October 2026 that PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z, with Blossom reads and owners' deletes still working. Not verified from code: deploy/Caddyfile.kithmoot in this tree still passes /upload to the store, and is not the live state. -->
 
 **What.** A file sent to the store before then was sealed in the sender's
@@ -204,8 +237,10 @@ filter by.
 **How long.** Bounded by total size (1 GiB by default), a 30-day maximum
 age, and each wrap's own expiry; oldest-out when the bound is reached.
 
-*Note, 21 October 2026.* No app names the drop tier. It is a service we run
-that anyone can reach, not a default of the apps.
+*Note, 21 October 2026.* No app names the drop tier. From 21 October 2026
+it is no longer reachable from outside the box; what it already held ages
+out within 30 days.
+<!-- deploy/Caddyfile.kithmoot:166-172 "No /drops here" -->
 
 ### 4.4 A relay we also run
 
@@ -217,6 +252,11 @@ keys, opaque room selectors, timing and message size — never plaintext
 content, which is encrypted before it reaches any relay. We do not name
 that relay's address in this notice; a room's link shows it, and a room's
 creator can remove it from the room's relays.
+
+From 10:58Z on 22 October 2026 it accepts writes only from keys we allow,
+and other people's data on it, and its old backups, were deleted (the
+host's report). A room whose link names it can no longer post there unless
+its key is allowed. `[INPUT: whether it still serves reads to anyone.]`
 
 ### 4.5 Access and error logs on our web server
 
@@ -281,7 +321,8 @@ their business, not ours; this section is about keepers we run.
 We hold almost nothing described in section 4 for long, by design:
 
 - TURN rate-limit counters: in memory only, gone on every restart.
-- Our file store: a file already sent, up to 90 days from last fetch
+- coturn: no log since about 10:30Z on 22 October 2026 (section 4.1).
+- Our file store: a file already sent, served until 23 October 2026
   (section 4.2).
 - The default drop tier: up to 30 days, or sooner under its size bound
   (section 4.3).
@@ -305,7 +346,7 @@ need it, and you can ask us to delete it (section 7).
 
 | Purpose | Basis |
 | --- | --- |
-| Running the default TURN, file store, drop tier and relay | Legitimate interests, in providing infrastructure the room asked for |
+| Running the default STUN and TURN, file store, drop tier and relay | Legitimate interests, in providing infrastructure the room asked for |
 | Choosing the default file server the app sends files to (section 8) | `[LEGAL REVIEW: whether ForgeSworn is a controller at all for uploads it chose the destination of but never receives; if it is, which basis applies]` |
 | Rate limiting, quotas and abuse prevention on default infrastructure | Legitimate interests; legal obligation under the Online Safety Act 2023 |
 | Reports and complaints | Legal obligation under the Online Safety Act 2023 |
@@ -355,8 +396,10 @@ You can also complain to the Information Commissioner's Office
   suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing
   any room necessarily produces to function, wherever those relays are
   operated.
-- **Our hosting provider**, `[hosting provider]`, which hosts the box our
-  default TURN server, file store, drop tier and relay run on.
+- **Our hosting provider**, Hetzner, which hosts the box our STUN and
+  TURN server, file store, drop tier and relay run on.
+  <!-- README.md, "Publishing": "both served by Caddy from a Hetzner box" -->
+  `[INPUT: the provider's legal name and the country the box is in.]`
   <!-- app/src/main.ts DEFAULT_RELAYS (src/public-relays.ts): relay.primal.net, nostr.oxtr.dev, relay.ditto.pub, none run by the project -->
 
 The app also makes your device contact the following. Each learns your
@@ -497,7 +540,7 @@ If we change this notice, we will say so on the site.
 ## Open points in this notice
 
 1. The ICO fee decision (section 1).
-2. The hosting provider's name (a fact to fill in).
+2. The hosting provider's legal name and the box's country (section 8).
 3. Independent verification of the HTTP-to-HTTPS redirect logging gap
    named in section 4.5, rather than relying on our own reading of the
    Caddy configuration.
