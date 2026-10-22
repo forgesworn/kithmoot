@@ -1,78 +1,30 @@
 # Legal cover: index
 
-Drafts prepared for UK Online Safety Act and UK GDPR cover for KithMoot.
-None of these are in force. **All of them are drafts an AI assistant wrote
-from the code, for a human owner to check, complete and sign.** None has
-been reviewed by a lawyer.
+ForgeSworn publishes KithMoot's software. It no longer runs anything for
+KithMoot that carries one user's content to another. STUN on its host is
+the one ForgeSworn default left; see the decision marker in the closure
+record, section 3.
 
-The law itself is written up, with its sources and evidence marks, in
-[the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), verified 28 September 2026 and due
-for review by 28 March 2027. These documents hold only this project's facts
-and decisions.
+- [`closure-record.md`](closure-record.md) is the current record: what
+  ForgeSworn ran for KithMoot users from 24 August 2026, what closed on 21
+  and 22 October 2026, what remains (stored files on disk, deletion pending
+  the owner's decision), the position now, why no assessment fell due, and
+  what would bring KithMoot back into scope.
 
-- [`online-safety-risk-assessment-draft.md`](online-safety-risk-assessment-draft.md)
-  is the illegal content risk assessment, covering rooms, calls, and what
-  the operator runs on 22 October 2026: STUN, TURN (closing), the file
-  store (no uploads; reads until 23 October 2026, pending), the relay it also runs
-  and any keeper it runs. Section 8 records a significant change
-  in progress, 21 October 2026, and the default public file server and the
-  file store's closure to new uploads, 22 October 2026. Section 9 records
-  the significant change of 22 October 2026: meeting codes retired, file
-  reads ending 23 October 2026, coturn keeping no log, the relay the
-  operator also runs closed to strangers' reads and writes, TURN pending closure and
-  STUN kept.
-- [`childrens-access-assessment-draft.md`](childrens-access-assessment-draft.md)
-  asks whether children can and do access KithMoot. Honest answer: they can,
-  and we do not have evidence either way on whether they do.
-- [`terms-draft.md`](terms-draft.md): terms of use.
-- [`privacy-notice-draft.md`](privacy-notice-draft.md): privacy notice.
-- [`report-handling.md`](report-handling.md): the operator runbook for
-  acting on a report, surface by surface, including what is and is not
-  technically possible today.
+It is a draft for the owner to check. It is not legal advice, and no lawyer
+has read it. The law is in jurisdiction-kit's `law/gb/online-services.md`.
 
-## Before any of this is true
+## Archive
 
-1. **Decide who the operator is in law.** These documents name a project,
-   ForgeSworn, and a project name that is not a registered legal person
-   cannot be the provider or the controller (law note section 9, `[U]`).
-   `[DECISION: who the provider and controller are in law.]`
-2. **Carry out and record the two assessments by their deadline.** A new
-   service has three months from launch for the illegal content risk
-   assessment (`[P]`) and the children's access assessment (`[S]`) (law
-   note 2.4). Counted from the first deploy commit, 24 August 2026, that is
-   **24 November 2026**. `[INPUT: the launch date, if not 24 August 2026.]`
-   The records are kept, not sent to Ofcom unless it asks (law note 2.3,
-   `[U]`).
-3. **Say which rooms the operator keeps.** A keeper holds its room's key,
-   so a room kept on a keeper the operator runs is one the operator can
-   read. `[INPUT: whether the operator keeps rooms that other people use.]`
-4. **Keep payments off, or apply the trading rules.** Nothing in the
-   default service takes payment. Switching on any payment, including the
-   paid TURN kit in `deploy/l402/` or the donor ring, brings the trading
-   rules of the law note's section 8 into play.
-   `[INPUT: whether either is switched on anywhere.]`
-5. **Watch the `abuse@safety.forgesworn.dev` inbox.** Every one of these
-   documents refers to it. It exists (Cloudflare Email Routing, forwarding
-   to the owner's inbox, set up 25 September 2026); send it a test message
-   and make sure reports are read.
-6. **Read and adopt the assessments and drafts**, or send them for legal
-   review first. They are written honestly, including the gaps, but an AI
-   assistant drafting them is not the same as an owner deciding to stand
-   behind them.
-7. **Name the person accountable** for the Online Safety Act's illegal
-   content and reporting duties (referred to throughout as a role, e.g.
-   "the maintainer on call", never a name). Both documents that need this
-   (the risk assessment and the report-handling runbook) currently leave
-   it as `[DECISION]`.
-8. **Decide whether KithMoot states a minimum age**, which the terms and
-   the children's access assessment both currently leave open rather than
-   assume.
-9. **Publish the linked pages** (`site/terms/`, `site/privacy/`,
-   `site/report/`) from these drafts once adopted, and keep them in sync
-   as the product changes. The site's pages are being changed separately
-   on 22 October 2026 and were not compared with these drafts.
-10. **Sign and date both assessments** on or before 24 November 2026: the
-    risk assessment's record details and its sign-off tables in 8.8 and
-    9.5, and the children's access assessment's record details.
-11. **Register with the NCA, or decide not to yet** (report runbook, 6.1),
-    and **decide on the ICO fee** (privacy notice, section 1).
+[`archive/`](archive/) holds the documents written while ForgeSworn ran
+default infrastructure for KithMoot. They described the service while it
+ran and were never adopted.
+
+- [`online-safety-risk-assessment-draft.md`](archive/online-safety-risk-assessment-draft.md):
+  the illegal content risk assessment.
+- [`childrens-access-assessment-draft.md`](archive/childrens-access-assessment-draft.md):
+  the children's access assessment.
+- [`terms-draft.md`](archive/terms-draft.md): terms of use.
+- [`privacy-notice-draft.md`](archive/privacy-notice-draft.md): privacy notice.
+- [`report-handling.md`](archive/report-handling.md): the operator runbook
+  for acting on a report about the surfaces ForgeSworn ran.
