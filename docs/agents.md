@@ -181,8 +181,8 @@ the group invitation (kind 1463, a `storage` key) and posts it as a signed
 and again after 20 days; members learn it from the invitation or the op
 (`RoomAgent.storageNodes`). It is the rule for clients: one that implements
 group storage keeps the group's files on those nodes. Today that is the
-library's `GroupStorage`; the web app does not yet, and agents do not upload
-files. A keeper restarted with different `--group-node` flags changes the list;
+library's `GroupStorage`, which the web and desktop apps use for a room's files;
+agents do not upload files. A keeper restarted with different `--group-node` flags changes the list;
 one restarted with none, while the room lists nodes (or while `<state>.grants`
 names any, which also catches a state an older keeper has rewritten), refuses to
 start naming the hosts, so a forgotten flag never takes a room's files away. Do

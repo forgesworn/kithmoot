@@ -108,8 +108,9 @@ export function roomUploads(store: DeviceStore, roomId: string): UploadedBlob[] 
 
 /** Where a room's deletes go: the origins of the files this device recorded
  *  uploading there (so a device that changed server can still tidy up the
- *  old one), then the origin it uploads to now, if any. The one place that
- *  decides it: S5b adds a group's nodes here.
+ *  old one), then the origins it uploads to now, if any: its file server, and
+ *  the nodes a room lists (`fileDeleteOrigins` in main.ts passes both). The
+ *  one place that decides it.
  *
  *  Only a record that says which key signed it (`key`) adds its origin: the
  *  app writes that field itself, at the moment an upload to a server the

@@ -114,8 +114,8 @@ export function defaultFileServer(deployerDefault?: string, servers: readonly Pu
 }
 
 export type FileDestination =
-  | { kind: 'group'; nodes: readonly string[] }       // S5b inserts this branch
-  | { kind: 'withdrawn' }                              // S5b inserts this branch
+  | { kind: 'group'; nodes: readonly string[] }       // the room lists its own storage nodes
+  | { kind: 'withdrawn' }                              // the room lists none: its keeper withdrew them
   | { kind: 'bothy' }
   | { kind: 'server'; origin: string; via: FileServerVia }
   | { kind: 'default'; origin: string; maxBytes?: number }  // consent not yet given: show the notice
@@ -127,15 +127,15 @@ export interface FileDestinationInput {
   deployerDefault?: string
   /** The vetted list; only tests pass anything but the real one. */
   publicServers?: readonly PublicFileServer[]
-  /** S5b: the room's storage record. `nodes` empty means withdrawn. */
+  /** The room's storage record. `nodes` empty means withdrawn. */
   roomStorage?: { nodes: readonly string[] }
 }
 
 /**
  * The one place that decides where a file goes. First match wins:
  *
- * 1. a room storage record with nodes: `group` (S5b)
- * 2. a room storage record with none: `withdrawn` (S5b)
+ * 1. a room storage record with nodes: `group`
+ * 2. a room storage record with none: `withdrawn`
  * 3. a Bothy room: `bothy`
  * 4. the person chose Nowhere: `off`
  * 5. a stored, valid shared consent: `server`; a `default` consent that names a
@@ -148,7 +148,7 @@ export interface FileDestinationInput {
  * before the request leaves, so a changed choice stops the next upload.
  */
 export function resolveFileDestination(input: FileDestinationInput): FileDestination {
-  // S5b: the room's own storage list comes first, above Bothy and the device.
+  // The room's own storage list comes first, above Bothy and the device.
   if (input.roomStorage) {
     return input.roomStorage.nodes.length
       ? { kind: 'group', nodes: input.roomStorage.nodes }

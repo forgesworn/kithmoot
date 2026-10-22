@@ -157,16 +157,27 @@ the state, and the nodes then go unrenewed and unrevoked.
 
 The list is the rule for clients: a client that implements group storage keeps
 a listed room's files on its nodes, keeps them off when the list is empty, and
-never falls back to a public file server. Today only the library does
-(`GroupStorage`); the web app does not yet, and still uploads to the member's
-own file server.
+never falls back to a public file server. The library (`GroupStorage`) and the
+web and desktop apps do; agents do not upload files yet.
 
-What exists today is the keeper's side and the node's side, and the library a
-client uses to upload to and read from the listed nodes (`GroupStorage`). The
-web app does not yet use it (a later phase), so setting this up does not change
-where a person's files go in the app. The keeper does not run a node, and nothing
-here makes a node public: a node in group mode refuses everyone the keeper has
-not named, and every read needs a signed token.
+In the web and desktop apps, a room that lists nodes sends every file to the
+first listed node that takes it, with no notice about a public server and no
+choice written down, whatever the person chose for their own files. A device
+needs a grant from the keeper first. Until it has one, or while every node is
+down, the file is sealed and held in the page's memory, the message waits in the
+outbox as "Waiting for the group's storage.", and the page warns before it is
+closed (a held file is not kept across a reload). An app uses `https` nodes only:
+a node on `localhost`, on a LAN address or behind an onion address cannot be used
+from a browser, so a group that wants to share files from browsers needs a node
+with a TLS name. An app also refuses a node that answers a read without a token,
+and says so. A room whose list is empty (`--group-withdraw`) keeps files off with
+"This group has no storage right now."
+
+The keeper does not run a node, and nothing here makes a node public: a node in
+group mode refuses everyone the keeper has not named, and every read needs a
+signed token. A node must answer a browser's preflight (`Authorization`,
+`Content-Type`, `X-SHA-256`, `Range`; `GET, HEAD, PUT, DELETE`) and expose
+`X-Reason`, which `wildbloomd` group mode does.
 
 ## Planned
 
