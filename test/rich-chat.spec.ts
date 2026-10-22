@@ -184,7 +184,8 @@ test('built-in GIF and stickers arrive locally on another client without uploads
     for (const [client, name] of [[page!, 'Ada'], [receiver!, 'Bryn']] as const) {
       await openRoomUrl(client, link); await client.locator('#displayName').fill(name); await client.locator('#join').click()
       await expect(client.locator('#roomArea')).toBeVisible()
-      await expect(client.locator('#fileStorageStatus')).toContainText('File uploads are off')
+      // Nothing has been chosen on this device, so nothing is stored.
+      expect(await client.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
     }
     await openGIFs(page!)
     await (await artworkSearch(page!, 'Search GIFs and stickers')).fill('coffee')
@@ -194,7 +195,7 @@ test('built-in GIF and stickers arrive locally on another client without uploads
     await expect(page!.getByRole('dialog', { name: 'GIFs and stickers' })).not.toBeVisible()
     await expect(page!.locator('#attachStaged .artworkChip')).toHaveCount(1)
     await expect(page!.locator('#chatInput')).toHaveValue('')
-    await expect(page!.locator('#allowSharedFiles')).not.toBeChecked()
+    expect(await page!.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
     await page!.locator('#chatForm button[type=submit]').click()
     await expect.poll(() => writer.chat.messages().some(message => message.artwork?.[0]?.kind === 'gif')).toBe(true)
     const message = writer.chat.messages().find(message => message.artwork?.[0]?.kind === 'gif')!

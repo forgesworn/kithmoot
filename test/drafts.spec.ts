@@ -1,10 +1,10 @@
-import { test, expect, type Browser, type BrowserContext } from '@playwright/test'
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
 import { buildFileEvent } from '../src/attachment.js'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { RoomAgent } from '../src/agent.js'
 import { withRelays } from './relays.js'
-import { goToConversation, allowTestFileStorage, TEST_RELAY_WS, showChats, openRoomInfoPage, openSettings } from './browser.js'
+import { goToConversation, allowTestFileStorage, openWildbloomAttach, TEST_RELAY_WS, showChats, openRoomInfoPage, openSettings } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: BrowserContext, relay: string) => Promise<void>) {
@@ -21,75 +21,46 @@ async function setup(browser: Browser, baseURL: string, beforeJoin?: (context: B
   return { page, context }
 }
 
-test('file storage defaults off and only remembers explicit shared-host consent', async ({ browser, baseURL }) => {
+const DEFAULT_ORIGIN = 'https://blossom.yakihonne.com'
+const CONSENT_KEY = 'kithmoot.file-storage.v1'
+const readConsent = (page: Page) => page.evaluate(key => localStorage.getItem(key), CONSENT_KEY)
+const pickFile = async (page: Page, file: { name: string; mimeType: string; buffer: Buffer }) => {
+  const chooser = page.waitForEvent('filechooser')
+  await page.locator('#attachToggle').click()
+  await (await chooser).setFiles(file)
+}
+
+/** Nothing in these tests may reach the real default server: answer it from
+ *  the local test store, and count what arrives. */
+async function guardDefaultServer(context: BrowserContext) {
+  const seen: string[] = []
+  await routeTestBlossom(context, DEFAULT_ORIGIN)
+  await context.route(url => url.origin === DEFAULT_ORIGIN, route => { seen.push(route.request().method()); return route.abort() })
+  return seen
+}
+
+test('file storage writes no consent until a person acts, and remembers a typed server across a reload', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
-    await page.locator('#attachToggle').click()
-    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    // Nothing is suggested: not the app's own origin, not any ForgeSworn host.
+    expect(await readConsent(page)).toBeNull()
+    await openSettings(page, 'Privacy')
+    await page.locator('#privacyFiles').click()
+    // Nothing is suggested in the field: not the app's own origin, not any ForgeSworn host.
+    await page.getByRole('radio', { name: 'My own server' }).check()
     await expect(page.locator('#attachServer')).toHaveValue('')
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
     await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#attachStatus')).toContainText('Confirm')
+    await expect(page.locator('#fileOwnCheck')).toHaveText('Type an address that starts with https://.')
+    expect(await readConsent(page)).toBeNull()
     await page.locator('#attachServer').fill('https://files.example')
-    await page.locator('#allowSharedFiles').check()
     await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://files.example')
+    await expect(page.locator('#privacyFilesState')).toHaveText('My own server · files.example')
     await page.reload()
-    // The start page initialises the remembered setting before a room is joined.
-    await expect(page.locator('#attachServer')).toHaveValue('https://files.example')
-    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://files.example')
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(JSON.parse((await readConsent(page))!)).toEqual({ mode: 'shared', disclosure: 3, origin: 'https://files.example', via: 'typed' })
   } finally { await context.close() }
 })
 
-test('public servers run by other people only fill the field; they never grant consent', async ({ browser, baseURL }) => {
-  const { page, context } = await setup(browser, baseURL!)
-  try {
-    await page.locator('#attachToggle').click()
-    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await expect(page.getByRole('group', { name: 'Public servers run by other people' })).toBeVisible()
-    const yakihonne = page.getByRole('button', { name: /blossom\.yakihonne\.com/ })
-    await expect(yakihonne).toContainText('run by Yakihonne LLC, files up to 200 MB')
-    await expect(page.locator('#publicFileServerList button')).toHaveCount(1)
-    await expect(page.locator('#publicFileServers')).not.toContainText('forgesworn')
-    await expect(page.getByRole('link', { name: 'How to run your own file server' })).toHaveAttribute('href', 'https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#files')
-    await expect(page.getByRole('link', { name: 'How to run your own file server' })).toHaveAttribute('rel', 'noopener')
-    await expect(page.locator('label[for="attachServer"]')).toHaveText('Or your own server')
-    await expect(yakihonne).toHaveAttribute('aria-pressed', 'false')
-    await yakihonne.click()
-    await expect(page.locator('#attachServer')).toHaveValue('https://blossom.yakihonne.com')
-    await expect(yakihonne).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
-    // Choosing one is not consent: without the tick, Use this server refuses.
-    await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#attachStatus')).toContainText('Confirm')
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
-    // It behaves exactly like typing: after consent, choosing again revokes it.
-    await page.locator('#allowSharedFiles').check()
-    await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://blossom.yakihonne.com')
-    expect(JSON.parse((await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1')))!)).toEqual({ mode: 'shared', disclosure: 2, origin: 'https://blossom.yakihonne.com' })
-    await page.locator('#fileStorageOptions summary').click()
-    await yakihonne.click()
-    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
-    await page.locator('#attachServer').fill('https://files.example')
-    await expect(yakihonne).toHaveAttribute('aria-pressed', 'false')
-    // No phone-width horizontal scroll from the panel.
-    await page.setViewportSize({ width: 320, height: 700 })
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-    // Nothing in the storage choice runs past the panel.
-    expect(await page.locator('#fileStorageOptions').evaluate(el => {
-      const edge = el.closest('#attachPanel')!.getBoundingClientRect().right
-      return [...el.querySelectorAll('*')].filter(c => c.getBoundingClientRect().right > edge + 0.5).map(c => `${c.tagName}#${c.id}`)
-    })).toEqual([])
-  } finally { await context.close() }
-})
-
-test('a consent made by the old pre-filled ForgeSworn suggestion is retired once, with a notice that names no host', async ({ browser, baseURL }) => {
+test('a consent made by the old pre-filled ForgeSworn suggestion is retired once, and the notice names the public server instead', async ({ browser, baseURL }) => {
   const stored = JSON.stringify({ mode: 'shared', disclosure: 1, origin: 'https://kithmoot.forgesworn.dev' })
   const { page, context } = await setup(browser, baseURL!, async c => {
     await c.addInitScript(value => {
@@ -97,83 +68,69 @@ test('a consent made by the old pre-filled ForgeSworn suggestion is retired once
       if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('kithmoot.file-storage.v1', value) }
     }, stored)
   })
+  const seen = await guardDefaultServer(context)
   let uploads = 0
   await context.route('**/upload', route => { uploads++; return route.abort() })
   try {
-    await page.locator('#attachToggle').click()
-    const notice = 'KithMoot no longer suggests a file server. Choose where your files go to send files again.'
-    await expect(page.locator('#fileStorageStatus')).toHaveText(notice)
-    await expect(page.locator('#fileStorageStatus')).not.toContainText('forgesworn')
-    await expect(page.locator('#attachServer')).toHaveValue('')
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
-    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    expect(await readConsent(page)).toBeNull()
+    await pickFile(page, { name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#fileNoticeTitle')).toHaveText('Files you send are stored on blossom.yakihonne.com')
+    await expect(page.locator('#fileTray')).not.toContainText('forgesworn')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
     expect(uploads).toBe(0)
-    // Typing the host is still a person's choice and is honoured.
-    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    expect(seen).toEqual([])
+    // Typing the host is refused: KithMoot no longer sends files there.
+    await openSettings(page, 'Privacy')
+    await page.locator('#privacyFiles').click()
+    await page.getByRole('radio', { name: 'My own server' }).check()
     await page.locator('#attachServer').fill('https://kithmoot.forgesworn.dev')
-    await expect(page.locator('#fileStorageStatus')).toHaveText(notice)
-    await page.locator('#allowSharedFiles').check()
     await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://kithmoot.forgesworn.dev')
+    await expect(page.locator('#fileOwnCheck')).toHaveText('KithMoot no longer sends files to ForgeSworn’s storage. Choose another server.')
+    expect(await readConsent(page)).toBeNull()
     await page.reload()
-    await expect(page.locator('#fileStorageStatus')).toContainText('Uploads go to https://kithmoot.forgesworn.dev')
-    await expect(page.locator('#attachServer')).toHaveValue('https://kithmoot.forgesworn.dev')
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(await readConsent(page)).toBeNull()
   } finally { await context.close() }
 })
 
-test('legacy settings, picker and drop cannot upload without consent; editing revokes it', async ({ browser, baseURL }, testInfo) => {
+test('a legacy server setting never uploads: the picker and a drop hold the file, and Send is the first act', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!, async c => {
     await c.addInitScript(origin => localStorage.setItem('kithmoot.blossom-server', origin), new URL(baseURL!).origin)
   })
+  const seen = await guardDefaultServer(context)
   let uploads = 0
   await context.route('**/upload', route => { uploads++; return route.abort() })
   try {
-    await page.locator('#attachToggle').click()
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
-    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
-    expect(uploads).toBe(0)
+    await pickFile(page, { name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#fileNotice')).toBeVisible()
     await page.locator('#chatForm').evaluate(form => {
       const data = new DataTransfer(); data.items.add(new File(['Stay here'], 'drop.txt', { type: 'text/plain' }))
       form.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }))
     })
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
-    await expect(page.locator('#attachFile')).toBeEnabled()
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(2)
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(['Not uploaded', 'Not uploaded'])
     expect(uploads).toBe(0)
-    await allowTestFileStorage(page, new URL(baseURL!).origin)
-    // Saving folds the choice away; changing it means opening it again.
-    await expect(page.locator('#fileStorageOptions')).not.toHaveAttribute('open')
-    await page.locator('#fileStorageOptions summary').click()
-    await page.locator('#attachServer').fill('not a URL')
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
-    await expect(page.locator('#allowSharedFiles')).not.toBeChecked()
-    await page.locator('#attachFile').setInputFiles({ name: 'still-private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
-    expect(uploads).toBe(0)
-    await page.locator('#attachPanel').screenshot({ path: testInfo.outputPath('file-storage-off.png') })
+    expect(seen).toEqual([])
+    expect(await readConsent(page)).toBeNull()
   } finally { await context.close() }
 })
 
-test('turning uploads off in another tab blocks subsequent files without deleting old preferences', async ({ browser, baseURL }) => {
+test('turning uploads off in another tab holds the next file, and the tray says why', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
-  let uploads = 0
-  await context.route('**/upload', route => { uploads++; return route.abort() })
+  const seen = await guardDefaultServer(context)
   try {
     await allowTestFileStorage(page, new URL(baseURL!).origin)
     const other = await context.newPage()
     await other.goto(new URL('/j/', baseURL!).href)
-    await other.evaluate(() => localStorage.removeItem('kithmoot.file-storage.v1'))
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
-    await page.locator('#attachFile').setInputFiles({ name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
-    expect(uploads).toBe(0)
-    await allowTestFileStorage(page, new URL(baseURL!).origin)
-    await page.locator('#fileStorageOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await page.locator('#stopFileUploads').click()
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await other.evaluate(() => localStorage.setItem('kithmoot.file-storage.v1', JSON.stringify({ mode: 'off', disclosure: 3 })))
+    await other.close()
+    await pickFile(page, { name: 'private.txt', mimeType: 'text/plain', buffer: Buffer.from('Stay here') })
+    await expect(page.locator('#fileTrayStateText')).toHaveText('File uploads are off on this device.')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
+    expect(seen).toEqual([])
     await page.reload()
-    await expect(page.locator('#fileStorageStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    expect(JSON.parse((await readConsent(page))!)).toEqual({ mode: 'off', disclosure: 3 })
   } finally { await context.close() }
 })
 
@@ -184,7 +141,7 @@ test('revoking consent during a batch stops the next upload and preserves the al
   await context.route(`${origin}/upload`, async route => {
     uploads++
     const response = await fetchFromTestBlossom(route, origin)
-    await page.evaluate(() => localStorage.removeItem('kithmoot.file-storage.v1'))
+    await page.evaluate(() => localStorage.setItem('kithmoot.file-storage.v1', JSON.stringify({ mode: 'off', disclosure: 3 })))
     await route.fulfill({ response })
   })
   try {
@@ -193,9 +150,10 @@ test('revoking consent during a batch stops the next upload and preserves the al
       { name: 'first.txt', mimeType: 'text/plain', buffer: Buffer.from('First synthetic file') },
       { name: 'second.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this local') },
     ])
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#fileTrayErrorText')).toContainText('File uploads are off on this device.')
     expect(uploads).toBe(1)
-    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(2)
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText([/B$|KB$/, 'Not uploaded'])
     await expect(page.locator('#attachStaged')).toContainText('first.txt')
   } finally { await context.close() }
 })
@@ -206,8 +164,8 @@ test('drafts stay with their conversations, including files and a visit to read-
     const event = finalizeEvent(buildFileEvent({ url: `https://files.example/${'ab'.repeat(32)}`, sha256: 'ab'.repeat(32), size: 65608 }), generateSecretKey())
     await page.locator('#chatInput').fill('A draft for the main chat')
     await page.locator('#chatInput').evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(2, 7))
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await openWildbloomAttach(page)
     await page.locator('#attachEvent').fill(JSON.stringify(event))
     await page.locator('#attachKey').fill('cd'.repeat(32))
     await page.locator('#attachAdd').click()
@@ -219,7 +177,7 @@ test('drafts stay with their conversations, including files and a visit to read-
     await goToConversation(page, 'Minutes')
     await expect(page.locator('#chatForm')).toBeHidden()
     await expect(page.locator('#attachPanel')).toBeHidden()
-    await expect(page.locator('#attachStaged')).toBeHidden()
+    await expect(page.locator('#fileTray')).toBeHidden()
     await goToConversation(page, 'Chat')
     await expect(page.locator('#chatInput')).toHaveValue('A draft for the main chat')
     await expect.poll(() => page.locator('#chatInput').evaluate((input: HTMLTextAreaElement) => [input.selectionStart, input.selectionEnd])).toEqual([2, 7])
@@ -253,8 +211,6 @@ test('an upload finishes in its original draft while another conversation is use
   })
   try {
     await page.locator('#chatInput').fill('This file belongs in Chat')
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'workshop.txt', mimeType: 'text/plain', buffer: Buffer.from('Workshop materials') })
     await expect.poll(() => uploads).toBe(1)
@@ -310,13 +266,12 @@ test('unsent work in another conversation still protects room changes and can be
 test('unfinished file details stay in their draft and are never stored on disk', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   try {
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await allowTestFileStorage(page, new URL(baseURL!).origin)
+    await openWildbloomAttach(page)
     await page.locator('#attachEvent').fill('Unfinished file details')
     await page.locator('#attachKey').fill('Secret for this draft only')
     await goToConversation(page, 'Agents')
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
+    await openWildbloomAttach(page)
     await expect(page.locator('#attachEvent')).toHaveValue('')
     await expect(page.locator('#attachKey')).toHaveValue('')
     await page.locator('#attachEvent').fill('A different file')
@@ -341,8 +296,6 @@ test('stopping an upload permits another attempt without adding the late result'
     await route.fulfill({ response }).catch(() => {})
   })
   try {
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'cancelled.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach this') })
     await expect.poll(() => uploads).toBe(1)
@@ -353,12 +306,16 @@ test('stopping an upload permits another attempt without adding the late result'
       transfer.items.add(new File(['Do not start a second upload'], 'second.txt', { type: 'text/plain' }))
       form.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }))
     })
-    await page.locator('#cancelFileWork').click()
-    await expect(page.locator('#attachStatus')).toContainText('Stopped adding files')
+    // The drop is held in the tray behind the file being sent, not sent.
+    await expect(page.locator('#attachStaged .attachChip')).toHaveCount(2)
+    await page.getByRole('button', { name: 'Stop and remove cancelled.txt' }).click()
+    await expect(page.locator('#fileTrayErrorText')).toContainText('Stopped. Files already added stay in this message.')
     await expect(page.locator('#attachFile')).toBeEnabled()
     expect(uploads).toBe(1)
+    await page.getByRole('button', { name: 'Remove second.txt' }).click()
     await page.locator('#attachFile').setInputFiles({ name: 'keep.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this one') })
     await expect(page.locator('#attachStaged')).toContainText('keep.txt')
+    await expect(page.locator('#attachStaged .attachChip .s').last()).toHaveText(/\d+ B$|\d+ KB$/)
     release()
     await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
     await expect(page.locator('#attachStaged')).not.toContainText('cancelled.txt')
@@ -392,17 +349,16 @@ test('stopping during a stalled relay announcement releases the draft and ignore
     })
   })
   try {
-    await page.locator('#attachToggle').click()
-    await page.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await allowTestFileStorage(page, blobOrigin)
     await page.locator('#attachFile').setInputFiles({ name: 'late.txt', mimeType: 'text/plain', buffer: Buffer.from('Do not attach the late result') })
     await expect.poll(() => Boolean(release)).toBe(true)
-    await expect(page.locator('#attachStatus')).toContainText('Announcing')
-    await page.locator('#cancelFileWork').click()
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Uploading…')
+    await page.getByRole('button', { name: 'Stop and remove late.txt' }).click()
     await expect(page.locator('#attachFile')).toBeEnabled({ timeout: 3000 })
-    await expect(page.locator('#attachStatus')).toContainText('Stopped adding files')
+    await expect(page.locator('#fileTrayErrorText')).toContainText('Stopped. Files already added stay in this message.')
     await page.locator('#attachFile').setInputFiles({ name: 'keep.txt', mimeType: 'text/plain', buffer: Buffer.from('Keep this file') })
     await expect(page.locator('#attachStaged')).toContainText('keep.txt')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ B$|\d+ KB$/)
     release!()
     await page.locator('#chatInput').press('Enter')
     await expect(page.locator('#chatLog')).toContainText('keep.txt')
@@ -487,7 +443,9 @@ test('pasted files stay staged until Send and text attachments display as inert 
       Object.defineProperty(event, 'clipboardData', { value: clipboard })
       input.dispatchEvent(event)
     })
-    await expect(page.locator('#attachCount')).toContainText('(1)')
+    // The tray lists the file; its size shows once it has uploaded.
+    await expect(page.locator('#attachStaged .attachChip')).toContainText('notes.html')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ (B|KB)/, { timeout: 30_000 })
     await expect(page.locator('#chatInput')).toHaveValue('Attached notes')
     await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
     await page.locator('#chatForm button[type="submit"]').click()
@@ -535,7 +493,8 @@ test('long paste preserves its tail, encrypts a full document, expands and copie
     await expect(page.locator('#chatInput')).toHaveValue(full)
     await expect(page.locator('#pasteSizeNote')).toContainText('complete encrypted text')
     await page.locator('#chatForm button[type=submit]').click()
-    await expect(page.locator('#attachStatus')).toContainText('File uploads are off')
+    await expect(page.locator('#fileNotice')).toBeVisible()
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
     await expect(page.locator('#chatInput')).toHaveValue(full)
     await routeTestBlossom(context, new URL(baseURL!).origin)
     await allowTestFileStorage(page, new URL(baseURL!).origin)
@@ -574,7 +533,7 @@ test('long text upload failure keeps the whole draft; edits during upload are no
       await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
     })
     await page.locator('#chatForm button[type=submit]').click()
-    await expect(page.locator('#attachStatus')).toContainText('newer edits are kept')
+    await expect(page.locator('#fileTrayErrorText')).toContainText('newer edits are kept')
     await expect(page.locator('#chatInput')).toHaveValue('Newer edits kept here')
     await expect(page.locator('#attachStaged .attachChip')).toHaveCount(1)
     await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
@@ -582,8 +541,9 @@ test('long text upload failure keeps the whole draft; edits during upload are no
 })
 
 
-test('clipboard screenshot waits locally for storage consent, uploads once and stays private until Send', async ({ browser, baseURL }) => {
+test('clipboard screenshot waits locally for the first Send, uploads once and stays private until then', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
+  const seen = await guardDefaultServer(context)
   const origin = new URL(baseURL!).origin
   let uploads = 0
   await context.route(`${origin}/upload`, async route => {
@@ -606,20 +566,18 @@ test('clipboard screenshot waits locally for storage consent, uploads once and s
       Object.defineProperty(event, 'clipboardData', { value: clipboard })
       document.body.dispatchEvent(event)
     })
-    await expect(page.locator('#pendingFileNames')).toContainText('screenshot.png')
-    await expect(page.locator('#pendingFileNames')).toContainText('not uploaded')
+    await expect(page.locator('#attachStaged')).toContainText('screenshot.png')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
+    await expect(page.locator('#fileNotice')).toBeVisible()
     expect(uploads).toBe(0)
-    await expect(page.locator('#chatForm button[type="submit"]')).toBeDisabled()
-    await page.locator('#attachServer').fill(origin)
-    await page.locator('#allowSharedFiles').check()
-    await page.locator('#saveFileStorage').click()
+    expect(seen).toEqual([])
+    await allowTestFileStorage(page, origin)
     expect(uploads).toBe(0)
-    await page.locator('#uploadPendingFiles').click()
-    await expect(page.locator('#attachCount')).toContainText('(1)')
-    expect(uploads).toBe(1)
     await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
-    await expect(page.locator('#pendingFileNames')).toBeHidden()
+    // Send is the act: it uploads the held file, once, and then sends.
     await page.locator('#chatForm button[type="submit"]').click()
+    await expect(page.locator('#chatLog .attachment')).toHaveCount(1)
+    expect(uploads).toBe(1)
     const attachment = page.locator('#chatLog .attachment').first()
     await attachment.getByRole('button', { name: /^Show/ }).click()
     await expect(attachment.locator('img')).toBeVisible()

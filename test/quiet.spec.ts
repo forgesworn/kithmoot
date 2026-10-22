@@ -131,6 +131,9 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     // to the acceptance companion, which receives and serves real streamed
     // bytes so WebKit's upload path is exercised end to end.
     await routeTestBlossom(context, blobOrigin)
+    // The default public server, answered by the same local store: this
+    // case takes the first-file path, where Send is the act.
+    await routeTestBlossom(context, 'https://blossom.yakihonne.com')
     contexts.push(context)
     return context.newPage()
   }
@@ -171,11 +174,11 @@ test('a quiet room shares a file with no kind-1063 announcement, and the other p
     const wrapsBefore = seen.filter((e) => e.kind === 1059).length
     const fileAnnouncementsBefore = seen.filter((e) => e.kind === 1063).length
 
-    await rowan.locator('#attachToggle').click()
-    await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
-    await allowTestFileStorage(rowan, new URL(baseURL!).origin)
+    // First file on this device, in a quiet room: held with the notice, and
+    // Send uploads it and sends, with no bare announcement on the relay.
     await rowan.locator('#attachFile').setInputFiles({ name: 'floorplan.txt', mimeType: 'text/plain', buffer: Buffer.from('Room B, second floor') })
     await expect(rowan.locator('#attachStaged .attachChip')).toHaveCount(1, { timeout: 15_000 })
+    await expect(rowan.locator('#fileNotice')).toBeVisible()
     await rowan.locator('#chatInput').fill('the floorplan')
     await rowan.locator('#chatInput').press('Enter')
 
@@ -258,8 +261,6 @@ test('a quiet room does not leak a file announcement if this device leaves while
     await expect.poll(() => seen.length).toBeGreaterThan(0)
     const fileAnnouncementsBefore = seen.filter((e) => e.kind === 1063).length
 
-    await rowan.locator('#attachToggle').click()
-    await rowan.locator('#attachOptions').evaluate(d => { (d as HTMLDetailsElement).open = true })
     await allowTestFileStorage(rowan, new URL(baseURL!).origin)
     await rowan.locator('#attachFile').setInputFiles({ name: 'blueprint.txt', mimeType: 'text/plain', buffer: Buffer.from('Room B, second floor') })
     // The upload has reached the server and is held there; the room this

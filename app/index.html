@@ -150,7 +150,7 @@
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
           <button type="button" class="infoRow" id="settingsRowprivacy" data-settings-open="privacy">
-            <span class="infoRowText"><span class="infoRowTitle">Privacy</span><span class="infoRowSub" id="settingsSubprivacy">Profile pictures, files</span></span>
+            <span class="infoRowText"><span class="infoRowTitle">Privacy</span><span class="infoRowSub" id="settingsSubprivacy">Profile pictures, files, IP address</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
           <button type="button" class="infoRow" id="settingsRowconnections" data-settings-open="connections">
@@ -227,7 +227,12 @@
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
         </div>
-        <p class="note">Where files go is chosen the first time you add a file to a message, in the panel beside the message box.</p>
+        <div class="infoRows">
+          <button id="privacyFiles" type="button" class="infoRow" data-settings-open="files">
+            <span class="infoRowText"><span class="infoRowTitle">Where files go</span><span class="infoRowSub" id="privacyFilesState"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </div>
         <label class="checkboxRow"><input id="privacyHideIp" type="checkbox" /> <span>Hide my IP address on calls</span></label>
         <p class="note">Calls go through a relay server, so other people on the call don’t see your IP address. It can be slower.</p>
         <section id="blockedSection" class="blockedSection" aria-labelledby="blockedHeading" hidden>
@@ -236,6 +241,30 @@
           <ul id="blockedList" class="blockedList"></ul>
           <p id="blockedNone" class="note">Nobody. Block somebody from an invitation’s ⋯ or from People.</p>
         </section>
+        </section>
+        <!-- Where files go: the one place the destination is chosen or changed
+             (design-files-public-first, 5.3). Filled in and wired by
+             `renderFileStorage` and the handlers below it in app/src/main.ts. -->
+        <section class="settingsPage" data-settings-page="files" data-settings-title="Where files go" hidden>
+          <fieldset id="fileWhere" class="fileWhere">
+            <legend>Store files I send on</legend>
+            <label class="opt"><input type="radio" name="fileWhere" value="public" /><span class="t">A public server</span><span id="fileWherePublicDetail" class="d"></span></label>
+            <div class="opt">
+              <input type="radio" name="fileWhere" value="own" id="fileWhereOwn" aria-labelledby="fileWhereOwnTitle" />
+              <label for="fileWhereOwn" id="fileWhereOwnTitle" class="t">My own server</label>
+              <span class="d">A Wildbloom Node or another Blossom server you run.</span>
+              <div id="fileOwnMore" class="more" hidden>
+                <label for="attachServer" class="d">Server address</label>
+                <input id="attachServer" type="url" placeholder="https://files.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="fileOwnDisclosure fileOwnCheck" />
+                <p id="fileOwnCheck" class="note filesCheck" role="status" hidden></p>
+                <div class="attachRow"><button type="button" id="saveFileStorage" class="primary">Use this server</button></div>
+                <p id="fileOwnDisclosure" class="note">People who open your files connect to your server. It sees their IP addresses, and its address shows where it runs. <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#files" target="_blank" rel="noopener">How to run your own file server</a></p>
+              </div>
+            </div>
+            <label class="opt"><input type="radio" name="fileWhere" value="off" /><span class="t">Nowhere</span><span class="d">You can still open files other people send.</span></label>
+          </fieldset>
+          <p class="note">Files are encrypted on this device before they leave. The server you choose sees your IP address, when files are uploaded and opened, and how big they are, and decides how long to keep them. Opening a file connects you to the server it’s on. Changing this doesn’t move or delete files you’ve already sent.</p>
+          <p id="fileWhereBothy" class="note" hidden>Rooms that use Bothy keep their own file setting.</p>
         </section>
         <section class="settingsPage" data-settings-page="connections" data-settings-title="Connections" hidden>
         <div class="infoRows">
@@ -726,6 +755,32 @@
              Filled in by `renderChannels` in app/src/main.ts. -->
         <p id="readOnlyNote" class="note" hidden></p>
         <p id="pasteSizeNote" class="note" role="status" hidden></p>
+        <!-- Files picked and waiting to be sent: a chip each, the one-time
+             notice the first time a device sends to the default server, and
+             what went wrong when an upload did not. Filled in by
+             `renderStaged` in app/src/main.ts. -->
+        <p id="fileTrayAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div id="attachMenu"></div>
+        <div id="fileTray" class="fileTray" role="group" aria-label="Files to send" hidden>
+          <div id="attachStaged" class="trayChips"></div>
+          <div id="fileNotice" class="trayNotice" hidden>
+            <p id="fileNoticeClosed" hidden></p>
+            <p id="fileNoticeTitle" class="trayLead"></p>
+            <p id="fileNoticeBody"></p>
+            <button type="button" id="fileNoticeChoose" class="quiet">Choose another server</button>
+          </div>
+          <div id="fileTrayState" class="trayState" hidden>
+            <p id="fileTrayStateText"></p>
+            <button type="button" id="fileTrayStateAction" class="quiet"></button>
+          </div>
+          <div id="fileTrayError" class="trayState" hidden>
+            <div id="fileTrayErrorText" class="trayErrorText"></div>
+            <div class="trayActions">
+              <button type="button" id="fileTryAgain">Try again</button>
+              <button type="button" id="fileChooseAnother" class="quiet">Choose another server</button>
+            </div>
+          </div>
+        </div>
         <form id="chatForm">
           <!-- Who is in the room, offered when you type an @. Above the box
                rather than below it, because below the box on a phone is
@@ -741,6 +796,7 @@
                send. The picture buttons are all the height of a control, so
                nothing in the row is taller than the rest. The word of each
                stays in its name. -->
+          <input id="attachFile" type="file" multiple hidden tabindex="-1" aria-hidden="true" />
           <button type="button" id="attachToggle" aria-label="Add a file"
                   data-tip="Send a file: drop one here, or pick one">
             <svg class="i" aria-hidden="true" focusable="false"><use href="#i-plus"/></svg><span id="attachCount" class="attachCount"></span>
@@ -766,14 +822,14 @@
           </div>
           <button type="submit" class="primary" aria-label="Send" data-tip="Send"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-send"/></svg></button>
         </form>
-        <div id="attachStaged"></div>
+        <!-- What is left of the old attach panel: the Bothy room's own file
+             controls, and the form for a file that is already on Wildbloom.
+             It opens only for those two (never from the + button, which
+             opens the system picker), and says nothing about where files go
+             (Settings › Privacy › Where files go does). -->
         <div id="attachPanel" class="attachPanel" hidden>
-          <p id="fileStorageStatus" class="note" role="status">File uploads are off. Choose where files go to turn them on.</p>
-          <p id="pendingFileNames" class="note" hidden></p>
-          <div id="pendingFileActions" hidden><button type="button" id="uploadPendingFiles">Upload selected files</button> <button type="button" id="clearPendingFiles">Remove selected files</button></div>
-          <div class="attachRow">
-            <input id="attachFile" type="file" multiple aria-label="Choose a file to share" />
-          </div>
+          <p id="fileStorageStatus" class="note" role="status"></p>
+          <button type="button" id="attachBothyPick" hidden>Choose a file</button>
           <div id="privateFileStorage" hidden>
             <p class="note">Files are encrypted here and sent through this room’s selected Bothy connection. Recipients need a permitted connection to the same box. Other paired members can fetch encrypted copies; the message contains the key that opens yours. The box operator can see transfer times and sizes and decides retention.</p>
             <button type="button" id="allowPrivateFiles">Allow encrypted files on this room’s Bothy</button>
@@ -785,30 +841,6 @@
               <div id="privateFileRecordList"></div>
             </details>
           </div>
-          <!-- Where uploads go. Closed once a server is chosen: the status
-               line above already says which, and the choice is made once
-               per device, not once per file. Its summary is set by
-               `renderFileStorage` in app/src/main.ts. -->
-          <details id="fileStorageOptions">
-            <summary id="fileStorageSummary">Choose where files go</summary>
-            <p class="note">Anyone with a file's link can download its encrypted copy from this server. Only people with the key can open it. The server can see when files are uploaded and fetched, and how big they are. The server's operator, not KithMoot, decides what it keeps and for how long.</p>
-            <!-- Buttons are built from PUBLIC_FILE_SERVERS (app/src/file-storage.ts)
-                 by `renderPublicFileServers` in app/src/main.ts. Choosing one
-                 only fills the field below; it never grants consent. -->
-            <div id="publicFileServers" role="group" aria-labelledby="publicFileServersLabel" hidden>
-              <p id="publicFileServersLabel" class="note">Public servers run by other people</p>
-              <div id="publicFileServerList" class="publicFileServerList"></div>
-            </div>
-            <label for="attachServer" class="note">Or your own server</label>
-            <input id="attachServer" type="url" placeholder="https://blossom.example" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="File store" />
-            <p class="note"><a href="https://github.com/forgesworn/kithmoot/blob/main/docs/run-your-own.md#files" target="_blank" rel="noopener">How to run your own file server</a></p>
-            <label><input id="allowSharedFiles" type="checkbox" /> I accept that encrypted files may be publicly downloadable from this server.</label>
-            <div class="attachRow">
-              <button type="button" id="saveFileStorage">Use this server</button>
-              <button type="button" id="stopFileUploads" class="quiet" hidden>Turn off file uploads</button>
-            </div>
-            <p class="note">Changing this does not move or delete files already sent. With uploads on, a file uploads as soon as you choose or drop it, before you press Send.</p>
-          </details>
           <details id="attachOptions" class="attachOptions">
             <summary>Add a file already on Wildbloom</summary>
             <p class="note">Paste the link or id Wildbloom gave you, and the key that opens it.</p>
@@ -818,9 +850,10 @@
           </details>
           <div class="attachRow">
             <button type="button" id="attachCancel">Close</button>
-            <button type="button" id="cancelFileWork" hidden>Stop adding files</button>
             <span id="attachStatus" class="note" role="status"></span>
           </div>
+          <div id="pendingFileActions" hidden><button type="button" id="uploadPendingFiles">Upload selected files</button> <button type="button" id="clearPendingFiles">Remove selected files</button></div>
+          <p id="pendingFileNames" class="note" hidden></p>
         </div>
       </section>
 
@@ -1616,6 +1649,8 @@
         <!-- A self-destructing room says once what that can and cannot do. -->
         <p id="roomDestructState" class="note" hidden></p>
         <p id="quietState" class="note" hidden></p>
+        <!-- Where files sent in this room go. Filled in by `renderRoomFilesLine` in app/src/main.ts. -->
+        <p id="roomFilesLine" class="note"></p>
         <section id="assist" hidden>
           <div class="toggles">
             <button id="toggleAssist" class="toggle" data-on="false" aria-pressed="false" hidden>

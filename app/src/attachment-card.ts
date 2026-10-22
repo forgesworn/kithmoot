@@ -74,7 +74,9 @@ function button(words: string, name: string, onClick: () => void): HTMLButtonEle
 export function openingErrorText(err: unknown, host: string): string {
   const message = err instanceof Error ? err.message : String(err)
   if (/not the file the message named/i.test(message)) return 'This isn’t the file that was sent, so KithMoot didn’t open it.'
-  if (/answered 404/i.test(message)) return `This file is no longer on ${host}.`
+  // 410 is a server saying the file is gone for good, as a store that has
+  // closed answers; to the person it is the same as 404.
+  if (/answered (?:404|410)/i.test(message)) return `This file is no longer on ${host}.`
   if (/recovery key is wrong|envelope was modified|padding is invalid|not a (?:Wildbloom|valid)/i.test(message)) return 'This file is damaged or was changed, so it couldn’t be opened.'
   if (/larger than this room will fetch|too large/i.test(message)) return 'This file is too large to open here.'
   if (err instanceof TypeError || /failed to fetch|networkerror|load failed|abort|timeout/i.test(message)) return `Couldn’t reach ${host}. Try again.`

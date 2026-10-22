@@ -17,6 +17,9 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
   const aContext = await newDeviceContext(browser, baseURL!, phone ? { isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } } : {}), bContext = await newDeviceContext(browser, baseURL!)
   const origin = new URL(baseURL!).origin
   await routeTestBlossom(aContext, origin); await routeTestBlossom(bContext, origin)
+  // The default public server must never be reached from a test.
+  const defaultHits: string[] = []
+  await aContext.route(url => url.origin === 'https://blossom.yakihonne.com', route => { defaultHits.push(route.request().url()); return route.abort() })
   let uploads = 0, downloads = 0
   const uploadHeaders: string[] = []
   await aContext.route(`${origin}/upload`, async route => {
@@ -46,7 +49,10 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     expect(original.size).toBeGreaterThan(0)
 
     await a.locator('#recordingShare').click()
-    await expect(a.locator('#pendingFileNames')).toContainText(original.name)
+    // Held in the tray with the one-time notice: nothing leaves until Send.
+    await expect(a.locator('#attachStaged')).toContainText(original.name)
+    await expect(a.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
+    await expect(a.locator('#fileNotice')).toBeVisible()
     await expect(a.locator('#recordingSave')).toBeVisible()
     await expect(a.locator('#recordingShare')).toBeDisabled()
     expect(await localClip(a)).toEqual(original)
@@ -54,21 +60,23 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     await expect(b.locator('#chatLog .attachment')).toHaveCount(0)
 
     await allowTestFileStorage(a, origin)
-    await a.locator('#uploadPendingFiles').click()
-    await expect(a.locator('#attachStatus')).toContainText('503')
-    await expect(a.locator('#uploadPendingFiles')).toBeEnabled()
+    // Send is the act: the first upload is refused, so nothing is sent and the file stays held.
+    await a.locator('#chatForm button[type=submit]').click()
+    await expect(a.locator('#fileTrayErrorText')).toContainText('didn’t take')
+    await expect(a.locator('#fileTryAgain')).toBeVisible()
     expect(await localClip(a)).toEqual(original)
-    await expect(a.locator('#pendingFileNames')).toContainText(original.name)
+    await expect(a.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
 
-    await a.locator('#uploadPendingFiles').click()
+    await a.locator('#fileTryAgain').click()
     await expect(a.locator('#attachStaged')).toContainText(original.name)
-    await expect(a.locator('#pendingFileNames')).toBeHidden()
+    await expect(a.locator('#attachStaged .attachChip .s')).toHaveText(/\d+(\.\d)? ?(B|KB|MB)$/)
     await expect(a.locator('#recordingReadyText')).toContainText('press Send')
     await expect(a.locator('#recordingShare')).toBeDisabled()
     expect(await localClip(a)).toEqual(original)
     expect(uploads).toBe(2)
     expect(uploadHeaders).toEqual(['FSWNENC2', 'FSWNENC2'])
     expect(downloads).toBe(0)
+    expect(defaultHits).toEqual([])
     await expect(b.locator('#chatLog .attachment')).toHaveCount(0)
 
     await a.locator('#chatForm button[type=submit]').click()

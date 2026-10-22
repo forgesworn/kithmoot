@@ -59,7 +59,11 @@ const MAX_UPLOADS = 1000
 const MAX_PENDING = 2000
 const PARALLEL = 4
 
-export interface UploadedBlob { url: string; sha256: string }
+/** `key` says which key signed the upload, so its delete is signed the same
+ *  way: the room's device key (`device`, the only one stage A writes) or the
+ *  per-device file key used for a person's own Wildbloom (`file`, stage C).
+ *  Records written before it existed carry none, and mean `device`. */
+export interface UploadedBlob { url: string; sha256: string; key?: 'device' | 'file' }
 
 const HASH = /^[0-9a-f]{64}$/
 
@@ -80,13 +84,33 @@ export function recordUpload(store: DeviceStore, roomId: string, blob: UploadedB
   if (!HASH.test(sha256)) return
   const kept = readUploads(store, roomId).filter(b => b.sha256 !== sha256 || b.url !== blob.url)
   try {
-    store.set(UPLOADS_PREFIX + roomId, JSON.stringify([...kept, { url: blob.url, sha256 }].slice(-MAX_UPLOADS)))
+    store.set(UPLOADS_PREFIX + roomId, JSON.stringify([...kept, { url: blob.url, sha256, ...(blob.key ? { key: blob.key } : {}) }].slice(-MAX_UPLOADS)))
   } catch { /* Storage full or unavailable: the announcement is the fallback. */ }
 }
 
 /** The blobs this device recorded uploading for a room. */
 export function roomUploads(store: DeviceStore, roomId: string): UploadedBlob[] {
   return readUploads(store, roomId)
+}
+
+/** Where a room's deletes go: the origins of the files this device recorded
+ *  uploading there (so a device that changed server can still tidy up the
+ *  old one), then the origin it uploads to now, if any. The one place that
+ *  decides it: S5b adds a group's nodes here.
+ *
+ *  Only a record that says which key signed it (`key`) adds its origin: the
+ *  app writes that field itself, at the moment an upload to a server the
+ *  person allowed lands. A record without one is older, or was not written by
+ *  an upload, and is never trusted to name a place to send a delete (the
+ *  tidy-up pauses on it instead, as before). */
+export function uploadOrigins(recorded: readonly UploadedBlob[], current: readonly string[] = []): string[] {
+  const origins = new Set<string>()
+  for (const blob of recorded) {
+    if (!blob.key) continue
+    try { origins.add(new URL(blob.url).origin) } catch { /* Not a URL: nothing to delete there. */ }
+  }
+  for (const origin of current) if (origin) origins.add(origin)
+  return [...origins]
 }
 
 export function forgetRoomUploads(store: DeviceStore, roomId: string): void {
@@ -215,7 +239,8 @@ export interface FileDeletionReport {
 
 export interface DeleteUploadsOptions extends Sender {
   blobs: readonly UploadedBlob[]
-  /** Current explicitly consented upload origins. Unsigned records cannot add origins. */
+  /** Where a delete may go: the origins this device recorded uploading to for
+   *  the room, and the one it uploads to now (`uploadOrigins`). */
   origins: readonly string[]
   /** Historical own-device announcements, verified here before exact-target use. */
   signedUploads?: readonly Event[]

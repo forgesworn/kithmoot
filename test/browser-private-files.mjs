@@ -9,12 +9,12 @@ const plaintext = 'This private file survives app, box and relay restart without
 async function panel(page) {
   if (!await page.locator('#attachPanel').isVisible()) await page.locator('#attachToggle').click()
   await expect(page.locator('#privateFileStorage')).toBeVisible()
-  await expect(page.locator('#fileStorageOptions')).toBeHidden()
+  await expect(page.locator('#attachOptions')).toBeHidden()
 }
 async function show(page) {
   const message = page.locator('#chatLog .msg').filter({hasText:caption}).first()
   await expect(message).toBeVisible({timeout:45000})
-  await message.getByRole('button',{name:'Show',exact:true}).click()
+  await message.getByRole('button',{name:'Show private-route.txt',exact:true}).click()
   await expect(message.locator('.attachmentText')).toHaveText(plaintext,{timeout:45000})
 }
 export async function privateFileStart(owner, guest) {
