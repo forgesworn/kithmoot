@@ -6,6 +6,21 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.104 files public first, 22 October 2026
+
+Version **0.6.104**, code **127**, brings the web's public-first files to
+Android (kithmoot-android #312, kithmoot #527): files go to a public server run
+by someone else unless the person chooses otherwise, after a one-time notice
+naming it and its operator; Settings › Privacy › Where files go offers a public
+server, the person's own server, or nowhere; Room info says where files go; and
+upload errors use the web's words. No wire change.
+
+The production APK is built from Android source
+`9e34c58a` (the head of pull request #313), SHA-256
+`b719eb10ac309e6bbc000348a2f54feea1a58af72131607c4bf96179a5282326`, signed with
+the retained production certificate. Installed on the arm64 emulator, where it
+started; not yet observed on a device.
+
 ## Android 0.6.103 reply quotes, and no ForgeSworn call relay or file storage, 22 October 2026
 
 Version **0.6.103**, code **126**, brings reply quotes to Android: Reply on
