@@ -159,8 +159,12 @@ kithmoot.forgesworn.dev {
 		path /codes*
 		not path /codes/health
 	}
+	# Switched off on 22 October 2026: ForgeSworn stores no meeting codes.
+	# A clear 410 rather than silence, because older apps have no timeout on
+	# /codes. Codes are to return on Nostr relays with no server.
 	handle @codes {
-		reverse_proxy 127.0.0.1:8114
+		header Cache-Control no-store
+		respond "Meeting codes are unavailable. Share the room link instead." 410
 	}
 
 	# No /drops here. The box's drop tier (bothy-node, container
@@ -203,11 +207,12 @@ kithmoot.forgesworn.dev {
 		path /upload
 		method PUT HEAD OPTIONS
 	}
+	# Closed to new files on 22 October 2026: ForgeSworn takes no new uploads.
+	# Reads and owners' deletes under /blossom/ below still work until the
+	# read window ends.
 	handle @blossomUpload {
-		request_body {
-			max_size 270MiB
-		}
-		reverse_proxy 127.0.0.1:8092
+		header Cache-Control no-store
+		respond "Shared storage on kithmoot.forgesworn.dev has closed to new files. Set up your group's own storage, or send files directly." 410
 	}
 	@blossomBlob {
 		path_regexp ^/blossom/[0-9a-f]{64}(\.[a-z0-9]{1,10})?$
