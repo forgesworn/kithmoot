@@ -17,6 +17,14 @@
 >
 > Changed 21 October 2026: notes in sections 3 and 4.3 on what we can read
 > and on the drop tier, pending a revision (risk assessment, section 8).
+>
+> Changed 22 October 2026, drafted from the code at `243af551` on
+> `design/files-public-first`: files now go by default to a public file
+> server run by somebody else, named in a one-time notice before the first
+> upload (sections 2 and 8); our file store takes no new uploads (4.2);
+> the file choice kept on the device (section 8); deleting your own files
+> (section 7). This replaces the 20 October entry's "lists one public file
+> server, which a person may choose": it is now the default.
 
 ## 1. Who we are
 
@@ -26,7 +34,10 @@ below (most of what happens in a room is not something we hold at all —
 see section 2). Contact us about anything in this notice at
 `abuse@safety.forgesworn.dev`.
 
-`[DECISION: whether ForgeSworn pays the ICO data protection fee.]`
+`[DECISION: whether ForgeSworn pays the ICO data protection fee: £52 at
+tier 1, £78 at tier 2, £5 less by direct debit; running a public online
+service is not on the exempt list (law note gb/online-services 3.4,
+verified 28 September 2026, [P]).]`
 
 ## 2. The short version
 
@@ -35,7 +46,11 @@ see section 2). Contact us about anything in this notice at
   noted in section 3.
 - Joining a room needs only its link. We do not run accounts, and most
   people never give us anything we would call personal data.
-- Our default infrastructure (a TURN server, a file store, a drop tier,
+- Files you send go to a public file server run by somebody else, unless
+  you choose another server or none. They are encrypted on your device
+  first, so that server cannot open them (section 8).
+- Our default infrastructure (a TURN server, a file store that takes no
+  new files, a drop tier,
   and, for rooms whose links name it, a relay we also run) sees connection-level information —
   device keys, IP addresses, timing, sizes — while helping your room
   connect or store a sealed file, and is designed to keep as little of it
@@ -99,12 +114,17 @@ credential and abuse of our bandwidth: per-username and total allocation
 caps, and a per-allocation bandwidth cap.
 <!-- deploy/coturn/turnserver.conf: user-quota, total-quota, max-bps -->
 
-### 4.2 The default file store (Blossom)
+### 4.2 Our file store (Blossom)
 
-**What.** A file you choose to drop into a room's chat, after you
-explicitly opt in to shared storage, is sealed in your browser first, then
-uploaded as an opaque encrypted blob, authorised by a signed request from
-your device's key.
+**No new uploads.** The app no longer sends files to our file store, and
+from 22 October 2026 the store takes no new uploads. Files already there
+are still served to anyone with their link, and the device that sent one
+can still delete it, until they expire.
+<!-- app/src/file-storage.ts storedFileServer, usableFileServer, chooseFileServer and retireForgeSwornConsent: no ForgeSworn host is ever a destination. Server side: the host's report of 22 October 2026 that PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z, with Blossom reads and owners' deletes still working. Not verified from code: deploy/Caddyfile.kithmoot in this tree still passes /upload to the store, and is not the live state. -->
+
+**What.** A file sent to the store before then was sealed in the sender's
+browser first, then uploaded as an opaque encrypted blob, authorised by a
+signed request from the device's key.
 <!-- deploy/README.md, "Running a Blossom server"; deploy/blossom.yml upload.requireAuth: true -->
 
 **What the store holds.** The encrypted bytes, their size, and the device
@@ -121,14 +141,11 @@ are pruned to make room.
 **Its own request logs** are the upstream Blossom server's own, not
 something this project adds; see section 5 for what happens to them.
 
-**No longer suggested.** From the web release after 20 October 2026 the
-app does not suggest this store. A device that accepted the old
-suggestion stops uploading here until its owner chooses a server again,
-and the app does not name this store when it asks. The store still serves
-files already sent, and still accepts an upload from anyone who names it
-by hand, until it closes to new files on a date we will announce in the
-app first.
-<!-- app/src/file-storage.ts suggestedFileServer, retireSuggestedForgeSwornConsent -->
+**A device that used it.** The app removes a saved choice that names our
+store, says once that KithMoot no longer sends files there, and shows the
+notice for the default server in section 8 before the next upload. Typing
+our store's address in Settings is refused.
+<!-- app/src/file-storage.ts retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED; app/src/main.ts fileNoticeClosed -->
 
 ### 4.3 The default drop tier (`/drops`)
 
@@ -202,7 +219,8 @@ what kind of build is asking. The site's access log is discarded
 We hold almost nothing described in section 4 for long, by design:
 
 - TURN rate-limit counters: in memory only, gone on every restart.
-- The default file store: up to 90 days from last fetch (section 4.2).
+- Our file store: a file already sent, up to 90 days from last fetch
+  (section 4.2).
 - The default drop tier: up to 30 days, or sooner under its size bound
   (section 4.3).
 - System logs across the box that runs our default services (including
@@ -223,6 +241,7 @@ need it, and you can ask us to delete it (section 7).
 | Purpose | Basis |
 | --- | --- |
 | Running the default TURN, file store, drop tier and relay | Legitimate interests, in providing infrastructure the room asked for |
+| Choosing the default file server the app sends files to (section 8) | `[LEGAL REVIEW: whether ForgeSworn is a controller at all for uploads it chose the destination of but never receives; if it is, which basis applies]` |
 | Rate limiting, quotas and abuse prevention on default infrastructure | Legitimate interests; legal obligation under the Online Safety Act 2023 |
 | Reports and complaints | Legal obligation under the Online Safety Act 2023 |
 
@@ -249,6 +268,12 @@ them (results depend on each relay's own cooperation, and are shown to you
 per relay).
 <!-- app/src/public-deletion-relay-writer.ts: a NIP-09 kind-5 deletion request, sent to relays you choose, with a per-relay accepted/refused/timed-out/unknown result -->
 
+**Files you sent.** When you leave a room with "Leave and tidy up", or a
+room you are in self-destructs, the app asks the file server to delete the
+files your device sent to that room. Only your device can ask, and only for
+its own files. Whether the server deletes them is up to the server.
+<!-- app/src/blob-deletion.ts: a BUD-02 kind 24242 delete authorisation signed by the room's device key, sent only to a server this app uploads to -->
+
 You can complain to the Information Commissioner's Office (ico.org.uk). We
 would like the chance to put things right first.
 
@@ -265,16 +290,40 @@ would like the chance to put things right first.
 The app also makes your device contact the following. Each learns your
 device's IP address and the time, as any web request does.
 
-- **A file server you choose.** File uploads are off until you choose
-  where files go. The web app lists one public server run by somebody
-  else, blossom.yakihonne.com, run by Yakihonne LLC in the United States,
-  and you can name any other server, your own included. The server you
-  choose receives each encrypted file, its size, the device key that
-  signed the upload, and when it was uploaded and fetched; anyone with a
-  file's link can download its encrypted copy. Its operator, not us,
-  decides what it keeps and for how long. Room members who open the file
-  fetch it from the same server, which learns their addresses too.
-  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS; docs/run-your-own.md "Files" -->
+- **A public file server, when you send a file.** Files you send go to
+  blossom.yakihonne.com, a public server run by Yakihonne LLC in the
+  United States, unless you choose another server, or "Nowhere", under
+  Settings, Privacy, "Where files go". The first time your device sends a
+  file, the app names the server and says what it sees, and nothing goes
+  to it until you press Send. Your file is encrypted and padded on your
+  device first, so the server cannot open it. The server receives the
+  encrypted file; its size, rounded up so it shows only roughly how big
+  the file is; the upload, signed by a key made for your device in that
+  room, which lets the server tell that uploads in one room came from the
+  same device; your IP address; and when files are uploaded and opened.
+  Anyone who opens the file, the people in your room included, connects to
+  the same server, which learns their IP addresses too. Yakihonne, not us,
+  decides what it keeps and for how long; its terms are at
+  https://yakihonne.com/terms. Your choice, and the address of the server
+  it names, are saved on your device so the app does not ask again. If a
+  later version changes the default server, the app asks again before
+  sending anything to the new one. A copy of KithMoot built by somebody
+  else may use its own default server instead, and the app names that
+  server in the same way.
+  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS (Yakihonne LLC, checked 2026-10-20), defaultFileServer (VITE_KITHMOOT_FILE_SERVER, never a ForgeSworn host), resolveFileDestination (a 'default' consent naming a server that is no longer the default falls through to the notice), acceptDefaultFileServer (Send writes kithmoot.file-storage.v1 with via 'default'); app/src/main.ts fileNoticeTitle and fileNoticeBody; app/index.html #fileWhere; packages/context/src/blossom.ts paddedPlaintextLength (power-of-two buckets up to a chunk, then whole chunks); app/src/blob-deletion.ts "signed by the room's device key". Desktop: desktop/policy.mjs HOME loads https://kithmoot.forgesworn.dev/j/, so the same default applies once that web build is deployed. Location: https://yakihonne.com/terms, "Last updated: July 15, 2026", fetched 22 October 2026: "Yakihonne LLC, a Wyoming limited liability company", governed by the laws of the United States. Yakihonne's privacy policy page rendered no text without JavaScript and was not read. -->
+
+  `[DECISION: whether pressing Send after the one-time notice is the act of
+  choice the owner relies on ("Send is the act"), or whether a separate
+  explicit choice is wanted.]`
+  `[LEGAL REVIEW: whether that act is enough for this recipient, and
+  whether a default recipient in the United States is a transfer by
+  ForgeSworn (law note 3.8) when the person's own device makes the upload
+  and ForgeSworn never receives the file.]`
+  `[LEGAL REVIEW: which Schedule A1 exception covers the saved choice
+  (kithmoot.file-storage.v1); the draft treats it as strictly necessary
+  for the upload the person asked for (law note 4, [P]).]`
+  `[INPUT: the Android app was not checked for this change; this bullet
+  describes the web app and the desktop app.]`
 
 - **Relays asked for public profiles.** To show people's chosen names
   and pictures, the app asks for the public Nostr profile of the people
@@ -370,3 +419,10 @@ If we change this notice, we will say so on the site.
    Caddy configuration.
 4. A general contact address for anything outside content, safety and
    reports (the terms draft leaves this as a placeholder too).
+5. The default file server (section 8): "Send is the act" as the choice,
+   whether ForgeSworn is a controller for it, any transfer question, and
+   the device storage exception. Yakihonne's own privacy policy has not
+   been read.
+6. Our file store's closure to new uploads rests on the host's report of
+   22 October 2026; the Caddy file in the repository still shows the
+   upload route and must catch up before this notice is published.

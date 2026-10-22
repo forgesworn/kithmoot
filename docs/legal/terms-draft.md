@@ -8,6 +8,11 @@
 > Changed 21 October 2026: a note at the end of section 6 corrects what
 > these terms say about what we can read, the file store and the drop tier,
 > pending a revision (risk assessment, section 8).
+>
+> Changed 22 October 2026, drafted from the code at `243af551` on
+> `design/files-public-first`: files go by default to a public file server
+> run by somebody else, and our file store takes no new uploads (sections
+> 1, 5, 6 and 8). This replaces the 21 October note's file store bullet.
 
 ## 1. About these terms
 
@@ -18,9 +23,10 @@ safety or reports, and `[general contact address]` for anything else.
 
 KithMoot is an encrypted workspace: rooms, messages, files and calls
 between the people you invite. It is built on Nostr, an open network, and
-uses relays, TURN servers and file stores that you can choose; some of
+uses relays, TURN servers and file servers that you can choose; some of
 those are run by us by default, and you can point a room at others
-instead.
+instead. Files you send go by default to a public file server run by
+somebody else (section 6).
 
 By using KithMoot you agree to these terms. If we change them, we will say
 so on the site before the change takes effect. If you do not agree to a
@@ -74,7 +80,7 @@ These terms do not take away any rights you have by law as a consumer.
 ## 5. What is not allowed
 
 You must not use KithMoot, or any of the default infrastructure we run for
-it (relays, TURN, the default file store, the default drop tier), for:
+it (relays, TURN, our file store, the default drop tier), for:
 
 1. **unlawful or harmful content**, including anything terrorist, anything
    that sexually exploits or abuses children, and anything that encourages
@@ -115,10 +121,24 @@ reports or removal.
   relay, and only that one, we have relay-operator-level control over what
   it stores and serves. We have no such control over any other relay,
   including the defaults, or any relay a room's creator chooses instead.
-- **The default file store accepts only sealed, encrypted files it cannot
-  itself read or display.** It cannot serve a viewable image, video or
-  document under any circumstances; what is stored there is meaningless
-  bytes without a room's own key.
+- **Files you send go to a server run by somebody else.** Unless you
+  choose another server, the app sends files to blossom.yakihonne.com, a
+  public server run by Yakihonne LLC in the United States, which has its
+  own rules (https://yakihonne.com/terms). Each file is encrypted on your
+  device before it leaves, so that server cannot open it. We do not run
+  that server and cannot remove anything from it.
+  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS, defaultFileServer, resolveFileDestination; location from https://yakihonne.com/terms ("a Wyoming limited liability company"), fetched 22 October 2026 -->
+- **Our own file store takes no new uploads** from 22 October 2026, and
+  the app no longer sends files there. It accepted only sealed, encrypted
+  files it cannot read or display. Files already there can still be
+  fetched by anyone with their link, and deleted by the device that sent
+  them, until they expire.
+  <!-- deploy/blossom.yml: the one accepted type is application/vnd.forgesworn.encrypted. App: app/src/file-storage.ts, no ForgeSworn host is ever a destination. Server: the host's report of 22 October 2026 (PUT, HEAD and OPTIONS on /upload answer 410 from 09:42Z; reads and owners' deletes still work). deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
+
+`[LEGAL REVIEW: whether these terms should say anything about the
+default file server's own terms beyond pointing to them, given that the
+app, not the person, chose it as the default.]`
+`[INPUT: the Android app was not checked for this change.]`
 
 **Note, 21 October 2026.** Corrections, pending a revision of these terms
 (`docs/legal/online-safety-risk-assessment-draft.md`, section 8):
@@ -130,11 +150,8 @@ reports or removal.
   no waiting room, that link lets the service enter the room while the code
   lives.
   <!-- deploy/keeper@.service; deploy/README.md "Meeting codes"; docs/meeting-codes.md "Trust model" -->
-- "The default file store" above means the store we run. From the web
-  release after 20 October 2026 the web app no longer suggests it. It lists
-  a public file server run by somebody else, which sets its own rules; what
-  the app uploads there is sealed on your device first.
-  <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
+- The file store bullet that stood here on 21 October is replaced by the
+  two file bullets above (22 October 2026).
 - No app names the drop tier. Where these terms call it a default, read it
   as a service we run that anyone can reach.
 
@@ -167,8 +184,8 @@ to protect people. This is a metadata-level action, described precisely in
 `docs/legal/report-handling.md`; it never involves us reading room content,
 because we cannot. We will tell you why unless the law or safety prevents
 it. Nothing here reaches a room's own key holders, a keeper's own
-infrastructure, or a self-hosted deployment of KithMoot, none of which we
-control.
+infrastructure, a file server somebody else runs, or a self-hosted
+deployment of KithMoot, none of which we control.
 
 ## 9. Our responsibility to you
 

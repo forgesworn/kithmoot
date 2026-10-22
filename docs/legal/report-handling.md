@@ -8,6 +8,10 @@
 >
 > Changed 21 October 2026: notes in sections 2 and 3.2, pending a revision
 > (risk assessment, section 8).
+>
+> Changed 22 October 2026, from the code at `243af551` on
+> `design/files-public-first`: our file store takes no new uploads (3.2),
+> and files from the app go by default to a server we do not run (3.6).
 
 ## 1. How a notice arrives
 
@@ -48,8 +52,9 @@ Ask the sender for, and act on:
 - **An event id**, if they have one (visible to a technical user through
   their own client or a relay's own tooling). Relevant to the relay
   we operate (section 3.4).
-- **A file hash**, if the notice concerns something shared through the
-  default Blossom store. Relevant to section 3.2.
+- **A file hash or file link**, if the notice concerns a shared file. The
+  link's host says whose server it is on: our store (section 3.2) or a
+  server somebody else runs (section 3.6).
 - **A description of what happened and why it is illegal or against the
   terms.**
 - **Whether it involves a child**, so it is routed correctly (section 6).
@@ -75,7 +80,13 @@ our default TURN, not just an abusive one), or block a source IP address
 at the network or Caddy level. Neither is targeted at a specific abuser
 beyond their current IP.
 
-### 3.2 The default file store (Blossom, `blossom-server-ts` 5.2.0)
+### 3.2 Our file store (Blossom, `blossom-server-ts` 5.2.0)
+
+**No new uploads from 22 October 2026.** The app no longer sends files
+here, and the upload route answers 410 (host's report, 22 October 2026,
+09:42Z). Reads by hash and owners' deletes still work, so what follows
+still applies to files already stored.
+<!-- app/src/file-storage.ts: no ForgeSworn host is ever a destination. deploy/Caddyfile.kithmoot in this tree still passes /upload and is not the live state. -->
 
 **Delete by hash:** blossom-server-ts implements a `DELETE` route per
 BUD-02, but it is **owner-authorised**: the request must be signed by the
@@ -105,8 +116,8 @@ should be logged as such (section 5) precisely because it bypasses the
 server's own authorisation model.
 
 *Note, 21 October 2026.* This applies only to the store we run. A file on
-a public server the app lists, or on one a person names, is on a server we
-do not operate (section 3.5).
+a public server the app uses by default, or on one a person names, is on a
+server we do not operate (section 3.6).
 <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
 
 **Block a pubkey from future uploads:** `[UNVERIFIED]`. `deploy/blossom.yml`
@@ -179,6 +190,22 @@ and stores, is **outside this runbook and outside our control.** We can
 say this plainly and, where we can identify who runs it, suggest the
 sender contact that operator directly. We hold no list of self-hosted
 deployments.
+
+### 3.6 Files on a server somebody else runs
+
+The web app, and the desktop app that loads it, send files by default to
+blossom.yakihonne.com, run by Yakihonne LLC. A person may also choose
+their own server. **We cannot delete, block or inspect anything on these
+servers.** Only the device that uploaded a file, or the server's own
+operator, can remove it. Tell the sender so, and point them to that
+operator: for the default server, the contact in Yakihonne's published
+terms (https://yakihonne.com/terms). What KithMoot uploads is encrypted
+before it leaves the device, so the server's operator cannot read a
+KithMoot file either.
+<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS, defaultFileServer; app/src/blob-deletion.ts (BUD-02 delete by the uploading device's room key) -->
+
+For suspected CSAM on such a server, section 6 applies unchanged: report
+the file link to the authorities named there.
 
 ## 4. Timescales
 

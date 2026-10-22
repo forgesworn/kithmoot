@@ -168,6 +168,15 @@ sets its own rules. What the app uploads is sealed on the device first, so
 for that server the file sharing row rests on the app, not on a store rule.
 <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
 
+*Note, 22 October 2026.* From the `design/files-public-first` release,
+files go by default to that public server (blossom.yakihonne.com, run by
+Yakihonne LLC) after a one-time notice at Send, so the "opt-in" in the
+row above becomes a notice, not a switch. ForgeSworn's own store takes no
+new uploads from 22 October 2026. That server is a general file host; the
+store rule this row leans on does not apply to it (illegal content risk
+assessment, 8.3).
+<!-- app/src/file-storage.ts defaultFileServer, resolveFileDestination; app/src/main.ts fileNoticeBody -->
+
 ### B3. Age groups
 
 Unknown. `[INPUT]` Without any age signal at all, this record cannot even
