@@ -1,17 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { MEETING_CODES_GOING_NOTICE, MEETING_CODES_GONE, MeetingCodeError, MeetingCodeNetworkError, meetingCodeClient, issueSealedMeetingCode } from './meeting-codes.js'
+import { MEETING_CODES_GONE, MeetingCodeError, MeetingCodeNetworkError, meetingCodeClient, issueSealedMeetingCode } from './meeting-codes.js'
 import { RELAY_MISSING_NOTICE, fetchTurnCredential, hasRelay, resolveIceServers } from './ice-resolve.js'
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
 const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status })
 const LINK = 'https://kithmoot.forgesworn.dev/j/#x'
 
-describe('meeting codes are going', () => {
-  it('says so where codes are made and entered, and in the app copy', () => {
-    expect(MEETING_CODES_GOING_NOTICE).toBe('Meeting codes are going. Share the room link instead.')
-    expect(html).toMatch(/id="joinCodeGoingNote"[^>]*>Meeting codes are going\. Share the room link instead\./)
-    expect(html).toMatch(/id="getMeetingCodeGoingNote"[^>]*>Meeting codes are going\. Share the room link instead\./)
+describe('meeting codes when the service is gone', () => {
+  it('uses neutral wording and shows no going note', () => {
+    expect(MEETING_CODES_GONE).toBe('Meeting codes are unavailable right now. Share the room link instead.')
+    expect(html).not.toContain('Meeting codes are going')
   })
   for (const status of [404, 405, 410]) {
     it(`fails cleanly when creating answers ${status}`, async () => {

@@ -96,10 +96,8 @@ export function meetingCodeExpiry(endsAt: number | undefined, now: number): numb
 export const MEETING_ENDED = 'This meeting has ended'
 export const MEETING_CODE_UNKNOWN = 'We could not find that code. Check it and try again'
 export const MEETING_CODE_TOO_MANY = 'Too many tries. Wait a minute'
-/** Shown where codes are made or entered (index.html carries the same words). */
-export const MEETING_CODES_GOING_NOTICE = 'Meeting codes are going. Share the room link instead.'
 /** The service answered 404, 405 or 410 to a request to make a code: it has been switched off. */
-export const MEETING_CODES_GONE = 'Meeting codes have ended. Share the room link instead.'
+export const MEETING_CODES_GONE = 'Meeting codes are unavailable right now. Share the room link instead.'
 /** How long any request to the code service may take before it counts as unreachable. */
 export const MEETING_CODE_TIMEOUT_MS = 8000
 export const MEETING_CODES_UNAVAILABLE = 'Meeting codes are unavailable right now. Share the full link instead.'
