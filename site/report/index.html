@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Report abuse or illegal content — KithMoot</title>
-    <meta name="description" content="How to report illegal content or abuse connected with KithMoot, and what we can and cannot do about it." />
+    <meta name="description" content="How to report illegal content or abuse connected with KithMoot, and who can act on it." />
     <meta name="theme-color" content="#F3F8FA" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#081923" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -22,39 +22,25 @@
 <p class="dated">Last updated 22 October 2026.</p>
 
 <h2>If a child is in immediate danger, or there is a risk to life</h2>
-<p>Contact the police on 999, or 101 if it is not an emergency. Use this page afterwards if the problem also involves KithMoot.</p>
-
-<h2>How to report to us</h2>
-<p>Email <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>. You do not need a KithMoot account to report something to us, and you do not need to have been in the room yourself.</p>
-<p>Please include, as far as you can:</p>
-<ul>
-<li><strong>The room link</strong>, if you have one or can share one with us.</li>
-<li><strong>An event id or a file link</strong>, if you have one.</li>
-<li><strong>What happened, and why</strong> you believe it is illegal or breaks our <a href="/terms/">terms of use</a>.</li>
-<li><strong>Whether a child is involved.</strong></li>
-</ul>
-
-<h2>What we can and cannot do</h2>
-<p>KithMoot's rooms are end-to-end encrypted. <strong>We cannot read messages, files or calls in any room</strong>, and we do not pre-review or scan content. What we can act on is metadata: a room link, an event id, a file hash, a pubkey, and your own account of what happened.</p>
-<p>Because of this, what we can actually do depends on which part of KithMoot is involved:</p>
-<ul>
-<li>We can take our own default connection service (TURN), our file store (which takes no new uploads), our default message-drop service, or the relay we operate offline, or restrict what they accept, where a report concerns them.</li>
-<li>Files sent from the web app and the desktop app now go to a file server run by somebody else: by default blossom.yakihonne.com, run by Yakihonne LLC. We cannot remove anything from it. Report the file to that server's operator as well as to us.</li>
-<li>We have no control over independent relays, or over rooms run entirely on other people's infrastructure. We will tell you plainly when this is the case, and point you elsewhere if we can.</li>
-<li>Our default message-drop service is deliberately built to keep no record of who sent or received anything through it, so we cannot remove a single item from it or block a specific sender there; we can only take the whole service offline.</li>
-</ul>
-<p>We aim to acknowledge a report within 2 working days. Read more about exactly what we can do, surface by surface, in our published <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/report-handling.md">report-handling runbook</a>.</p>
+<p>Contact the police on 999, or 101 if it is not an emergency.</p>
 
 <h2>Child sexual abuse material</h2>
-<p>Do not describe the material in detail, attach it, or send it to us. Report it directly to:</p>
+<p>Do not describe the material in detail, attach it, or send it to anybody else. Report it directly to:</p>
 <ul>
 <li>The National Crime Agency, through <a href="https://www.ceop.police.uk/safety-centre/">CEOP</a>.</li>
 <li>The Internet Watch Foundation, at <a href="https://report.iwf.org.uk/">report.iwf.org.uk</a>.</li>
 </ul>
-<p>You can also tell us at <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>, so we can act on anything within our own control, but the authorities above are the right route for the material itself.</p>
 
-<h2>Complaints</h2>
-<p>If you reported something to us and are unhappy with what we did, write to the same address and say what happened. If you are not satisfied with our answer, you can contact <a href="https://www.ofcom.org.uk/online-safety/">Ofcom</a>, which regulates online safety in the UK.</p>
+<h2>Who can act on it</h2>
+<p>ForgeSworn publishes KithMoot as software. We do not run the relays, file servers or call relays that carry rooms. Nothing we still hold is reachable from outside: the encrypted files left from our closed file store wait to be deleted (<a href="/privacy/">privacy notice</a>, section 4.4). Rooms are end-to-end encrypted, so nobody outside a room can read it. The people who can act are those who run the parts involved:</p>
+<ul>
+<li><strong>A relay</strong> can stop storing and serving events. A room's link shows which relays it uses; each relay's operator decides what it carries.</li>
+<li><strong>A file server</strong> can remove a file. Files sent from the web app and the desktop app go by default to blossom.yakihonne.com, run by Yakihonne LLC; report a file to that server's operator.</li>
+<li><strong>A room's keeper or hosts</strong>, where a room has them, can remove members or close the room.</li>
+<li><strong>The app itself</strong> lets you leave a room, and decline and block a person, on your own device.</li>
+</ul>
+<p>What we ran until 22 October 2026, and what closed, is in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>. How reports were handled while it ran is kept in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/archive/report-handling.md">archived report-handling runbook</a>.</p>
+<!-- Owner decision, 22 October 2026: no contact address on this page; the privacy page carries the only one. -->
 
 <h2>Something else</h2>
 <p>For a bug in the app rather than a safety concern, <a href="https://github.com/forgesworn/kithmoot/issues">report an issue on GitHub</a> instead.</p>

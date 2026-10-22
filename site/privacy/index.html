@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy notice — KithMoot</title>
-    <meta name="description" content="The privacy notice for KithMoot: what ForgeSworn collects, what it never sees, and for how long." />
+    <meta name="description" content="The privacy notice for KithMoot: what ForgeSworn still sees and holds, what it never sees, and who else the app contacts." />
     <meta name="theme-color" content="#F3F8FA" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#081923" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
@@ -25,17 +25,19 @@
 </div>
 
 <h2>1. Who we are</h2>
-<p>KithMoot is run by <strong>ForgeSworn</strong>. For UK data protection law we are the controller of the personal data described here, to the extent described below: most of what happens in a room is not something we hold at all (section 2). Contact us about anything in this notice at <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>.</p>
+<p>KithMoot is open-source software published by <strong>ForgeSworn</strong>. For UK data protection law we are the controller of the little personal data described here: what our web server and STUN server see, and data left from services that closed on 22 October 2026 (section 4). We do not run accounts or hold room content.</p>
+<p>To ask about anything on this page, write to <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>.</p>
+<!-- Owner decision, 22 October 2026: ForgeSworn is the only name used for the controller. Do not add any company or personal name. -->
+<!-- [DECISION: legal basis for each use in section 4; the law note (3.2) asks for it and this notice does not choose one] -->
 
 <h2>2. The short version</h2>
 <ul>
-<li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files, or your calls.</li>
-<li>Joining a room needs only its link. We do not run accounts, and most people never give us anything we would call personal data.</li>
-<li>In the web app and the desktop app, files you send go to a public file server run by somebody else, unless you choose another server or none. They are encrypted on your device first, so that server cannot open them (section 7).</li>
-<li>Our default infrastructure (a TURN server, a file store that takes no new files, a drop tier, and, for rooms whose links name it, a relay we also run) sees connection-level information while helping your room connect or store a sealed file, and is designed to keep as little of it as possible.</li>
-<li>We keep no server-side account, session or membership record for a room. There is nothing to delete on request because there is nothing held.</li>
-<li>Some defaults make your device contact other parties: relays asked for people's public profiles and the hosts of their profile pictures, and, for the desktop app, our site for updates and GitHub (section 7). Desktop versions before 0.1.91 also contacted Google. You can turn the profile lookups off.</li>
-<li>We do not sell your data, we do not show adverts, and we do not run analytics or tracking.</li>
+<li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files or your calls.</li>
+<li>kithmoot.forgesworn.dev serves the app, this website and update information as static files, and answers STUN, which sees your IP address and carries no content.</li>
+<li>Until 22 October 2026 we also ran a call relay, a file store, a message-drop service and meeting codes. They are closed. Some data from them is still on our server until it is deleted (section 4.4). The <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a> says what closed and when.</li>
+<li>In the web app and the desktop app, files you send go to a public file server run by somebody else, unless you choose another server or none. They are encrypted on your device first (section 7).</li>
+<li>Some defaults make your device contact other parties: relays, profile lookups, picture hosts and, for the desktop app, our site and GitHub (section 7). You can turn the profile lookups off.</li>
+<li>We do not sell your data, show adverts, or run analytics or tracking.</li>
 </ul>
 
 <h2>3. Things we never collect</h2>
@@ -46,35 +48,38 @@
 <li><strong>Card or bank details.</strong> KithMoot has no payments functionality.</li>
 </ul>
 
-<h2>4. What our default infrastructure sees, and why</h2>
-<h3>4.1 The default TURN server</h3>
-<p>When your call cannot connect device to device, your browser asks for a short-lived credential, then relays media through our TURN server if needed. Minting a credential needs no account or sign-in. The credential-minting service keeps an in-memory, per-IP rate-limit counter only, reset on every restart and never written to disk. During a relayed call, the TURN server necessarily sees both sides' IP addresses, because that is what a TURN relay does.</p>
-<h3>4.2 Our file store</h3>
-<p>From 22 October 2026 our file store takes no new uploads, and the web app and the desktop app no longer send files there. Files sent to it before then were sealed on the sender's device and uploaded as opaque encrypted blobs. The store holds the encrypted bytes, their size, and the device key that signed the upload, never the file's name, type or contents. Anyone with a file's link can still fetch its encrypted copy, and the device that sent it can still delete it. A file is kept for up to 90 days from its last fetch, sooner if storage is full.</p>
-<h3>4.3 The default drop tier</h3>
-<p>A bounded relay for one Nostr message kind, accepted from any connection with no authentication, used for quiet delivery. It deliberately keeps no index of who sent or who a delivery was for, so nobody, including us, can look up what belongs to whom. It is bounded by size (1 GiB by default) and a 30-day maximum age.</p>
-<h3>4.4 A relay we also run</h3>
-<p>The relays KithMoot suggests by default are independent public relays we do not operate. Until September 2026 one of the defaults was a relay we run, and a room whose link was written then still names it. On that relay we can see, for events that pass through it: event kinds, device public keys, opaque room selectors, timing and message size, never plaintext content, which is encrypted before it reaches any relay. A room's link shows which relays it uses, and a room's creator can remove that relay from them.</p>
-<h3>4.5 Access and error logs on our web server</h3>
-<p>Our web server is configured to discard access logs for the KithMoot site. <strong>Known gap, stated honestly:</strong> the automatic redirect from plain HTTP to HTTPS may still be recorded by the operating system's own connection logging even though the site's own access log is discarded. We have not independently verified this is fully suppressed, and we say so rather than claim a guarantee we have not checked.</p>
-
-<h3>4.6 Update checks from the desktop app</h3>
-<p>Every desktop build except the Debian package checks our site for updates, 30 seconds after it starts and then on a timer: every ten minutes for the signed app for Macs with Apple silicon, and every hour for the Windows ZIP and the Linux tar.gz. When there is an update, the app downloads it from our site too. The Debian package does not check by itself: the system's package manager fetches its updates from the project's GitHub releases (section 7). There is no setting to turn the checks off. Each check is an ordinary web request, so our web server sees the address it came from, the time, and the file it asked for, which says what kind of build is asking. The site's access log is discarded (section 4.5), so these requests are not kept.</p>
+<h2>4. What our server sees, and why</h2>
+<h3>4.1 The web server</h3>
+<p>Our web server serves the app, this website and the downloads. Like any web server it sees the address a request comes from, the time and the file asked for. It is configured to discard access logs for both KithMoot sites. <strong>Known gap:</strong> the automatic redirect from plain HTTP to HTTPS may still be recorded by the operating system's own connection logging. We have not verified that this is fully suppressed.</p>
+<h3>4.2 Update checks from the desktop app</h3>
+<p>Every desktop build except the Debian package checks our site for updates, 30 seconds after it starts and then on a timer: every ten minutes for the signed app for Macs with Apple silicon, and every hour for the Windows ZIP and the Linux tar.gz. When there is an update, the app downloads it from our site too. Each check is an ordinary request for a static file, so our web server sees the address it came from, the time, and the file it asked for, which says what kind of build is asking. There is no setting to turn the checks off. The access log is discarded (section 4.1). The Debian package does not check by itself: the system's package manager fetches its updates from GitHub (section 7).</p>
+<h3>4.3 STUN</h3>
+<p>When the app is loaded from kithmoot.forgesworn.dev, it asks our STUN server for your device's public address, so a call can try to connect directly. The STUN server sees your IP address and port, and answers with them. It carries no messages, files or call media, and relays nothing between people. It is configured to keep no logs.</p>
+<h3>4.4 Data left from closed services</h3>
+<p>The file store and meeting codes stopped on 22 October 2026. What they held is no longer reachable from outside, and waits on our server to be deleted:</p>
+<ul>
+<li><strong>Stored files</strong>: 84 encrypted files, about 164 MB in all. Each was sealed on the sender's device; we hold the encrypted bytes, their size and the device key that signed the upload, never a file's name, type or contents.</li>
+<li><strong>Meeting codes</strong>: the store of room links behind short codes, about 1 KB.</li>
+</ul>
+<!-- [INPUT: when the trash folder will be emptied] -->
+<!-- [INPUT: whether the archive nodes still hold copies of the stored files] -->
+<!-- [INPUT: what, if anything, the drop tier still holds on the box's loopback] -->
 
 <h2>5. How long we keep information</h2>
-<p>We hold almost nothing described in section 4 for long, by design: TURN rate-limit counters live in memory only; our file store keeps a file already sent up to 90 days from last fetch; the default drop tier keeps a delivery up to 30 days; and system logs on the box that runs our default services are bounded to two weeks, or 500 MB, whichever comes first.</p>
-<p>We keep no server-side account record to delete, because we do not run accounts. If you have contacted us by email, that correspondence is kept for as long as we reasonably need it, and you can ask us to delete it (section 6).</p>
+<p>Web server and STUN requests are not logged (sections 4.1 and 4.3). The data in section 4.4 is kept only until it is deleted. If you have written to us, that correspondence is kept for as long as we reasonably need it, and you can ask us to delete it.</p>
+<!-- [INPUT: system log retention on the box; deploy/journald-kithmoot.conf sets two weeks or 500 MB but is installed by no script] -->
+<!-- [INPUT: retention for correspondence] -->
 
 <h2>6. Your rights</h2>
-<p>Because we hold so little that identifies anyone, most requests will come back "we do not hold that", which is itself the answer to a request, not a failure to respond to one. Where we do hold something identifiable to you, you can ask us to give you a copy, correct it, delete it, or restrict or stop using it. Write to <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a>. We will answer within one month.</p>
-<p><strong>Content in a room.</strong> We cannot delete a message, a file, or a call from a room, because we never held it. If you want something removed from a room you are in, leave the room, ask a keeper who runs it to remove you or close it, or, for your own signed public events, use the in-app tool that asks relays to delete them.</p>
-<p><strong>Files you sent.</strong> When you leave a room with "Leave and tidy up", or a room you are in self-destructs, the app asks the file server to delete the files your device sent to that room. Only your device can ask, and only for its own files. Whether the server deletes them is up to the server.</p>
+<p>Because we hold so little that identifies anyone, most requests will come back "we do not hold that", which is itself the answer to a request. Where we do hold something identifiable to you, you can ask us to give you a copy, correct it, delete it, or restrict or stop using it. We will answer within one month.</p>
+<p>Send requests to the address in section 1.</p>
+<p><strong>Content in a room.</strong> We cannot delete a message, a file or a call from a room, because we never held it. To have something removed, leave the room, ask a keeper who runs it to remove you or close it, or, for your own signed public events, use the in-app tool that asks relays to delete them.</p>
 <p>You can complain to the Information Commissioner's Office (<a href="https://ico.org.uk">ico.org.uk</a>). We would like the chance to put things right first.</p>
 
 <h2>7. Who else receives data</h2>
 <ul>
 <li><strong>Public Nostr relays</strong>, including the independent relays the app suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing any room necessarily produces to function.</li>
-<li><strong>Our hosting provider</strong>, which hosts the box our default TURN server, file store, drop tier and relay run on.</li>
+<li><strong>Our hosting provider</strong>, which hosts the server that serves the app and website, answers STUN and holds the data in section 4.4.</li>
 </ul>
 <p>The app also makes your device contact the following. Each learns your device's IP address and the time, as any web request does.</p>
 <ul>
@@ -86,18 +91,18 @@
 <p>Profile lookups and pictures are <strong>on by default</strong>. Turn them off under Settings, Privacy, "Show public profile pictures and names", by clearing "Show public profile pictures, names and Nostr addresses". The choice is saved on your device. Turning it off stops further lookups and removes loaded profiles and pictures; it cannot recall a request already sent. Checking Nostr addresses is <strong>off by default</strong>, under "Verify Nostr addresses" in the same place.</p>
 <p>The desktop app also makes your device contact:</p>
 <ul>
-<li><strong>Our site, for updates</strong>, as section 4.6 describes.</li>
+<li><strong>Our site, for updates</strong>, as section 4.2 describes.</li>
 <li><strong>GitHub, for the Debian package.</strong> If you install the Debian or Ubuntu package, your system's package manager fetches KithMoot's updates from the project's releases on GitHub, on your system's own update schedule. GitHub learns your device's address, the time, and that it is fetching KithMoot.</li>
-<li><strong>Google, in desktop versions before 0.1.91, on Windows and Linux.</strong> The spellchecker built into Electron, the framework the desktop app runs on, downloaded a dictionary for your language from a Google server, which learned your device's address, the time and the language asked for. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says nothing you type was sent. From 0.1.91 the app switches that download off, so it no longer contacts Google for spelling, and it has no spelling check on Windows and Linux. The app updates itself as section 4.6 describes, and the Debian package updates with your system. The Mac app uses the macOS spellchecker, which downloads nothing.</li>
+<li><strong>Google, in desktop versions before 0.1.91, on Windows and Linux.</strong> The spellchecker built into Electron, the framework the desktop app runs on, downloaded a dictionary for your language from a Google server, which learned your device's address, the time and the language asked for. <a href="https://www.electronjs.org/docs/latest/tutorial/spellchecker">Electron's documentation</a> says nothing you type was sent. From 0.1.91 the app switches that download off, so it no longer contacts Google for spelling, and it has no spelling check on Windows and Linux. The app updates itself as section 4.2 describes, and the Debian package updates with your system. The Mac app uses the macOS spellchecker, which downloads nothing.</li>
 </ul>
 <p>Every connection the desktop app makes, and a command to check each one, is listed on <a href="/check/">Check it yourself</a>.</p>
 <p>We do not use an email marketing service, an analytics company or an error-tracking company for this site.</p>
 
 <h2>8. Children</h2>
-<p>KithMoot has not yet set a minimum age. We do not knowingly collect personal information from children, and in practice we hold almost no personal information from anyone (section 2). If you think a child has given us personal information through a report or an email, contact us at <a href="mailto:abuse@safety.forgesworn.dev">abuse@safety.forgesworn.dev</a> and we will delete it.</p>
+<p>KithMoot has not set a minimum age. We do not knowingly collect personal information from children, and we hold almost no personal information from anyone (section 2). If you think a child has given us personal information, ask us to delete it, at the address in section 1, and we will.</p>
 
 <h2>9. Automated decisions</h2>
-<p>We make no decisions about you by automated means that have legal or similarly significant effects. Rate limits on default infrastructure slow or refuse requests automatically, for short periods, based on connection volume, not on anything about you personally.</p>
+<p>We make no decisions about you by automated means that have legal or similarly significant effects.</p>
 
 <h2>10. Changes</h2>
 <p>If we change this notice, we will say so on the site.</p>

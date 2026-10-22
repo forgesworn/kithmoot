@@ -187,6 +187,12 @@ Google's, never any other operator's by default. Nobody is required, and no
 single party can be removed to take the system down. That is the claim, and it
 is narrower than "nothing to run".
 
+Whoever runs any of these servers for other people is the operator of that
+deployment and answers for it under their own law, not the people who wrote
+the software. See
+[Whoever deploys it runs it](deploy/README.md#whoever-deploys-it-runs-it)
+and [Running your own servers](docs/run-your-own.md).
+
 ## What works today
 
 **Contacts** opens the contact directory you explicitly share from My Signet.

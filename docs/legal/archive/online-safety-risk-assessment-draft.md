@@ -14,6 +14,30 @@
 > `design/files-public-first`: the public file server becomes the apps'
 > default for web and desktop, and ForgeSworn's file store takes no new
 > uploads (8.2 to 8.7).
+>
+> Changed 22 October 2026, from the code at `edf32cd0` on `main`: the
+> corrections of 28 September 2026 that still hold are carried into the
+> body. The claim that the operator cannot read any room is narrowed to
+> rooms it does not keep (2.1); the deadline is dated and the record is
+> kept, not filed (1); the duty to report child sexual abuse content to the
+> NCA is added (6.1); what exists for payments is stated (3, row 11 in 4).
+>
+> Changed 22 October 2026, significant change: section 9 records the
+> owner's decision to be outside the Online Safety Act, meeting codes
+> retired, uploads off, file reads ending 23 October 2026, coturn keeping
+> no log, the relay the operator also runs closed to strangers' reads and writes, and
+> TURN pending closure with STUN kept.
+>
+> Changed 22 October 2026, for adoption (plan L0): sections 1 to 7 now
+> describe the service as it runs on 22 October 2026, with the corrections
+> listed in 8.7 and 9.4 made in the body. Markers that needed no decision
+> are closed with the evidence. What is left needs the owner's decisions,
+> facts only the owner has, and a date on or before 24 November 2026.
+
+The law this record applies is written up, with its sources and evidence
+marks, in [the online services law note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), verified 28 September 2026
+and due for review by 28 March 2027. This record holds only this project's
+facts and decisions.
 
 ## How this record is laid out
 
@@ -40,10 +64,10 @@ the rest low or negligible with a short reason.
 
 | Item | Entry |
 | --- | --- |
-| Service | KithMoot, at `kithmoot.forgesworn.dev`: the web app (`/j`), the desktop and Android clients, the default TURN server (`/turn`), the default Blossom store, and the default drop tier (`/drops`) |
-| Provider | ForgeSworn |
-| Date completed | `[date signed]` (draft of 25 September 2026) |
-| Date reviewed or updated | Draft review of 21 October 2026, before a significant change: section 8. Not yet signed |
+| Service | KithMoot, at `kithmoot.forgesworn.dev`: the web app (`/j`), the desktop and Android clients, and what the operator runs for them on 22 October 2026: STUN, the TURN server and its credential path (`/turn`, closing, 9.3), its file store (no uploads; reads until 23 October 2026, pending), the relay it also runs (closed to strangers' reads and writes), and any keeper it runs. The drop tier (not reachable from outside since 21 October 2026) and meeting codes (stopped 22 October 2026) are recorded in sections 8 and 9 |
+| Provider | ForgeSworn. `[DECISION: who the provider is in law; a project name that is not a registered legal person cannot be one (law note 9, [U]).]` |
+| Date completed | `[date signed]`, on or before 24 November 2026 (draft of 25 September 2026) |
+| Date reviewed or updated | Draft reviews of 21 and 22 October 2026, before a significant change: sections 8 and 9. Not yet signed |
 | Completed by | Drafted from the code by an AI assistant; checked by `[name]` |
 | Named person responsible | `[DECISION: the role accountable for the illegal content safety duties and the reporting and complaints duties, e.g. "the maintainer on call". A role, not a name.]` |
 | Approved by | `[Operator]` |
@@ -71,7 +95,18 @@ of KithMoot event kinds if someone chooses to query one directly (see
 section 2.3).
 
 **Timing.** The service already runs with real users, so on our reading it
-is in scope now and this assessment is due.
+is in scope now. A new service has three months from launch to carry out
+this assessment (law note 2.4, `[P]`). Counting from the first deploy
+commit in the repository, 24 August 2026, three calendar months run to
+**24 November 2026**. `[INPUT: the date the service launched to users other
+than the maintainers. If it is not 24 August 2026, count three months from
+that date instead.]`
+<!-- git log: first deploy commit 2026-08-24, "feat: add deploy kit for a default TURN server and PWA hosting" -->
+
+**Kept, not filed.** The assessment is carried out and recorded, and the
+record is kept (section 7). Nothing read for the law note asks a small
+service to send it to Ofcom unless Ofcom asks for it; the note marks that
+unchecked `[U]` (law note 2.3).
 
 **Copyright and intellectual property.** Excluded from "illegal content"
 under the Act (section 59) and not covered here.
@@ -90,14 +125,36 @@ plaintext content.
 <!-- docs/protocol.md kind table (1460 chat, 1462 rekey, 1463 group invitation, 20462 KithMoot signal); "Relays see event kinds, event authors, recipient/room selectors, sizes and timing... Encryption hides payloads, not these observations" -->
 
 This is the central fact this assessment turns on: **the operator cannot
-read messages, files or calls on any room**, by design, even under a court
-order, short of compromising a member's device. The Act's illegal content
-duties still apply to a user-to-user service that cannot read its own
-traffic (Ofcom's guidance addresses E2EE services directly: technical
-inability to view content does not remove the duties, though it does shape
-which measures are proportionate and possible). Everything this record can
-act on is **metadata**: who reported what, an event id, a file hash, a
-room link, a pubkey, not the plaintext itself.
+read messages, files or calls in a room it does not keep**, by design,
+short of compromising a member's device. The relays, TURN server, file
+store and drop tier it runs see ciphertext only.
+
+**The exception is a kept room.** A keeper is the process that holds a
+standing room open and answers its link. It made the room, so it holds the
+room's traffic secret and root inviter key and sits in the room as a
+member. Whoever runs the machine a keeper runs on can read that room the
+way any member can: its messages, the files shared in its chat and its
+member list. If the operator runs a keeper for a room, the operator can
+read that room. A keeper as shipped is started without `--listen`, so it
+does not listen to calls unless it is set up to.
+<!-- deploy/keeper@.service:6-17 ("It holds the room's traffic secret and the root inviter key"; "this process DOES hold the room key"); deploy/keeper@.service:62 ExecStart ... create --brain none, no --listen; src/node/cli.ts:150 --listen, default false at :306; deploy/README.md, "Running a keeper" -->
+`[INPUT: whether the operator runs keepers for rooms that people other than
+the maintainers use, and for which rooms.]`
+
+A key the operator holds is one it can be required to disclose, under
+section 49 of the Regulation of Investigatory Powers Act 2000 (law note
+[5.4](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), `[P]`).
+
+The Act's illegal content duties still apply to a user-to-user service that
+cannot read its own traffic (Ofcom's guidance addresses E2EE services
+directly: technical inability to view content does not remove the duties,
+though it does shape which measures are proportionate and possible). For
+every room the operator does not keep, everything this record can act on
+is **metadata**: who reported what, an event id, a file hash, a room link,
+a pubkey, not the plaintext itself. For a room the operator keeps, the
+operator is a member and can also act as the room's keeper does: remove a
+member by moving the room to a new key, or close the room.
+<!-- deploy/README.md, "Hosts: who may remove people": a keeper is the room's authority and the only party that can remove a member -->
 
 ### 2.2 Who can do what
 
@@ -106,18 +163,22 @@ room link, a pubkey, not the plaintext itself.
 | Create a room, invite others | Anyone who opens the app; no account needed | `app/src/main.ts`; `docs/protocol.md` "Room links and admission" |
 | Read and post in a room | Anyone holding the room's link (the part after `#`), which is never sent to a server | as above; the app has no server-side membership list to check against |
 | Add an agent (bot) as a room member | A room member, following the agent contract | `docs/agents.md` |
-| Drop a file into a room's chat | A room member, once they explicitly opt in (uploads are off by default; the app asks before enabling them) | `deploy/README.md`, "Running a Blossom server" ("New browser uploads are off by default... the person must explicitly accept public retrieval of encrypted bytes before uploads are enabled") |
-| Make or receive a call, screen-share | Room members, device to device where possible, via TURN when not | `app/src/main.ts`; `server/turn-credentials.mjs` |
+| Drop a file into a room's chat | A room member. In the web and desktop apps the file goes, sealed on the device, to a public file server somebody else runs, after a one-time notice that names it; the person can choose another server or none. Nothing goes to the operator's store | `app/src/file-storage.ts` (`defaultFileServer`, `resolveFileDestination`; no ForgeSworn host is ever a destination); `app/src/main.ts` `fileNoticeBody`; 8.3 |
+| Make or receive a call, screen-share | Room members, device to device where possible, via TURN when not. The operator's TURN is closing (9.3); its STUN stays | `app/src/main.ts:815`; `server/turn-credentials.mjs`; `src/ice-defaults.ts:137-140` |
 | Sign in with a persistent Nostr identity | Optional. Without it, a room is joined pseudonymously with a per-device, per-room key | `docs/protocol.md` "Identities and trust boundaries" |
 | Mint a TURN credential | **Anyone who can reach `/turn`, unauthenticated** | `server/turn-credentials.mjs` (see its own "SECURITY NOTE": "GET /turn is, as shipped, unauthenticated") |
-| Post a kind 1059 gift wrap to the default drop tier | **Anyone who can reach `wss://kithmoot.forgesworn.dev/drops`, no auth, no proof of work** | `deploy/Caddyfile.kithmoot` ("Unauthenticated by design"); bothy-node README, "The drop tier" |
-| Upload a blob to the default Blossom store | Any key that can produce a valid signed BUD-01 upload authorisation (kind 24242); there is nobody to allowlist, because a device key is generated on-device and registered nowhere | `deploy/blossom.yml` (`upload.requireAuth: true`); `deploy/README.md` "Running a Blossom server" ("Uploads are open to any key, because there is nobody to allowlist") |
-| Read a blob from the default Blossom store | Anyone who has the hash. Only `application/vnd.forgesworn.encrypted` is accepted; the store never sees the plaintext or its type | `deploy/blossom.yml` |
+| Post a kind 1059 gift wrap to the drop tier | Nobody from outside the box since 21 October 2026, when the `/drops` route was removed. Until then, anyone, with no auth and no proof of work | `deploy/Caddyfile.kithmoot:166-172` ("No /drops here"); 8.4 |
+| Upload a blob to the operator's Blossom store | Nobody since 09:42Z on 22 October 2026: `/upload` answers 410 (the host's report; `deploy/Caddyfile.kithmoot:203-210` has not caught up). Until then, any key with a signed BUD-01 authorisation | `deploy/blossom.yml` (`upload.requireAuth: true`); 8.4 |
+| Read a blob from the operator's Blossom store | Anyone who has the hash, on the public host and its onion front, until reads end on 23 October 2026 (pending, 9.3). Only `application/vnd.forgesworn.encrypted` was accepted; the store never saw the plaintext or its type | `deploy/blossom.yml`; `deploy/Caddyfile.kithmoot:216-218`, `:389-412` |
+| Get a meeting code, or resolve one | Nobody since 22 October 2026: the service is stopped and `/codes` answers 410 (the host's report; the Caddy file and the web app still name it) | `deploy/Caddyfile.kithmoot:158-163`; `app/src/main.ts:2091`; 9.3 |
+| Write to the relay the operator also runs | Only keys on its allowlist, plus sealed messages (kind 1059) and remote-signer requests (kind 24133) addressed to a key on the allowlist, since 10:58Z on 22 October 2026 (the host's report). Every key on the allowlist is the operator's own (its agents and personas included), so a sealed message from a stranger reaches only the operator | 9.3 |
+| Read from the relay the operator also runs | Only the operator's own keys on its allowlist, after relay authentication, since 22 October 2026 (the host's report, probed from outside) | 9.3 |
 
 ### 2.3 Things that lower risk
 
-- **End-to-end encryption everywhere it matters**, described above. The
-  operator has no plaintext to review, mis-serve or leak.
+- **End-to-end encryption everywhere it matters**, described above. For
+  rooms it does not keep, the operator has no plaintext to review,
+  mis-serve or leak. For a room it keeps, it holds the key (2.1).
 - **No content discovery.** There is no feed, search, trending list or
   recommendation surface. A person reaches a room, a file, or a relay
   event only by already holding a link or a hash. This removes most of the
@@ -127,21 +188,27 @@ room link, a pubkey, not the plaintext itself.
 - **Rooms are closed by default.** Admission needs the link (its capability
   is never sent to a server) or, for a kept room, a keeper's admission
   decision. There is no public room directory.
-- **Blossom's accepted media type is a sealed envelope, not a file
-  format.** `application/vnd.forgesworn.encrypted` is opaque bytes under a
-  key the store never sees; an image, video or document upload is refused
-  outright, so the default store cannot be hot-linked as media and nothing
-  it holds can be viewed without the room's key.
-  <!-- deploy/README.md: "An image, a video or a page is refused, so this is not a general file host and nothing on it can be hot-linked as media" -->
-- **Uploads to the shared Blossom store are opt-in per person**, not a
-  silent default, and the person is told what they are enabling.
-- **Bounded, expiring storage.** The default Blossom store: 270 MiB per
-  blob, a fixed-size quota (20 GiB by default), 90-day expiry from last
-  fetch. The default drop tier: 1 GiB, oldest-out, 30-day maximum age,
-  per-connection rate limits.
+- **The operator stores no new files.** Its Blossom store takes no
+  uploads from 22 October 2026 and serves none after 23 October 2026
+  (pending). While it serves, it holds only the sealed envelope type
+  `application/vnd.forgesworn.encrypted`, opaque bytes under a key the
+  store never sees, so it cannot be hot-linked as media.
+  <!-- deploy/blossom.yml; deploy/README.md: "An image, a video or a page is refused, so this is not a general file host and nothing on it can be hot-linked as media" -->
+- **Files are sealed on the device and sent elsewhere.** What the app
+  uploads is encrypted and padded on the device before it leaves, and goes
+  to a server somebody else runs, named in a one-time notice. That server
+  is a general file host, and what it holds from other people is its own
+  operator's service, not a surface the operator provides (8.3, `[U]`).
+  <!-- packages/context/src/blossom.ts paddedPlaintextLength; app/src/file-storage.ts -->
+- **Bounded, expiring storage.** The drop tier, while it took mail from
+  outside: 1 GiB, oldest-out, 30-day maximum age, per-connection rate
+  limits; what it held ages out within 30 days of 21 October 2026.
+- **Strangers cannot write to the relay the operator also runs**, since
+  22 October 2026 (9.3).
 - **TURN's relay target is fenced.** coturn denies relaying to private,
   loopback, link-local and reserved address ranges, so a minted credential
-  cannot be used to probe the operator's own private network.
+  cannot be used to probe the operator's own private network, for as long
+  as TURN stays open (9.3).
   <!-- deploy/coturn/turnserver.conf denied-peer-ip list -->
 - **No advertising, no engagement-optimised feed, no algorithmic
   amplification of anything.**
@@ -160,27 +227,21 @@ room link, a pubkey, not the plaintext itself.
    also exactly the factor Ofcom's risk profile flags as raising several
    priority harms (grooming, CSAM distribution, fraud, harassment):
    nothing here identifies a returning bad actor across rooms or devices.
-3. **Two of the three unauthenticated, default-on public surfaces have no
-   removal path at all**, by design:
-   - The default drop tier keeps **no index of a wrap's recipient, sender
-     or id** ("the box holds no list of who receives mail here": bothy-node
-     README). An operator cannot remove one gift wrap by id, and cannot
-     block a pubkey, because the software holds nothing to match either
-     against. See `docs/legal/report-handling.md` for what this means in
-     practice.
-   - The default TURN credential endpoint is unauthenticated by design; see
-     its own file header for the operator's acknowledgement of this
-     ("none of that is a substitute for real access control, and it is a
-     deliberate, documented trade").
+3. **The open TURN credential endpoint has no removal path**, by design,
+   until it closes (9.3). It is unauthenticated; see its own file header
+   for the operator's acknowledgement of this ("none of that is a
+   substitute for real access control, and it is a deliberate, documented
+   trade"). The drop tier, which keeps no index of a wrap's recipient,
+   sender or id and so allows no targeted removal, has not been reachable
+   from outside since 21 October 2026.
 4. **Group messaging, at scale, on a service with no membership review.**
    A "kith" or "kin" tier room can hold many members; nothing here vets
    who joins beyond holding the link.
-5. **File sharing exists as a default surface** (the shared Blossom store),
-   even though what it accepts cannot itself be illegal content in the
-   ordinary sense (see 2.3). The risk it actually carries is abuse of the
-   store as free, anonymous, expiring bulk storage — not as a way to
-   publish or view illegal media through KithMoot, since nothing it holds
-   is servable as media.
+5. **File sharing is a default of the apps**, through a general file host
+   somebody else runs. KithMoot's own uploads there are sealed, but that
+   host serves viewable media from anybody, under its own operator's rules
+   (8.3). The operator's own store took only sealed envelopes and serves
+   nothing after 23 October 2026 (pending).
 6. **A relay the operator also runs, no longer a default.** The relays
    the app suggests by default are independent public relays. Until
    September 2026 one of the three defaults was a relay the operator runs,
@@ -188,36 +249,45 @@ room link, a pubkey, not the plaintext itself.
    only that one, the operator has relay-operator-level control (it can
    refuse to store or serve particular events); on the default relays, and
    on any relay a room's creator adds instead, the operator has no control
-   at all. This record does not name that relay's address.
+   at all. Since 22 October 2026 that relay takes writes only from keys on its allowlist, plus sealed messages (kind 1059) and remote-signer requests (kind 24133) addressed to a key on the allowlist,
+   and serves reads only to keys on its allowlist after relay
+   authentication. This record does not name that relay's address.
 7. **No content the operator can review exists for any of this**, by
-   design (section 2.1), so "swift takedown of illegal content" as Ofcom's
-   Codes measures describe it cannot mean removing a message's *content*
-   here. It can only mean acting on metadata: refusing a hash, blocking a
-   pubkey where the software supports it, taking a room or credential
-   endpoint offline, or referring a report to the police. See
+   design, except in a room the operator keeps (section 2.1). Outside such
+   rooms, "swift takedown of illegal content" as Ofcom's Codes measures
+   describe it cannot mean removing a message's *content* here. It can
+   only mean acting on metadata: refusing a hash, blocking a pubkey where
+   the software supports it, taking a room or credential endpoint offline,
+   or referring a report to the police. See
    `docs/legal/report-handling.md`.
+8. **A room the operator keeps is readable by the operator.** That is a
+   control as well as a risk: in such a room the operator can see what is
+   reported and remove a member. It is also a store of readable content
+   on a machine the operator runs, and a key it can be required to
+   disclose (2.1).
 
 ## 3. Step 1: Ofcom's Risk Profile
 
 Outcome of the U2U Risk Profile questionnaire, as it applies to KithMoot's
 own default, operator-run surfaces (a self-hosted keeper's own box is that
-keeper's own operation, not covered by this record).
+keeper's own operation, not covered by this record; a keeper the operator
+runs is the operator's, and is covered).
 
 | Risk factor | Applies? | Why |
 | --- | --- | --- |
 | 1e Discussion forums and chat rooms | **Yes** | A room is exactly this |
-| 1g File-storage and file-sharing service | **Partly** | The default Blossom store accepts only sealed, opaque envelopes; it cannot serve viewable media, but it is still open, anonymous bulk storage |
+| 1g File-storage and file-sharing service | **Partly, ending** | The operator's store takes no uploads and serves its sealed envelopes only until 23 October 2026 (pending). The apps' default file server is somebody else's general file host (8.3) |
 | 2 Child users | **Possible, unproven either way** | No age check anywhere; see the children's access assessment |
 | 3b Anonymous user profiles, or users without accounts | **Yes** | The normal case, not an exception |
 | 4b User groups | **Yes** | Rooms with several members |
 | 5a Group messaging | **Yes** | As above |
 | 5c Direct messaging | **Yes** | A room of two ("a word in private") |
 | 5d Encrypted messaging | **Yes** | End to end, by design |
-| 5f Posting images or videos | **No, as designed** | The default store accepts only opaque encrypted envelopes, never a viewable media type |
+| 5f Posting images or videos | **Within a room only** | A member can send an image or video to a room; it is sealed on the device and only the room's members can open it. Nothing the operator runs serves viewable media |
 | 7a Content searching | No | No search across other people's content; search is local to a room a member already has |
 | 8a Content recommender systems | No | None exist |
-| User base | `[INPUT]` | |
-| Business model | No advertising, no revenue mechanism identified in the code | |
+| User base | `[INPUT: how many people use KithMoot, and roughly where.]` | |
+| Business model | No advertising. Nothing in the default service takes payment. The repository holds a kit for a separately hosted, paid TURN endpoint and a donor ring that ships switched off (row 11 in section 4) | `[INPUT: whether either is switched on anywhere.]` |
 | Commercial profile | Small; `[INPUT: operator capacity for moderation]` | |
 
 **Multi-risk factors present:** encrypted messaging, anonymous users,
@@ -225,7 +295,8 @@ group messaging, direct messaging and no age assurance are all present at
 once. Ofcom's guidance treats this combination as a materially higher-risk
 shape even where the service is small, because several of the factors that
 usually let a provider detect and act on harm (visible content, identity,
-account history) are absent simultaneously and by design.
+account history) are absent simultaneously and by design. Visible content
+is the exception in a room the operator keeps (2.1).
 
 ## 4. Step 2: risk levels
 
@@ -236,36 +307,45 @@ of the harm to a person; likelihood reflects this service's actual design.
 | --- | --- | --- | --- |
 | 1 | Terrorism | Low | Nothing here can be viewed or found by anyone but a room's own members; a room cannot be discovered, browsed or recommended. The drop tier and the relay we run carry unreadable ciphertext only |
 | 2 | CSEA: grooming | **Medium** | Private, encrypted, one-to-one and small-group messaging with anonymous, throwaway identity by default is close to the shape Ofcom's guidance treats as the clearest grooming risk. What lowers it from higher: KithMoot is invitation-based, not a public discovery surface a stranger can use to find and approach a child with no prior link at all; there is no public profile browsing or "people near you" feature |
-| 2 | CSEA: image-based CSAM | Low | The default Blossom store cannot serve a viewable file of any kind (2.3); an uploaded envelope is meaningless bytes without the room's key. The risk that remains is the store being used as anonymous bulk storage for material intended for exchange entirely outside KithMoot, which is a real but different risk from CSAM being viewed or distributed *through* the service |
+| 2 | CSEA: image-based CSAM | Low, provisional | Nothing the operator runs serves a viewable file (2.3): its store takes no uploads and serves only sealed envelopes, until 23 October 2026 (pending). Files a member sends go sealed to a server somebody else runs, readable only by the room's members. The risk inside a room is exchange between members who already share its link, which the operator cannot see outside a room it keeps (2.1) |
 | 3 | Hate | Low | No public or discoverable surface for it to reach beyond a room's own members |
 | 4 | Harassment, stalking, threats and abuse | **Medium** | Direct messaging plus anonymous, throwaway identity plus no admin action available within a room (see 6.1) is a real route to sustained one-to-one harassment, made harder to escalate because there is no persistent account to block system-wide, only a room to leave |
 | 5 | Controlling or coercive behaviour | Low | Same shape as 4, but this Act priority mainly concerns targeted, sustained relationships, which is harder to sustain through a per-device, per-room identity that does not follow a person between rooms |
-| 6 | Intimate image abuse | Low | As image-based CSAM (row 2): the store cannot serve viewable media |
-| 7 | Extreme pornography | Low | As above |
-| 11 | Fraud and financial services offences | Low | No payments, no marketplace, no financial functionality identified in the code |
+| 6 | Intimate image abuse | Low, provisional | As image-based CSAM (row 2) |
+| 7 | Extreme pornography | Low, provisional | As above |
+| 11 | Fraud and financial services offences | Low | No marketplace, and nothing in the default service takes payment. Two payment-related pieces exist in the repository. `deploy/l402/` is a kit for a second, separately hosted TURN endpoint that charges a keeper, never a participant, a few satoshis per credential; its client, `src/node/l402.ts`, is imported by nothing outside its own tests. `src/donations.ts` sums public zap receipts to draw a ring on a profile picture; it takes no payment, and the app ships it switched off, because its recipient key is empty. `[INPUT: whether the paid TURN endpoint or the donor ring is switched on anywhere.]` If either is, revisit this row and the law note's section 8 <!-- deploy/l402/README.md, "What this does not change" and "Who pays"; src/node/l402.ts has no importer outside its test; app/src/main.ts:847 DONATION_ADDRESS is set, app/src/main.ts:855 DONATION_RECIPIENT = '', and both are required --> |
 | 15 | Suicide and self-harm | Low | Text and voice/video calls between room members only; no public or broadcast surface |
-| 18 | Cyberflashing | Low | No unsolicited image delivery mechanism to a stranger; a person only receives what a room they joined sends, and files require the recipient's own opt-in to accept shared storage |
-| — | Abuse of the unauthenticated `/turn` and `/drops` endpoints for purposes unrelated to illegal *content* (bandwidth theft, using the box as a relay, denial of service) | Low as an illegal-content matter, but a live operational and cost risk in its own right | Out of scope for this content risk assessment; tracked as an infrastructure risk |
+| 18 | Cyberflashing | Low | No unsolicited image delivery mechanism to a stranger; a person only receives what a room they joined sends, and there is no directory to find a stranger through |
+| n/a | Abuse of the unauthenticated `/turn` endpoint for purposes unrelated to illegal *content* (bandwidth theft, using the box as a relay, denial of service) | Low as an illegal-content matter, but an operational and cost risk until `/turn` closes (9.3) | Out of scope for this content risk assessment; tracked as an infrastructure risk |
 
 **Outcome:** grooming and harassment/abuse are the two kinds this
 assessment rates medium. Both trace to the same root cause: private,
 anonymous, group-capable messaging with no in-room way to remove a person
 or a message, and no persistent identity to act against across rooms. Every
 other kind is low, mainly because KithMoot has no discovery, search or
-recommendation surface for anyone to find content through, and the default
-file store cannot serve viewable media.
+recommendation surface for anyone to find content through, and nothing the
+operator runs serves viewable media.
+
+**Effect of narrowing the "cannot read" claim.** No level above rests on the
+operator being unable to read a room: the low levels rest on the absence of
+discovery and on what the file store accepts, and the two medium levels on
+anonymous, private messaging. In a room the operator keeps, content is
+visible to the operator and a member can be removed, which makes detection
+and action possible there and weakens the "absent by design" point in
+section 3 for those rooms only. On this evidence no level changes; all
+remain provisional for the owner.
 
 ## 5. Existing controls and how they changed the levels
 
 - **No content discovery surface** is the single biggest reason most
   kinds sit at low rather than medium: nothing here can be found, only
   reached by a link a member already has.
-- **The Blossom envelope format** (opaque, encrypted, one accepted type)
-  is why image-based and video-based harms sit at low rather than
-  reflecting the raw risk of "anyone can upload any file anonymously."
-- **Bounded, expiring storage** on both default stores limits how long
-  abuse of them as anonymous bulk storage can persist unnoticed.
-- **coturn's peer-address denylist** limits the concrete abuse a minted
+- **No file store of the operator's takes uploads**, and its store serves
+  nothing after 23 October 2026; with sealing on the device, this is why
+  image-based and video-based harms sit at low.
+- **The drop tier is closed to outside traffic**, and what it held ages
+  out within 30 days.
+- **coturn's peer-address denylist**, while TURN stays open, limits the concrete abuse a minted
   TURN credential can do to this operator's own infrastructure; it does
   not add any content moderation capability.
 
@@ -277,36 +357,36 @@ file store cannot serve viewable media.
 | --- | --- | --- | --- |
 | ICU A2 | A named person (role) accountable for illegal content and for reporting and complaints | None named | `[DECISION]`: name a role |
 | ICU C1/C2 | A content moderation function; swift takedown of illegal content | No content exists to moderate (E2EE); metadata-level actions exist per surface, unevenly (`docs/legal/report-handling.md`) | Confirm and communicate the honest limit: this is a metadata-and-referral function, not a content-review function |
-| ICU D1/D2 | Let users and affected people report content and complain, in a way that is easy to find and use | An `abuse@safety.forgesworn.dev` mailbox, once created (item 7 of this record's README), plus the `/report/` page | Build/confirm; keep it reachable without an account |
+| ICU D1/D2 | Let users and affected people report content and complain, in a way that is easy to find and use | The `abuse@safety.forgesworn.dev` mailbox (set up 25 September 2026, `docs/legal/README.md`) and the `/report/` page (`site/report/index.html`); neither needs an account | `[OWNER TO DO: send the mailbox a test message and confirm reports are read.]` |
 | ICU D7 | Act on complaints about suspected illegal content | Not yet written down | `docs/legal/report-handling.md` |
-| ICU G1/G3 | Terms say, clearly, how people are protected from illegal content | No terms today | `docs/legal/terms-draft.md` |
+| ICU G1/G3 | Terms say, clearly, how people are protected from illegal content | Drafted (`docs/legal/terms-draft.md`) and shown on the site as a draft (`site/terms/index.html`); not yet adopted | Adopt with this record |
 | ICU H1 | Remove accounts of proscribed organisations | No accounts exist to remove in the ordinary sense (per-device, per-room keys); a room or link can be shut down | Add to the report-handling runbook |
+| Section 66 (law note 2.6) | Report child sexual exploitation and abuse content the service becomes aware of to the National Crime Agency, in force 7 April 2026 `[P]` | Written up in the report-handling runbook, section 6, with registration left as a decision there (6.1) | `docs/legal/report-handling.md` |
+
+The duty to report child sexual exploitation and abuse content to the
+National Crime Agency applies to this service whatever its size (law note
+[2.6](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md), `[P]`); it does not require the service to detect or scan for
+anything. `docs/legal/report-handling.md` sets out how the operator does it.
 
 ### 6.2 Measures worth building, in priority order
 
 1. **A working, well-publicised report route that needs no account and no
-   room membership**: the `/report/` page and the `abuse@` mailbox
-   (deliverables of this PR). This is the single highest-value fix,
-   because it is the one thing missing on every surface at once.
-2. **An operator-side way to at least stop serving a specific Blossom
-   hash**, even though blossom-server-ts's `DELETE` route is
-   owner-authorised (BUD-02) and loopback-only, not operator-authorised;
-   see `docs/legal/report-handling.md` for the exact, verified gap.
-   `[DECISION: whether to add an operator override, e.g. a denylist file
-   the server checks before serving a hash, or to rely on manual file
-   removal on the box.]`
-3. **Reconsider whether the default drop tier's complete absence of an id
-   or pubkey index is the right trade for a default-on, unauthenticated,
-   internet-facing surface**, given it removes even the *possibility* of
-   targeted removal. This is a considered design choice recorded in
-   bothy-node's own documentation (it exists specifically so the tier
-   cannot become a contact log), and undoing it would change what the
-   tier is for. `[DECISION: accept this as a permanent limit and say so
-   plainly in the report-handling runbook, or scope a bounded exception.]`
-4. **A published policy for shutting down abuse of `/turn` and `/drops`**
-   at the network level (IP block, rate-limit tightening, or taking the
-   endpoint down) when a report cannot be acted on any other way, since
-   neither surface offers a narrower tool.
+   room membership**: the `/report/` page and the `abuse@` mailbox. Both
+   exist (6.1); what is left is confirming that reports are read.
+2. **An operator-side way to stop serving a specific Blossom hash.**
+   Settled by D5: the store serves nothing after 23 October 2026, so no
+   override is to be built. Until then, removal is the manual host-level
+   action in `docs/legal/report-handling.md`, section 3.2. Revisit only if
+   the operator opens a store again.
+3. **The drop tier's absence of an id or pubkey index.** Settled by the
+   route's removal on 21 October 2026: the tier takes nothing from outside
+   the box, so the limit no longer bears on a public surface. Revisit only
+   if the tier is fronted again.
+4. **A published policy for shutting down abuse of `/turn`** at the
+   network level (IP block, rate-limit tightening, or taking the endpoint
+   down) when a report cannot be acted on any other way. Settled by D2:
+   `/turn` closes (9.3); until then, `docs/legal/report-handling.md`,
+   section 3.1, is the policy.
 5. **Terms language that says plainly what the operator can and cannot
    see and do**, so a reporter's expectations match reality (this is also
    a User Rights / transparency point, not only a safety one).
@@ -318,9 +398,9 @@ file store cannot serve viewable media.
 - **Keep:** this file, in version control, dated. Keep earlier versions for
   at least three years.
 - **Review:** at least once a year, and before any significant change to
-  default surfaces (opening a new default service, changing what the
-  default Blossom store accepts, changing the drop tier's bounds or
-  indexing).
+  default surfaces: opening a new default service, changing the default
+  file server, opening any store, relay or drop tier of the operator's to
+  outside traffic, or the closures pending in 9.3 landing.
 
 ## 8. Significant change in progress, 20 and 21 October 2026
 
@@ -462,9 +542,13 @@ note 2.10). Whether the Act's duties attach turns on who the members are.
   servers for private life are outside both it and the fee `[U]` (3.9);
   "purely" is the limit, and servers also used for a project's work are not
   household `[U]`. Plan D8 recommended keeping such a group off ForgeSworn's
-  names, domains and boxes. `[DECISION: whether family and friends rooms use
-  ForgeSworn's box, given that putting them beside project rooms weakens
-  both the internal business reading and the household reading.]`
+  names, domains and boxes. Decided 22 October 2026 (D4, revised the same
+  day): the owner's private host serves only the people working on the
+  project, volunteers included, under the internal business reading above.
+  The weekly chat is part of that work (building, testing and running
+  KithMoot), not a social group, and nobody who is not working on the
+  project is admitted (9.2). `[LEGAL REVIEW: whether an unpaid open-source
+  project meets the "business" and "internal resource or tool" limbs.]`
 - *Closed means closed.* A closed deployment should carry no public page
   that shows user content, no open sign-up, and no endpoint that takes
   content from whoever finds it `[U]` (2.10). While `/turn`, `/drops`,
@@ -494,7 +578,8 @@ privacy notice matter (3.1, 3.2); Caddy discards the site's access log.
 
 Checked on 20 October 2026, from outside and read-only on the box. Each
 switch-off needs the owner's explicit go; the drop tier's route was removed
-on 21 October 2026 with that go (8.5, step 1).
+on 21 October 2026 with that go (8.5, step 1). The state on 22 October 2026
+is in 9.3.
 
 | Surface | State on 20 October 2026 |
 | --- | --- |
@@ -529,9 +614,9 @@ route goes after.
 | 0 | None | Verify each surface (done on 20 October 2026 except the keepers' rooms and the Link relay) | | |
 | 1. Drop tier | Release note | Switch the tier off; remove the `/drops` route. Held wraps age out within 30 days. **Route removed 21 October 2026**; the tier stays on loopback while the box's cadence work needs it | Removed | Removed |
 | 2. New Blossom uploads | On the file picker: ForgeSworn's shared storage has closed to new files; set up the group's own storage or send files directly. Gives the read-window date (step 5) | Web and Android releases with no pre-filled ForgeSworn server; then remove the upload route; stop archive enrolment. **Upload route answering 410 from 22 October 2026** (host's report). The web release that names no ForgeSworn host is on `design/files-public-first`; its notice says "KithMoot no longer sends files to ForgeSworn's storage." and gives no read-window date | Removed | `[DECISION: a closed store for the owner's rooms behind grants (S2 to S4), or none]` |
-| 3. Meeting codes | "Meeting codes are going. Share the room link instead." | Refuse new codes; let live codes run out (at most 7 days); keep the 30-day tombstones; then remove the route and service | Removed (D6) | `[DECISION: retire as D6, or keep for the owner's rooms only behind grants]` |
+| 3. Meeting codes | "Meeting codes are going. Share the room link instead." | Refuse new codes; let live codes run out (at most 7 days); keep the 30-day tombstones; then remove the route and service. **Service stopped and `/codes` answering 410 from 22 October 2026** (9.3) | Removed (D6) | Retired, 22 October 2026 |
 | 4. Open `/turn` mint | In a call with no relay: "Some calls need a relay. Your group has none, so this call may not connect on some networks." | Clients take ICE servers from the room or group only; then remove `/turn` and the KithMoot credential service. coturn stays, with its separate secret, for the owner's own Wildbloom direct send | Removed | `[DECISION: TURN for the owner's rooms through a grant-checked issuer the room carries (plan S9), or none]` |
-| 5. Blossom reads | Announced at step 2 and repeated: "Files shared before <date> will disappear on <date>. Save any you want to keep." | After the read window (D4: a fixed window from the stop date; 90 days matches the store's rule), remove the blob route, the onion front, the service and its store; retire the archive nodes (D5) | Removed | Removed for files other people sent. `[DECISION: whether a closed store for the owner's rooms replaces it]` |
+| 5. Blossom reads | Announced at step 2 and repeated: "Files shared before <date> will disappear on <date>. Save any you want to keep." | **Owner, 22 October 2026: reads and the onion front end on 23 October 2026, replacing the 90-day window below (9.3).** After the read window (D4: a fixed window from the stop date; 90 days matches the store's rule), remove the blob route, the onion front, the service and its store; retire the archive nodes (D5) | Removed | Removed for files other people sent. `[DECISION: whether a closed store for the owner's rooms replaces it]` |
 | 6. Keepers for other people's rooms, if any | In the room, from the keeper | Hand each to a member, or end it | Ended or handed over | Keepers for the owner's rooms stay; they hold those rooms' keys as members |
 | 7. Legal records | Updated terms and privacy pages | Revise this record and the children's access assessment; keep old versions for three years | | |
 
@@ -566,8 +651,9 @@ replaces has closed and grants work.
 
 ### 8.7 Statements in sections 1 to 7 that this section corrects
 
-Left in place so the record shows what was assessed; to be revised when the
-change is complete (plan section 10 step 7, and S13).
+Left in place so the record shows what was assessed. On 22 October 2026
+each correction below was made in sections 1 to 7; the keeper exception is
+in 2.1, and the meeting code exception is recorded as retired.
 
 - **"The operator cannot read messages, files or calls on any room"
   (2.1).** Not true of a room whose keeper the operator runs, or a room
@@ -576,9 +662,8 @@ change is complete (plan section 10 step 7, and S13).
 - **"The default drop tier" (record details, 2.2, 2.3, 2.4).** No app names
   the drop tier. It is open infrastructure the operator runs, not a default
   of the apps. It is still a surface the operator provides.
-- **Meeting codes are missing.** Sections 2 to 4 do not cover `/codes`, a
-  live surface open to anyone that stores full room links. `[OWNER TO DO:
-  add it to 2.2, 2.4 and 3, or retire it under step 3 first.]`
+- **Meeting codes are missing.** Sections 2 to 4 did not cover `/codes`.
+  Retired on 22 October 2026 under step 3, and recorded in 2.2 (9.3).
 - **"The default Blossom store".** From the web release after 20 October
   2026 it is no longer the web app's suggestion. It stays Android's until PR
   #295 is released. From 22 October 2026 it takes no new uploads (8.4).
@@ -592,15 +677,107 @@ change is complete (plan section 10 step 7, and S13).
 
 ### 8.8 Decisions and sign-off
 
-Open in this section: the seven `[DECISION]` markers in 8.3 and 8.5, the
-`[LEGAL REVIEW]` on the provider limb of paragraph 7, and the `[INPUT]` on
-the keepers' rooms and the launch date, and the `[OWNER TO DO]` on meeting
-codes in 8.7.
+Open in this section on 22 October 2026: the decision markers in 8.3 on
+the default file server (two) and in 8.5 on stores and TURN for the
+owner's rooms (three), the legal review marker on the provider limb of
+paragraph 7, and the input markers on the keepers' rooms and the launch
+date. The decisions on family and friends and on meeting codes, and the
+owner's to-do on meeting codes, were closed on 22 October 2026 (section
+9).
 
 | Item | Entry |
 | --- | --- |
 | Change recorded | Planned position and switch-off order, 20 and 21 October 2026 |
 | Drafted by | An AI assistant, from the code at `d7571f69` and the owner's checks of 20 October 2026 |
+| Reviewed by | `[name]` |
+| Approved by | `[Operator]` |
+| Date signed | `[date signed]` |
+
+## 9. Significant change, 22 October 2026
+
+> **Draft, 22 October 2026.** Drafted by an AI assistant from the code at
+> `edf32cd0` on `main`, the owner's decisions of 22 October 2026, and the
+> report of the session that runs the box, the same day. Not legal advice;
+> no lawyer has read it. Law note verified 28 September 2026; its marks are
+> kept. Where this section says the repository has not caught up, the
+> live state rests on the host's report and was not checked by the drafter.
+
+### 9.1 Why this is recorded
+
+Ofcom recommends reviewing this assessment before any significant change
+(law note 2.3, `[P]`). On 22 October 2026 the owner decided that ForgeSworn
+is to be outside the Online Safety Act always, and several surfaces in 8.4
+closed or were given a closing date. This section records what changed,
+what is still open, and what is pending. Nothing pending is presented as
+done.
+
+### 9.2 Position
+
+**Today: a public operator.** On 22 October 2026 `GET /turn` still answers
+200 and mints a working TURN credential for anyone, coturn answers TURN and
+STUN for anyone, and the file store still serves reads by hash, on the
+public host and through its read-only onion front. One open endpoint is
+enough for this position (8.2).
+<!-- deploy/Caddyfile.kithmoot:131-132 handle /turn; app/src/main.ts:815 TURN_CREDENTIAL_ENDPOINT = '/turn'; deploy/Caddyfile.kithmoot:216-218 blob reads; deploy/Caddyfile.kithmoot:389-412 onion front. /turn answering 200 on 22 October 2026: the host's check, confirmed to the drafting session -->
+
+**Aimed at, as the owner decided on 22 October 2026:**
+
+| Deployment | Position aimed at | What the move still takes |
+| --- | --- | --- |
+| The apps and the public host | Publisher with defaults that point at servers other people run, plus ForgeSworn's own STUN (D1) | Close `/turn`, its credential service and the TLS listener on 5349 (pending, 9.3); end file reads and the onion front (23 October 2026, pending); remove the `/turn` default and the meeting code client from the app (`app/src/main.ts:815`, `app/src/main.ts:2091`); bring `deploy/Caddyfile.kithmoot` into line with the live box |
+| The relay ForgeSworn also runs | Closed: the owner's own relay | Done (9.3). Writes: keys on its allowlist, plus sealed messages (kind 1059) and remote-signer requests (kind 24133) addressed to a key on the allowlist. Reads: Since 22 October 2026 every read (REQ, COUNT and NEG-OPEN) on clearnet and onion needs relay authentication (NIP-42) from a key on the allowlist; an unauthenticated read is refused with `auth-required` and a stranger who signs in with `restricted` (the host's report, probed from outside). The gate that enforces it keeps no logs and holds no addresses, and the relay information document (NIP-11) says `auth_required`. Still open: the shelter store's blob reads, and whether the pairing rendezvous, the Link reflector and the game controller pass-through count as relay-like. A closed service should have no endpoint that serves content to whoever finds it (law note 2.10, `[U]`). Every key on the allowlist is the operator's own, so no second user can read anything there (the "provider alone" row of law note 2.10, `[U]`). `[LEGAL REVIEW: whether a stranger's sealed message addressed to the operator makes the relay user-to-user; the provider is not a user (section 227(3), `[P]`).]` |
+| The owner's private host (D4) | Closed: the people working on the project, volunteers included (law note 2.10, Schedule 1 paragraph 7 `[P]`) | Admit nobody who is not working on the project. That host is not described in this record and is not one of the surfaces it covers |
+
+**STUN kept (D1).** After TURN closes, the app still asks the host that
+served it for STUN on port 3478, and coturn answers anyone. STUN tells a
+device its own public address; it carries no user's content to anybody
+else. The law note does not say whether a server that carries no content
+between users, such as STUN, bears on the user-to-user position (not
+covered; not checked). It is still processing of IP addresses, which the
+privacy notice describes (section 4.1 there).
+<!-- src/ice-defaults.ts:137-140 originStunGuess returns stun:<host>:3478 for an https origin; src/ice-defaults.ts:93 stunFromTurnUrl; deploy/coturn/turnserver.conf:17 listening-port=3478, no no-stun -->
+`[LEGAL REVIEW: whether answering STUN for anyone who loads the app keeps
+ForgeSworn a provider of anything under the Act, given that STUN carries no
+content between users.]`
+
+### 9.3 State of each surface on 22 October 2026
+
+| Surface | State | Done or pending |
+| --- | --- | --- |
+| Meeting codes, `/codes` | Answers 410; the meeting code service is stopped and disabled. The repository has not caught up: the Caddy file still proxies `/codes` and the web app still calls it | Done on the box (host's report). `[INPUT: whether the stored invitation links and the 30-day tombstones were deleted.]` <!-- deploy/Caddyfile.kithmoot:158-163; app/src/main.ts:2091 --> |
+| File store uploads, `/upload` | Answer 410 since 09:42Z | Done on the box (host's report, 8.4) |
+| File store reads by hash, and the onion front | Still served | **Pending:** end on Friday 23 October 2026 (owner, D5). This replaces the 90-day read window in 8.5, step 5. Once reads end, a file card in the web app reads "This file is no longer on" the host <!-- app/src/attachment-card.ts:79 --> |
+| TURN credentials, `GET /turn`, and TURN relaying | Open: answers 200 and mints credentials | **Pending:** `/turn` and its credential service close once Android 0.6.103 and web PR #525 are both live; then coturn serves STUN only and 5349 closes. D2: no TURN on the public app |
+| coturn's log | No log kept since about 10:30Z. The repository has not caught up: `deploy/coturn/turnserver.conf:214` still logs to stdout, kept by the container's json-file driver (`deploy/coturn/docker-compose.yml:55-59`) | Done on the box (host's report) |
+| STUN on 3478 | Open to anyone, kept (D1) | Stays |
+| Drop tier, `/drops` | Route removed 21 October 2026; the tier runs on the box's loopback only | Done (8.4) |
+| The relay ForgeSworn also runs | Kept as the owner's own closed relay. Writes allowlist-only since 10:58Z; strangers' data and old backups purged. A key not on the allowlist can no longer post to it from an old room link | Done (host's report): writes as in 9.2, and reads closed to strangers on 22 October 2026 |
+| Keepers on the box | Last checked 20 October 2026: two instances, crash-looping (8.4) | `[INPUT: whose rooms they serve, and whether they are to keep running.]` |
+
+### 9.4 What this changes in sections 1 to 8
+
+- **Meeting codes** are retired, so the second exception to "cannot read"
+  (8.2, 8.7) applies only to links stored before the service stopped, and
+  only if they were kept (the input marker in 9.3). The owner's to-do in
+  8.7 and the decision in 8.5, step 3 are closed by retirement.
+- **The family and friends decision in 8.3** is closed by D4: the
+  owner's private host serves only the people working on the project, so
+  the unchecked family-and-friends row no longer applies to it.
+- **File reads.** From 23 October 2026, the rows that rest on ForgeSworn's
+  store (risk factor 1g in 3; rows 2, 6 and 7 in 4; the removal measures in
+  6.2, items 2 and 3) describe a store that no longer serves anything.
+  Until then they stand.
+- **TURN.** Every mention of `/turn` in sections 2 to 6 stands until the
+  pending closure lands, and is to be revised then.
+- **coturn's log.** The privacy notice's account of coturn's log is
+  corrected (its section 4.1).
+
+### 9.5 Sign-off
+
+| Item | Entry |
+| --- | --- |
+| Change recorded | Owner's decisions and surface states of 22 October 2026 |
+| Drafted by | An AI assistant, from the code at `edf32cd0` and the host's report of 22 October 2026 |
 | Reviewed by | `[name]` |
 | Approved by | `[Operator]` |
 | Date signed | `[date signed]` |
@@ -612,6 +789,7 @@ codes in 8.7.
    underlying software already exposes (section 6.2, items 2 and 3).
 3. Confirm the `abuse@safety.forgesworn.dev` mailbox exists and is monitored
    before relying on this record or the terms that reference it.
-4. The decisions and sign-off for the change in progress (section 8.8).
+4. The decisions and sign-off for the change in progress (section 8.8),
+   and for the change of 22 October 2026 (section 9.5).
 
 Still to do: the evidence marked `[INPUT]`.
