@@ -10170,13 +10170,13 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       redraw: next => render(next),
       show: button => { void openAttachment(button) },
     })
-    // Under the file, visible without opening it. Only ForgeSworn-held files.
-    const ending = forgeSwornStorageNotice(a.url)
-    if (ending) {
+    // Under the file, visible without opening it. Only files that were on ForgeSworn's server.
+    const gone = forgeSwornStorageNotice(a.url)
+    if (gone) {
       const notice = document.createElement('p')
       notice.className = 'attWhy'
-      notice.dataset.storageEnding = 'true'
-      notice.textContent = ending
+      notice.dataset.storageGone = 'true'
+      notice.textContent = gone
       card.append(notice)
     }
     focusInto(focus)
