@@ -37,6 +37,7 @@ credential service, were both committed on 24 August 2026.
 | 22 October 2026 | The relay ForgeSworn also runs closed to an allowlist of the operator's own keys, reads and writes, behind relay authentication (NIP-42) | Host's report |
 | 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
 | 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
+| 22 October 2026, about 19:40 UTC | The trash folder emptied: the stored files and the meeting-code store deleted | Host's report |
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
@@ -47,11 +48,8 @@ shipped was not checked.
 
 ## 3. What remains
 
-- **Stored files.** The 84 encrypted blobs, about 164 MB, sit in a trash
-  folder on the box, unreachable from outside, waiting for the owner to
-  empty it. Until then ForgeSworn still holds that data, and data
-  protection still applies to it (law note 3.1). `[INPUT: whether the
-  archive nodes still hold copies.]`
+- **Stored files.** Deleted on 22 October 2026: the 84 encrypted blobs,
+  about 164 MB. `[INPUT: whether the archive nodes still hold copies.]`
 - **STUN on ForgeSworn's host.** The app derives `stun:<host>:3478` from
   the host that served it (`src/ice-defaults.ts`, `originStunGuess`), and
   Android 0.6.103 keeps STUN there. When the app is loaded from
@@ -71,8 +69,7 @@ shipped was not checked.
   operator's own rooms, were retired on 4 September 2026 and their state
   is kept on the box only (host's report).
 - **Meeting code data.** The service is stopped and disabled. Its store of
-  room links, about 1 KB, sits in the same trash folder as the stored
-  files, waiting to be emptied.
+  room links, about 1 KB, was deleted on 22 October 2026.
 - **The drop tier** still runs on the box's loopback. Whether anything
   other than the box can reach it was not checked.
 - **The app and the update check.** `kithmoot.forgesworn.dev` still serves
@@ -100,8 +97,7 @@ and 50, `[P]`). The privacy notice still owes an account of the third
 parties the defaults contact (law note 3.2).
 
 **Today:** close to that. What is left is ForgeSworn's STUN (kept by
-decision), the same-origin defaults in section 3 that now meet 410, and the data in
-section 3 still on the box.
+decision) and the same-origin defaults in section 3 that now meet 410.
 
 ## 5. Why no assessment fell due
 
