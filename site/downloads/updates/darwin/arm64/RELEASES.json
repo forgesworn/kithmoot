@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.98",
+  "currentRelease": "0.1.100",
   "releases": [
     {
-      "version": "0.1.98",
+      "version": "0.1.100",
       "updateTo": {
-        "version": "0.1.98",
-        "pub_date": "2026-10-22T01:13:55Z",
-        "notes": "Looking up a contact\u2019s name and picture no longer asks the relays of the room you have open.",
-        "name": "0.1.98",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.98/KithMoot-0.1.98-mac-arm64.zip",
-        "sha256": "56d13889eae857251c693f67aebf9569cef018060e2ed82f322f30389deb196b",
-        "size": 170878409
+        "version": "0.1.100",
+        "pub_date": "2026-10-22T18:58:40Z",
+        "notes": "With Hide my IP address on you can join rooms and chat again; only a call without a relay is refused.",
+        "name": "0.1.100",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.100/KithMoot-0.1.100-mac-arm64.zip",
+        "sha256": "89fd2c00ee16eb9d7a881c744d109366810a8a1c9a51de1d021aaf61268d036a",
+        "size": 170893837
       }
     }
   ]

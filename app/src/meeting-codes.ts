@@ -96,6 +96,10 @@ export function meetingCodeExpiry(endsAt: number | undefined, now: number): numb
 export const MEETING_ENDED = 'This meeting has ended'
 export const MEETING_CODE_UNKNOWN = 'We could not find that code. Check it and try again'
 export const MEETING_CODE_TOO_MANY = 'Too many tries. Wait a minute'
+/** The service answered 404, 405 or 410 to a request to make a code: it has been switched off. */
+export const MEETING_CODES_GONE = 'Meeting codes are unavailable right now. Share the room link instead.'
+/** How long any request to the code service may take before it counts as unreachable. */
+export const MEETING_CODE_TIMEOUT_MS = 8000
 export const MEETING_CODES_UNAVAILABLE = 'Meeting codes are unavailable right now. Share the full link instead.'
 
 /** A refusal the service answered, with the words to show for it. */
@@ -129,17 +133,23 @@ export interface MeetingCodeClient {
 const NOT_MADE = 'A meeting code could not be made for this room. Share the link instead.'
 const NOT_UNDERSTOOD = 'The meeting code service gave an answer this app does not understand.'
 
-export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fetch.bind(globalThis) }: { base?: string; fetch?: Fetch } = {}): MeetingCodeClient {
+export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fetch.bind(globalThis), timeoutMs = MEETING_CODE_TIMEOUT_MS }: { base?: string; fetch?: Fetch; timeoutMs?: number } = {}): MeetingCodeClient {
   const root = base.replace(/\/+$/, '')
   async function call(path: string, init: RequestInit): Promise<Response> {
-    try { return await send(root + path, { cache: 'no-store', credentials: 'omit', ...init }) }
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const bound = new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new MeetingCodeNetworkError()) }, timeoutMs) })
+    try { return await Promise.race([send(root + path, { cache: 'no-store', credentials: 'omit', signal: controller.signal, ...init }), bound]) }
     catch { throw new MeetingCodeNetworkError() }
+    finally { clearTimeout(timer) }
   }
   async function post(body: unknown): Promise<Partial<AllocatedMeetingCode> & { code: string; expires: number; deleteToken: string }> {
     const response = await call('', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     if (response.status === 429) throw new MeetingCodeError(MEETING_CODE_TOO_MANY, 429)
     // The store or the service-wide daily cap is full.
     if (response.status === 503) throw new MeetingCodeError(MEETING_CODES_UNAVAILABLE, 503)
+    // Switched off: no route (404, 405) or retired (410).
+    if (response.status === 404 || response.status === 405 || response.status === 410) throw new MeetingCodeError(MEETING_CODES_GONE, response.status)
     if (response.status !== 201) throw new MeetingCodeError(NOT_MADE, response.status)
     const answer = await response.json().catch(() => undefined) as Partial<AllocatedMeetingCode> | undefined
     const code = typeof answer?.code === 'string' ? parseMeetingCode(answer.code) : undefined
@@ -165,6 +175,7 @@ export function meetingCodeClient({ base = '/codes', fetch: send = globalThis.fe
         body: JSON.stringify({ envelope }),
       })
       if (response.status === 429) throw new MeetingCodeError(MEETING_CODE_TOO_MANY, 429)
+      if (response.status === 404 || response.status === 405 || response.status === 410) throw new MeetingCodeError(MEETING_CODES_GONE, response.status)
       if (response.status !== 204) throw new MeetingCodeError(NOT_MADE, response.status)
     },
     async resolve(value) {

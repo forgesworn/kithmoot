@@ -1,5 +1,21 @@
 # Changelog
 
+## Desktop 0.1.100, 22 October 2026
+
+- With "Hide my IP address" on, you can join a room and chat again even when the room has no relay. Only a call is refused, saying why, and it is never made direct.
+- A call with no relay says "Some calls need a relay. Your group has none, so this call may not connect on some networks." and still tries to connect directly. ForgeSworn no longer runs a relay for everyone.
+- Meeting codes are no longer available. KithMoot says so and asks you to share the room link instead.
+
+## Desktop 0.1.99, 22 October 2026
+
+- Anyone can send a file straight away. Files go to a public server run by somebody else, blossom.yakihonne.com by default. The first time, a short notice above the message box names the server and says what it can see; pressing Send uploads the file. After that, files upload as you add them.
+- Choose where files go in Settings › Privacy › Where files go: a public server, your own server, or nowhere. Room info says where files sent in a room go.
+- KithMoot no longer sends files to ForgeSworn’s storage, which takes no new files. A device that used it moves to the public default and is told once.
+- A received file is judged by what it really is, not by what the sender says it is. A photo that is a photo opens quietly. A program, script, installer, disk image, archive, web page or Office file with macros says what it is and needs Save anyway. A program dressed up as something else, and a shortcut file, won’t open or save at all.
+- File names with hidden characters that make them read differently are cleaned, and the clean name is the one saved.
+- PDFs offer Save, replacing a View link that did nothing in the desktop app.
+- A file its server no longer has reads “This file is no longer on …” instead of an error.
+
 ## Desktop 0.1.98, 22 October 2026
 
 - Looking up a contact's name and picture no longer asks the relays of the room you have open. A room's relays see lookups only for people in that room, and a name-only key this device made for you is never looked up.

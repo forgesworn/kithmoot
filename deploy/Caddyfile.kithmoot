@@ -128,8 +128,11 @@ kithmoot.forgesworn.dev {
 	# with this line never reached. Inside a handle block of its own, placed
 	# before the catch-all, it is part of the same mutually exclusive group
 	# and wins on the more specific path.
+	# Switched off on 22 October 2026: ForgeSworn runs no call relay for
+	# others. A group runs its own TURN server and its rooms carry it.
 	handle /turn {
-		reverse_proxy 127.0.0.1:8089
+		header Cache-Control no-store
+		respond "KithMoot no longer runs a call relay. Set your group's own call server under Settings, Connections, Call servers." 410
 	}
 
 	# Meeting codes (server/meeting-codes.mjs, installed as
@@ -159,8 +162,12 @@ kithmoot.forgesworn.dev {
 		path /codes*
 		not path /codes/health
 	}
+	# Switched off on 22 October 2026: ForgeSworn stores no meeting codes.
+	# A clear 410 rather than silence, because older apps have no timeout on
+	# /codes. Codes are to return on Nostr relays with no server.
 	handle @codes {
-		reverse_proxy 127.0.0.1:8114
+		header Cache-Control no-store
+		respond "Meeting codes are unavailable. Share the room link instead." 410
 	}
 
 	# No /drops here. The box's drop tier (bothy-node, container
@@ -203,19 +210,19 @@ kithmoot.forgesworn.dev {
 		path /upload
 		method PUT HEAD OPTIONS
 	}
+	# Closed to new files on 22 October 2026: ForgeSworn takes no new uploads.
 	handle @blossomUpload {
-		request_body {
-			max_size 270MiB
-		}
-		reverse_proxy 127.0.0.1:8092
+		header Cache-Control no-store
+		respond "Shared storage on kithmoot.forgesworn.dev has closed to new files. Set up your group's own storage, or send files directly." 410
 	}
 	@blossomBlob {
 		path_regexp ^/blossom/[0-9a-f]{64}(\.[a-z0-9]{1,10})?$
 		method GET HEAD DELETE OPTIONS
 	}
+	# Closed on 22 October 2026: stored files are no longer served.
 	handle @blossomBlob {
-		uri strip_prefix /blossom
-		reverse_proxy 127.0.0.1:8092
+		header Cache-Control no-store
+		respond "Shared storage on kithmoot.forgesworn.dev has closed. Files stored here are no longer available." 410
 	}
 
 	# The website lives at kithmoot.app now. Only its pages move: the app,
@@ -404,7 +411,7 @@ www.kithmoot.app {
 		method GET HEAD
 	}
 	handle @blossomArchiveBlob {
-		reverse_proxy 127.0.0.1:8092
+		respond 410
 	}
 	handle {
 		respond 404

@@ -113,7 +113,7 @@ test('the home page leads with room actions, fits both themes and starts a named
   } finally { await context.close() }
 })
 
-test('relay-only network privacy refuses to join without a TURN allocation', async ({ browser, baseURL }) => {
+test('relay-only network privacy joins the room without a TURN allocation and refuses only the call', async ({ browser, baseURL }) => {
   const { context } = await device(browser, baseURL!)
   const guest = await device(browser, baseURL!)
   try {
@@ -133,8 +133,30 @@ test('relay-only network privacy refuses to join without a TURN allocation', asy
     await other.locator('#joinRelayOnly').check()
     await other.locator('#join').click()
 
+    // The room opens (chat works); only a call is refused.
+    await expect(other.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await expect(other.locator('#relayMissingNote')).toBeHidden()
+    // Record every peer connection's configuration from here on, so the
+    // privacy promise is checked on what the browser was actually given.
+    await other.evaluate(() => {
+      const w = window as unknown as { __iceConfigs: unknown[] }
+      w.__iceConfigs = []
+      const Native = window.RTCPeerConnection
+      window.RTCPeerConnection = class extends Native {
+        constructor(configuration?: RTCConfiguration) { super(configuration); w.__iceConfigs.push(configuration ?? null) }
+      } as typeof RTCPeerConnection
+    })
+    await other.locator('#callToggle').click()
     await expect(other.locator('#status')).toContainText('no usable TURN relay')
-    await expect(other.locator('#roomArea')).toBeHidden()
+    await expect(other.locator('#status')).toContainText('Some calls need a relay')
+    await expect(other.locator('#relayMissingNote')).not.toHaveAttribute('hidden', /.*/)
+    const configs = await other.evaluate(() => (window as unknown as { __iceConfigs: unknown[] }).__iceConfigs)
+    // Nothing was built without relay-only; a built one has no non-relay server.
+    for (const config of configs as Array<RTCConfiguration | null>) {
+      expect(config?.iceTransportPolicy).toBe('relay')
+      for (const server of config?.iceServers ?? []) for (const url of [server.urls].flat()) expect(url).toMatch(/^turns?:/i)
+    }
+    await expect(other.locator('#micIndicator')).not.toContainText('connected')
   } finally { await context.close(); await guest.context.close() }
 })
 

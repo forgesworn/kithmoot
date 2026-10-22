@@ -52,8 +52,6 @@ services:
     # rewriting addresses that were already right.
     command: ["-c", "/etc/coturn/turnserver.conf"]
 
+    # No logs: coturn names client and peer IP addresses (see turnserver.conf).
     logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      driver: none

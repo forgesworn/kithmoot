@@ -422,6 +422,9 @@
                  said in the call, with what to do. Filled by `noteMediaBlocked`
                  in app/src/main.ts. -->
             <p id="mediaBlockedNote" class="indicator broken" role="status" hidden></p>
+            <!-- No TURN relay is configured, or the credential mint failed. Set by
+                 `noteRelayMissing` in app/src/main.ts. Calls still try peer to peer. -->
+            <p id="relayMissingNote" class="indicator" role="status" hidden></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
