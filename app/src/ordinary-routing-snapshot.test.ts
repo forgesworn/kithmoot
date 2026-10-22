@@ -13,7 +13,7 @@ it.each(ROUTING_MODES)('retains %s primary writer bytes without clock, dials or 
     expect(Object.values(result).every(v => Number.isSafeInteger(v) && v >= 0)).toBe(true)
     expect(validate(f.records, true, { kind: 'browser' })).toEqual(result); expect([...f.records]).toEqual(before)
     expect(clock).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled()
-    if (mode === 'all') expect(result).toEqual({ savedLists:1,savedScopes:1,relayChoices:1,fixedLists:1,fixedRooms:1,fixedChoices:2,markLists:1,marks:1,roomRecords:1 })
+    if (mode === 'all') expect(result).toEqual({ savedLists:1,savedScopes:1,relayChoices:1,fixedLists:1,fixedRooms:1,fixedChoices:2,markLists:1,marks:1,roomRecords:1,storageRecords:0 })
     if (mode === 'saved-carried-sixteen') expect(result.relayChoices).toBe(17)
     if (mode === 'marks-opaque-carried') expect(result.marks).toBe(3)
     if (mode === 'room-record-inert-signature') expect(result.roomRecords).toBe(1)

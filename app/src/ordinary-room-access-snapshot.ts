@@ -780,7 +780,10 @@ export function validateOrdinarySnapshot(browserRecords: ReadonlyMap<string, str
       get: name => records.get(name) ?? null, keys: () => [...records.keys()], set: hold, remove: hold,
     })
     if (part('browser', 'invitationProofs').size && !migrated.browser || part('tab', 'invitationProofs').size && !migrated.tab) hold()
-    proofCustody = inspectPersistentAdmissionProofs(readonlyStore(image.browser), readonlyStore(image.tab))
+    // Loading only: a proof this copy cannot read is left out and said, so one such proof does not stop every room loading. What depends on it still holds below.
+    proofCustody = inspectPersistentAdmissionProofs(readonlyStore(image.browser), readonlyStore(image.tab), { isolateUnreadable: true })
+    // Names carry account and invitation ids, so only how many, and why, are said.
+    if (proofCustody.skipped.length) console.warn(`${proofCustody.skipped.length} stored invitation proof(s) could not be read by this version and were left out (${[...new Set(proofCustody.skipped.map(value => value.why))].join(', ')}).`)
     inspectOrdinaryMemberLeases(readonlyStore(image.browser), readonlyStore(image.tab), proofCustody)
     creatorCustody = inspectPersistentCreatorProofs(readonlyStore(image.browser))
     for (const verified of creatorCustody.proofs.values()) {
