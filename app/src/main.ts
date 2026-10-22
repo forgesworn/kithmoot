@@ -19936,10 +19936,12 @@ function renderStaged(): void {
     const closed = $('fileNoticeClosed')
     closed.textContent = FORGESWORN_STORAGE_CLOSED
     closed.hidden = !forgeSwornStorageClosed
-    $('fileNoticeBody').textContent = `It’s a public server${operator ? ` run by ${plainOperator(operator)}` : ''}. Files are encrypted on this device first, so only people in this chat can open them. The server sees your IP address and file sizes, and decides how long to keep files.`
+    // A deployer's own default is not on the vetted list, so nobody has
+    // checked that it is public: say who chose it instead.
+    $('fileNoticeBody').textContent = `${operator ? `It’s a public server run by ${plainOperator(operator)}.` : 'It’s the server chosen by whoever runs this copy of KithMoot.'} Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.`
   }
   const send = $('chatForm').querySelector('button[type=submit]')!
-  if (noticeShown) send.setAttribute('aria-describedby', 'fileNoticeTitle'); else send.removeAttribute('aria-describedby')
+  if (noticeShown) send.setAttribute('aria-describedby', `${forgeSwornStorageClosed ? 'fileNoticeClosed ' : ''}fileNoticeTitle fileNoticeBody`); else send.removeAttribute('aria-describedby')
   // Why files are held (S4, S5, S7, S8), while one is staged.
   const state = fileStateLine(destination)
   const stateShown = !!state && (held.length > 0 || (destination.kind === 'group' && draft.attachments.length > 0))
@@ -19965,7 +19967,8 @@ function renderStaged(): void {
   // person had already found went and a different one appeared in its
   // place. Only the count changes, and it has a span of its own so that
   // neither the label nor the accessible name is touched.
-  $('attachCount').textContent = draft.attachments.length ? ` (${draft.attachments.length})` : ''
+  // The tray above the composer lists every file, so + carries no count.
+  $('attachCount').textContent = ''
 }
 
 /**

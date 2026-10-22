@@ -2388,8 +2388,8 @@ Nobody could send a file until they had picked a server, ticked a box and
 pressed a button inside a panel that took over a phone screen. Uploads now
 default to the first entry of `PUBLIC_FILE_SERVERS`, or a deployer's
 `VITE_KITHMOOT_FILE_SERVER`. The 28 September position is unchanged: it is
-somebody else's server, ForgeSworn runs nothing, and no ForgeSworn host may
-be a default (the test stays).
+somebody else's server, and no ForgeSworn host may be a default (the test
+stays). ForgeSworn's own servers are closed separately, on the server side.
 
 Consent stays an act: the first file on a device is held, a notice names the
 server and what it sees, and pressing Send is the act that uploads and
@@ -2399,8 +2399,9 @@ later change of default asks again rather than moving uploads silently. One
 function, `resolveFileDestination`, decides where a file goes and every
 caller asks it. Where files go is chosen in Settings > Privacy, per device.
 
-ForgeSworn's own shared storage takes no new files. A stored choice naming a
-ForgeSworn host, however it was made, is removed at start, the next one-time
-notice says why, and typing one in Settings is refused. Files already stored
-there are not touched by the app.
+KithMoot no longer sends files to ForgeSworn's own storage. A stored choice
+naming a ForgeSworn host, however it was made, is removed at start, the next
+one-time notice says why, and typing one in Settings is refused. Files already
+stored there are not touched by the app; closing the upload route on the
+server is a separate step.
 

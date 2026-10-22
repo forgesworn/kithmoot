@@ -79,16 +79,17 @@ test('a consent made by the old pre-filled ForgeSworn suggestion is retired once
     await expect(page.locator('#attachStaged .attachChip .s')).toHaveText('Not uploaded')
     expect(uploads).toBe(0)
     expect(seen).toEqual([])
-    // Typing the host is still a person's choice and is honoured.
+    // Typing the host is refused: KithMoot no longer sends files there.
     await openSettings(page, 'Privacy')
     await page.locator('#privacyFiles').click()
     await page.getByRole('radio', { name: 'My own server' }).check()
     await page.locator('#attachServer').fill('https://kithmoot.forgesworn.dev')
     await page.locator('#saveFileStorage').click()
-    await expect(page.locator('#fileOwnCheck')).toHaveText('Files you send go to kithmoot.forgesworn.dev.')
+    await expect(page.locator('#fileOwnCheck')).toHaveText('KithMoot no longer sends files to ForgeSworn’s storage. Choose another server.')
+    expect(await readConsent(page)).toBeNull()
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
-    expect(JSON.parse((await readConsent(page))!)).toMatchObject({ origin: 'https://kithmoot.forgesworn.dev', via: 'typed' })
+    expect(await readConsent(page)).toBeNull()
   } finally { await context.close() }
 })
 
@@ -442,7 +443,9 @@ test('pasted files stay staged until Send and text attachments display as inert 
       Object.defineProperty(event, 'clipboardData', { value: clipboard })
       input.dispatchEvent(event)
     })
-    await expect(page.locator('#attachCount')).toContainText('(1)')
+    // The tray lists the file; its size shows once it has uploaded.
+    await expect(page.locator('#attachStaged .attachChip')).toContainText('notes.html')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ (B|KB)/, { timeout: 30_000 })
     await expect(page.locator('#chatInput')).toHaveValue('Attached notes')
     await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
     await page.locator('#chatForm button[type="submit"]').click()

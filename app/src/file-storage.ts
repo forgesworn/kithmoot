@@ -67,8 +67,8 @@ export function storedFileServer(store: Store): StoredFileServer | undefined {
     if (entry.disclosure !== 1 && entry.disclosure !== 2 && entry.disclosure !== CONSENT_VERSION) return undefined
     const origin = normaliseBlossomServer(entry.origin)
     if (origin !== entry.origin) return undefined
-    // ForgeSworn's shared storage takes no new files, so a choice naming
-    // one of its hosts, however it was made, is never a destination.
+    // KithMoot no longer sends files to ForgeSworn's storage, so a choice
+    // naming one of its hosts, however it was made, is never a destination.
     if (isForgeSwornHost(origin)) return undefined
     if (entry.disclosure !== CONSENT_VERSION) return { origin, via: 'typed' }
     if (entry.via !== 'default' && entry.via !== 'typed' && entry.via !== 'wildbloom') return undefined
@@ -209,10 +209,10 @@ export function stopFileUploads(store: Store): void {
 
 /** Said once, in the one-time notice, to a device whose choice named a
  * ForgeSworn host, and in Settings to anyone who types one. */
-export const FORGESWORN_STORAGE_CLOSED = 'ForgeSworn’s shared storage no longer takes new files.'
+export const FORGESWORN_STORAGE_CLOSED = 'KithMoot no longer sends files to ForgeSworn’s storage.'
 
 /** Removes a stored choice that names a ForgeSworn host, whichever version
- * wrote it: ForgeSworn's shared storage takes no new files. The device is then
+ * wrote it: KithMoot no longer sends files there. The device is then
  * "never chosen" and meets the one-time notice, which names the current
  * default; true means the caller should say why, once. Files already stored
  * there are not touched. */

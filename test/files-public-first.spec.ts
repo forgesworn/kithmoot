@@ -60,7 +60,7 @@ const JPEG = (name: string) => ({ name, mimeType: 'image/jpeg', buffer: Buffer.f
 const stored = (page: Page) => page.evaluate(key => localStorage.getItem(key), CONSENT)
 
 const NOTICE_TITLE = 'Files you send are stored on blossom.yakihonne.com'
-const NOTICE_BODY = 'It’s a public server run by Yakihonne. Files are encrypted on this device first, so only people in this chat can open them. The server sees your IP address and file sizes, and decides how long to keep files.'
+const NOTICE_BODY = 'It’s a public server run by Yakihonne. Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.'
 
 test('the first file is held with the one-time notice, and Send is the act', async ({ browser, baseURL }) => {
   const { page, context, gate } = await setup(browser, baseURL!)
@@ -73,7 +73,7 @@ test('the first file is held with the one-time notice, and Send is the act', asy
     await expect(page.locator('#fileNoticeTitle')).toHaveText(NOTICE_TITLE)
     await expect(page.locator('#fileNoticeBody')).toHaveText(NOTICE_BODY)
     await expect(page.locator('#fileNoticeChoose')).toHaveText('Choose another server')
-    await expect(page.locator('#chatForm button[type=submit]')).toHaveAttribute('aria-describedby', 'fileNoticeTitle')
+    await expect(page.locator('#chatForm button[type=submit]')).toHaveAttribute('aria-describedby', 'fileNoticeTitle fileNoticeBody')
     // Nothing has been asked of any file server, and nothing is stored.
     expect(gate.hits).toEqual([])
     expect(await stored(page)).toBeNull()
@@ -100,7 +100,7 @@ test('a device whose choice named ForgeSworn’s host meets the notice, which sa
   try {
     expect(await stored(page)).toBeNull()
     await pick(page, JPEG('IMG_2041.jpg'))
-    await expect(page.locator('#fileNoticeClosed')).toHaveText('ForgeSworn’s shared storage no longer takes new files.')
+    await expect(page.locator('#fileNoticeClosed')).toHaveText('KithMoot no longer sends files to ForgeSworn’s storage.')
     await expect(page.locator('#fileNoticeTitle')).toHaveText(NOTICE_TITLE)
     gate.mode = 'serve'
     await page.locator('#chatForm button[type=submit]').click()
@@ -254,7 +254,8 @@ test('Settings shows the Where files go row, its radios take arrow keys, and axe
   } finally { await context.close() }
 })
 
-test('phone landscape with the notice showing keeps the field and Send in view', async ({ browser, baseURL }) => {
+test('phone landscape with the notice showing keeps the field and Send in view', async ({ browser, baseURL }, testInfo) => {
+  test.skip(testInfo.project.name === 'chromium-desktop', 'The desktop window is never shorter than 640 px (desktop/main.mjs minHeight).')
   const { page, context } = await setup(browser, baseURL!, { width: 844, height: 390 })
   try {
     await pick(page, JPEG('a.jpg'), JPEG('b.jpg'), JPEG('c.jpg'))
