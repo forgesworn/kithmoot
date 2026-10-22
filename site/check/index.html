@@ -81,7 +81,7 @@ node -e "import('./update-manifest.mjs').then(m => { const fs = require('fs'); c
 <p>On a Mac, check Apple's signature and notarisation:</p>
 <pre><code>codesign --verify --deep --strict /Applications/KithMoot.app
 codesign -dv --verbose=2 /Applications/KithMoot.app</code></pre>
-<p>The first command prints nothing if the signature holds. The second should name ForgeSworn and team <code>2GLP954N6A</code>, and show <code>Notarization Ticket=stapled</code>. Notarisation means Apple scanned the app for known malware. It doesn't mean Apple reviewed what the app does.</p>
+<p>The first command prints nothing if the signature holds. The second should show a <code>Developer ID Application</code> authority and <code>Notarization Ticket=stapled</code>. Notarisation means Apple scanned the app for known malware. It doesn't mean Apple reviewed what the app does.</p>
 
 <h3>What it connects to</h3>
 <p>With KithMoot open, list its connections:</p>
