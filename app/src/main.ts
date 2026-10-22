@@ -63,7 +63,7 @@ import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStan
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-picker.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
-import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, retireSuggestedForgeSwornConsent, sharedFileServer, requireSharedFileServer, allowSharedFileServer, stopFileUploads, suggestedFileServer } from './file-storage.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireSuggestedForgeSwornConsent, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
 import './style.css'
@@ -101,7 +101,7 @@ import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReas
 import { ANDROID_DOWNLOAD_URL, DESKTOP_DOWNLOAD_URL, appLinkFor, appPlatform } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
-import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft } from './drafts.js'
+import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft, type FileTrayFailure } from './drafts.js'
 import {
   DEVICE_PREFIX,
   browserDeviceStore,
@@ -302,7 +302,7 @@ import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
 import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
-import { BLOB_DELETE_RETRY_SECONDS, deleteUploads, forgetRoomUploads, recordUpload, retryPendingBlobDeletes, roomUploads, uploadsFromEvents, type FileDeletionReport } from './blob-deletion.js'
+import { BLOB_DELETE_RETRY_SECONDS, deleteUploads, forgetRoomUploads, recordUpload, retryPendingBlobDeletes, roomUploads, uploadOrigins, uploadsFromEvents, type FileDeletionReport, type UploadedBlob } from './blob-deletion.js'
 import { RoomTabs } from './room-tabs.js'
 import { readPositionId } from '../../src/read-position.js'
 import { addContactFromCard, contactFor, contacts, forgetContact, myRendezvousSecret, type Contact } from './contact-store.js'
@@ -723,6 +723,8 @@ const privateFileUploadsPanel = new PrivateFileUploadsPanel(privateFileVault, pr
 let privateFileReady = false
 let privateFileRender = 0
 let fileStorageBooted = false
+/** Whether + opens a menu (a person with their own server) rather than the picker. */
+let attachMenuMode = false
 relayConnections.routeRooms((room, make) => browserRoomRoutes.pool(room, make))
 
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
@@ -5676,6 +5678,7 @@ function renderRoomInfo(): void {
   setInfoSub('infoSubNotifications', 'Nudge me when I am away')
   const route = roomUsesBothy ? 'Bothy route' : 'public relays'
   setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
+  renderRoomFilesLine()
   setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
   $('infoRowName').hidden = $('roomRename').hidden && $('roomLogoControls').hidden
   setInfoSub('infoSubPhone', '')
@@ -7635,7 +7638,22 @@ function renderEmptyRoom(): void {
   const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
     && (session?.chat.messages().length ?? 0) === 0
   if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
+  if (show) clearEmptyRoomIntro()
 }
+
+/** The empty-room block sits over the log, whose one line is the room's
+ *  intro at the top. When the box above the composer grows (the staged-files
+ *  tray, a large text size, a short window) the log gets short, and the
+ *  block's centred content must start below that line, not on it. */
+function clearEmptyRoomIntro(): void {
+  const empty = $('emptyRoom')
+  if (empty.hidden) return
+  const intro = $('chatLog').querySelector('.intro')
+  const below = intro ? intro.getBoundingClientRect().bottom - $('chatViewport').getBoundingClientRect().top : 0
+  empty.style.paddingTop = below > 0 ? `calc(${Math.ceil(below)}px + var(--s3))` : ''
+}
+new ResizeObserver(clearEmptyRoomIntro).observe($('chatViewport'))
+new MutationObserver(clearEmptyRoomIntro).observe($('chatLog'), { childList: true, subtree: true, characterData: true })
 $('emptyCopyLink').addEventListener('click', () => {
   const link = ($('shareUrl') as HTMLInputElement).value
   navigator.clipboard.writeText(link)
@@ -9531,7 +9549,7 @@ function renderRecording(): void {
     const staged = pendingRecording.addedTo === draft && !!pendingRecording.attachment && draft.attachments.includes(pendingRecording.attachment)
     $('recordingReadyText').textContent = `Your recording is ready: ${pendingRecording.file.name}, ${formatBytes(pendingRecording.file.size)}. `
       + (staged ? 'Added to your message draft; press Send to share it. You can still save this local copy.'
-        : waiting ? 'Held on this device. Allow file storage and upload the selected file to add it to your message.'
+        : waiting ? 'Held in your message draft, not uploaded yet. See the note above the message box.'
           : 'Save it or add it to a message. Adding it keeps this local copy until you discard it.')
     const save = $('recordingSave') as HTMLAnchorElement
     save.href = pendingRecording.url
@@ -11036,21 +11054,30 @@ function renderComposer(): void {
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
   if (readOnly || closed) chatArtPicker.close()
-  ;($('attachToggle') as HTMLButtonElement).disabled = closed
-  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || Boolean(draft.pendingFiles?.length)
-  $('attachStaged').hidden = readOnly
+  ;($('attachToggle') as HTMLButtonElement).disabled = closed || Boolean(draft.job)
+  // A held file does not stop Send where Send is the act (the one-time
+  // notice) or where the file can go now. It does where nothing can take it
+  // (off, no storage, Bothy not yet allowed), and while one is refused: the
+  // person removes that chip first.
+  const destination = fileDestination()
+  const holding = (draft.pendingFiles ?? []).length > 0
+  const blocked = holding && (heldFiles(draft).length < (draft.pendingFiles ?? []).length || (destination.kind !== 'default' && destination.kind !== 'server'))
+  ;($('chatForm').querySelector('button[type=submit]') as HTMLButtonElement).disabled = readOnly || closed || Boolean(draft.job) || blocked
+  if (readOnly) $('fileTray').hidden = true
   $('attachPanel').hidden = readOnly || !draft.panelOpen
   const waiting = draft.pendingFiles ?? []
-  $('pendingFileNames').hidden = !waiting.length
-  $('pendingFileNames').textContent = waiting.length ? `On this device, not uploaded: ${waiting.map(file => file.name).join(', ')}` : ''
-  $('pendingFileActions').hidden = !waiting.length
+  // The tray lists held files; a Bothy room's panel lists them as it always did.
+  $('pendingFileNames').hidden = !waiting.length || !roomUsesBothy
+  $('pendingFileNames').textContent = waiting.length && roomUsesBothy ? `On this device, not uploaded: ${waiting.map(file => file.name).join(', ')}` : ''
+  $('pendingFileActions').hidden = !waiting.length || !roomUsesBothy
   ;($('uploadPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job) || closed || !(roomUsesBothy ? privateFileReady : blossomServer())
   ;($('clearPendingFiles') as HTMLButtonElement).disabled = Boolean(draft.job)
 
-  for (const id of ['attachFile', 'attachAdd', 'attachEvent', 'attachKey']) {
+  for (const id of ['attachAdd', 'attachEvent', 'attachKey']) {
     ;($(id) as HTMLInputElement | HTMLButtonElement).disabled = closed || Boolean(draft.job)
   }
-  $('cancelFileWork').hidden = !draft.job
+  ;($('attachFile') as HTMLInputElement).disabled = closed || Boolean(draft.job)
+  renderAttachButton(destination)
   if (fileStorageBooted) renderFileStorage()
   const discard = $('discardDraft') as HTMLButtonElement
   discard.hidden = !draftHasWork(draft)
@@ -17218,6 +17245,7 @@ function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
   $('settingsBack').hidden = name === 'main' && !ONE_PANE_SETTINGS.matches
   settingsPane.dataset.page = name
   settingsPane.scrollTop = 0
+  if (name === 'files') renderFilesSettings()
   if (!focus) return
   if (name === 'main' && previous !== 'main' && settingsRow?.isConnected) settingsRow.focus({ preventScroll: true })
   else $('settingsTitle').focus({ preventScroll: true })
@@ -17239,6 +17267,7 @@ function renderSettingsRows(): void {
   ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
   setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
+  renderFilesSettings()
 }
 
 function enterSettings(): void {
@@ -17273,7 +17302,9 @@ settingsPane.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(row =
   row.addEventListener('click', () => showSettingsPage(row.dataset.settingsOpen!, row))
 })
 $('settingsBack').addEventListener('click', () => {
-  if (settingsPage !== 'main') showSettingsPage('main')
+  // Where files go sits under Privacy, so back goes there, not to the list.
+  if (settingsPage === 'files') showSettingsPage('privacy', $('settingsRowprivacy'))
+  else if (settingsPage !== 'main') showSettingsPage('main')
   else openDestination('chats')
 })
 ONE_PANE_SETTINGS.addEventListener('change', () => { if (!settingsPane.hidden) $('settingsBack').hidden = settingsPage === 'main' && !ONE_PANE_SETTINGS.matches })
@@ -18540,10 +18571,15 @@ function showTidyReport(report: TidyUpReport): void {
 /** The tidy-up's file step for a room: delete every file this device
  *  recorded uploading there, and those its own announcements name, from a
  *  server this app uploads to. See app/src/blob-deletion.ts. */
+/** Where this room's file deletes may go. S5b adds a listed room's nodes. */
+function fileDeleteOrigins(recorded: readonly UploadedBlob[]): string[] {
+  return uploadOrigins(recorded, [blossomServer()])
+}
+
 function deleteRoomFiles(context: TidyUpContext): (deviceEvents: readonly NostrEvent[]) => Promise<FileDeletionReport> {
   return async deviceEvents => {
     const recorded = roomUploads(deviceStore, context.roomId)
-    const origins = [blossomServer()].filter(Boolean)
+    const origins = fileDeleteOrigins(recorded)
     return deleteUploads({
       blobs: [...recorded, ...uploadsFromEvents(deviceEvents, getPublicKey(context.deviceSk))],
       origins,
@@ -19599,8 +19635,30 @@ const retainingDrafts = new WeakMap<ConversationDraft, Set<string>>()
 $('chatForm').addEventListener('submit', async (event) => {
   event.preventDefault()
   const draft = captureDraft()
-  if (draft.job || draft.pendingFiles?.length || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
+  if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
+  // Files held in the tray. Where Send is the act (the one-time notice), this
+  // press writes the choice down first, then uploads them, then sends. If an
+  // upload fails nothing is sent: the text and the chips stay and the tray says
+  // why. Where nothing can take them (uploads off, no storage, Bothy not
+  // allowed) or one is refused, Send does nothing and the tray says so.
+  const held = heldFiles(draft)
+  if (draft.pendingFiles?.length) {
+    const destination = fileDestination()
+    if (held.length !== draft.pendingFiles.length || (destination.kind !== 'default' && destination.kind !== 'server')) return
+    if (destination.kind === 'default') acceptDefaultFileServer(localStorage, destination.origin)
+    const accepted = fileDestination()
+    if (accepted.kind !== 'server') return
+    const generation = roomGeneration
+    await uploadStaged(draft, accepted)
+    if (generation !== roomGeneration || heldFiles(draft).length || draft.fileError) return
+    const longFile = held.find(file => longTextFiles.has(file))
+    if (longFile) {
+      if (!useLongText(draft, longTextFiles.get(longFile)!)) return
+      if (draft !== drafts.get(currentChannel)) { draftChanged(draft); return }
+      restoreDraft()
+    }
+  }
   if (input.value.length > MAX_CHAT_TEXT_LENGTH) { void sendLongText(draft, input.value); return }
   let typed = input.value.trim()
   try {
@@ -19811,31 +19869,91 @@ $('channelClose').addEventListener('click', () => {
 // Attaching a Wildbloom share to a message
 // ---------------------------------------------------------------------------
 
+/** The staged-files tray: one chip for each file (ready, held, uploading or
+ *  refused), the GIFs and stickers added to the message, the one-time notice
+ *  where Send is the act, the line saying why files are held, and what went
+ *  wrong with the last upload. Nothing here uploads anything. */
 function renderStaged(): void {
   const draft = drafts.get(currentChannel)
   const box = $('attachStaged')
   box.innerHTML = ''
+  const readOnly = currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel)
+  const destination = fileDestination()
+  const chip = (name: string, state: string, removeLabel: string, remove: () => void): void => {
+    const el = document.createElement('span')
+    el.className = 'attachChip'
+    const label = document.createElement('span'); label.className = 'n'; label.textContent = name
+    const status = document.createElement('span'); status.className = 's'; status.textContent = state
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'chipRemove'
+    button.setAttribute('aria-label', removeLabel)
+    button.append(icon('close'))
+    button.addEventListener('click', remove)
+    el.append(icon('file'), label, status, button)
+    box.append(el)
+  }
   draft.attachments.forEach((a, i) => {
-    const chip = document.createElement('span')
-    chip.className = 'attachChip'
-    chip.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''} `
-    const remove = document.createElement('button')
-    remove.type = 'button'
-    remove.textContent = 'remove'
-    remove.addEventListener('click', () => {
+    const name = a.name ?? 'Encrypted file'
+    chip(name, a.size !== undefined ? formatBytes(a.size) : 'Ready', `Remove ${name}`, () => {
       draft.attachments.splice(i, 1)
       draftChanged(draft)
     })
-    chip.append(remove)
-    box.append(chip)
   })
+  // A Bothy room lists its held files in its own panel, as it always has.
+  for (const file of roomUsesBothy ? [] : draft.pendingFiles ?? []) {
+    const refused = draft.refusedFiles?.get(file)
+    const state = refused ? (file.size === 0 ? 'Not uploaded' : 'Too large') : draft.job ? 'Uploading…' : 'Not uploaded'
+    const stopping = draft.uploading === file
+    chip(file.name, state, `${stopping ? 'Stop and remove' : 'Remove'} ${file.name}`, () => {
+      // Stopping is today's "Stop adding files": the file being sent is cut off.
+      if (draft.uploading === file) draft.job?.abort()
+      draft.pendingFiles = draft.pendingFiles?.filter(held => held !== file)
+      draft.refusedFiles?.delete(file)
+      if (draft.fileError?.file === file) draft.fileError = undefined
+      draftChanged(draft)
+    })
+  }
   draft.artwork.forEach((artwork, index) => {
-    const chip = document.createElement('span'); chip.className = 'attachChip artworkChip'
-    chip.append(artworkCards([artwork]), document.createTextNode(`${artwork.kind === 'gif' ? 'GIF' : 'Sticker'}: ${artwork.label} `))
+    const el = document.createElement('span'); el.className = 'attachChip artworkChip'
+    el.append(artworkCards([artwork]), document.createTextNode(`${artwork.kind === 'gif' ? 'GIF' : 'Sticker'}: ${artwork.label} `))
     const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'remove'; remove.setAttribute('aria-label', `Remove ${artwork.label} ${artwork.kind}`)
     remove.onclick = () => { draft.artwork.splice(index, 1); draftChanged(draft) }
-    chip.append(remove); box.append(chip)
+    el.append(remove); box.append(el)
   })
+  // The one-time notice: Send is the act, so it is shown where Send is.
+  const held = heldFiles(draft)
+  const notice = $('fileNotice')
+  const noticeShown = destination.kind === 'default' && held.length > 0
+  notice.hidden = !noticeShown
+  if (destination.kind === 'default') {
+    const host = fileHost(destination.origin)
+    const operator = publicFileServer(destination.origin)?.operator
+    $('fileNoticeTitle').textContent = `Files you send are stored on ${host}`
+    $('fileNoticeBody').textContent = `It’s a public server${operator ? ` run by ${plainOperator(operator)}` : ''}. Files are encrypted on this device first, so only people in this chat can open them. The server sees your IP address and file sizes, and decides how long to keep files.`
+  }
+  const send = $('chatForm').querySelector('button[type=submit]')!
+  if (noticeShown) send.setAttribute('aria-describedby', 'fileNoticeTitle'); else send.removeAttribute('aria-describedby')
+  // Why files are held (S4, S5, S7, S8), while one is staged.
+  const state = fileStateLine(destination)
+  const stateShown = !!state && (held.length > 0 || (destination.kind === 'group' && draft.attachments.length > 0))
+  $('fileTrayState').hidden = !stateShown
+  if (state && stateShown) {
+    $('fileTrayStateText').textContent = state.text
+    const action = $('fileTrayStateAction') as HTMLButtonElement
+    action.hidden = !state.action
+    action.textContent = state.action?.label ?? ''
+    action.onclick = state.action?.run ?? null
+  }
+  // What went wrong: refused files, then the last upload's failure.
+  const lines = [...(draft.refusedFiles?.entries() ?? [])].filter(([file]) => draft.pendingFiles?.includes(file)).map(([, text]) => text)
+  if (draft.fileError) lines.push(draft.fileError.text)
+  const errorShown = lines.length > 0
+  $('fileTrayError').hidden = !errorShown
+  $('fileTrayErrorText').replaceChildren(...lines.map(text => { const p = document.createElement('p'); p.textContent = text; return p }))
+  ;($('fileTryAgain') as HTMLButtonElement).hidden = !draft.fileError?.retry
+  ;($('fileChooseAnother') as HTMLButtonElement).hidden = !draft.fileError?.another
+  $('fileTray').hidden = readOnly || box.childElementCount === 0 && !errorShown
   // One name, whatever the state. The button used to be "Add a file" in the
   // markup and "Attach" the moment anything re-rendered it, so a control a
   // person had already found went and a different one appeared in its
@@ -19919,45 +20037,136 @@ function shareFromEvent(event: NostrEvent, keyHex: string): ChatAttachment {
 // Dropping a file straight into the chat
 // ---------------------------------------------------------------------------
 
-/** No implicit host fallback, including for Context uploads. */
-function blossomServer(): string {
-  return sharedFileServer(localStorage)
-}
-
-/** A file server someone who built this copy of the app chose to suggest
- *  (`VITE_KITHMOOT_FILE_SERVER`, set at build time). ForgeSworn's own build
- *  sets nothing, so the field is empty unless this device remembers a choice.
- *  A suggestion is never consent. */
+/** A file server someone who built this copy of the app chose to offer
+ *  (`VITE_KITHMOOT_FILE_SERVER`, set at build time). It becomes this build's
+ *  default; ForgeSworn's own build sets nothing, so the default is the first
+ *  vetted public server. Never a ForgeSworn host (`resolveFileDestination`
+ *  drops one). */
 const deployerFileServer = typeof import.meta.env.VITE_KITHMOOT_FILE_SERVER === 'string'
   ? import.meta.env.VITE_KITHMOOT_FILE_SERVER as string
   : undefined
 
-/** Set when start-up removed a consent that only the old pre-filled
- *  suggestion had given. Shown until a server is chosen, and does not name
- *  the old host, so it steers nobody back to it. */
-const FILE_SERVER_RETIRED = 'KithMoot no longer suggests a file server. Choose where your files go to send files again.'
-let fileServerRetired = false
+/** The device's own file choice, whatever room is open. Settings shows this. */
+function deviceFileDestination(): FileDestination {
+  return resolveFileDestination({ store: localStorage, roomUsesBothy: false, ...(deployerFileServer !== undefined ? { deployerDefault: deployerFileServer } : {}) })
+}
+
+/**
+ * Where a file goes, now. The one place that decides it, so every caller
+ * (the picker, drops, pastes, a long paste, a recording, the tray, Room info,
+ * the tidy-up) asks here and nothing else reads the stored consent. Pure and
+ * synchronous on purpose: the upload's `fetch` wrapper asks again just before
+ * the request leaves.
+ *
+ * S5b (a room that lists its own storage) adds `roomStorage` to the input
+ * below, and the two branches at the top of `resolveFileDestination`; see
+ * `shareDroppedFiles`, `uploadStaged` and `fileDeleteOrigins` for the places
+ * it routes the `group` result.
+ */
+function fileDestination(): FileDestination {
+  return resolveFileDestination({ store: localStorage, roomUsesBothy, ...(deployerFileServer !== undefined ? { deployerDefault: deployerFileServer } : {}) })
+}
+
+/** The origin files upload to, or '' when none is allowed yet. Context
+ *  uploads use this too: no implicit host fallback. */
+function blossomServer(): string {
+  return destinationOrigin(fileDestination())
+}
+
+const fileHost = (origin: string): string => new URL(origin).host
+/** "Yakihonne LLC" reads "Yakihonne" in running text. */
+const plainOperator = (operator: string): string => operator.replace(/,?\s+(?:LLC|Ltd\.?|Inc\.?)$/i, '')
+
+/** The tray's line for a destination that cannot upload (S4, S5, S7, S8), and
+ *  what its button does. Undefined when files can go. */
+function fileStateLine(destination: FileDestination): { text: string; action?: { label: string; run: () => void } } | undefined {
+  if (destination.kind === 'off') {
+    return destination.reason === 'chosen'
+      ? { text: 'File uploads are off on this device.', action: { label: 'Turn on file uploads', run: openFilesSettings } }
+      : { text: 'This app has no file server set. Choose one to send files.', action: { label: 'Choose a server', run: openFilesSettings } }
+  }
+  if (destination.kind === 'withdrawn') return { text: 'This group has no storage right now.' }
+  if (destination.kind === 'group') return { text: 'Files in this room go to the group’s own storage.' }
+  return undefined
+}
+
+/** Settings › Privacy › Where files go, from anywhere. */
+function openFilesSettings(): void {
+  openDestination('settings')
+  showSettingsPage('files')
+}
 
 function renderFileStorage(): void {
   const render = ++privateFileRender, generation = roomGeneration
   privateFileReady = false
-  $('fileStorageOptions').hidden = roomUsesBothy
   $('attachOptions').hidden = roomUsesBothy
   $('privateFileStorage').hidden = !roomUsesBothy
   $('allowPrivateFiles').hidden = !roomUsesBothy
   $('stopPrivateFiles').hidden = true
+  $('fileStorageStatus').hidden = !roomUsesBothy
+  $('attachBothyPick').hidden = !roomUsesBothy
   if (roomUsesBothy) {
     $('fileStorageStatus').textContent = 'Checking this room’s private file permission…'
   }
   void renderPrivateFileStorage(render, generation)
-  if (roomUsesBothy) return
-  const server = blossomServer()
-  if (server) fileServerRetired = false
-  $('fileStorageStatus').textContent = server
-    ? `Uploads go to ${server}. Files are encrypted on this device first.`
-    : fileServerRetired ? FILE_SERVER_RETIRED : 'File uploads are off. Choose where files go to turn them on.'
-  $('fileStorageSummary').textContent = server ? 'Change where files go' : 'Choose where files go'
-  $('stopFileUploads').hidden = !server
+  renderFilesSettings()
+  renderRoomFilesLine()
+}
+
+/** Room info › Privacy and connection: where files sent in this room go. */
+function renderRoomFilesLine(): void {
+  const line = $('roomFilesLine')
+  const destination = fileDestination()
+  // Bothy keeps its own copy, in the Bothy panel.
+  line.hidden = destination.kind === 'bothy'
+  if (destination.kind === 'bothy') return
+  line.textContent = destination.kind === 'off'
+    ? 'Files: you’ve turned uploads off on this device.'
+    : destination.kind === 'group' ? 'Files in this room go to the group’s own storage.'
+    : destination.kind === 'withdrawn' ? 'This group has no storage right now.'
+    : `Files you send in this room go to ${fileHost(destination.origin)}.`
+}
+
+/** Set once someone picks "My own server" and has not pressed Use this server:
+ *  the field shows, and nothing is stored until they do. */
+let fileOwnPicked = false
+let fileOwnDirty = false
+
+function renderFilesSettings(): void {
+  const destination = deviceFileDestination()
+  const fallback = defaultFileServer(deployerFileServer)
+  const stored = storedFileServer(localStorage)
+  const publicServer = fallback ? publicFileServer(fallback.origin) : undefined
+  const isPublic = destination.kind === 'default' || (destination.kind === 'server' && (destination.via === 'default' || !!publicFileServer(destination.origin)))
+  const choice: 'public' | 'own' | 'off' = fileOwnPicked ? 'own'
+    : destination.kind === 'off' && destination.reason === 'chosen' ? 'off'
+    : destination.kind === 'off' ? 'own'
+    : isPublic ? 'public' : 'own'
+  for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="fileWhere"]')) radio.checked = radio.value === choice
+  ;(document.querySelector('input[name="fileWhere"][value="public"]') as HTMLInputElement).disabled = !fallback
+  $('fileWherePublicDetail').textContent = !fallback ? 'This app has no public server set.'
+    : publicServer ? `${fileHost(publicServer.origin)}, run by ${publicServer.operator}. Files up to ${formatLimit(publicServer.maxBytes)}.`
+    : `${fileHost(fallback.origin)}.`
+  $('fileOwnMore').hidden = choice !== 'own'
+  const input = $('attachServer') as HTMLInputElement
+  if (!fileOwnDirty && document.activeElement !== input) {
+    input.value = stored && stored.via !== 'default' && !publicFileServer(stored.origin) ? stored.origin : ''
+  }
+  $('fileWhereBothy').hidden = !roomUsesBothy
+  const host = destination.kind === 'default' || destination.kind === 'server' ? fileHost(destination.origin) : ''
+  setInfoSub('privacyFilesState',
+    destination.kind === 'off' ? (destination.reason === 'chosen' ? 'Nowhere' : 'Choose a server')
+    : destination.kind === 'server' && destination.via === 'wildbloom' ? `My Wildbloom · ${host}`
+    : isPublic ? `A public server · ${host}`
+    : host ? `My own server · ${host}` : '')
+}
+
+/** Something changed about where files go (a Settings choice, another tab):
+ *  the tray, the composer, Settings and Room info all follow. */
+function fileDestinationChanged(): void {
+  if (!fileStorageBooted) return
+  renderStaged()
+  renderComposer()
 }
 
 async function renderPrivateFileStorage(render: number, generation: number): Promise<void> {
@@ -20009,8 +20218,11 @@ async function renderPrivateFileStorage(render: number, generation: number): Pro
   }
 }
 
+/** Runs inside the upload's `fetch` wrapper, so the choice is read again just
+ *  before the request leaves: a destination changed or turned off while the
+ *  file was being sealed stops it. */
 function requireFileStorage(server: string): void {
-  if (!server || requireSharedFileServer(localStorage) !== server) throw new Error(FILE_STORAGE_REQUIRED)
+  if (!server || blossomServer() !== server) throw new Error(FILE_STORAGE_REQUIRED)
 }
 
 /** Something to look at while a file is sealed and sent. Stage by stage
@@ -20053,7 +20265,7 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  *
  * The key goes into the staged attachment and nowhere else.
  */
-async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string): Promise<void> {
+async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string, settled?: (file: File) => void): Promise<void> {
   signal.throwIfAborted()
   const startGeneration = roomGeneration
   if (roomUsesBothy) {
@@ -20107,7 +20319,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // Written down at once, before anything below can give up on it: a blob
   // left on the server by a room that changed mid-upload is still this
   // device's to delete when the room is tidied away.
-  recordUpload(deviceStore, uploadRoomId, descriptor)
+  recordUpload(deviceStore, uploadRoomId, { url: descriptor.url, sha256: descriptor.sha256, key: 'device' })
 
   signal.throwIfAborted()
   // The room this upload was for is gone, replaced or rekeyed: another
@@ -20117,7 +20329,8 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // draft object itself may belong to a room nobody is looking at any
   // more. The blob is already on the Blossom server if it is still wanted.
   if (roomGeneration !== startGeneration) {
-    throw new Error('This room changed while the file was uploading, so nothing was shared. The file is stored on the server; drop it again in the current room if you still want to send it.')
+    settled?.(file)
+    throw new TrayError({ text: `This room changed while ${file.name} was uploading, so it wasn’t sent. Add it again to send it here.` })
   }
   // In a quiet room, no announcement leaves this device: see the function
   // comment above. `quiet` and `transport` were fixed at the top of this
@@ -20141,6 +20354,9 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
+  // It is an attachment now; the held copy goes in the same step, so the
+  // tray never shows both.
+  settled?.(file)
   if (pendingRecording?.file === file && pendingRecording.roomId === uploadRoomId) {
     pendingRecording.addedTo = draft
     pendingRecording.attachment = attachment
@@ -20149,13 +20365,22 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   draftChanged(draft)
 }
 
+/** A failure already worded for the tray: `fileWork` shows it as it stands. */
+class TrayError extends Error {
+  constructor(readonly failure: FileTrayFailure) { super(failure.text) }
+}
+
 /** A conversation has one file operation at a time, covering its whole
- * batch. Switching conversations does not change that operation's owner. */
-async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>, options: { keepPanelOpen?: boolean } = {}): Promise<void> {
+ * batch. Switching conversations does not change that operation's owner.
+ *
+ * `tray` is the staged-files tray's own work (uploading what is staged): it
+ * reports in the tray, never opens the panel, and stopping it says so there. */
+async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) => Promise<void>, options: { keepPanelOpen?: boolean; tray?: boolean } = {}): Promise<void> {
   if (draft.job || !channelAvailable(draft.channel) || (draft.channel !== undefined && WRITTEN_BY_AGENTS.includes(draft.channel))) return
   const job = new AbortController()
   draft.job = job
-  draft.panelOpen = true
+  if (!options.tray) draft.panelOpen = true
+  draft.fileError = undefined
   draftChanged(draft)
   // A relay publish has no abort API. Release the editor immediately while
   // the operation's signal checks keep any late result out of this draft.
@@ -20168,127 +20393,215 @@ async function fileWork(draft: ConversationDraft, work: (signal: AbortSignal) =>
     await Promise.race([work(job.signal), cancelled])
     if (draft.job !== job) return
     draft.status = ''
-    draft.panelOpen = options.keepPanelOpen ?? false
+    if (!options.tray) draft.panelOpen = options.keepPanelOpen ?? false
   } catch (error) {
     if (draft.job !== job) return
-    draft.status = job.signal.aborted
-      ? 'Stopped adding files. Completed files stay in this draft. The store may already hold encrypted bytes; nothing was sent to the conversation.'
-      : describeError(error)
+    if (options.tray) {
+      draft.status = ''
+      draft.fileError = job.signal.aborted ? { text: 'Stopped. Files already added stay in this message.' }
+        : error instanceof TrayError ? error.failure
+        : { text: describeError(error) }
+    } else {
+      draft.status = job.signal.aborted
+        ? 'Stopped adding files. Completed files stay in this draft. The store may already hold encrypted bytes; nothing was sent to the conversation.'
+        : describeError(error)
+    }
   } finally {
     job.signal.removeEventListener('abort', onAbort)
     if (draft.job === job) {
       draft.job = undefined
+      draft.uploading = undefined
       draftChanged(draft)
     }
   }
+}
+
+/** The files a draft is holding that could go (not the ones refused). */
+function heldFiles(draft: ConversationDraft): File[] {
+  return (draft.pendingFiles ?? []).filter(file => !draft.refusedFiles?.has(file))
+}
+
+/** The full text behind a long paste that was turned into a file, so the
+ *  message can say "Shared full text" once that file is up. */
+const longTextFiles = new WeakMap<File, string>()
+
+/**
+ * Put files into a draft's tray, held. Refuses the whole batch if it would
+ * pass four files; a file that is empty, over 256 MB or over the server's
+ * known limit is kept as a chip that says so and is never uploaded. Nothing
+ * leaves the device here.
+ */
+function stageFiles(draft: ConversationDraft, list: readonly File[], destination: FileDestination): boolean {
+  const pending = draft.pendingFiles ?? []
+  const fresh = list.filter(file => !pending.includes(file))
+  if (draft.attachments.length + pending.length + fresh.length > MAX_CHAT_ATTACHMENTS) {
+    draft.fileError = { text: `A message can carry up to ${MAX_CHAT_ATTACHMENTS} files.` }
+    draftChanged(draft)
+    return false
+  }
+  draft.fileError = undefined
+  const limit = destinationLimit(destination)
+  const host = destination.kind === 'default' || destination.kind === 'server' ? fileHost(destination.origin) : ''
+  const refused = draft.refusedFiles ??= new Map()
+  for (const file of fresh) {
+    if (file.size === 0) refused.set(file, `${file.name} is empty.`)
+    else if (file.size > MAX_UPLOAD_SOURCE_BYTES) refused.set(file, `${file.name} is ${formatBytes(file.size)}. A file can be up to ${formatLimit(MAX_UPLOAD_SOURCE_BYTES)}.`)
+    else if (limit !== undefined && file.size > limit) refused.set(file, `${host} takes files up to ${formatLimit(limit)}. ${file.name} is ${formatBytes(file.size)}.`)
+  }
+  draft.pendingFiles = [...pending, ...fresh]
+  return true
+}
+
+/** A word for the polite status region, once. */
+function announceFiles(text: string): void {
+  const live = $('fileTrayAnnounce')
+  live.textContent = ''
+  window.setTimeout(() => { live.textContent = text }, 50)
+}
+
+/** What an upload's error looks like in the tray. */
+function trayFailure(error: unknown, file: File, destination: Extract<FileDestination, { kind: 'server' }>): unknown {
+  if (error instanceof TrayError) return error
+  const limit = destinationLimit(destination)
+  const failure = describeUploadFailure(error, {
+    host: fileHost(destination.origin), name: file.name, online: navigator.onLine, own: destination.via !== 'default',
+    size: file.size, sizeText: formatBytes(file.size), ...(limit !== undefined ? { limit: formatLimit(limit) } : {}),
+  })
+  return failure ? new TrayError({ ...failure, file }) : error
+}
+
+/**
+ * Upload what a draft is holding, one file after another, to the server the
+ * person has allowed. Each file becomes an attachment as it lands and leaves
+ * the held list. Stops at the first that fails, with the tray's words for why
+ * and the file still held; never tries another server.
+ *
+ * S5b: a `group` destination routes the same held files to its own storage
+ * here instead.
+ */
+async function uploadStaged(draft: ConversationDraft, destination: Extract<FileDestination, { kind: 'server' }>): Promise<void> {
+  const first = heldFiles(draft)[0]
+  if (!first) return
+  if (!navigator.onLine) {
+    draft.fileError = { text: `You’re offline. ${first.name} will upload when you try again.`, retry: true, file: first }
+    draftChanged(draft)
+    return
+  }
+  await fileWork(draft, async signal => {
+    for (let file = heldFiles(draft)[0]; file; file = heldFiles(draft)[0]) {
+      signal.throwIfAborted()
+      if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new TrayError({ text: `A message can carry up to ${MAX_CHAT_ATTACHMENTS} files.` })
+      draft.uploading = file
+      draftChanged(draft)
+      try { await shareDroppedFile(file, draft, signal, destination.origin, file => draft.pendingFiles = draft.pendingFiles?.filter(held => held !== file)) } catch (error) { throw trayFailure(error, file, destination) }
+      draft.uploading = undefined
+    }
+  }, { tray: true })
 }
 
 /** Keep the exact paste in the encrypted document. An upload never sends a
  * different draft if its owner switches conversations or edits while waiting. */
 async function sendLongText(draft: ConversationDraft, fullText: string): Promise<void> {
   const generation = roomGeneration
-  let uploaded = false
-  await fileWork(draft, async signal => {
-    if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
-    const file = new File([fullText], `message-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`, { type: 'text/plain;charset=utf-8' })
-    await shareDroppedFile(file, draft, signal, blossomServer())
-    uploaded = true
-  })
-  if (!uploaded || generation !== roomGeneration) return
-  if (draft.text !== fullText) {
-    draft.status = 'Full text attached. Your newer edits are kept; review the draft before sending.'
-    draft.panelOpen = true
-    draftChanged(draft)
-    return
+  const file = new File([fullText], `message-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`, { type: 'text/plain;charset=utf-8' })
+  longTextFiles.set(file, fullText)
+  if (roomUsesBothy) {
+    let uploaded = false
+    await fileWork(draft, async signal => {
+      if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+      await shareDroppedFile(file, draft, signal, '')
+      uploaded = true
+    })
+    if (!uploaded || generation !== roomGeneration) return
+  } else {
+    // The same door as any file: held (with the notice, or the state's line)
+    // until a person has allowed somewhere to send it, and the person presses
+    // Send again. Where uploads are allowed it goes at once.
+    const destination = fileDestination()
+    if (!stageFiles(draft, [file], destination)) return
+    if (destination.kind !== 'server') { announceLongText(file, destination); draftChanged(draft); return }
+    await uploadStaged(draft, destination)
+    if (generation !== roomGeneration || draft.pendingFiles?.includes(file) || !draft.attachments.length) return
   }
-  draft.text = `Shared full text (${fullText.length.toLocaleString()} characters). Open the encrypted document to read or copy everything.\n\n${fullText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '')}…`
-  draft.selectionStart = draft.selectionEnd = draft.text.length
+  if (!useLongText(draft, fullText)) return
   if (draft !== drafts.get(currentChannel)) { draftChanged(draft); return }
   restoreDraft()
   ;($('chatForm') as HTMLFormElement).requestSubmit()
 }
 
-/** Files from a drop or the file input, one after another, stopping at the
- *  first that fails so the reason is the last thing on the line. */
+function announceLongText(file: File, destination: FileDestination): void {
+  announceFiles(`${file.name} added.${destination.kind === 'default' ? ` Files you send are stored on ${fileHost(destination.origin)}.` : ''}`)
+}
+
+/** Once the file holding a long paste is up, the message says so and keeps
+ *  the start of the text. False if the person has edited the text since: the
+ *  draft is kept for them to review. */
+function useLongText(draft: ConversationDraft, fullText: string): boolean {
+  if (draft.text !== fullText) {
+    draft.fileError = { text: 'Full text attached. Your newer edits are kept; review the draft before sending.' }
+    draftChanged(draft)
+    return false
+  }
+  draft.text = `Shared full text (${fullText.length.toLocaleString()} characters). Open the encrypted document to read or copy everything.\n\n${fullText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '')}…`
+  draft.selectionStart = draft.selectionEnd = draft.text.length
+  return true
+}
+
+/**
+ * Files from a drop, a paste, the picker or a recording. They always land in
+ * the draft's tray first. Where a server is allowed they go up straight away,
+ * one after another; everywhere else they are held, with the tray saying why
+ * (the one-time notice, uploads off, no storage), and nothing leaves the
+ * device until a person acts.
+ */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
   const generation = roomGeneration, privateRoute = roomUsesBothy
   const draft = captureDraft()
   if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const list = Array.from(files ?? [])
   if (!list.length) return
-  const server = blossomServer()
-  const allowed = privateRoute ? await privateFiles.enabled().catch(() => false) : !!server
-  if (generation !== roomGeneration || privateRoute !== roomUsesBothy) return
-  if (!allowed) {
-    draft.panelOpen = true
-    const pending = draft.pendingFiles ?? []
-    if (draft.attachments.length + pending.length + list.length > MAX_CHAT_ATTACHMENTS) {
-      draft.status = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files. Remove a selected file before adding more.`
-    } else if (list.some(file => file.size === 0 || file.size > MAX_UPLOAD_SOURCE_BYTES)) {
-      draft.status = `Choose non-empty files up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)} each.`
-    } else {
-      draft.pendingFiles = [...pending, ...list]
-      draft.status = privateRoute
-        ? 'Private file access is off. Your files stay on this device. Allow this room’s Bothy below, then press Upload selected files.'
-        : 'File uploads are off. Your files are held on this device. Choose and allow a storage destination below, then press Upload selected files.'
+  if (privateRoute) {
+    const allowed = await privateFiles.enabled().catch(() => false)
+    if (generation !== roomGeneration || privateRoute !== roomUsesBothy) return
+    if (!allowed) {
+      draft.panelOpen = true
+      const pending = draft.pendingFiles ?? []
+      if (draft.attachments.length + pending.length + list.length > MAX_CHAT_ATTACHMENTS) {
+        draft.status = `A message carries at most ${MAX_CHAT_ATTACHMENTS} files. Remove a selected file before adding more.`
+      } else if (list.some(file => file.size === 0 || file.size > MAX_UPLOAD_SOURCE_BYTES)) {
+        draft.status = `Choose non-empty files up to ${formatBytes(MAX_UPLOAD_SOURCE_BYTES)} each.`
+      } else {
+        draft.pendingFiles = [...pending, ...list]
+        draft.status = 'Private file access is off. Your files stay on this device. Allow this room’s Bothy below, then press Upload selected files.'
+      }
+      draftChanged(draft)
+      return
     }
-    if (!privateRoute) ($('fileStorageOptions') as HTMLDetailsElement).open = true
-    draftChanged(draft)
+    await fileWork(draft, async signal => {
+      for (const file of list) {
+        signal.throwIfAborted()
+        if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) {
+          throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
+        }
+        await shareDroppedFile(file, draft, signal, '')
+        draft.pendingFiles = draft.pendingFiles?.filter(pending => pending !== file)
+      }
+    })
     return
   }
-  await fileWork(draft, async signal => {
-    for (const file of list) {
-      signal.throwIfAborted()
-      if (draft.attachments.length >= MAX_CHAT_ATTACHMENTS) {
-        throw new Error(`A message carries at most ${MAX_CHAT_ATTACHMENTS} files.`)
-      }
-      await shareDroppedFile(file, draft, signal, server)
-      draft.pendingFiles = draft.pendingFiles?.filter(pending => pending !== file)
-    }
-  })
-}
-
-/** Public servers run by other people, built from the one list in
- *  `file-storage.ts`. A button only fills the field, through the same input
- *  event typing raises, so choosing one revokes consent and unticks the box
- *  exactly as typing does. It never grants consent. */
-function renderPublicFileServers(): void {
-  const input = $('attachServer') as HTMLInputElement
-  $('publicFileServerList').replaceChildren(...PUBLIC_FILE_SERVERS.map(server => {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.dataset.origin = server.origin
-    const host = document.createElement('span')
-    host.className = 'publicFileServerHost'
-    host.textContent = new URL(server.origin).host
-    const detail = document.createElement('span')
-    detail.className = 'publicFileServerDetail'
-    detail.textContent = `run by ${server.operator}, files up to ${Math.round(server.maxBytes / (1024 * 1024))} MB`
-    button.append(host, detail)
-    button.addEventListener('click', () => {
-      input.value = server.origin
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    return button
-  }))
-  $('publicFileServers').hidden = PUBLIC_FILE_SERVERS.length === 0
-}
-
-/** Say which public server, if any, is in the field. */
-function markPublicFileServer(): void {
-  const value = ($('attachServer') as HTMLInputElement).value.trim().replace(/\/$/, '')
-  for (const button of $('publicFileServerList').querySelectorAll('button')) {
-    button.setAttribute('aria-pressed', String(button.dataset.origin === value))
-  }
+  const destination = fileDestination()
+  if (!stageFiles(draft, list, destination)) return
+  announceFiles(`${list.map(file => `${file.name} added.`).join(' ')}${destination.kind === 'default' ? ` Files you send are stored on ${fileHost(destination.origin)}.` : ''}`)
+  draftChanged(draft)
+  // S5b: `group` goes to the room's own storage here. Until then, like
+  // `withdrawn`, `off` and `default`, the file is held.
+  if (destination.kind === 'server') await uploadStaged(draft, destination)
 }
 
 // Before anything reads the stored choice: a consent made only by the old
-// pre-filled suggestion is removed here, and the person is told once.
-fileServerRetired = retireSuggestedForgeSwornConsent(localStorage)
-;($('attachServer') as HTMLInputElement).value = suggestedFileServer(localStorage, deployerFileServer)
-;($('allowSharedFiles') as HTMLInputElement).checked = !!blossomServer()
-renderPublicFileServers()
-markPublicFileServer()
+// pre-filled suggestion is removed here. The device is then "never chosen",
+// and meets the one-time notice, which names the current default.
+retireSuggestedForgeSwornConsent(localStorage)
 fileStorageBooted = true
 renderFileStorage()
 $('allowPrivateFiles').addEventListener('click', () => {
@@ -20308,42 +20621,59 @@ $('privateFileUploadsOpen').addEventListener('click', () => { void privateFileUp
 window.addEventListener('storage', event => {
   if (event.key === 'kithmoot-private-file-journal-v1:revision' || event.key === null) renderFileStorage()
 })
+
+// Settings › Privacy › Where files go. Choosing a public server or Nowhere
+// is the act and takes effect at once; a typed server is committed by Use this
+// server, beside the disclosure, and nothing is stored before.
+$('privacyFiles').addEventListener('click', () => { fileOwnPicked = false; fileOwnDirty = false; renderFilesSettings() })
+for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="fileWhere"]')) {
+  radio.addEventListener('change', () => {
+    if (!radio.checked) return
+    $('fileOwnCheck').hidden = true
+    if (radio.value === 'own') {
+      // Focus stays on the radio, so the arrow keys carry on through the
+      // group; Tab then reaches the address field.
+      fileOwnPicked = true
+      renderFilesSettings()
+      return
+    }
+    fileOwnPicked = false
+    fileOwnDirty = false
+    if (radio.value === 'off') stopFileUploads(localStorage)
+    else {
+      const fallback = defaultFileServer(deployerFileServer)
+      if (fallback) chooseFileServer(localStorage, fallback.origin, 'default')
+    }
+    renderFileStorage()
+    fileDestinationChanged()
+  })
+}
 $('attachServer').addEventListener('input', () => {
-  // Editing never retains approval for the old destination, even if the new
-  // text is invalid. Typing a URL is not consent to public ciphertext storage.
-  stopFileUploads(localStorage)
-  ;($('allowSharedFiles') as HTMLInputElement).checked = false
-  markPublicFileServer()
-  renderFileStorage()
+  fileOwnDirty = true
+  $('fileOwnCheck').hidden = true
 })
 $('saveFileStorage').addEventListener('click', () => {
   const input = $('attachServer') as HTMLInputElement
-  const draft = captureDraft()
+  const check = $('fileOwnCheck')
   try {
-    input.value = allowSharedFileServer(localStorage, input.value, ($('allowSharedFiles') as HTMLInputElement).checked)
-    draft.status = ''
-    // The choice is made; the status line says where files go from here.
-    ;($('fileStorageOptions') as HTMLDetailsElement).open = false
-  } catch (err) {
-    draft.status = describeError(err)
+    const origin = chooseFileServer(localStorage, input.value, 'typed')
+    input.value = origin
+    fileOwnPicked = false
+    fileOwnDirty = false
+    check.textContent = `Files you send go to ${fileHost(origin)}.`
+    input.removeAttribute('aria-invalid')
+  } catch {
+    check.textContent = 'Type an address that starts with https://.'
+    input.setAttribute('aria-invalid', 'true')
   }
+  check.hidden = false
   renderFileStorage()
-  draftChanged(draft)
-})
-$('stopFileUploads').addEventListener('click', () => {
-  stopFileUploads(localStorage)
-  ;($('allowSharedFiles') as HTMLInputElement).checked = false
-  renderFileStorage()
-})
-$('allowSharedFiles').addEventListener('change', () => {
-  if (($('allowSharedFiles') as HTMLInputElement).checked) return
-  stopFileUploads(localStorage)
-  renderFileStorage()
+  fileDestinationChanged()
 })
 window.addEventListener('storage', event => {
   if (event.key !== FILE_STORAGE_KEY && event.key !== null) return
-  ;($('allowSharedFiles') as HTMLInputElement).checked = false
   renderFileStorage()
+  fileDestinationChanged()
 })
 $('attachFile').addEventListener('change', () => {
   const input = $('attachFile') as HTMLInputElement
@@ -20397,25 +20727,70 @@ $('uploadPendingFiles').addEventListener('click', () => { void shareDroppedFiles
 $('clearPendingFiles').addEventListener('click', () => {
   const draft = drafts.get(currentChannel)
   draft.pendingFiles = []
+  draft.refusedFiles = undefined
   draft.status = ''
   draftChanged(draft)
 })
 
-$('attachToggle').addEventListener('click', () => {
-  const draft = captureDraft()
-  draft.panelOpen = !draft.panelOpen
-  draftChanged(draft)
-  // The picker is the first thing in the panel and takes focus. Not
-  // opened programmatically: a native chooser opened from script blocks
-  // the page in some browsers, and cannot be dismissed by the app.
-  if (draft.panelOpen) $('attachFile').focus()
+/** + opens the system file picker in one tap. The input stays in the page,
+ *  never shown, and focus never lands on it. A person who has chosen their
+ *  own server has Wildbloom links to hand, so for them + is a two-item menu
+ *  (design-files-public-first, Q13; stage C narrows it to "my Wildbloom"). */
+wireMenu($('attachToggle'), $('attachMenu'), {
+  align: 'start',
+  beforeOpen: () => {
+    const menu = $('attachMenu')
+    menu.replaceChildren()
+    menuItem(menu, 'Photo or file…', () => $('attachFile').click(), { icon: 'file' })
+    menuItem(menu, 'File already on Wildbloom…', () => {
+      const draft = captureDraft()
+      draft.panelOpen = true
+      draftChanged(draft)
+      ;($('attachOptions') as HTMLDetailsElement).open = true
+      $('attachEvent').focus()
+    }, { icon: 'link' })
+  },
 })
+function renderAttachButton(destination: FileDestination): void {
+  const wanted = destination.kind === 'server' && destination.via !== 'default'
+  if (wanted === attachMenuMode && $('attachToggle').hasAttribute('popovertarget') === wanted) return
+  attachMenuMode = wanted
+  const button = $('attachToggle')
+  if (wanted) {
+    button.setAttribute('popovertarget', 'attachMenu')
+    button.setAttribute('aria-haspopup', 'menu')
+    button.setAttribute('aria-controls', 'attachMenu')
+    button.setAttribute('aria-expanded', 'false')
+  } else {
+    for (const name of ['popovertarget', 'aria-haspopup', 'aria-controls', 'aria-expanded']) button.removeAttribute(name)
+  }
+}
+$('attachToggle').addEventListener('click', () => {
+  if (attachMenuMode) return
+  // A Bothy room keeps its own panel, with its own controls (unchanged).
+  if (roomUsesBothy) {
+    const draft = captureDraft()
+    draft.panelOpen = !draft.panelOpen
+    draftChanged(draft)
+    if (draft.panelOpen) $('attachBothyPick').focus()
+    return
+  }
+  $('attachFile').click()
+})
+$('attachBothyPick').addEventListener('click', () => $('attachFile').click())
 $('attachCancel').addEventListener('click', () => {
   const draft = captureDraft()
   draft.panelOpen = false
   draftChanged(draft)
   $('attachToggle').focus()
 })
+$('fileTryAgain').addEventListener('click', () => {
+  const draft = captureDraft()
+  const destination = fileDestination()
+  if (destination.kind === 'server') void uploadStaged(draft, destination)
+})
+$('fileNoticeChoose').addEventListener('click', openFilesSettings)
+$('fileChooseAnother').addEventListener('click', openFilesSettings)
 $('attachAdd').addEventListener('click', async () => {
   if (roomUsesBothy) return
   const draft = captureDraft()
@@ -20443,7 +20818,6 @@ for (const id of ['attachEvent', 'attachKey']) {
     renderDraftBadges()
   })
 }
-$('cancelFileWork').addEventListener('click', () => drafts.get(currentChannel).job?.abort())
 $('discardDraft').addEventListener('click', async () => {
   const draft = captureDraft()
   if (!draftHasWork(draft) || !await confirmRoomAction({ title: 'Discard this draft?', message: 'Your unsent text and files will be removed from this conversation. Files still being added will stop. Uploaded encrypted files are not deleted from their store.', confirmLabel: 'Discard draft', danger: true })) return

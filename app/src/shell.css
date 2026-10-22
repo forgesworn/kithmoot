@@ -495,13 +495,16 @@ html[data-rail-dragging] * { user-select: none; }
   inset: 0;
   z-index: 1;
   display: grid;
-  align-content: center;
+  align-content: safe center;
   justify-items: center;
   gap: var(--s3);
   padding: var(--s3);
   box-sizing: border-box;
   text-align: center;
   pointer-events: none;
+  /* The log is short when the composer's tray is tall: the block scrolls
+     inside itself rather than run over the intro line above it. */
+  overflow-y: auto;
 }
 .emptyRoom[hidden] { display: none; }
 .emptyRoom > * { margin: 0; pointer-events: auto; }

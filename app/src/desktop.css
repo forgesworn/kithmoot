@@ -40,7 +40,7 @@ html[data-desktop] {
   html[data-desktop] #callBay > section { margin: 0; }
   html[data-desktop] #chatForm { flex: 0 0 auto; }
   html[data-desktop] #attachPanel { max-height: 35vh; overflow: auto; flex-shrink: 1; }
-  html[data-desktop] #attachStaged { max-height: 20vh; overflow: auto; }
+  html[data-desktop] #fileTray { max-height: min(40dvh, 12rem); overflow: auto; flex: 0 1 auto; }
   html[data-desktop] #leaveCall { background: #b3261e; color: white; border-color: #b3261e; }
   html[data-desktop] #leaveCall:hover { background: #8f1e18; }
   /* The top-bar toggle reads "Leave call" in this state too, and a leave

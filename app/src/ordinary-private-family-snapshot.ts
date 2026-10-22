@@ -116,8 +116,8 @@ export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<strin
         if (!Array.isArray(value) || !value.length || value.length > 1000) hold()
         const names = new Set<string>()
         for (const b of value) {
-          object(b, ['url', 'sha256'])
-          if (typeof b.url !== 'string' || !hex(b.sha256)) hold()
+          object(b, ['url', 'sha256'], ['key'])
+          if (typeof b.url !== 'string' || !hex(b.sha256) || b.key !== undefined && b.key !== 'device' && b.key !== 'file') hold()
           // recordUpload accepts arbitrary URL text. Keeping it cannot make
           // an operator or target authorised; deletion verifies separately.
           const tuple = JSON.stringify([b.url, b.sha256])
@@ -125,9 +125,17 @@ export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<strin
         }
         counts.uploadJournals++; counts.uploadCandidates += value.length
       } else if (name === 'kithmoot.file-storage.v1') {
-        object(value, ['mode', 'disclosure', 'origin'])
-        if (value.mode !== 'shared' || (value.disclosure !== 1 && value.disclosure !== 2) || typeof value.origin !== 'string' || normaliseBlossomServer(value.origin) !== value.origin) hold()
-        counts.sharedFileConsent++
+        // "Nowhere" is written down too (mode off); a shared consent names
+        // its server, and from version 3 how it was chosen.
+        if (value && typeof value === 'object' && (value as Record<string, unknown>).mode === 'off') {
+          object(value, ['mode'], ['disclosure'])
+          if (value.disclosure !== undefined && value.disclosure !== 3) hold()
+        } else {
+          object(value, ['mode', 'disclosure', 'origin'], ['via'])
+          if (value.mode !== 'shared' || (value.disclosure !== 1 && value.disclosure !== 2 && value.disclosure !== 3) || typeof value.origin !== 'string' || normaliseBlossomServer(value.origin) !== value.origin) hold()
+          if (value.disclosure === 3 ? !['default', 'typed', 'wildbloom'].includes(value.via as string) : value.via !== undefined) hold()
+          counts.sharedFileConsent++
+        }
       } else if (LOGO.test(name)) {
         object(value, ['epoch', 'record']); object(value.record, ['image', 'id', 'at', 'sentAt'])
         const r = value.record, image = r.image === null ? null : readLogoImage(r.image)

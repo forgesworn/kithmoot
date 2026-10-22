@@ -1,6 +1,17 @@
 import type { ChatAttachment, ChatMessage } from '../../src/chat.js'
 import type { ChatArtwork } from '../../src/artwork.js'
 
+/** One line in the staged-files tray after an upload did not go through. */
+export interface FileTrayFailure {
+  text: string
+  /** Offer Try again. */
+  retry?: boolean
+  /** Offer Choose another server. */
+  another?: boolean
+  /** The file it is about: removing that file clears the line. */
+  file?: File
+}
+
 export interface ConversationDraft {
   readonly channel: string | undefined
   text: string
@@ -9,7 +20,16 @@ export interface ConversationDraft {
   selectionDirection: 'forward' | 'backward' | 'none'
   attachments: ChatAttachment[]
   artwork: ChatArtwork[]
+  /** Files picked but not yet uploaded: held (S0, off, no storage) or being
+   *  uploaded right now. A file leaves this list when it becomes an attachment. */
   pendingFiles?: File[]
+  /** Files the destination or the app will not take, with the reason shown in
+   *  the tray. They stay as chips until removed, and are never uploaded. */
+  refusedFiles?: Map<File, string>
+  /** The file being sealed and uploaded now, so its chip can stop it. */
+  uploading?: File
+  /** What went wrong with the last upload, in the tray's words. */
+  fileError?: FileTrayFailure
   event: string
   key: string
   panelOpen: boolean
@@ -63,6 +83,9 @@ export class ConversationDrafts {
     draft.attachments = []
     draft.artwork = []
     draft.pendingFiles = []
+    draft.refusedFiles = undefined
+    draft.uploading = undefined
+    draft.fileError = undefined
     draft.panelOpen = false
     draft.replyTo = draft.editing = undefined
     draft.pickedMentions = undefined

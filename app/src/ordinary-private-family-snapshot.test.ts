@@ -35,3 +35,31 @@ it('rejects an oversized value before parsing and retains it for recovery',()=>{
 it('leaves unrelated private families for the required complete composite',()=>{
  expect(validate(new Map([['kithmoot.device.private','opaque']]),false,{kind:'browser'}).discoveries).toBe(0)
 })
+const CONSENT = 'kithmoot.file-storage.v1'
+const snapshot = (raw: string) => validate(new Map([[CONSENT, raw]]), false, { kind: 'browser' })
+it.each([
+  ['{"mode":"shared","disclosure":3,"origin":"https://blossom.yakihonne.com","via":"default"}', 1],
+  ['{"mode":"shared","disclosure":3,"origin":"https://files.example","via":"typed"}', 1],
+  ['{"mode":"shared","disclosure":3,"origin":"https://files.example","via":"wildbloom"}', 1],
+  ['{"mode":"shared","disclosure":2,"origin":"https://files.example"}', 1],
+  ['{"mode":"off","disclosure":3}', 0],
+  ['{"mode":"off"}', 0],
+])('keeps the file consent %s', (raw, shared) => {
+  expect(snapshot(raw).sharedFileConsent).toBe(shared)
+})
+it.each([
+  '{"mode":"shared","disclosure":3,"origin":"https://files.example"}',
+  '{"mode":"shared","disclosure":3,"origin":"https://files.example","via":"elsewhere"}',
+  '{"mode":"shared","disclosure":2,"origin":"https://files.example","via":"typed"}',
+  '{"mode":"shared","disclosure":4,"origin":"https://files.example","via":"typed"}',
+  '{"mode":"off","disclosure":2}',
+  '{"mode":"off","origin":"https://files.example"}',
+])('holds the malformed file consent %s', raw => {
+  expect(() => snapshot(raw)).toThrow(OrdinaryStateHold)
+})
+it('keeps an upload record that says which key signed it, and holds a bad one', () => {
+  const name = 'kithmoot.uploads.v1.' + 'a'.repeat(64), url = 'https://files.example/' + 'ab'.repeat(32)
+  const record = (key: unknown) => new Map([[name, JSON.stringify([{ url, sha256: 'ab'.repeat(32), ...(key === undefined ? {} : { key }) }])]])
+  for (const key of [undefined, 'device', 'file']) expect(validate(record(key), false, { kind: 'browser' }).uploadCandidates).toBe(1)
+  expect(() => validate(record('other'), false, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+})
