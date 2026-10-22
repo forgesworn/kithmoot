@@ -45,7 +45,7 @@
 
 KithMoot is run by **ForgeSworn**. For UK data protection law we are the
 controller of the personal data described here, to the extent described
-below (most of what happens in a room is not something we hold at all —
+below (most of what happens in a room is not something we hold at all;
 see section 2). Contact us about anything in this notice at
 `abuse@safety.forgesworn.dev`.
 
@@ -200,7 +200,7 @@ signed request from the device's key.
 <!-- deploy/README.md, "Running a Blossom server"; deploy/blossom.yml upload.requireAuth: true -->
 
 **What the store holds.** The encrypted bytes, their size, and the device
-key that signed the upload. Not the file's name, type or contents — those
+key that signed the upload. Not the file's name, type or contents: those
 are inside the encrypted envelope, which the store cannot open. The device
 key is generated per device, per room, and is not linked to any account of
 yours.
@@ -248,7 +248,7 @@ The relays KithMoot suggests by default are independent public relays we
 do not operate. Until September 2026 one of the defaults was a relay we
 run, and a room whose link was written then still names it. On that relay
 we can see, for events that pass through it: event kinds, device public
-keys, opaque room selectors, timing and message size — never plaintext
+keys, opaque room selectors, timing and message size, never plaintext
 content, which is encrypted before it reaches any relay. We do not name
 that relay's address in this notice; a room's link shows it, and a room's
 creator can remove it from the room's relays.

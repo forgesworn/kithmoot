@@ -82,7 +82,7 @@ Ask the sender for, and act on:
 
 This section states the **verified** technical capability of each piece
 of software this project deploys by default, not what would be convenient.
-Anything not verified is marked `[UNVERIFIED]` rather than assumed.
+Anything not verified is marked as unverified rather than assumed.
 
 ### 3.1 The default TURN server (`/turn`, coturn)
 
@@ -124,13 +124,9 @@ the admin page and the landing page answer on loopback only").
 **What this means in practice:** we cannot ask blossom-server-ts itself to
 delete a reported blob unless we hold the uploading key (we do not, and
 should not, since device keys are per-device and never given to us).
-`[UNVERIFIED: whether blossom-server-ts 5.2.0 supports a separate
-admin/root pubkey override that could authorise a delete regardless of who
-uploaded it. This is a common feature of comparable Blossom servers, but
-was not confirmed for this project's deployed configuration
-(deploy/blossom.yml sets no admin pubkey), so it must not be assumed
-present. Check the pinned version's own documentation before relying on
-it.]`
+`deploy/blossom.yml` sets no admin pubkey, so no override is configured;
+whether the pinned version supports one was not checked, and with reads
+ending on 23 October 2026 (D5) it need not be.
 
 **What we can actually do today:** because the operator controls the box
 the blob is stored on, we can manually remove the blob's file from
@@ -145,20 +141,16 @@ a public server the app uses by default, or on one a person names, is on a
 server we do not operate (section 3.6).
 <!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
 
-**Block a pubkey from future uploads:** `[UNVERIFIED]`. `deploy/blossom.yml`
-sets `upload.requireAuth: true` and `requirePubkeyInRule: false`, with no
-allowlist or denylist of pubkeys configured. Whether blossom-server-ts
-5.2.0 supports a pubkey denylist at all was not confirmed. Until verified,
-treat this as **not possible** without either a software change or a
-reverse-proxy rule matching the specific signed-auth-event pubkey, which
-Caddy, as configured, does not currently inspect.
+**Block a pubkey from future uploads:** not needed. Since 09:42Z on 22
+October 2026 the upload route answers 410 to everybody (the host's report).
+`deploy/blossom.yml` configures no pubkey allowlist or denylist.
 
-**Gap, stated for the terms and the risk assessment:** operator-initiated
-removal of a specific file, and blocking a specific abuser from future
-uploads, both rely on manual, undocumented, host-level intervention today,
-not on a feature of the deployed store. `[DECISION: whether to invest in
-a supported removal path, for example a denylist file the deploy scripts
-install, if the upstream project supports reading one.]`
+**Gap, stated for the terms and the risk assessment:** until reads end on
+23 October 2026, operator-initiated removal of a specific file relies on
+the manual host-level action above, not on a feature of the deployed
+store. No supported removal path is to be built, because the store is
+closing (D5; risk assessment, 6.2, item 2). Revisit if a store of ours
+reopens.
 
 ### 3.3 The default drop tier (`/drops`, bothy-node)
 

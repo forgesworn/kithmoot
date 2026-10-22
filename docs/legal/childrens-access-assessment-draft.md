@@ -19,6 +19,11 @@
 > deadline is dated, the record is described as kept rather than sent, and
 > the claim that the operator sees no content is narrowed to rooms it does
 > not keep.
+>
+> Changed 22 October 2026, for adoption (plan L0): the factors in Stage
+> 2(b) are checked against the site and the release tooling as they are
+> today, the file sharing row is rewritten for the default public file
+> server, and the open questions are listed as markers for the owner.
 
 ## Sources
 
@@ -37,8 +42,8 @@
 | Item | Entry |
 | --- | --- |
 | Service | KithMoot, at `kithmoot.forgesworn.dev` and its clients |
-| Provider | ForgeSworn |
-| Date completed | `[date signed]` (draft of 25 September 2026) |
+| Provider | ForgeSworn. `[DECISION: who the provider is in law; see the illegal content risk assessment, record details.]` |
+| Date completed | `[date signed]`, on or before 24 November 2026 (draft of 25 September 2026) |
 | Completed by | Drafted from the code by an AI assistant; checked by `[name]` |
 | Named person responsible | `[the role named in the illegal content risk assessment]` |
 | Approved by | `[Operator]` |
@@ -76,7 +81,7 @@ so that children are not normally able to get in.
 - **There is no age check of any kind**: no age question, no age
   estimation, no age verification, anywhere in the web app, the desktop
   app or the Android app.
-  <!-- No age field, age gate or age-assurance integration found in app/src, server/ or deploy/. -->
+  <!-- No age field, age gate or age-assurance integration found in app/src, server/ or deploy/; legal-cover inventory section 10 (accounts and age), run 22 October 2026 at edf32cd0, found none. The Android app is built from another repository and was not searched. -->
 - **Joining a room needs only its link.** A room's capability lives in the
   URL fragment after `#`, which is never sent to a server, so there is no
   server-side membership check that could carry an age condition even in
@@ -117,19 +122,20 @@ project groups):
 
 | Factor | Finding |
 | --- | --- |
-| Benefits to children | Possible. A family or a school project group is exactly the "small community that would rather not put its conversation on somebody else's platform" use case the product markets itself on (`site/index.html`: "A family. A community group.") |
+| Benefits to children | Possible. The site offers "Chat, calls, files and AI agents for your group" with no account and no sign-up (`site/index.html`). It names no audience by age, and a family or a school project group is a group in that sense |
 | Content that appeals to children | Neutral to low. No music, games, video or content library of any kind; it is a blank chat tool, not a content service |
 | Design that appeals to children | Neutral. No games, rewards, streaks or engagement mechanics of any kind |
 | Children in the commercial strategy | No. There is no commercial strategy identified, and no marketing aimed at children |
-| Distribution mechanism | **Invitation-only, not a public discovery surface.** This is the most material difference from a typical U2U service Ofcom's guidance is written against: there is no public sign-up page, no app-store listing a child could find unprompted (the Android build is a direct APK download, not a Play Store listing), and no way to arrive at a room without someone already in it sending a link |
+| Distribution mechanism | **Rooms are invitation-only; the app is public.** There is no public sign-up page, no room directory, and no way to arrive at a room without someone already in it sending a link. The app itself is public: anyone can open the web app from the site, and the Android build is a direct APK download from the site and is also published to Zapstore, a Nostr app store, but not to the Play Store |
+<!-- site/downloads/index.html: "A direct download, not a Play Store listing", and "Installed from Zapstore?"; deploy/verify-zapstore-publication.mjs:31 relay.zapstore.dev; docs/android-production-publication.md:4 "across the website, GitHub and Zapstore" -->
 
 **Answer: unresolved, and the honest position is "we cannot show the
-condition is not met."** The product's own marketing names families and
-community groups as an intended use ("A family. A community group." —
-`site/index.html`), which on its own is enough that a family could include
+condition is not met."** The product is offered to any group, with no age
+named and no age check, which is enough that a family could include
 under-18s in a room a parent or older sibling set up. What differs from a
-typical case is that KithMoot has no public discovery surface at all: a
-child cannot stumble into it the way they could a social app or a game.
+typical case is that KithMoot has no public discovery surface for rooms or
+people: a child cannot stumble into a room the way they could into a
+social app or a game.
 Ofcom's guidance still asks for evidence to conclude the condition is *not*
 met, which this record does not have, so caution points toward treating it
 as met, or at minimum toward closing the gap in section, "Still to do",
@@ -161,8 +167,17 @@ This means, as required work:
 
 Highly effective age assurance was not built and, on the evidence
 available, does not look proportionate for a small, invitation-distributed
-tool with no content library — but that is a judgement call for the owner
-to make explicitly, not a default this record should assume.
+tool with no content library. That is a judgement call for the owner to
+make explicitly, not a default this record should assume.
+`[DECISION: whether to record that highly effective age assurance is not
+proportionate here, and so accept that children can access the service.]`
+
+The under-16 measures announced on 15 June 2026 are aimed at user-to-user
+platforms built for social interaction "alongside algorithms", and the
+government said it does not intend messaging services such as WhatsApp and
+Signal to be in the ban (law note 2.5, `[P]`). The regulations are expected
+before Christmas 2026; until they are made their scope is a statement of
+intent, and this record is to be revisited when they are.
 
 ## Part B: outline of the children's risk assessment
 
@@ -186,43 +201,30 @@ review and rate.
 | Direct messaging (a room of two) | Grooming; bullying; self-harm encouragement | Private, encrypted, no operator visibility unless the operator keeps the room |
 | Group rooms | Bullying; hate; abuse | Same |
 | Calls (audio/video) | Any of the above, live | No recording by the service. A listening agent, including a keeper started to listen, writes into the room's transcript what is said by people who have switched on "Let agents hear me" <!-- src/node/transcriber.ts; app/index.html:416 "Let agents hear me"; app/src/main.ts:6950 setAgentsMayHear --> |
-| File sharing (opt-in) | Cannot itself carry viewable media through the default store (illegal content risk assessment, 2.3) | The exchange risk, if any, is anonymous bulk storage, not on-service viewing |
+| File sharing | Any of the above, as images, video or documents sent within a room | Sealed on the sender's device; only the room's members can open a file. In the web and desktop apps files go by default to a public file server somebody else runs, after a one-time notice; ForgeSworn's own store takes no uploads (illegal content risk assessment, 2.2 and 2.3) |
 | Agents in a room | Content an agent might generate or relay | `docs/agents.md` governs agent consent and scope; not separately assessed here |
 
-*Note, 21 October 2026.* From the web release after 20 October 2026 a file
-can also go to a public server the app lists, run by somebody else, which
-sets its own rules. What the app uploads is sealed on the device first, so
-for that server the file sharing row rests on the app, not on a store rule.
-<!-- app/src/file-storage.ts PUBLIC_FILE_SERVERS -->
-
-*Note, 22 October 2026.* From the `design/files-public-first` release,
-files go by default to that public server (blossom.yakihonne.com, run by
-Yakihonne LLC) after a one-time notice at Send, so the "opt-in" in the
-row above becomes a notice, not a switch. ForgeSworn's own store takes no
-new uploads from 22 October 2026. That server is a general file host; the
-store rule this row leans on does not apply to it (illegal content risk
-assessment, 8.3).
+*Notes of 21 and 22 October 2026, folded into the row above.* The default
+file server is blossom.yakihonne.com, run by Yakihonne LLC, a general file
+host; the store rule that used to support this row applies to ForgeSworn's
+own store only, which serves the files it holds until Friday 23 October
+2026 (pending on 22 October). The illegal content risk assessment, sections
+8.3 and 9, records the change.
 <!-- app/src/file-storage.ts defaultFileServer, resolveFileDestination; app/src/main.ts fileNoticeBody -->
-
-*Note, 22 October 2026.* ForgeSworn's own store serves the files it holds
-only until Friday 23 October 2026 (pending on 22 October); after that the
-file sharing row rests wholly on the default public server and any server a
-person names. The illegal content risk assessment, section 9, records the
-change.
 
 ### B3. Age groups
 
-Unknown. `[INPUT]` Without any age signal at all, this record cannot even
-provisionally split by age band the way a service with partial age data
-could.
+Unknown. `[INPUT: any evidence of the ages of people using KithMoot.]`
+Without any age signal at all, this record cannot even provisionally split
+by age band the way a service with partial age data could.
 
 ### B4. Measures to consider
 
 - a named role accountable for the children's safety duties (shared with
   ICU A2 in the illegal content risk assessment);
 - report and complaint routes that a child (or a concerned adult on a
-  child's behalf) can find and use without an account — the `/report/`
-  page (this PR);
+  child's behalf) can find and use without an account: the `/report/`
+  page;
 - a decision on whether KithMoot states a minimum age at all, and if so
   what it is, and what follows from someone breaking that rule (there is
   no persistent account to remove in most cases, only a room to leave or a
@@ -234,11 +236,16 @@ could.
 
 Not assigned. Assigning a level without any usage or age evidence would be
 guessing, not assessing, and this record does not overclaim in either
-direction.
+direction. `[DECISION: whether to complete part B now, on the evidence
+there is, or record the minimum age first and complete it after.]` The law
+note gives no deadline for a children's risk assessment by a new service
+(its 2.4 dates the one for services that existed on 16 December 2024); not
+covered, not checked.
 
 ## Still to do
 
 1. Decide, and record, whether KithMoot states a minimum age.
+   `[DECISION: whether KithMoot states a minimum age, and if so which.]`
 2. Complete and sign part B once the decision above is made, since several
    of its questions depend on it.
 3. Gather whatever usage evidence the operator can reasonably get (even

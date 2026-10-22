@@ -11,10 +11,10 @@ for review by 28 March 2027. These documents hold only this project's facts
 and decisions.
 
 - [`online-safety-risk-assessment-draft.md`](online-safety-risk-assessment-draft.md)
-  — the illegal content risk assessment, covering rooms, calls, the
-  default file store, the default drop tier, the relay the operator
-  also runs (no longer a default) and any keeper the operator runs.
-  Section 8 records a significant change
+  is the illegal content risk assessment, covering rooms, calls, and what
+  the operator runs on 22 October 2026: STUN, TURN (closing), the file
+  store (no uploads; reads until 23 October 2026), the relay it also runs
+  and any keeper it runs. Section 8 records a significant change
   in progress, 21 October 2026, and the default public file server and the
   file store's closure to new uploads, 22 October 2026. Section 9 records
   the significant change of 22 October 2026: meeting codes retired, file
@@ -22,11 +22,11 @@ and decisions.
   operator also runs closed to strangers' writes, TURN pending closure and
   STUN kept.
 - [`childrens-access-assessment-draft.md`](childrens-access-assessment-draft.md)
-  — whether children can and do access KithMoot. Honest answer: they can,
+  asks whether children can and do access KithMoot. Honest answer: they can,
   and we do not have evidence either way on whether they do.
-- [`terms-draft.md`](terms-draft.md) — terms of use.
-- [`privacy-notice-draft.md`](privacy-notice-draft.md) — privacy notice.
-- [`report-handling.md`](report-handling.md) — the operator runbook for
+- [`terms-draft.md`](terms-draft.md): terms of use.
+- [`privacy-notice-draft.md`](privacy-notice-draft.md): privacy notice.
+- [`report-handling.md`](report-handling.md): the operator runbook for
   acting on a report, surface by surface, including what is and is not
   technically possible today.
 
@@ -61,12 +61,18 @@ and decisions.
    behind them.
 7. **Name the person accountable** for the Online Safety Act's illegal
    content and reporting duties (referred to throughout as a role, e.g.
-   "the maintainer on call", never a name) — both documents that need this
+   "the maintainer on call", never a name). Both documents that need this
    (the risk assessment and the report-handling runbook) currently leave
    it as `[DECISION]`.
 8. **Decide whether KithMoot states a minimum age**, which the terms and
    the children's access assessment both currently leave open rather than
    assume.
 9. **Publish the linked pages** (`site/terms/`, `site/privacy/`,
-   `site/report/`, this PR) and keep them in sync with these source
-   documents as the product changes.
+   `site/report/`) from these drafts once adopted, and keep them in sync
+   as the product changes. The site's pages are being changed separately
+   on 22 October 2026 and were not compared with these drafts.
+10. **Sign and date both assessments** on or before 24 November 2026: the
+    risk assessment's record details and its sign-off tables in 8.8 and
+    9.5, and the children's access assessment's record details.
+11. **Register with the NCA, or decide not to yet** (report runbook, 6.1),
+    and **decide on the ICO fee** (privacy notice, section 1).
