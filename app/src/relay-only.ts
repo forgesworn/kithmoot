@@ -9,6 +9,14 @@
  * this mode contacts.
  */
 
+export const RELAY_ONLY_NO_RELAY = 'This room has no usable TURN relay. Turn off “Hide my IP address” or ask the room owner for a relay-enabled link.'
+
+/** Whether relay-only mode has a relay to use. When false the room can still
+ *  be joined for chat, but a call must be refused, never made direct. */
+export function relayOnlyAvailable(servers: readonly RTCIceServer[]): boolean {
+  try { relayOnlyIceConfiguration(servers); return true } catch { return false }
+}
+
 function urlsOf(server: RTCIceServer): string[] {
   return Array.isArray(server.urls) ? server.urls : [server.urls]
 }
@@ -29,8 +37,6 @@ export function relayOnlyIceConfiguration(servers: readonly RTCIceServer[]): RTC
     if (urls.length === 0 || typeof server.username !== 'string' || !server.username || typeof server.credential !== 'string' || !server.credential) return []
     return [{ ...server, urls }]
   })
-  if (relayServers.length === 0) {
-    throw new Error('This room has no usable TURN relay. Turn off “Hide my IP address” or ask the room owner for a relay-enabled link.')
-  }
+  if (relayServers.length === 0) throw new Error(RELAY_ONLY_NO_RELAY)
   return { iceServers: relayServers, iceTransportPolicy: 'relay' }
 }

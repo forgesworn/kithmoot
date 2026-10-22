@@ -367,7 +367,7 @@ import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils'
 import { base64urlnopad } from '@scure/base'
 import { CallWakeLock } from './wake-lock.js'
 import { BrowserForwarderMediaPipeline } from './forwarder-media.js'
-import { relayOnlyIceConfiguration } from './relay-only.js'
+import { relayOnlyIceConfiguration, relayOnlyAvailable, RELAY_ONLY_NO_RELAY } from './relay-only.js'
 import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout.js'
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
@@ -5239,6 +5239,11 @@ async function joinCall(): Promise<void> {
   if (docked()) return
   const s = session
   if (!s || s.call) return
+  // “Hide my IP address” with no relay: refuse the call, never fall back to direct.
+  if (sessionRelayBlocked.get(s) === true) {
+    noteRelayMissing(true)
+    throw new Error(RELAY_ONLY_NO_RELAY)
+  }
   // The user gesture the gain path needs to open an AudioContext that is
   // not born suspended - see remote-volume.ts. Harmless to call whether or
   // not this call ever needs it.
@@ -6869,6 +6874,8 @@ let agentsMayHear = localStorage.getItem(AGENTS_HEAR_STORAGE_KEY) === 'true'
  *  relay only. Kept per session, so a docked call and the room on screen
  *  never borrow each other's answer. */
 const sessionRelayOnly = new WeakMap<RoomSession, boolean>()
+/** Relay-only was chosen and the room has no usable relay: calls are refused. */
+const sessionRelayBlocked = new WeakMap<RoomSession, boolean>()
 
 /** Who this device's media goes to: everybody, unless they say they are an
  *  agent and the switch above is off. */
@@ -13065,10 +13072,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       ? await resolveIceServers(roomIceUrls)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
     if (generation !== roomGeneration) return
-    if (relayOnly) relayOnlyIceConfiguration(resolvedIceServers)
+    // With no usable relay the room is still joined: chat and everything
+    // that is not a call work. Only a call is refused (`joinCall`), and the
+    // peer factory below still never builds a non-relay configuration.
+    const relayBlocked = relayOnly && !relayOnlyAvailable(resolvedIceServers)
     turnRelayConfigured = hasRelay(resolvedIceServers)
     // Default rooms learn about a relay only once the background fetch settles.
-    noteRelayMissing(chatOnly ? undefined : (relayOnly || !isDefaultIceUrls(roomIceUrls)) ? !turnRelayConfigured : undefined)
+    noteRelayMissing(chatOnly || relayBlocked ? undefined : (relayOnly || !isDefaultIceUrls(roomIceUrls)) ? !turnRelayConfigured : undefined)
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -13313,6 +13323,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // Said in the call's More menu, so the person can see what they chose at
     // the door. It cannot change on a call.
     sessionRelayOnly.set(s, relayOnly)
+    sessionRelayBlocked.set(s, relayBlocked)
     meParticipant = s.participant
     // This device is in the room as this identity: a link to the room opens
     // it from now on, for the same identity only. Local, never bookmarked.
