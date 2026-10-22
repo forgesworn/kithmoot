@@ -181,6 +181,14 @@ function withoutOperation(proof: PersistentAdmissionProof): Parameters<typeof op
   return { domain: proof.domain, version: proof.version, binding: base, capability: proof.capability,
     roomSecret: proof.roomSecret, evidence: proof.evidence, selection: proof.selection, kept: proof.kept }
 }
+// What the proof records of the selection stays exactly this. The room's group
+// storage nodes (fold-kit 0.14.0, `admission.storage` and `storageAt`) are not
+// added: `contributors` already names the copies that carried them whenever any
+// did, and the evidence kept beside it yields the list again on every read, so
+// recording it twice would only be a second thing to disagree. It would also
+// stop every proof stored before the key existed from reading back, because the
+// comparison in `readPersistentAdmissionProof` is of the whole object. The list
+// the app acts on is a verified record of its own (`room-storage-record.ts`).
 const selected = (result: Extract<PersistentInvitationEvidenceResult['outcome'], { status: 'admitted' }>) => ({
   contributors: result.contributors, endsAt: result.admission.endsAt ?? null,
   destruct: result.admission.destruct === true, relays: result.admission.relays ?? null,
@@ -356,15 +364,34 @@ export function tabProofBytes(proof: PersistentAdmissionProof): string {
   return JSON.stringify({ version: proof.version, binding: proof.binding, roomSecret: proof.roomSecret, eventIds: proof.evidence.eventIds,
     privateProof: proof.kept.enabled ? null : proof } satisfies TabProof)
 }
+/** A stored proof this copy of the app could not read, left where it is. */
+export interface SkippedPersistentProof {
+  /** The storage name of the row. */
+  readonly name: string
+  /** `unreadable`: the row, or the evidence it holds, would not verify here (a proof kept by a newer or an older copy of the app, say one whose evidence carries a key this copy does not know). `dependent`: a tab record whose browser proof was unreadable. */
+  readonly why: 'unreadable' | 'dependent'
+}
+
 /** Sensitive internal result; always close it. Browser proofs for expired or
  * other tabs remain inert historical custody. A tab proof must have its exact
- * browser counterpart and actual admission writer records. */
+ * browser counterpart and actual admission writer records.
+ *
+ * One proof this copy cannot read is skipped and reported (`skipped`), not
+ * allowed to hold every room: a tab on an older release, or a rollback, cannot
+ * read evidence a newer release kept, and the rooms whose proofs it can read
+ * are no less true for that. Only a failure to READ is isolated. A row that
+ * reads but is out of place (wrong name, a repeated slot, too many for an
+ * invitation, a tab record that disagrees with its browser counterpart) still
+ * holds, and so does everything a caller checks afterwards against these
+ * proofs: a room that depended on a skipped one is held by that check. */
 export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: DeviceStore, options: { requireSelectedContinuity?: boolean } = {}): {
   readonly proofs: ReadonlyMap<string, VerifiedPersistentProof>
   readonly selected: ReadonlyMap<string, VerifiedPersistentProof>
+  readonly skipped: readonly SkippedPersistentProof[]
   close(): void
 } {
   const proofs = new Map<string, VerifiedPersistentProof>(), selected = new Map<string, VerifiedPersistentProof>()
+  const skipped: SkippedPersistentProof[] = [], unreadable = new Set<string>()
   const owned: VerifiedPersistentProof[] = []
   const slots = new Set<string>()
   const counts = new Map<string, number>(), selectedGroups = new Set<string>()
@@ -372,7 +399,13 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
   try {
     for (const name of browser.keys()) {
       if (![PERSISTENT_PROOF_PREFIX, PERSISTENT_PROOF_V2_PREFIX].some(prefix => name.includes(prefix))) continue
-      const verified = readPersistentAdmissionProof(browser.get(name)!)
+      let verified: VerifiedPersistentProof
+      try { verified = readPersistentAdmissionProof(browser.get(name)!) } catch {
+        skipped.push({ name, why: 'unreadable' })
+        const operation = operationOf(browser.get(name)!)
+        if (operation) unreadable.add(operation)
+        continue
+      }
       if (!verified.proof.kept.enabled || name !== persistentProofName(verified.proof.binding) || proofs.has(verified.proof.binding.operation)) {
         verified.admission.secret.fill(0); hold()
       }
@@ -392,8 +425,13 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
       object(value, ['version','binding','roomSecret','eventIds','privateProof'])
       if (value.version !== 1 && value.version !== 2) hold()
       const bound = binding(value.binding, value.version)
-      const privateProof = value.privateProof === null ? undefined : readPersistentAdmissionProof(JSON.stringify(value.privateProof))
+      let privateProof: VerifiedPersistentProof | undefined
+      if (value.privateProof !== null) {
+        try { privateProof = readPersistentAdmissionProof(JSON.stringify(value.privateProof)) } catch { skipped.push({ name, why: 'unreadable' }); continue }
+      }
       if (privateProof) owned.push(privateProof)
+      // Its counterpart is a browser proof this copy could not read: nothing here to check it against.
+      if (!privateProof && !proofs.has(bound.operation) && unreadable.has(bound.operation)) { skipped.push({ name, why: 'dependent' }); continue }
       const verified = privateProof ?? proofs.get(bound.operation)
       if (privateProof && privateProof.proof.kept.enabled) hold()
       if (!verified || name !== persistentTabProofName(bound) || tabProofBytes(verified.proof) !== raw) hold()
@@ -426,6 +464,14 @@ export function inspectPersistentAdmissionProofs(browser: DeviceStore, tab: Devi
         selected.set(name, verified)
       } finally { invitation.bearer.fill(0) }
     }
-    return { proofs, selected, close }
+    return { proofs, selected, skipped, close }
   } catch (error) { close(); throw error }
+}
+
+/** The operation id a stored proof claims, read without trusting the rest of it. */
+function operationOf(raw: string): string | undefined {
+  try {
+    const operation = ((JSON.parse(raw) as { binding?: { operation?: unknown } }).binding ?? {}).operation
+    return typeof operation === 'string' && HEX.test(operation) ? operation : undefined
+  } catch { return undefined }
 }
