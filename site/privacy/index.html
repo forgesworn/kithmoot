@@ -34,7 +34,7 @@
 <ul>
 <li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files or your calls.</li>
 <li>kithmoot.forgesworn.dev serves the app, this website and update information as static files, and answers STUN, which sees your IP address and carries no content.</li>
-<li>Until 22 October 2026 we also ran a call relay, a file store, a message-drop service and meeting codes. They are closed. Some data from them is still on our server until it is deleted (section 4.4). The <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a> says what closed and when.</li>
+<li>Until 22 October 2026 we also ran a call relay, a file store, a message-drop service and meeting codes. They are closed, and what they held was deleted the same day (section 4.4). The <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a> says what closed and when.</li>
 <li>In the web app and the desktop app, files you send go to a public file server run by somebody else, unless you choose another server or none. They are encrypted on your device first (section 7).</li>
 <li>Some defaults make your device contact other parties: relays, profile lookups, picture hosts and, for the desktop app, our site and GitHub (section 7). You can turn the profile lookups off.</li>
 <li>We do not sell your data, show adverts, or run analytics or tracking.</li>
@@ -56,17 +56,12 @@
 <h3>4.3 STUN</h3>
 <p>When the app is loaded from kithmoot.forgesworn.dev, it asks our STUN server for your device's public address, so a call can try to connect directly. The STUN server sees your IP address and port, and answers with them. It carries no messages, files or call media, and relays nothing between people. It is configured to keep no logs.</p>
 <h3>4.4 Data left from closed services</h3>
-<p>The file store and meeting codes stopped on 22 October 2026. What they held is no longer reachable from outside, and waits on our server to be deleted:</p>
-<ul>
-<li><strong>Stored files</strong>: 84 encrypted files, about 164 MB in all. Each was sealed on the sender's device; we hold the encrypted bytes, their size and the device key that signed the upload, never a file's name, type or contents.</li>
-<li><strong>Meeting codes</strong>: the store of room links behind short codes, about 1 KB.</li>
-</ul>
-<!-- [INPUT: when the trash folder will be emptied] -->
+<p>The file store and meeting codes stopped on 22 October 2026, and on the same day we deleted what they held: 84 encrypted files, about 164 MB in all, each sealed on the sender's device, and the store of room links behind short codes. We cannot recover any of it.</p>
 <!-- [INPUT: whether the archive nodes still hold copies of the stored files] -->
 <!-- [INPUT: what, if anything, the drop tier still holds on the box's loopback] -->
 
 <h2>5. How long we keep information</h2>
-<p>Web server and STUN requests are not logged (sections 4.1 and 4.3). The data in section 4.4 is kept only until it is deleted. If you have written to us, that correspondence is kept for as long as we reasonably need it, and you can ask us to delete it.</p>
+<p>Web server and STUN requests are not logged (sections 4.1 and 4.3). If you have written to us, that correspondence is kept for as long as we reasonably need it, and you can ask us to delete it.</p>
 <!-- [INPUT: system log retention on the box; deploy/journald-kithmoot.conf sets two weeks or 500 MB but is installed by no script] -->
 <!-- [INPUT: retention for correspondence] -->
 
