@@ -31,7 +31,8 @@ the relay addresses entered alongside them.
 
 ## Prepare a small private server
 
-For a Linux server with Docker Compose and a public IPv4 address, generate
+For a Linux server with Docker Compose and a public IPv4 address assigned
+directly to it, generate
 the files on your trusted machine first. Replace the example hostname and
 address with your own. The output directory must be new and outside the
 repository; it contains passwords and must stay private.
@@ -57,9 +58,18 @@ sudo docker compose up -d
 Run that command **inside the generated directory**. The Compose file is
 for Linux with host networking. Allow inbound **3478 UDP and TCP** and
 **49180–49211 UDP** on both the host and provider firewalls. The public
-hostname must resolve to the server's public address. If the server itself
-is behind NAT, also forward these ports to it. This does not work on an
-ordinary home connection behind carrier NAT without an inbound route.
+hostname must resolve to the server's public address. The generated setup
+binds listening and relay sockets to that address, including on hosts with
+Docker bridge interfaces. Servers behind NAT need an internal relay address,
+an explicit public/internal mapping and port forwarding instead; use the
+full deployment runbook below for that arrangement.
+
+When 3478 is already occupied, choose a separate free listener and relay
+range with `--port`, `--relay-min` and `--relay-max`. For example,
+`--port 49300 --relay-min 49301 --relay-max 49332 --udp-only` creates a
+UDP-only private instance. Reserve that range for it and allow it through
+both firewalls. It does not provide a TCP or TLS alternative for restrictive
+networks. Keep an existing service's allocated ports separate.
 
 Enter `you.json` on your device and privately give your friend the details
 from `friend.json`. These are persistent credentials for this small private
@@ -80,6 +90,19 @@ The relay is authenticated, restricts private peer targets, bounds
 allocations and per-allocation throughput, and keeps no coturn/container
 logs. It relays encrypted WebRTC traffic. It does not provide signalling;
 the room's existing Nostr relays still do that.
+
+After deployment, check the real server from another network using the
+private login files kept on your trusted machine:
+
+```sh
+node test/private-call-relay-live.mjs "$HOME/private-kithmoot-relay"
+```
+
+Add `--udp-only` when that is the deployed listener. This sends synthetic
+audio and video between two relay-only peers, requires decoded media in
+both directions, and checks that a wrong password obtains no allocation.
+It prints aggregate results without credentials. It is separate from a
+real call with your friend or GrapheneOS device acceptance.
 
 ## Local verification
 
@@ -112,3 +135,6 @@ The [local validation record from 22 October 2026](evidence/private-call-relay-2
 records the source hashes, browser media proof, Android checks and remaining
 device/deployment gates. The local WebKit runtime could not create a page
 because its protocol lacks `PushAPIEnabled`; no application code ran there.
+The same constructor compatibility case subsequently passed in Playwright
+1.62.1's Ubuntu 24.04 container, using the actual application function and
+a relay-only policy. Physical Safari acceptance remains separate.

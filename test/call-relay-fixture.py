@@ -51,7 +51,7 @@ try:
             "-v", f"{root}/config/turnserver.conf:/etc/coturn/turnserver.conf:ro",
             "-p", f"127.0.0.1:{port}:3478/tcp", "-p", f"127.0.0.1:{port}:3478/udp",
             "-p", "127.0.0.1:49180-49211:49180-49211/udp", "coturn/coturn:4.17.2-r0",
-            "-c", "/etc/coturn/turnserver.conf"]
+            "-c", "/etc/coturn/turnserver.conf", "--proc-user=nobody", "--proc-group=nogroup"]
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL)
     HTTPServer(("127.0.0.1", api_port), Handler).serve_forever()
 finally:
