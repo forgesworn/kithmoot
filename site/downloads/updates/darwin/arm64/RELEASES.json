@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.99",
+  "currentRelease": "0.1.100",
   "releases": [
     {
-      "version": "0.1.99",
+      "version": "0.1.100",
       "updateTo": {
-        "version": "0.1.99",
-        "pub_date": "2026-10-22T12:36:55Z",
-        "notes": "Anyone can send a file straight away, to a public server named the first time; received files are judged by what they really are.",
-        "name": "0.1.99",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.99/KithMoot-0.1.99-mac-arm64.zip",
-        "sha256": "99e9ef1928cf281c7dd8607dc28f50b68a561af74349309ca7677d9d9d67364c",
-        "size": 170893229
+        "version": "0.1.100",
+        "pub_date": "2026-10-22T18:58:40Z",
+        "notes": "With Hide my IP address on you can join rooms and chat again; only a call without a relay is refused.",
+        "name": "0.1.100",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.100/KithMoot-0.1.100-mac-arm64.zip",
+        "sha256": "89fd2c00ee16eb9d7a881c744d109366810a8a1c9a51de1d021aaf61268d036a",
+        "size": 170893837
       }
     }
   ]
