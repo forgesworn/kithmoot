@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.98",
+  "currentRelease": "0.1.99",
   "releases": [
     {
-      "version": "0.1.98",
+      "version": "0.1.99",
       "updateTo": {
-        "version": "0.1.98",
-        "pub_date": "2026-10-22T01:13:55Z",
-        "notes": "Looking up a contact\u2019s name and picture no longer asks the relays of the room you have open.",
-        "name": "0.1.98",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.98/KithMoot-0.1.98-mac-arm64.zip",
-        "sha256": "56d13889eae857251c693f67aebf9569cef018060e2ed82f322f30389deb196b",
-        "size": 170878409
+        "version": "0.1.99",
+        "pub_date": "2026-10-22T12:36:55Z",
+        "notes": "Anyone can send a file straight away, to a public server named the first time; received files are judged by what they really are.",
+        "name": "0.1.99",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.99/KithMoot-0.1.99-mac-arm64.zip",
+        "sha256": "99e9ef1928cf281c7dd8607dc28f50b68a561af74349309ca7677d9d9d67364c",
+        "size": 170893229
       }
     }
   ]
