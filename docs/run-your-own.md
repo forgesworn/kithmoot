@@ -20,7 +20,9 @@ by people you invite, is in a different position, and the law has not
 settled how it treats a small private group. The project's notes on UK law
 are in
 [jurisdiction-kit's GB note](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md).
-They are notes, not legal advice.
+They are notes, not legal advice. The deploy kit says the same at the top
+of its guide:
+[Whoever deploys it runs it](../deploy/README.md#whoever-deploys-it-runs-it).
 
 One limit today: KithMoot signs a room's file uploads and relay events with
 a key made for that device in that room and registered nowhere, so your
