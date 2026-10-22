@@ -422,6 +422,9 @@
                  said in the call, with what to do. Filled by `noteMediaBlocked`
                  in app/src/main.ts. -->
             <p id="mediaBlockedNote" class="indicator broken" role="status" hidden></p>
+            <!-- No TURN relay is configured, or the credential mint failed. Set by
+                 `noteRelayMissing` in app/src/main.ts. Calls still try peer to peer. -->
+            <p id="relayMissingNote" class="indicator" role="status" hidden></p>
             <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
@@ -1150,6 +1153,7 @@
             <label for="meetingCodeWordsInput">Enter the password words you were given</label>
             <input id="meetingCodeWordsInput" type="text" maxlength="256" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="go" aria-describedby="joinCodeError" />
           </div>
+          <p id="joinCodeGoingNote" class="note">Meeting codes are going. Share the room link instead.</p>
           <button id="joinCodeSubmit" type="submit">Join</button>
           <p id="joinCodeError" class="formError" role="alert" hidden></p>
           <button id="joinCodeRetry" type="button" hidden>Retry</button>
@@ -1564,6 +1568,7 @@
               <button id="meetingCodePassword" type="button" class="toggle" data-on="true" aria-pressed="true">Add a password</button>
               <span id="meetingCodePasswordNote" class="note inline"></span>
             </div>
+            <p id="getMeetingCodeGoingNote" class="note">Meeting codes are going. Share the room link instead.</p>
             <button id="getMeetingCode" type="button">Get a meeting code</button>
             <div id="meetingCodeShown" hidden>
               <p class="meetingCodeValue"><span class="sr-only">Meeting code: </span><span id="meetingCode"></span></p>

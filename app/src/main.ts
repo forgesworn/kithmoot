@@ -291,7 +291,8 @@ import { clearLogo, renderLogo } from './logo-view.js'
 import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
-import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
+import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
+import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { BrowserHistoryIndexStorage, LocalHistoryIndex, importedHistoryCoverage } from './history-index.js'
@@ -775,6 +776,14 @@ window.addEventListener('online', () => { void relayConnections.probeAll() })
  * promise nobody had made. Read by `connectingWord`.
  */
 let turnRelayConfigured = false
+
+/** Says in the call that no relay is available (`missing`), or puts the note
+ *  away (false, or undefined while it is not yet known). */
+function noteRelayMissing(missing: boolean | undefined): void {
+  const note = $('relayMissingNote')
+  note.textContent = RELAY_MISSING_NOTICE
+  note.hidden = missing !== true
+}
 /** How often a joined page re-fetches its TURN credential. The credential
  *  service mints for an hour; forty minutes keeps a fresh one in hand. */
 const ICE_REFRESH_MS = 40 * 60 * 1000
@@ -4429,82 +4438,11 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
 // carry as the default, so those rooms are upgraded to this origin's own
 // STUN/TURN rather than kept on Google's server - see ice-defaults.ts.
 
-/** Fetches one TURN credential from the configured minting endpoint. A
- *  malformed or slow response is treated the same as no endpoint at all -
- *  callers decide the fallback, this only ever resolves to a usable
- *  RTCIceServer or undefined, never throws past its own timeout. */
-async function fetchTurnCredential(endpoint: string): Promise<RTCIceServer | undefined> {
-  const controller = new AbortController()
-  // A credential endpoint that's down should fail fast, not hold up
-  // joining until the browser's own connect timeout - see the "never
-  // block joining" note on resolveIceServers below.
-  const timeout = setTimeout(() => controller.abort(), 4000)
-  try {
-    const res = await fetch(endpoint, { signal: controller.signal })
-    if (!res.ok) return undefined
-    const body = (await res.json()) as Partial<{
-      urls: string[]
-      username: string
-      credential: string
-    }>
-    if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) {
-      return undefined
-    }
-    return { urls: body.urls, username: body.username, credential: body.credential }
-  } catch {
-    return undefined
-  } finally {
-    clearTimeout(timeout)
-  }
-}
-
-/**
- * Turns the room's ICE URL list into the RTCIceServer list a real
- * RTCPeerConnection gets, fetching a minted TURN credential to attach to
- * the operator's own default TURN server when one is configured and this
- * room is actually using that default (see isDefaultIceUrls).
- *
- * A room naming its own ICE servers gets exactly those, unchanged. A room
- * on the defaults gets nothing named by this bundle: this origin's own
- * STUN, derived from wherever the minted TURN credential actually points
- * (stunFromTurnUrl) when the credential endpoint answers, or a same-host
- * guess on the standard port when it doesn't (originStunGuess) - see
- * ice-defaults.ts for why, and docs/decisions.md, 2026-09-13.
- *
- * A failed or unreachable credential endpoint must never block joining: a
- * room that only has STUN still works for roughly 80% of real connections
- * (see deploy/README.md), and a call that refuses to start because an
- * optional convenience server had a bad day is a strictly worse outcome
- * than one that just falls back to what already worked before this
- * endpoint existed.
- */
-async function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
-  if (!isDefaultIceUrls(urls)) {
-    return urls.map((iceUrl) => ({ urls: iceUrl }))
-  }
-
-  if (!TURN_CREDENTIAL_ENDPOINT) {
-    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
-  }
-
-  const fetchedTurnServer = await fetchTurnCredential(TURN_CREDENTIAL_ENDPOINT)
-  if (!fetchedTurnServer) {
-    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
-  }
-  const compatibleTurnUrls = browserDefaultTurnUrls(toUrlList(fetchedTurnServer.urls))
-  if (compatibleTurnUrls.length === 0) {
-    return originStunGuess(location).map((iceUrl) => ({ urls: iceUrl }))
-  }
-  const turnServer: RTCIceServer = { ...fetchedTurnServer, urls: compatibleTurnUrls }
-
-  // The same host and port the minted credential just proved answers plain
-  // TURN on, not a second guess at this origin's hostname. A TURN/TLS URL
-  // remains available for relaying but is not duplicated as STUN/TLS: that
-  // optional ICE protocol makes Safari reject the whole configuration. The
-  // redundant plain TURN/TCP query form has also been removed above because
-  // WebKit rejects that URL; TURN/TLS still supplies the TCP route.
-  const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
-  return [...stunUrls.map((iceUrl) => ({ urls: iceUrl })), turnServer]
+/** The room's ICE servers; see `resolveIceServers` in ice-resolve.ts. A
+ *  missing or failing credential endpoint (the open mint is being retired)
+ *  returns plain STUN within a short bound and never throws. */
+function resolveIceServers(urls: string[]): Promise<RTCIceServer[]> {
+  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location })
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
@@ -13128,7 +13066,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
     if (generation !== roomGeneration) return
     if (relayOnly) relayOnlyIceConfiguration(resolvedIceServers)
-    turnRelayConfigured = resolvedIceServers.some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
+    turnRelayConfigured = hasRelay(resolvedIceServers)
+    // Default rooms learn about a relay only once the background fetch settles.
+    noteRelayMissing(chatOnly ? undefined : (relayOnly || !isDefaultIceUrls(roomIceUrls)) ? !turnRelayConfigured : undefined)
 
     // A real RTCPeerConnection genuinely has everything RTCPeerConnectionLike
     // needs - its on* handlers just carry the full, specific DOM event type
@@ -13167,7 +13107,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           if (relayOnly) relayOnlyIceConfiguration(fresh)
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
-          turnRelayConfigured = fresh.some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
+          turnRelayConfigured = hasRelay(fresh)
+          noteRelayMissing(!turnRelayConfigured)
         })
         .catch(() => {})
     }
