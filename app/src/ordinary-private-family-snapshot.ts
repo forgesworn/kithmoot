@@ -10,12 +10,13 @@ import { readPendingBlobDeleteJournal } from './blob-deletion.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
 const HEX = /^[0-9a-f]{64}$/
-const families = ['kithmoot.box-discovery', 'kithmoot.uploads', 'kithmoot.blob-deletes',
+const families = ['kithmoot.box-discovery', 'kithmoot.uploads', 'kithmoot.blob-deletes', 'kithmoot.storage-grants',
   'kithmoot.history-recovery', 'kithmoot.file-storage', 'kithmoot.blossom-server', 'kithmoot.room-logo']
 const DISCOVERY = /^kithmoot\.box-discovery\.v1\.([0-9a-f]{64})\.([0-9a-f]{64})$/
 const HISTORY = /^kithmoot\.history-recovery\.v1\.([0-9a-f]{64})\.([0-9a-f]{64})$/
 const UPLOAD = /^kithmoot\.uploads\.v1\.([0-9a-f]{64})$/
 const LOGO = /^kithmoot\.room-logo\.v1\.([0-9a-f]{64})$/
+const GRANTS = /^kithmoot\.storage-grants\.v1\.([0-9a-f]{64})$/
 function hold(): never { throw new OrdinaryStateHold() }
 function integer(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0 }
 function hex(value: unknown): value is string { return typeof value === 'string' && HEX.test(value) }
@@ -75,9 +76,9 @@ function discovery(value: unknown, box: string): { status: boolean; claim: boole
 export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
   options: { kind: 'browser' | 'tab' }): Readonly<{ discoveries: number; statusFloors: number; claimFloors: number;
     uploadJournals: number; uploadCandidates: number; pendingDeletes: number; histories: number; windows: number;
-    sharedFileConsent: number; legacyFileSuggestions: number; logos: number }> {
+    sharedFileConsent: number; legacyFileSuggestions: number; logos: number; grantJournals: number }> {
   const counts = { discoveries: 0, statusFloors: 0, claimFloors: 0, uploadJournals: 0, uploadCandidates: 0,
-    pendingDeletes: 0, histories: 0, windows: 0, sharedFileConsent: 0, legacyFileSuggestions: 0, logos: 0 }
+    pendingDeletes: 0, histories: 0, windows: 0, sharedFileConsent: 0, legacyFileSuggestions: 0, logos: 0, grantJournals: 0 }
   if (!['browser', 'tab'].includes(options.kind)) hold()
   try {
     for (const [name, raw] of records) {
@@ -136,6 +137,22 @@ export function validateOrdinaryPrivateFamilySnapshot(records: ReadonlyMap<strin
           if (value.disclosure === 3 ? !['default', 'typed', 'wildbloom'].includes(value.via as string) : value.via !== undefined) hold()
           counts.sharedFileConsent++
         }
+      } else if (GRANTS.test(name)) {
+        // The grants, revocations and resets the room's keeper handed this
+        // device, as the receiver persists them. The keeper's signature on each
+        // is checked again when the receiver is rebuilt, against the authority
+        // pinned in the room's link, which this row does not carry.
+        object(value, ['events', 'acknowledged'])
+        if (!Array.isArray(value.events) || value.events.length > 4_608 || !Array.isArray(value.acknowledged) || value.acknowledged.length > 4_608) hold()
+        const ids = new Set<string>()
+        for (const e of value.events) {
+          object(e, ['id', 'pubkey', 'created_at', 'kind', 'tags', 'content', 'sig'])
+          if (!hex(e.id) || !hex(e.pubkey) || !integer(e.created_at) || !integer(e.kind) || typeof e.content !== 'string' || typeof e.sig !== 'string' ||
+              !Array.isArray(e.tags) || e.tags.length > 32 || e.tags.some(t => !Array.isArray(t) || t.length > 8 || t.some(v => typeof v !== 'string'))) hold()
+          if (ids.has(e.id as string)) hold(); ids.add(e.id as string)
+        }
+        for (const key of value.acknowledged) if (typeof key !== 'string' || key.length > 300 || !/^[a-z0-9.-]+\/[0-9a-f]{64}$/.test(key)) hold()
+        counts.grantJournals++
       } else if (LOGO.test(name)) {
         object(value, ['epoch', 'record']); object(value.record, ['image', 'id', 'at', 'sentAt'])
         const r = value.record, image = r.image === null ? null : readLogoImage(r.image)

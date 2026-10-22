@@ -44,7 +44,7 @@ function mapped(store: DeviceStore, participant: string): DeviceStore {
 }
 function routing(store: DeviceStore): void {
   const records = new Map(store.keys().filter(name => name === 'kithmoot.relays.v1' || name === 'kithmoot.circle.v1' ||
-    name === FIXED_INVITATION_RELAYS || name.startsWith('kithmoot.room-relays.v1.')).map(name => [name, store.get(name)!]))
+    name === FIXED_INVITATION_RELAYS || name.startsWith('kithmoot.room-relays.v1.') || name.startsWith('kithmoot.room-storage.v1.')).map(name => [name, store.get(name)!]))
   try { validateOrdinaryRoutingSnapshot(records, true, { kind: 'browser' }) } finally { records.clear() }
 }
 /** Actual evidence query + native custody for an already prepared room device.

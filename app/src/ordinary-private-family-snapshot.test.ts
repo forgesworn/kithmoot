@@ -12,7 +12,7 @@ it.each(PRIVATE_MODES)('preserves actual %s writer bytes without clock, effects,
     expect(Object.isFrozen(result)).toBe(true);expect(Object.values(result).every(v=>Number.isSafeInteger(v)&&v>=0)).toBe(true)
     expect(validate(f.records,true,{kind:'browser'})).toEqual(result);expect([...f.records]).toEqual(before)
     expect(clock).not.toHaveBeenCalled();expect(fetcher).not.toHaveBeenCalled()
-    if(mode==='all')expect(result).toEqual({discoveries:1,statusFloors:1,claimFloors:1,uploadJournals:1,uploadCandidates:2,pendingDeletes:1,histories:1,windows:2,sharedFileConsent:1,legacyFileSuggestions:1,logos:1})
+    if(mode==='all')expect(result).toEqual({discoveries:1,statusFloors:1,claimFloors:1,uploadJournals:1,uploadCandidates:2,pendingDeletes:1,histories:1,windows:2,sharedFileConsent:1,legacyFileSuggestions:1,logos:1,grantJournals:0})
     if(mode==='discovery-retired-old-order')expect(JSON.parse(f.records.get(f.keys.discovery)!).claim.tags).toContainEqual(['status','retired'])
     if(mode==='discovery-node-change')expect(result).toMatchObject({claimFloors:1,statusFloors:0})
     if(mode==='legacy-only')expect(result).toMatchObject({legacyFileSuggestions:1,sharedFileConsent:0})

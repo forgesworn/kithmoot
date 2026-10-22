@@ -1,9 +1,10 @@
 import { normaliseRelayConfig, MAX_POOL_RELAYS, type RelayConfig } from '../../src/relay-pool.js'
 import { isInvitationRelays } from '../../src/persistent-invitation.js'
 import { canonicalRoomRelays } from '../../src/room-relays.js'
+import { parseRoomStorageRecord, ROOM_STORAGE_PREFIX } from './room-storage-record.js'
 import { OrdinaryStateHold, ORDINARY_NAME_UNITS, ordinaryUtf8Length } from './ordinary-state-codec.js'
 
-const families = ['kithmoot.relays', 'kithmoot.circle', 'kithmoot.room-relays-fixed', 'kithmoot.room-relays']
+const families = ['kithmoot.relays', 'kithmoot.circle', 'kithmoot.room-relays-fixed', 'kithmoot.room-relays', 'kithmoot.room-storage']
 const ROOM = /^[0-9a-f]{64}$/
 function hold(): never { throw new OrdinaryStateHold() }
 function object(v: unknown, required: string[], optional: string[] = []): asserts v is Record<string, unknown> {
@@ -26,10 +27,10 @@ function json(raw: string): unknown {
  * consumers must re-establish current permission before any dial. */
 export function validateOrdinaryRoutingSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
   options: { kind: 'browser' | 'tab' }): Readonly<{ savedLists: number; savedScopes: number; relayChoices: number;
-    fixedLists: number; fixedRooms: number; fixedChoices: number; markLists: number; marks: number; roomRecords: number }> {
+    fixedLists: number; fixedRooms: number; fixedChoices: number; markLists: number; marks: number; roomRecords: number; storageRecords: number }> {
   if (!['browser', 'tab'].includes(options.kind)) hold()
   const counts = { savedLists: 0, savedScopes: 0, relayChoices: 0, fixedLists: 0, fixedRooms: 0,
-    fixedChoices: 0, markLists: 0, marks: 0, roomRecords: 0 }
+    fixedChoices: 0, markLists: 0, marks: 0, roomRecords: 0, storageRecords: 0 }
   try {
     for (const [name, raw] of records) {
       if (name.startsWith('kithmoot.account.') && families.some(f => name.includes('.' + f))) hold()
@@ -79,6 +80,14 @@ export function validateOrdinaryRoutingSnapshot(records: ReadonlyMap<string, str
         // The physical row omits the authority key. Checking carrier shape is
         // not verifying this signature; no signature or endpoint escapes.
         counts.roomRecords++
+      } else if (name.startsWith(ROOM_STORAGE_PREFIX) && ROOM.test(name.slice(ROOM_STORAGE_PREFIX.length))) {
+        // The node list the room's authority last signed, with its version, and
+        // the op's signature when it came from one. Carrier shape only: the
+        // physical row omits the authority key, and a list is where this
+        // device may ask for files, never who may be in the room.
+        const record = parseRoomStorageRecord(raw)
+        if (!record || JSON.stringify(record) !== raw) hold()
+        counts.storageRecords++
       } else hold()
     }
     return Object.freeze(counts)
