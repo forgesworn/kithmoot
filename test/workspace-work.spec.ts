@@ -99,11 +99,8 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await showProjects()
     await page.locator('.sharedProjectCard').filter({ has: page.getByRole('heading', { name: project, exact: true }) }).getByRole('button', { name: room, exact: true }).click()
     if (await page.locator('#displayName').isVisible()) { await page.locator('#displayName').fill('Ada'); await page.locator('#join').click() }
-    // The composer is editable mid-switch too, while the room area is inert:
-    // wait for this room's name and for the switch to finish, or a draft put
-    // back at the end of it can land after the test has moved on.
     await expect(page.locator('#roomTitle')).toHaveText(room)
-    await expect(page.locator('#roomArea:not([inert])')).toBeVisible()
+    await expect(page.locator('#roomArea')).not.toHaveAttribute('inert', '')
     await expect(page.locator('#chatInput')).toBeEditable()
   }
   const inbox = async () => {
