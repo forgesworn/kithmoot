@@ -90,6 +90,8 @@ import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHa
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
+import { paintAttachmentCard, openingErrorText, type OpenedAttachment } from './attachment-card.js'
+import { assessAttachment, cleanFileName, familyLabel, SNIFF_BYTES } from '../../src/attachment-safety.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
 import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
@@ -10131,7 +10133,6 @@ function renderInvites(): void {
 // Attachments: files shared through Wildbloom
 // ---------------------------------------------------------------------------
 
-type OpenedAttachment = { url: string; name: string; type: string; size: number; text?: string; expanded?: boolean } | { error: string }
 
 /** What has been fetched and opened, per log, per message, per attachment.
  *  An object URL is revoked when its message leaves the log and never
@@ -10171,114 +10172,81 @@ function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
  */
 function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAttachment): HTMLElement {
   const generation = roomGeneration
-  const card = document.createElement('span')
+  const card = document.createElement('div')
   card.className = 'attachment'
   const key = attachmentKey(logId, m.id, index)
-  const render = (): void => {
-    card.innerHTML = ''
-    const label = document.createElement('span')
-    label.className = 'label'
-    label.textContent = `${a.name ?? 'Encrypted file'}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
-    card.append(label)
-    const opened = openedAttachments.get(key)
-    if (opened && 'url' in opened) {
-      if (opened.type.startsWith('image/')) {
-        const img = document.createElement('img')
-        img.src = opened.url
-        img.alt = opened.name
-        const expand = document.createElement('button')
-        expand.type = 'button'
-        expand.className = 'attachmentImage'
-        expand.setAttribute('aria-label', `Expand ${opened.name}`)
-        expand.append(img)
-        expand.onclick = () => attachmentViewer.open(opened, expand)
-        card.append(expand)
-      } else if (opened.type.startsWith('audio/') || opened.type.startsWith('video/')) {
-        const player = document.createElement(opened.type.startsWith('audio/') ? 'audio' : 'video')
-        player.controls = true
-        player.preload = 'metadata'
-        if (player instanceof HTMLVideoElement) player.playsInline = true
-        player.src = opened.url
-        player.setAttribute('aria-label', opened.name)
-        card.append(player)
-      } else if (opened.type === 'application/pdf') {
-        const view = document.createElement('a')
-        view.href = opened.url
-        view.target = '_blank'
-        view.rel = 'noopener noreferrer'
-        view.textContent = `View ${opened.name}`
-        card.append(view)
-      } else if (opened.text !== undefined) {
-        const preview = document.createElement('pre')
-        preview.className = 'attachmentText'
-        preview.textContent = opened.expanded ? opened.text : opened.text.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + (opened.text.length > 600 ? '…' : '')
-        card.append(preview)
-        if (opened.text.length > 600) {
-          const expand = document.createElement('button')
-          expand.type = 'button'
-          expand.textContent = opened.expanded ? 'Collapse' : 'Read more'
-          expand.setAttribute('aria-expanded', String(!!opened.expanded))
-          expand.onclick = () => { opened.expanded = !opened.expanded; render() }
-          card.append(expand)
-        }
-        const copy = document.createElement('button')
-        copy.type = 'button'
-        copy.textContent = 'Copy full text'
-        copy.onclick = async () => { copy.textContent = await copyMessageText(opened.text!) ? 'Copied' : 'Copy failed' }
-        card.append(copy)
-      } else {
-        const note = document.createElement('span')
-        note.textContent = 'Preview unavailable for this file type. Save it to open in a compatible app.'
-        card.append(note)
-      }
-      const save = document.createElement('a')
-      save.dataset.focusKey = `attachment-${index}`
-      save.href = opened.url
-      save.download = opened.name
-      save.textContent = `Save ${opened.name} (${formatBytes(opened.size)})`
-      card.append(save)
-      return
-    }
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = opened ? 'Try again' : 'Show'
-    button.dataset.focusKey = `attachment-${index}`
-    button.title = 'Fetch the encrypted file from where it is stored, check it, and open it here'
-    button.addEventListener('click', async () => {
-      button.disabled = true
-      button.textContent = 'Fetching\u2026'
-      try {
-        if (generation !== roomGeneration) return
-        const location = privateAttachmentLocation(a.url, a.sha256)
-        if (!location && roomUsesBothy) throw new Error('This file uses a public store. Public downloads are held on this Bothy route.')
-        const file = location
-          ? await privateFiles.download(a, new AbortController().signal)
-          : await fetchAttachmentBlob(a)
-        if (generation !== roomGeneration) return
-        const type = file.type.split(';')[0]!.trim().toLowerCase()
-        const isText = type.startsWith('text/') || ['application/json', 'application/xml'].includes(type)
-        // Never execute HTML/SVG/scripts as a document. Text is collapsed and
-        // assigned through textContent, including untrusted markup.
-        const text = isText ? await file.source.text() : undefined
-        if (generation !== roomGeneration) return
-        openedAttachments.set(key, {
-          url: URL.createObjectURL(file.source), name: file.name, type, size: file.size,
-          ...(text !== undefined ? { text } : {}),
-        })
-      } catch (err) {
-        // The reason and nothing else: an error here never carries the key.
-        if (generation !== roomGeneration) return
-        openedAttachments.set(key, { error: describeError(err) })
-      }
-      render()
+  // Before opening, the message's own name (cleaned) and what it claims to be.
+  const closed = cleanFileName(a.name ?? 'Encrypted file')
+  const closedMeta = `${familyLabel({ ext: closed.ext, declaredType: a.type })}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
+  const host = (() => { try { return new URL(a.url).host } catch { return 'the server' } })()
+  const focusInto = (focus: 'first' | 'save' | undefined): void => {
+    if (!focus) return
+    const target = focus === 'save'
+      ? card.querySelector<HTMLElement>('[data-save-warned]')
+      : card.querySelector<HTMLElement>('[data-question]') ?? card.querySelector<HTMLElement>('[data-focus-key]')
+    target?.focus({ preventScroll: true })
+  }
+  const render = (focus?: 'first' | 'save'): void => {
+    paintAttachmentCard(card, {
+      id: key.replace(/[^A-Za-z0-9_-]/g, '_'),
+      index,
+      closedName: closed.name,
+      closedMeta,
+      opened: openedAttachments.get(key),
+      desktop: import.meta.env.VITE_DESKTOP === 'true',
+      formatBytes,
+      openViewer: (file, trigger) => attachmentViewer.open(file, trigger),
+      copyText: copyMessageText,
+      redraw: next => render(next),
+      show: button => { void openAttachment(button) },
     })
-    card.append(button)
-    if (opened && 'error' in opened) {
-      const why = document.createElement('span')
-      why.className = 'why'
-      why.textContent = opened.error
-      card.append(why)
+    focusInto(focus)
+  }
+  const openAttachment = async (button: HTMLButtonElement): Promise<void> => {
+    button.disabled = true
+    // Words, not a flash: "Opening…" only if it takes a moment.
+    const slow = setTimeout(() => { button.replaceChildren('Opening\u2026') }, 300)
+    let opened = false
+    try {
+      if (generation !== roomGeneration) return
+      const location = privateAttachmentLocation(a.url, a.sha256)
+      if (!location && roomUsesBothy) throw new Error('This file uses a public store. Public downloads are held on this Bothy route.')
+      const file = location
+        ? await privateFiles.download(a, new AbortController().signal)
+        : await fetchAttachmentBlob(a)
+      if (generation !== roomGeneration) return
+      // One decision, on the decrypted file, whichever fetch produced it.
+      const head = new Uint8Array(await file.source.slice(0, SNIFF_BYTES).arrayBuffer())
+      const decision = assessAttachment({
+        bytes: head,
+        envelopeName: file.name,
+        declaredType: file.type || a.type || '',
+        ...(a.name !== undefined ? { messageName: a.name } : {}),
+        sender: shownAs(m.participant, m.name).name,
+      })
+      // Text goes through textContent, never as a document. Nothing is read
+      // as text unless the decision allows a text preview.
+      const text = decision.preview === 'text' ? await file.source.text() : undefined
+      if (generation !== roomGeneration) return
+      // Re-wrapped as the type the bytes are, so the browser decodes what is
+      // there and not what the sender said; anything else is opaque.
+      const url = URL.createObjectURL(new Blob([file.source], { type: decision.mime }))
+      openedAttachments.set(key, {
+        url, name: decision.name, type: decision.mime, size: file.size, decision,
+        ...(text !== undefined ? { text } : {}),
+      })
+      opened = true
+    } catch (err) {
+      // The reason and nothing else: an error here never carries the key.
+      if (generation !== roomGeneration) return
+      const why = openingErrorText(err, host)
+      openedAttachments.set(key, { error: why })
+      setStatus(why)
+    } finally {
+      clearTimeout(slow)
     }
+    const hadFocus = document.activeElement === document.body || card.contains(document.activeElement)
+    render(hadFocus && opened ? 'first' : undefined)
   }
   render()
   return card
@@ -19646,10 +19614,12 @@ $('chatForm').addEventListener('submit', async (event) => {
   if ((!typed && attachments.length === 0 && artwork.length === 0) || !session) return
   // A file with nothing said about it still gets a caption, because the
   // caption is all a client that has never heard of attachments will show.
+  // The name is cleaned as a card shows it, so a name built to read
+  // backwards is never repeated in the caption.
   const text =
     typed ||
     (attachments.length === 0 && artwork.length ? artworkFallbackText(artwork) : attachments.length === 1
-      ? `Shared a file${attachments[0]?.name ? `: ${attachments[0].name}` : ''}`
+      ? `Shared a file${attachments[0]?.name ? `: ${cleanFileName(attachments[0].name).name}` : ''}`
       : `Shared ${attachments.length} files`)
   const log = activeChat() ?? session.chat
   const sendOpts: SendOptions = attachments.length ? { attachments } : {}

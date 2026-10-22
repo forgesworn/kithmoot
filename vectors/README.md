@@ -24,6 +24,8 @@ payloads for NIP-44).
 | `verify-schedule.test.ts` | Checks `schedule-vectors.json` against `src/`'s re-exports of the kit. |
 | `meeting-code-password-v1.json` | A meeting code password envelope (docs/meeting-codes.md, "Password"): fixed words, salt, nonce, code, expiry and link, with the PBKDF2 key, additional data and plaintext as intermediates. Generated with `node:crypto` by `generate-meeting-code-password.mjs`; never hand-edited. |
 | `meeting-code-password-v1.test.ts` | Checks that `app/src/meeting-codes.ts` (WebCrypto) seals the exact bytes and opens them. |
+| `attachment-safety-v1.json` | How a received file is judged once it is decrypted: file names in and cleaned names out, first bytes in and sniffed kinds out, name plus declared type plus bytes in and a tier (inline, save, warn, block) and reason out. Hand-written: the expected values are the contract, for any second implementation (Android) to match. |
+| `attachment-safety-v1.test.ts` | Checks `attachment-safety-v1.json` against `src/attachment-safety.ts`. |
 
 ## What the vectors pin - and what they don't
 
