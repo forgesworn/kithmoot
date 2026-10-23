@@ -39,6 +39,9 @@ StateDirectory=kithmoot-codes
 StateDirectoryMode=0700
 UMask=0077
 Environment=MEETING_CODES_STORE=/var/lib/kithmoot-codes/codes.json
+# Your app's own https origins, comma separated. No default: the service
+# refuses to start without them. Replace the example before enabling.
+Environment=MEETING_CODES_ORIGINS=https://meet.example
 # 8093 is Caddy's loopback Tor front onto Blossom (deploy/Caddyfile.kithmoot).
 Environment=PORT=8114
 ExecStart=/usr/bin/node server/meeting-codes.mjs

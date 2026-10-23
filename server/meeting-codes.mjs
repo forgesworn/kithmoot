@@ -49,8 +49,21 @@ const DEFAULT_HOST = '127.0.0.1' // behind Caddy on the same box, see deploy/Cad
 export const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 export const CODE_LENGTH = 8
 
-export const ALLOWED_ORIGINS = Object.freeze(['https://kithmoot.forgesworn.dev', 'https://kithmoot.app'])
-const LINK_PREFIXES = ALLOWED_ORIGINS.map((origin) => `${origin}/j/`)
+/**
+ * The deployer's own app origins, from MEETING_CODES_ORIGINS (comma
+ * separated). There is no default: the service accepts links to, and CORS
+ * requests from, only the origins its operator names.
+ */
+export function parseOrigins(value) {
+  const origins = String(value ?? '').split(',').map((o) => o.trim()).filter(Boolean)
+  if (!origins.length) throw new Error('MEETING_CODES_ORIGINS is not set - refusing to start. Name the https origins your app is served from, comma separated.')
+  for (const origin of origins) {
+    let url
+    try { url = new URL(origin) } catch { throw new Error(`MEETING_CODES_ORIGINS: "${origin}" is not an origin.`) }
+    if (url.protocol !== 'https:' || url.origin !== origin) throw new Error(`MEETING_CODES_ORIGINS: "${origin}" must be an https origin with no path, like https://meet.example.`)
+  }
+  return Object.freeze(origins)
+}
 
 export const MAX_LIVE = 20_000
 export const MAX_TOMBSTONES = 200_000
@@ -140,9 +153,9 @@ export function parseCode(value) {
  * stored is exactly what was validated (URL would percent-encode parts of a
  * fragment, and a parsed-and-reserialised link is not the one the host sent).
  */
-export function validLink(link) {
+export function validLink(link, origins) {
   if (typeof link !== 'string' || link.length > MAX_LINK_LENGTH) return false
-  if (!LINK_PREFIXES.some((prefix) => link.startsWith(`${prefix}#`))) return false
+  if (!origins.some((origin) => link.startsWith(`${origin}/j/#`))) return false
   // No whitespace or control characters anywhere: a link is copied, pasted
   // and handed to openLink, and none of those should meet a surprise.
   // eslint-disable-next-line no-control-regex
@@ -154,7 +167,7 @@ export function validLink(link) {
     return false
   }
   return (
-    ALLOWED_ORIGINS.includes(url.origin) &&
+    origins.includes(url.origin) &&
     url.pathname === '/j/' &&
     url.search === '' &&
     url.username === '' &&
@@ -312,8 +325,8 @@ function createWindows(now) {
  * trusted_proxies configured, discards whatever the client sent), so only
  * the last entry is trusted; anything before it is client-supplied. This
  * holds because the service listens on loopback and only Caddy reaches it,
- * and because /codes is served on kithmoot.forgesworn.dev, which is not
- * behind Cloudflare: the address Caddy sees is the visitor's own. Without
+ * and when the host serving /codes is not behind a CDN or other proxy: then
+ * the address Caddy sees is the visitor's own. Without
  * the header (a direct request in development) the socket address is used.
  *
  * IPv6 addresses are keyed by their /64: one subscriber is routinely given a
@@ -424,19 +437,21 @@ export function loadConfigFromEnv(env = process.env) {
     throw new Error(`PORT must be a valid port number, got "${env.PORT}".`)
   }
   const host = env.HOST || DEFAULT_HOST
-  return { storePath, port, host }
+  const origins = parseOrigins(env.MEETING_CODES_ORIGINS)
+  return { storePath, port, host, origins }
 }
 
 /**
  * Builds the service. Does not listen; main() or a test decides where.
  *
- * config: storePath (required); now() in milliseconds (default Date.now);
+ * config: storePath and origins (both required); now() in milliseconds (default Date.now);
  * log(line) (default stderr); maxLive (20,000), maxTombstones (200,000) and
  * maxCreatedPerDay (2,000); fs and random for
  * tests. Every expiry, sweep and rate window reads now(), so a test can move
  * time without sleeping.
  */
 export function createMeetingCodesServer(config) {
+  const origins = parseOrigins((config.origins ?? []).join(','))
   const now = config.now ?? Date.now
   const log = config.log ?? ((line) => process.stderr.write(`${line}\n`))
   const maxLive = config.maxLive ?? MAX_LIVE
@@ -573,7 +588,7 @@ export function createMeetingCodesServer(config) {
     if (keys.length !== 2 || !keys.includes('expires') || !(sealed || keys.includes('link'))) {
       return send(res, 400, { error: 'body must be exactly {link, expires} or {sealed: true, expires}' })
     }
-    if (sealed ? body.sealed !== true : !validLink(body.link)) {
+    if (sealed ? body.sealed !== true : !validLink(body.link, origins)) {
       return send(res, 400, { error: sealed ? 'sealed must be true' : 'invalid link' })
     }
     const t = nowSeconds()
@@ -709,14 +724,14 @@ export function createMeetingCodesServer(config) {
   }
 
   /**
-   * CORS for the two KithMoot origins only. A request with no Origin is not
+   * CORS for the operator's own origins only. A request with no Origin is not
    * a cross-origin browser request and proceeds without CORS headers; one
    * with any other Origin is refused outright, as in turn-credentials.
    */
   function applyCors(req, res) {
     const origin = req.headers.origin
     if (!origin) return true
-    if (!ALLOWED_ORIGINS.includes(origin)) return false
+    if (!origins.includes(origin)) return false
     res.setHeader('access-control-allow-origin', origin)
     res.setHeader('vary', 'Origin')
     return true

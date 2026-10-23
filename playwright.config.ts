@@ -208,7 +208,10 @@ export default defineConfig({
         // A quiet room's slot is five minutes in a real build; the suite's
         // browsers cannot wait that long for a message, so the acceptance
         // build shortens it. The variable can only shorten, see main.ts.
-        command: `VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        // It also names a code service, mocked by meeting-codes.spec.ts, so
+        // codes stay covered for deployers who run one; the desktop build
+        // below names none, as ForgeSworn's own builds do.
+        command: `VITE_MEETING_CODES_BASE=/codes VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
         url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
         // Never reused unless asked. Several checkouts of this repo run the

@@ -79,10 +79,10 @@ const iceServer = {
 **The secret never reaches the browser.** Minting has to happen somewhere
 that holds `TURN_SECRET` - a small server-side endpoint, a serverless
 function, anything that isn't the client bundle. `server/turn-credentials.mjs`
-is that endpoint for this repo's own default TURN server: a small Node HTTP
+is that endpoint for a deployer's own TURN server: a small Node HTTP
 service that calls `mintTurnCredential` and returns JSON, which
-`app/src/main.ts` fetches from at join time when `TURN_CREDENTIAL_ENDPOINT`
-is configured (see `deploy/README.md`, "Minting TURN credentials for the
+`app/src/main.ts` fetches from at join time only when the app was built
+with `VITE_TURN_CREDENTIAL_ENDPOINT` (there is no default) (see `deploy/README.md`, "Minting TURN credentials for the
 browser", for install and verification steps, and the honest cost of
 leaving it unauthenticated). A room naming its own custom TURN server
 instead still needs its own minting step of some kind - putting the

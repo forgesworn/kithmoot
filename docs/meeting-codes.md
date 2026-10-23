@@ -4,6 +4,22 @@ Status: specification, 16 October 2026. Supersedes the 84-character encrypted
 lookup in [short-invitation-feasibility.md](short-invitation-feasibility.md)
 as the first short-link route; the full link remains the fallback everywhere.
 
+**Since 22 October 2026 ForgeSworn runs no code service.** Codes are a
+feature for people who deploy KithMoot themselves:
+
+- The app offers and looks up codes only when it is built with
+  `VITE_MEETING_CODES_BASE` naming the deployer's service. ForgeSworn's
+  builds name none, so they show no **Get a meeting code** or **Join with
+  code**, and an old code link opens a notice and asks nothing.
+- A code link is the deployer's own join page with `?c=<CODE>`, such as
+  `https://meet.example/j/?c=ABCDEFGH`, and the app accepts a returned link
+  only on the host it was served from.
+- The service takes its origins from `MEETING_CODES_ORIGINS`, with no default
+  (deploy/README.md, "Meeting codes").
+
+Where the sections below name `kithmoot.forgesworn.dev`, `kithmoot.app/c/`
+or the kithmoot.app join form, they describe the retired deployment.
+
 ## What people see
 
 A host taps **Get a meeting code** and can read out or send:

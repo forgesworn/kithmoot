@@ -11,7 +11,7 @@ interface TurnCredentialResponse {
 }
 
 /**
- * Fetches one TURN credential from `<origin>/turn` - the same endpoint,
+ * Fetches one TURN credential from a deployer's endpoint - the same
  * response shape and timeout budget as the web app's own
  * `fetchTurnCredential` in app/src/main.ts (see server/turn-credentials.mjs
  * for what answers it). A malformed or slow response is treated the same
@@ -33,11 +33,11 @@ interface TurnCredentialResponse {
  * so this deliberately sends none, the same as any other server-side
  * caller of this endpoint.
  */
-async function fetchTurnCredential(origin: string, fetchImpl: typeof fetch): Promise<TurnCredentialResponse | undefined> {
+async function fetchTurnCredential(endpoint: string, fetchImpl: typeof fetch): Promise<TurnCredentialResponse | undefined> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
-    const res = await fetchImpl(new URL('/turn', origin).href, { signal: controller.signal })
+    const res = await fetchImpl(endpoint, { signal: controller.signal })
     if (!res.ok) return undefined
     const body = (await res.json()) as Partial<TurnCredentialResponse>
     if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) return undefined
@@ -54,6 +54,10 @@ export interface ResolveNodeIceOptions {
    *  `join`, or `--base` for `create`. Anything `new URL` accepts as a
    *  base; only its `protocol`, `hostname` and origin are read. */
   origin: string
+  /** A TURN credential endpoint the deployer runs, resolved against
+   *  `origin` (`KITHMOOT_TURN_ENDPOINT`). There is no default: without one
+   *  no credential is asked for anywhere, and only STUN is derived. */
+  turnEndpoint?: string
   /** Injectable for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch
 }
@@ -62,14 +66,15 @@ export interface ResolveNodeIceOptions {
  * The Node equivalent of `resolveIceServers` in app/src/main.ts, for an
  * agent or keeper joining or creating a room with no explicit `--ice` /
  * `KITHMOOT_ICE` and no ICE servers of the room's own to fall back to: it
- * derives this origin's own STUN/TURN rather than leaving the process on
+ * derives this origin's own STUN (and TURN, from `turnEndpoint` only)
+ * rather than leaving the process on
  * host candidates alone, which is a real regression for an agent run on an
  * ordinary home connection behind NAT (docs/decisions.md, 2026-09-13,
  * covers why the old Google default was removed everywhere; this is what
  * replaces it here).
  *
  * Mirrors the browser's own priority order exactly: the minted TURN
- * credential's own host when `/turn` answers (`turn:host:port` becomes
+ * credential's own host when `turnEndpoint` answers (`turn:host:port` becomes
  * `stun:host:port`, via `stunFromTurnUrl` - coturn answers STUN on the
  * same listener it answers TURN on), or a same-host guess on the standard
  * port 3478 when it doesn't, restricted to a non-loopback `https:` origin
@@ -84,7 +89,7 @@ export async function resolveNodeIceServers(opts: ResolveNodeIceOptions): Promis
   const fetchImpl = opts.fetchImpl ?? fetch
   const origin = new URL(opts.origin)
 
-  const credential = await fetchTurnCredential(origin.origin, fetchImpl)
+  const credential = opts.turnEndpoint ? await fetchTurnCredential(new URL(opts.turnEndpoint, origin).href, fetchImpl) : undefined
   if (credential) {
     const stunUrls = [...new Set(credential.urls.map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
     return {

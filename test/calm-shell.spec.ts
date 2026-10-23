@@ -258,7 +258,9 @@ test('Ctrl+K finds a chat, typing filters, Ctrl+1 and 3 switch destinations and 
   } finally { await context.close() }
 })
 
-test('the New menu opens with Enter, moves with the arrows, closes with Escape and returns focus to New', async ({ browser, baseURL }) => {
+test('the New menu opens with Enter, moves with the arrows, closes with Escape and returns focus to New', async ({ browser, baseURL }, testInfo) => {
+  // The desktop test build names no code service, so it has no code item.
+  const codes = testInfo.project.name !== 'chromium-desktop'
   const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
   try {
     await page.goto(baseURL!)
@@ -272,7 +274,7 @@ test('the New menu opens with Enter, moves with the arrows, closes with Escape a
     await expect(menu).toBeVisible()
     await expect(opener).toHaveAttribute('aria-expanded', 'true')
     // Signed out: no "Message a contact".
-    await expect(menu.getByRole('menuitem')).toHaveText(['New room', 'Open an invite link…', 'Join with a code…', 'New project…', 'Projects…'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['New room', 'Open an invite link…', ...(codes ? ['Join with a code…'] : []), 'New project…', 'Projects…'])
     await expect(menu.getByRole('menuitem', { name: 'New room' })).toBeFocused()
     await page.keyboard.press('ArrowDown')
     await expect(menu.getByRole('menuitem', { name: 'Open an invite link…' })).toBeFocused()
@@ -280,8 +282,10 @@ test('the New menu opens with Enter, moves with the arrows, closes with Escape a
     await expect(menu.getByRole('menuitem', { name: 'Projects…' })).toBeFocused()
     await page.keyboard.press('ArrowDown')
     await expect(menu.getByRole('menuitem', { name: 'New room' })).toBeFocused()
-    await page.keyboard.press('j')
-    await expect(menu.getByRole('menuitem', { name: 'Join with a code…' })).toBeFocused()
+    if (codes) {
+      await page.keyboard.press('j')
+      await expect(menu.getByRole('menuitem', { name: 'Join with a code…' })).toBeFocused()
+    }
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     await expect(opener).toBeFocused()
@@ -382,15 +386,22 @@ test('in forced colours the selected rail item and the selected chat row keep a 
   } finally { await context.close() }
 })
 
-test('a first run is one sentence and three ways in: no list, no People, no counts', async ({ browser, baseURL }) => {
+test('a first run is one sentence and three ways in: no list, no People, no counts', async ({ browser, baseURL }, testInfo) => {
+  // The web test build names a code service; the desktop one, like
+  // ForgeSworn's own builds, names none and must not offer codes or ask
+  // any service for one, or for a TURN credential.
+  const codes = testInfo.project.name !== 'chromium-desktop'
   const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 }, { empty: true })
+  const services: string[] = []
+  page.on('request', r => { const path = new URL(r.url()).pathname; if (/^\/(codes|turn)(\/|$)/.test(path)) services.push(path) })
   try {
     await page.goto(baseURL!)
     await expect(page.getByRole('heading', { name: 'Start a room, then send the link.' })).toBeVisible()
     await expect(page.getByText('Messages, files and calls for your people and your agents. No account needed.')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Start a room' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Open an invite link' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Join with a code' })).toBeVisible()
+    if (codes) await expect(page.getByRole('button', { name: 'Join with a code' })).toBeVisible()
+    else await expect(page.getByRole('button', { name: 'Join with a code' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Already on Nostr? Sign in' })).toBeVisible()
     await expect(page.locator('#rooms')).toBeHidden()
     await expect(page.locator('#railPeople')).toBeHidden()
@@ -403,15 +414,18 @@ test('a first run is one sentence and three ways in: no list, no People, no coun
     await page.getByRole('button', { name: 'Open an invite link' }).click()
     await expect(page.locator('#url')).toBeVisible()
     await page.keyboard.press('Escape')
-    await page.getByRole('button', { name: 'Join with a code' }).click()
-    await expect(page.locator('#meetingCodeInput')).toBeVisible()
-    await page.keyboard.press('Escape')
+    if (codes) {
+      await page.getByRole('button', { name: 'Join with a code' }).click()
+      await expect(page.locator('#meetingCodeInput')).toBeVisible()
+      await page.keyboard.press('Escape')
+    }
     // A phone has no rail and a first run no list header: Settings still has
     // a place, because somebody who needs bigger text needs it first.
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.locator('#settingsPane')).toBeVisible()
+    if (!codes) expect(services).toEqual([])
   } finally { await context.close() }
 })
 

@@ -27,7 +27,8 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(here, 'meeting-codes.mjs')
 
-const LINK = 'https://kithmoot.forgesworn.dev/j/#r=room-secret-fragment&k=0123456789abcdef'
+const ORIGINS = ['https://kithmoot.example', 'https://meet.example']
+const LINK = 'https://kithmoot.example/j/#r=room-secret-fragment&k=0123456789abcdef'
 const T0 = Date.UTC(2026, 9, 16, 12, 0, 0)
 const T0S = Math.floor(T0 / 1000)
 
@@ -55,6 +56,7 @@ function clock(start = T0) {
 async function startServer(overrides = {}) {
   const lines = []
   const config = {
+    origins: ORIGINS,
     storePath: overrides.storePath ?? tempStore(),
     now: overrides.now ?? clock(),
     log: (line) => lines.push(line),
@@ -140,23 +142,23 @@ describe('code format', () => {
 describe('link validation', () => {
   it.each([
     [LINK, true],
-    ['https://kithmoot.app/j/#x', true],
-    ['https://kithmoot.forgesworn.dev/j/#', false], // empty fragment
-    ['https://kithmoot.forgesworn.dev/j/', false],
-    ['https://kithmoot.forgesworn.dev/j/?a=1#x', false],
-    ['https://kithmoot.forgesworn.dev/j#x', false],
-    ['https://kithmoot.forgesworn.dev/j/x#x', false],
-    ['https://kithmoot.forgesworn.dev/#x', false],
-    ['https://user:pw@kithmoot.forgesworn.dev/j/#x', false],
-    ['https://kithmoot.forgesworn.dev:444/j/#x', false],
-    ['http://kithmoot.forgesworn.dev/j/#x', false],
+    ['https://meet.example/j/#x', true],
+    ['https://kithmoot.example/j/#', false], // empty fragment
+    ['https://kithmoot.example/j/', false],
+    ['https://kithmoot.example/j/?a=1#x', false],
+    ['https://kithmoot.example/j#x', false],
+    ['https://kithmoot.example/j/x#x', false],
+    ['https://kithmoot.example/#x', false],
+    ['https://user:pw@kithmoot.example/j/#x', false],
+    ['https://kithmoot.example:444/j/#x', false],
+    ['http://kithmoot.example/j/#x', false],
     ['https://evil.example/j/#x', false],
-    ['https://kithmoot.app.evil.example/j/#x', false],
-    ['https://kithmoot.app/j/#a b', false],
-    [`https://kithmoot.app/j/#${'a'.repeat(4096)}`, false],
+    ['https://meet.example.evil.example/j/#x', false],
+    ['https://meet.example/j/#a b', false],
+    [`https://meet.example/j/#${'a'.repeat(4096)}`, false],
     [42, false],
   ])('%j -> %j', (link, ok) => {
-    expect(validLink(link)).toBe(ok)
+    expect(validLink(link, ORIGINS)).toBe(ok)
   })
 })
 
@@ -170,11 +172,20 @@ describe('configuration', () => {
   })
 
   it('defaults to loopback on 8114', () => {
-    expect(loadConfigFromEnv({ MEETING_CODES_STORE: '/x/codes.json' })).toEqual({
+    expect(loadConfigFromEnv({ MEETING_CODES_STORE: '/x/codes.json', MEETING_CODES_ORIGINS: 'https://meet.example' })).toEqual({
       storePath: '/x/codes.json',
       host: '127.0.0.1',
       port: 8114,
+      origins: ['https://meet.example'],
     })
+  })
+
+  it('has no default origins, and takes only https origins with no path', () => {
+    expect(() => loadConfigFromEnv({ MEETING_CODES_STORE: '/x/codes.json' })).toThrow(/MEETING_CODES_ORIGINS is not set/)
+    for (const bad of ['http://meet.example', 'https://meet.example/j/', 'meet.example']) {
+      expect(() => loadConfigFromEnv({ MEETING_CODES_STORE: '/x/codes.json', MEETING_CODES_ORIGINS: bad }), bad).toThrow(/MEETING_CODES_ORIGINS/)
+    }
+    expect(() => createMeetingCodesServer({ storePath: tempStore(), log: () => {} })).toThrow(/MEETING_CODES_ORIGINS is not set/)
   })
 
   it('refuses with a clear message when run directly without a store', () => {
@@ -715,7 +726,7 @@ describe('storage', () => {
     fs.writeFileSync(storePath, `{"version":1,"records":[{"code":"ABCDEFGH","link":"${LINK}"`)
     let message = ''
     try {
-      createMeetingCodesServer({ storePath, log: () => {} })
+      createMeetingCodesServer({ storePath, origins: ORIGINS, log: () => {} })
     } catch (err) {
       message = err.message
     }
@@ -814,7 +825,7 @@ describe('HTTP surface', () => {
       await request('GET', `/codes/${otherCode(code)}`),
       await request('GET', '/codes/nonsense'),
       await request('DELETE', `/codes/${code}`),
-      await request('OPTIONS', '/codes', { headers: { origin: 'https://kithmoot.app' } }),
+      await request('OPTIONS', '/codes', { headers: { origin: 'https://meet.example' } }),
     ]) {
       expect(res.headers.get('cache-control')).toBe('no-store')
     }
@@ -822,12 +833,12 @@ describe('HTTP surface', () => {
 
   it('allows only the two KithMoot origins', async () => {
     const { create, request } = await startServer()
-    for (const origin of ['https://kithmoot.forgesworn.dev', 'https://kithmoot.app']) {
+    for (const origin of ['https://kithmoot.example', 'https://meet.example']) {
       const res = await create(undefined, { headers: { origin } })
       expect(res.status).toBe(201)
       expect(res.headers.get('access-control-allow-origin')).toBe(origin)
     }
-    for (const origin of ['https://evil.example', 'http://kithmoot.app', 'https://kithmoot.app.evil.example', 'null']) {
+    for (const origin of ['https://evil.example', 'http://meet.example', 'https://meet.example.evil.example', 'null']) {
       const res = await request('GET', '/codes/ABCDEFGH', { headers: { origin } })
       expect(res.status).toBe(403)
       expect(res.headers.get('access-control-allow-origin')).toBeNull()
@@ -836,7 +847,7 @@ describe('HTTP surface', () => {
 
   it('answers a preflight for POST with JSON and DELETE with a bearer token', async () => {
     const { request } = await startServer()
-    const origin = 'https://kithmoot.forgesworn.dev'
+    const origin = 'https://kithmoot.example'
     const post = await request('OPTIONS', '/codes', { headers: { origin } })
     expect(post.status).toBe(204)
     expect(post.headers.get('access-control-allow-methods')).toContain('POST')
