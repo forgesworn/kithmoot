@@ -1,0 +1,56 @@
+{
+  "checkedAt": "2026-10-23T11:50:13.519Z",
+  "method": "Local static files, Chromium, JavaScript disabled, external requests blocked",
+  "pages": [
+    {
+      "page": "privacy",
+      "width": 390,
+      "title": "Privacy notice",
+      "overflow": false
+    },
+    {
+      "page": "privacy",
+      "width": 1280,
+      "title": "Privacy notice",
+      "overflow": false
+    },
+    {
+      "page": "terms",
+      "width": 390,
+      "title": "Terms of use",
+      "overflow": false
+    },
+    {
+      "page": "terms",
+      "width": 1280,
+      "title": "Terms of use",
+      "overflow": false
+    },
+    {
+      "page": "report",
+      "width": 390,
+      "title": "Report abuse or illegal content",
+      "overflow": false
+    },
+    {
+      "page": "report",
+      "width": 1280,
+      "title": "Report abuse or illegal content",
+      "overflow": false
+    },
+    {
+      "page": "check",
+      "width": 390,
+      "title": "Check it yourself",
+      "overflow": false
+    },
+    {
+      "page": "check",
+      "width": 1280,
+      "title": "Check it yourself",
+      "overflow": false
+    }
+  ],
+  "missingAssets": [],
+  "publicDeploymentVerified": false
+}

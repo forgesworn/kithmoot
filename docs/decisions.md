@@ -2432,8 +2432,11 @@ not used. A room whose link names its own servers keeps exactly those.
 There is still no default relay (TURN). Nobody gives one away without an
 account, the open services that once did are gone, and a relay on a
 ForgeSworn account would make ForgeSworn the one deciding who may use it.
-A person or group brings their own. ForgeSworn's STUN server keeps
-answering until the desktop app (0.1.102) and the Android app (0.6.106)
-have moved to the same default: the desktop app serves its own bundled
-copy of the web app, so a web deploy does not change it. Closing it is a
-separate decision.
+A person or group brings their own. The former public STUN listener stopped
+on 23 October 2026, confirmed by host readback. Desktop through 0.1.101 and
+Android through 0.6.105 may still ask it until desktop 0.1.102 and Android
+0.6.106 move to the same default: the desktop app serves its own bundled
+copy of the web app, so a web deploy does not change it. A separate
+authenticated private call relay remains for an arranged call; it is not
+an app default or a public credential issuer. See the closure record and
+call-transport position for the distinction and the open operator input.
