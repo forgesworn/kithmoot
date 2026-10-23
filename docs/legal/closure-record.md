@@ -40,7 +40,7 @@ credential service, were both committed on 24 August 2026.
 | September 2026 | The relay ForgeSworn also runs stopped being a default | Release notes on the site; exact date not checked |
 | 21 October 2026 | `/drops` no longer fronted; the tier runs on the box's loopback only | `deploy/Caddyfile.kithmoot` on `main` has no `/drops` route; loopback-only is the host's report |
 | 22 October 2026 | New file uploads and `/codes` answer 410 Gone; the meeting code service stopped | Host's report; `deploy/Caddyfile.kithmoot` on `main` since PR #526 |
-| 22 October 2026 | The relay ForgeSworn also runs closed to an allowlist of the operator's own keys, reads and writes, behind relay authentication (NIP-42) | Host's report |
+| 22 October 2026 | The relay ForgeSworn also runs closed to an allowlist of keys held for project work, reads and writes, behind relay authentication (NIP-42). One exception: anybody may send a sealed message or a remote-signer request addressed only to those keys, so the project can be contacted; strangers cannot read anything or reach each other | Host's report; exception checked against the live write policy 23 October 2026 |
 | 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front on ForgeSworn's host, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
 | 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
 | 22 October 2026, about 19:40 UTC | The trash folder emptied: the stored files and the meeting-code store deleted | Host's report |
@@ -100,8 +100,11 @@ credential and retires a stored ForgeSworn file server
   Neither lets one user's content reach another.
 
 ForgeSworn's own services that are not for KithMoot users, including the
-relay above now that it is closed to the operator's own keys, are out of
-scope here.
+relay above, are out of scope here. That relay is closed to keys held for
+project work, except that strangers may send sealed messages addressed only
+to those keys; it is treated as the project's inbox, not a service to the
+public (jurisdiction-kit `gb/online-services` 2.12, a reading that is not
+settled).
 
 **Contact.** `abuse@safety.forgesworn.dev` stays as the contact for anything
 about data ForgeSworn still holds, such as a request to delete a stored
