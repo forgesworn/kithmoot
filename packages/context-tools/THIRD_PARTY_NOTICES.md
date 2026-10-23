@@ -93,9 +93,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-## zod@4.5.4
+## zod@4.6.7
 
-Declared licence: MIT. Source package: https://www.npmjs.com/package/zod/v/4.5.4
+Declared licence: MIT. Source package: https://www.npmjs.com/package/zod/v/4.6.7
 
 ```text
 MIT License
