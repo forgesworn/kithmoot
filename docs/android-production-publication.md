@@ -6,6 +6,24 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.107 calls ready at room open, 23 October 2026
+
+Version **0.6.107**, code **130**. Opening a room no longer waits about a
+minute before audio and video can start. Each open recorded every one of
+the person's own messages for NIP-77 in a separate IO job that rewrote two
+encrypted stores behind their locks, and those jobs held every IO thread
+(kithmoot-android #319). The in-call relay notice names a call relay and
+Settings › Connections, and shows for a link still trying after 20 seconds
+(kithmoot-android #318, the web's #553). No wire change.
+
+The production APK is built from Android source `a20a7b0a` (the head of pull
+request #319), SHA-256
+`13878b2eaabcb4dbfa3eb23575836ae626899ee20b26b6238e83cad73b5ad38a`, 73,819,919
+bytes, signed with the retained production certificate. Installed over 0.6.106
+on a Pixel with its data. Opening the same room went from 57-65 s
+between "media build begins" and "ice resolved" to 54 ms and 21 ms, and leaving
+from 72 s to 57 ms.
+
 ## Android 0.6.106 Cloudflare STUN and group storage, 23 October 2026
 
 Version **0.6.106**, code **129**. Calls ask Cloudflare's public STUN server
