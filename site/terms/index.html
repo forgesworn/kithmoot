@@ -34,14 +34,14 @@
 <ul>
 <li>serves the web app, this website and the downloads as static files;</li>
 <li>serves the update information the desktop app checks for;</li>
-<li>answers STUN for the Android app, which tells a device its own public address so a call can connect directly. It carries no messages, files or call media. The web app and the desktop app use a STUN server run by Cloudflare instead.</li>
+<li>still answers STUN, which the Android app asks by default. STUN tells a device its own public address so a call can connect directly, and carries no messages, files or call media. The web app, the desktop app and kithmoot-agent use a STUN server run by Cloudflare instead.</li>
 </ul>
 <p>Until 22 October 2026 we also ran a call relay (TURN), a file store, a message-drop service and meeting codes for anyone using the app, and until September 2026 one of the default relays was ours. Those are closed. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
 
 <h2>3. Who runs your rooms</h2>
 <ul>
 <li>Rooms travel over Nostr relays run by other people. The app suggests public relays by default; a room's creator can choose others.</li>
-<li>To help a call connect directly, the web app and the desktop app ask a public STUN server run by Cloudflare for your device's address. A room can name its own call servers instead.</li>
+<li>To help a call connect directly, the web app, the desktop app and kithmoot-agent ask a public STUN server run by Cloudflare for your device's address. A room can name its own call servers instead.</li>
 <li>In the web app and the desktop app, files you send go by default to a public file server run by somebody else (section 4), or to a server you choose.</li>
 <li>A room's link is its access control. Whoever creates a room decides who to send it to.</li>
 <li>Whoever runs a relay, a file server, a call relay or a keeper for a room is responsible for what they run. If you run KithMoot or any of those yourself, that deployment is yours.</li>
