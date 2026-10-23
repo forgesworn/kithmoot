@@ -21,7 +21,7 @@ credential service, were both committed on 24 August 2026.
 | --- | --- |
 | TURN credentials, `GET /turn`, and the TURN server | Minted a short-lived call relay credential for anyone who asked, and relayed calls |
 | STUN | Told a device its own public address, on the same server as TURN |
-| File store (Blossom) | Took encrypted uploads from any signing key; served them by hash, on the public host and a read-only onion front |
+| File store (Blossom) | Took encrypted uploads from any signing key; served them by hash, on the public host and a read-only onion front; until 23 October 2026 also from two mirror nodes on the owner's own machines, which served them by hash over Tor |
 | Meeting codes, `/codes` | Stored room links behind short codes |
 | Drop tier, `/drops` | Held sealed messages for later delivery |
 | A relay | Was a default relay until September 2026 |
@@ -35,10 +35,10 @@ credential service, were both committed on 24 August 2026.
 | 21 October 2026 | `/drops` no longer fronted; the tier runs on the box's loopback only | `deploy/Caddyfile.kithmoot` on `main` has no `/drops` route; loopback-only is the host's report |
 | 22 October 2026 | New file uploads and `/codes` answer 410 Gone; the meeting code service stopped | Host's report; `deploy/Caddyfile.kithmoot` on `main` since PR #526 |
 | 22 October 2026 | The relay ForgeSworn also runs closed to an allowlist of the operator's own keys, reads and writes, behind relay authentication (NIP-42) | Host's report |
-| 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
+| 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front on ForgeSworn's host, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
 | 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
 | 22 October 2026, about 19:40 UTC | The trash folder emptied: the stored files and the meeting-code store deleted | Host's report |
-| 23 October 2026, about 01:45 UTC | The two archive nodes on the owner's own machines, which mirrored the file store over Tor, stopped with the jobs that fed them; their copies, 86 encrypted files of about 170 MB on each, deleted | Checked on both machines: the nodes answered an unauthenticated read by hash until they stopped, and no copy is left in their data folders |
+| 23 October 2026, about 01:45 UTC | The two archive nodes on the owner's own machines, which mirrored the file store over Tor, stopped with the jobs that fed them; their copies, 86 encrypted files of about 170 MB on each, deleted | Checked on both machines: the nodes answered an unauthenticated read by hash until they stopped; their data folders were moved to the trash at about 01:45 UTC and the trash emptied at [INPUT: time, on both machines] |
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
@@ -49,9 +49,10 @@ credential and retires a stored ForgeSworn file server
 ## 3. What remains
 
 - **Stored files.** Deleted on 22 October 2026: the 84 encrypted blobs,
-  about 164 MB. The archive nodes' copies, 86 files including two the
-  store had already dropped, were deleted on 23 October 2026 (section 2).
-  ForgeSworn holds no copy.
+  about 164 MB. The archive nodes' copies, 86 files, two more than the
+  store held when it closed, were deleted on 23 October 2026 (section 2).
+  ForgeSworn holds no copy on its server or in the nodes' data folders.
+  Machine backups of the owner's own machines were not checked.
 - **STUN on ForgeSworn's host.** The app derives `stun:<host>:3478` from
   the host that served it (`src/ice-defaults.ts`, `originStunGuess`), and
   Android 0.6.103 keeps STUN there. When the app is loaded from
@@ -113,8 +114,8 @@ reading: that what it ran could be a user-to-user service with UK links
 A new service owes its illegal content risk assessment three months after
 launch (law note 2.4, `[P]`) and its children's access assessment on the
 same timetable (2.4, `[S]`). From 24 August 2026 both fell due on 24
-November 2026. The open surfaces closed on 22 October 2026, before that
-date.
+November 2026. The last open surface, the mirror nodes' onion fronts,
+closed on 23 October 2026, before that date.
 
 Reading: a service that stops being provided before its deadline owes no
 assessment for it. `[U]`: the law note has no source on a service that
