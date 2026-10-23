@@ -1,0 +1,8 @@
+{
+  "pin": "4cab546c6117ce5dfd28b86a4ddcd4cd943978f5",
+  "allNodesConfiguredLeafOnly": true,
+  "daemonReportsAllLeafOnly": true,
+  "topology": "left -- leaf-only transit -- right; loopback UDP only",
+  "transitDelivered": true,
+  "meaning": "Do not rely on leaf_only as an enforced no-transit boundary"
+}
