@@ -35,6 +35,7 @@ const vault = new CoordinatedMlsVault(host)
 let roomRoute = '', box = '', device = '', installation = '79'.repeat(32), mode = '', phase = '', calls = 0, confirmations = 0, starts = 0, stops = 0
 let released: (() => void) | undefined, task: Promise<unknown> | undefined, result: unknown
 let lastRequest = '', transportError = '', deposits = 0
+let ceremonyStartedAt: number | undefined
 const heldPhases = new Set<string>(), slotRecords = new Map<string, { envelope: Uint8Array; attempt: number; receipt: Uint8Array }>()
 const path = { status: 'up', relay: null, direct: null, cause: '' }
 async function hold(at: string) { phase = at; if (!heldPhases.has(at) && (mode === 'hold-' + at || mode === 'manual-hold-' + at)) { heldPhases.add(at); await new Promise<void>(resolve => { released = resolve }) } }
@@ -162,10 +163,12 @@ export async function pair(uri: string, expectedBox: string) {
   return answer
 }
 export function start(lifetime = 86400, route = roomRoute) {
+  ceremonyStartedAt = Date.now()
   task = owner.create(route, 'Actual owner room', lifetime).then(value => { result = value; return value }, error => { result = { error: error.message }; return result })
 }
 export function finish() { return task }
 export function manual(session: string, route = roomRoute) {
+  ceremonyStartedAt = Date.now()
   task = owner.manualRound(route, session).then(value => { result = value; return value }, error => { result = { error: error.message }; return result })
 }
 export async function queue(session: string) {
@@ -207,7 +210,13 @@ export function interrupt(kind: string) {
   if (kind === 'generation') context = { ...context, generation: context.generation + '1' }
   if (kind === 'mode') context = { ...context, mode: 'quiet' }
   if (kind === 'key') deviceKey[0] ^= 1
-  if (kind === 'rollback') { const now = Date.now(); Date.now = () => now - 1000 }
+  if (kind === 'rollback') {
+    // Roll back before this ceremony's first observation, even if time passed
+    // while its cleanup was held without another clock read.
+    const before = ceremonyStartedAt
+    if (before === undefined) throw new Error('Start a ceremony before rolling its clock back')
+    Date.now = () => before - 1
+  }
   if (kind === 'deadline') { const now = Date.now(); Date.now = () => now + 600_000 }
   if (kind === 'hidden') Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
 }
