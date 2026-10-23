@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.101",
+  "currentRelease": "0.1.102",
   "releases": [
     {
-      "version": "0.1.101",
+      "version": "0.1.102",
       "updateTo": {
-        "version": "0.1.101",
-        "pub_date": "2026-10-22T22:38:23Z",
-        "notes": "A room whose keeper lists the group\u2019s own storage keeps its files there, for the room\u2019s admitted devices only.",
-        "name": "0.1.101",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.101/KithMoot-0.1.101-mac-arm64.zip",
-        "sha256": "a8e800907f77fc336932aa38c3cfffd71ab0481888a4c93bc05a1667132ff2cb",
-        "size": 170903038
+        "version": "0.1.102",
+        "pub_date": "2026-10-23T09:29:44Z",
+        "notes": "Calls use Cloudflare\u2019s public STUN server instead of ForgeSworn\u2019s, or your own; you can also save your own call relay.",
+        "name": "0.1.102",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.102/KithMoot-0.1.102-mac-arm64.zip",
+        "sha256": "4064d892719f525f5f7954569ef4afe78b3935b12bcf6eb09973443eab4b8ab7",
+        "size": 170904028
       }
     }
   ]
