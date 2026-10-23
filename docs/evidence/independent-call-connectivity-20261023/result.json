@@ -1,0 +1,263 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "label": "Local product TURN/TLS interoperability and explicit participant transport replacement; not independent operation, Internet or OSA acceptance",
+  "sourceParentCommit": "e1bd5935bee3c7b5ff04b60de854349b052df01b",
+  "sourceSha256": {
+    "test/independent-calls.spec.ts": "48fe6e39ac70ee36039cb087b4d8be2177d93f547d61117a359bf6e6486842f8",
+    "test/independent-call-fixture.py": "602c8422c1c663de128683f1f44ac98e97bc63e35a733d07c95f6dc0e5fa7901",
+    "playwright.independent-calls.config.ts": "6dbbd1177a969fbeba8ce4fd5c1a620feb140a088888d7fc98608c2147424b2f",
+    "playwright.publisher.config.ts": "448ab37b751fe86cdae0076dcddb4987c6a877afdea7affd48d96a11fdb0277c",
+    ".github/workflows/ci.yml": "e43501f10a0be843cd9ab09f13f8be65ecfde757bdc5a16d4b462f0b1a880556",
+    "package.json": "7722aeada6b1024da17810ef4b3571cc3c8f5f523595bf461e89b43f4c741bf8",
+    "package-lock.json": "3688c3653ad59be4f6908b6f9b08df231172feb4b10adae3fb8e01ed45abd63d",
+    "app/src/main.ts": "8bac1d516d96a6e306a1747b54cae79612515c37765ade59024db17909c11fbf",
+    "app/src/call-relay.ts": "c622280fb105be36d460102dfb592083b6557433deda1d5ad59c3e1b7bcc60ab",
+    "app/src/ice-resolve.ts": "dd0eaab32a9a505e50e62379b1fe1e58a3149697ed239fc33ad2d9ed86b2c754",
+    "app/src/relay-only.ts": "1f89a425f19ac8e304b796cbd5ca96c3f27d13a913641f0a396ac822ea6a87f9",
+    "test/browser.ts": "c163f4bed95a5ed243aaad8c501023b5d84c0b9efc86a5860036d6c1aedd4d27",
+    "test/relays.ts": "596b5bc6a4155638f57a808ca4c7cfb9f663a2ba6c5cf3019e7be9591fbf724c"
+  },
+  "environment": {
+    "os": "macOS-14.6.1-arm64-arm-64bit-Mach-O",
+    "node": "v24.21.0",
+    "chromium": "151.0.7922.34",
+    "dependencies": "Reused original web checkout installation; no fresh npm ci",
+    "coturnImage": "coturn/coturn:4.17.2-r0",
+    "coturnRepoDigest": "coturn/coturn@sha256:aa68aab64a3b929d57fc2924c98ea447bf996cf8dade2508e7b71eaf23f1f14e",
+    "viewport": {
+      "width": 1920,
+      "height": 1080,
+      "layout": "Gallery selected through product More/Layout menu; off-page cameras refused"
+    }
+  },
+  "independentCalls": {
+    "stats": {
+      "startTime": "2026-10-23T16:12:59.051Z",
+      "duration": 72555.973,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "cases": [
+      {
+        "title": "participants use separate TLS call servers, group-call and replace a failed server without replacing the room",
+        "status": "passed",
+        "durationMs": 58756
+      }
+    ],
+    "boundedEvidence": {
+      "transport": "TLS over TCP only from browsers to TURN; UDP between TURN instances",
+      "publisherRuntimeAvailable": false,
+      "instanceCount": 2,
+      "participants": 3,
+      "oneToOne": [
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 130977,
+            "frames": 42,
+            "audioEnergy": 0.13744313617789147,
+            "mediaEpoch": "IT01A1816400804|IT01V3858055549"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 214407,
+            "frames": 63,
+            "audioEnergy": 0.28074586040336713,
+            "mediaEpoch": "IT01A1010900469|IT01V2765479983"
+          }
+        ]
+      ],
+      "group": [
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 692602,
+            "frames": 222,
+            "audioEnergy": 0.9744381204827023,
+            "mediaEpoch": "IT01A1816400804|IT01V3858055549"
+          },
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 357203,
+            "frames": 107,
+            "audioEnergy": 0.40995873283180945,
+            "mediaEpoch": "IT01A2344840274|IT01V3121812925"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 871760,
+            "frames": 244,
+            "audioEnergy": 1.1154904486206803,
+            "mediaEpoch": "IT01A1010900469|IT01V2765479983"
+          },
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 369961,
+            "frames": 107,
+            "audioEnergy": 0.40427425874727496,
+            "mediaEpoch": "IT01A1660918740|IT01V1131163407"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 497953,
+            "frames": 143,
+            "audioEnergy": 0.6530400642292654,
+            "mediaEpoch": "IT01A2888827767|IT01V2060802917"
+          },
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 409885,
+            "frames": 123,
+            "audioEnergy": 0.5623889490121724,
+            "mediaEpoch": "IT01A1372708142|IT01V2556776974"
+          }
+        ]
+      ],
+      "restored": [
+        [
+          {
+            "peer": 0,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 389224,
+            "frames": 116,
+            "audioEnergy": 0.535809564562342,
+            "mediaEpoch": "IT01A2525130125|IT01V734285448"
+          },
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 420069,
+            "frames": 123,
+            "audioEnergy": 0.5716678192378306,
+            "mediaEpoch": "IT01A2319417091|IT01V3760263706"
+          }
+        ],
+        [
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 1290242,
+            "frames": 379,
+            "audioEnergy": 1.6517551789578582,
+            "mediaEpoch": "IT01A1660918740|IT01V1131163407"
+          },
+          {
+            "peer": 2,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 400464,
+            "frames": 116,
+            "audioEnergy": 0.4931595031712564,
+            "mediaEpoch": "IT01A3072590699|IT01V133534816"
+          }
+        ],
+        [
+          {
+            "peer": 1,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 1314589,
+            "frames": 393,
+            "audioEnergy": 1.8198009388470469,
+            "mediaEpoch": "IT01A1372708142|IT01V2556776974"
+          },
+          {
+            "peer": 2,
+            "local": "relay",
+            "remote": "relay",
+            "relayProtocol": "tls",
+            "bytes": 409888,
+            "frames": 125,
+            "audioEnergy": 0.49420862286546846,
+            "mediaEpoch": "IT01A3715076865|IT01V3970003324"
+          }
+        ]
+      ],
+      "chatDuringTransportOutage": true,
+      "roomLinkReplaced": false,
+      "providerReplacement": "explicit device Settings then reopen; not automatic failover",
+      "subsequentReconnectCycles": 3,
+      "directCandidatesAllowed": false,
+      "externalRequests": [],
+      "separateNetworks": false,
+      "publicCertificateQualified": false,
+      "publicProviderSelected": false,
+      "guestSetupRemoved": false,
+      "legalExemptionEstablished": false
+    }
+  },
+  "publisherRegression": {
+    "stats": {
+      "startTime": "2026-10-23T15:51:18.100Z",
+      "duration": 45415.511,
+      "expected": 5,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "explicitPortEnvironmentRequired": false
+  },
+  "typecheck": "passed",
+  "productionBuild": "passed; includes pinned native web assets and no-telemetry-marker check",
+  "hostedCI": "not run",
+  "legalReview": {
+    "sharedNotesRevision": "924320346136fd34c49dc01a05ff620f26d252b3",
+    "verified": "2026-09-28",
+    "relevantUpdates": "2026-10-23",
+    "reviewer": "Existing user-requested legal review agent; no external adviser contacted",
+    "finding": "Strengthens transport/application separation; application to actual offering remains U"
+  },
+  "limitations": [
+    "One host and Docker network, one test operator",
+    "Manual per-device credentials and saved privacy/profile preferences",
+    "Self-signed TLS certificate with dedicated test-browser exception",
+    "No actual public-provider allocations or media tests",
+    "No separate NATs or firewall blocking proof",
+    "No automatic guest provisioning, live failover or credential renewal proof",
+    "No full authority, service-worker/process egress or logging/retention audit",
+    "No real capture or physical GrapheneOS acceptance",
+    "No deployment, provider account creation or publication",
+    "Earlier smaller/default-layout probes had media/growth predicate failures; bounded observations retained separately. No production media repair inferred."
+  ]
+}

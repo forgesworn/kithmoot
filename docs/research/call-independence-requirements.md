@@ -168,13 +168,18 @@ would also require reassessing the intended software-publisher position.
 
 | Requirement | Evidence needed | Current status |
 | --- | --- | --- |
-| No publisher runtime dependency | Create, join, call and reconnect using independent infrastructure while blocking publisher endpoints, including discovery, issuer, gateway and update/config hosts | Two fresh browser contexts pass the local fixture journey with all external HTTP/WS denied; real independent providers and separate networks remain untested |
+| No publisher runtime dependency | Create, join, call and reconnect using independent infrastructure while blocking publisher endpoints, including discovery, issuer, gateway and update/config hosts | Two-context local product journey passes; three-context TURN/TLS group and transport replacement also pass with external HTTP/WS denied. Real independent operators and separate networks remain untested |
 | Participant-only room authority | Trace invitation, admission, revocation and keys through web, Android and any gateway; test membership refusal without publisher participation | Not tested by the synthetic fixture |
 | No hidden central authority | Review deployed configuration, administrator credentials, remote configuration and software-update prerequisites | Not established |
 | No persistent/exported call logs | Exercise successful, refused, failed and interrupted calls; inspect storage and network outputs across dependency, OS, container and provider paths | Ordinary-build timeline disabled and call-event console output removed; full client/dependency/host audit remains open |
 | Bounded transient state | Verify expiry/cleanup after disconnect, crash and restart without restoring call history | Not established |
 | Enforced endpoint-only behaviour | Refuse third-party forwarding while preserving legitimate endpoint calls | FIPS leaf-only counterexample reproduced |
-| Simple independent connectivity | Two separate networks, ordinary browser guests and physical GrapheneOS without Play; four real participants after two-device acceptance | Local synthetic helper-assisted media proof only |
+| Simple independent connectivity | Two separate networks, ordinary browser guests and physical GrapheneOS without Play; four real participants after two-device acceptance | Three local browsers pass via separate TURN/TLS instances, including replacement in the same room; manual credentials, separate networks, independent operators and device acceptance remain open |
+
+The [separate-call-server evidence](independent-call-connectivity-20261023.md)
+requires growing decoded video and audio counters for every peer. It proves
+transport interoperability and explicit replacement locally; it does not
+qualify a public provider or remove guest setup.
 
 The [FIPS fixture](../../test/fips-call/README.md) writes temporary daemon
 diagnostics for synthetic runs and deletes them at teardown. It is not a

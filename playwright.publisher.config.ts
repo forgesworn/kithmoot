@@ -3,7 +3,10 @@ import { defineConfig, devices } from '@playwright/test'
 // A bounded local evidence gate. No issuer, code service or publisher host.
 // Independent Internet reachability and deployed-host logging need separate proof.
 const port = Number(process.env.E2E_PORT ?? 5593)
-const relayPort = port + 100
+const relayPort = Number(process.env.E2E_RELAY_PORT ?? port + 100)
+// test/relays.ts reads this in each worker. Without it the default app uses
+// port 5693 while its guests try 7777; a run only worked with E2E_PORT set.
+process.env.E2E_RELAY_PORT = String(relayPort)
 export default defineConfig({
   testDir: './test', testMatch: ['browser-protected-share.spec.ts', 'publisher-independence.spec.ts'],
   workers: 1, retries: 0, timeout: 120_000, reporter: 'list',
