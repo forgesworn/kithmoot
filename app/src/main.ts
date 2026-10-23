@@ -303,6 +303,7 @@ import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFol
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
 import { BrowserHistoryIndexStorage, LocalHistoryIndex, importedHistoryCoverage } from './history-index.js'
@@ -13413,6 +13414,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       ? await resolveIceServers(roomIceUrls, deviceRelay)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
     if (generation !== roomGeneration) return
+    // A STUN server chosen on this device replaces every other STUN address,
+    // the default and the room's hints alike; relays are left as they are.
+    const deviceStun = loadCallStun(localStorage)
+    resolvedIceServers = withDeviceStun(resolvedIceServers, deviceStun)
     // With no usable relay the room is still joined: chat and everything
     // that is not a call work. Only a call is refused (`joinCall`), and the
     // peer factory below still never builds a non-relay configuration.
@@ -13450,8 +13455,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     const refreshIce = (): void => {
       resolveIceServers(roomIceUrls, deviceRelay)
-        .then((fresh) => {
+        .then((resolved) => {
           if (!alive()) return
+          const fresh = withDeviceStun(resolved, deviceStun)
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
           // good credential is safe until it expires; replacing it would
@@ -17586,6 +17592,7 @@ function applyHideIpDefault(): void {
 
 function renderSettingsRows(): void {
   renderCallRelay()
+  renderCallStun()
   ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
   setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
@@ -17620,6 +17627,36 @@ $('callRelayRemove').addEventListener('click', () => {
     renderCallRelay()
     $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
   } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+})
+
+/** Shows this device's own STUN choice; blank means the default. */
+function renderCallStun(): void {
+  ;($('callStun') as HTMLInputElement).value = loadCallStun(localStorage)?.join(', ') ?? ''
+  $('callStunStatus').textContent = ''
+}
+
+$('callStun').addEventListener('change', () => {
+  const input = $('callStun') as HTMLInputElement
+  const status = $('callStunStatus')
+  let urls: string[] | undefined
+  try {
+    urls = parseCallStun(input.value)
+  } catch (error) {
+    input.setAttribute('aria-invalid', 'true')
+    status.textContent = error instanceof Error ? error.message : 'That is not a STUN address.'
+    return
+  }
+  input.removeAttribute('aria-invalid')
+  try {
+    saveCallStun(localStorage, urls)
+  } catch {
+    status.textContent = 'This browser would not save it. Check its storage settings and try again.'
+    return
+  }
+  input.value = urls?.join(', ') ?? ''
+  status.textContent = urls
+    ? 'Saved. Calls use it from the next room you open.'
+    : 'Cleared. Calls use Cloudflare’s public STUN server from the next room you open.'
 })
 
 function enterSettings(): void {

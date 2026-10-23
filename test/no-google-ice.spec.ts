@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open, join } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, join, openSettings } from './browser.js'
 
 /**
  * Regression test for the fix in docs/decisions.md, 13 September 2026:
@@ -172,6 +172,70 @@ test('a member can require credentialed relay-only ICE without querying STUN', a
         server.username === turnCredential.username && server.credential === turnCredential.credential,
       )).toBe(true)
     }
+  } finally {
+    await contextA.close()
+    await contextB.close()
+  }
+})
+
+test('a STUN server saved in Connections is the only STUN its own calls use, and stays off the room link', async ({ browser, baseURL }) => {
+  test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  const allUrls = (page: import('@playwright/test').Page) => page.evaluate(() =>
+    (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.flatMap((pc) =>
+      (pc.getConfiguration().iceServers ?? []).flatMap((server) => (Array.isArray(server.urls) ? server.urls : [server.urls]) as string[]),
+    ),
+  )
+  try {
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+    const url = await createRoom(pageA, baseURL!)
+
+    await pageB.goto(baseURL!)
+    await openSettings(pageB, 'Connections')
+    const field = pageB.getByLabel('Your STUN server')
+    const status = pageB.locator('#callStunStatus')
+    await expect(field).toHaveAttribute('placeholder', 'stun:stun.example.org:3478')
+
+    // A relay address is refused here, said why, and nothing is saved.
+    await field.fill('turn:relay.example:3478')
+    await field.press('Enter')
+    await expect(status).toHaveText('Use stun:host:3478, separated by commas. A relay goes under Call relay.')
+    await expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(await pageB.evaluate(() => localStorage.getItem('kithmoot.call-stun.v1'))).toBeNull()
+
+    await field.fill(' STUN:Home.Example:3478 ')
+    await field.press('Enter')
+    await expect(status).toHaveText('Saved. Calls use it from the next room you open.')
+    await expect(field).not.toHaveAttribute('aria-invalid', 'true')
+    await expect(field).toHaveValue('stun:home.example:3478')
+
+    await joinWithMedia(pageA, url, 'Ada')
+    await joinWithMedia(pageB, url, 'Bob')
+    for (const page of [pageA, pageB]) {
+      await expect
+        .poll(() => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), {
+          message: 'no RTCPeerConnection was ever constructed - nothing to assert',
+          timeout: 60_000,
+        })
+        .toBeGreaterThan(0)
+    }
+
+    const bStun = [...new Set((await allUrls(pageB)).filter(u => /^stuns?:/i.test(u)))]
+    expect(bStun).toEqual(['stun:home.example:3478'])
+    // Kept on B's device: A's calls never hear of it, and the link does not carry it.
+    expect((await allUrls(pageA)).filter(u => u.includes('home.example'))).toEqual([])
+    expect(url).not.toContain('home.example')
+
+    // Clearing it goes back to the default.
+    await openSettings(pageB, 'Connections')
+    await expect(field).toHaveValue('stun:home.example:3478')
+    await field.fill('')
+    await field.press('Enter')
+    await expect(status).toHaveText('Cleared. Calls use Cloudflare’s public STUN server from the next room you open.')
+    expect(await pageB.evaluate(() => localStorage.getItem('kithmoot.call-stun.v1'))).toBeNull()
   } finally {
     await contextA.close()
     await contextB.close()

@@ -53,6 +53,7 @@ add('journals', `kithmoot\\.(?:shared-projects|context)\\.v1\\.${H}|kithmoot\\.a
 add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}|kithmoot\\.(?:uploads|room-logo|storage-grants)\\.v1\\.${H}|kithmoot\\.(?:blob-deletes|blob-delete-groups|file-storage)\\.v1|kithmoot\\.blossom-server`)
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.facePrivacy'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])
+names('routing', ['kithmoot.call-stun.v1'])
 add('routing', `kithmoot\\.(?:relays|circle|room-relays-fixed)\\.v1|kithmoot\\.(?:room-relays|room-storage)\\.v1\\.${H}`)
 names('ui', ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.framing', 'kithmoot.agents-hear', 'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled', 'kithmoot.nip05.verify',
   'kithmoot.name', 'kithmoot.last-nostr-account', 'kithmoot.last-nostr-method', 'kithmoot.profiles.lastKnownName.v1', 'kithmoot.send-delay', 'kithmoot.destructed.v1', 'kithmoot:emoji:skinTone', 'kithmoot:emoji:recents'])
