@@ -6,6 +6,26 @@ This is the required design for the proposed calling transport. It is not a
 claim that released clients, the FIPS experiment or existing hosting already
 meet it. No deployment or deletion of existing records is made by this note.
 
+## The user journey
+
+The owner clarified the required product on 23 October:
+
+1. Open the website or install the software.
+2. Create a private room on the device.
+3. Share the room link with friends.
+4. Friends open the link in an ordinary browser or installed client.
+5. Exchange text chat and have two-way voice/video calls, including groups.
+
+The normal journey must not require a server deployment, relay URL entry,
+transport credentials or a ForgeSworn calling account. Self-hosting remains
+an optional supported path. Browser guests must not need a native mesh helper
+or VPN installation. Keep room capabilities out of hosting requests, logs,
+telemetry and third-party request payloads.
+
+These usability requirements apply together with the authority/logging
+requirements below. Manual infrastructure setup or a same-host helper demo
+does not complete this journey.
+
 ## Authority belongs to participants
 
 ForgeSworn publishes software. Participants' devices create rooms, control
@@ -95,6 +115,40 @@ records in the system journal/syslog and firewall records mentioning private
 relay ports. CDN/provider and backup retention were not fully audited.
 These are dated findings, not a fresh live readback or proof of call logging.
 Production zero-logging cannot be claimed from the coturn log settings alone.
+
+## Sapflow reuse for the web
+
+The owner wants to reuse Sapflow where it can provide the browser experience.
+Read-only inspection on 23 October used Sapflow source commit
+`18bf6606cf723babcde95e2a6c236a6dee73b532`. Its unrelated Android qualification
+work was preserved.
+
+| Component | Current source evidence | Proposed role and qualification needed |
+| --- | --- | --- |
+| KithMoot rooms and chat | Existing client-side room capabilities, signalling and chat | Preserve this application layer; exercise the complete create/share/join/chat/call journey |
+| Browser WebRTC | Existing KithMoot peer connections and media encryption | Initial conversational media path; qualify cross-network connectivity and ordinary guests |
+| Sapflow shared libraries | `sapflow-client/src/lib.rs`, `media.rs` and `queue.rs`: runtime-free compressed H.264/AAC validation, queues and publishing session policy | Evaluate a WebAssembly/browser adapter and useful shared primitives; no shipped browser SDK was found or proved |
+| Sapflow origin | SRT/RTMP input, LL-HLS output and optional recording in current README/server | Existing broadcast function; not a proven conversational transport or opaque forwarding service |
+| Sapflow scoped publishing | `docs/scoped-publish-sessions.md` and server `publish_sessions.rs`: origin admission, refresh/revocation and transport secrets | Do not introduce this origin-controlled publishing authority into private calls as a shortcut |
+| Independent connectivity | Default-MTU, no-transit, separate-network and browser compatibility gaps remain | Must supply automatic reachability without required publisher-operated infrastructure; no qualified complete solution established |
+
+WebRTC already provides browser media communication. A custom WebCodecs path
+would expose codec primitives but still need transport, encryption, timing,
+loss/congestion handling and browser qualification. WebTransport connects a
+browser to a server; it would still need an independent server path. A
+WebAssembly build alone establishes none of these connectivity properties.
+Primary API references: [WebRTC](https://www.w3.org/TR/webrtc/),
+[WebCodecs](https://www.w3.org/TR/webcodecs/),
+[WebTransport](https://www.w3.org/TR/webtransport/),
+[WebAssembly web integration](https://www.w3.org/TR/wasm-web-api-2/).
+
+The implementation sequence is browser-first: prove the user journey with
+existing KithMoot media, qualify a useful Sapflow browser adapter separately,
+and require measured improvement before changing the call engine. Broadcast
+playback and local media decoding cannot substitute for interactive group
+call acceptance. Any new media gateway must preserve participant-held media
+keys, local admission and the no-logging requirement. Transport code reuse
+does not settle the legal role of whoever operates it.
 
 ## Legal assessment
 
