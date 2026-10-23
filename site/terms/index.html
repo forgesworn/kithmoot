@@ -19,7 +19,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Terms of use</h1>
-<p class="dated">Draft published for review. Last updated 22 October 2026.</p>
+<p class="dated">Draft published for review. Last updated 23 October 2026.</p>
 <div class="draft-note">
 <p><strong>This page is a draft.</strong> It has not been reviewed by a lawyer and it is not final. It is published here so it can be checked against how KithMoot actually works, not because it is in force.</p>
 </div>
@@ -34,13 +34,14 @@
 <ul>
 <li>serves the web app, this website and the downloads as static files;</li>
 <li>serves the update information the desktop app checks for;</li>
-<li>answers STUN, which tells a device its own public address so a call can connect directly. It carries no messages, files or call media.</li>
+<li>answers STUN for the Android app, which tells a device its own public address so a call can connect directly. It carries no messages, files or call media. The web app and the desktop app use a STUN server run by Cloudflare instead.</li>
 </ul>
 <p>Until 22 October 2026 we also ran a call relay (TURN), a file store, a message-drop service and meeting codes for anyone using the app, and until September 2026 one of the default relays was ours. Those are closed. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
 
 <h2>3. Who runs your rooms</h2>
 <ul>
 <li>Rooms travel over Nostr relays run by other people. The app suggests public relays by default; a room's creator can choose others.</li>
+<li>To help a call connect directly, the web app and the desktop app ask a public STUN server run by Cloudflare for your device's address. A room can name its own call servers instead.</li>
 <li>In the web app and the desktop app, files you send go by default to a public file server run by somebody else (section 4), or to a server you choose.</li>
 <li>A room's link is its access control. Whoever creates a room decides who to send it to.</li>
 <li>Whoever runs a relay, a file server, a call relay or a keeper for a room is responsible for what they run. If you run KithMoot or any of those yourself, that deployment is yours.</li>

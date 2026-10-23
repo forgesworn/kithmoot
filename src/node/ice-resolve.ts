@@ -76,9 +76,10 @@ export interface ResolveNodeIceOptions {
  * Mirrors the browser's own priority order exactly: the minted TURN
  * credential's own host when `turnEndpoint` answers (`turn:host:port` becomes
  * `stun:host:port`, via `stunFromTurnUrl` - coturn answers STUN on the
- * same listener it answers TURN on), or a same-host guess on the standard
- * port 3478 when it doesn't, restricted to a non-loopback `https:` origin
- * exactly as `originStunGuess` restricts it for the browser. Never throws:
+ * same listener it answers TURN on), or the public STUN stand-in
+ * (`DEFAULT_STUN_URLS`, somebody else's server) when it doesn't,
+ * restricted to a non-loopback `https:` origin exactly as `originStunGuess`
+ * restricts it for the browser. Never throws:
  * a fetch failure, a bad response, or a plain `http:`/loopback origin all
  * just mean less to offer, the same as an unreachable credential endpoint
  * does for the web app. Logs nothing itself - `createWeriftFactory` is the

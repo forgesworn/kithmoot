@@ -19,7 +19,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Check it yourself</h1>
-<p class="dated">Written for desktop 0.1.91, 19 October 2026. Updated 22 October 2026.</p>
+<p class="dated">Written for desktop 0.1.91, 19 October 2026. Updated 23 October 2026.</p>
 <p>We have run every command on this page, except the Windows connection check.</p>
 
 <p>Installing an app means trusting it with your computer. You shouldn't have to take our word for what KithMoot does, so this page lists everything the desktop app connects to and everything it can touch, with a way to check each claim. If you find something we haven't listed, <a href="https://github.com/forgesworn/kithmoot/issues">tell us</a>: that's a bug in the app or in this page.</p>
@@ -41,7 +41,8 @@
 <p>Every connection the app makes, when it makes it, and how to stop it.</p>
 <ul>
 <li><strong>Your rooms' relays.</strong> While a room is open, the app talks to the Nostr relays that room uses. New rooms start on relay.primal.net, nostr.oxtr.dev and relay.ditto.pub, public relays we don't run. You can change them in Relay settings.</li>
-<li><strong>Our server, kithmoot.forgesworn.dev.</strong> It checks here for updates, 30 seconds after it starts and then every 10 minutes on a Mac, or every hour on Windows and the Linux tar.gz. There's no switch for this yet. Each check fetches a static file, as any web page does. In a call it also asks our STUN server for your device's public address, which helps a direct connection through home routers; STUN carries no content. A room whose link names its own call servers uses those instead. We no longer run a call relay (TURN): since 22 October 2026 a build that still asks this server for a call credential is told so.</li>
+<li><strong>Our server, kithmoot.forgesworn.dev.</strong> It checks here for updates, 30 seconds after it starts and then every 10 minutes on a Mac, or every hour on Windows and the Linux tar.gz. There's no switch for this yet. Each check fetches a static file, as any web page does. We no longer run a call relay (TURN): since 22 October 2026 a build that still asks this server for a call credential is told so.</li>
+<li><strong>Cloudflare's STUN server, in a call.</strong> In a call the app asks stun.cloudflare.com for your device's public address, which helps a direct connection through home routers. STUN carries no content. Cloudflare runs it, not us. A room whose link names its own call servers uses those instead.</li>
 <li><strong>GitHub, for the Debian and Ubuntu package.</strong> apt fetches KithMoot's updates from the project's GitHub releases, along with your other system updates.</li>
 <li><strong>Public profile relays and picture hosts.</strong> With <em>Show public profile pictures, names and Nostr addresses</em> on, which it is unless you turn it off, the app looks up the people in your rooms, your private chats list and People, and the senders of invitations you already know, on purplepag.es, relay.damus.io and relay.primal.net, and also on the room's relays for the people in the room you have open. It loads each person's picture from wherever they host it. Turn it off under Settings, Privacy.</li>
 <li><strong>The people on your call.</strong> Calls connect straight to the other people's devices where they can, so those people can see your IP address, as in any direct call. When a direct connection fails, the call goes through a call relay only if the room names one; ForgeSworn no longer provides one.</li>

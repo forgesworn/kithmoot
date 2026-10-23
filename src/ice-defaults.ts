@@ -1,24 +1,27 @@
 /**
- * KithMoot's ICE default: no host outside the origin that served the room,
- * and no host outside what the room itself named.
+ * KithMoot's ICE default: a public STUN server run by somebody else, and no
+ * host outside what the room itself named.
  *
  * A room names its own STUN and TURN servers in its join URL, the way it
  * names its relays (see encodeRoomUrl and decodeExtras in
  * app/src/main.ts). This module is only what stands in for a room that
- * never set its own - and until 2026-09-13 that stand-in was
- * `stun:stun.l.google.com:19302`, hardcoded into every fresh install. That
- * named a specific third party by default, on every call, whether or not a
- * person ever chose it: Google learned the IP address and timing of every
- * call attempt made on defaults. See docs/decisions.md, 2026-09-13, for the
- * full finding.
+ * never set its own.
  *
- * The replacement is origin-relative rather than a different hardcoded
- * host: derive a STUN server from the room's own TURN endpoint when one
- * answers (coturn answers STUN on the same listener it answers TURN on -
- * deploy/coturn/turnserver.conf carries no `no-stun`), fall back to a
- * same-host guess on the standard port when it doesn't, and add nothing at
- * all on localhost, where host candidates already connect two processes on
- * one machine.
+ * Until 2026-09-13 that stand-in was `stun:stun.l.google.com:19302`. It was
+ * then derived from the origin that served the app, which on the public
+ * host meant ForgeSworn's own STUN server. Since 2026-10-23 the publisher
+ * runs no default servers of its own (docs/decisions.md, 2026-10-23), so
+ * the stand-in is Cloudflare's public STUN server: `DEFAULT_STUN_URLS`.
+ * Any STUN server learns the IP address and timing of a call attempt, so
+ * the choice is named on the privacy page; Google stays out under the
+ * 2026-10-19 rule.
+ *
+ * A deployment that mints its own TURN credential still uses its own
+ * servers: when its `/turn` answers, STUN is derived from the minted TURN
+ * URL (stunFromTurnUrl; coturn answers STUN on the same listener) and the
+ * stand-in is not used. Localhost and plain http get nothing at all, where
+ * host candidates already connect two processes on one machine, and tests
+ * stay off the network.
  *
  * This module has no runtime dependency of its own - no DOM, no Node
  * builtin - so both callers that actually fetch a TURN credential share it:
@@ -38,12 +41,18 @@
  * had not named its own servers - so a link carrying only this one URL is
  * indistinguishable from "this room never named its own ICE servers", and
  * isDefaultIceUrls below treats it exactly the same way: as the default,
- * upgraded to this origin's own STUN/TURN rather than kept as Google's
- * server. A room that had deliberately and only ever named Google's STUN
+ * upgraded to the current stand-in rather than kept as Google's server. A room that had deliberately and only ever named Google's STUN
  * server by itself cannot be told apart from that old default, and is
  * upgraded the same way - see docs/decisions.md, 2026-09-13.
  */
 export const LEGACY_DEFAULT_ICE_URLS: string[] = ['stun:stun.l.google.com:19302']
+
+/**
+ * The public STUN server a room on the defaults uses: Cloudflare's, which
+ * needs no account. It tells a device its own public address and carries
+ * no content. Named on the privacy page; see the module comment above.
+ */
+export const DEFAULT_STUN_URLS: readonly string[] = Object.freeze(['stun:stun.cloudflare.com:3478'])
 
 /**
  * This app's own ICE default: no host named at all. A room that has never
@@ -114,27 +123,20 @@ export function browserDefaultTurnUrls(urls: string[]): string[] {
 }
 
 /**
- * This origin's own best guess at a STUN server: used only when a room is
- * on the ICE defaults (see isDefaultIceUrls) and no TURN credential could
- * be minted to derive one from with stunFromTurnUrl - the credential
- * endpoint is down, or this deployment runs without one.
- *
- * Guessed only for a non-loopback https origin, on deploy/README.md's
- * working assumption that an operator who follows it runs coturn on the
- * same box that serves the app, listening on the standard port 3478.
- * Wrong for a deployment that splits STUN onto a different host - but that
- * deployment already has a working TURN endpoint to derive from instead,
- * or names its own ICE servers rather than relying on this guess.
+ * The STUN stand-in for a room on the ICE defaults (see isDefaultIceUrls)
+ * when no TURN credential could be minted to derive one from with
+ * stunFromTurnUrl: the public host has no `/turn`, or a deployment runs
+ * without one. Returns DEFAULT_STUN_URLS, somebody else's server, never a
+ * guess at a server on the origin itself: the publisher runs no default
+ * servers (docs/decisions.md, 2026-10-23). The name is historical.
  *
  * A loopback origin gets nothing, on purpose: two processes on the same
- * machine connect on host candidates alone, and guessing a public STUN
- * host for `localhost` would still be naming an outside server on a
- * deployment that has none. A non-https origin gets nothing either - this
- * app's own TURN credential endpoint is same-origin and would refuse to
- * mix content anyway, so a guessed STUN host would be the only thing named
- * and unlikely to be reachable in the same way.
+ * machine connect on host candidates alone, and naming a public STUN host
+ * for `localhost` would send local development and every test to an
+ * outside server. A non-https origin gets nothing either: it cannot hold a
+ * camera or microphone outside localhost, so it cannot make a call.
  */
 export function originStunGuess(origin: { protocol: string; hostname: string }): string[] {
   if (origin.protocol !== 'https:' || isLoopbackHostname(origin.hostname)) return []
-  return [`stun:${origin.hostname}:3478`]
+  return [...DEFAULT_STUN_URLS]
 }
