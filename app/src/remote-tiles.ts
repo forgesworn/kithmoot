@@ -269,6 +269,13 @@ export type PictureAction =
    *  track again, which builds a new decoder. */
   | 'rebind'
 
+/** The playback clock only establishes progress once a picture exists. */
+export function pictureAdvanced(previous: number, current: number, hasFrame: boolean): boolean {
+  // -1 marks a new/rebound sink. Its initial zero clock is not a decoded
+  // frame: calling it played lets recovery park it before decoding starts.
+  return hasFrame && current > Math.max(0, previous) + 0.001
+}
+
 /**
  * What to do about one picture this second.
  *

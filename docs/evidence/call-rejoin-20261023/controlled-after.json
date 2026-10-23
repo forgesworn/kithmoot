@@ -1,0 +1,60 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T18:09:32.798Z",
+    "duration": 24403.628,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": false,
+  "sourceRepairMade": true,
+  "cases": [
+    {
+      "title": "a delayed first camera frame after rejoin keeps its playback sink attached",
+      "status": "passed",
+      "durationMs": 17355,
+      "errors": [],
+      "attachments": {
+        "delayed-first-frame-rejoin": {
+          "firstPaintDelayMs": 12000,
+          "recoveryTicksBeforeFirstPaint": 3,
+          "held": {
+            "insideRoom": true,
+            "clock": 0,
+            "awaiting": true,
+            "width": 0
+          },
+          "realPrivacyCompositor": true,
+          "sourceSubstituted": false,
+          "receivedAfterDelay": [
+            [
+              {
+                "peer": 1,
+                "frames": 20,
+                "energy": 1.1962138573407526,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A2960114193|IT01V159894201",
+                "sinkTime": 0.968
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 262,
+                "energy": 1.197018060310359,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A2530801403|IT01V3239481182",
+                "sinkTime": 13.089
+              }
+            ]
+          ]
+        }
+      }
+    }
+  ]
+}

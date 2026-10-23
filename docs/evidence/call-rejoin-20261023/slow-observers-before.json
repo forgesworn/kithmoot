@@ -1,0 +1,2281 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:54:00.349Z",
+    "duration": 68965.664,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": true,
+  "sourceRepairMade": false,
+  "failure": {
+    "phase": "rejoin 1",
+    "observerCpuRate": 4,
+    "peers": [
+      {
+        "media": [
+          {
+            "peer": 0,
+            "frames": 982,
+            "energy": 5.275454430781431,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A3575178635|IT01V4066378481"
+          },
+          {
+            "peer": 2,
+            "frames": 0,
+            "energy": 4.151417051159276,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A405961646"
+          }
+        ],
+        "state": {
+          "native": [
+            {
+              "peer": 0,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 235408,
+                  "packetsReceived": 2905,
+                  "totalAudioEnergy": 5.300198764108138
+                },
+                {
+                  "type": "inbound-rtp",
+                  "kind": "video",
+                  "bytesReceived": 2870478,
+                  "packetsReceived": 3100,
+                  "framesReceived": 987,
+                  "framesDecoded": 987,
+                  "framesDropped": 0,
+                  "keyFramesDecoded": 1,
+                  "pliCount": 0,
+                  "nackCount": 0,
+                  "decoderImplementation": "libvpx"
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 235402,
+                  "packetsSent": 2905,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 3089687,
+                  "packetsSent": 3291,
+                  "framesEncoded": 985,
+                  "pliCount": 0,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 57.971,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": true,
+                      "time": 58.035,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "peer": 2,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 185976,
+                  "packetsReceived": 2296,
+                  "totalAudioEnergy": 4.17708182156756
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 189640,
+                  "packetsSent": 2340,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 2006800,
+                  "packetsSent": 2240,
+                  "framesEncoded": 786,
+                  "pliCount": 1,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 58.011,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": true,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 0,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 0,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "inline",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "parked",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "workspaceContent",
+                          "classes": "",
+                          "display": "flex",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "diagnostic": {
+            "me": {
+              "participant": "17b8cc24",
+              "device": "a5f5a5fd",
+              "publishing": [
+                "camera",
+                "mic"
+              ],
+              "callProfile": 1,
+              "agentsMayHear": false,
+              "effect": "blur",
+              "screenAudio": {
+                "present": false
+              },
+              "wakeLock": "error"
+            },
+            "participants": [
+              {
+                "name": "Ada",
+                "participant": "17b8cc24",
+                "agent": false,
+                "devices": [
+                  "a5f5a5fd"
+                ],
+                "tracks": [
+                  "camera@a5f5a5fd",
+                  "mic@a5f5a5fd"
+                ],
+                "mic": "a5f5a5fd",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "a5f5a5fd"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "a5f5a5fd",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "Rowan",
+                "participant": "0223686a",
+                "agent": false,
+                "devices": [
+                  "70f7a0a3"
+                ],
+                "tracks": [
+                  "camera@70f7a0a3",
+                  "mic@70f7a0a3"
+                ],
+                "mic": "70f7a0a3",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "70f7a0a3"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "70f7a0a3",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "PeerC",
+                "participant": "e7418881",
+                "agent": false,
+                "devices": [
+                  "4aac5280"
+                ],
+                "tracks": [
+                  "camera@4aac5280",
+                  "mic@4aac5280",
+                  "camera@4aac5280",
+                  "mic@4aac5280"
+                ],
+                "mic": "4aac5280",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "4aac5280"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "4aac5280",
+                    "profile": 4
+                  }
+                ]
+              }
+            ],
+            "routes": [
+              {
+                "device": "70f7a0a3",
+                "tier": "direct",
+                "endpoint": "70f7a0a3",
+                "connected": true,
+                "exhausted": false
+              },
+              {
+                "device": "4aac5280",
+                "tier": "direct",
+                "endpoint": "4aac5280",
+                "connected": true,
+                "exhausted": false
+              }
+            ],
+            "connections": [
+              {
+                "key": "direct:70f7a0a3:1",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "audio:live",
+                  "video:live"
+                ],
+                "receivers": [
+                  "audio:live@0:sendrecv",
+                  "video:live@1:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "CIT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "I7k/0bsHF",
+                    "remoteCandidateId": "IL61mR2TM",
+                    "bytesSent": 3607654,
+                    "bytesReceived": 3383107,
+                    "currentRoundTripTime": 0.02,
+                    "availableOutgoingBitrate": 937831
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "I7k/0bsHF",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "IL61mR2TM",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 235408,
+                    "packetsReceived": 2905,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 332860.8
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 2870478,
+                    "packetsReceived": 3100,
+                    "packetsLost": 0,
+                    "framesDecoded": 987,
+                    "framesReceived": 987,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "CIT01_96",
+                    "pliCount": 0,
+                    "nackCount": 0,
+                    "jitterBufferDelay": 35.578952
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 235402,
+                    "packetsSent": 2905,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 3089687,
+                    "packetsSent": 3291,
+                    "framesEncoded": 985,
+                    "framesSent": 985,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "COT01_96",
+                    "pliCount": 0,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.008591
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "video",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.004822
+                  }
+                ]
+              },
+              {
+                "key": "direct:4aac5280:3",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "audio:live",
+                  "video:live"
+                ],
+                "receivers": [
+                  "audio:live@0:sendrecv",
+                  "video:live:muted@1:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "I1L/QK8EJ",
+                    "remoteCandidateId": "IYaUS5mzN",
+                    "bytesSent": 2405404,
+                    "bytesReceived": 303790,
+                    "currentRoundTripTime": 0.005,
+                    "availableOutgoingBitrate": 679348
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "I1L/QK8EJ",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 185976,
+                    "packetsReceived": 2296,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 271958.4
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "IYaUS5mzN",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 189640,
+                    "packetsSent": 2340,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 2006800,
+                    "packetsSent": 2240,
+                    "framesEncoded": 786,
+                    "framesSent": 786,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "COT01_96",
+                    "pliCount": 1,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.003815
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "video",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.004715
+                  }
+                ]
+              }
+            ],
+            "pictures": [
+              {
+                "device": "70f7a0a3",
+                "role": "camera",
+                "onScreen": true,
+                "played": true,
+                "stalled": 0,
+                "currentTime": 58.1,
+                "paused": false,
+                "size": "640x480",
+                "track": "live"
+              },
+              {
+                "device": "4aac5280",
+                "role": "camera",
+                "onScreen": false,
+                "played": true,
+                "stalled": 46,
+                "currentTime": 0,
+                "paused": false,
+                "size": "0x0",
+                "track": "live:muted"
+              }
+            ],
+            "sounds": [
+              {
+                "device": "70f7a0a3",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 58.03,
+                "track": "live"
+              },
+              {
+                "device": "4aac5280",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 58.03,
+                "track": "live"
+              }
+            ],
+            "callTimeline": [
+              "+0.8s call-declared started 3b08bec6 on Join",
+              "+1.0s advert-change a5f5a5fd +mic",
+              "+1.2s advert-change a5f5a5fd +camera",
+              "+2.0s signal-sent 70f7a0a3 offer",
+              "+2.1s signal-sent 70f7a0a3 ice",
+              "+2.1s signal-sent 70f7a0a3 ice",
+              "+2.3s advert-change 70f7a0a3 +camera",
+              "+2.4s advert-change 70f7a0a3 +mic",
+              "+2.4s signal-received 70f7a0a3 answer",
+              "+2.4s track-added 70f7a0a3 video",
+              "+2.5s signal-received 70f7a0a3 offer",
+              "+2.5s track-added 70f7a0a3 audio",
+              "+2.5s signal-received 70f7a0a3 ice",
+              "+2.5s signal-sent 70f7a0a3 answer",
+              "+2.5s connection-state-change 70f7a0a3 connecting",
+              "+2.6s connection-state-change 70f7a0a3 connected",
+              "+2.6s route-tier-change 70f7a0a3 direct",
+              "+4.3s signal-sent 4aac5280 offer",
+              "+4.4s signal-sent 4aac5280 ice",
+              "+4.4s signal-sent 4aac5280 ice",
+              "+4.9s advert-change 4aac5280 +camera",
+              "+5.0s signal-received 4aac5280 answer",
+              "+5.0s track-added 4aac5280 video",
+              "+5.1s signal-received 4aac5280 ice",
+              "+5.1s connection-state-change 4aac5280 connecting",
+              "+5.1s connection-state-change 4aac5280 connected",
+              "+5.1s route-tier-change 4aac5280 direct",
+              "+5.2s advert-change 4aac5280 +mic",
+              "+5.3s signal-received 4aac5280 offer",
+              "+5.3s track-added 4aac5280 audio",
+              "+5.3s signal-sent 4aac5280 answer",
+              "+11.7s route-tier-change 4aac5280 direct",
+              "+11.8s track-removed 4aac5280 audio",
+              "+11.8s track-removed 4aac5280 video",
+              "+12.0s signal-sent 4aac5280 offer",
+              "+12.3s signal-sent 4aac5280 ice",
+              "+12.3s signal-sent 4aac5280 ice",
+              "+12.9s signal-received 4aac5280 offer",
+              "+12.9s signal-received 4aac5280 ice",
+              "+13.0s signal-sent 4aac5280 offer",
+              "+13.7s signal-received 4aac5280 answer",
+              "+13.7s signal-received 4aac5280 ice",
+              "+13.8s signal-received 4aac5280 offer",
+              "+13.8s track-added 4aac5280 video",
+              "+13.9s connection-state-change 4aac5280 connecting",
+              "+13.9s connection-state-change 4aac5280 connected",
+              "+13.9s route-tier-change 4aac5280 direct",
+              "+14.0s track-added 4aac5280 audio",
+              "+14.1s signal-sent 4aac5280 answer",
+              "+14.3s signal-received 4aac5280 answer",
+              "+14.4s signal-received 4aac5280 offer",
+              "+14.5s signal-sent 4aac5280 offer",
+              "+14.8s signal-received 4aac5280 answer"
+            ],
+            "visibility": "visible"
+          }
+        },
+        "sinks": [
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 59.613025,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": false,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 58.209,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": false,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "media": [
+          {
+            "peer": 0,
+            "frames": 981,
+            "energy": 5.268903372429859,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A3656292471|IT01V327367766"
+          },
+          {
+            "peer": 2,
+            "frames": 5,
+            "energy": 4.173922438283476,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A363522641|IT01V8624587"
+          }
+        ],
+        "state": {
+          "native": [
+            {
+              "peer": 0,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 235402,
+                  "packetsReceived": 2905,
+                  "totalAudioEnergy": 5.291674747871871
+                },
+                {
+                  "type": "inbound-rtp",
+                  "kind": "video",
+                  "bytesReceived": 3089687,
+                  "packetsReceived": 3291,
+                  "framesReceived": 985,
+                  "framesDecoded": 985,
+                  "framesDropped": 0,
+                  "keyFramesDecoded": 1,
+                  "pliCount": 0,
+                  "nackCount": 0,
+                  "decoderImplementation": "libvpx"
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 235408,
+                  "packetsSent": 2905,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 2870478,
+                  "packetsSent": 3100,
+                  "framesEncoded": 987,
+                  "pliCount": 0,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": true,
+                      "time": 58.088,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 57.971,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "peer": 2,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 186867,
+                  "packetsReceived": 2307,
+                  "totalAudioEnergy": 4.198660132830815
+                },
+                {
+                  "type": "inbound-rtp",
+                  "kind": "video",
+                  "bytesReceived": 12434,
+                  "packetsReceived": 26,
+                  "framesReceived": 5,
+                  "framesDecoded": 5,
+                  "framesDropped": 0,
+                  "keyFramesDecoded": 1,
+                  "pliCount": 1,
+                  "nackCount": 0,
+                  "decoderImplementation": "libvpx"
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 190999,
+                  "packetsSent": 2357,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 2079941,
+                  "packetsSent": 2295,
+                  "framesEncoded": 792,
+                  "pliCount": 2,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 58.021,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 0,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 0.172,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "inline",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "parked",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "workspaceContent",
+                          "classes": "",
+                          "display": "flex",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "diagnostic": {
+            "me": {
+              "participant": "0223686a",
+              "device": "70f7a0a3",
+              "publishing": [
+                "camera",
+                "mic"
+              ],
+              "callProfile": 1,
+              "agentsMayHear": false,
+              "effect": "blur",
+              "screenAudio": {
+                "present": false
+              },
+              "wakeLock": "error"
+            },
+            "participants": [
+              {
+                "name": "Rowan",
+                "participant": "0223686a",
+                "agent": false,
+                "devices": [
+                  "70f7a0a3"
+                ],
+                "tracks": [
+                  "camera@70f7a0a3",
+                  "mic@70f7a0a3"
+                ],
+                "mic": "70f7a0a3",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "70f7a0a3"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "70f7a0a3",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "Ada",
+                "participant": "17b8cc24",
+                "agent": false,
+                "devices": [
+                  "a5f5a5fd"
+                ],
+                "tracks": [
+                  "camera@a5f5a5fd",
+                  "mic@a5f5a5fd"
+                ],
+                "mic": "a5f5a5fd",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "a5f5a5fd"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "a5f5a5fd",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "PeerC",
+                "participant": "e7418881",
+                "agent": false,
+                "devices": [
+                  "4aac5280"
+                ],
+                "tracks": [
+                  "camera@4aac5280",
+                  "mic@4aac5280",
+                  "camera@4aac5280",
+                  "mic@4aac5280"
+                ],
+                "mic": "4aac5280",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "4aac5280"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "4aac5280",
+                    "profile": 4
+                  }
+                ]
+              }
+            ],
+            "routes": [
+              {
+                "device": "a5f5a5fd",
+                "tier": "direct",
+                "endpoint": "a5f5a5fd",
+                "connected": true,
+                "exhausted": false
+              },
+              {
+                "device": "4aac5280",
+                "tier": "direct",
+                "endpoint": "4aac5280",
+                "connected": true,
+                "exhausted": false
+              }
+            ],
+            "connections": [
+              {
+                "key": "direct:a5f5a5fd:1",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "video:live",
+                  "audio:live"
+                ],
+                "receivers": [
+                  "video:live@1:sendrecv",
+                  "audio:live@0:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "CIT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "I93qXyi5u",
+                    "remoteCandidateId": "IXwc5DDU2",
+                    "bytesSent": 3387100,
+                    "bytesReceived": 3612104,
+                    "currentRoundTripTime": 0.002,
+                    "availableOutgoingBitrate": 3274500
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "I93qXyi5u",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 235645,
+                    "packetsReceived": 2908,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 349507.2
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 3093586,
+                    "packetsReceived": 3295,
+                    "packetsLost": 0,
+                    "framesDecoded": 985,
+                    "framesReceived": 986,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "CIT01_96",
+                    "pliCount": 0,
+                    "nackCount": 0,
+                    "jitterBufferDelay": 27.240347
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "IXwc5DDU2",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 235732,
+                    "packetsSent": 2909,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 2873797,
+                    "packetsSent": 3104,
+                    "framesEncoded": 988,
+                    "framesSent": 988,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "COT01_96",
+                    "pliCount": 0,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.002914
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "video",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.005340999999999999
+                  }
+                ]
+              },
+              {
+                "key": "direct:4aac5280:3",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "audio:live",
+                  "video:live"
+                ],
+                "receivers": [
+                  "audio:live@0:sendrecv",
+                  "video:live@1:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "CIT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "IihTzNeWp",
+                    "remoteCandidateId": "IVkP7Xn0a",
+                    "bytesSent": 2484874,
+                    "bytesReceived": 322161,
+                    "currentRoundTripTime": 0.013,
+                    "availableOutgoingBitrate": 794377
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 186867,
+                    "packetsReceived": 2307,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 259545.6
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 12434,
+                    "packetsReceived": 26,
+                    "packetsLost": 0,
+                    "framesDecoded": 5,
+                    "framesReceived": 5,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "CIT01_96",
+                    "pliCount": 1,
+                    "nackCount": 0,
+                    "jitterBufferDelay": 0.035998999999999996
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "IVkP7Xn0a",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "IihTzNeWp",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 190999,
+                    "packetsSent": 2357,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 2079941,
+                    "packetsSent": 2295,
+                    "framesEncoded": 792,
+                    "framesSent": 792,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "COT01_96",
+                    "pliCount": 2,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.003281
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "video",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.020493
+                  }
+                ]
+              }
+            ],
+            "pictures": [
+              {
+                "device": "a5f5a5fd",
+                "role": "camera",
+                "onScreen": true,
+                "played": true,
+                "stalled": 0,
+                "currentTime": 58.09,
+                "paused": false,
+                "size": "640x480",
+                "track": "live"
+              },
+              {
+                "device": "4aac5280",
+                "role": "camera",
+                "onScreen": false,
+                "played": true,
+                "stalled": 46,
+                "currentTime": 0.17,
+                "paused": false,
+                "size": "640x480",
+                "track": "live"
+              }
+            ],
+            "sounds": [
+              {
+                "device": "a5f5a5fd",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 58.03,
+                "track": "live"
+              },
+              {
+                "device": "4aac5280",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 58.03,
+                "track": "live"
+              }
+            ],
+            "callTimeline": [
+              "+0.4s signal-received a5f5a5fd offer",
+              "+0.5s call-declared started 7cb54c50 on Join",
+              "+0.5s signal-received a5f5a5fd ice",
+              "+0.5s signal-received a5f5a5fd ice",
+              "+0.7s advert-change 70f7a0a3 +camera",
+              "+0.7s advert-change a5f5a5fd +camera,mic",
+              "+0.7s call-declared converged simultaneous starts on 3b08bec6",
+              "+0.7s track-added a5f5a5fd video",
+              "+0.7s track-added a5f5a5fd audio",
+              "+0.8s signal-sent a5f5a5fd answer",
+              "+0.8s signal-sent a5f5a5fd offer",
+              "+0.8s advert-change 70f7a0a3 +mic",
+              "+0.8s signal-sent a5f5a5fd ice",
+              "+0.8s connection-state-change a5f5a5fd connecting",
+              "+0.9s signal-received a5f5a5fd answer",
+              "+1.0s connection-state-change a5f5a5fd connected",
+              "+1.0s route-tier-change a5f5a5fd direct",
+              "+2.7s signal-sent 4aac5280 offer",
+              "+2.8s signal-sent 4aac5280 ice",
+              "+2.8s signal-sent 4aac5280 ice",
+              "+3.3s signal-received 4aac5280 answer",
+              "+3.3s advert-change 4aac5280 +camera",
+              "+3.4s signal-received 4aac5280 ice",
+              "+3.4s connection-state-change 4aac5280 connecting",
+              "+3.4s connection-state-change 4aac5280 connected",
+              "+3.4s route-tier-change 4aac5280 direct",
+              "+3.4s signal-received 4aac5280 offer",
+              "+3.4s track-added 4aac5280 video",
+              "+3.4s signal-sent 4aac5280 answer",
+              "+3.6s advert-change 4aac5280 +mic",
+              "+3.7s signal-received 4aac5280 offer",
+              "+3.7s track-added 4aac5280 audio",
+              "+3.7s signal-sent 4aac5280 answer",
+              "+10.1s route-tier-change 4aac5280 direct",
+              "+10.2s track-removed 4aac5280 audio",
+              "+10.2s track-removed 4aac5280 video",
+              "+10.4s signal-sent 4aac5280 offer",
+              "+10.6s signal-sent 4aac5280 ice",
+              "+10.7s signal-sent 4aac5280 ice",
+              "+10.8s signal-received 4aac5280 offer",
+              "+11.2s signal-received 4aac5280 ice",
+              "+11.4s signal-sent 4aac5280 offer",
+              "+11.7s signal-received 4aac5280 answer",
+              "+11.8s signal-received 4aac5280 ice",
+              "+11.9s track-added 4aac5280 video",
+              "+12.0s connection-state-change 4aac5280 connecting",
+              "+12.0s connection-state-change 4aac5280 connected",
+              "+12.0s route-tier-change 4aac5280 direct",
+              "+12.1s track-added 4aac5280 audio",
+              "+12.2s signal-received 4aac5280 offer",
+              "+12.3s signal-sent 4aac5280 answer",
+              "+12.6s signal-received 4aac5280 answer",
+              "+12.6s signal-received 4aac5280 offer",
+              "+12.7s signal-sent 4aac5280 offer",
+              "+12.9s signal-received 4aac5280 answer"
+            ],
+            "visibility": "visible"
+          }
+        },
+        "sinks": [
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 58.589985,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": false,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 58.24,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": false,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "media": [
+          {
+            "peer": 0,
+            "frames": 772,
+            "energy": 4.234580021297318,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1458339390|IT01V3294912353"
+          },
+          {
+            "peer": 1,
+            "frames": 779,
+            "energy": 4.269315664183421,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1641405351|IT01V2136271482"
+          }
+        ],
+        "state": {
+          "native": [
+            {
+              "peer": 0,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 188425,
+                  "packetsReceived": 2325,
+                  "totalAudioEnergy": 4.234580021297318
+                },
+                {
+                  "type": "inbound-rtp",
+                  "kind": "video",
+                  "bytesReceived": 1976744,
+                  "packetsReceived": 2199,
+                  "framesReceived": 772,
+                  "framesDecoded": 772,
+                  "framesDropped": 1,
+                  "keyFramesDecoded": 1,
+                  "pliCount": 1,
+                  "nackCount": 0,
+                  "decoderImplementation": "libvpx"
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 188500,
+                  "packetsSent": 2326,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 0,
+                  "packetsSent": 0,
+                  "framesEncoded": 0,
+                  "pliCount": 0,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": true,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": true,
+                      "time": 0,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 46.714,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "peer": 1,
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "stats": [
+                {
+                  "type": "inbound-rtp",
+                  "kind": "audio",
+                  "bytesReceived": 189703,
+                  "packetsReceived": 2341,
+                  "totalAudioEnergy": 4.269315664183421
+                },
+                {
+                  "type": "inbound-rtp",
+                  "kind": "video",
+                  "bytesReceived": 2054315,
+                  "packetsReceived": 2256,
+                  "framesReceived": 779,
+                  "framesDecoded": 779,
+                  "framesDropped": 1,
+                  "keyFramesDecoded": 1,
+                  "pliCount": 1,
+                  "nackCount": 0,
+                  "decoderImplementation": "libvpx"
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "audio",
+                  "bytesSent": 188940,
+                  "packetsSent": 2331,
+                  "nackCount": 0
+                },
+                {
+                  "type": "outbound-rtp",
+                  "kind": "video",
+                  "bytesSent": 0,
+                  "packetsSent": 1,
+                  "framesEncoded": 0,
+                  "pliCount": 1,
+                  "nackCount": 0
+                }
+              ],
+              "receivers": [
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": true,
+                  "mid": "1",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "VIDEO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": true,
+                      "time": 0,
+                      "ancestors": [
+                        {
+                          "tag": "VIDEO",
+                          "id": "",
+                          "classes": "",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false,
+                  "mid": "0",
+                  "direction": "sendrecv",
+                  "sources": 1,
+                  "sinks": [
+                    {
+                      "tag": "AUDIO",
+                      "connected": true,
+                      "paused": false,
+                      "visible": false,
+                      "time": 46.724,
+                      "ancestors": [
+                        {
+                          "tag": "AUDIO",
+                          "id": "",
+                          "classes": "",
+                          "display": "none",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "media",
+                          "display": "block",
+                          "visibility": "visible"
+                        },
+                        {
+                          "tag": "DIV",
+                          "id": "",
+                          "classes": "participant onCall speaking",
+                          "display": "block",
+                          "visibility": "visible"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "diagnostic": {
+            "me": {
+              "participant": "e7418881",
+              "device": "4aac5280",
+              "publishing": [
+                "camera",
+                "mic"
+              ],
+              "callProfile": 1,
+              "agentsMayHear": false,
+              "effect": "blur",
+              "screenAudio": {
+                "present": false
+              },
+              "wakeLock": "error"
+            },
+            "participants": [
+              {
+                "name": "PeerC",
+                "participant": "e7418881",
+                "agent": false,
+                "devices": [
+                  "4aac5280"
+                ],
+                "tracks": [
+                  "camera@4aac5280",
+                  "mic@4aac5280"
+                ],
+                "mic": "4aac5280",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "4aac5280"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "4aac5280",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "Ada",
+                "participant": "17b8cc24",
+                "agent": false,
+                "devices": [
+                  "a5f5a5fd"
+                ],
+                "tracks": [
+                  "camera@a5f5a5fd",
+                  "mic@a5f5a5fd"
+                ],
+                "mic": "a5f5a5fd",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "a5f5a5fd"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "a5f5a5fd",
+                    "profile": 4
+                  }
+                ]
+              },
+              {
+                "name": "Rowan",
+                "participant": "0223686a",
+                "agent": false,
+                "devices": [
+                  "70f7a0a3"
+                ],
+                "tracks": [
+                  "camera@70f7a0a3",
+                  "mic@70f7a0a3"
+                ],
+                "mic": "70f7a0a3",
+                "call": {
+                  "id": "3b08bec6",
+                  "devices": [
+                    "70f7a0a3"
+                  ]
+                },
+                "recordingProfiles": [
+                  {
+                    "device": "70f7a0a3",
+                    "profile": 4
+                  }
+                ]
+              }
+            ],
+            "routes": [
+              {
+                "device": "a5f5a5fd",
+                "tier": "direct",
+                "endpoint": "a5f5a5fd",
+                "connected": true,
+                "exhausted": false
+              },
+              {
+                "device": "70f7a0a3",
+                "tier": "direct",
+                "endpoint": "70f7a0a3",
+                "connected": true,
+                "exhausted": false
+              }
+            ],
+            "connections": [
+              {
+                "key": "direct:a5f5a5fd:1",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "video:live",
+                  "audio:live"
+                ],
+                "receivers": [
+                  "video:live:muted@1:sendrecv",
+                  "audio:live@0:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "CIT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "InVDrT1GG",
+                    "remoteCandidateId": "IZDkIwjeF",
+                    "bytesSent": 301909,
+                    "bytesReceived": 2391343,
+                    "currentRoundTripTime": 0.003,
+                    "availableOutgoingBitrate": 92946
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 188425,
+                    "packetsReceived": 2325,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 297936
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 1976744,
+                    "packetsReceived": 2199,
+                    "packetsLost": 0,
+                    "framesDecoded": 772,
+                    "framesReceived": 772,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "CIT01_96",
+                    "pliCount": 1,
+                    "nackCount": 0,
+                    "jitterBufferDelay": 35.508806
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "IZDkIwjeF",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "InVDrT1GG",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 188500,
+                    "packetsSent": 2326,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 0,
+                    "packetsSent": 0,
+                    "framesEncoded": 0,
+                    "framesSent": 0,
+                    "codecId": "COT01_96",
+                    "pliCount": 0,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.003021
+                  }
+                ]
+              },
+              {
+                "key": "direct:70f7a0a3:2",
+                "connectionState": "connected",
+                "iceConnectionState": "connected",
+                "iceGatheringState": "complete",
+                "signalingState": "stable",
+                "senders": [
+                  "video:live",
+                  "audio:live"
+                ],
+                "receivers": [
+                  "video:live:muted@1:sendrecv",
+                  "audio:live@0:sendrecv"
+                ],
+                "stats": [
+                  {
+                    "type": "codec",
+                    "id": "CIT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "CIT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_111_minptime=10;useinbandfec=1",
+                    "mimeType": "audio/opus",
+                    "clockRate": 48000
+                  },
+                  {
+                    "type": "codec",
+                    "id": "COT01_96",
+                    "mimeType": "video/VP8",
+                    "clockRate": 90000
+                  },
+                  {
+                    "type": "candidate-pair",
+                    "state": "succeeded",
+                    "localCandidateId": "IMpR/u9TP",
+                    "remoteCandidateId": "I3dsiGLaI",
+                    "bytesSent": 320276,
+                    "bytesReceived": 2471074,
+                    "currentRoundTripTime": 0.004,
+                    "availableOutgoingBitrate": 93718
+                  },
+                  {
+                    "type": "remote-candidate",
+                    "id": "I3dsiGLaI",
+                    "candidateType": "relay",
+                    "protocol": "udp"
+                  },
+                  {
+                    "type": "local-candidate",
+                    "id": "IMpR/u9TP",
+                    "candidateType": "relay",
+                    "protocol": "udp",
+                    "relayProtocol": "tls",
+                    "networkType": "unknown"
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 189703,
+                    "packetsReceived": 2341,
+                    "packetsLost": 0,
+                    "codecId": "CIT01_111_minptime=10;useinbandfec=1",
+                    "jitterBufferDelay": 298204.8
+                  },
+                  {
+                    "type": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 2054315,
+                    "packetsReceived": 2256,
+                    "packetsLost": 0,
+                    "framesDecoded": 779,
+                    "framesReceived": 779,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "codecId": "CIT01_96",
+                    "pliCount": 1,
+                    "nackCount": 0,
+                    "jitterBufferDelay": 26.993928
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 188940,
+                    "packetsSent": 2331,
+                    "codecId": "COT01_111_minptime=10;useinbandfec=1",
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 0,
+                    "packetsSent": 1,
+                    "framesEncoded": 0,
+                    "framesSent": 0,
+                    "codecId": "COT01_96",
+                    "pliCount": 1,
+                    "nackCount": 0
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "audio",
+                    "packetsLost": 0,
+                    "roundTripTime": 0.004684
+                  },
+                  {
+                    "type": "remote-inbound-rtp",
+                    "kind": "video",
+                    "packetsLost": 0
+                  }
+                ]
+              }
+            ],
+            "pictures": [
+              {
+                "device": "70f7a0a3",
+                "role": "camera",
+                "onScreen": true,
+                "played": true,
+                "stalled": 11,
+                "currentTime": 0,
+                "paused": false,
+                "size": "0x0",
+                "track": "live:muted"
+              },
+              {
+                "device": "a5f5a5fd",
+                "role": "camera",
+                "onScreen": true,
+                "played": true,
+                "stalled": 12,
+                "currentTime": 0,
+                "paused": false,
+                "size": "0x0",
+                "track": "live:muted"
+              }
+            ],
+            "sounds": [
+              {
+                "device": "70f7a0a3",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 46.73,
+                "track": "live"
+              },
+              {
+                "device": "a5f5a5fd",
+                "role": "mic",
+                "inDocument": true,
+                "paused": false,
+                "currentTime": 46.73,
+                "track": "live"
+              }
+            ],
+            "callTimeline": [
+              "+0.8s call-declared started 065d61a5 on Join",
+              "+1.0s advert-change a5f5a5fd +camera,mic",
+              "+1.0s call-declared converged simultaneous starts on 3b08bec6",
+              "+1.2s advert-change 70f7a0a3 +camera,mic",
+              "+1.5s signal-sent a5f5a5fd offer",
+              "+1.5s signal-sent 70f7a0a3 offer",
+              "+1.5s signal-sent a5f5a5fd ice",
+              "+1.6s signal-sent 70f7a0a3 ice",
+              "+1.7s advert-change 4aac5280 +camera",
+              "+1.7s signal-received 70f7a0a3 offer",
+              "+1.7s signal-received a5f5a5fd offer",
+              "+1.7s track-added 70f7a0a3 video",
+              "+1.7s track-added 70f7a0a3 audio",
+              "+1.7s track-added a5f5a5fd video",
+              "+1.7s track-added a5f5a5fd audio",
+              "+1.8s signal-sent 70f7a0a3 answer",
+              "+1.8s signal-sent a5f5a5fd answer",
+              "+1.8s signal-sent a5f5a5fd ice",
+              "+1.9s signal-sent 70f7a0a3 ice",
+              "+2.1s signal-received 70f7a0a3 ice",
+              "+2.1s connection-state-change 70f7a0a3 connecting",
+              "+2.2s signal-sent a5f5a5fd offer",
+              "+2.2s signal-received 70f7a0a3 ice",
+              "+2.2s signal-sent 70f7a0a3 offer",
+              "+2.2s signal-received a5f5a5fd ice",
+              "+2.2s signal-received a5f5a5fd ice",
+              "+2.2s connection-state-change a5f5a5fd connecting",
+              "+2.7s advert-change 4aac5280 +mic",
+              "+2.9s connection-state-change 70f7a0a3 connected",
+              "+2.9s route-tier-change 70f7a0a3 direct",
+              "+3.1s signal-received a5f5a5fd offer",
+              "+3.1s signal-received 70f7a0a3 offer",
+              "+3.1s signal-sent a5f5a5fd answer",
+              "+3.1s signal-sent 70f7a0a3 answer",
+              "+3.1s signal-sent a5f5a5fd offer",
+              "+3.1s signal-sent 70f7a0a3 offer",
+              "+3.2s connection-state-change a5f5a5fd connected",
+              "+3.2s route-tier-change a5f5a5fd direct",
+              "+3.6s signal-received 70f7a0a3 answer",
+              "+3.7s signal-received a5f5a5fd answer",
+              "+3.7s signal-received 70f7a0a3 offer",
+              "+3.7s signal-sent 70f7a0a3 answer",
+              "+3.9s signal-received a5f5a5fd offer",
+              "+3.9s signal-sent a5f5a5fd answer",
+              "+19.0s tile-bound a5f5a5fd video",
+              "+20.0s tile-bound 70f7a0a3 video",
+              "+36.0s tile-bound a5f5a5fd video",
+              "+37.0s tile-bound 70f7a0a3 video"
+            ],
+            "visibility": "visible"
+          }
+        },
+        "sinks": [
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 48.431804,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": false,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 0,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": true,
+                "enabled": true
+              }
+            ]
+          },
+          {
+            "connected": true,
+            "paused": false,
+            "visible": true,
+            "offPage": false,
+            "time": 0,
+            "tracks": [
+              {
+                "kind": "video",
+                "state": "live",
+                "muted": true,
+                "enabled": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

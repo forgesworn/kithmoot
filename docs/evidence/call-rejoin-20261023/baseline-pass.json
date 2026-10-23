@@ -1,0 +1,323 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:49:06.240Z",
+    "duration": 73819.834,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": true,
+  "sourceRepairMade": false,
+  "evidence": [
+    {
+      "model": "independently operated static app with build-selected issuer; all fixtures local",
+      "guestsConfiguredRelay": false,
+      "fileImportUsed": false,
+      "realCoturnRestAuthentication": true,
+      "issuerImplementation": "server/turn-credentials.mjs",
+      "ttlSeconds": 3600,
+      "separateBrowserLogins": true,
+      "credentialsInLocalOrSessionStorage": false,
+      "issuerRequestBoundary": {
+        "requests": 6,
+        "cookies": false,
+        "authorisation": false,
+        "referrer": false,
+        "query": false,
+        "body": false,
+        "distinctLogins": 6
+      },
+      "oneToOne": [
+        [
+          {
+            "peer": 0,
+            "frames": 18,
+            "energy": 0.014657762261526484,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A945644113|IT01V2029876199"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "frames": 20,
+            "energy": 0.09038024959122469,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1952076386|IT01V2218682657"
+          }
+        ]
+      ],
+      "group": [
+        [
+          {
+            "peer": 0,
+            "frames": 292,
+            "energy": 1.2941875847553517,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A945644113|IT01V2029876199"
+          },
+          {
+            "peer": 1,
+            "frames": 110,
+            "energy": 0.30745804623054246,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1880568550|IT01V3200088460"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "frames": 357,
+            "energy": 1.6296194992436968,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1952076386|IT01V2218682657"
+          },
+          {
+            "peer": 1,
+            "frames": 158,
+            "energy": 0.5770770653760772,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A383415788|IT01V1995619094"
+          }
+        ],
+        [
+          {
+            "peer": 0,
+            "frames": 293,
+            "energy": 1.33484156023865,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A1553791266|IT01V181376620"
+          },
+          {
+            "peer": 1,
+            "frames": 280,
+            "energy": 1.3099170285765784,
+            "local": "relay",
+            "remote": "relay",
+            "protocol": "tls",
+            "epoch": "IT01A540281626|IT01V1518866795"
+          }
+        ]
+      ],
+      "rejoined": [
+        {
+          "cycle": 1,
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "frames": 566,
+                "energy": 2.5901465290530923,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A945644113|IT01V2029876199"
+              },
+              {
+                "peer": 2,
+                "frames": 47,
+                "energy": 0.12920884630805157,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A866892040|IT01V3918412200"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 607,
+                "energy": 2.787754003748917,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1952076386|IT01V2218682657"
+              },
+              {
+                "peer": 2,
+                "frames": 75,
+                "energy": 0.26338605774128304,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A2828256492|IT01V3113683681"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 130,
+                "energy": 0.5981403327888927,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A2121964577|IT01V617238432"
+              },
+              {
+                "peer": 1,
+                "frames": 129,
+                "energy": 0.5972990990024541,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A3616086511|IT01V2693754413"
+              }
+            ]
+          ]
+        },
+        {
+          "cycle": 2,
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "frames": 765,
+                "energy": 3.5097120707858576,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A945644113|IT01V2029876199"
+              },
+              {
+                "peer": 3,
+                "frames": 49,
+                "energy": 0.1474957676093374,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A3602714260|IT01V3594514174"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 798,
+                "energy": 3.6645173732713974,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1952076386|IT01V2218682657"
+              },
+              {
+                "peer": 3,
+                "frames": 68,
+                "energy": 0.2345720113783754,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1017481550|IT01V3028744873"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 87,
+                "energy": 0.39465018947624364,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1248920785|IT01V1260836545"
+              },
+              {
+                "peer": 1,
+                "frames": 87,
+                "energy": 0.39800467187182026,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A2440908897|IT01V2443740903"
+              }
+            ]
+          ]
+        },
+        {
+          "cycle": 3,
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "frames": 928,
+                "energy": 4.256206974698124,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A945644113|IT01V2029876199"
+              },
+              {
+                "peer": 4,
+                "frames": 77,
+                "energy": 0.32916761061117233,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A3466833989|IT01V3491325896"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 955,
+                "energy": 4.3932533715290845,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1952076386|IT01V2218682657"
+              },
+              {
+                "peer": 4,
+                "frames": 88,
+                "energy": 0.3735442429054142,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A3914175123|IT01V774051369"
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "frames": 102,
+                "energy": 0.4753766512766887,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A1739877674|IT01V41523241"
+              },
+              {
+                "peer": 1,
+                "frames": 101,
+                "energy": 0.4671225725373198,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "epoch": "IT01A3862596951|IT01V3444071147"
+              }
+            ]
+          ]
+        }
+      ],
+      "externalRequests": [],
+      "separateNetworks": false,
+      "publicPkiQualified": false,
+      "independentRealOperatorsQualified": false,
+      "publicProviderSelected": false,
+      "forgeSwornWebsiteProviderSelection": false,
+      "legalExemptionEstablished": false
+    }
+  ]
+}

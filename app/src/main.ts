@@ -148,7 +148,7 @@ import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
-import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
+import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -12771,15 +12771,15 @@ function syncRemoteVideos(): void {
   for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
-    const moving = clock > entry.last + 0.001
+    const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
+    const moving = pictureAdvanced(entry.last, clock, hasFrame)
     entry.last = clock
     if (moving) {
       noteProgress(entry.track, now)
-      // Keep a newly negotiated sink connected so it can decode, but do not
-      // let its empty black rectangle take half of a grouped person's card.
-      // The first painted frame makes it a picture and earns its place.
-      if (entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     }
+    // Reveal real picture data even when a still frame's clock is zero.
+    // An initial empty sink must remain attached without claiming playback.
+    if (hasFrame && entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
@@ -13189,6 +13189,7 @@ async function collectDiagnostics(): Promise<string> {
       callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
+      camera: camera ? { playback: camera.playback, stats: camera.stats, totals: camera.totals } : undefined,
       screenAudio: screenAudioTrack
         ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
         : { present: false },

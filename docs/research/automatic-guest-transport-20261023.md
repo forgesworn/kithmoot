@@ -127,7 +127,10 @@ assertions passed before rejoin failed: one receiving peer decoded zero
 video frames while receiving audio over a nominated relay/relay TLS path;
 the other five receiving directions decoded video. The bounded attachment
 also records the available video sinks. It does not establish the root cause.
-No production video repair was made. This gate remains red.
+No production video repair was made in that increment. That recorded gate
+remains red; the [subsequent first-frame investigation](call-rejoin-20261023.md)
+contains a demonstrated playback fix, stronger checks and its remaining
+intermittent native-media limitation.
 
 The independent [HTTP boundary case](../evidence/automatic-guest-transport-20261023/boundary-result.json)
 passed after that failure. Two fresh browsers entered the real call controls,

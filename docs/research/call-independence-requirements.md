@@ -207,6 +207,19 @@ relay ports. CDN/provider and backup retention were not fully audited.
 These are dated findings, not a fresh live readback or proof of call logging.
 Production zero-logging cannot be claimed from the coturn log settings alone.
 
+## Browser rejoin follow-up
+
+The [23 October first-frame investigation](call-rejoin-20261023.md) fixes a
+reproducible playback defect where recovery parked an empty remote video
+before its first frame. It adds a controlled delayed-frame regression,
+three group reload/rejoin cycles and actual visible-sink clock progress to
+the TURN/TLS media checks. The final local ordinary-build gate passes, but
+an earlier slowed-client native sender/receiver stall remains unresolved.
+This does not establish unrestricted calling reliability, real-network or
+physical GrapheneOS acceptance, a production provider, a zero-logging audit
+or an OSA exemption. The existing independent operator and publisher
+boundaries continue to apply.
+
 ## Sapflow reuse for the web
 
 The owner wants to reuse Sapflow where it can provide the browser experience.

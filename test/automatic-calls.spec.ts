@@ -1,10 +1,21 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, join, open, openCall, joinWithMedia, newDeviceContext, turnOnMedia, chooseCallMore, SYNTHETIC_MIC } from './browser.js'
+import { once } from 'node:events'
+import { connect as connectTls } from 'node:tls'
+import { createRoom, join, open, joinWithMedia, newDeviceContext, turnOnMedia, chooseCallMore, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
+import { automaticCallState, observeAutomaticCallErrors } from './automatic-call-state.js'
 
 const issuer = `https://localhost:${process.env.E2E_AUTOMATIC_TURN_PORT ?? 7794}`
+const observerCpuRate = Number(process.env.E2E_CALL_OBSERVER_CPU_RATE ?? 1)
+if (!Number.isInteger(observerCpuRate) || observerCpuRate < 1 || observerCpuRate > 4) throw new Error('Observer CPU rate must be an integer from 1 to 4')
 
 test('issuer requests omit cookies and room information while fresh guests receive distinct logins', async ({ browser, baseURL, request }) => {
+  // A browser may pre-open TLS without sending HTTP. That idle connection
+  // must not monopolise the local credential facade's only request handler.
+  const idle = connectTls({ host: '127.0.0.1', port: Number(new URL(issuer).port), servername: 'localhost', rejectUnauthorized: false })
+  idle.on('error', () => {})
+  idle.setTimeout(25_000, () => idle.destroy())
+  await once(idle, 'secureConnect')
   const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!)))
   const replies: { username: string; credential: string }[] = []
   const denied: string[] = []
@@ -22,10 +33,7 @@ test('issuer requests omit cookies and room information while fresh guests recei
         }
         socket.connectToServer()
       })
-      context.on('response', async response => {
-        if (response.url() !== `${issuer}/turn` || !response.ok()) return
-        try { replies.push(await response.json()) } catch { /* the count assertion catches unread replies */ }
-      })
+      await context.addInitScript(SYNTHETIC_MIC)
       await context.addCookies([{ name: 'issuer-cookie-probe', value: 'must-not-be-sent', url: issuer, secure: true, sameSite: 'None' }])
       await context.addInitScript(() => {
         localStorage.setItem('kithmoot.hide-ip.v1', '1')
@@ -34,12 +42,23 @@ test('issuer requests omit cookies and room information while fresh guests recei
     }
     const pages = await Promise.all(contexts.map(context => context.newPage()))
     const link = await createRoom(pages[0], baseURL!)
-    await openCall(pages[0])
+    await turnOnMedia(pages[0])
     await open(pages[1], link, 'Rowan'); await join(pages[1])
     await expect(pages[1].locator('#roomArea')).toBeVisible()
-    // Enter the call; chat-only participation need not ask for TURN access.
-    await openCall(pages[1])
-    await expect.poll(() => replies.length).toBeGreaterThanOrEqual(2)
+    // Publish media on both sides: an idle/chat-only guest need not request
+    // its own transport allocation yet.
+    await turnOnMedia(pages[1])
+    // Inspect the credentials actually accepted by native WebRTC instead of
+    // depending on DevTools retaining a second readable response body.
+    await expect.poll(async () => {
+      replies.length = 0
+      for (const page of pages) {
+        const relay = await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+          .flatMap(pc => pc.getConfiguration().iceServers ?? []).find(server => server.username && typeof server.credential === 'string'))
+        if (relay?.username && typeof relay.credential === 'string') replies.push({ username: relay.username, credential: relay.credential })
+      }
+      return replies.length
+    }, { timeout: 10_000 }).toBe(2)
     expect(new Set(replies.map(reply => reply.username)).size).toBe(replies.length)
     for (const page of pages) {
       const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))
@@ -53,23 +72,31 @@ test('issuer requests omit cookies and room information while fresh guests recei
     expect(stats.distinctLogins).toBeGreaterThanOrEqual(2)
     for (const key of ['cookies', 'authorisation', 'referrer', 'query', 'body']) expect(stats[key], key).toBe(false)
     expect(denied).toEqual([])
+    expect(idle.destroyed, 'credentials must arrive while the pre-opened TLS socket remains idle').toBe(false)
     await test.info().attach('automatic-issuer-request-boundary', { contentType: 'application/json', body: JSON.stringify({
       freshBrowserGuests: 2, guestSettingsOrImport: false, distinctTemporaryLogins: replies.length,
+      idleTlsSocketDidNotBlockCredentials: true,
+      credentialObservation: 'native RTCPeerConnection configuration',
       persistedInLocalOrSessionStorage: false, credentialsInRoomLink: false,
       issuerRequestBoundary: stats, externalRequests: denied,
       separateNetworks: false, publicPkiQualified: false, commercialProviderQualified: false,
     }, null, 2) })
-  } finally { await Promise.all(contexts.map(context => context.close())) }
+  } finally { idle.destroy(); await Promise.all(contexts.map(context => context.close())) }
 })
 
 async function sample(page: Page) {
   return page.evaluate(async () => {
-    const rows: { peer: number; frames: number; energy: number; local: string; remote: string; protocol: string; epoch: string }[] = []
+    const rows: { peer: number; frames: number; energy: number; local: string; remote: string; protocol: string; epoch: string; sinkTime: number }[] = []
     const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
     for (let peer = 0; peer < pcs.length; peer++) {
       const pc = pcs[peer]
       if (pc.connectionState !== 'connected') continue
       const report = await pc.getStats()
+      const videoTracks = pc.getReceivers().map(receiver => receiver.track).filter(track => track.kind === 'video')
+      const sinkTime = Math.max(0, ...[...document.querySelectorAll<HTMLVideoElement>('#room video')]
+        .filter(video => !video.paused && video.checkVisibility() && video.srcObject instanceof MediaStream &&
+          video.srcObject.getTracks().some(track => videoTracks.includes(track)))
+        .map(video => video.currentTime))
       let frames = 0, energy = 0
       const streams: string[] = []
       report.forEach(stat => {
@@ -81,7 +108,7 @@ async function sample(page: Page) {
       report.forEach(stat => {
         if (stat.type !== 'candidate-pair' || !stat.nominated || stat.state !== 'succeeded') return
         const local = report.get(stat.localCandidateId), remote = report.get(stat.remoteCandidateId)
-        rows.push({ peer, frames, energy, local: local?.candidateType, remote: remote?.candidateType, protocol: local?.relayProtocol, epoch: streams.sort().join('|') })
+        rows.push({ peer, frames, energy, local: local?.candidateType, remote: remote?.candidateType, protocol: local?.relayProtocol, epoch: streams.sort().join('|'), sinkTime })
       })
     }
     return rows
@@ -90,21 +117,86 @@ async function sample(page: Page) {
 
 async function movingMedia(page: Page, peers: number) {
   if (peers > 1) await chooseCallMore(page, 'Gallery', 'Layout')
-  await expect.poll(async () => (await sample(page)).filter(row => row.frames > 5 && row.energy > 0).length,
-    { timeout: 45_000, message: 'every remote participant must supply decoded video and audio' }).toBe(peers)
+  await expect.poll(async () => (await sample(page)).filter(row => row.frames > 5 && row.energy > 0 && row.sinkTime > 0).length,
+    { timeout: 45_000, message: 'every remote participant must supply decoded video, audio and a playing video sink' }).toBe(peers)
   const baseline = new Map((await sample(page)).map(row => [row.peer, row]))
   await expect.poll(async () => (await sample(page)).filter(row => {
     const before = baseline.get(row.peer)
-    if (!before || before.epoch !== row.epoch || row.frames < before.frames || row.energy < before.energy) {
+    if (!before || before.epoch !== row.epoch || row.frames < before.frames || row.energy < before.energy || row.sinkTime < before.sinkTime) {
       baseline.set(row.peer, row)
       return false
     }
-    return row.frames > before.frames + 2 && row.energy > before.energy
+    return row.frames > before.frames + 2 && row.energy > before.energy && row.sinkTime > before.sinkTime
   }).length, { timeout: 30_000, message: 'stale counters must not pass' }).toBe(peers)
   const result = await sample(page)
   expect(result.every(row => row.local === 'relay' && row.remote === 'relay' && row.protocol === 'tls')).toBe(true)
   return result
 }
+
+test('a delayed first camera frame after rejoin keeps its playback sink attached', async ({ browser, baseURL }) => {
+  const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!)))
+  const pages: Page[] = []
+  try {
+    for (const context of contexts) {
+      await context.addInitScript(SYNTHETIC_MIC)
+      await context.addInitScript(() => {
+        localStorage.setItem('kithmoot.hide-ip.v1', '1')
+        localStorage.setItem('kithmoot.profiles.enabled', 'false')
+      })
+    }
+    pages.push(...await Promise.all(contexts.map(context => context.newPage())))
+    const link = await createRoom(pages[0], baseURL!)
+    await turnOnMedia(pages[0]); await joinWithMedia(pages[1], link, 'Rowan')
+    for (const page of pages) await movingMedia(page, 1)
+    const oldPeerCount = await pages[0].evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)
+    // Defer only the outgoing canvas's first paint on the next page load.
+    // Real WebRTC, the owned privacy compositor and its capture track remain
+    // intact. No raw camera, ICE configuration or incoming sink is substituted.
+    await contexts[1].addInitScript(() => {
+      const deadlines = new WeakMap<HTMLCanvasElement, number>()
+      const capture = HTMLCanvasElement.prototype.captureStream
+      const draw = CanvasRenderingContext2D.prototype.drawImage
+      const state = window as unknown as { __firstCameraPaint: { until: number; painted: boolean } }
+      HTMLCanvasElement.prototype.captureStream = function(rate?: number) {
+        const until = performance.now() + 12_000
+        deadlines.set(this, until); state.__firstCameraPaint = { until, painted: false }
+        return capture.call(this, rate)
+      }
+      CanvasRenderingContext2D.prototype.drawImage = function(this: CanvasRenderingContext2D, ...args: unknown[]) {
+        const deadline = deadlines.get(this.canvas as HTMLCanvasElement)
+        if (deadline !== undefined) {
+          if (performance.now() < deadline) return
+          state.__firstCameraPaint.painted = true
+        }
+        Reflect.apply(draw, this, args)
+      }
+    })
+    await pages[1].reload(); await joinWithMedia(pages[1], link, 'Rowan')
+    const pending = () => pages[0].evaluate(previous => {
+      const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.slice(previous)
+      const tracks = pcs.flatMap(pc => pc.getReceivers().map(receiver => receiver.track)).filter(track => track.kind === 'video')
+      const video = [...document.querySelectorAll<HTMLVideoElement>('video')].find(el =>
+        el.srcObject instanceof MediaStream && el.srcObject.getTracks().some(track => tracks.includes(track)))
+      return video ? { insideRoom: !!video.closest('#room'), clock: video.currentTime,
+        awaiting: video.classList.contains('awaitingFrame'), width: video.videoWidth } : undefined
+    }, oldPeerCount)
+    await expect.poll(pending).toBeTruthy()
+    await pages[0].waitForTimeout(3500) // exercise several one-second recovery ticks
+    const held = await pending()
+    const paint = await pages[1].evaluate(() => (window as unknown as { __firstCameraPaint: { painted: boolean } }).__firstCameraPaint)
+    expect(paint.painted, 'fixture must still be withholding the first output paint').toBe(false)
+    expect(held?.clock).toBe(0)
+    expect(held?.width).toBe(0)
+    expect(held?.insideRoom, 'a sink with no first frame was parked out of the rendering tree').toBe(true)
+    expect(held?.awaiting).toBe(true)
+    for (const page of pages) await movingMedia(page, 1)
+    await test.info().attach('delayed-first-frame-rejoin', { contentType: 'application/json', body: JSON.stringify({
+      firstPaintDelayMs: 12_000, recoveryTicksBeforeFirstPaint: 3, held,
+      realPrivacyCompositor: true, sourceSubstituted: false,
+      receivedAfterDelay: await Promise.all(pages.map(sample)),
+    }, null, 2) })
+  } finally { await Promise.all(contexts.map(context => context.close())) }
+})
 
 test('fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files', async ({ browser, baseURL, request }) => {
   const contexts = await Promise.all([0, 1, 2].map(() => newDeviceContext(browser, baseURL!, { viewport: { width: 1920, height: 1080 } })))
@@ -134,6 +226,7 @@ test('fresh guests automatically obtain separate temporary transport logins and 
       })
     }
     pages.push(...await Promise.all(contexts.map(context => context.newPage())))
+    pages.forEach(observeAutomaticCallErrors)
     const link = await createRoom(pages[0], baseURL!)
     await turnOnMedia(pages[0])
     phase = 'one-to-one'
@@ -166,12 +259,20 @@ test('fresh guests automatically obtain separate temporary transport logins and 
       logins.push(configs.username)
     }
     expect(new Set(logins).size).toBe(3)
+    if (observerCpuRate > 1) for (const page of pages.slice(0, 2)) {
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: observerCpuRate })
+    }
     // A fresh rejoin asks the independent issuer again; no saved login to import.
-    await pages[2].reload()
-    phase = 'rejoin'
-    await joinWithMedia(pages[2], link, 'PeerC')
     const rejoined = []
-    for (const page of pages) rejoined.push(await movingMedia(page, 2))
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      await pages[2].reload()
+      phase = `rejoin ${cycle}`
+      await joinWithMedia(pages[2], link, 'PeerC')
+      const peers = []
+      for (const page of pages) peers.push(await movingMedia(page, 2))
+      rejoined.push({ cycle, peers })
+    }
     await pages[2].locator('#chatInput').fill('Automatic transport; participant room keys')
     await pages[2].locator('#chatInput').press('Enter')
     for (const page of pages.slice(0, 2)) await expect(page.locator('#chatLog')).toContainText('Automatic transport; participant room keys')
@@ -184,6 +285,7 @@ test('fresh guests automatically obtain separate temporary transport logins and 
       model: 'independently operated static app with build-selected issuer; all fixtures local',
       guestsConfiguredRelay: false, fileImportUsed: false, realCoturnRestAuthentication: true,
       issuerImplementation: 'server/turn-credentials.mjs', ttlSeconds: 3600,
+      observerCpuRate,
       separateBrowserLogins: true, credentialsInLocalOrSessionStorage: false,
       issuerRequestBoundary: stats, oneToOne, group, rejoined,
       externalRequests: denied, separateNetworks: false, publicPkiQualified: false,
@@ -191,8 +293,8 @@ test('fresh guests automatically obtain separate temporary transport logins and 
       forgeSwornWebsiteProviderSelection: false, legalExemptionEstablished: false,
     }, null, 2) })
   } catch (error) {
-    await test.info().attach('bounded-automatic-call-failure', { contentType: 'application/json', body: JSON.stringify({ phase,
-      peers: await Promise.all(pages.map(async page => ({ media: await sample(page),
+    await test.info().attach('bounded-automatic-call-failure', { contentType: 'application/json', body: JSON.stringify({ phase, observerCpuRate,
+      peers: await Promise.all(pages.map(async page => ({ media: await sample(page), state: await automaticCallState(page),
         sinks: await page.evaluate(() => [...document.querySelectorAll<HTMLVideoElement>('#room video')].map(video => ({
           connected: video.isConnected, paused: video.paused, visible: video.checkVisibility(),
           offPage: video.hasAttribute('data-gallery-off-page'), time: video.currentTime,

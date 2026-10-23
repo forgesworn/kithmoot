@@ -1,0 +1,67 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T18:56:22.232Z",
+    "duration": 43335.741,
+    "expected": 5,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": false,
+  "allFixturesLocal": true,
+  "realCapturePickerQualified": false,
+  "cases": [
+    {
+      "title": "protected sharing sends only the cropped/redacted canvas, hides sound and covers source changes",
+      "status": "passed",
+      "durationMs": 3154,
+      "attachments": {}
+    },
+    {
+      "title": "cancelling while the picker is pending stops every track in a late result",
+      "status": "passed",
+      "durationMs": 247,
+      "attachments": {}
+    },
+    {
+      "title": "source closure and compositor failure stop protected output and raw capture",
+      "status": "passed",
+      "durationMs": 905,
+      "attachments": {}
+    },
+    {
+      "title": "monitor, unknown and sharing-controls sources are refused before any publication",
+      "status": "passed",
+      "durationMs": 523,
+      "attachments": {}
+    },
+    {
+      "title": "fresh browser rooms chat, call, protect a share and reconnect with only independent local infrastructure",
+      "status": "passed",
+      "durationMs": 14502,
+      "attachments": {
+        "bounded-independence-result": {
+          "scope": "two fresh browser contexts on one local host; independent static assets and test Nostr relay",
+          "publisherRuntimeAvailable": false,
+          "externalHttpAttempts": [],
+          "deniedExternalWebSocketOrigins": [
+            "wss://purplepag.es",
+            "wss://relay.damus.io",
+            "wss://relay.primal.net"
+          ],
+          "chat": true,
+          "twoWayAudioVideo": true,
+          "protectedSharePublished": true,
+          "protectedShareDecoded": true,
+          "reconnect": true,
+          "legacyCallEventConsoleRecords": 0,
+          "diagnosticExportHook": false,
+          "separateNetworks": false,
+          "realProviderSelection": false,
+          "noLoggingAudit": false,
+          "legalExemptionEstablished": false
+        }
+      }
+    }
+  ]
+}

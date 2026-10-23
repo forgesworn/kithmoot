@@ -16,15 +16,18 @@ import ssl
 import subprocess
 import tempfile
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from shutil import rmtree
+from threading import Lock
 
 PORT = int(os.environ.get("E2E_AUTOMATIC_TURN_PORT", "7794"))
 APP_PORT = int(os.environ.get("E2E_PORT", "5594"))
 root = Path(tempfile.mkdtemp(prefix="kithmoot-automatic-turn-"))
 name = f"kithmoot-automatic-turn-{os.getpid()}"
 child = None
+server = None
 issuer_port = None
+state_lock = Lock()
 refusing = False
 issued = set()
 observed = {"requests": 0, "cookies": False, "authorisation": False,
@@ -53,16 +56,20 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/":
             return self.reply({"ready": True})
         if self.path == "/stats":
-            return self.reply({**observed, "distinctLogins": len(issued)})
+            with state_lock:
+                snapshot = {**observed, "distinctLogins": len(issued)}
+            return self.reply(snapshot)
         if self.path.split("?", 1)[0] != "/turn":
             return self.reply({"error": "Not found"}, 404)
-        observed["requests"] += 1
-        for key, header in [("cookies", "Cookie"), ("authorisation", "Authorization"),
-                            ("referrer", "Referer")]:
-            observed[key] |= bool(self.headers.get(header))
-        observed["query"] |= "?" in self.path
-        observed["body"] |= int(self.headers.get("Content-Length", "0")) != 0
-        if refusing:
+        with state_lock:
+            observed["requests"] += 1
+            for key, header in [("cookies", "Cookie"), ("authorisation", "Authorization"),
+                                ("referrer", "Referer")]:
+                observed[key] |= bool(self.headers.get(header))
+            observed["query"] |= "?" in self.path
+            observed["body"] |= int(self.headers.get("Content-Length", "0")) != 0
+            refused = refusing
+        if refused:
             return self.reply({"error": "unavailable"}, 503)
         # Exercise server/turn-credentials.mjs, not a fabricated RTC response.
         connection = http.client.HTTPConnection("127.0.0.1", issuer_port, timeout=3)
@@ -74,7 +81,8 @@ class Handler(BaseHTTPRequestHandler):
             response = connection.getresponse()
             body = json.loads(response.read())
             if response.status == 200:
-                issued.add(body["username"])
+                with state_lock:
+                    issued.add(body["username"])
             return self.reply(body, response.status)
         finally:
             connection.close()
@@ -83,8 +91,37 @@ class Handler(BaseHTTPRequestHandler):
         global refusing
         if self.path not in ["/refuse", "/resume"]:
             return self.reply({"error": "Not found"}, 404)
-        refusing = self.path == "/refuse"
-        return self.reply({"refusing": refusing})
+        with state_lock:
+            refusing = self.path == "/refuse"
+            snapshot = refusing
+        return self.reply({"refusing": snapshot})
+
+
+class FacadeServer(ThreadingHTTPServer):
+    # A browser's idle pre-opened socket must not block other credential
+    # requests, including while the idle socket has not completed TLS.
+    daemon_threads = True
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(5)
+        try:
+            secured = self.tls_context.wrap_socket(connection, server_side=True,
+                                                   do_handshake_on_connect=False)
+            return secured, address
+        except Exception:
+            connection.close()
+            raise
+
+    def finish_request(self, request, client_address):
+        request.do_handshake()
+        request.settimeout(30)
+        super().finish_request(request, client_address)
+
+    def handle_error(self, *_):
+        # Idle socket expiry/disconnect is expected in these synthetic runs.
+        # Do not turn peer addresses or request failures into access logs.
+        pass
 
 
 def stop(*_):
@@ -155,12 +192,14 @@ server.listen(0, '127.0.0.1', () => writeFileSync(process.env.FIXTURE_READY,
         time.sleep(0.05)
     else:
         raise RuntimeError("Independent issuer readiness timed out")
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
+    server = FacadeServer(("127.0.0.1", PORT), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(str(root / "cert.pem"), str(root / "key.pem"))
-    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.tls_context = context
     server.serve_forever()
 finally:
+    if server is not None:
+        server.server_close()
     if child is not None:
         child.terminate()
         try:
