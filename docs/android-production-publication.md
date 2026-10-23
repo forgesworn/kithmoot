@@ -6,6 +6,23 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.108 room info, signer wait and invite wording, 23 October 2026
+
+Version **0.6.108**, code **131**. Room info keeps a member's name on one
+line when it fits. Use another device here too says "Waiting for your
+signer…" while the signer app is asked, and ignores a second press. The
+invite sheet says who lets people in with the room's link: anyone walks in
+(a group link), this phone lets them in, or only the device that made the
+link can, because this phone's permission to answer for it has run out
+(kithmoot-android #320). Requests to join and key catch-up requests are now
+logged with what the phone decided, for diagnosis. No wire change.
+
+The production APK is built from Android source `2b0019fc` (the head of pull
+request #320), SHA-256
+`471e4c8f592398207dcd2e262b684b5c12ac75cc067f494f71b21adaf3fe436f`, 73,824,015
+bytes, signed with the retained production certificate. Installed over a
+0.6.107 build on a Pixel with its data.
+
 ## Android 0.6.107 calls ready at room open, 23 October 2026
 
 Version **0.6.107**, code **130**. Opening a room no longer waits about a
