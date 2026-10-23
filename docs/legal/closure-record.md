@@ -64,8 +64,10 @@ credential and retires a stored ForgeSworn file server
   backups.
 - **The former public STUN listener.** It stopped on 23 October 2026.
   A host readback on that date found the legacy coturn container exited and
-  no listener on 3478. Older clients, including Android through 0.6.105,
-  may still name that former listener. Current web and Android source names
+  no listener on 3478. Older clients, including Android through 0.6.105
+  and desktop through 0.1.101, may still name that former listener. Desktop
+  0.1.102 and Android 0.6.106 are the planned updates to those defaults; a web
+  deploy does not update the desktop app's bundled copy. Current web and Android source names
   Cloudflare STUN unless the device or room selects another server
   (`src/ice-defaults.ts`, Android `media/CallIceServers.kt`). This is not a
   claim that every installed release has updated. STUN handles address
