@@ -36,8 +36,9 @@ import { fakeMicMakesSound, inbound, nameCreator, openNewRoomForm, remoteAudioCo
  *
  * NOT PART OF `npm test`, and not part of `npm run test:e2e` either. It
  * needs a deployment that actually serves /turn, which `vite preview` does
- * not - see playwright.turn.config.ts, which points at the live site by
- * default and starts no local server. Run it with `npm run test:turn`.
+ * not - see playwright.turn.config.ts, which starts no local server and needs
+ * TURN_E2E_BASE_URL set to a deployment you run. Run it with
+ * `TURN_E2E_BASE_URL=https://your-host/j/ npm run test:turn`.
  * Set TURN_E2E_TRANSPORT=tcp-tls to exclude UDP and exercise the fallback a
  * restrictive VPN needs. This mirrors how vitest.live.config.ts is kept apart from
  * vitest.config.ts: real network, real infrastructure, on demand.

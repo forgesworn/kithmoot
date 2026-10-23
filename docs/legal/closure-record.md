@@ -38,6 +38,7 @@ credential service, were both committed on 24 August 2026.
 | 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
 | 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
 | 22 October 2026, about 19:40 UTC | The trash folder emptied: the stored files and the meeting-code store deleted | Host's report |
+| 23 October 2026, about 01:45 UTC | The two archive nodes on the owner's own machines, which mirrored the file store over Tor, stopped with the jobs that fed them; their copies, 86 encrypted files of about 170 MB on each, deleted | Checked on both machines: the nodes answered an unauthenticated read by hash until they stopped, and no copy is left in their data folders |
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
@@ -48,7 +49,9 @@ credential and retires a stored ForgeSworn file server
 ## 3. What remains
 
 - **Stored files.** Deleted on 22 October 2026: the 84 encrypted blobs,
-  about 164 MB. `[INPUT: whether the archive nodes still hold copies.]`
+  about 164 MB. The archive nodes' copies, 86 files including two the
+  store had already dropped, were deleted on 23 October 2026 (section 2).
+  ForgeSworn holds no copy.
 - **STUN on ForgeSworn's host.** The app derives `stun:<host>:3478` from
   the host that served it (`src/ice-defaults.ts`, `originStunGuess`), and
   Android 0.6.103 keeps STUN there. When the app is loaded from

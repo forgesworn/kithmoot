@@ -335,11 +335,11 @@ credential is testing nothing.
 ### End to end, the one that matters
 
 ```bash
-npm run test:turn
+TURN_E2E_BASE_URL=https://your-host/j/ npm run test:turn
 ```
 
-`test/turn-relay.spec.ts` drives two real browser contexts against the
-live site with `iceTransportPolicy: 'relay'` forced, which makes the
+`test/turn-relay.spec.ts` drives two real browser contexts against your
+deployment with `iceTransportPolicy: 'relay'` forced, which makes the
 browser discard host and server-reflexive candidates and gather only relay
 ones. The only route to a connection is then an allocation on the real
 TURN server with a real credential: the same code path a phone behind
@@ -348,9 +348,11 @@ that the selected candidate pair is of type `relay` at **both** ends, and
 that RTP bytes actually arrived, because ICE reaching `connected` while
 carrying no media is precisely the original bug.
 
-It runs against the live deployment by default and starts no local server,
-since `vite preview` does not serve `/turn`. See
-`playwright.turn.config.ts`; override with `TURN_E2E_BASE_URL`.
+It needs `TURN_E2E_BASE_URL` set to a deployment built with
+`VITE_TURN_CREDENTIAL_ENDPOINT`, and refuses to start without one: there is
+no default, since ForgeSworn runs no TURN server for KithMoot. It starts no
+local server, since `vite preview` does not serve `/turn`. See
+`playwright.turn.config.ts`.
 
 If it fails, the failure message distinguishes the cases: no credential,
 no `turn:` server in the app's ICE list, a non-`relay` candidate type, or

@@ -25,7 +25,7 @@ import { test, expect } from '@playwright/test'
  *   claim. No TURN server is configured in this harness, so the assertion
  *   that no leg used a relay candidate is a check that the topology is what
  *   it looks like, not a comparison against TURN. `test/turn-relay.spec.ts`
- *   is the other half of that, against the real deployment.
+ *   is the other half of that, against a real deployment.
  * - **Frame movement is real.** Encoded frames really are taken off one
  *   connection and put onto another, and the far end really decodes them.
  * - **Bandwidth is not constrained.** Loopback has no bottleneck, so what the

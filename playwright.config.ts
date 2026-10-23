@@ -67,8 +67,8 @@ export default defineConfig({
   // docs/decisions.md, 13 September 2026: it reads back the real
   // RTCConfiguration every RTCPeerConnection in the page was built with and
   // checks none of them ever names a Google host. Deliberately run against
-  // this local build, not the live deployment - test/turn-relay.spec.ts
-  // covers the real /turn endpoint separately.
+  // this local build, not a live deployment - test/turn-relay.spec.ts
+  // covers a real /turn endpoint separately, on a deployment you name.
   // safari-ice.spec.ts feeds the resolved production protocol set straight
   // to a real browser constructor; WebKit runs it specifically so an
   // optional URI Safari does not implement cannot make joining fail again.
