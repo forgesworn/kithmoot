@@ -30,21 +30,21 @@
 <p>If we change these terms, we will say so on the site. These terms do not take away any rights you have by law as a consumer.</p>
 
 <h2>2. What we run, and what we do not</h2>
-<p>We publish the software. We do not run a service that carries your rooms. Since 22 October 2026, kithmoot.forgesworn.dev does three things:</p>
+<p>We publish the software. The public website provides:</p>
 <ul>
-<li>serves the web app, this website and the downloads as static files;</li>
-<li>serves the update information the desktop app checks for;</li>
-<li>still answers STUN, which the Android app asks by default. STUN tells a device its own public address so a call can connect directly, and carries no messages, files or call media. The web app, the desktop app and kithmoot-agent use a STUN server run by Cloudflare instead.</li>
+<li>the web app, this website and the downloads as static files;</li>
+<li>the update information the desktop app checks for.</li>
 </ul>
 <p>Until 22 October 2026 we also ran a call relay (TURN), a file store, a message-drop service and meeting codes for anyone using the app, and until September 2026 one of the default relays was ours. Those are closed. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
+<p>The former public STUN listener stopped on 23 October 2026. A separate authenticated private relay remains for an arranged personal call; it is not a public app default or a public credential issuer. Private deployments have separate operator and access arrangements, described in the <a href="/privacy/">privacy notice</a>, section 4.5.</p>
 
 <h2>3. Who runs your rooms</h2>
 <ul>
 <li>Rooms travel over Nostr relays run by other people. The app suggests public relays by default; a room's creator can choose others.</li>
-<li>To help a call connect directly, the web app, the desktop app and kithmoot-agent ask a public STUN server run by Cloudflare for your device's address. A room can name its own call servers instead.</li>
+<li>Calls use the STUN and TURN settings chosen by the device, room or installed build. Recent client source names Cloudflare STUN by default; older installed clients may still name a retired listener. You can configure a relay supplied by an independent provider or one you run yourself.</li>
 <li>In the web app and the desktop app, files you send go by default to a public file server run by somebody else (section 4), or to a server you choose.</li>
 <li>A room's link is its access control. Whoever creates a room decides who to send it to.</li>
-<li>Whoever runs a relay, a file server, a call relay or a keeper for a room is responsible for what they run. If you run KithMoot or any of those yourself, that deployment is yours.</li>
+<li>Operators are responsible for what they run under the laws and agreements that apply to their deployment. Using a bundled app, running one login or forwarding encrypted packets does not by itself settle its legal classification. Transport infrastructure and control of the underlying communications service need separate analysis.</li>
 </ul>
 
 <h2>4. What others can see</h2>
@@ -67,7 +67,7 @@
 
 <h2>7. No warranty</h2>
 <ul>
-<li>The software is provided as it is, under the MIT licence, without warranty. We cannot promise the website, update information or STUN will always be available.</li>
+<li>The software is provided as it is, under the MIT licence, without warranty. We cannot promise the website or update information will always be available. A relay you select has its own availability and quota arrangements.</li>
 <li>We are not responsible for what people say, share or do in rooms, which we do not run and cannot see.</li>
 <li>Nothing in these terms limits or excludes our liability for death or personal injury caused by our negligence, for fraud or fraudulent misrepresentation, or for anything else the law does not allow us to limit.</li>
 </ul>

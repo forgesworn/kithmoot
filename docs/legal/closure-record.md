@@ -9,6 +9,12 @@ are carried here: `[P]` primary source read, `[S]` secondary, `[U]`
 unchecked. Where a fact rests on the host's report and not on the
 repository, it says so.
 
+Updated 23 October 2026 for the private call relay and the access-facility
+distinction in law note 2.11, primary sources read on that date. The original
+public services' closure history is preserved. See
+[`call-transport-position.md`](call-transport-position.md) for the current
+deployment and the future design; those are separate from the closures below.
+
 ## 1. What ForgeSworn ran
 
 From 24 August 2026 ForgeSworn ran default infrastructure on
@@ -56,18 +62,22 @@ credential and retires a stored ForgeSworn file server
   which serve nothing and are kept by the owner's decision of 23 October
   2026: Time Machine cannot delete one folder from a backup, only whole
   backups.
-- **STUN on ForgeSworn's host.** Since 23 October 2026 the web, desktop
-  and agent defaults ask Cloudflare's public STUN server
-  (`DEFAULT_STUN_URLS`, `src/ice-defaults.ts`). Android, to 0.6.105, still asks
-  ForgeSworn's, and coturn on 3478 answers anyone. STUN carries no user's
-  content to another user. The law note does not say whether a server like
-  that bears on the Online Safety Act (not covered). The owner decided on
-  22 October 2026 to keep it, and on 23 October 2026 that defaults may be
-  other people's servers but never ForgeSworn's; closing 3478 after the
-  Android update is a separate decision. It does see users' IP addresses,
-  which is data protection (law note 3.1). `[LEGAL REVIEW: whether
-  answering STUN for anyone keeps ForgeSworn a provider of anything under
-  the Act, given that STUN carries no content between users.]`
+- **The former public STUN listener.** It stopped on 23 October 2026.
+  A host readback on that date found the legacy coturn container exited and
+  no listener on 3478. Older clients, including Android through 0.6.105,
+  may still name that former listener. Current web and Android source names
+  Cloudflare STUN unless the device or room selects another server
+  (`src/ice-defaults.ts`, Android `media/CallIceServers.kt`). This is not a
+  claim that every installed release has updated. STUN handles address
+  discovery and IP metadata; its legal classification needs the separate
+  service/access-facility analysis in law note 2.11, not an automatic
+  provider conclusion.
+- **The private call relay.** A distinct authenticated instance remains
+  running for an arranged personal call, with two accounts and no coturn or
+  container logs. It is not a public application default or a public
+  credential issuer. Its existence and unresolved operator-capacity input
+  are recorded in `call-transport-position.md`; closure of the former public
+  service did not close this private instance.
 - **Same-origin calls in the apps.** Closed by PR #541, merged on 23 October 2026. The web app
   asks for `/turn` or `/codes` only when its build names an endpoint
   (`VITE_TURN_CREDENTIAL_ENDPOINT`, `VITE_MEETING_CODES_BASE`), and
@@ -99,19 +109,22 @@ file by its hash. It is not a reporting route for a live service.
 
 **Aimed at: a publisher of software, with defaults that point only at
 servers other people run.** The apps' default relays and default public
-file server are run by others; each server's operator is the provider of
-that server (law note 2.2, a reading, `[U]`). Somebody who installs and
-runs the software is the provider of their own deployment, and publishing
+file server are run by others. Each operator's service and infrastructure
+roles need their own scope analysis (law note 2.2 and 2.11, a reading,
+`[U]`). Somebody who installs and runs the software controls their own
+deployment; that fact alone does not classify it as a regulated service.
+Publishing
 general-purpose software does not make the publisher a party to what
 others do with it (law note 6.1, Serious Crime Act 2007 sections 44, 45
 and 50, `[P]`). The privacy notice still owes an account of the third
 parties the defaults contact (law note 3.2).
 
-**Today:** in that position on the web, desktop and agent defaults. What is
-left is ForgeSworn's STUN, the Android default until its update and open to
-anyone (section 3).
+**Today:** the public software's defaults use independent infrastructure,
+with older installed releases potentially naming retired services. A separate
+private authenticated call relay remains (section 3). Its operator's capacity
+must be recorded before asserting a household-use position for it.
 
-## 5. Why no assessment fell due
+## 5. Historical assessment timetable
 
 While ForgeSworn ran these surfaces for strangers it took the cautious
 reading: that what it ran could be a user-to-user service with UK links
@@ -129,13 +142,18 @@ closes before its deadline. This is not a finding that no duty applied
 while it ran. The drafts in [`archive/`](archive/) record how ForgeSworn
 treated the service's other duties during that time (law note 2.3).
 
-## 6. What would bring it back into scope
+## 6. Changes that require a fresh scope check
 
-Any ForgeSworn default that lets one user's content reach another: a relay,
-a TURN server, a file store, or a same-origin path on a ForgeSworn host
-that the apps use by default. The owner has decided against all of them:
-no ForgeSworn or company-run TURN, and no ForgeSworn defaults anywhere.
-STUN, which carries no content, is the one exception, whoever runs it.
+Reassess before introducing a ForgeSworn relay, TURN server, file store or
+same-origin service used by the apps. A reachable endpoint is not by itself
+proof of user-to-user provider status: classify the underlying service,
+control of admission and any access facility separately (law note 2.11).
+TURN-specific application remains a reading `[U]`.
+
+The owner's current design choice is independent providers with simple
+onboarding and a self-hosting alternative, without a ForgeSworn public call
+service. A shared provider account or ForgeSworn credential broker would need
+another review. The proposed import/connector flow is not yet shipped.
 
 Self-hosted TURN is to be made easy (plan item S9) on these rules: setup
 runs on the deployer's own machine; ForgeSworn never holds their secrets;

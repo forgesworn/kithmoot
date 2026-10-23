@@ -1,14 +1,20 @@
 # Legal cover: index
 
-ForgeSworn publishes KithMoot's software. It no longer runs anything for
-KithMoot that carries one user's content to another. STUN on its host is
-the one ForgeSworn default left, and only in the Android app until its
-update; see closure record section 3.
+ForgeSworn publishes KithMoot's software. Its former public call relay and
+other public content services are closed. A separate authenticated private
+call relay is recorded below; the closure of the public service must not be
+read as a claim that no private deployment exists.
+
+- [`call-transport-position.md`](call-transport-position.md) distinguishes
+  the current private deployment, the public software and the planned choice
+  of independent providers or self-hosting. It records the service and
+  infrastructure distinction, the open operator-capacity input, and what is
+  not yet implemented.
 
 - [`closure-record.md`](closure-record.md) is the current record: what
   ForgeSworn ran for KithMoot users from 24 August 2026, what closed on 21
   and 22 October 2026, the deletion of the stored files and their archive
-  copies on 22 and 23 October, the position now, why no assessment fell due, and
+  copies on 22 and 23 October, the position now, the historical assessment timetable, and
   what would bring KithMoot back into scope.
 
 It is a draft for the owner to check. It is not legal advice, and no lawyer

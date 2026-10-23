@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-23",
+  "status": "local-drafts-prepared-not-published",
+  "sourceCommit": "e8eeb5704bd101975766dc2f7bb7a42d475306ae",
+  "law": {
+    "repo": "jurisdiction-kit",
+    "commit": "524fb2d695f0856345612c56d4f4a2dc2064dddb",
+    "branch": "docs/shared-transport-legal-20261023",
+    "overallVerified": "2026-09-28",
+    "specificUpdate": "2026-10-23",
+    "testsPassed": 97,
+    "typecheckPassed": true,
+    "skillValidatorPassed": true,
+    "claudeAndCodexSameSourceVerified": true,
+    "claudeAgentUsesSharedSkill": true,
+    "pushed": false
+  },
+  "hostReadback": {
+    "checkedOn": "2026-10-23",
+    "legacyCoturn": "exited",
+    "legacy3478ListenerPresent": false,
+    "privateRelay": "running",
+    "privateAccounts": 2,
+    "coturnAndContainerLogsDisabled": true,
+    "privateOperatorCapacityConfirmed": false,
+    "publicLegalPageStillHasRetiredStunWording": true,
+    "externalHttpsReadback": "unavailable; inspected deployed static file over SSH instead"
+  },
+  "pagesCheck": "call-transport-legal-pages-20261023.json",
+  "openMarkers": [
+    {
+      "file": "docs/legal/call-transport-position.md",
+      "kind": "INPUT",
+      "text": "confirm whether the private facility is operated by an individual solely for personal communications, or in a project/business capacity. Record the capacity and relevant contact privately; do not infer it from the hostname or publish a natural person's name."
+    },
+    {
+      "file": "site/privacy/index.html",
+      "kind": "DECISION",
+      "text": "legal basis for each use in section 4; the law note (3.2) asks for it and this notice does not choose one"
+    },
+    {
+      "file": "site/privacy/index.html",
+      "kind": "INPUT",
+      "text": "what, if anything, the drop tier still holds on the box's loopback"
+    },
+    {
+      "file": "site/privacy/index.html",
+      "kind": "INPUT",
+      "text": "confirm the private deployment's operator capacity and the privacy information owed in that capacity before treating this notice as covering it."
+    },
+    {
+      "file": "site/privacy/index.html",
+      "kind": "INPUT",
+      "text": "system log retention on the box; deploy/journald-kithmoot.conf sets two weeks or 500 MB but is installed by no script"
+    },
+    {
+      "file": "site/privacy/index.html",
+      "kind": "INPUT",
+      "text": "retention for correspondence"
+    }
+  ],
+  "changes": [
+    {
+      "file": "docs/legal/README.md",
+      "sha256": "92323a78c79039bf93865dcb8323f9a968fa0cd8a6b151af315a1140a11fb570"
+    },
+    {
+      "file": "docs/legal/closure-record.md",
+      "sha256": "ca699c2ccc8b9e01621fc0e24cd8deb827bbe6fd66abdcbb9db460e225292de0"
+    },
+    {
+      "file": "docs/legal/call-transport-position.md",
+      "sha256": "3c7958505c269d1705bb1341776b8083ebd5231c336a521981bb35f7afdd9e7e"
+    },
+    {
+      "file": "site/privacy/index.html",
+      "sha256": "bab40fdad52ff1041e8c18bf26d2b135de6d78000056d8a99e50fc3b3b2ee9a1"
+    },
+    {
+      "file": "site/terms/index.html",
+      "sha256": "f13a246275d4c1c5da547ddf1b76855636c362024e822c11e258d3a42bcb96a3"
+    },
+    {
+      "file": "site/report/index.html",
+      "sha256": "90c5956ecec1711cf7a3ae362241e2ecf5cb91f30a707035e5e6a748718db3b4"
+    }
+  ],
+  "publication": {
+    "pushed": false,
+    "deployed": false,
+    "publicNoticesUpdated": false,
+    "runtimeChanged": false
+  },
+  "cleanup": {
+    "browserClosed": true,
+    "serversOrEmulatorsStarted": false,
+    "unmergedDraftWorktreeRetained": "kithmoot-personal-relay-legals"
+  }
+}
