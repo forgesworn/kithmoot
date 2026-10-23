@@ -425,7 +425,12 @@ test('a first run is one sentence and three ways in: no list, no People, no coun
     await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible()
     await page.getByRole('button', { name: 'Settings' }).click()
     await expect(page.locator('#settingsPane')).toBeVisible()
-    if (!codes) expect(services).toEqual([])
+    if (!codes) {
+      // An old code link says codes are not available, and still asks nothing.
+      await page.goto(new URL('?c=K7M2Q9TX', baseURL!).href)
+      await expect(page.locator('#joinCodeError')).toContainText('not available here')
+      expect(services).toEqual([])
+    }
   } finally { await context.close() }
 })
 

@@ -393,9 +393,8 @@ import { forgeSwornStorageNotice } from './forgesworn-stored-file.js'
 installIcons()
 
 /**
- * A meeting-code link with its password words, kithmoot.app/c/<code>#<words>,
- * arrives here as /j/?c=<code>#<words>: the browser carries the fragment
- * through the redirect and never sends it to a server. Read it, and take it
+ * A meeting-code link with its password words is this join page with
+ * ?c=<code>#<words>: the browser never sends the fragment to a server. Read it, and take it
  * out of the address bar, before anything else looks at the address: the rest
  * of the page treats a fragment as a room link, and the words should not be
  * left in history. They live in memory only until the code has been looked up.
@@ -21406,8 +21405,8 @@ roomArrival
     if (!found) {
       // No link: the front page, with the rooms this device has been in.
       showRoomsList()
-      // kithmoot.app/c/<code> arrives here as ?c=<code>: the same path as
-      // typing it into Join with code, so it reaches the door and no further.
+      // A code link arrives here as ?c=<code>: the same path as typing it
+      // into Join with code, so it reaches the door and no further.
       // Password words that came in the link's fragment (see `linkWords`,
       // already out of the address bar) open a sealed code without a prompt.
       const code = new URL(location.href).searchParams.get('c')

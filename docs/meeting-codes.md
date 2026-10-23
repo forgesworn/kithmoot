@@ -16,6 +16,9 @@ feature for people who deploy KithMoot themselves:
   only on the host it was served from.
 - The service takes its origins from `MEETING_CODES_ORIGINS`, with no default
   (deploy/README.md, "Meeting codes").
+- Codes are a web-build feature. A desktop build has no serving host of its
+  own to put in a code link, so a deployer should leave the setting out of
+  desktop builds.
 
 Where the sections below name `kithmoot.forgesworn.dev`, `kithmoot.app/c/`
 or the kithmoot.app join form, they describe the retired deployment.
