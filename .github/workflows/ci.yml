@@ -31,6 +31,10 @@ jobs:
   private-call-relay:
     name: Private call relay (Chromium and WebKit)
     runs-on: ubuntu-24.04
+    # The same pinned browser image as the other browser jobs avoids apt during this 15-minute gate.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -40,8 +44,29 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # The JavaScript Playwright image has browsers but no Python. Pin the
+      # predecessor runner's Python 3.12 for the unchanged relay unit step.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Verify pinned Chromium, WebKit and Python
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync } from 'node:fs'
+          import { chromium, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
       - run: python3 -m unittest discover -s deploy/private-call-relay -p 'test_*.py'
       - run: npm run test:call-relay
       - name: Keep relay failure traces
