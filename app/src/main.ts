@@ -389,10 +389,16 @@ import { SIGNER_SILENT, SIGNER_WAITING, isSignerTimeout } from './signer-timeout
 import { isMissingInvitation, linkOnlyRelays, widerInvitationRelays } from './invitation-lookup.js'
 import { signinRelays, withSignetRelay } from './signet-relays.js'
 import { icon, installIcons } from './icons.js'
+import { addReveal } from './reveal.js'
 import { forgeSwornStorageNotice } from './forgesworn-stored-file.js'
 
 // The icon sprite, written once, before anything draws a button that uses it.
 installIcons()
+// An eye button beside each secret field the page is built with.
+for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey', 'file key'], ['bothyCode', 'pairing code']] as const) {
+  const field = document.getElementById(id)
+  if (field instanceof HTMLInputElement) addReveal(field, what)
+}
 
 /**
  * A meeting-code link with its password words is this join page with
