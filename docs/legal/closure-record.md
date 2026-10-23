@@ -41,10 +41,9 @@ credential service, were both committed on 24 August 2026.
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
-(`docs/android-production-publication.md`). PR #525 (web, open) tells
-people that ForgeSworn-held files are gone. The desktop 0.1.100 release
-commit, cut from #525, is on a branch and not on `main`; whether it has
-shipped was not checked.
+(`docs/android-production-publication.md`). PR #525, merged and deployed on
+22 October 2026, tells people that ForgeSworn-held files are gone; desktop
+0.1.100, cut from it, was released the same day.
 
 ## 3. What remains
 
@@ -60,11 +59,14 @@ shipped was not checked.
   and the alternatives are a large company's STUN, which sees the same
   addresses, or calls that fail more often. It does see users' IP
   addresses, which is data protection (law note 3.1).
-- **Same-origin calls in the apps.** On `main`, and still on PR #525, the
-  web app asks its own origin for `/turn` (`app/src/main.ts`,
-  `TURN_CREDENTIAL_ENDPOINT`) and `/codes` (`meetingCodeClient`). On
-  ForgeSworn's host both now answer 410, so nothing is served, but the
-  defaults are still in the code.
+- **Same-origin calls in the apps.** Closed by PR #541, merged on 23 October 2026. The web app
+  asks for `/turn` or `/codes` only when its build names an endpoint
+  (`VITE_TURN_CREDENTIAL_ENDPOINT`, `VITE_MEETING_CODES_BASE`), and
+  ForgeSworn's builds name none. `kithmoot-agent` asks for TURN only when
+  `KITHMOOT_TURN_ENDPOINT` names one. Meeting code links use the deployer's
+  own join page, not a ForgeSworn address, and the code service accepts only
+  the origins its operator names. The code stays as software for people
+  who deploy KithMoot themselves.
 - **Keepers on the box.** None runs. The two the box held, for the
   operator's own rooms, were retired on 4 September 2026 and their state
   is kept on the box only (host's report).
@@ -96,8 +98,8 @@ others do with it (law note 6.1, Serious Crime Act 2007 sections 44, 45
 and 50, `[P]`). The privacy notice still owes an account of the third
 parties the defaults contact (law note 3.2).
 
-**Today:** close to that. What is left is ForgeSworn's STUN (kept by
-decision) and the same-origin defaults in section 3 that now meet 410.
+**Today:** in that position, apart from ForgeSworn's STUN, kept by decision
+(section 3).
 
 ## 5. Why no assessment fell due
 

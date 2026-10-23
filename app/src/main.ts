@@ -133,7 +133,7 @@ import { DESTRUCT_PROMISE, FINAL_SECONDS, WILL_NOT_BE_SENT, addTombstone, countd
 import { scrubStore } from './storage-scrub.js'
 import { FOLDABLE, SECTION_THRESHOLD, avatarInitial, avatarSlot, pinnedFirst, sectionHeading, sectionOf, type RoomSection } from './room-sections.js'
 import { CONFERENCE_ENDED_PREFIX, conferenceEnded, conferenceEndedMessage, conferenceEndsAt, conferenceEndsLine, formatConferenceEnd } from './conference.js'
-import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, openInvitation, parseMeetingCode, parsePasswordWords, readCodeArrival, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
+import { MEETING_CODE_UNKNOWN, MEETING_CODE_WRONG_WORDS, MeetingCodeError, MeetingCodeNetworkError, WrongPasswordError, displayMeetingCode, drainRetirements, issueSealedMeetingCode, loadMeetingCode, meetingCodeClient, meetingCodeEligible, meetingCodeExpiry, meetingCodeLink, noMeetingCodeService, openInvitation, parseMeetingCode, parsePasswordWords, readCodeArrival, retireMeetingCodes, returnedJoinFragment, storeMeetingCode, type SealedInvitation } from './meeting-codes.js'
 import { activityAt, formatActivityTime, mutedUntilText, presenceText, previewLine, sortByActivity } from './room-row.js'
 import { arrangeRooms, loadPins, setPinned } from './room-pins.js'
 import { roomProject, setRoomProject } from './room-projects.js'
@@ -393,9 +393,8 @@ import { forgeSwornStorageNotice } from './forgesworn-stored-file.js'
 installIcons()
 
 /**
- * A meeting-code link with its password words, kithmoot.app/c/<code>#<words>,
- * arrives here as /j/?c=<code>#<words>: the browser carries the fragment
- * through the redirect and never sends it to a server. Read it, and take it
+ * A meeting-code link with its password words is this join page with
+ * ?c=<code>#<words>: the browser never sends the fragment to a server. Read it, and take it
  * out of the address bar, before anything else looks at the address: the rest
  * of the page treats a fragment as a room link, and the words should not be
  * left in history. They live in memory only until the code has been looked up.
@@ -911,11 +910,11 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // minted per-viewer server-side (src/turn.ts, deploy/turn-credentials.md),
 // not a static secret baked into this bundle.
 
-// The minting endpoint for this app's own default TURN server - see
-// server/turn-credentials.mjs and deploy/turn-credentials.md. A same-origin
-// path, reverse-proxied to the service by the vhost in
-// deploy/Caddyfile.kithmoot, so it needs no CORS preflight in the normal
-// case and no second hostname.
+// A deployer's own TURN credential endpoint, named at build time with
+// VITE_TURN_CREDENTIAL_ENDPOINT (server/turn-credentials.mjs and
+// deploy/turn-credentials.md say how to run one). There is no default:
+// ForgeSworn's builds name none, so calls use STUN only and no request
+// goes to a credential service.
 //
 // Only ever consulted for a room still on the defaults (see
 // isDefaultIceUrls): a room that named its own ICE servers gets those and
@@ -923,7 +922,7 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // the room never asked for would be handing it out to somebody else's
 // infrastructure. And if this endpoint is down, joining still works - see
 // resolveIceServers, which falls back to plain STUN rather than failing.
-const TURN_CREDENTIAL_ENDPOINT: string | undefined = '/turn'
+const TURN_CREDENTIAL_ENDPOINT: string | undefined = import.meta.env.VITE_TURN_CREDENTIAL_ENDPOINT || undefined
 
 // Shared hosting is suggested in the opt-in form, never used by default.
 // A private Bothy adapter must verify access-controlled reads and writes;
@@ -2196,10 +2195,13 @@ function forgetInvitationOwner(invitation: RoomInvitation): void {
   }
 }
 
-// Meeting codes (docs/meeting-codes.md): the code service at /codes, beside
-// /turn on this origin. The code, its expiry and its delete token are kept
-// in the device store with the creator's other records, never in a link.
-const meetingCodes = meetingCodeClient({ base: import.meta.env.VITE_MEETING_CODES_BASE || '/codes' })
+// Meeting codes (docs/meeting-codes.md): only with a code service the
+// deployer runs and names at build time with VITE_MEETING_CODES_BASE.
+// ForgeSworn's builds name none, so codes are neither offered nor looked up.
+// The code, its expiry and its delete token are kept in the device store
+// with the creator's other records, never in a link.
+const MEETING_CODES_BASE: string | undefined = import.meta.env.VITE_MEETING_CODES_BASE || undefined
+const meetingCodes = MEETING_CODES_BASE ? meetingCodeClient({ base: MEETING_CODES_BASE }) : noMeetingCodeService()
 
 /** Delete a link's or a room's code at the service, in the background. A
  *  failure stays queued for the next open and never blocks the action. */
@@ -17814,7 +17816,7 @@ function hideCodePassword(): void {
 
 /** A link a code gave back, checked as a pasted one is, then its door. */
 async function openReturnedLink(link: string): Promise<void> {
-  const hash = returnedJoinFragment(link)
+  const hash = returnedJoinFragment(link, location.host)
   if (!hash) throw new MeetingCodeError(MEETING_CODE_UNKNOWN, 0)
   parseRoomLink(joinLinkBase() + hash)
   await openLink(joinLinkBase() + hash)
@@ -18007,7 +18009,7 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
     })
     const muteFor = (length: keyof typeof MUTE_FOR) => inRoom(() => { const roomId = currentRoomId(); if (roomId) muteRoomFor(roomId, length) })
     const commands: Record<string, () => void> = {
-      'new-room': openNewRoom, 'open-link': openLinkSheet, 'join-code': joinCodeSheet,
+      'new-room': openNewRoom, 'open-link': openLinkSheet, 'join-code': () => { if (MEETING_CODES_BASE) joinCodeSheet() },
       settings: () => openDestination('settings'),
       'show-chats': () => openDestination('chats'),
       'show-people': () => { if (nostrSession) openDestination('people') },
@@ -18038,6 +18040,8 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
   }
 }
 $('homeJoinCode').addEventListener('click', joinCodeSheet)
+// With no code service there is nothing to join with a code.
+if (!MEETING_CODES_BASE) for (const id of ['homeJoinCode', 'newMenuCode']) $(id).hidden = true
 
 // The New menu: everything that starts a chat or brings one in. The same
 // menu helper as a chat row's ⋯ (app/src/menu.ts).
@@ -18289,7 +18293,7 @@ function renderEndRoom(): void {
  *  any room that has not ended. */
 function meetingCodeOffered(): boolean {
   const roomId = currentRoomId()
-  if (!roomId || !roomInvitationCapability || !canEndRoom()) return false
+  if (!MEETING_CODES_BASE || !roomId || !roomInvitationCapability || !canEndRoom()) return false
   return meetingCodeEligible({ endsAt: roomEndsAt, now: nowSeconds() })
 }
 
@@ -18329,7 +18333,7 @@ function renderMeetingCode(): void {
   // loud needs the words either way, so they are never only in the link.
   const separate = !!record.words && meetingCodeSeparate()
   $('meetingCode').textContent = displayMeetingCode(record.code)
-  ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code, separate ? undefined : record.words)
+  ;($('meetingCodeLink') as HTMLInputElement).value = meetingCodeLink(record.code, joinLinkBase(), separate ? undefined : record.words)
   $('meetingCodeSeparateRow').hidden = !record.words
   setToggle('meetingCodeSeparate', separate)
   $('meetingCodeSeparateNote').textContent = separate
@@ -21401,11 +21405,12 @@ roomArrival
     if (!found) {
       // No link: the front page, with the rooms this device has been in.
       showRoomsList()
-      // kithmoot.app/c/<code> arrives here as ?c=<code>: the same path as
-      // typing it into Join with code, so it reaches the door and no further.
+      // A code link arrives here as ?c=<code>: the same path as typing it
+      // into Join with code, so it reaches the door and no further.
       // Password words that came in the link's fragment (see `linkWords`,
       // already out of the address bar) open a sealed code without a prompt.
       const code = new URL(location.href).searchParams.get('c')
+      // With no code service the sheet says so, and nothing is requested.
       if (code !== null) {
         ;($('joinCode') as HTMLDialogElement).showModal()
         ;($('meetingCodeInput') as HTMLInputElement).value = code

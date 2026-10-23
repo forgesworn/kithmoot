@@ -22,9 +22,17 @@ const credentialBody = {
 }
 
 describe('resolveNodeIceServers', () => {
-  it('fetches <origin>/turn and derives STUN alongside the returned TURN urls and credential', async () => {
+  it('asks no credential service when no endpoint is named, and guesses STUN on the origin', async () => {
     const { fn, calls } = fakeFetch(() => new Response(JSON.stringify(credentialBody), { status: 200 }))
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+    expect(calls).toHaveLength(0)
+    expect(result.turn).toBeUndefined()
+    expect(result.iceUrls).toEqual(['stun:kithmoot.example:3478'])
+  })
+
+  it('fetches <origin>/turn and derives STUN alongside the returned TURN urls and credential', async () => {
+    const { fn, calls } = fakeFetch(() => new Response(JSON.stringify(credentialBody), { status: 200 }))
+    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.url).toBe('https://kithmoot.example/turn')
@@ -38,7 +46,7 @@ describe('resolveNodeIceServers', () => {
 
   it('sends no Origin header - a plain Node fetch has none to send, and setting one risks a 403 an omitted one would not', async () => {
     const { fn, calls } = fakeFetch(() => new Response(JSON.stringify(credentialBody), { status: 200 }))
-    await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+    await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
 
     const headers = calls[0]!.init?.headers
     expect(headers === undefined || new Headers(headers).get('origin') === null).toBe(true)
@@ -46,7 +54,7 @@ describe('resolveNodeIceServers', () => {
 
   it('falls back to a same-host STUN guess when /turn answers with something unusable', async () => {
     const { fn } = fakeFetch(() => new Response('not found', { status: 404 }))
-    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
     expect(result).toEqual({ iceUrls: ['stun:kithmoot.example:3478'] })
   })
 
@@ -54,25 +62,25 @@ describe('resolveNodeIceServers', () => {
     const fn = (async () => {
       throw new Error('ECONNREFUSED')
     }) as typeof fetch
-    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
     expect(result).toEqual({ iceUrls: ['stun:kithmoot.example:3478'] })
   })
 
   it('falls back the same way when the credential body is missing required fields', async () => {
     const { fn } = fakeFetch(() => new Response(JSON.stringify({ urls: [], username: '', credential: '' }), { status: 200 }))
-    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+    const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
     expect(result).toEqual({ iceUrls: ['stun:kithmoot.example:3478'] })
   })
 
   it('names nothing at all on a localhost origin, even when /turn is unreachable', async () => {
     const { fn } = fakeFetch(() => new Response('not found', { status: 404 }))
-    const result = await resolveNodeIceServers({ origin: 'https://localhost:4173/j/', fetchImpl: fn })
+    const result = await resolveNodeIceServers({ origin: 'https://localhost:4173/j/', turnEndpoint: '/turn', fetchImpl: fn })
     expect(result).toEqual({ iceUrls: [] })
   })
 
   it('names nothing at all on a plain http origin', async () => {
     const { fn } = fakeFetch(() => new Response('not found', { status: 404 }))
-    const result = await resolveNodeIceServers({ origin: 'http://kithmoot.example/j/', fetchImpl: fn })
+    const result = await resolveNodeIceServers({ origin: 'http://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
     expect(result).toEqual({ iceUrls: [] })
   })
 
@@ -83,7 +91,7 @@ describe('resolveNodeIceServers', () => {
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
         })) as typeof fetch
-      const promise = resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
+      const promise = resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
       await vi.runAllTimersAsync()
       expect(await promise).toEqual({ iceUrls: ['stun:kithmoot.example:3478'] })
     } finally {

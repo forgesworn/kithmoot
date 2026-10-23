@@ -79,7 +79,7 @@ test('Join with code opens the invitation door and does not join', async ({ brow
   const context = await device(browser, baseURL!)
   try {
     const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
-    const link = encodeJoinUrl('https://kithmoot.forgesworn.dev/j/', generateRoomSecret(), [relay.href])
+    const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [relay.href])
     const seen = await codeService(context, { K7M2Q9TX: { status: 200, body: { link, expires: Math.floor(Date.now() / 1000) + 3600 } } })
     const page = await context.newPage()
     await page.goto(baseURL!)
@@ -96,7 +96,7 @@ test('Join with code opens the invitation door and does not join', async ({ brow
     await expect(page.locator('#joinCamera')).not.toBeChecked()
     expect(seen.map(r => `${r.method()} ${new URL(r.url()).pathname}`)).toEqual(['GET /codes/K7M2Q9TX'])
 
-    // kithmoot.app/c/<code> arrives as ?c=<code>: the same path, to the same door.
+    // A code link is the join page with ?c=<code>: the same path, to the same door.
     await page.goto(new URL('?c=K7M2Q9TX', baseURL!).href)
     await expect(page.locator('#join')).toBeVisible()
     expect(new URL(page.url()).hash).toBe(new URL(link).hash)
@@ -197,7 +197,7 @@ test('Get a meeting code is offered to the creator of any room, and End room del
     await page.locator('#getMeetingCode').click()
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
     await expect(page.locator('#meetingCodeWordsRow')).toBeHidden()
-    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(new URL('?c=K7M2Q9TX', baseURL!).href)
     await expect(page.locator('#meetingCodeExpiry')).toContainText('This code works until')
     await expect(page.locator('#getMeetingCode')).toBeHidden()
     const post = seen.find(r => r.method() === 'POST')!
@@ -272,7 +272,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     // The test app serves on localhost; a code's link must name a KithMoot
     // origin, so the link being sealed is given one, with the same fragment.
     const local = await page.locator('#shareUrl').inputValue()
-    const link = 'https://kithmoot.forgesworn.dev/j/' + new URL(local).hash
+    const link = baseURL! + new URL(local).hash
     await page.locator('#shareUrl').evaluate((input, link) => { (input as HTMLInputElement).value = link }, link)
     await page.locator('#getMeetingCode').click()
     await expect(page.locator('#meetingCode')).toHaveText('K7M-2Q9-TX')
@@ -282,7 +282,7 @@ test('a code with a password: the link carries the words, the guest needs nothin
     const words = (await page.locator('#meetingCodeAloudWords').textContent())!
     expect(words).toMatch(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/)
     const joined = words.replaceAll(' ', '-')
-    const oneLink = `https://kithmoot.app/c/K7M2Q9TX#${joined}`
+    const oneLink = new URL(`?c=K7M2Q9TX#${joined}`, baseURL!).href
     await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
     await expect(page.locator('#meetingCodeSeparateRow')).toBeVisible()
     await expect(page.locator('#meetingCodeSeparate')).toHaveText('Send the password separately')
@@ -327,23 +327,23 @@ test('a code with a password: the link carries the words, the guest needs nothin
     // shown for sending on their own, and a Copy of two lines.
     await page.locator('#meetingCodeSeparate').click()
     await expect(page.locator('#meetingCodeSeparate')).toHaveAttribute('data-on', 'true')
-    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(new URL('?c=K7M2Q9TX', baseURL!).href)
     await expect(page.locator('#meetingCodeWordsRow')).toBeVisible()
     await expect(page.locator('#meetingCodeWords')).toHaveText(words)
     await expect(page.locator('#meetingCodeAloud')).toBeHidden()
     await page.locator('#copyMeetingCode').click()
     await expect(page.locator('#meetingCodeStatus')).toContainText('Send the words separately')
     expect((await page.evaluate(() => (window as unknown as { copied: string[] }).copied)).at(-1)!.split('\n'))
-      .toEqual(['Meeting code K7M-2Q9-TX: https://kithmoot.app/c/K7M2Q9TX', `Password words: ${words}`])
+      .toEqual([`Meeting code K7M-2Q9-TX: ${new URL('?c=K7M2Q9TX', baseURL!).href}`, `Password words: ${words}`])
     // The choice outlasts the sheet, so a host who sends words apart is not caught out by reopening it.
     await page.locator('#inviteClose').click()
     await openInvite(page)
-    await expect(page.locator('#meetingCodeLink')).toHaveValue('https://kithmoot.app/c/K7M2Q9TX')
+    await expect(page.locator('#meetingCodeLink')).toHaveValue(new URL('?c=K7M2Q9TX', baseURL!).href)
     await page.locator('#meetingCodeSeparate').click()
     await expect(page.locator('#meetingCodeLink')).toHaveValue(oneLink)
 
-    // A guest follows the one link: kithmoot.app/c/<code>#<words> reaches the
-    // join page as ?c=<code>#<words>. No prompt, one lookup, the door only.
+    // A guest follows the one link, the join page with ?c=<code>#<words>.
+    // No prompt, one lookup, the door only.
     const guest = await device(browser, baseURL!); contexts.push(guest)
     const guestSeen = await codeService(guest, {}, vault)
     const requested: string[] = []

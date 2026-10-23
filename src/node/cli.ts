@@ -199,7 +199,7 @@ Options
 Every option can also come from the environment, for a systemd unit's
 EnvironmentFile: KITHMOOT_NAME, KITHMOOT_BASE, KITHMOOT_STATE,
 KITHMOOT_IDENTITY, KITHMOOT_RELAYS (comma separated), KITHMOOT_ICE (comma
-separated), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
+separated), KITHMOOT_TURN_ENDPOINT (your own TURN credential service, none by default), KITHMOOT_ADMINS (comma separated), KITHMOOT_PERSONA,
 KITHMOOT_MEMORY, KITHMOOT_BRAIN, KITHMOOT_MODEL, KITHMOOT_WHISPERX,
 KITHMOOT_LANGUAGE, KITHMOOT_CALL_ENDS_AFTER, KITHMOOT_OWNER_PROOF,
 KITHMOOT_FORWARDER (JSON, or a file path), KITHMOOT_LINK, KITHMOOT_ROOM_NAME,
@@ -452,7 +452,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   let keeperWrites = true
   let agent: RoomAgent
   if (command === 'create') {
-    if (!base) fail('--base is required: where the app is served, e.g. https://kithmoot.forgesworn.dev/j/')
+    if (!base) fail('--base is required: where the app is served, e.g. https://kithmoot.example/j/')
     let state = statePath ? await loadKeeperState(statePath) : undefined
     const destruct = values.destruct || envFlag('DESTRUCT') || state?.destruct === true
     if (destruct && state && !state.destruct) state = { ...state, destruct: true }
@@ -1110,7 +1110,8 @@ function iceFactoryOptions(
   turn: { username: string; credential: string } | undefined,
 ): WeriftFactoryOptions {
   if (!isDefaultIceUrls(iceUrls)) return { iceUrls, turn }
-  return { refresh: { resolve: () => resolveNodeIceServers({ origin }) } }
+  const turnEndpoint = process.env.KITHMOOT_TURN_ENDPOINT || undefined
+  return { refresh: { resolve: () => resolveNodeIceServers({ origin, turnEndpoint }) } }
 }
 
 /** `--rekey-every <days>`: a number of days, zero (off) by default. */

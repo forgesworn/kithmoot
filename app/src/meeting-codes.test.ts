@@ -8,8 +8,8 @@ import {
   type MeetingCodeClient, type SealedInvitation,
 } from './meeting-codes.js'
 import {
-  MEETING_CODE_ALPHABET, MEETING_CODE_MAX_SECONDS, MEETING_CODES_UNAVAILABLE, MEETING_CODE_PREFIX, MEETING_CODE_RETIRE_KEY, MEETING_ENDED, MEETING_CODE_TOO_MANY, MEETING_CODE_UNKNOWN,
-  MeetingCodeError, MeetingCodeNetworkError, displayMeetingCode, drainRetirements, loadMeetingCode, meetingCodeClient, meetingCodeEligible,
+  MEETING_CODE_ALPHABET, MEETING_CODE_MAX_SECONDS, MEETING_CODES_OFF, MEETING_CODES_UNAVAILABLE, MEETING_CODE_PREFIX, MEETING_CODE_RETIRE_KEY, MEETING_ENDED, MEETING_CODE_TOO_MANY, MEETING_CODE_UNKNOWN,
+  MeetingCodeError, MeetingCodeNetworkError, displayMeetingCode, drainRetirements, loadMeetingCode, meetingCodeClient, meetingCodeEligible, noMeetingCodeService,
   meetingCodeExpiry, meetingCodeLink, parseMeetingCode, pendingRetirements, retireMeetingCodes, returnedJoinFragment, storeMeetingCode,
 } from './meeting-codes.js'
 
@@ -39,17 +39,17 @@ describe('meeting code format', () => {
 
   it('displays in triples and links in canonical form', () => {
     expect(displayMeetingCode('abcdefgh')).toBe('ABC-DEF-GH')
-    expect(meetingCodeLink('ABC-DEF-GH')).toBe('https://kithmoot.app/c/ABCDEFGH')
+    expect(meetingCodeLink('ABC-DEF-GH', 'https://kithmoot.example/j/')).toBe('https://kithmoot.example/j/?c=ABCDEFGH')
     expect(() => displayMeetingCode('ABCDEFGI')).toThrow()
   })
 
   it('carries the password words in the fragment, and nowhere else, when given them', () => {
-    expect(meetingCodeLink('abc-def-gh', 'Ability  ZOO jasmine forget')).toBe('https://kithmoot.app/c/ABCDEFGH#ability-zoo-jasmine-forget')
-    const link = new URL(meetingCodeLink('ABCDEFGH', 'ability zoo jasmine forget'))
-    expect(link.search).toBe('')
-    expect(link.pathname).toBe('/c/ABCDEFGH')
-    expect(() => meetingCodeLink('ABCDEFGH', 'not words')).toThrow()
-    expect(() => meetingCodeLink('ABCDEFGH', '')).toThrow()
+    expect(meetingCodeLink('abc-def-gh', 'https://kithmoot.example/j/', 'Ability  ZOO jasmine forget')).toBe('https://kithmoot.example/j/?c=ABCDEFGH#ability-zoo-jasmine-forget')
+    const link = new URL(meetingCodeLink('ABCDEFGH', 'https://kithmoot.example/j/#old', 'ability zoo jasmine forget'))
+    expect(link.search).toBe('?c=ABCDEFGH')
+    expect(link.pathname).toBe('/j/')
+    expect(() => meetingCodeLink('ABCDEFGH', 'https://kithmoot.example/j/', 'not words')).toThrow()
+    expect(() => meetingCodeLink('ABCDEFGH', 'https://kithmoot.example/j/', '')).toThrow()
   })
 })
 
@@ -68,13 +68,25 @@ describe('eligibility and expiry', () => {
   })
 })
 
+describe('a build with no code service', () => {
+  it('refuses to make or look up a code, asks nothing, and counts a deletion as done', async () => {
+    const client = noMeetingCodeService()
+    for (const attempt of [client.create('https://kithmoot.example/j/#x', 99), client.allocate(99), client.resolve('ABCDEFGH')]) {
+      const error = await attempt.catch(e => e)
+      expect(error).toBeInstanceOf(MeetingCodeError)
+      expect(error.message).toBe(MEETING_CODES_OFF)
+    }
+    expect(await client.remove('ABCDEFGH', 'tok')).toBe(true)
+  })
+})
+
 describe('returned links', () => {
-  it('accepts only a KithMoot join link and gives its fragment', () => {
-    expect(returnedJoinFragment('https://kithmoot.forgesworn.dev/j/#abc')).toBe('#abc')
-    expect(returnedJoinFragment('https://kithmoot.app/j/#abc')).toBe('#abc')
-    for (const link of ['https://kithmoot.forgesworn.dev/j/', 'https://evil.example/j/#abc', 'http://kithmoot.app/j/#abc', 'https://kithmoot.app/j/?x=1#abc',
-      'https://u@kithmoot.app/j/#abc', 'https://kithmoot.app/x/#abc', 'javascript:alert(1)#abc', 'not a link']) {
-      expect(returnedJoinFragment(link), link).toBeUndefined()
+  it('accepts only a join link on the host this app came from and gives its fragment', () => {
+    const host = 'kithmoot.example'
+    expect(returnedJoinFragment('https://kithmoot.example/j/#abc', host)).toBe('#abc')
+    for (const link of ['https://kithmoot.example/j/', 'https://kithmoot.forgesworn.dev/j/#abc', 'https://evil.example/j/#abc', 'http://kithmoot.example/j/#abc', 'https://kithmoot.example/j/?x=1#abc',
+      'https://u@kithmoot.example/j/#abc', 'https://kithmoot.example/x/#abc', 'javascript:alert(1)#abc', 'not a link']) {
+      expect(returnedJoinFragment(link, host), link).toBeUndefined()
     }
   })
 })
@@ -97,7 +109,7 @@ describe('meeting code client', () => {
   })
 
   it('says codes are unavailable when the service is full', async () => {
-    const error = await meetingCodeClient({ fetch: async () => json(503, {}) }).create('https://kithmoot.forgesworn.dev/j/#x', 99).catch(e => e)
+    const error = await meetingCodeClient({ base: '/codes', fetch: async () => json(503, {}) }).create('https://kithmoot.forgesworn.dev/j/#x', 99).catch(e => e)
     expect(error).toBeInstanceOf(MeetingCodeError)
     expect(error.message).toBe('Meeting codes are unavailable right now. Share the full link instead.')
     expect(MEETING_CODES_UNAVAILABLE).toBe(error.message)
@@ -106,7 +118,7 @@ describe('meeting code client', () => {
   it('maps each lookup answer to its message', async () => {
     const cases: [number, string][] = [[410, MEETING_ENDED], [404, MEETING_CODE_UNKNOWN], [429, MEETING_CODE_TOO_MANY]]
     for (const [status, message] of cases) {
-      const client = meetingCodeClient({ fetch: async () => json(status, {}) })
+      const client = meetingCodeClient({ base: '/codes', fetch: async () => json(status, {}) })
       const error = await client.resolve('ABC-DEF-GH').catch(e => e)
       expect(error).toBeInstanceOf(MeetingCodeError)
       expect(error.message).toBe(message)
@@ -118,30 +130,30 @@ describe('meeting code client', () => {
 
   it('looks up the canonical form and returns the link', async () => {
     const { calls, fetch } = fakeFetch(() => json(200, { link: 'https://kithmoot.forgesworn.dev/j/#x', expires: 5 }))
-    const client = meetingCodeClient({ fetch })
+    const client = meetingCodeClient({ base: '/codes', fetch })
     expect(await client.resolve(' abc-def-gh ')).toEqual({ link: 'https://kithmoot.forgesworn.dev/j/#x', expires: 5 })
     expect(calls[0]!.url).toBe('/codes/ABCDEFGH')
   })
 
   it('refuses a malformed code without asking the service', async () => {
     const { calls, fetch } = fakeFetch(() => json(200, {}))
-    const error = await meetingCodeClient({ fetch }).resolve('ABCDEFGI').catch(e => e)
+    const error = await meetingCodeClient({ base: '/codes', fetch }).resolve('ABCDEFGI').catch(e => e)
     expect(error.message).toBe(MEETING_CODE_UNKNOWN)
     expect(calls).toHaveLength(0)
   })
 
   it('reports no answer as a network failure', async () => {
-    const client = meetingCodeClient({ fetch: async () => { throw new TypeError('offline') } })
+    const client = meetingCodeClient({ base: '/codes', fetch: async () => { throw new TypeError('offline') } })
     expect(await client.resolve('ABCDEFGH').catch(e => e)).toBeInstanceOf(MeetingCodeNetworkError)
   })
 
   it('deletes with the bearer token', async () => {
     const { calls, fetch } = fakeFetch(() => new Response(null, { status: 204 }))
-    expect(await meetingCodeClient({ fetch }).remove('ABCDEFGH', 'tok')).toBe(true)
+    expect(await meetingCodeClient({ base: '/codes', fetch }).remove('ABCDEFGH', 'tok')).toBe(true)
     expect(calls[0]!.url).toBe('/codes/ABCDEFGH')
     expect(calls[0]!.init.method).toBe('DELETE')
     expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer tok')
-    expect(await meetingCodeClient({ fetch: async () => new Response(null, { status: 403 }) }).remove('ABCDEFGH', 'bad')).toBe(false)
+    expect(await meetingCodeClient({ base: '/codes', fetch: async () => new Response(null, { status: 403 }) }).remove('ABCDEFGH', 'bad')).toBe(false)
   })
 })
 
@@ -167,7 +179,7 @@ describe('host records', () => {
     expect(pendingRetirements(store, now).map(r => r.code)).toEqual(['ABCDEFGH'])
 
     let up = false
-    const client = meetingCodeClient({ fetch: async () => { if (!up) throw new TypeError('offline'); return new Response(null, { status: 204 }) } })
+    const client = meetingCodeClient({ base: '/codes', fetch: async () => { if (!up) throw new TypeError('offline'); return new Response(null, { status: 204 }) } })
     await drainRetirements(store, client, now)
     expect(pendingRetirements(store, now).map(r => r.code)).toEqual(['ABCDEFGH'])
     up = true
@@ -301,7 +313,7 @@ describe('password words in a link fragment', () => {
     const LINK = 'https://kithmoot.forgesworn.dev/j/#r=room&k=secret'
     const words = generatePasswordWords()
     const envelope = await sealInvitation({ link: LINK, words, code: 'K7M2Q9TX', expires: 1_900_000_000 })
-    const read = parsePasswordFragment(new URL(meetingCodeLink('K7M2Q9TX', words)).hash)
+    const read = parsePasswordFragment(new URL(meetingCodeLink('K7M2Q9TX', 'https://kithmoot.example/j/', words)).hash)
     expect(read).toBe(words)
     expect(await openInvitation({ envelope, words: read!, code: 'K7M2Q9TX', expires: 1_900_000_000 })).toBe(LINK)
   })
@@ -421,7 +433,7 @@ describe('password envelope', () => {
       new Response(null, { status: 409 }),
       new Response(JSON.stringify({ envelope: { ...envelope, v: 2 }, expires: 99 }), { status: 200 }),
     ]
-    const client = meetingCodeClient({ fetch: async (url, init) => { calls.push({ url, init: init! }); return answers.shift()! } })
+    const client = meetingCodeClient({ base: '/codes', fetch: async (url, init) => { calls.push({ url, init: init! }); return answers.shift()! } })
     expect(await client.allocate(99)).toEqual({ code: 'ABCDEFGH', expires: 99, deleteToken: 'del', uploadToken: 'up' })
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ sealed: true, expires: 99 })
     await client.upload('ABCDEFGH', 'up', envelope)

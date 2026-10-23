@@ -14,7 +14,7 @@ describe('meeting codes when the service is gone', () => {
   })
   for (const status of [404, 405, 410]) {
     it(`fails cleanly when creating answers ${status}`, async () => {
-      const client = meetingCodeClient({ fetch: async () => reply(status) })
+      const client = meetingCodeClient({ base: '/codes', fetch: async () => reply(status) })
       for (const make of [() => client.create(LINK, 99), () => client.allocate(99), () => issueSealedMeetingCode(client, LINK, 99)]) {
         const error = await make().catch(e => e)
         expect(error).toBeInstanceOf(MeetingCodeError)
@@ -24,17 +24,17 @@ describe('meeting codes when the service is gone', () => {
     })
   }
   it('fails cleanly when the network is down', async () => {
-    const client = meetingCodeClient({ fetch: async () => { throw new TypeError('Failed to fetch') } })
+    const client = meetingCodeClient({ base: '/codes', fetch: async () => { throw new TypeError('Failed to fetch') } })
     expect(await client.create(LINK, 99).catch(e => e)).toBeInstanceOf(MeetingCodeNetworkError)
   })
   it('does not hang when the service never answers', async () => {
-    const client = meetingCodeClient({ fetch: () => new Promise<Response>(() => {}), timeoutMs: 30 })
+    const client = meetingCodeClient({ base: '/codes', fetch: () => new Promise<Response>(() => {}), timeoutMs: 30 })
     const started = Date.now()
     expect(await client.create(LINK, 99).catch(e => e)).toBeInstanceOf(MeetingCodeNetworkError)
     expect(Date.now() - started).toBeLessThan(1000)
   })
   it('still resolves an existing code while the service exists', async () => {
-    const client = meetingCodeClient({ fetch: async () => reply(200, { link: LINK, expires: 5 }) })
+    const client = meetingCodeClient({ base: '/codes', fetch: async () => reply(200, { link: LINK, expires: 5 }) })
     expect(await client.resolve('ABC-DEF-GH')).toEqual({ link: LINK, expires: 5 })
   })
 })
