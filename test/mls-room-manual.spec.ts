@@ -120,6 +120,8 @@ for (const kind of ['owner','generation','mode','key','rollback','deadline','hid
   const { page, session } = await saved(context)
   await page.evaluate(session => { (window as any).C.configure('manual-hold-stop'); (window as any).C.manual(session) }, session)
   await expect.poll(() => run(page, 'C.status()')).toMatchObject({ phase: 'stop', settled: false })
+  // Time can pass while native cleanup is held without another clock observation.
+  if (kind === 'rollback') await run(page, 'C.advanceClock(2)')
   await page.evaluate(kind => (window as any).C.interrupt(kind), kind)
   expect(await run(page, 'C.lockAvailable()')).toBe(false)
   await run(page, 'C.release()')

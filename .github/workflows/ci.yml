@@ -40,10 +40,125 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
+      - name: Verify locked relay test tools
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync } from 'node:fs'
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          assert.equal(process.versions.node.split('.')[0], '24')
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1')
+          }
+          NODE
+          docker version --format '{{.Server.APIVersion}}'
       - run: python3 -m unittest discover -s deploy/private-call-relay -p 'test_*.py'
-      - run: npm run test:call-relay
+      # The unchanged Playwright webServer fixture runs on the host, where its
+      # Docker daemon, temporary config bind and 127.0.0.1 ports agree. Only
+      # the real browsers run in the pinned image and share host loopback.
+      - name: Run npm run test:call-relay
+        shell: bash
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:43863/
+        run: |
+          set -euo pipefail
+          image='mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac'
+          owner="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          name="kithmoot-call-relay-${owner}"
+          cleanup() {
+            code=$?
+            trap - EXIT INT TERM
+            if ! ids="$(docker container ls -aq --no-trunc --filter "name=^/${name}$")"; then
+              echo "Cannot verify relay container ownership: Docker listing failed" >&2
+              code=1
+            elif [[ -n "$ids" ]]; then
+              if [[ "$ids" == *$'\n'* ]] || ! actual="$(docker container inspect --format '{{index .Config.Labels "vennel.private-call-relay-ci"}}' "$name")"; then
+                echo "Cannot verify exactly one owned relay container: $name" >&2
+                code=1
+              elif [[ "$actual" != "$owner" ]]; then
+                echo "Refusing to stop a container not owned by this relay job: $name" >&2
+                code=1
+              else
+                if (( code != 0 )); then docker logs "$name" || true; fi
+                if ! docker stop --time 10 "$name" >/dev/null; then
+                  docker rm -f "$name" >/dev/null 2>&1 || true
+                  code=1
+                fi
+              fi
+            fi
+            exit "$code"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          docker run --rm -d --interactive --name "$name" --label "vennel.private-call-relay-ci=$owner" \
+            --network=host --ipc=host --init --user pwuser \
+            --env HOME=/home/pwuser --env CI=1 \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=${GITHUB_WORKSPACE},readonly" \
+            --workdir "$GITHUB_WORKSPACE" "$image" sh -ec '
+              test "$(id -u)" -eq "$(stat -c %u "$HOME")"
+              test -w "$HOME"
+              mkdir -p "$HOME/kithmoot-call-relay-artifacts"
+              exec node node_modules/playwright/cli.js run-server --unsafe \
+                --host 127.0.0.1 --port 43863 \
+                --artifacts-dir "$HOME/kithmoot-call-relay-artifacts"
+            ' >/dev/null
+          python3 - <<'PYREADY'
+          import json, time, urllib.request
+          deadline = time.monotonic() + 30
+          while True:
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:43863/json', timeout=1) as response:
+                      assert json.load(response)['wsEndpointPath'] == '/'
+                  break
+              except (OSError, ValueError, AssertionError):
+                  if time.monotonic() >= deadline:
+                      raise SystemExit('Pinned Playwright server did not become ready within 30 seconds')
+                  time.sleep(0.25)
+          PYREADY
+          docker exec "$name" node --input-type=module -e '
+            import assert from "node:assert/strict"
+            import { existsSync, statSync } from "node:fs"
+            import { chromium, webkit } from "playwright"
+            assert.equal(process.getuid(), statSync(process.env.HOME).uid)
+            assert.equal(process.versions.node.split(".")[0], "24")
+            for (const browser of [chromium, webkit]) {
+              const path = browser.executablePath()
+              assert.ok(path.startsWith("/ms-playwright/") && existsSync(path), `Missing pinned browser: ${path}`)
+            }
+          '
+          timeout --signal=TERM --kill-after=5s 75s node --input-type=module <<'NODEPROBE'
+          import assert from 'node:assert/strict'
+          import { chromium, webkit } from 'playwright'
+          const endpoint = process.env.PW_TEST_CONNECT_WS_ENDPOINT
+          const required = [
+            '--use-fake-device-for-media-stream', '--disable-audio-output',
+            '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required',
+            '--auto-accept-this-tab-capture', '--auto-select-desktop-capture-source=Entire screen',
+          ]
+          // CDP exposes the command line only when the dedicated probe requests automation.
+          // The actual project/browser test launch options remain unchanged.
+          const probeArgs = ['--enable-automation', ...required]
+          const chrome = await chromium.connect(endpoint, {
+            timeout: 30_000, headers: { 'x-playwright-launch-options': JSON.stringify({ headless: true, args: probeArgs }) },
+          })
+          try {
+            const cdp = await chrome.newBrowserCDPSession()
+            const command = await cdp.send('Browser.getBrowserCommandLine')
+            for (const flag of probeArgs) assert.ok(command.arguments.includes(flag), `Missing Chromium probe flag: ${flag}`)
+          } finally { await chrome.close() }
+          const safari = await webkit.connect(endpoint, {
+            timeout: 30_000, headers: { 'x-playwright-launch-options': JSON.stringify({ headless: true }) },
+          })
+          try { assert.equal(safari.browserType().name(), 'webkit') }
+          finally { await safari.close() }
+          NODEPROBE
+          npm run test:call-relay
       - name: Keep relay failure traces
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
@@ -116,6 +231,10 @@ jobs:
   ordinary-startup:
     name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -139,18 +258,24 @@ jobs:
       - name: Build library
         run: npm run build:lib
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       - name: Build production app for entry validation
         if: matrix.slice == 'startup-built'
@@ -248,14 +373,24 @@ jobs:
   # Chromium completed 210 of 211 acceptance cases at the 30-minute job limit
   # after all 634 regression cases passed. Each browser now retains its own
   # complete regression gate, with unchanged test timeouts and no retries.
+  # Firefox's 618 MLS controls exceeded this separate 20-minute job budget.
+  # Run that same suite in two disjoint shards; vault and Link still run once.
   browser-regressions:
-    name: browser regressions (${{ matrix.project }})
+    name: browser regressions (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit]
+        include:
+          - { name: chromium, project: chromium }
+          - { name: webkit, project: webkit }
+          - { name: firefox 1 of 2, project: firefox, shard: 1/2 }
+          - { name: firefox 2 of 2, project: firefox, shard: 2/2 }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -270,27 +405,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       - name: MLS vault cross-tab regression tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npm run test:vault -- --project=${{ matrix.project }}
 
       - name: Browser Link ownership tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
 
       - name: Browser MLS storage, coordination and recovery controls
-        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }}
+        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }} ${{ matrix.shard && format('--shard={0}', matrix.shard) || '' }}
 
       - name: Browser MLS preview account lifecycle and production gate
         if: matrix.project == 'chromium'
@@ -300,7 +443,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-browser-regressions-${{ matrix.project }}
+          name: playwright-traces-browser-regressions-${{ matrix.name }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
@@ -325,6 +468,10 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
@@ -367,21 +514,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      # The browser downloads only; the system libraries still come from apt
-      # in the next step. Mostly insurance against a slow CDN day - one run
-      # spent eight minutes fetching Firefox.
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.browsers }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.browsers }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
