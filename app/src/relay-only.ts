@@ -9,7 +9,7 @@
  * this mode contacts.
  */
 
-export const RELAY_ONLY_NO_RELAY = 'This room has no usable TURN relay. Turn off “Hide my IP address” or ask the room owner for a relay-enabled link.'
+export const RELAY_ONLY_NO_RELAY = 'This room has no usable TURN relay. Turn off “Hide my IP address on calls” to join the call.'
 
 /** Whether relay-only mode has a relay to use. When false the room can still
  *  be joined for chat, but a call must be refused, never made direct. */

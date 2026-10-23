@@ -45,7 +45,7 @@ describe('calls without a relay', () => {
   const mint = (fetch: (input: string, init?: RequestInit) => Promise<Response>) => resolveIceServers([], { endpoint: '/turn', location, fetch, timeoutMs: 40 })
 
   it('names the notice and puts its element in the call screen', () => {
-    expect(RELAY_MISSING_NOTICE).toBe('Some calls need a relay. Your group has none, so this call may not connect on some networks.')
+    expect(RELAY_MISSING_NOTICE).toBe('No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections.')
     expect(html).toContain('id="relayMissingNote"')
   })
   for (const status of [404, 410, 500]) {
