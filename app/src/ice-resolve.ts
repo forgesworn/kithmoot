@@ -1,8 +1,10 @@
 import { browserDefaultTurnUrls, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { callRelayServers, type CallRelay } from './call-relay.js'
 
-/** Said in the call when no relay is configured or the credential mint fails. */
-export const RELAY_MISSING_NOTICE = 'Some calls need a relay. Your group has none, so this call may not connect on some networks.'
+/** Said in the call when no relay is configured or the credential mint fails.
+ *  It names a call relay and where to add one: "relay" alone reads as the
+ *  room's Nostr relays, which carry no media. */
+export const RELAY_MISSING_NOTICE = 'No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections.'
 
 /** How long a call waits for the credential mint before going on without it. */
 export const TURN_MINT_TIMEOUT_MS = 4000
