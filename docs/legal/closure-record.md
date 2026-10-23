@@ -147,6 +147,18 @@ closes before its deadline. This is not a finding that no duty applied
 while it ran. The drafts in [`archive/`](archive/) record how ForgeSworn
 treated the service's other duties during that time (law note 2.3).
 
+**Who used it, 24 August to 23 October 2026.** By the operator's account,
+mainly two regular users, plus three or four friends who tried it with the
+operator by invitation. No public sign-up drive or marketing took place in
+that period. Counts of keys on the host (for example, uploads from about ten
+keys in the last 30 days before closure) overstate people: each device, app
+install and test run has its own key. The operator's judgement, for law note
+2.1, is that this is not a significant number of UK users. Ofcom expects that
+judgement to be explained (2.1, `[P]`); the lowest figure in a published
+enforcement decision is an average of 855 UK visitors a month (2.1, `[S]`).
+Whether the UK was a target market, the other limb of 2.1, is not settled by
+these numbers.
+
 ## 6. Changes that require a fresh scope check
 
 Reassess before introducing a ForgeSworn relay, TURN server, file store or
