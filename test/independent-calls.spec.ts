@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { chooseCallMore, createRoom, inbound, join, joinWithMedia, newDeviceContext, openSettings, closeSettings, SYNTHETIC_MIC } from './browser.js'
 import type { CallRelay } from '../app/src/call-relay.js'
+import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
 
 const api = `http://127.0.0.1:${process.env.E2E_INDEPENDENT_TURN_PORT ?? 7793}`
 
@@ -10,11 +11,19 @@ async function account(instance: 'alpha' | 'beta', participant: number): Promise
   return response.json() as Promise<CallRelay>
 }
 
-async function configure(page: Page, relay: CallRelay): Promise<void> {
+async function configure(page: Page, relay: CallRelay, importFile = false): Promise<void> {
   await openSettings(page, 'Connections')
-  await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
-  await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
-  await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)
+  if (importFile) {
+    await page.getByLabel('Call relay connection file', { exact: true }).setInputFiles({
+      name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(relay)),
+    })
+    await expect(page.locator('#callRelayStatus')).toContainText('File imported for review')
+    await expect(page.getByLabel('Relay addresses', { exact: true })).toHaveValue(relay.urls.join(', '))
+  } else {
+    await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
+    await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
+    await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)
+  }
   await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
   await expect(page.locator('#callRelayStatus')).toContainText('Call relay saved')
   await closeSettings(page)
@@ -93,6 +102,7 @@ test('participants use separate TLS call servers, group-call and replace a faile
   const denied: string[] = []
   const pages: Page[] = []
   let phase = 'create'
+  const completedPhases: { phase: string; pairs: Awaited<ReturnType<typeof pairs>>[] }[] = []
   try {
     for (const context of contexts) {
       await context.route('**/*', route => {
@@ -120,11 +130,11 @@ test('participants use separate TLS call servers, group-call and replace a faile
     const link = await createRoom(pages[0], baseURL!)
     // Negative control: an unconfigured local app must not quietly pass via host ICE.
     await pages[0].locator('#callToggle').click()
-    await expect(pages[0].locator('#status')).toContainText('no usable TURN relay')
+    await expect(pages[0].locator('#status')).toContainText(RELAY_ONLY_NO_RELAY)
     expect(await pages[0].evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
     await Promise.all(pages.slice(1).map(page => page.goto(baseURL!)))
     const initial = await Promise.all([account('alpha', 0), account('beta', 1), account('beta', 2)])
-    for (let i = 0; i < pages.length; i++) await configure(pages[i], initial[i])
+    for (let i = 0; i < pages.length; i++) await configure(pages[i], initial[i], i > 0)
     // The creator joined before choosing a server. Reopening applies that choice.
     await pages[0].reload()
     await joinWithMedia(pages[0], link, 'Ada')
@@ -132,10 +142,12 @@ test('participants use separate TLS call servers, group-call and replace a faile
     phase = 'one-to-one'
     await media(pages[0], 1, initial[0]); await media(pages[1], 1, initial[1])
     const oneToOne = await Promise.all(pages.slice(0, 2).map(pairs))
+    completedPhases.push({ phase, pairs: oneToOne })
     await joinWithMedia(pages[2], link, 'PeerC')
     phase = 'initial group'
     for (let i = 0; i < pages.length; i++) await media(pages[i], 2, initial[i])
     const group = await Promise.all(pages.map(pairs))
+    completedPhases.push({ phase, pairs: group })
     for (const page of pages) {
       expect(await page.evaluate(() => '__kithmootCollectDiagnostics' in window)).toBe(false)
       const shared = await page.locator('#shareUrl').inputValue()
@@ -161,10 +173,12 @@ test('participants use separate TLS call servers, group-call and replace a faile
     phase = 'restored group'
     for (let i = 0; i < pages.length; i++) await media(pages[i], 2, i === 0 ? replacement : initial[i])
     const restored = await Promise.all(pages.map(pairs))
+    completedPhases.push({ phase, pairs: restored })
     for (let cycle = 0; cycle < 3; cycle++) {
       phase = `repeat reconnect ${cycle + 1}`
       await pages[0].reload(); await joinWithMedia(pages[0], link, 'Ada')
       for (let i = 0; i < pages.length; i++) await media(pages[i], 2, i === 0 ? replacement : initial[i])
+      completedPhases.push({ phase, pairs: await Promise.all(pages.map(pairs)) })
     }
     await pages[0].locator('#chatInput').fill('Same room after participant-chosen transport replacement')
     await pages[0].locator('#chatInput').press('Enter')
@@ -179,9 +193,10 @@ test('participants use separate TLS call servers, group-call and replace a faile
       directCandidatesAllowed: false, externalRequests: denied,
       separateNetworks: false, publicCertificateQualified: false, publicProviderSelected: false,
       guestSetupRemoved: false, legalExemptionEstablished: false,
+      guestConfiguration: 'separate provider login file imported and explicitly saved; no manual server/password entry for guests',
     }, null, 2) })
   } catch (error) {
-    await test.info().attach('bounded-failure-state', { contentType: 'application/json', body: JSON.stringify({ phase,
+    await test.info().attach('bounded-failure-state', { contentType: 'application/json', body: JSON.stringify({ phase, completedPhases,
       peers: await Promise.all(pages.map(async page => ({
         pairs: await pairs(page),
         states: await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => ({
@@ -189,7 +204,12 @@ test('participants use separate TLS call servers, group-call and replace a faile
           sending: pc.getSenders().map(s => ({ kind: s.track?.kind, state: s.track?.readyState, enabled: s.track?.enabled })),
           receiving: pc.getReceivers().map(r => ({ kind: r.track.kind, state: r.track.readyState, muted: r.track.muted,
             sinks: [...document.querySelectorAll<HTMLMediaElement>('video,audio')].filter(el => el.srcObject instanceof MediaStream && el.srcObject.getTracks().includes(r.track))
-              .map(el => ({ connected: el.isConnected, paused: el.paused, offPage: el.hasAttribute('data-gallery-off-page'), visible: el.checkVisibility(), currentTime: el.currentTime })),
+              .map(el => ({ connected: el.isConnected, paused: el.paused, offPage: el.hasAttribute('data-gallery-off-page'), visible: el.checkVisibility(), currentTime: el.currentTime,
+                ancestors: [el, el.parentElement, el.parentElement?.parentElement, el.parentElement?.parentElement?.parentElement]
+                  .filter((node): node is HTMLElement => node instanceof HTMLElement)
+                  .map(node => ({ tag: node.tagName, id: node.id, classes: node.className, display: getComputedStyle(node).display,
+                    visibility: getComputedStyle(node).visibility, width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height })),
+              })),
           })),
           transceivers: pc.getTransceivers().map(t => ({ mid: t.mid, direction: t.direction, currentDirection: t.currentDirection })),
         }))),
@@ -197,4 +217,84 @@ test('participants use separate TLS call servers, group-call and replace a faile
     }, null, 2) })
     throw error
   } finally { await Promise.all(contexts.map(context => context.close())) }
+})
+
+test('connection files need review and saving; relay checks exchange real data, refuse bad credentials and cancel cleanly', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  await context.addInitScript(() => {
+    localStorage.setItem('kithmoot.profiles.enabled', 'false')
+    const state = window as unknown as { __relayCheckCaptures: number }
+    state.__relayCheckCaptures = 0
+    const refuseCapture = async () => { state.__relayCheckCaptures++; throw new Error('Relay check must not capture media') }
+    navigator.mediaDevices.getUserMedia = refuseCapture
+    navigator.mediaDevices.getDisplayMedia = refuseCapture
+  })
+  const page = await context.newPage()
+  const external: string[] = []
+  await context.route('**/*', route => {
+    const url = new URL(route.request().url())
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) { external.push(url.origin); return route.abort() }
+    return route.continue()
+  })
+  await context.routeWebSocket(/.*/, socket => {
+    const url = new URL(socket.url())
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) { external.push(url.origin); socket.close(); return }
+    socket.connectToServer()
+  })
+  try {
+    await page.goto(baseURL!)
+    await openSettings(page, 'Connections')
+    const relay = await account('beta', 0)
+    const file = page.getByLabel('Call relay connection file', { exact: true })
+    const upload = (value: unknown) => file.setInputFiles({ name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)) })
+    const pcs = () => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)
+    const before = await pcs()
+    await upload(relay)
+    await expect(page.locator('#callRelayStatus')).toContainText('File imported for review')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
+    expect(await pcs()).toBe(before)
+    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await expect(page.locator('#callRelayStatus')).toHaveText('Save a call relay before testing it.')
+    expect(await pcs()).toBe(before)
+    await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
+    const saved = await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))
+    await upload({ ...relay, secret: 'synthetic-root-key-not-for-import' })
+    await expect(page.locator('#callRelayStatus')).toContainText('not a supported call relay file')
+    expect(await page.locator('#callRelayStatus').textContent()).not.toContain('synthetic-root-key')
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBe(saved)
+    await expect(page.getByLabel('Relay password', { exact: true })).toHaveValue(relay.credential)
+    await file.setInputFiles({ name: 'oversize.json', mimeType: 'application/json', buffer: Buffer.alloc(16_385, 'x') })
+    await expect(page.locator('#callRelayStatus')).toContainText('not a supported call relay file')
+    expect(await pcs()).toBe(before)
+    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await expect(page.locator('#callRelayStatus')).toContainText('Test data passed through', { timeout: 20_000 })
+    const successful = await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => ({
+      policy: pc.getConfiguration().iceTransportPolicy, closed: pc.connectionState === 'closed',
+    })))
+    expect(successful.length).toBe(before + 2)
+    expect(successful.every(pc => pc.policy === 'relay' && pc.closed)).toBe(true)
+    // Altering the review form must not test the previous hidden/saved endpoint.
+    await page.getByLabel('Relay password', { exact: true }).fill('synthetic-wrong-password')
+    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await expect(page.locator('#callRelayStatus')).toContainText('Save the changes before testing')
+    expect(await pcs()).toBe(before + 2)
+    await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
+    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await expect(page.locator('#callRelayStatus')).toContainText('relay test did not complete', { timeout: 20_000 })
+    expect(await page.locator('#callRelayStatus').textContent()).not.toContain('synthetic-wrong-password')
+    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await expect.poll(pcs).toBe(before + 6)
+    await closeSettings(page)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.every(pc => pc.connectionState === 'closed'))).toBe(true)
+    expect(await page.evaluate(() => (document.querySelector('#callRelayPassword') as HTMLInputElement).value)).toBe('')
+    expect(await page.locator('#callRelayStatus').textContent()).toBe('Relay test stopped.')
+    expect(await page.evaluate(() => (window as unknown as { __relayCheckCaptures: number }).__relayCheckCaptures)).toBe(0)
+    expect(external).toEqual([])
+    await test.info().attach('call-relay-import-and-check', { contentType: 'application/json', body: JSON.stringify({
+      importContactsServer: false, explicitSaveRequired: true, rootFieldsRefused: true, oversizeRefused: true,
+      relayOnlyDataRoundTrip: true, testPeersClosed: true, unsavedChangesNotTested: true,
+      badCredentialRefused: true, settingsCloseCancels: true, mediaQualified: false,
+      noAutomaticProvider: true, publicProviderSelected: false, legalExemptionEstablished: false,
+    }) })
+  } finally { await context.close() }
 })

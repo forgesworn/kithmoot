@@ -304,6 +304,8 @@ import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFol
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
+import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -17564,6 +17566,7 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  if (name !== 'connections') cancelCallRelayActions()
   if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
@@ -17601,7 +17604,19 @@ function renderSettingsRows(): void {
   renderFilesSettings()
 }
 
+let callRelayActionGeneration = 0
+let callRelayCheckAbort: AbortController | undefined
+function cancelCallRelayActions(): void {
+  callRelayActionGeneration++
+  if (callRelayCheckAbort) $('callRelayStatus').textContent = 'Relay test stopped.'
+  callRelayCheckAbort?.abort()
+  callRelayCheckAbort = undefined
+  ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+  ;($('callRelayFile') as HTMLInputElement).value = ''
+}
+
 function renderCallRelay(): void {
+  cancelCallRelayActions()
   try {
     const relay = loadCallRelay(localStorage)
     ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
@@ -17612,6 +17627,7 @@ function renderCallRelay(): void {
 }
 
 $('callRelaySave').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
       ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
@@ -17624,11 +17640,60 @@ $('callRelaySave').addEventListener('click', () => {
   }
 })
 $('callRelayRemove').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     saveCallRelay(localStorage, undefined)
     renderCallRelay()
     $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
   } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+})
+
+$('callRelayImport').addEventListener('click', () => ($('callRelayFile') as HTMLInputElement).click())
+$('callRelayFile').addEventListener('change', async () => {
+  const input = $('callRelayFile') as HTMLInputElement
+  const file = input.files?.[0]
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  if (!file) return
+  try {
+    if (file.size > CALL_RELAY_PROFILE_LIMIT) throw new Error()
+    const relay = parseCallRelayProfile(await file.text())
+    if (generation !== callRelayActionGeneration) return
+    ;($('callRelayUrls') as HTMLInputElement).value = relay.urls.join(', ')
+    ;($('callRelayUsername') as HTMLInputElement).value = relay.username
+    ;($('callRelayPassword') as HTMLInputElement).value = relay.credential
+    $('callRelayStatus').textContent = 'File imported for review. Check the addresses, then save. Importing has made no connection and has not saved the login.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = INVALID_CALL_RELAY_PROFILE
+  }
+})
+for (const id of ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']) $(id).addEventListener('input', cancelCallRelayActions)
+$('callRelayCheck').addEventListener('click', async () => {
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  const controller = new AbortController()
+  callRelayCheckAbort = controller
+  try {
+    const relay = loadCallRelay(localStorage)
+    if (!relay) { $('callRelayStatus').textContent = 'Save a call relay before testing it.'; return }
+    const reviewed = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
+      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    if (JSON.stringify(reviewed) !== JSON.stringify(relay)) {
+      $('callRelayStatus').textContent = 'Save the changes before testing, so the test uses the addresses shown here.'
+      return
+    }
+    ;($('callRelayCheck') as HTMLButtonElement).disabled = true
+    $('callRelayStatus').textContent = 'Testing the saved relay with temporary connections…'
+    await checkCallRelay(relay, controller.signal)
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your saved relay. This checks this device, not a call with someone else.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = CALL_RELAY_CHECK_FAILED
+  } finally {
+    if (generation === callRelayActionGeneration) {
+      callRelayCheckAbort = undefined
+      ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+    }
+  }
 })
 
 /** Shows this device's own STUN choice; blank means the default. */
@@ -17677,6 +17742,7 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  cancelCallRelayActions()
   // Do not keep a saved password in the hidden settings form.
   ;($('callRelayPassword') as HTMLInputElement).value = ''
   closeAccountMessageViews()

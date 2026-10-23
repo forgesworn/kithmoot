@@ -181,6 +181,12 @@ requires growing decoded video and audio counters for every peer. It proves
 transport interoperability and explicit replacement locally; it does not
 qualify a public provider or remove guest setup.
 
+The local [connection-file import](call-relay-import-20261023.md) adds explicit
+review/save and a relay-only data test without manual address/password entry.
+An independently supplied file is still an extra guest setup step. It does
+not supply a provider, automatically provision a room guest or change the
+unqualified separate-network and operator gates above.
+
 The [FIPS fixture](../../test/fips-call/README.md) writes temporary daemon
 diagnostics for synthetic runs and deletes them at teardown. It is not a
 zero-logging product implementation. Its retained JSON evidence describes
