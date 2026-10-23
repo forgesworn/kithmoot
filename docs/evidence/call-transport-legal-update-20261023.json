@@ -66,7 +66,7 @@
     },
     {
       "file": "docs/legal/closure-record.md",
-      "sha256": "07f3cb4389f343e23396c634995742cc24a7aa51e928bddad12b8d5e04779c8e"
+      "sha256": "96d6e287c8e7632fca6bf85fefe525da79d21d9fa720b92f5f634d46e8e51fe3"
     },
     {
       "file": "docs/legal/call-transport-position.md",
@@ -74,11 +74,11 @@
     },
     {
       "file": "site/privacy/index.html",
-      "sha256": "01e6b196522b0093331ca17e89d0e108946503a6b1d4e54c55a39b1f6efb317d"
+      "sha256": "94728bccbf4659a8c0ec7ff6f7aa163f6354ea5de9d4b3b52825ca4b12f696a5"
     },
     {
       "file": "site/terms/index.html",
-      "sha256": "18d14405a9969ee02eaaec1248ecbadc851e4f26f4add2a99bdc3fa9da9bf7fb"
+      "sha256": "94c6c7192c49d46d265880829a8eaf2555dcd0852324630ac9ae1acbda12f6a3"
     },
     {
       "file": "site/report/index.html",

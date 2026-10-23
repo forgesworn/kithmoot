@@ -1,6 +1,66 @@
 {
   "desktop": [
     {
+      "version": "0.1.102",
+      "published": "2026-10-23",
+      "files": [
+        {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.102-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.102/KithMoot-0.1.102-mac-arm64.zip",
+          "bytes": 170904028,
+          "sha256": "4064d892719f525f5f7954569ef4afe78b3935b12bcf6eb09973443eab4b8ab7"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.102-windows-x64.zip",
+          "url": "/apk/desktop/0.1.102/KithMoot-0.1.102-windows-x64.zip",
+          "bytes": 199497486,
+          "sha256": "981e7184f1f25ac58ea002fe74864fe8baa5d9720bac69735869fc5b267f8a83"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.102_arm64.deb",
+          "url": "/apk/desktop/0.1.102/kithmoot_0.1.102_arm64.deb",
+          "bytes": 124459964,
+          "sha256": "9113cfcefa5fabecdf5ab5c6b91f8d2d6e13259fc2d498812bb3be7420ad5704"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.102_amd64.deb",
+          "url": "/apk/desktop/0.1.102/kithmoot_0.1.102_amd64.deb",
+          "bytes": 129440672,
+          "sha256": "693a39966e6b670241fed24ad3d145ed90f737fdc18cb31e0c5435473607e690"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.102-linux-arm64.tar.gz",
+          "url": "/apk/desktop/0.1.102/KithMoot-0.1.102-linux-arm64.tar.gz",
+          "bytes": 165229397,
+          "sha256": "853bf26d5dd3393575f874d1443d423b8d26bab058d0511b91bacbba1dab5403"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.102-linux-x64.tar.gz",
+          "url": "/apk/desktop/0.1.102/KithMoot-0.1.102-linux-x64.tar.gz",
+          "bytes": 164108478,
+          "sha256": "fc5f0cc2dddd270f1aecdc18e0e17129551110f7a890e6d79f7cbfa156f2bf17"
+        }
+      ]
+    },
+    {
       "version": "0.1.101",
       "published": "2026-10-22",
       "files": [
@@ -1442,6 +1502,21 @@
     }
   ],
   "android": [
+    {
+      "version": "0.6.106",
+      "published": "2026-10-23",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.106-production.apk",
+          "url": "/apk/kithmoot-0.6.106-production.apk",
+          "bytes": 73811727,
+          "sha256": "322aaac7da4a670d0d53b9429bed84d137d838ad16a84e86bf36e7dd1d7f8ea5"
+        }
+      ]
+    },
     {
       "version": "0.6.105",
       "published": "2026-10-22",

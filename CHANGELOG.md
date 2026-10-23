@@ -1,5 +1,10 @@
 # Changelog
 
+## Desktop 0.1.102, 23 October 2026
+
+- Calls find your device's public address with Cloudflare's public STUN server instead of ForgeSworn's. STUN carries no messages, files or call media. To use your own, enter it under Settings, Connections, "Your STUN server": it stays on this device and is never added to room links.
+- Settings, Connections, "Call relay (TURN)": save your own relay's address, username and password on each device that needs it, then leave and reopen the room. The password is never added to room links.
+
 ## Desktop 0.1.101, 22 October 2026
 
 - A room whose keeper lists the group's own storage keeps its files there. Only the room's admitted devices can upload or open them, with passes the keeper signs; no public server is involved, and nothing about a file is announced in the open. Room info says "Files in this room go to the group’s own storage."

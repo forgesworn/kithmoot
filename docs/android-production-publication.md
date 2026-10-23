@@ -6,6 +6,22 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.106 Cloudflare STUN and group storage, 23 October 2026
+
+Version **0.6.106**, code **129**. Calls ask Cloudflare's public STUN server
+instead of ForgeSworn's, with the person's own STUN servers under Settings ›
+Connections › STUN server first (kithmoot-android #316, the web's #544). Rooms
+whose keeper lists the group's own storage keep their files there
+(kithmoot-android #315, the web's #522 and #532). No wire change.
+
+The production APK is built from Android source `b0ac70a6` (the head of pull
+request #317), SHA-256
+`322aaac7da4a670d0d53b9429bed84d137d838ad16a84e86bf36e7dd1d7f8ea5`, 73,811,727
+bytes, signed with the retained production certificate. On the arm64
+emulator it installed, started, opened a new room and sent a message; the
+debug build's STUN setting was checked there too. Not yet observed on a
+handset.
+
 ## Android 0.6.105 private call relay and update notice insets, published 23 October 2026
 
 Version **0.6.105**, code **128**, adds private TURN credentials under
