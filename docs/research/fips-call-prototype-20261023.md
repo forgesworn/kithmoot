@@ -5,6 +5,10 @@ this pin as the calling solution yet.** A local media path works, while
 several product requirements remain open and two concrete blockers were
 reproduced.
 
+The owner has now required [no publisher call-service authority and no call
+logging](call-independence-requirements.md). Those are acceptance criteria;
+this synthetic fixture does not establish either property for the product.
+
 The [reproducible fixture](../../test/fips-call/README.md) is isolated from
 production. KithMoot base is `bd322c6de13c389f67713171487e54fdba763e6b`;
 FIPS is `4cab546c6117ce5dfd28b86a4ddcd4cd943978f5`. No released client,
