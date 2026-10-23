@@ -97,7 +97,7 @@
     "signet-login": "0.21.0",
     "spoken-token": "^2.1.0",
     "werift": "^0.24.4",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
