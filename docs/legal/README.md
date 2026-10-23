@@ -7,8 +7,8 @@ record, section 3.
 
 - [`closure-record.md`](closure-record.md) is the current record: what
   ForgeSworn ran for KithMoot users from 24 August 2026, what closed on 21
-  and 22 October 2026, what remains (stored files on disk, deletion pending
-  the owner's decision), the position now, why no assessment fell due, and
+  and 22 October 2026, the deletion of the stored files and their archive
+  copies on 22 and 23 October, the position now, why no assessment fell due, and
   what would bring KithMoot back into scope.
 
 It is a draft for the owner to check. It is not legal advice, and no lawyer

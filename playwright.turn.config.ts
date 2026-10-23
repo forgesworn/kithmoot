@@ -11,13 +11,20 @@ import { defineConfig, devices } from '@playwright/test'
  * `vite preview` does not serve and could not usefully fake. Pointing it at a
  * local preview would not fail informatively, it would fail always.
  *
- * So there is no webServer here and the baseURL defaults to the live
- * deployment. Override TURN_E2E_BASE_URL to test a different one.
+ * So there is no webServer here, and no default deployment: ForgeSworn runs
+ * no TURN server for KithMoot. Set TURN_E2E_BASE_URL to the join page of a
+ * deployment you run, built with VITE_TURN_CREDENTIAL_ENDPOINT, and it
+ * refuses to start without one.
  *
  * Out of `npm test` (unit, offline) and out of `npm run test:e2e` (which
  * builds and previews locally) on purpose. Run it with `npm run test:turn`,
  * after a deploy, or whenever something about TURN changes.
  */
+const baseURL = process.env.TURN_E2E_BASE_URL
+if (!baseURL) {
+  throw new Error('TURN_E2E_BASE_URL is not set: point it at the join page of a deployment that serves your own TURN credentials.')
+}
+
 export default defineConfig({
   testDir: './test',
   testMatch: ['turn-relay.spec.ts'],
@@ -30,7 +37,7 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: process.env.TURN_E2E_BASE_URL ?? 'https://kithmoot.forgesworn.dev/j/',
+    baseURL,
     trace: 'retain-on-failure',
   },
   projects: [

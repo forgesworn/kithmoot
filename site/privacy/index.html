@@ -34,7 +34,7 @@
 <ul>
 <li>KithMoot's rooms are end-to-end encrypted. We do not hold, and cannot read, your messages, your files or your calls.</li>
 <li>kithmoot.forgesworn.dev serves the app, this website and update information as static files, and answers STUN, which sees your IP address and carries no content.</li>
-<li>Until 22 October 2026 we also ran a call relay, a file store, a message-drop service and meeting codes. They are closed, and what they held was deleted the same day (section 4.4). The <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a> says what closed and when.</li>
+<li>Until 22 October 2026 we also ran a call relay, a file store, a message-drop service and meeting codes. They are closed, and what they held was deleted on 22 and 23 October 2026 (section 4.4). The <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a> says what closed and when.</li>
 <li>In the web app and the desktop app, files you send go to a public file server run by somebody else, unless you choose another server or none. They are encrypted on your device first (section 7).</li>
 <li>Some defaults make your device contact other parties: relays, profile lookups, picture hosts and, for the desktop app, our site and GitHub (section 7). You can turn the profile lookups off.</li>
 <li>We do not sell your data, show adverts, or run analytics or tracking.</li>
@@ -56,8 +56,7 @@
 <h3>4.3 STUN</h3>
 <p>When the app is loaded from kithmoot.forgesworn.dev, it asks our STUN server for your device's public address, so a call can try to connect directly. The STUN server sees your IP address and port, and answers with them. It carries no messages, files or call media, and relays nothing between people. It is configured to keep no logs.</p>
 <h3>4.4 Data left from closed services</h3>
-<p>The file store and meeting codes stopped on 22 October 2026, and on the same day we deleted what they held: 84 encrypted files, about 164 MB in all, each sealed on the sender's device, and the store of room links behind short codes. We cannot recover any of it.</p>
-<!-- [INPUT: whether the archive nodes still hold copies of the stored files] -->
+<p>The file store and meeting codes stopped on 22 October 2026, and on the same day we deleted what they held: 84 encrypted files, about 164 MB in all, each sealed on the sender's device, and the store of room links behind short codes. Two mirror copies of the files, on machines of our own that served them by hash over Tor, were deleted on 23 October 2026.</p>
 <!-- [INPUT: what, if anything, the drop tier still holds on the box's loopback] -->
 
 <h2>5. How long we keep information</h2>
@@ -74,7 +73,7 @@
 <h2>7. Who else receives data</h2>
 <ul>
 <li><strong>Public Nostr relays</strong>, including the independent relays the app suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing any room necessarily produces to function.</li>
-<li><strong>Our hosting provider</strong>, which hosts the server that serves the app and website, answers STUN and holds the data in section 4.4.</li>
+<li><strong>Our hosting provider</strong>, which hosts the server that serves the app and website and answers STUN.</li>
 </ul>
 <p>The app also makes your device contact the following. Each learns your device's IP address and the time, as any web request does.</p>
 <ul>
