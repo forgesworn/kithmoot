@@ -52,7 +52,10 @@ credential and retires a stored ForgeSworn file server
   about 164 MB. The archive nodes' copies, 86 files, two more than the
   store held when it closed, were deleted on 23 October 2026 (section 2).
   ForgeSworn holds no copy on its server or in the nodes' data folders.
-  Machine backups of the owner's own machines were not checked.
+  Copies remain only in the owner's encrypted, offline machine backups,
+  which serve nothing and are kept by the owner's decision of 23 October
+  2026: Time Machine cannot delete one folder from a backup, only whole
+  backups.
 - **STUN on ForgeSworn's host.** The app derives `stun:<host>:3478` from
   the host that served it (`src/ice-defaults.ts`, `originStunGuess`), and
   Android 0.6.103 keeps STUN there. When the app is loaded from
