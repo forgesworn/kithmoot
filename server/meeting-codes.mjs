@@ -39,7 +39,7 @@ import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import * as nodeFs from 'node:fs'
 
-// The box is shared: 8089 is TURN credentials, 8092 Blossom, 8093 Caddy's
+// The box is shared: 8089 is TURN credentials, 8092 Blossom, 8093 was Caddy's
 // loopback Tor front onto Blossom, 4848 the drop tier, and other tenants
 // hold 8094 to 8100. 8114 is free and named by nothing else there.
 const DEFAULT_PORT = 8114

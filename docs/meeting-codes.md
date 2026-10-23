@@ -122,7 +122,7 @@ stores and what URLs carry.
 ## Service: `server/meeting-codes.mjs`
 
 Plain Node (22 on the box), no dependencies, the same shape as
-`server/turn-credentials.mjs`: bound to `127.0.0.1:8114` (8093 is Caddy's loopback Tor front and other tenants hold 8094 to 8100), behind Caddy on
+`server/turn-credentials.mjs`: bound to `127.0.0.1:8114` (8093 was Caddy's loopback Tor front and other tenants hold 8094 to 8100), behind Caddy on
 `kithmoot.forgesworn.dev` at `/codes`, a systemd unit in
 `deploy/meeting-codes.service` and a deploy note in `deploy/README.md`.
 

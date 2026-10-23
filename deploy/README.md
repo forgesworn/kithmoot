@@ -1074,7 +1074,7 @@ https origins your app is served from, comma separated, and also has no
 default: the service accepts links to, and browser requests from, only
 those. The app offers codes only when built with
 `VITE_MEETING_CODES_BASE=/codes` (or the service's full URL); a build
-without it, which is how ForgeSworn publishes the app, has no codes. `PORT` defaults to 8114 (8093 is
+without it, which is how ForgeSworn publishes the app, has no codes. `PORT` defaults to 8114 (8093 was
 Caddy's loopback Tor front and other tenants hold 8094 to 8100) and `HOST` to `127.0.0.1`. The store holds at
 most 20,000 live codes and 200,000 tombstones (kept 30 days past expiry,
 without the link); when either is full it refuses new codes with 503 and
