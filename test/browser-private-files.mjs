@@ -14,7 +14,7 @@ async function panel(page) {
 async function show(page) {
   const message = page.locator('#chatLog .msg').filter({hasText:caption}).first()
   await expect(message).toBeVisible({timeout:45000})
-  await message.getByRole('button',{name:'Show',exact:true}).click()
+  await message.getByRole('button',{name:'Show private-route.txt',exact:true}).click()
   await expect(message.locator('.attachmentText')).toHaveText(plaintext,{timeout:45000})
 }
 export async function privateFileStart(owner, guest) {
