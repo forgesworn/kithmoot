@@ -59,7 +59,7 @@ credential and retires a stored ForgeSworn file server
   and the alternatives are a large company's STUN, which sees the same
   addresses, or calls that fail more often. It does see users' IP
   addresses, which is data protection (law note 3.1).
-- **Same-origin calls in the apps.** Closed by PR #541 ([DATE] when merged). The web app
+- **Same-origin calls in the apps.** Closed by PR #541, merged on 23 October 2026. The web app
   asks for `/turn` or `/codes` only when its build names an endpoint
   (`VITE_TURN_CREDENTIAL_ENDPOINT`, `VITE_MEETING_CODES_BASE`), and
   ForgeSworn's builds name none. `kithmoot-agent` asks for TURN only when
