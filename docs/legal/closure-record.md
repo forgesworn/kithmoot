@@ -38,7 +38,7 @@ credential service, were both committed on 24 August 2026.
 | 22 October 2026, about 16:40 UTC | `/turn` and stored-file reads, including the onion front on ForgeSworn's host, answer 410 Gone; the TURN credential and file store services disabled | Checked from outside: `/turn` and `/blossom/<hash>` answer 410. `deploy/Caddyfile.kithmoot` on `main` since PR #534 |
 | 22 October 2026, about 18:30 UTC | The TURN server's KithMoot secret removed, so no credential minted for KithMoot works any more; the stored files moved off the live data path into a trash folder on the box | Host's report |
 | 22 October 2026, about 19:40 UTC | The trash folder emptied: the stored files and the meeting-code store deleted | Host's report |
-| 23 October 2026, about 01:45 UTC | The two archive nodes on the owner's own machines, which mirrored the file store over Tor, stopped with the jobs that fed them; their copies, 86 encrypted files of about 170 MB on each, deleted | Checked on both machines: the nodes answered an unauthenticated read by hash until they stopped; their data folders were moved to the trash at about 01:45 UTC and the trash emptied at [INPUT: time, on both machines] |
+| 23 October 2026, about 01:45 UTC | The two archive nodes on the owner's own machines, which mirrored the file store over Tor, stopped with the jobs that fed them; their copies, 86 encrypted files of about 170 MB on each, deleted | Checked on both machines: the nodes answered an unauthenticated read by hash until they stopped; their data folders were moved to the trash at about 01:45 UTC and the trash emptied by about 01:58 UTC on both machines |
 
 Clients: Android 0.6.103 stops asking ForgeSworn's host for a TURN
 credential and retires a stored ForgeSworn file server
