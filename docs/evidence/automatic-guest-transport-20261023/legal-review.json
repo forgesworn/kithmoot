@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-23",
+  "reviewer": "explicitly user-authorised AI legal agent; source review only, not a solicitor",
+  "notesRevision": "924320346136fd34c49dc01a05ff620f26d252b3",
+  "lawNoteVerified": "2026-09-28",
+  "relevantSectionUpdated": "2026-10-23",
+  "position": "Conditional publisher-only boundary with a genuinely independently operated static-app, issuer and transport deployment",
+  "applicationEvidenceMark": "U",
+  "conditions": [
+    "No ForgeSworn provider account or root key, issuer operation or direction, application admission authority or mandatory-update entitlement",
+    "Independent operator separately assesses its combined offering, transport role and metadata processing",
+    "Different hostname, Cloudflare hosting or subcontracting alone does not establish independence"
+  ],
+  "sourceFindingFixed": "Custom STUN transformation now preserves pure minted TURN object identity and expiry metadata; regression includes that path",
+  "providerLimits": [
+    "Cloudflare long-term key remains server-side; raw iceServers wrapper needs an independently operated normalising issuer",
+    "Metered business-only clause applies to account holders; not a prohibition on every downstream consumer user"
+  ],
+  "notEstablished": [
+    "OSA exemption",
+    "Complete zero logging",
+    "Real independent public operator",
+    "Long-call renewal",
+    "Complete browser media/rejoin acceptance"
+  ],
+  "testsIndependentlyExecutedByReviewer": false
+}

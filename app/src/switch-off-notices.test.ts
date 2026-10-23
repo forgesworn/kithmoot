@@ -4,7 +4,7 @@ import { MEETING_CODES_GONE, MeetingCodeError, MeetingCodeNetworkError, meetingC
 import { RELAY_MISSING_NOTICE, fetchTurnCredential, hasRelay, resolveIceServers } from './ice-resolve.js'
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
-const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status })
+const reply = (status: number, body: unknown = {}) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const LINK = 'https://kithmoot.forgesworn.dev/j/#x'
 
 describe('meeting codes when the service is gone', () => {
@@ -70,7 +70,7 @@ describe('calls without a relay', () => {
     stunOnly(servers)
   })
   it('still uses a working mint', async () => {
-    const servers = await mint(async () => reply(200, { urls: ['turn:kithmoot.forgesworn.dev:3478'], username: 'u', credential: 'c' }))
+    const servers = await mint(async () => reply(200, { urls: ['turn:kithmoot.forgesworn.dev:3478'], username: 'u', credential: 'c', ttl: 3600 }))
     expect(hasRelay(servers)).toBe(true)
   })
   it('treats malformed JSON as no credential', async () => {

@@ -1,5 +1,17 @@
 # TURN credentials
 
+Browser issuer contract, updated 23 October 2026: the configured endpoint must
+return `application/json` containing only `urls`, `username`, `credential` and
+an integer `ttl` from 3,600 to 86,400 seconds (optional
+`credentialType: "password"`). `ttl` is the remaining credential lifetime in
+seconds. The existing client refreshes every forty minutes; shorter leases
+need a different scheduler and are refused. Responses are bounded to 16 KiB
+and four seconds. The endpoint is a same-origin absolute path or HTTPS URL
+without userinfo, query or fragment; redirects, cookies and referrers are
+disabled. A managed provider's API key and raw response wrapper are not this
+contract: keep its root key server-side and return only a temporary client
+login. See [the independent deployment model and limitations](../docs/research/automatic-guest-transport-20261023.md).
+
 coturn is configured (`deploy/coturn/turnserver.conf`) for `lt-cred-mech` +
 `use-auth-secret` - the REST API credential scheme. Not static
 username/password: a static TURN password baked into a browser bundle is
@@ -21,7 +33,7 @@ credential = base64( HMAC-SHA1( staticAuthSecret, username ) )
 
 `staticAuthSecret` is `static-auth-secret` from `turnserver.conf` - it never
 leaves the server that mints credentials. `name` is any label (a session id,
-a device pubkey, anything) that's useful for identifying traffic in logs; it
+a fresh random label) that distinguishes simultaneous browser allocations; it
 carries no authority of its own. coturn accepts the pair if the HMAC checks
 out *and* the leading timestamp in `username` hasn't passed - so an expired
 credential fails even if nothing else about it changed.
@@ -82,17 +94,18 @@ function, anything that isn't the client bundle. `server/turn-credentials.mjs`
 is that endpoint for a deployer's own TURN server: a small Node HTTP
 service that calls `mintTurnCredential` and returns JSON, which
 `app/src/main.ts` fetches from at join time only when the app was built
-with `VITE_TURN_CREDENTIAL_ENDPOINT` (there is no default) (see `deploy/README.md`, "Minting TURN credentials for the
-browser", for install and verification steps, and the honest cost of
-leaving it unauthenticated). A room naming its own custom TURN server
-instead still needs its own minting step of some kind - putting the
-resulting `turn:` URL (with credentials baked in, or a link to its own
-minting endpoint) into that room's ICE server list the same way any other
-custom ICE server goes in, since this endpoint only ever mints credentials
-for this app's own default TURN server, never an arbitrary one a room
-names.
+with `VITE_TURN_CREDENTIAL_ENDPOINT` (there is no default) (see
+`deploy/README.md`, "Minting TURN credentials for the browser", for install
+and verification steps, and the cost of leaving it unauthenticated).
+Rooms with custom ICE hints bypass this endpoint. An authenticated relay
+can instead be chosen in each device's Connections settings; that device
+choice takes precedence. Never bake TURN logins, provider API keys or issuer
+access tokens into room links or ICE hint URLs. An issuer URL is separate
+deployment configuration, not a TURN URL or a room-admission credential.
 
-A short TTL is the main defence once a credential is out - it's sent to
-every peer in a room's signalling, and once your process discloses it
-(as it must, for WebRTC to use it) it can't be recalled. Mint short, mint
-often, and never reuse one credential across sessions if you can avoid it.
+A bounded TTL limits exposure if a credential response or browser session
+is compromised. The browser needs this login to authenticate to TURN; the
+client does not deliberately distribute it to other room participants.
+Keep issuer/master secrets server-side, mint separate temporary client
+logins and refresh within their actual lifetime. Expiry does not promise
+immediate termination of an established allocation or per-login revocation.

@@ -1,0 +1,37 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:08:41.002Z",
+    "duration": 118235.666,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "errors": [],
+  "cases": [
+    {
+      "title": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+      "results": [
+        {
+          "status": "failed",
+          "duration": 71059,
+          "errors": [
+            "Error: stale counters must not pass\n\nstale counters must not pass\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n\nCall Log:\n- Timeout 30000ms exceeded while waiting on the predicate\n\n  37 |     const before = baseline.get(row.peer)\n  38 |     return before && row.frames > before.frames + 2 && row.energy > before.energy\n> 39 |   }).length, { timeout: 30_000, message: 'stale counters must not pass' }).toBe(peers)\n     |                                                                            ^\n  40 |   const result = await sample(page)\n  41 |   expect(result.every(row => row.local === 'relay' && row.remote === 'relay' && row.protocol === 'tls')).toBe(true)\n  42 |   return result\n    at movingMedia (<checkout>/test/automatic-calls.spec.ts:39:76)\n    at <checkout>/test/automatic-calls.spec.ts:78:42"
+          ]
+        }
+      ],
+      "expectedStatus": "passed"
+    },
+    {
+      "title": "issuer refusal preserves chat and refuses a relay-only call without creating a peer",
+      "results": [
+        {
+          "status": "passed",
+          "duration": 2571,
+          "errors": []
+        }
+      ],
+      "expectedStatus": "passed"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:23:22.007Z",
+    "duration": 16046.454,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "finding": "Initial boundary test entered only chat on a guest, so only one issuer response was observed; drive the actual call-start controls on both guests before asserting two transport logins. No product change made for this test setup correction."
+}

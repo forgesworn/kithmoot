@@ -43,6 +43,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:independent-calls
+      - run: npm run test:automatic-calls
 
   publisher-boundary:
     name: Browser protected sharing and local publisher independence

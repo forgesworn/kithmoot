@@ -70,7 +70,13 @@ const isStun = (url: string): boolean => /^stuns?:/i.test(url.trim())
 export function withDeviceStun(servers: RTCIceServer[], stun: string[] | undefined): RTCIceServer[] {
   if (!stun?.length) return servers
   const rest = servers
-    .map(server => ({ ...server, urls: [server.urls].flat().filter(url => !isStun(url)) }))
-    .filter(server => server.urls.length > 0)
+    .map(server => {
+      const original = [server.urls].flat()
+      const urls = original.filter(url => !isStun(url))
+      // Pure relay entries retain identity: the issuer lease is held outside
+      // RTCIceServer in a WeakMap, never serialised into browser settings.
+      return urls.length === original.length ? server : { ...server, urls }
+    })
+    .filter(server => [server.urls].flat().length > 0)
   return [{ urls: [...stun] }, ...rest]
 }

@@ -302,7 +302,7 @@ import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
-import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
+import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
 import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
@@ -13476,9 +13476,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
     const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
+      const available = liveIceServers(resolvedIceServers)
       const configuration = relayOnly
-        ? relayOnlyIceConfiguration(resolvedIceServers)
-        : { iceServers: context?.tier === 'turn' ? resolvedIceServers : stunOnly }
+        ? relayOnlyIceConfiguration(available)
+        : { iceServers: context?.tier === 'turn' ? available : stunOnly }
       const pc = deviceRelay ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the

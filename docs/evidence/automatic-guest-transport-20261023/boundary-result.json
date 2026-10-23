@@ -1,0 +1,42 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:24:47.320Z",
+    "duration": 11703.787,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "boundedEvidence": [
+    {
+      "freshBrowserGuests": 2,
+      "guestSettingsOrImport": false,
+      "distinctTemporaryLogins": 2,
+      "persistedInLocalOrSessionStorage": false,
+      "credentialsInRoomLink": false,
+      "issuerRequestBoundary": {
+        "requests": 2,
+        "cookies": false,
+        "authorisation": false,
+        "referrer": false,
+        "query": false,
+        "body": false,
+        "distinctLogins": 2
+      },
+      "externalRequests": [],
+      "separateNetworks": false,
+      "publicPkiQualified": false,
+      "commercialProviderQualified": false
+    }
+  ],
+  "sourceSha256": {
+    "app/src/ice-resolve.ts": "b0b5562a94c4bfc8b49a1bb234a24c17829590d6b289a5aa9b3ad429bbaf5660",
+    "app/src/ice-issuer.test.ts": "edcb05eb49134fabdabd669442187cf998c8a9f4680d5b9a0ca01cc2d304dd71",
+    "app/src/main.ts": "ed6862d203de9db43fd11c537862eeabb16f75555f08bc7f1d52519412845ca0",
+    "app/src/call-stun.ts": "42ad3f043778d38d060be0ec59741c819b70f9277ad2809fe2b0c6ab5d4041fa",
+    "test/automatic-calls.spec.ts": "69cd3f9a6014231b3aace9f000cbbe9f005a6a2b1c2a5f281517935cdb328c0a",
+    "test/automatic-call-fixture.py": "770b0becaab555e080fbde2ebcd0e133af19d7f3036f439b2bc98e4bcfb892e6",
+    "playwright.automatic-calls.config.ts": "0a8740fab9ab633e9cd10f728e69fc53ae53a9fd0bc445ded6e6ceedf1beaea8"
+  },
+  "fullMediaRejoinGate": "failed separately; see result.json"
+}

@@ -187,6 +187,15 @@ An independently supplied file is still an extra guest setup step. It does
 not supply a provider, automatically provision a room guest or change the
 unqualified separate-network and operator gates above.
 
+The [automatic-guest deployment investigation](automatic-guest-transport-20261023.md)
+uses the existing build-selected issuer path for an independently operated
+static app and per-request temporary TURN logins. Its browser gate requires
+fresh guests to call without Settings or imported files. This is a separate
+deployment model: ForgeSworn's normal website still has no provider selector
+or automatic independent issuer. The linked record retains failed attempts
+and the final evidence; it does not qualify a public provider or settle OSA
+scope.
+
 The [FIPS fixture](../../test/fips-call/README.md) writes temporary daemon
 diagnostics for synthetic runs and deletes them at teardown. It is not a
 zero-logging product implementation. Its retained JSON evidence describes

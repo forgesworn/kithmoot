@@ -1,11 +1,24 @@
 import { browserDefaultTurnUrls, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
 import { callRelayServers, type CallRelay } from './call-relay.js'
+import { CALL_RELAY_PROFILE_LIMIT, parseCallRelayProfile } from './call-relay-profile.js'
 
 /** Said in the call when no relay is configured or the credential mint fails. */
 export const RELAY_MISSING_NOTICE = 'Some calls need a relay. Your group has none, so this call may not connect on some networks.'
 
 /** How long a call waits for the credential mint before going on without it. */
 export const TURN_MINT_TIMEOUT_MS = 4000
+// The existing session refreshes every forty minutes. Refuse a shorter lease
+// rather than silently treating an arbitrary provider's credential as hourly.
+export const TURN_MINT_MIN_TTL_SECONDS = 3600
+export const TURN_MINT_MAX_TTL_SECONDS = 86_400
+const deadlines = new WeakMap<RTCIceServer, number>()
+
+/** Expiry applies to new allocations. It does not revoke an already established
+ * connection or make any promise about the operator's allocation lifetime. */
+export function liveIceServers(servers: RTCIceServer[]): RTCIceServer[] {
+  const now = performance.now()
+  return servers.filter(server => (deadlines.get(server) ?? Infinity) > now)
+}
 
 export interface IceResolveOptions {
   /** Explicit device choice takes precedence, including in an existing room. */
@@ -24,22 +37,59 @@ const toUrlList = (urls: string | string[]): string[] => typeof urls === 'string
  *  throws, and never waits longer than `timeoutMs` even if the fetch ignores
  *  its abort signal. */
 export async function fetchTurnCredential(endpoint: string, options: Pick<IceResolveOptions, 'fetch' | 'timeoutMs'> = {}): Promise<RTCIceServer | undefined> {
+  // This is deployment configuration, never a room link or account API key.
+  // Relative paths are same-origin; absolute endpoints must use HTTPS.
+  try {
+    if (endpoint.length > 2048 || /[\\\x00-\x20\x7f]/.test(endpoint) ||
+        (!endpoint.startsWith('/') && !endpoint.startsWith('https://')) || endpoint.startsWith('//')) return undefined
+    const url = new URL(endpoint, 'https://issuer-validation.invalid')
+    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return undefined
+  } catch { return undefined }
   const send = options.fetch ?? globalThis.fetch.bind(globalThis)
   const controller = new AbortController()
+  const started = performance.now()
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   const bound = new Promise<undefined>(resolve => {
     timer = setTimeout(() => { controller.abort(); resolve(undefined) }, options.timeoutMs ?? TURN_MINT_TIMEOUT_MS)
   })
   const attempt = (async (): Promise<RTCIceServer | undefined> => {
     try {
-      const res = await send(endpoint, { signal: controller.signal })
-      if (!res.ok) return undefined
-      const body = (await res.json()) as Partial<{ urls: string[]; username: string; credential: string }>
-      if (!Array.isArray(body.urls) || body.urls.length === 0 || !body.username || !body.credential) return undefined
-      return { urls: body.urls, username: body.username, credential: body.credential }
+      const res = await send(endpoint, { signal: controller.signal, credentials: 'omit',
+        redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store', mode: 'cors' })
+      if (controller.signal.aborted || !res.ok || res.redirected ||
+          !/^application\/json(?:\s*;|$)/i.test(res.headers.get('content-type') ?? '') || !res.body) return undefined
+      const declared = res.headers.get('content-length')
+      if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > CALL_RELAY_PROFILE_LIMIT)) return undefined
+      reader = res.body.getReader()
+      const chunks: Uint8Array[] = []
+      let size = 0
+      while (!controller.signal.aborted) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        size += chunk.value.byteLength
+        if (size > CALL_RELAY_PROFILE_LIMIT) return undefined
+        chunks.push(chunk.value)
+      }
+      if (controller.signal.aborted) return undefined
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+      const body: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return undefined
+      const { ttl, ...profile } = body as Record<string, unknown>
+      if (typeof ttl !== 'number' || !Number.isInteger(ttl) || ttl < TURN_MINT_MIN_TTL_SECONDS || ttl > TURN_MINT_MAX_TTL_SECONDS) return undefined
+      const relay = parseCallRelayProfile(JSON.stringify(profile))
+      const server: RTCIceServer = { urls: relay.urls, username: relay.username, credential: relay.credential }
+      deadlines.set(server, started + ttl * 1000)
+      return liveIceServers([server])[0]
     } catch { return undefined }
   })()
-  try { return await Promise.race([attempt, bound]) } finally { clearTimeout(timer) }
+  try { return await Promise.race([attempt, bound]) } finally {
+    clearTimeout(timer)
+    controller.abort()
+    void reader?.cancel().catch(() => {})
+  }
 }
 
 /**
@@ -59,11 +109,12 @@ export async function resolveIceServers(urls: string[], options: IceResolveOptio
   const compatible = browserDefaultTurnUrls(toUrlList(fetched.urls))
   if (compatible.length === 0) return stun()
   const turnServer: RTCIceServer = { ...fetched, urls: compatible }
+  deadlines.set(turnServer, deadlines.get(fetched)!)
   const stunUrls = [...new Set(toUrlList(turnServer.urls).map(stunFromTurnUrl).filter((u): u is string => u !== undefined))]
   return [...stunUrls.map(iceUrl => ({ urls: iceUrl })), turnServer]
 }
 
 /** True when the list holds a TURN relay. */
 export function hasRelay(servers: RTCIceServer[]): boolean {
-  return servers.some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
+  return liveIceServers(servers).some(server => toUrlList(server.urls).some(url => url.startsWith('turn')))
 }
