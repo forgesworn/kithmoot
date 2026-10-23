@@ -143,3 +143,17 @@ The [private deployment record](evidence/private-call-relay-stall-20261022.json)
 records a separate authenticated UDP instance on stall, including outside
 relay-only decoded audio/video proof and rejection of a wrong password.
 It does not establish a real call with the friend or physical phone acceptance.
+
+The [23 October publication receipt](evidence/private-call-relay-publication-20261023.json)
+records the shipped web client and Android 0.6.105, their completed hosted
+checks, public artifact verification and fresh relay-only audio/video proof.
+The private listener is UDP 49300, with media ports 49301–49332. Save the
+appropriate account on each device, then leave and reopen the existing room.
+TCP/TLS-only networks need a suitable additional listener.
+
+At the publication readback, the old shared coturn container was already
+stopped (02:32 UTC, before the 04:33 UTC website deployment), so the old
+public STUN listener on 3478 did not answer. This release did not restart it.
+The private authenticated instance remained running, answered on 49300 and
+passed the media and wrong-password checks independently. The shared
+credential endpoint still returned 410.

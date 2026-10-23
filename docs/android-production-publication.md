@@ -6,7 +6,7 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
-## Android 0.6.105 private call relay and update notice insets, prepared 22 October 2026
+## Android 0.6.105 private call relay and update notice insets, published 23 October 2026
 
 Version **0.6.105**, code **128**, adds private TURN credentials under
 Settings → Connections and keeps the install notice below the status bar
@@ -14,14 +14,29 @@ and camera cut-out. Credentials stay on each device and never enter room
 invitations. The private relay's deployed browser transport proof is
 separate from a physical GrapheneOS call with the friend.
 
-The signed candidate comes from Android source
+The signed APK comes from Android source
 `ab6c168169f7fbbd58001641bea8c4b37238a0de`, SHA-256
 `d0a843450f3703238d8f7993b6eeb660ca8c3a6da4b3b65f479873f6e721c4a5`,
 73,737,999 bytes. The existing production key and lineage signed it on the
 M4; independent checks verified the package, SDKs,
 certificate, V3-only signature, previous-signer capabilities and all 787
-unchanged ZIP payload entries. The [candidate record](evidence/private-call-relay-signed-105-20261022.json)
-keeps hosted CI, merge, public publication and physical acceptance open.
+unchanged ZIP payload entries. Android PR #314 merged as `7e92b3b8`, with a
+tree identical to the signed build source. All 17 Android source CI jobs and
+42 normal web CI jobs passed before publication. The web release is pinned
+to `456d22dc`; desktop 0.1.101 and the older download inventory were retained.
+
+The [publication receipt](evidence/private-call-relay-publication-20261023.json)
+records the immutable GitHub APK, both website hosts' metadata, signatures,
+application assets and full APK downloads, and independently verified signed
+Zapstore release and asset records with matching public downloads. The private
+UDP relay passed fresh two-way decoded audio/video and wrong-password checks.
+The old shared coturn container had already stopped before this deployment
+and was not restarted; the private authenticated listener uses port 49300.
+
+Physical GrapheneOS without Google Play, a real call with the friend, physical
+Safari and Zapstore-client indexing remain separate acceptance gates. The
+[initial candidate record](evidence/private-call-relay-signed-105-20261022.json)
+retains the earlier prepared state rather than being rewritten as publication proof.
 
 ## Android 0.6.104 files public first, 22 October 2026
 
