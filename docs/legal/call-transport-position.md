@@ -6,8 +6,8 @@ source `9efe3db642a22ccc08b1f87e4a4d5595184a0597`, with a host configuration
 readback on 23 October 2026. Source state is not proof that every installed
 client has updated. The law is in jurisdiction-kit's
 [`law/gb/online-services.md`](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md),
-verified 28 September 2026; local section 2.11 was added on 23 October 2026
-and is not yet published upstream. `[P]` means primary source read; `[U]`
+verified 28 September 2026; section 2.11 adds primary sources read on
+23 October 2026. `[P]` means primary source read; `[U]`
 means an unresolved interpretation. Neither mark is legal advice.
 
 ## What exists today
@@ -93,7 +93,9 @@ that all self-hosters are exempt. The self-hosting runbook remains
 `docs/private-call-relay.md`; passwords and private account files are never
 part of a legal notice.
 
-This is a local draft. No legal pages or shared law changes were published by
-this update. Operator capacity, existing privacy legal-basis choices, and the
-provider choice remain owner inputs. Recording/transcription, other countries'
+This remains a draft when published. Publication records the findings and
+open questions; it does not establish a legal exemption or adopt the terms
+as a binding service agreement. Operator capacity, existing privacy
+legal-basis choices, and the provider choice remain owner inputs.
+Recording/transcription, other countries'
 laws and a full product audit are outside this update.

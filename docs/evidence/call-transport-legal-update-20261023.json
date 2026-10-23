@@ -70,7 +70,7 @@
     },
     {
       "file": "docs/legal/call-transport-position.md",
-      "sha256": "3c7958505c269d1705bb1341776b8083ebd5231c336a521981bb35f7afdd9e7e"
+      "sha256": "a691898124d10e5721f52901ca4ec00437a11f2a19ac19c980b6fef1e1392477"
     },
     {
       "file": "site/privacy/index.html",
@@ -95,5 +95,6 @@
     "browserClosed": true,
     "serversOrEmulatorsStarted": false,
     "unmergedDraftWorktreeRetained": "kithmoot-personal-relay-legals"
-  }
+  },
+  "evidenceScope": "Pre-publication preparation checkpoint; these publication flags describe the time of the check, not subsequent delivery."
 }
