@@ -128,13 +128,17 @@ Most calls go straight between devices. Some networks need a relay server
 (TURN) in between, and without one roughly one call in five may not
 connect.
 
-Under **Settings**, **Connections**, **Call servers** you can name your own
-STUN servers, and rooms you start hand them to everyone who joins. A TURN
-server needs a credential for each device, which that field cannot carry
-yet. KithMoot's deploy kit has coturn and a credential service for a
-deployment of your own: see "Deploying coturn and the credential service" in
-[deploy/README.md](../deploy/README.md). Letting a room carry its own TURN
-server, with credentials only for its members, is planned.
+Under **Settings**, **Connections**, **Call relay (TURN)** you can enter
+your own relay's addresses, username and password on each device. Save,
+then leave and reopen the room; existing invitations work. Credentials stay
+on the device and are never added to the room link. The separate STUN
+field supplies address-discovery servers to rooms you create.
+
+See [Your own relay for a one-to-one call](private-call-relay.md) for a
+small private coturn setup and local transport checks. The full deploy kit
+also supports TLS and a credential service: see "Deploying coturn and the
+credential service" in [deploy/README.md](../deploy/README.md). Distributing
+member-specific relay credentials through the room is still future work.
 
 ## Group storage nodes (experimental)
 

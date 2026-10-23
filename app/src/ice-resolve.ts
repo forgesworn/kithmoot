@@ -1,4 +1,5 @@
 import { browserDefaultTurnUrls, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from '../../src/ice-defaults.js'
+import { callRelayServers, type CallRelay } from './call-relay.js'
 
 /** Said in the call when no relay is configured or the credential mint fails. */
 export const RELAY_MISSING_NOTICE = 'Some calls need a relay. Your group has none, so this call may not connect on some networks.'
@@ -7,6 +8,8 @@ export const RELAY_MISSING_NOTICE = 'Some calls need a relay. Your group has non
 export const TURN_MINT_TIMEOUT_MS = 4000
 
 export interface IceResolveOptions {
+  /** Explicit device choice takes precedence, including in an existing room. */
+  relay?: CallRelay
   /** The credential mint, or undefined when there is none. */
   endpoint: string | undefined
   location: Pick<Location, 'protocol' | 'hostname'>
@@ -47,6 +50,7 @@ export async function fetchTurnCredential(endpoint: string, options: Pick<IceRes
  * (within the timeout) and does not throw.
  */
 export async function resolveIceServers(urls: string[], options: IceResolveOptions): Promise<RTCIceServer[]> {
+  if (options.relay) return callRelayServers(options.relay)
   const stun = (): RTCIceServer[] => originStunGuess(options.location).map(iceUrl => ({ urls: iceUrl }))
   if (!isDefaultIceUrls(urls)) return urls.map(iceUrl => ({ urls: iceUrl }))
   if (!options.endpoint) return stun()

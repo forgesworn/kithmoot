@@ -1,0 +1,31 @@
+{
+  "recordedAt": "2026-10-22T22:55:56.207001+00:00",
+  "scope": "Signed Android 0.6.105 candidate before hosted CI, merge and public publication",
+  "applicationId": "dev.forgesworn.kithmoot",
+  "versionName": "0.6.105",
+  "versionCode": 128,
+  "buildSourceCommit": "ab6c168169f7fbbd58001641bea8c4b37238a0de",
+  "unsignedApkSha256": "22560bfe3ae71f3c951e218848adc651dbb3c0e37dd1dbe71d63fd2a24116a9c",
+  "apkSha256": "d0a843450f3703238d8f7993b6eeb660ca8c3a6da4b3b65f479873f6e721c4a5",
+  "apkBytes": 73737999,
+  "unchangedZipPayloadEntriesAfterSigning": 787,
+  "productionCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "signingSchemes": {
+    "v1": false,
+    "v2": false,
+    "v3": true
+  },
+  "signingHost": "M4; production key and password never copied off that machine",
+  "independentLocalPublicationVerifier": "passed; package, SDKs, version, hash, certificate, schemes and previous-signer capabilities",
+  "releaseBuild": "BUILD SUCCESSFUL in 3m 44s; 90 actionable tasks",
+  "fullSourceValidation": "Android docs/evidence/private-call-relay-native-full-20261022.json; business source unchanged apart from version metadata",
+  "privateRelay": "private-call-relay-stall-20261022.json",
+  "hostedCI": "pending",
+  "merged": false,
+  "publicWebsitePublished": false,
+  "githubPublished": false,
+  "zapstorePublished": false,
+  "physicalGrapheneOSAcceptance": false,
+  "realFriendCallAcceptance": false
+}

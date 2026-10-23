@@ -28,6 +28,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  private-call-relay:
+    name: Private call relay (Chromium and WebKit)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: python3 -m unittest discover -s deploy/private-call-relay -p 'test_*.py'
+      - run: npm run test:call-relay
+      - name: Keep relay failure traces
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: private-call-relay-traces
+          path: test-results/private-call-relay/
+          retention-days: 7
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
