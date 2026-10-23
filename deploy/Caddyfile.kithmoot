@@ -137,7 +137,7 @@ kithmoot.forgesworn.dev {
 
 	# Meeting codes (server/meeting-codes.mjs, installed as
 	# deploy/meeting-codes.service, listening on 127.0.0.1:8114 because
-	# 8093 is the Tor front at the bottom of this file and other tenants
+	# 8093 was once a Tor front here and other tenants
 	# on the box hold 8094 to 8100). POST /codes and
 	# GET, PUT and DELETE /codes/<code>; the service answers 404 to anything
 	# else under the prefix. See docs/meeting-codes.md for the trust model:
@@ -378,44 +378,6 @@ kithmoot.app {
 
 www.kithmoot.app {
 	redir https://kithmoot.app{uri} 301
-	log {
-		output discard
-	}
-}
-
-# A second, loopback-only site: a read-only front onto kithmoot-blossom for
-# wildbloomd replica nodes to fetch and verify attachment blobs over Tor.
-# An explicit address (not a hostname) is its own site definition in Caddy's
-# syntax, so this issues no certificate and answers no clearnet request -
-# only the box's Tor hidden service (torrc.d/kithmoot-blossom-archive.conf,
-# HiddenServicePort 80 127.0.0.1:8093) ever reaches it.
-#
-# GET and HEAD only, on a bare 64-hex-character hash at the root - the exact
-# shape a replica policy's origin must serve, since wildbloomd's coordinator
-# refuses any origin with a path (Profile::accepts in
-# wildbloom-node/crates/wildbloomd/src/replicas/transport.rs). No /upload,
-# no /mirror, no /list, no media type or extension suffix: this front cannot
-# write to kithmoot-blossom and cannot be asked to enumerate what it holds.
-#
-# A site address's host is a Host-header match, not a bind address - Tor
-# sends the onion hostname in Host, never 127.0.0.1, so a host here would
-# silently answer every real request empty (confirmed: Caddy's implicit
-# fallback for an unmatched Host on this listener is 200 with no body,
-# not 404). A bare port matches any Host on the bound listener.
-# `bind` is what keeps this off the network; UFW has no rule for 8093
-# either, so unauthenticated reads would otherwise reach the public IP.
-:8093 {
-	bind 127.0.0.1
-	@blossomArchiveBlob {
-		path_regexp ^/[0-9a-f]{64}$
-		method GET HEAD
-	}
-	handle @blossomArchiveBlob {
-		respond 410
-	}
-	handle {
-		respond 404
-	}
 	log {
 		output discard
 	}
