@@ -92,6 +92,10 @@ jobs:
   ordinary-startup:
     name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -115,18 +119,24 @@ jobs:
       - name: Build library
         run: npm run build:lib
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       - name: Build production app for entry validation
         if: matrix.slice == 'startup-built'
@@ -224,14 +234,24 @@ jobs:
   # Chromium completed 210 of 211 acceptance cases at the 30-minute job limit
   # after all 634 regression cases passed. Each browser now retains its own
   # complete regression gate, with unchanged test timeouts and no retries.
+  # Firefox's 618 MLS controls exceeded this separate 20-minute job budget.
+  # Run that same suite in two disjoint shards; vault and Link still run once.
   browser-regressions:
-    name: browser regressions (${{ matrix.project }})
+    name: browser regressions (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit]
+        include:
+          - { name: chromium, project: chromium }
+          - { name: webkit, project: webkit }
+          - { name: firefox 1 of 2, project: firefox, shard: 1/2 }
+          - { name: firefox 2 of 2, project: firefox, shard: 2/2 }
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
@@ -246,27 +266,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.project }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.project }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       - name: MLS vault cross-tab regression tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npm run test:vault -- --project=${{ matrix.project }}
 
       - name: Browser Link ownership tests
+        if: ${{ !matrix.shard || matrix.shard == '1/2' }}
         run: npx playwright test -c playwright.link.config.ts --project=${{ matrix.project }}
 
       - name: Browser MLS storage, coordination and recovery controls
-        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }}
+        run: npx playwright test -c playwright.mls.config.ts --project=${{ matrix.project }} ${{ matrix.shard && format('--shard={0}', matrix.shard) || '' }}
 
       - name: Browser MLS preview account lifecycle and production gate
         if: matrix.project == 'chromium'
@@ -276,7 +304,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: playwright-traces-browser-regressions-${{ matrix.project }}
+          name: playwright-traces-browser-regressions-${{ matrix.name }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
@@ -301,6 +329,10 @@ jobs:
   acceptance:
     name: acceptance (${{ matrix.name }})
     runs-on: ubuntu-24.04
+    # Browsers and OS libraries are immutable; do not spend the test budget on apt.
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
@@ -343,21 +375,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Find the Playwright version
-        id: playwright
-        run: echo "version=$(npx playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      # The browser downloads only; the system libraries still come from apt
-      # in the next step. Mostly insurance against a slow CDN day - one run
-      # spent eight minutes fetching Firefox.
-      - name: Cache browsers
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-${{ matrix.browsers }}
-
-      - name: Install browsers
-        run: npx playwright install --with-deps ${{ matrix.browsers }}
+      - name: Verify pinned browser environment
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { existsSync, readFileSync, statSync } from 'node:fs'
+          import { homedir } from 'node:os'
+          import { chromium, firefox, webkit } from '@playwright/test'
+          assert.equal(process.getuid(), 1001, 'Run the browser container as the runner user')
+          assert.equal(statSync(homedir()).uid, process.getuid(), 'Firefox requires a home directory owned by its user')
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
+          for (const name of ['@playwright/test', 'playwright', 'playwright-core']) {
+            assert.equal(lock.packages[`node_modules/${name}`].version, '1.62.1', 'Update the pinned browser image with Playwright')
+          }
+          for (const browser of [chromium, firefox, webkit]) {
+            const path = browser.executablePath()
+            assert.ok(path.startsWith('/ms-playwright/') && existsSync(path), `Missing pinned browser: ${path}`)
+          }
+          NODE
 
       # playwright.config.ts builds the app, serves it, and - because
       # E2E_RELAYS=local - starts the test relay beside it.
