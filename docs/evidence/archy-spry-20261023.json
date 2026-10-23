@@ -1,0 +1,989 @@
+{
+  "date": "2026-10-23",
+  "scope": "Local synthetic browser calls with independently modelled transport; separate local Archy packaging experiment",
+  "nativeMediaStallFixed": false,
+  "signedDiscoveryImplemented": false,
+  "installedArchyPackageTested": false,
+  "separateNetworksTested": false,
+  "grapheneOsTested": false,
+  "legalExemptionEstablished": false,
+  "sourceFiles": {
+    "test/automatic-call-fixture.py": "69451effcaf866d9bb3e7c240ed6ace02303a035d2d7582b6460591fbcaf09f4",
+    "test/automatic-calls.spec.ts": "518371f94bbe79c42c5a6d069f89d71b457179a2a40822b8f5f6417fd31b33e5"
+  },
+  "backends": {
+    "spry": {
+      "stats": {
+        "startTime": "2026-10-23T20:08:17.050Z",
+        "duration": 93613.043,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "cases": [
+        {
+          "case": "issuer requests omit cookies and room information while fresh guests receive distinct logins",
+          "status": "passed",
+          "durationMs": 5935,
+          "evidence": {
+            "automatic-issuer-request-boundary": {
+              "freshBrowserGuests": 2,
+              "guestSettingsOrImport": false,
+              "distinctTemporaryLogins": 2,
+              "idleTlsSocketDidNotBlockCredentials": true,
+              "credentialObservation": "native RTCPeerConnection configuration",
+              "persistedInLocalOrSessionStorage": false,
+              "credentialsInRoomLink": false,
+              "issuerRequestBoundary": {
+                "requests": 2,
+                "cookies": false,
+                "authorisation": false,
+                "referrer": false,
+                "query": false,
+                "body": false,
+                "turnBackend": "spry",
+                "turnBinarySha256": "c138d96900abeab93761c7df1faed0602920bdce44ca2e53c392e495a8e1dead",
+                "distinctLogins": 2
+              },
+              "externalRequests": [],
+              "separateNetworks": false,
+              "publicPkiQualified": false,
+              "commercialProviderQualified": false
+            }
+          }
+        },
+        {
+          "case": "a delayed first camera frame after rejoin keeps its playback sink attached",
+          "status": "passed",
+          "durationMs": 20307,
+          "evidence": {
+            "delayed-first-frame-rejoin": {
+              "firstPaintDelayMs": 12000,
+              "recoveryTicksBeforeFirstPaint": 3,
+              "held": {
+                "insideRoom": true,
+                "clock": 0,
+                "awaiting": true,
+                "width": 0
+              },
+              "realPrivacyCompositor": true,
+              "sourceSubstituted": false,
+              "receivedAfterDelay": [
+                [
+                  {
+                    "peer": 1,
+                    "frames": 20,
+                    "energy": 1.1774000071077324,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3796724001|IT01V3095989816",
+                    "sinkTime": 0.967
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 264,
+                    "energy": 1.2016333171533835,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A169751105|IT01V4202059149",
+                    "sinkTime": 13.177
+                  }
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "case": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+          "status": "passed",
+          "durationMs": 37238,
+          "evidence": {
+            "automatic-independent-guest-transport": {
+              "model": "independently operated static app with build-selected issuer; all fixtures local",
+              "guestsConfiguredRelay": false,
+              "fileImportUsed": false,
+              "realTurnRestAuthentication": true,
+              "turnBackend": "spry",
+              "issuerImplementation": "server/turn-credentials.mjs",
+              "ttlSeconds": 3600,
+              "observerCpuRate": 1,
+              "separateBrowserLogins": true,
+              "credentialsInLocalOrSessionStorage": false,
+              "issuerRequestBoundary": {
+                "requests": 11,
+                "cookies": false,
+                "authorisation": false,
+                "referrer": false,
+                "query": false,
+                "body": false,
+                "turnBackend": "spry",
+                "turnBinarySha256": "c138d96900abeab93761c7df1faed0602920bdce44ca2e53c392e495a8e1dead",
+                "distinctLogins": 11
+              },
+              "oneToOne": [
+                [
+                  {
+                    "peer": 0,
+                    "frames": 16,
+                    "energy": 0.05136136060279527,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3056641406|IT01V3384315992",
+                    "sinkTime": 0.786
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 9,
+                    "energy": 0.02641039385941027,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1498108164|IT01V3079961869",
+                    "sinkTime": 0.388
+                  }
+                ]
+              ],
+              "group": [
+                [
+                  {
+                    "peer": 0,
+                    "frames": 98,
+                    "energy": 0.41933708271544085,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3056641406|IT01V3384315992",
+                    "sinkTime": 4.836
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 51,
+                    "energy": 0.1805624946608096,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3828024611|IT01V3624012214",
+                    "sinkTime": 2.564
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 126,
+                    "energy": 0.5531979899855999,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1498108164|IT01V3079961869",
+                    "sinkTime": 6.162
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 75,
+                    "energy": 0.2887591976616703,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1496787606|IT01V2935077990",
+                    "sinkTime": 3.719
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 98,
+                    "energy": 0.43333762454914143,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1579708655|IT01V3079033482",
+                    "sinkTime": 4.82
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 93,
+                    "energy": 0.42737354582671516,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3278231404|IT01V60479886",
+                    "sinkTime": 4.765
+                  }
+                ]
+              ],
+              "rejoined": [
+                {
+                  "cycle": 1,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 253,
+                        "energy": 1.1314713076708323,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3056641406|IT01V3384315992",
+                        "sinkTime": 12.644
+                      },
+                      {
+                        "peer": 2,
+                        "frames": 79,
+                        "energy": 0.2807746722904484,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A842333187|IT01V2899064737",
+                        "sinkTime": 3.881
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 318,
+                        "energy": 1.430522145786168,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A1498108164|IT01V3079961869",
+                        "sinkTime": 15.752
+                      },
+                      {
+                        "peer": 2,
+                        "frames": 133,
+                        "energy": 0.5615083009810239,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2422073474|IT01V2615025511",
+                        "sinkTime": 6.614
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 155,
+                        "energy": 0.7232787143630413,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2315255962|IT01V3211523603",
+                        "sinkTime": 8.044
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 164,
+                        "energy": 0.7495403662211231,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A95335625|IT01V3494557791",
+                        "sinkTime": 8.273
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "cycle": 2,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 474,
+                        "energy": 2.1705040104317717,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3056641406|IT01V3384315992",
+                        "sinkTime": 24.047
+                      },
+                      {
+                        "peer": 3,
+                        "frames": 61,
+                        "energy": 0.15518837042139436,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A833161087|IT01V382959344",
+                        "sinkTime": 3.014
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 504,
+                        "energy": 2.2741255646374747,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A1498108164|IT01V3079961869",
+                        "sinkTime": 24.958
+                      },
+                      {
+                        "peer": 3,
+                        "frames": 75,
+                        "energy": 0.23631738436388247,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2958331888|IT01V525007400",
+                        "sinkTime": 3.731
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 90,
+                        "energy": 0.42288106855082064,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3980817417|IT01V1896715356",
+                        "sinkTime": 4.68
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 99,
+                        "energy": 0.45071545334275465,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3711731985|IT01V2845223186",
+                        "sinkTime": 4.936
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "cycle": 3,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 619,
+                        "energy": 2.8306574411926833,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3056641406|IT01V3384315992",
+                        "sinkTime": 31.246
+                      },
+                      {
+                        "peer": 4,
+                        "frames": 68,
+                        "energy": 0.22788488519000877,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3499980325|IT01V1967721552",
+                        "sinkTime": 3.313
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 649,
+                        "energy": 2.9391449091877497,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A1498108164|IT01V3079961869",
+                        "sinkTime": 32.161
+                      },
+                      {
+                        "peer": 4,
+                        "frames": 83,
+                        "energy": 0.32442926709728204,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A744488468|IT01V1703526704",
+                        "sinkTime": 4.17
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 112,
+                        "energy": 0.5105517996588638,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A1405474446|IT01V1759277302",
+                        "sinkTime": 5.616
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 107,
+                        "energy": 0.48073785240310785,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2863855679|IT01V3560100417",
+                        "sinkTime": 5.314
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "externalRequests": [],
+              "separateNetworks": false,
+              "publicPkiQualified": false,
+              "independentRealOperatorsQualified": false,
+              "publicProviderSelected": false,
+              "forgeSwornWebsiteProviderSelection": false,
+              "legalExemptionEstablished": false
+            }
+          }
+        },
+        {
+          "case": "callers receive protected screen pixels through the selected TURN backend",
+          "status": "passed",
+          "durationMs": 11109,
+          "evidence": {
+            "protected-share-selected-turn": {
+              "turnBackend": "spry",
+              "generatedMediaOnly": true,
+              "realOsCapturePicker": false,
+              "decodedPixels": {
+                "centre": [
+                  18,
+                  24,
+                  28,
+                  255
+                ],
+                "edge": [
+                  0,
+                  221,
+                  1,
+                  255
+                ]
+              },
+              "selectedTransport": "relay/relay TLS",
+              "externalRequests": [],
+              "separateNetworks": false,
+              "installedArchyPackage": false
+            }
+          }
+        },
+        {
+          "case": "issuer refusal preserves chat and refuses a relay-only call without creating a peer",
+          "status": "passed",
+          "durationMs": 1725,
+          "evidence": {}
+        }
+      ]
+    },
+    "coturn": {
+      "stats": {
+        "startTime": "2026-10-23T20:10:15.453Z",
+        "duration": 80984.346,
+        "expected": 5,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      },
+      "cases": [
+        {
+          "case": "issuer requests omit cookies and room information while fresh guests receive distinct logins",
+          "status": "passed",
+          "durationMs": 4974,
+          "evidence": {
+            "automatic-issuer-request-boundary": {
+              "freshBrowserGuests": 2,
+              "guestSettingsOrImport": false,
+              "distinctTemporaryLogins": 2,
+              "idleTlsSocketDidNotBlockCredentials": true,
+              "credentialObservation": "native RTCPeerConnection configuration",
+              "persistedInLocalOrSessionStorage": false,
+              "credentialsInRoomLink": false,
+              "issuerRequestBoundary": {
+                "requests": 2,
+                "cookies": false,
+                "authorisation": false,
+                "referrer": false,
+                "query": false,
+                "body": false,
+                "turnBackend": "coturn",
+                "distinctLogins": 2
+              },
+              "externalRequests": [],
+              "separateNetworks": false,
+              "publicPkiQualified": false,
+              "commercialProviderQualified": false
+            }
+          }
+        },
+        {
+          "case": "a delayed first camera frame after rejoin keeps its playback sink attached",
+          "status": "passed",
+          "durationMs": 17326,
+          "evidence": {
+            "delayed-first-frame-rejoin": {
+              "firstPaintDelayMs": 12000,
+              "recoveryTicksBeforeFirstPaint": 3,
+              "held": {
+                "insideRoom": true,
+                "clock": 0,
+                "awaiting": true,
+                "width": 0
+              },
+              "realPrivacyCompositor": true,
+              "sourceSubstituted": false,
+              "receivedAfterDelay": [
+                [
+                  {
+                    "peer": 1,
+                    "frames": 17,
+                    "energy": 1.1665835023576647,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3690638965|IT01V1121502354",
+                    "sinkTime": 0.967
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 267,
+                    "energy": 1.2191639962443062,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3069095560|IT01V1194173054",
+                    "sinkTime": 13.307
+                  }
+                ]
+              ]
+            }
+          }
+        },
+        {
+          "case": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+          "status": "passed",
+          "durationMs": 37076,
+          "evidence": {
+            "automatic-independent-guest-transport": {
+              "model": "independently operated static app with build-selected issuer; all fixtures local",
+              "guestsConfiguredRelay": false,
+              "fileImportUsed": false,
+              "realTurnRestAuthentication": true,
+              "turnBackend": "coturn",
+              "issuerImplementation": "server/turn-credentials.mjs",
+              "ttlSeconds": 3600,
+              "observerCpuRate": 1,
+              "separateBrowserLogins": true,
+              "credentialsInLocalOrSessionStorage": false,
+              "issuerRequestBoundary": {
+                "requests": 11,
+                "cookies": false,
+                "authorisation": false,
+                "referrer": false,
+                "query": false,
+                "body": false,
+                "turnBackend": "coturn",
+                "distinctLogins": 11
+              },
+              "oneToOne": [
+                [
+                  {
+                    "peer": 0,
+                    "frames": 51,
+                    "energy": 0.22108505909270415,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A4275935886|IT01V2413955818",
+                    "sinkTime": 2.51
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 16,
+                    "energy": 0.06048590141679107,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3951651337|IT01V3212044262",
+                    "sinkTime": 0.785
+                  }
+                ]
+              ],
+              "group": [
+                [
+                  {
+                    "peer": 0,
+                    "frames": 170,
+                    "energy": 0.7595031686780583,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A4275935886|IT01V2413955818",
+                    "sinkTime": 8.4
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 59,
+                    "energy": 0.2260601623661261,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A327038512|IT01V2588872879",
+                    "sinkTime": 2.991
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 202,
+                    "energy": 0.9107242784701224,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A3951651337|IT01V3212044262",
+                    "sinkTime": 10.107
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 93,
+                    "energy": 0.398725936053524,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A2579709522|IT01V1927825341",
+                    "sinkTime": 4.732
+                  }
+                ],
+                [
+                  {
+                    "peer": 0,
+                    "frames": 133,
+                    "energy": 0.6091659656367789,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1696662199|IT01V3012296076",
+                    "sinkTime": 6.72
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 122,
+                    "energy": 0.5530726765169353,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1737977449|IT01V1078801867",
+                    "sinkTime": 6.102
+                  }
+                ]
+              ],
+              "rejoined": [
+                {
+                  "cycle": 1,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 349,
+                        "energy": 1.5745132675925222,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A4275935886|IT01V2413955818",
+                        "sinkTime": 17.31
+                      },
+                      {
+                        "peer": 2,
+                        "frames": 61,
+                        "energy": 0.227571296687171,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3744395033|IT01V444327579",
+                        "sinkTime": 2.984
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 358,
+                        "energy": 1.6225769520556153,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3951651337|IT01V3212044262",
+                        "sinkTime": 17.912
+                      },
+                      {
+                        "peer": 2,
+                        "frames": 72,
+                        "energy": 0.2757442975812979,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2072705104|IT01V796833028",
+                        "sinkTime": 3.633
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 93,
+                        "energy": 0.41054279091004375,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3836449803|IT01V4127685015",
+                        "sinkTime": 4.584
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 92,
+                        "energy": 0.4079715010824837,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2778212648|IT01V1300497388",
+                        "sinkTime": 4.575
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "cycle": 2,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 484,
+                        "energy": 2.189113644978703,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A4275935886|IT01V2413955818",
+                        "sinkTime": 23.975
+                      },
+                      {
+                        "peer": 3,
+                        "frames": 50,
+                        "energy": 0.22130577843095095,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3209617166|IT01V3560971147",
+                        "sinkTime": 2.712
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 490,
+                        "energy": 2.2355007740047017,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3951651337|IT01V3212044262",
+                        "sinkTime": 24.619
+                      },
+                      {
+                        "peer": 3,
+                        "frames": 64,
+                        "energy": 0.28585557979105164,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A474791454|IT01V377531068",
+                        "sinkTime": 3.541
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 95,
+                        "energy": 0.4295684746000768,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A2933948589|IT01V3191965438",
+                        "sinkTime": 4.815
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 90,
+                        "energy": 0.43359566193232674,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A363056180|IT01V3528616639",
+                        "sinkTime": 4.795
+                      }
+                    ]
+                  ]
+                },
+                {
+                  "cycle": 3,
+                  "peers": [
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 629,
+                        "energy": 2.844005470320977,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A4275935886|IT01V2413955818",
+                        "sinkTime": 31.124
+                      },
+                      {
+                        "peer": 4,
+                        "frames": 52,
+                        "energy": 0.19401015546688657,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A4233923860|IT01V2737152295",
+                        "sinkTime": 2.503
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 627,
+                        "energy": 2.8844993763757762,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A3951651337|IT01V3212044262",
+                        "sinkTime": 31.704
+                      },
+                      {
+                        "peer": 4,
+                        "frames": 61,
+                        "energy": 0.2425150447371008,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A275189373|IT01V195193445",
+                        "sinkTime": 3.031
+                      }
+                    ],
+                    [
+                      {
+                        "peer": 0,
+                        "frames": 78,
+                        "energy": 0.36137784268420087,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A4111132691|IT01V3731846379",
+                        "sinkTime": 3.875
+                      },
+                      {
+                        "peer": 1,
+                        "frames": 78,
+                        "energy": 0.3569991944843998,
+                        "local": "relay",
+                        "remote": "relay",
+                        "protocol": "tls",
+                        "epoch": "IT01A646974003|IT01V4242137201",
+                        "sinkTime": 3.893
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "externalRequests": [],
+              "separateNetworks": false,
+              "publicPkiQualified": false,
+              "independentRealOperatorsQualified": false,
+              "publicProviderSelected": false,
+              "forgeSwornWebsiteProviderSelection": false,
+              "legalExemptionEstablished": false
+            }
+          }
+        },
+        {
+          "case": "callers receive protected screen pixels through the selected TURN backend",
+          "status": "passed",
+          "durationMs": 5830,
+          "evidence": {
+            "protected-share-selected-turn": {
+              "turnBackend": "coturn",
+              "generatedMediaOnly": true,
+              "realOsCapturePicker": false,
+              "decodedPixels": {
+                "centre": [
+                  19,
+                  23,
+                  26,
+                  255
+                ],
+                "edge": [
+                  4,
+                  220,
+                  0,
+                  255
+                ]
+              },
+              "selectedTransport": "relay/relay TLS",
+              "externalRequests": [],
+              "separateNetworks": false,
+              "installedArchyPackage": false
+            }
+          }
+        },
+        {
+          "case": "issuer refusal preserves chat and refuses a relay-only call without creating a peer",
+          "status": "passed",
+          "durationMs": 1538,
+          "evidence": {}
+        }
+      ]
+    }
+  },
+  "earlierSetupFailures": [
+    {
+      "phase": "local fixture TLS certificate",
+      "result": "server did not start; no browser cases executed",
+      "cause": "old local generated certificate was v1 and rejected by rustls",
+      "repair": "generate SAN-bearing v3 fixture certificate; no production TLS bypass added"
+    },
+    {
+      "phase": "reused sibling executable",
+      "result": "server did not start; no browser cases executed",
+      "cause": "pre-existing executable was removed by concurrent source-repository cleanup",
+      "repair": "rebuild unchanged runtime source and use a task-owned executable copy for final gate"
+    }
+  ],
+  "spryExecutable": {
+    "sha256": "c138d96900abeab93761c7df1faed0602920bdce44ca2e53c392e495a8e1dead",
+    "runtimeSourceRef": "48d75adf51c73b1ef2a51a3cb663e424f2b4ea35",
+    "workingTreeHead": "bb1129ad008da7331372aee9d28902b5f5d61322"
+  },
+  "performanceComparison": false,
+  "limits": [
+    "Localhost, generated camera/audio/screen pixels, fixture TLS trust bypass",
+    "No real OS capture picker, physical device, cross-network NAT or public certificate proof",
+    "Disposable Node issuer is fixture-only; no Archy issuer or live directory was enabled",
+    "Elapsed test durations under shared host load are not call-performance measurements"
+  ],
+  "cleanup": {
+    "browserServersAndRelayStopped": true,
+    "turnProcessAndContainerStopped": true,
+    "taskExecutableAndScratchReportsRemoved": true,
+    "taskWebBuildOutputsRemoved": true,
+    "temporaryDependencyLinkRemoved": true,
+    "spryReleaseBuildOutputRemoved": true,
+    "unrelatedServicesAndSourcesPreserved": true
+  }
+}

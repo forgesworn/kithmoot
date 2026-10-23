@@ -254,6 +254,11 @@ call acceptance. Any new media gateway must preserve participant-held media
 keys, local admission and the no-logging requirement. Transport code reuse
 does not settle the legal role of whoever operates it.
 
+The subsequent [combined Spry/RelaySwarm/Sapflow assessment](combined-call-transport-20261023.md)
+records the new Spry source and retained performance evidence, the proposed
+real-time forwarding adapter, and the separate legal and measurement gates.
+This is a combined-stack proposal, not an already qualified integration.
+
 ## Legal assessment
 
 The intended position is software publication without operating or

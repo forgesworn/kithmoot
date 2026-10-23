@@ -4,6 +4,7 @@ import { connect as connectTls } from 'node:tls'
 import { createRoom, join, open, joinWithMedia, newDeviceContext, turnOnMedia, chooseCallMore, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
 import { automaticCallState, observeAutomaticCallErrors } from './automatic-call-state.js'
+import { syntheticSource } from './browser-protected-share-fixture.js'
 
 const issuer = `https://localhost:${process.env.E2E_AUTOMATIC_TURN_PORT ?? 7794}`
 const observerCpuRate = Number(process.env.E2E_CALL_OBSERVER_CPU_RATE ?? 1)
@@ -69,6 +70,8 @@ test('issuer requests omit cookies and room information while fresh guests recei
       }
     }
     const stats = await (await request.get(`${issuer}/stats`)).json()
+    expect(stats.turnBackend).toBe(process.env.E2E_TURN_BACKEND ?? 'coturn')
+    if (stats.turnBackend === 'spry') expect(stats.turnBinarySha256).toMatch(/^[a-f0-9]{64}$/)
     expect(stats.distinctLogins).toBeGreaterThanOrEqual(2)
     for (const key of ['cookies', 'authorisation', 'referrer', 'query', 'body']) expect(stats[key], key).toBe(false)
     expect(denied).toEqual([])
@@ -283,7 +286,8 @@ test('fresh guests automatically obtain separate temporary transport logins and 
     expect(denied).toEqual([])
     await test.info().attach('automatic-independent-guest-transport', { contentType: 'application/json', body: JSON.stringify({
       model: 'independently operated static app with build-selected issuer; all fixtures local',
-      guestsConfiguredRelay: false, fileImportUsed: false, realCoturnRestAuthentication: true,
+      guestsConfiguredRelay: false, fileImportUsed: false, realTurnRestAuthentication: true,
+      turnBackend: stats.turnBackend,
       issuerImplementation: 'server/turn-credentials.mjs', ttlSeconds: 3600,
       observerCpuRate,
       separateBrowserLogins: true, credentialsInLocalOrSessionStorage: false,
@@ -305,6 +309,63 @@ test('fresh guests automatically obtain separate temporary transport logins and 
       })).map(result => result.catch(() => ({ unavailable: true })))),
     }, null, 2) })
     throw error
+  } finally { await Promise.all(contexts.map(context => context.close())) }
+})
+
+test('callers receive protected screen pixels through the selected TURN backend', async ({ browser, baseURL }) => {
+  const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!)))
+  const denied: string[] = []
+  try {
+    for (const context of contexts) {
+      await context.route('**/*', route => {
+        if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(route.request().url()).hostname)) {
+          denied.push('non-loopback HTTP'); return route.abort('blockedbyclient')
+        }
+        return route.continue()
+      })
+      await context.routeWebSocket(/.*/, socket => {
+        if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(socket.url()).hostname)) {
+          denied.push('non-loopback WebSocket'); socket.close(); return
+        }
+        socket.connectToServer()
+      })
+      await context.addInitScript(SYNTHETIC_MIC)
+      await context.addInitScript(() => {
+        localStorage.setItem('kithmoot.hide-ip.v1', '1')
+        localStorage.setItem('kithmoot.profiles.enabled', 'false')
+      })
+    }
+    const [sender, receiver] = await Promise.all(contexts.map(context => context.newPage()))
+    const link = await createRoom(sender, baseURL!)
+    await turnOnMedia(sender); await joinWithMedia(receiver, link, 'Rowan')
+    for (const page of [sender, receiver]) await movingMedia(page, 1)
+    const pending = sender.waitForEvent('popup')
+    await chooseCallMore(sender, 'Share with redaction')
+    const popup = await pending; await syntheticSource(popup)
+    await popup.getByRole('button', { name: 'Choose a window or tab' }).click()
+    await expect(popup.getByRole('button', { name: 'Start protected sharing' })).toBeEnabled()
+    await popup.getByRole('button', { name: 'Hide a region', exact: true }).click()
+    await popup.getByRole('button', { name: 'Start protected sharing' }).click()
+    await expect(sender.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
+    const share = receiver.locator('video.screenPreview').first()
+    await expect(share).toBeVisible({ timeout: 45_000 })
+    const pixels = () => share.evaluate((video: HTMLVideoElement) => {
+      const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 18
+      const ctx = canvas.getContext('2d')!; ctx.drawImage(video, 0, 0, 32, 18)
+      return { centre: [...ctx.getImageData(16, 9, 1, 1).data], edge: [...ctx.getImageData(2, 2, 1, 1).data] }
+    })
+    await expect.poll(async () => (await pixels()).edge[1]).toBeGreaterThan(130)
+    const decodedPixels = await pixels()
+    expect(decodedPixels.centre[0]).toBeLessThan(80)
+    for (const page of [sender, receiver]) await movingMedia(page, 1)
+    await sender.locator('#toggleScreen').click()
+    await expect.poll(() => popup.isClosed()).toBe(true)
+    expect(denied).toEqual([])
+    await test.info().attach('protected-share-selected-turn', { contentType: 'application/json', body: JSON.stringify({
+      turnBackend: process.env.E2E_TURN_BACKEND ?? 'coturn', generatedMediaOnly: true,
+      realOsCapturePicker: false, decodedPixels, selectedTransport: 'relay/relay TLS',
+      externalRequests: denied, separateNetworks: false, installedArchyPackage: false,
+    }, null, 2) })
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
 
