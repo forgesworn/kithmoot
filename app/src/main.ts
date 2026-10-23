@@ -31,6 +31,7 @@ import type { BrowserMlsGrantDevelopmentPanel } from './mls-grant-development-pa
 import type { BrowserMlsRoomDevelopmentPanel } from './mls-room-development-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
+import { BrowserShare } from './browser-share.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
@@ -650,6 +651,7 @@ const desktopShareArea = new DesktopShareArea({
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
+const browserShare = new BrowserShare(() => screenTrack?.dispatchEvent(new Event('ended')))
 // Marks drawn on a whole-screen share, shown over the screen being shared:
 // that share's own preview is a blank tile (see `applySelfMirrorGuard`).
 const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
@@ -669,7 +671,7 @@ const chatArtPicker = new ChatArtPicker({
     return granted
   },
 })
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); shareMarksOverlay.close() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); browserShare.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -5272,19 +5274,14 @@ function renderCallTabNotice(): void {
   if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
 }
 
-// A rolling, redacted record of what happened during this call, and a
-// per-pair health sampler that turns single-snapshot stats into "is it
-// actually moving". Both feed `collectDiagnostics` below; see
-// app/src/call-timeline.ts for what they will and will not record.
-const callTimeline = new CallTimeline()
+// Call history exists only in explicitly instrumented synthetic test builds.
+// Ordinary builds retain no timeline and expose no diagnostic export hook.
+const syntheticCallDiagnostics = import.meta.env.VITE_TEST_DIAGNOSTICS === 'true'
+const callTimeline = new CallTimeline(Date.now, syntheticCallDiagnostics)
 
-/** Which call this device said it was on, and why a call rang or did not.
- *  To the timeline for a pasted report, and to the console as well: the
- *  timeline keeps ten minutes, and a ring nobody can explain is usually
- *  asked about later than that. Short ids only, as the timeline takes. */
+/** Diagnostic call events are discarded in ordinary builds, never printed. */
 function logCall(kind: 'call-declared' | 'call-ring', who: string | undefined, detail: string): void {
   callTimeline.record(kind, who, detail)
-  console.info(`[kithmoot] ${kind}${who ? ` ${who.slice(0, 8)}` : ''}: ${detail}`)
 }
 const pairHealthSampler = new PairHealthSampler()
 
@@ -5386,7 +5383,7 @@ async function joinCall(): Promise<void> {
 /** Everything of this device's that was live, off, and the previews with it.
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
-  desktopShareArea.stop()
+  desktopShareArea.stop(); browserShare.stop()
   shareMarksOverlay.close()
   desktopRedaction.closeAll()
   desktopRedaction.setHidden(false)
@@ -6679,7 +6676,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 }
 
 let screenStarting = false
-async function toggleScreen(area = false): Promise<void> {
+async function toggleScreen(area = false, protectedShare = false): Promise<void> {
   if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
@@ -6687,7 +6684,7 @@ async function toggleScreen(area = false): Promise<void> {
   if (!screenTrack && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!screenTrack) callWanted = true
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -6737,20 +6734,20 @@ async function toggleScreen(area = false): Promise<void> {
       // Awaited only in the desktop app: a browser's own chooser keeps the
       // click's activation without a round trip in front of it.
       if (desktopRedaction.supported) await desktopRedaction.begin()
-      stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      stream = protectedShare ? await browserShare.start(area) : area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
       // Read off the raw capture, before any redaction canvas stands in for it.
       capture = {
         deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
         ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
       }
-      if (!area && desktopRedaction.supported) {
+      if (!protectedShare && !area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
       }
     }
     finally { screenStarting = false }
-    if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
+    if (generation !== callGeneration || leftCall || !meetingLetsMeSend()) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); browserShare.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     // An area share already tracks this precisely, reactively, via the
@@ -6764,7 +6761,7 @@ async function toggleScreen(area = false): Promise<void> {
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== callGeneration) return
-        desktopShareArea.stop()
+        desktopShareArea.stop(); browserShare.stop()
         shareMarksOverlay.close()
         screenTrack = undefined
         shareMayShowItself = false
@@ -7175,6 +7172,8 @@ function updateUi(): void {
   updateRedactionControls()
   const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
   if (areaButton) areaButton.disabled = !!screenTrack
+  const protectedButton = document.getElementById('shareProtected') as HTMLButtonElement | null
+  if (protectedButton) protectedButton.disabled = !!screenTrack
   const share = $('toggleScreen')
   const sharing = !!screenTrack
   share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
@@ -9049,6 +9048,8 @@ function describeStopped(stopped: string[]): string {
  *  screen. Says which were on. Shared by an admin's mute and meeting mode. */
 function stopSending(): string[] {
   const stopped: string[] = []
+  // Also cancel a protected preview whose permission/confirmation is pending.
+  browserShare.stop()
   if (micTrack) {
     micTrack.removeEventListener('ended', onMicEnded)
     micTrack.stop()
@@ -9066,7 +9067,7 @@ function stopSending(): string[] {
     stopped.push('camera')
   }
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -13116,6 +13117,7 @@ const short = (hex: string | undefined) => (hex ? hex.slice(0, 8) : hex)
  * is not something a "copy" button should put on their clipboard.
  */
 async function collectDiagnostics(): Promise<string> {
+  if (!syntheticCallDiagnostics) return '{}'
   const s = mediaSession()
   const pick = (r: Record<string, unknown>, keys: string[]) =>
     Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))
@@ -18637,14 +18639,23 @@ $('toggleMic').addEventListener('click', () => {
 $('toggleCamera').addEventListener('click', () => {
   toggleCamera().then(() => noteMediaBlocked(undefined)).catch((err) => noteMediaBlocked('Camera', err))
 })
-if (window.kithmootDesktop?.supportsShareArea) {
+if (window.kithmootDesktop?.supportsShareArea || (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function')) {
   const area = document.createElement('button')
   area.id = 'shareArea'
   area.className = 'toggle'
   area.textContent = 'Share an area'
-  area.onclick = () => { toggleScreen(true).catch(showShareError) }
+  area.onclick = () => { toggleScreen(true, !window.kithmootDesktop).catch(showShareError) }
   // Behind More, beside the other ways to share: the bar keeps one Share.
   $('shareExtras').append(area)
+  $('shareExtras').hidden = false
+}
+if (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function') {
+  const protect = document.createElement('button')
+  protect.id = 'shareProtected'
+  protect.className = 'toggle'
+  protect.textContent = 'Share with redaction'
+  protect.onclick = () => { toggleScreen(false, true).catch(showShareError) }
+  $('shareExtras').append(protect)
   $('shareExtras').hidden = false
 }
 // Boxes live on the real screen, so Wayland (which forbids placing a window)

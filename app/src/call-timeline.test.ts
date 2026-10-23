@@ -18,9 +18,17 @@ function fakeClock(startAt = 1_000_000) {
 }
 
 describe('CallTimeline', () => {
+  it('discards call history by default without reading the clock', () => {
+    const timeline = new CallTimeline(() => { throw new Error('disabled history must not timestamp calls') })
+    timeline.record('signal-sent', 'aabbccdd', 'offer')
+    timeline.record('call-ring', 'aabbccdd', 'ring')
+    expect(timeline.entries()).toEqual([])
+    expect(timeline.format()).toEqual([])
+  })
+
   it('orders entries oldest first, newest last', () => {
     const clock = fakeClock()
-    const timeline = new CallTimeline(clock.now)
+    const timeline = new CallTimeline(clock.now, true)
     timeline.record('signal-sent', 'aabbccdd')
     clock.advance(1000)
     timeline.record('signal-received', 'aabbccdd')
@@ -33,7 +41,7 @@ describe('CallTimeline', () => {
 
   it('caps at MAX_ENTRIES, dropping the oldest first', () => {
     const clock = fakeClock()
-    const timeline = new CallTimeline(clock.now)
+    const timeline = new CallTimeline(clock.now, true)
     for (let i = 0; i < MAX_ENTRIES + 50; i++) {
       timeline.record('signal-sent', 'aabbccdd', `n${i}`)
       clock.advance(1)
@@ -45,7 +53,7 @@ describe('CallTimeline', () => {
 
   it('caps at MAX_AGE_MS, dropping entries older than the window', () => {
     const clock = fakeClock()
-    const timeline = new CallTimeline(clock.now)
+    const timeline = new CallTimeline(clock.now, true)
     timeline.record('signal-sent', 'aabbccdd', 'old')
     clock.advance(MAX_AGE_MS + 1)
     timeline.record('signal-sent', 'aabbccdd', 'new')
@@ -54,7 +62,7 @@ describe('CallTimeline', () => {
   })
 
   it('never throws on a bad device or detail, and drops what it cannot vouch for', () => {
-    const timeline = new CallTimeline()
+    const timeline = new CallTimeline(Date.now, true)
     timeline.record('signal-sent', 'not-hex-at-all', 'fine detail')
     expect(timeline.entries()[0].device).toBeUndefined()
     expect(timeline.entries()[0].detail).toBe('fine detail')
@@ -62,14 +70,14 @@ describe('CallTimeline', () => {
 
   it('formats one line per entry with a relative timestamp', () => {
     const clock = fakeClock()
-    const timeline = new CallTimeline(clock.now)
+    const timeline = new CallTimeline(clock.now, true)
     timeline.record('signal-sent', 'aabbccdd', 'offer')
     const lines = timeline.format()
     expect(lines).toEqual(['+0.0s signal-sent aabbccdd offer'])
   })
 
   it('omits device and detail from a line when absent', () => {
-    const timeline = new CallTimeline()
+    const timeline = new CallTimeline(Date.now, true)
     timeline.record('probe-failed')
     expect(timeline.format()).toEqual(['+0.0s probe-failed'])
   })

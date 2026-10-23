@@ -842,7 +842,7 @@ export async function startRelay(port: number, okDelayMs = 0): Promise<{ url: st
 export type CallMoreItem =
   | 'Share screen' | 'Stop sharing' | 'Effects…' | 'Layout' | 'Record call…' | 'Stop recording' | 'Run as a meeting…'
   | 'Use beside another device' | 'Mirror my view' | 'Let agents hear me' | 'Show drawings in a floating window' | 'Invite people…'
-  | 'Resume call media' | 'Share an area' | 'Hide part of the screen'
+  | 'Resume call media' | 'Share an area' | 'Hide part of the screen' | 'Share with redaction'
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 

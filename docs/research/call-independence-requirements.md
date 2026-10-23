@@ -15,6 +15,8 @@ The owner clarified the required product on 23 October:
 3. Share the room link with friends.
 4. Friends open the link in an ordinary browser or installed client.
 5. Exchange text chat and have two-way voice/video calls, including groups.
+6. Share a screen, a selected window/app or a selected area, with local
+   redaction controls and a preview of what friends actually receive.
 
 The normal journey must not require a server deployment, relay URL entry,
 transport credentials or a ForgeSworn calling account. Self-hosting remains
@@ -25,6 +27,75 @@ telemetry and third-party request payloads.
 These usability requirements apply together with the authority/logging
 requirements below. Manual infrastructure setup or a same-host helper demo
 does not complete this journey.
+
+## Screen, window and area sharing with redaction
+
+Owner clarification, 23 October: all three sharing modes and redaction are
+part of the required product. Changing the media transport or reusing Sapflow
+must preserve these capabilities. A successful camera-only call is not full
+product acceptance.
+
+- Offer whole-screen, window/app and selected-area capture wherever the
+  platform permits them. Browser guests must be able to view shares without
+  installing a helper. Publishing support must be qualified per browser/OS;
+  do not promise that every mobile browser exposes display capture.
+- Let the sharer select and preview the source and crop, add/move/resize
+  opaque redaction masks, hide/resume the entire share and stop capture.
+  Make the transmitted picture clear before publishing. Do not substitute a
+  whole-screen share when the selected mode is unavailable.
+- Keep the raw capture on the device. The outgoing pipeline is **capture →
+  crop/redact locally → encode → encrypt → send**. Every recipient, forwarding
+  path and any separately chosen recording/export must receive only the
+  protected share. A receiver overlay, blur or pixelation does not satisfy
+  redaction. Do not upload raw frames to a server for protection.
+- Apply protection from the first transmitted frame. If source identity,
+  geometry, mask state or the compositor cannot be trusted, cover the whole
+  share or stop it. Never fall back to raw capture. Recheck movement, resize,
+  display-scale changes, rotation, source switching, minimisation and capture
+  restart. Window masks need a defined anchor in the captured window's
+  coordinates; desktop coordinates alone do not establish safe mapping.
+- Treat masks as user-selected regions, not automatic tracking of sensitive
+  content. Say so in the controls: a secret moved outside a mask is no longer
+  covered. Automatic text/content detection is a separate unqualified feature.
+- Keep microphone and shared app/system audio controls distinct. Visual
+  masks do not redact audio. Hiding the entire share must silence its shared
+  audio, without unexpectedly changing the microphone or listening device.
+- Stop all capture tracks on cancel, stop, leave, revoked permission and
+  source closure, including late permission results after cancellation.
+  Do not persist source names, window titles, pixels, masks or capture
+  diagnostics as call logs. No automatic recording or cloud processing.
+
+### Existing implementation and gaps
+
+Read-only source inspection on 23 October used the web prototype's base
+`bd322c6de13c389f67713171487e54fdba763e6b` and the separate Android working
+checkout. These are source findings, not fresh device acceptance.
+
+| Client | Existing source | Gap to the required experience |
+| --- | --- | --- |
+| Desktop | [`share-redaction.md`](../share-redaction.md), `app/src/redaction.ts` and `share-area.ts`: local canvas crop/masks and whole-share cover; desktop bridge supplies screen geometry | Active masks refuse or wholly cover single-window capture; window-following masks remain a design note. Existing desktop boxes are unavailable on Wayland. Requalify platform protection and lifecycle paths |
+| Ordinary browser | New local `browser-share.ts` window/tab path behind **Share an area** and **Share with redaction**: source-relative crop/masks, protected preview, manual protected canvas frames, hide/resume and audio silence | Chromium synthetic remote-pixel and two-context room checks pass locally. Monitor/unknown sources are refused pending capture-recursion qualification. The ordinary Share button retains its existing path; no claim that every browser share is protected. Real OS pickers, other browsers and recording/export acceptance remain open |
+| Android | `media/LocalMedia.kt` uses `ScreenCapturerAndroid` with MediaProjection and optional playback-audio capture | The inspected screen path passes capture directly to its video source; no share crop/mask compositor was found there. Add protection before encoding and qualify on physical GrapheneOS without Play |
+
+The [W3C display-capture specification](https://www.w3.org/TR/screen-capture/)
+describes user-authorised display capture, including browser-selected surfaces;
+it is not evidence of uniform implementation across browsers. Android's
+[MediaProjection documentation](https://developer.android.com/media/grow/media-projection)
+describes whole-display capture and Android 14+ app-window selection. Neither
+API supplies the application's redaction policy or proves its implementation.
+
+Acceptance must inspect the **sender's protected track and the remotely
+decoded frames**, using synthetic secret markers inside and outside masks.
+Exercise startup, moving/resizing masks and sources, mixed display scales,
+rotation, hide/resume, permission withdrawal, cancellation and reconnect.
+Check that covered markers never reach the receiver, including the first
+frame and failure cases, while permitted content stays readable. Prove the
+same boundary for any recording/export sink and verify shared-audio silence
+while hidden. Run desktop/browser coverage separately from physical
+GrapheneOS acceptance; the FIPS synthetic camera fixture proves none of this.
+
+The [23 October implementation evidence](publisher-independence-evidence-20261023.md)
+records the first protected browser path and its bounded local acceptance.
 
 ## Authority belongs to participants
 
@@ -97,10 +168,10 @@ would also require reassessing the intended software-publisher position.
 
 | Requirement | Evidence needed | Current status |
 | --- | --- | --- |
-| No publisher runtime dependency | Create, join, call and reconnect using independent infrastructure while blocking publisher endpoints, including discovery, issuer, gateway and update/config hosts | Not tested |
+| No publisher runtime dependency | Create, join, call and reconnect using independent infrastructure while blocking publisher endpoints, including discovery, issuer, gateway and update/config hosts | Two fresh browser contexts pass the local fixture journey with all external HTTP/WS denied; real independent providers and separate networks remain untested |
 | Participant-only room authority | Trace invitation, admission, revocation and keys through web, Android and any gateway; test membership refusal without publisher participation | Not tested by the synthetic fixture |
 | No hidden central authority | Review deployed configuration, administrator credentials, remote configuration and software-update prerequisites | Not established |
-| No persistent/exported call logs | Exercise successful, refused, failed and interrupted calls; inspect storage and network outputs across dependency, OS, container and provider paths | Not established |
+| No persistent/exported call logs | Exercise successful, refused, failed and interrupted calls; inspect storage and network outputs across dependency, OS, container and provider paths | Ordinary-build timeline disabled and call-event console output removed; full client/dependency/host audit remains open |
 | Bounded transient state | Verify expiry/cleanup after disconnect, crash and restart without restoring call history | Not established |
 | Enforced endpoint-only behaviour | Refuse third-party forwarding while preserving legitimate endpoint calls | FIPS leaf-only counterexample reproduced |
 | Simple independent connectivity | Two separate networks, ordinary browser guests and physical GrapheneOS without Play; four real participants after two-device acceptance | Local synthetic helper-assisted media proof only |
