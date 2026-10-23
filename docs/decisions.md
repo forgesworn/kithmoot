@@ -2405,3 +2405,33 @@ one-time notice says why, and typing one in Settings is refused. Files already
 stored there are not touched by the app; closing the upload route on the
 server is a separate step.
 
+
+## Calls use somebody else's STUN server by default (23 October 2026)
+
+Since 13 September a room on the ICE defaults has asked the origin that
+served the app for STUN, which on the public host meant ForgeSworn's own
+STUN server. That reversed a Google default, but it left the publisher
+running a server that every call on the defaults used. The position since
+28 September, restated by the owner on 23 October, is that defaults may be
+servers other people run and never ForgeSworn's.
+
+So the stand-in is now Cloudflare's public STUN server
+(`DEFAULT_STUN_URLS` in `src/ice-defaults.ts`), which needs no account. STUN
+tells a device its own public address and carries no content, but whoever
+runs it learns the IP address and timing of every call attempt on the
+defaults, so the privacy page and Check it yourself name it. Cloudflare
+rather than Google because nothing goes to Google (19 October 2026); a link
+made before 13 September that carries only Google's STUN server still reads
+as the default and now gets Cloudflare's. Localhost and plain http still get
+nothing, which keeps development and tests off the network.
+
+A deployment that mints its own TURN credential is unchanged: when its
+`/turn` answers, STUN is derived from the minted relay and the stand-in is
+not used. A room whose link names its own servers keeps exactly those.
+
+There is still no default relay (TURN). Nobody gives one away without an
+account, the open services that once did are gone, and a relay on a
+ForgeSworn account would make ForgeSworn the one deciding who may use it.
+A person or group brings their own. ForgeSworn's STUN server keeps
+answering until the Android app has moved to the same default; closing it
+is a separate decision.

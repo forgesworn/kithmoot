@@ -71,7 +71,11 @@ Anyone can self-host coturn from this same config, point their own room at
 it, or point at somebody else's public TURN server entirely. If you fork
 this project and don't want to run TURN at all, set
 `TURN_CREDENTIAL_ENDPOINT` back to `undefined` in `app/src/main.ts` and
-rooms fall back to STUN only. There is no TURN URL to remove alongside it:
+rooms fall back to STUN only. That STUN is Cloudflare's public server
+(`DEFAULT_STUN_URLS` in `src/ice-defaults.ts`), the same stand-in the public
+app uses since 23 October 2026, because the publisher runs no default
+servers. While your `/turn` answers, STUN comes from your own coturn
+instead, derived from the relay it mints. There is no TURN URL to remove alongside it:
 the URLs arrive from the credential endpoint, already carrying the
 credential they need, precisely because a `turn:` entry without one makes
 the `RTCPeerConnection` constructor throw.

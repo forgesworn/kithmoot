@@ -2,8 +2,8 @@
 
 ForgeSworn publishes KithMoot's software. It no longer runs anything for
 KithMoot that carries one user's content to another. STUN on its host is
-the one ForgeSworn default left; see the decision marker in the closure
-record, section 3.
+the one ForgeSworn default left, and only in the Android app until its
+update; see closure record section 3.
 
 - [`closure-record.md`](closure-record.md) is the current record: what
   ForgeSworn ran for KithMoot users from 24 August 2026, what closed on 21

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, LEGACY_DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from './ice-defaults.js'
+import { browserDefaultTurnUrls, DEFAULT_ICE_URLS, DEFAULT_STUN_URLS, LEGACY_DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess, stunFromTurnUrl } from './ice-defaults.js'
 
 describe('stunFromTurnUrl', () => {
   it('derives a stun: URL from a turn: URL with host and port', () => {
@@ -46,8 +46,20 @@ describe('browserDefaultTurnUrls', () => {
 })
 
 describe('originStunGuess', () => {
-  it('guesses this origin on port 3478 for a non-loopback https origin', () => {
-    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:kithmoot.example:3478'])
+  it("names Cloudflare's public STUN server for a non-loopback https origin, never the origin itself", () => {
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.cloudflare.com:3478'])
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.forgesworn.dev' })).toEqual(['stun:stun.cloudflare.com:3478'])
+  })
+
+  it('names no Google host and no ForgeSworn host', () => {
+    for (const url of DEFAULT_STUN_URLS) expect(url).not.toMatch(/google|forgesworn/i)
+  })
+
+  it('returns a fresh list each time, so a caller cannot change the default', () => {
+    const first = originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })
+    first.push('stun:changed.example:3478')
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.cloudflare.com:3478'])
+    expect(Object.isFrozen(DEFAULT_STUN_URLS)).toBe(true)
   })
 
   it('names nothing for an http origin', () => {
