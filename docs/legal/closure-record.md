@@ -56,15 +56,17 @@ credential and retires a stored ForgeSworn file server
   which serve nothing and are kept by the owner's decision of 23 October
   2026: Time Machine cannot delete one folder from a backup, only whole
   backups.
-- **STUN on ForgeSworn's host.** Since 23 October 2026 the web, desktop
-  and agent defaults ask Cloudflare's public STUN server
-  (`DEFAULT_STUN_URLS`, `src/ice-defaults.ts`). Android, to 0.6.105, still asks
-  ForgeSworn's, and coturn on 3478 answers anyone. STUN carries no user's
+- **STUN on ForgeSworn's host.** Since 23 October 2026 the web app's and
+  `kithmoot-agent`'s defaults ask Cloudflare's public STUN server
+  (`DEFAULT_STUN_URLS`, `src/ice-defaults.ts`). The desktop app serves its
+  own bundled copy of the web app, so desktop to 0.1.101 and Android to
+  0.6.105 still ask ForgeSworn's until desktop 0.1.102 and Android 0.6.106,
+  and coturn on 3478 answers anyone. STUN carries no user's
   content to another user. The law note does not say whether a server like
   that bears on the Online Safety Act (not covered). The owner decided on
   22 October 2026 to keep it, and on 23 October 2026 that defaults may be
   other people's servers but never ForgeSworn's; closing 3478 after the
-  Android update is a separate decision. It does see users' IP addresses,
+  desktop and Android updates is a separate decision. It does see users' IP addresses,
   which is data protection (law note 3.1). `[LEGAL REVIEW: whether
   answering STUN for anyone keeps ForgeSworn a provider of anything under
   the Act, given that STUN carries no content between users.]`

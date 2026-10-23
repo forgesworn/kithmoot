@@ -2433,5 +2433,7 @@ There is still no default relay (TURN). Nobody gives one away without an
 account, the open services that once did are gone, and a relay on a
 ForgeSworn account would make ForgeSworn the one deciding who may use it.
 A person or group brings their own. ForgeSworn's STUN server keeps
-answering until the Android app has moved to the same default; closing it
-is a separate decision.
+answering until the desktop app (0.1.102) and the Android app (0.6.106)
+have moved to the same default: the desktop app serves its own bundled
+copy of the web app, so a web deploy does not change it. Closing it is a
+separate decision.
