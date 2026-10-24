@@ -1,0 +1,582 @@
+{
+  "schemaVersion": 1,
+  "preparedAt": "2026-10-24T12:44:05.514677+00:00",
+  "android": {
+    "source": "9908de74370555800fe786f5a51f6110927843ad",
+    "sourceTree": "2ead78dfca3c3d6e4da804fb86ceec9688509af3",
+    "pullRequest": 324,
+    "version": "0.6.110",
+    "versionCode": 133,
+    "apkBytes": 73828111,
+    "apkSha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "signing": {
+      "v1": false,
+      "v2": false,
+      "v3": true,
+      "unchangedZipPayloads": 787
+    },
+    "ciRun": 40092336960,
+    "ciStatus": "success",
+    "initialRestartFailure": "NativeRekeyRestartTest.a_prepare: Actual original handoff was not recorded (30-second checkpoint timeout)",
+    "physicalAcceptance": false,
+    "phoneInstalledByThisTask": false,
+    "mergeCommit": "fc58d7163d832f76c3828cf0747cba17546f0fd9",
+    "mergeTreeMatchesQualifiedSource": true,
+    "ciAttempt": 2,
+    "executedJobsPassed": 17,
+    "ciJobs": [
+      {
+        "name": "verify",
+        "id": 120892169932,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T12:13:08Z",
+        "completed_at": "2026-10-24T12:29:11Z"
+      },
+      {
+        "name": "recovery-emulator (restarts)",
+        "id": 120892133829,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T14:02:55Z",
+        "completed_at": "2026-10-24T14:15:32Z"
+      },
+      {
+        "name": "recovery-emulator (ordinary)",
+        "id": 120892134555,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T12:08:21Z",
+        "completed_at": "2026-10-24T12:31:46Z"
+      },
+      {
+        "name": "package",
+        "id": 120892168119,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T12:57:08Z",
+        "completed_at": "2026-10-24T13:05:23Z"
+      },
+      {
+        "name": "signing-lineage-emulator (35)",
+        "id": 120892135428,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:13:56Z",
+        "completed_at": "2026-10-24T13:16:32Z"
+      },
+      {
+        "name": "recording-call-emulator (capture, 35)",
+        "id": 120892135136,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:14:14Z",
+        "completed_at": "2026-10-24T13:18:41Z"
+      },
+      {
+        "name": "recording-call-emulator (codecs, 33)",
+        "id": 120892135645,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:17:19Z",
+        "completed_at": "2026-10-24T13:19:25Z"
+      },
+      {
+        "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+        "id": 120892135086,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:26:37Z",
+        "completed_at": "2026-10-24T13:29:09Z"
+      },
+      {
+        "name": "signing-lineage-emulator (33)",
+        "id": 120892135545,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:31:47Z",
+        "completed_at": "2026-10-24T13:35:08Z"
+      },
+      {
+        "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+        "id": 120892135909,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:23:53Z",
+        "completed_at": "2026-10-24T13:26:35Z"
+      },
+      {
+        "name": "recording-private-node-emulator (default)",
+        "id": 120892135683,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:36:45Z",
+        "completed_at": "2026-10-24T13:55:32Z"
+      },
+      {
+        "name": "recording-private-node-emulator (google_apis)",
+        "id": 120892135095,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:39:39Z",
+        "completed_at": "2026-10-24T14:00:13Z"
+      },
+      {
+        "name": "recording-call-emulator (session, 35)",
+        "id": 120892159654,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:35:08Z",
+        "completed_at": "2026-10-24T13:36:54Z"
+      },
+      {
+        "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+        "id": 120892135249,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:26:59Z",
+        "completed_at": "2026-10-24T13:29:52Z"
+      },
+      {
+        "name": "recording-restart-emulator",
+        "id": 120892135357,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:32:07Z",
+        "completed_at": "2026-10-24T13:40:17Z"
+      },
+      {
+        "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+        "id": 120892135903,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:39:46Z",
+        "completed_at": "2026-10-24T13:42:38Z"
+      },
+      {
+        "name": "pending-store-refusal-emulator (offered-before-index)",
+        "id": 120892135595,
+        "run_attempt": 2,
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-10-24T13:36:56Z",
+        "completed_at": "2026-10-24T13:39:50Z"
+      }
+    ],
+    "initialFailureRetained": true,
+    "signingPayloadProof": {
+      "source": "9908de74370555800fe786f5a51f6110927843ad",
+      "unsignedSha256": "3cbf0cdb315b4cf6eb9bfe07b8d3c58f08810b566de198121d6e080c41c5f00a",
+      "signedSha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+      "signedBytes": 73828111,
+      "unchangedZipEntries": 787,
+      "allPayloadsUnchanged": true
+    },
+    "githubRelease": {
+      "assets": [
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot-android/releases/assets/672161239",
+          "contentType": "application/vnd.android.package-archive",
+          "createdAt": "2026-10-24T12:00:44Z",
+          "digest": "sha256:8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt7nM4oEF3X",
+          "label": "",
+          "name": "kithmoot-0.6.110-production.apk",
+          "size": 73828111,
+          "state": "uploaded",
+          "updatedAt": "2026-10-24T12:00:58Z",
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.110/kithmoot-0.6.110-production.apk"
+        }
+      ],
+      "isDraft": false,
+      "publishedAt": "2026-10-24T14:16:39Z",
+      "targetCommitish": "9908de74370555800fe786f5a51f6110927843ad"
+    }
+  },
+  "website": {
+    "pullRequest": 566,
+    "head": "7d798a7c08bea184bd4c8a87a44157fcc5de4237",
+    "preservedDesktopVersion": "0.1.103",
+    "retainsAndroidVersions": [
+      "0.6.109",
+      "0.6.108"
+    ],
+    "localTypecheck": true,
+    "localBuild": true,
+    "downloadVerifierTests": 14,
+    "ciRun": 40093908779,
+    "deployed": true,
+    "mergeCommit": "fea83dcda0307f3c6969f59a6279b21e13abf84f",
+    "mergeTreeMatchesQualifiedSource": true,
+    "executedJobsPassed": 45,
+    "optionalDiagnosticJobsSkipped": 1,
+    "deployment": "20261024T141711Z",
+    "publicReadback": {
+      "version": "0.6.110",
+      "versionCode": 133,
+      "apkSha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+      "checks": [
+        {
+          "url": "https://kithmoot.app/",
+          "bytes": 27164,
+          "sha256": "88e98be92c4a608df0520875162e593c5d92254a2ac5b3702b504683ca369eb4",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/android-release.json",
+          "bytes": 806,
+          "sha256": "6d20594aa33410650d969e729a4fdceb20681aff039f83c257620dcdea86c290",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/android-release.json.sig",
+          "bytes": 89,
+          "sha256": "bff6f695e5498ea7e2633728e9d9a3680a224ffece15baeafadfbf8752817d11",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json",
+          "bytes": 1311,
+          "sha256": "c8f77f40ccf3d99ddd94ab5a22175b7efa96af89c8c2236d7b51507103205dab",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json.sig",
+          "bytes": 89,
+          "sha256": "af195a3dbaca567764816a3f268a7e52614123e30ffbb6cc55d53d4e4333405c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/versions.json",
+          "bytes": 67608,
+          "sha256": "8b2cf6445e3e8444ffdcf40958f5dc6b80c41b46b5a5779fa137d5ea85b05016",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/",
+          "bytes": 149551,
+          "sha256": "c5853066655b3ed356ecdd1dcc4a4d1707c2bf93e04f202fb40562e7b76710dc",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/sw.js",
+          "bytes": 25359,
+          "sha256": "c68016e72a865580528d9539518b40b50d883157ee244d7675512b5d94f82309",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/manifest.webmanifest",
+          "bytes": 433,
+          "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/assets/index-vWC7kbPK.js",
+          "bytes": 4932,
+          "sha256": "2dc7d9adefdbb6fe2796fe99ba67c9b4c7288549a84e4b6bbe2b666b98b741a0",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/assets/index-7w6UyBS-.css",
+          "bytes": 114609,
+          "sha256": "e7cdbe0fa01ed55683115cffcc579f6be73ad574311db917eda9405391cbda03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/transport.mjs",
+          "bytes": 146528,
+          "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/RELAYSWARM_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/sapflow.mjs",
+          "bytes": 11189,
+          "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+          "bytes": 29599,
+          "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/manifest.json",
+          "bytes": 4986,
+          "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/sapflow_realtime_bg.wasm",
+          "bytes": 31412,
+          "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/SAPFLOW_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/kithmoot-latest.apk?download=1",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/kithmoot-0.6.110-production.apk",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/",
+          "bytes": 27164,
+          "sha256": "88e98be92c4a608df0520875162e593c5d92254a2ac5b3702b504683ca369eb4",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/android-release.json",
+          "bytes": 806,
+          "sha256": "6d20594aa33410650d969e729a4fdceb20681aff039f83c257620dcdea86c290",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+          "bytes": 89,
+          "sha256": "bff6f695e5498ea7e2633728e9d9a3680a224ffece15baeafadfbf8752817d11",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/release.json",
+          "bytes": 1311,
+          "sha256": "c8f77f40ccf3d99ddd94ab5a22175b7efa96af89c8c2236d7b51507103205dab",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+          "bytes": 89,
+          "sha256": "af195a3dbaca567764816a3f268a7e52614123e30ffbb6cc55d53d4e4333405c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+          "bytes": 67608,
+          "sha256": "8b2cf6445e3e8444ffdcf40958f5dc6b80c41b46b5a5779fa137d5ea85b05016",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/",
+          "bytes": 149551,
+          "sha256": "c5853066655b3ed356ecdd1dcc4a4d1707c2bf93e04f202fb40562e7b76710dc",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 25359,
+          "sha256": "c68016e72a865580528d9539518b40b50d883157ee244d7675512b5d94f82309",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+          "bytes": 433,
+          "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-vWC7kbPK.js",
+          "bytes": 4932,
+          "sha256": "2dc7d9adefdbb6fe2796fe99ba67c9b4c7288549a84e4b6bbe2b666b98b741a0",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-7w6UyBS-.css",
+          "bytes": 114609,
+          "sha256": "e7cdbe0fa01ed55683115cffcc579f6be73ad574311db917eda9405391cbda03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/transport.mjs",
+          "bytes": 146528,
+          "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/RELAYSWARM_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/sapflow.mjs",
+          "bytes": 11189,
+          "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+          "bytes": 29599,
+          "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/manifest.json",
+          "bytes": 4986,
+          "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/sapflow_realtime_bg.wasm",
+          "bytes": 31412,
+          "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/SAPFLOW_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk?download=1",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.110-production.apk",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        },
+        {
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.110/kithmoot-0.6.110-production.apk",
+          "bytes": 73828111,
+          "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+          "verified": true
+        }
+      ],
+      "physicalAcceptance": false
+    }
+  },
+  "zapstore": {
+    "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+    "cliVersion": "0.4.12",
+    "existingCliSessionReused": true,
+    "publisherVerifiedBeforeSigning": true,
+    "signedEvents": [
+      {
+        "kind": 32267,
+        "id": "bffbd7a24e1cfff1b3abda10b4fc881ccf457c9705d4f7b786a05950b9379298"
+      },
+      {
+        "kind": 30063,
+        "id": "df2e66c4d0aa37c0e12287c93f300ab72ade2007983fb27cdd5704cb84e62188"
+      },
+      {
+        "kind": 3063,
+        "id": "e4b7aaf96acff13ff698259ca21c37b4fb436d182a594f755c1382e790195982"
+      }
+    ],
+    "allSignaturesVerified": true,
+    "releaseReferencesVerifiedAsset": true,
+    "published": true,
+    "independentReadback": {
+      "verifiedAt": "2026-10-24T14:20:39.838Z",
+      "relay": "wss://relay.zapstore.dev",
+      "eoseReceived": true,
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.110",
+      "versionCode": 133,
+      "channel": "main",
+      "applicationEventId": "bffbd7a24e1cfff1b3abda10b4fc881ccf457c9705d4f7b786a05950b9379298",
+      "releaseEventId": "df2e66c4d0aa37c0e12287c93f300ab72ade2007983fb27cdd5704cb84e62188",
+      "assetEventId": "e4b7aaf96acff13ff698259ca21c37b4fb436d182a594f755c1382e790195982",
+      "releaseCreatedAt": "2026-10-24T12:19:44.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "apk": {
+        "url": "https://kithmoot.app/apk/8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+        "bytes": 73828111,
+        "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+            "bytes": 73828111,
+            "sha256": "8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1",
+            "publicDownloadVerified": true
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    },
+    "relayAcknowledgements": [
+      {
+        "kind": 3063,
+        "id": "e4b7aaf96acff13ff698259ca21c37b4fb436d182a594f755c1382e790195982",
+        "acknowledged": true
+      },
+      {
+        "kind": 30063,
+        "id": "df2e66c4d0aa37c0e12287c93f300ab72ade2007983fb27cdd5704cb84e62188",
+        "acknowledged": true
+      },
+      {
+        "kind": 32267,
+        "id": "bffbd7a24e1cfff1b3abda10b4fc881ccf457c9705d4f7b786a05950b9379298",
+        "acknowledged": true
+      }
+    ]
+  },
+  "limits": [
+    "Physical GrapheneOS loudspeaker echo, sustained two-way speech/video and network changes unverified.",
+    "The new emulator test verifies speaker/call-mode lifecycle; the hosted emulator has no earpiece.",
+    "Profile-1 recovery acts on failed/disconnected transport, not connected-but-one-way media.",
+    "Experimental realtime SDK is not integrated into the Android call engine.",
+    "Owner instructed current Pixel call to remain running; no profile, route, volume or APK change by this task."
+  ],
+  "verifiedAt": "2026-10-24T14:22:01.413006+00:00"
+}
