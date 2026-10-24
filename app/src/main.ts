@@ -6139,11 +6139,20 @@ async function rotateRoomInvitation(): Promise<void> {
     throw new Error('Only the browser that opened this room can rotate its invitation.')
   }
   const retired = roomInvitationCapability
-  const retiringSk = invitationAuthoritySk
-  const created = createRoomInvitation(retired.persistent === true)
+  const authoritySk = invitationAuthoritySk
+  // A fresh bearer is a fresh link: the invitation id, and so the rendezvous
+  // and the retirement, come from the bearer alone. The inviter key stays,
+  // as `makeRoomPersistent` keeps it. It is the room's authority, the key
+  // every member pinned from the old link, and a new one left the creator
+  // signing its closing rekey, relay list and meeting rules with a key no
+  // member recognised: the room ended for the creator alone.
+  const invitation: RoomInvitation = {
+    ...createRoomInvitation(retired.persistent === true).invitation,
+    inviter: retired.inviter,
+  }
   // A conference room's fresh link ends when the room does.
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt, roomDestruct)
-  if (created.invitation.persistent) await publishGroupInvitation(created.invitation, roomSecret, created.inviterSk, relays, { endsAt: roomEndsAt, destruct: roomDestruct, roomRelays: signedRoomRelays() })
+  storeInvitationOwner(invitation, roomSecret, authoritySk, roomEndsAt, roomDestruct)
+  if (invitation.persistent) await publishGroupInvitation(invitation, roomSecret, authoritySk, relays, { endsAt: roomEndsAt, destruct: roomDestruct, roomRelays: signedRoomRelays() })
 
   // Tell every cooperative delegated responder before replacing local
   // state. The event is durable, so an offline member learns the retirement
@@ -6152,7 +6161,7 @@ async function rotateRoomInvitation(): Promise<void> {
   try {
     await retirementTransport.publish(encodeInvitationRetirement({
       invitation: retired,
-      inviterSk: retiringSk,
+      inviterSk: authoritySk,
       now: nowSeconds(),
       endsAt: roomEndsAt,
     }))
@@ -6163,10 +6172,9 @@ async function rotateRoomInvitation(): Promise<void> {
   forgetInvitationOwner(retired)
   // New link deletes the old code; a new one can be issued for the new link.
   retireMeetingCode({ invitationId: deriveInvitationId(retired) })
-  roomInvitationCapability = created.invitation
-  invitationAuthoritySk = created.inviterSk
+  roomInvitationCapability = invitation
   invitationDelegation = []
-  storeInvitationOwner(created.invitation, roomSecret, created.inviterSk, roomEndsAt, roomDestruct)
+  storeInvitationOwner(invitation, roomSecret, authoritySk, roomEndsAt, roomDestruct)
   serveCurrentInvitation()
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)

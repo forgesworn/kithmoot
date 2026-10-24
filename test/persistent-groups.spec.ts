@@ -240,6 +240,39 @@ test('replacing a group invitation rejects fresh arrivals on the old link while 
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
 
+test('after New link the creator still ends the room for a member who joined with the old link', async ({ browser, baseURL }) => {
+  const contexts: BrowserContext[] = []
+  try {
+    const owner = await device(browser, baseURL!); contexts.push(owner)
+    const page = await owner.newPage()
+    const link = await create(page, baseURL!)
+    const member = await device(browser, baseURL!); contexts.push(member)
+    const other = await member.newPage()
+    await enter(other, link, 'Member')
+    await other.locator('#chatInput').fill('Member here')
+    await other.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('Member here')
+
+    await openRoomInfoPage(page, 'Invite link')
+    await page.locator('#rotateShare').click()
+    await page.locator('#actionConfirm').click()
+    await expect.poll(() => page.locator('#shareUrl').inputValue()).not.toBe(link)
+    const replacement = await page.locator('#shareUrl').inputValue()
+
+    // Opened again later, from the link the creator now keeps.
+    await enter(page, replacement, 'Creator')
+    await openRoomDetails(page)
+    await page.locator('#endRoom').click()
+    await page.locator('#actionConfirm').click()
+    await expect(page.locator('#status')).toContainText('You ended this room for everyone')
+    await expect(other.locator('#status')).toContainText('ended by the person who started it', { timeout: 20_000 })
+    await expect(other.locator('#roomArea')).toBeHidden()
+    // Why it works: the new link keeps the inviter, which is the room's
+    // authority, and changes only the bearer.
+    expect(parseRoomLink(replacement).invitation?.inviter).toBe(parseRoomLink(link).invitation?.inviter)
+  } finally { await Promise.all(contexts.map(context => context.close())) }
+})
+
 test('the creator can turn an existing temporary meeting into a group without changing its conversation', async ({ browser, baseURL }) => {
   const contexts: BrowserContext[] = []
   try {
