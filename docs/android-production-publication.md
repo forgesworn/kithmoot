@@ -6,6 +6,39 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.111 Spry device pairing, published 24 October 2026
+
+Version **0.6.111**, code **134**, pairs a device with Spry once and obtains
+and renews that device's call-relay credentials automatically. Use the normal
+Call button after pairing. Private home callers each need a reachable paired
+Spry node and the matching ForgeSworn Archipelago update; a publicly reachable
+Spry can also serve guests without a node. See the
+[Spry installation guide](https://github.com/forgesworn/archipelago-apps/blob/main/apps/spry/README.md).
+
+The immutable production APK comes from Android source
+`43c4d648aef07807487f58d382cb22ed40682fb1`, SHA-256
+`28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068`,
+73,869,071 bytes. The retained production certificate, preview lineage and
+all 787 unchanged ZIP payload entries passed independent verification.
+Android PR #326 and website PR #568 are merged; each merged source tree
+matches its successful qualifying PR CI tree: 17 Android jobs and 45 website
+jobs, with one optional website diagnostic skipped. Cancelled duplicate main
+runs are not counted as successful checks.
+
+GitHub, both website hosts and Zapstore are published. The
+[publication receipt](evidence/android-0.6.111-publication-20261024.json)
+records 45 verified public responses, signed manifests, complete APK downloads
+and independently returned Zapstore records. Zapstore initially buffered the
+old CLI's records. Publication completed after uploading the verified APK to
+the store, naming its signing ancestor, linking the release to its application
+and publishing a verified certificate-to-publisher proof. The Android private
+key stayed on the signing host and the established Nostr publisher was retained.
+
+The active Pixel call was left untouched. Physical no-Play GrapheneOS echo,
+volume, sustained two-way speech/video, independent home-broadband calls and
+the installed Spry bundle remain separate acceptance gates. The experimental
+RelaySwarm/Sapflow realtime SDK is not integrated into the Android call engine.
+
 ## Android 0.6.110 call routing and transport recovery, 24 October 2026
 
 Version **0.6.110**, code **133**, restores the existing headset/speaker choice
@@ -569,6 +602,22 @@ downloads, and confirm HEAD returns 200 at both mirror paths. The publisher's
 existence check then uses the already prepared files; the website's APK
 directory is a download mirror. Keep the existing versioned APK immutable and
 retain its production signing certificate and lineage.
+
+The 0.6.111 publication encountered newer catalog checks that the installed
+`zsp` 0.4.12 does not emit. A public mirror and a positive event acknowledgement
+were insufficient: the store buffered the listing until it had the uploaded
+APK and a valid certificate-to-publisher proof. The final signed asset carries
+one `apk_certificate_hash` for the current signer and an
+`apk_certificate_ancestor` for the verified preview certificate. The release
+carries its `version_code`, an `a` reference to
+`32267:<publisher>:dev.forgesworn.kithmoot`, and an `e` reference to that asset.
+These fields follow the publisher's
+[current event builder](https://github.com/zapstore/zsp/blob/da133d7a3128018f55bc39121c1398c68cdb3e22/internal/nostr/events.go).
+Verify the signing ancestry against the APK before signing metadata. Generate
+the certificate proof on the signing host and verify it before publishing;
+never move the Android private key into the website checkout. Preserve the
+immutable APK and existing publisher identity. A reply saying the listing
+will be saved when complete is pending acceptance, not publication proof.
 
 The existing KithMoot listing belongs to
 `npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`.
