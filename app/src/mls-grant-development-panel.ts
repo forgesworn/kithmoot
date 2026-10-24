@@ -6,6 +6,7 @@ import { confirmAction } from './confirm-action.js'
 import type { MlsRemovalStatus } from './mls-room-operations.js'
 import type { MlsRevocationInboxView } from './mls-revocation-inbox.js'
 import type { MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { addReveal } from './reveal.js'
 
 const short = (value: string) => `${value.slice(0, 12)}…`
 const removalText = (status: MlsRemovalStatus) => {
@@ -57,6 +58,7 @@ export class BrowserMlsGrantDevelopmentPanel {
         <p data-keeper-review></p><button data-approve type="button" disabled>Approve reviewed request</button><button data-dismiss type="button" disabled>Dismiss reviewed request</button>
       </fieldset>`
     root.body.append(this.dialog)
+    addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('close').onclick = () => this.close()
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close() })
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) void this.invalidate().catch(() => {}) })

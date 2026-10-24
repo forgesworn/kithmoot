@@ -2,6 +2,7 @@ import { BrowserMlsAccount, type MlsAccountContext, type MlsAccountView } from '
 import type { ConsentScope, ConsentPrompt, VaultResult, SignLeafBindingRequest } from './mls-vault.js'
 import type { BoxRequest } from './mls-coordinated-vault.js'
 import { confirmAction } from './confirm-action.js'
+import { addReveal } from './reveal.js'
 import type { VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 
 /** Development-preview controls. Opening reads local state only. Pairing,
@@ -74,6 +75,7 @@ export class BrowserMlsPanel {
         </fieldset>
       </details>`
     root.body.append(this.dialog)
+    addReveal(this.dialog.querySelector<HTMLInputElement>('#mlsWitnessCode')!, 'witness pairing code')
     this.account.listen(() => { void this.invalidate().catch(() => undefined) })
     this.button('Close').onclick = () => { void this.invalidate().catch(() => undefined) }
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); void this.invalidate().catch(() => undefined) })

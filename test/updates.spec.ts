@@ -5,7 +5,7 @@ import { resolve, extname } from 'node:path'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { LOCAL_TEST_RELAY } from './relays.js'
 
-async function releaseServer() {
+async function releaseServer(options: { beforeWorkerResponse?: () => Promise<void> } = {}) {
   let revision = 1
   let delayActivation = 0
   const root = resolve('app/dist')
@@ -16,14 +16,18 @@ async function releaseServer() {
       const relative = pathname.replace(/^\/j\//, '') || 'index.html'
       const file = resolve(root, relative)
       if (!file.startsWith(root + '/')) { res.writeHead(404).end(); return }
+      // A request already in flight belongs to the release it started on.
+      // Publishing while readFile is pending must not change that response.
+      const workerRelease = { revision, delayActivation }
       let body: Buffer | string = await readFile(file)
       if (relative === 'sw.js') {
-        body = `/* release ${revision} */\n${body.toString()}`
-        if (delayActivation) {
+        await options.beforeWorkerResponse?.()
+        body = `/* release ${workerRelease.revision} */\n${body.toString()}`
+        if (workerRelease.delayActivation) {
           // A worker that receives the request but cannot finish promptly.
           // Keep the real browser lifecycle; only delay the activation call.
           if (!body.includes('self.skipWaiting()')) throw new Error('Missing activation handler')
-          body = body.replace('self.skipWaiting()', `setTimeout(() => self.skipWaiting(), ${delayActivation})`)
+          body = body.replace('self.skipWaiting()', `setTimeout(() => self.skipWaiting(), ${workerRelease.delayActivation})`)
         }
       }
       res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
@@ -44,6 +48,25 @@ async function releaseServer() {
     },
   }
 }
+
+test('publishing during a worker read keeps that response on its original release', async ({ request }) => {
+  let received!: () => void
+  let resume!: () => void
+  const reading = new Promise<void>(resolve => { received = resolve })
+  const paused = new Promise<void>(resolve => { resume = resolve })
+  const release = await releaseServer({ beforeWorkerResponse: async () => { received(); await paused } })
+  try {
+    const response = request.get(new URL('sw.js', release.base).href)
+    await reading
+    release.publish()
+    resume()
+    expect(await (await response).text()).toMatch(/^\/\* release 1 \*\//)
+    expect(await (await request.get(new URL('sw.js', release.base).href)).text()).toMatch(/^\/\* release 2 \*\//)
+  } finally {
+    resume()
+    await release.close()
+  }
+})
 
 test('an update on the first visit completes without an existing controller', async ({ browser }) => {
   const release = await releaseServer()

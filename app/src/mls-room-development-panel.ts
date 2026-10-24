@@ -1,5 +1,6 @@
 import { BrowserMlsRoomDevelopmentOwner, type MlsRoomDevelopmentContext } from './mls-room-development-owner.js'
 import type { MlsRoomForegroundResult } from './mls-room-foreground.js'
+import { addReveal } from './reveal.js'
 
 /** Explicit development-only room custody controls. Opening performs no I/O;
  * creation and a single manual round have explicit private-route ceremonies.
@@ -31,6 +32,7 @@ export class BrowserMlsRoomDevelopmentPanel {
       <label>Saved room route <select data-manual-route><option value="">Read saved routes first</option></select></label>
       <button data-manual type="button">Run one manual round</button></fieldset>`
     root.body.append(this.dialog)
+    addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('close').onclick = () => this.close()
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close() })
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) void this.invalidate().catch(() => {}) })

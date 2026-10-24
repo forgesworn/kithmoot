@@ -39,7 +39,9 @@ describe('relayOnlyIceConfiguration', () => {
   it('refuses a call with the existing message and never offers non-relay servers', () => {
     const servers: RTCIceServer[] = [{ urls: 'stun:room.example:3478' }, { urls: 'turn:room.example:3478' }]
     expect(() => relayOnlyIceConfiguration(servers)).toThrow(RELAY_ONLY_NO_RELAY)
-    expect(RELAY_ONLY_NO_RELAY).toContain('Turn off \u201cHide my IP address\u201d')
+    expect(RELAY_ONLY_NO_RELAY).toContain('Turn off \u201cHide my IP address on calls\u201d')
+    // A link carries no relay login, so no room owner can send one that works.
+    expect(RELAY_ONLY_NO_RELAY).not.toContain('relay-enabled link')
     const ok = relayOnlyIceConfiguration([...servers, { urls: ['stun:x:1', 'turn:x:1'], username: 'u', credential: 'c' }])
     expect(ok.iceTransportPolicy).toBe('relay')
     for (const server of ok.iceServers ?? []) for (const url of [server.urls].flat()) expect(url).toMatch(/^turns?:/)
