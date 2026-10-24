@@ -307,6 +307,7 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { completeSpryPairing, loadSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
 import { SpryRoom } from './spry-room.js'
+import { waitForExistingCall } from './call-startup.js'
 import { spryRequest } from '../../src/spry.js'
 import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
 import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
@@ -2872,6 +2873,7 @@ window.addEventListener('storage', (event) => {
 
 let session: RoomSession | undefined
 const spryRooms = new WeakMap<RoomSession, SpryRoom>()
+const callPresenceReadyAt = new WeakMap<RoomSession, number>()
 /** Recording signatures always use the originating session's device key. */
 const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
 let joining = false
@@ -5448,6 +5450,8 @@ async function joinCall(): Promise<void> {
     noteRelayMissing(true)
   }
   if (session !== s) return
+  await waitForExistingCall(s, callPresenceReadyAt.get(s) ?? 0)
+  if (session !== s || s.closed) return
   // “Hide my IP address” with no relay: refuse the call, never fall back to direct.
   if (sessionRelayBlocked.get(s) === true) {
     noteRelayMissing(true)
@@ -13869,6 +13873,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       spryRooms.set(s, relay)
     }
     await s.join(chatOnly ? [] : currentAdverts(), chatOnly ? {} : currentClaims())
+    callPresenceReadyAt.set(s, Date.now() + 2500)
     void spryRooms.get(s)?.publish().catch(() => {})
 
     if (session !== s) return
