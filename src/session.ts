@@ -682,6 +682,8 @@ export class RoomSession {
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
   #descriptorListeners = new Set<(descriptor: RoomDescriptor) => void>()
+  #peerDescriptorListeners = new Set<() => void>()
+  #peerDescriptors = new Map<string, { descriptor: RoomDescriptor; id: string }>()
   /**
    * Remote-track subscribers, held HERE rather than on the mesh.
    *
@@ -2602,6 +2604,17 @@ export class RoomSession {
     })
     if (!descriptor) return
     if (this.#removed.has(descriptor.participant)) return
+    // Each credentialled device owns its own advert. A newer advert from one
+    // node must not suppress another room member's peer card.
+    const previous = this.#peerDescriptors.get(descriptor.device)
+    if ((!previous || descriptor.updatedAt > previous.descriptor.updatedAt ||
+      descriptor.updatedAt === previous.descriptor.updatedAt && event.id > previous.id) &&
+      (previous || this.#peerDescriptors.size < 256)) {
+      this.#peerDescriptors.set(descriptor.device, { descriptor, id: event.id })
+      for (const listener of this.#peerDescriptorListeners) {
+        try { listener() } catch { /* An adapter cannot take down room signalling. */ }
+      }
+    }
     // Ordered on `updatedAt`, not on arrival: relays deliver out of order,
     // and a stale descriptor turning up late must not repoint a room that has
     // already moved on.
@@ -3514,6 +3527,17 @@ export class RoomSession {
     return () => this.#descriptorListeners.delete(cb)
   }
 
+  /** Bounded per-device adverts, after admission, epoch and removal checks. */
+  peerDescriptors(): RoomDescriptor[] {
+    return [...this.#peerDescriptors.values()].map(value => value.descriptor)
+      .filter(descriptor => !this.#removed.has(descriptor.participant))
+  }
+  onPeerDescriptors(cb: () => void): () => void {
+    this.#peerDescriptorListeners.add(cb)
+    cb()
+    return () => this.#peerDescriptorListeners.delete(cb)
+  }
+
   /**
    * Say goodbye and close everything.
    *
@@ -3592,6 +3616,8 @@ export class RoomSession {
     this.#channels.clear()
     this.#listeners.clear()
     this.#descriptorListeners.clear()
+    this.#peerDescriptorListeners.clear()
+    this.#peerDescriptors.clear()
     this.#entries.clear()
     this.#seenAt.clear()
     const retention = this.#retentionWork?.catch(() => {}).then(() => {

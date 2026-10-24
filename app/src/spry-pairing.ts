@@ -5,7 +5,7 @@ export function loadSpryPairing(store: Pick<Storage, 'getItem'>, participant: st
   const text = store.getItem(KEY)
   if (!text) return undefined
   try {
-    if (text.length > 2048) throw new Error()
+    if (text.length > 4096) throw new Error()
     const raw = JSON.parse(text)
     if (raw.participant !== participant) return undefined
     if (raw.v !== 1 || !/^[A-Za-z0-9_-]{43}$/.test(raw.id) || !/^[a-f0-9]{64}$/.test(raw.secretKey)) throw new Error()
@@ -18,7 +18,7 @@ const ROOMS_KEY = 'kithmoot.spry-rooms.v1'
 function savedOffers(store: Pick<Storage, 'getItem'>): Record<string, SpryOffer> {
   try {
     const value = store.getItem(ROOMS_KEY)
-    if (!value || value.length > 65536) return {}
+    if (!value || value.length > 262144) return {}
     const entries = Object.entries(JSON.parse(value)).slice(0, 64).flatMap(([key, value]) => {
       const offer = parseSpryOffer(value)
       return offer && offer.expiresAt > Date.now() / 1000 ? [[key, offer]] : []
@@ -39,7 +39,7 @@ export function saveSpryOffer(store: Pick<Storage, 'getItem' | 'setItem'>, parti
 export async function completeSpryPairing(hash: string, store: Pick<Storage, 'setItem'>, participant: string,
   confirm: (host: string) => Promise<boolean>, fetcher: typeof fetch = fetch): Promise<boolean> {
   const link = parseSpryPairingLink(hash)
-  if (!await confirm(new URL(link.endpoint).hostname)) return false
+  if (!await confirm(link.endpoint.startsWith('spry:') ? 'Your Spry node' : new URL(link.endpoint).hostname)) return false
   const pair = await claimSpryPairing(link, fetcher)
   store.setItem(KEY, JSON.stringify({ ...pair, participant }))
   return true

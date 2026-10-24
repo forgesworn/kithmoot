@@ -45,3 +45,28 @@ it('uses an offer received during joining and renews without the paired particip
     expect(requests).toBe(2)
   } finally { broker.close() }
 })
+
+it('uses shared room access when this device’s paired node cannot relay', async () => {
+  vi.useFakeTimers()
+  const endpoint = 'https://shared.example:3744'
+  const offer = { v: 1 as const, endpoint, token: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 86400 }
+  const session = { roomId: 'generated-room', call: undefined, descriptor: { spry: offer },
+    onDescriptor: (cb: (d: RoomDescriptor) => void) => { cb({ spry: offer } as RoomDescriptor); return () => {} },
+    onChange: () => () => {}, publishDescriptor: async () => {},
+  } as unknown as RoomSession
+  const apply = vi.fn(), paths: string[] = []
+  const fetcher: typeof fetch = async url => {
+    paths.push(String(url))
+    if (String(url).startsWith('https://offline.example')) return new Response('', { status: 503 })
+    const expiresAt = Math.floor(Date.now() / 1000) + 300
+    return Response.json({ urls: ['turn:shared.example:3478?transport=udp'], username: `${expiresAt}:${'b'.repeat(24)}`,
+      credential: 'a'.repeat(27) + '=', expiresAt, accessExpiresAt: expiresAt + 86400 })
+  }
+  const broker = new SpryRoom(session, { v: 1, endpoint: 'https://offline.example:3744', id: 'b'.repeat(43), secretKey: '01'.repeat(32) }, apply, fetcher)
+  try {
+    await broker.prepare()
+    expect(paths).toContain('https://offline.example:3744/v1/grants')
+    expect(paths).toContain(endpoint + '/v1/credentials')
+    expect(apply).toHaveBeenCalledWith([expect.objectContaining({ urls: ['turn:shared.example:3478?transport=udp'] })])
+  } finally { broker.close() }
+})

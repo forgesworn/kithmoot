@@ -17770,7 +17770,7 @@ function renderCallRelay(): void {
   cancelCallRelayActions()
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
-    $('spryPairingStatus').textContent = pairing ? `Paired with ${new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry on your Archipelago node, then choose Pair with KithMoot.'
+    $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry, then choose Pair with KithMoot.'
     $('spryPairingRemove').hidden = !pairing
   } catch { $('spryPairingStatus').textContent = 'The Spry pairing is unavailable. Remove it and pair again.'; $('spryPairingRemove').hidden = false }
   try {
