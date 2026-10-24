@@ -2607,11 +2607,14 @@ export class RoomSession {
     // already moved on.
     if (this.#descriptor && this.#descriptor.updatedAt > descriptor.updatedAt) return
 
+    const forwardersChanged = JSON.stringify(this.#descriptor?.forwarders ?? []) !== JSON.stringify(descriptor.forwarders)
     this.#descriptor = descriptor
-    this.#mesh?.setForwarders(descriptor.forwarders)
+    // Access adapters must see the descriptor before media reconciliation:
+    // a relay-only peer factory may still be waiting for those credentials.
     for (const listener of this.#descriptorListeners) {
       try { listener(descriptor) } catch { /* An adapter cannot take down room signalling. */ }
     }
+    if (forwardersChanged) this.#mesh?.setForwarders(descriptor.forwarders)
   }
 
   /**

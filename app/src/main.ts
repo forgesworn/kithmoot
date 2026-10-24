@@ -13869,6 +13869,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       spryRooms.set(s, relay)
     }
     await s.join(chatOnly ? [] : currentAdverts(), chatOnly ? {} : currentClaims())
+    void spryRooms.get(s)?.publish().catch(() => {})
 
     if (session !== s) return
     // Another tab of this browser, same account, may already be on this

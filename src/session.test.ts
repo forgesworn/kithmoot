@@ -8,6 +8,7 @@ import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
+import { Mesh } from './mesh.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js'
@@ -1333,10 +1334,14 @@ describe('RoomSession and forwarders', () => {
     const offered = vi.fn()
     session.onDescriptor(offered)
     const spry = { v: 1 as const, endpoint: 'https://relay.example:3744', token: 'a'.repeat(43), expiresAt: NOW + 100 }
-    await publisher.publishDescriptor({ spry })
-    await settle()
-    expect(session.descriptor?.spry).toEqual(spry)
-    expect(offered).toHaveBeenCalledWith(expect.objectContaining({ spry }))
+    const applyForwarders = vi.spyOn(Mesh.prototype, 'setForwarders')
+    try {
+      await publisher.publishDescriptor({ spry })
+      await settle()
+      expect(session.descriptor?.spry).toEqual(spry)
+      expect(offered).toHaveBeenCalledWith(expect.objectContaining({ spry }))
+      expect(applyForwarders).not.toHaveBeenCalled()
+    } finally { applyForwarders.mockRestore() }
   })
 
   it('ignores a descriptor for a room it is not in', async () => {
