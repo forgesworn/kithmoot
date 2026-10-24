@@ -9,7 +9,6 @@ export const CALL_RELAY_CHECK_FAILED = 'The relay test did not complete. Check t
 export async function checkCallRelay(relay: CallRelay, signal: AbortSignal, timeoutMs = 12_000): Promise<void> {
   const peers: RTCPeerConnection[] = []
   const channels: RTCDataChannel[] = []
-  const waits = new Set<() => void>()
   let timer: ReturnType<typeof setTimeout> | undefined
   let rejectStopped: (reason: Error) => void = () => {}
   const stopped = new Promise<never>((_, reject) => { rejectStopped = reject })
@@ -21,6 +20,14 @@ export async function checkCallRelay(relay: CallRelay, signal: AbortSignal, time
       const config = relayOnlyIceConfiguration(callRelayServers(relay))
       const a = callRelayPeerConnection(config); peers.push(a)
       const b = callRelayPeerConnection(config); peers.push(b)
+      const pendingA: RTCIceCandidate[] = [], pendingB: RTCIceCandidate[] = []
+      const candidate = (target: RTCPeerConnection, pending: RTCIceCandidate[], value: RTCIceCandidate | null) => {
+        if (!value) return
+        if (!target.remoteDescription) pending.push(value)
+        else void target.addIceCandidate(value).catch(stop)
+      }
+      a.onicecandidate = event => candidate(b, pendingB, event.candidate)
+      b.onicecandidate = event => candidate(a, pendingA, event.candidate)
       const sent = 'kithmoot-relay-check'
       const channel = a.createDataChannel('relay-check'); channels.push(channel)
       const echoed = new Promise<void>(resolve => {
@@ -31,23 +38,17 @@ export async function checkCallRelay(relay: CallRelay, signal: AbortSignal, time
           remote.onmessage = message => { if (message.data === sent) remote.send(sent) }
         }
       })
-      const gather = async (pc: RTCPeerConnection) => {
-        if (pc.iceGatheringState === 'complete') return
-        await new Promise<void>(resolve => {
-          const finish = () => { pc.removeEventListener('icegatheringstatechange', changed); waits.delete(finish); resolve() }
-          const changed = () => { if (pc.iceGatheringState === 'complete') finish() }
-          waits.add(finish); pc.addEventListener('icegatheringstatechange', changed)
-          changed()
-        })
-      }
       await a.setLocalDescription(await a.createOffer())
-      await gather(a)
       if (signal.aborted || a.signalingState === 'closed') throw new Error()
       await b.setRemoteDescription(a.localDescription!)
+      for (const value of pendingB.splice(0)) await b.addIceCandidate(value)
       await b.setLocalDescription(await b.createAnswer())
-      await gather(b)
       if (signal.aborted || b.signalingState === 'closed') throw new Error()
       await a.setRemoteDescription(b.localDescription!)
+      for (const value of pendingA.splice(0)) await a.addIceCandidate(value)
+      // A working relay pair can exchange data while other candidates are
+      // still gathering or timing out. Prove that path without waiting for
+      // every network interface to finish its ICE probes.
       await echoed
       // Verify the path, not merely candidate gathering or an open socket.
       for (const pc of peers) {
@@ -68,10 +69,7 @@ export async function checkCallRelay(relay: CallRelay, signal: AbortSignal, time
   finally {
     clearTimeout(timer)
     signal.removeEventListener('abort', stop)
-    // Closing also ends a pending browser operation. Resolve our gathering
-    // waits so a cancelled attempt cannot retain these objects indefinitely.
-    for (const pc of peers) pc.close()
+    for (const pc of peers) { pc.onicecandidate = null; pc.close() }
     for (const channel of channels) { channel.onopen = null; channel.onmessage = null; channel.close() }
-    for (const finish of [...waits]) finish()
   }
 }

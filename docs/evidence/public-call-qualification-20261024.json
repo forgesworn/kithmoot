@@ -1,0 +1,609 @@
+{
+  "source_base": "5fd0ee4347bcc231c27e8b4bf838d72db9a0ab39",
+  "uncommitted_checker_and_fixtures": true,
+  "hosted_ci": false,
+  "browser_summary": {
+    "startTime": "2026-10-23T22:53:44.590Z",
+    "duration": 34522.926999999996,
+    "expected": 3,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "browser_cases": [
+    {
+      "transport": "udp",
+      "profileImportViaSettings": true,
+      "deviceRelayTest": true,
+      "generatedMediaOnly": true,
+      "certificateBypass": false,
+      "signalling": "local test relay",
+      "media": "external operator TURN",
+      "phases": [
+        {
+          "phase": "one-to-one",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "udp",
+                "policy": "relay",
+                "frames": 30,
+                "audioBytes": 6006,
+                "rms": 0.21366204581458081,
+                "sinkTime": 1.446,
+                "audioSinkTime": 1.368
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "udp",
+                "policy": "relay",
+                "frames": 33,
+                "audioBytes": 6805,
+                "rms": 0.21215233148948986,
+                "sinkTime": 1.64,
+                "audioSinkTime": 1.55
+              }
+            ]
+          ]
+        }
+      ],
+      "credentialsInRoomLink": false,
+      "externalHttpOrWebSocketRequests": [],
+      "oneClientMachine": true,
+      "physicalGrapheneOS": false,
+      "realOsPicker": false
+    },
+    {
+      "transport": "tcp",
+      "profileImportViaSettings": true,
+      "deviceRelayTest": true,
+      "generatedMediaOnly": true,
+      "certificateBypass": false,
+      "signalling": "local test relay",
+      "media": "external operator TURN",
+      "phases": [
+        {
+          "phase": "one-to-one",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tcp",
+                "policy": "relay",
+                "frames": 30,
+                "audioBytes": 5849,
+                "rms": 0.21187106153560997,
+                "sinkTime": 1.475,
+                "audioSinkTime": 1.35
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tcp",
+                "policy": "relay",
+                "frames": 23,
+                "audioBytes": 4769,
+                "rms": 0.21323835958263493,
+                "sinkTime": 1.155,
+                "audioSinkTime": 1.059
+              }
+            ]
+          ]
+        }
+      ],
+      "credentialsInRoomLink": false,
+      "externalHttpOrWebSocketRequests": [],
+      "oneClientMachine": true,
+      "physicalGrapheneOS": false,
+      "realOsPicker": false
+    },
+    {
+      "transport": "tls",
+      "profileImportViaSettings": true,
+      "deviceRelayTest": true,
+      "generatedMediaOnly": true,
+      "certificateBypass": false,
+      "signalling": "local test relay",
+      "media": "external operator TURN",
+      "phases": [
+        {
+          "phase": "one-to-one",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 27,
+                "audioBytes": 5600,
+                "rms": 0.21325884117235758,
+                "sinkTime": 1.363,
+                "audioSinkTime": 1.245
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 26,
+                "audioBytes": 5338,
+                "rms": 0.21324491838841098,
+                "sinkTime": 1.259,
+                "audioSinkTime": 1.2
+              }
+            ]
+          ]
+        },
+        {
+          "phase": "group",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 118,
+                "audioBytes": 24716,
+                "rms": 0.21241401263810109,
+                "sinkTime": 6.071,
+                "audioSinkTime": 5.945
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 67,
+                "audioBytes": 13517,
+                "rms": 0.21401298876334945,
+                "sinkTime": 3.255,
+                "audioSinkTime": 5.945
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 80,
+                "audioBytes": 16030,
+                "rms": 0.21302424653003316,
+                "sinkTime": 3.913,
+                "audioSinkTime": 3.826
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 31,
+                "audioBytes": 6452,
+                "rms": 0.2120816552479746,
+                "sinkTime": 1.543,
+                "audioSinkTime": 3.826
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 46,
+                "audioBytes": 10366,
+                "rms": 0.21374867094522915,
+                "sinkTime": 2.477,
+                "audioSinkTime": 2.41
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 42,
+                "audioBytes": 8901,
+                "rms": 0.21334238135676725,
+                "sinkTime": 2.141,
+                "audioSinkTime": 2.41
+              }
+            ]
+          ]
+        },
+        {
+          "phase": "protected-area-share",
+          "receivedPixels": [
+            {
+              "width": 378,
+              "centre": [
+                21,
+                23,
+                23,
+                255
+              ],
+              "edge": [
+                0,
+                224,
+                0,
+                255
+              ]
+            },
+            {
+              "width": 506,
+              "centre": [
+                21,
+                26,
+                31,
+                255
+              ],
+              "edge": [
+                0,
+                221,
+                1,
+                255
+              ]
+            }
+          ],
+          "hideResume": true,
+          "sourceChangeCoveredUntilConfirmed": true
+        },
+        {
+          "phase": "after-share",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 167,
+                "audioBytes": 35165,
+                "rms": 0.21404684645856661,
+                "sinkTime": 8.668,
+                "audioSinkTime": 8.565
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 119,
+                "audioBytes": 24047,
+                "rms": 0.2114311723085422,
+                "sinkTime": 5.886,
+                "audioSinkTime": 8.565
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 177,
+                "audioBytes": 40134,
+                "rms": 0.21254874628332182,
+                "sinkTime": 8.741,
+                "audioSinkTime": 8.616
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 128,
+                "audioBytes": 25892,
+                "rms": 0.21353835351039133,
+                "sinkTime": 6.368,
+                "audioSinkTime": 8.616
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 118,
+                "audioBytes": 25351,
+                "rms": 0.21314554403423439,
+                "sinkTime": 6.223,
+                "audioSinkTime": 6.14
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 117,
+                "audioBytes": 28532,
+                "rms": 0.2133293312817581,
+                "sinkTime": 5.88,
+                "audioSinkTime": 6.14
+              }
+            ]
+          ]
+        },
+        {
+          "phase": "rejoin-1",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 29,
+                "audioBytes": 6128,
+                "rms": 0.21385849922819358,
+                "sinkTime": 1.466,
+                "audioSinkTime": 1.38
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 28,
+                "audioBytes": 5885,
+                "rms": 0.2138407885205355,
+                "sinkTime": 1.4,
+                "audioSinkTime": 1.38
+              }
+            ],
+            [
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 182,
+                "audioBytes": 36503,
+                "rms": 0.21367983003228735,
+                "sinkTime": 8.985,
+                "audioSinkTime": 8.876
+              },
+              {
+                "peer": 2,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 33,
+                "audioBytes": 6635,
+                "rms": 0.21196267727860868,
+                "sinkTime": 1.549,
+                "audioSinkTime": 8.886
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 172,
+                "audioBytes": 36124,
+                "rms": 0.21250604016123378,
+                "sinkTime": 8.878,
+                "audioSinkTime": 8.79
+              },
+              {
+                "peer": 2,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 30,
+                "audioBytes": 6254,
+                "rms": 0.21262416874751003,
+                "sinkTime": 1.478,
+                "audioSinkTime": 8.79
+              }
+            ]
+          ]
+        },
+        {
+          "phase": "rejoin-2",
+          "peers": [
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 28,
+                "audioBytes": 5743,
+                "rms": 0.21391635872254272,
+                "sinkTime": 1.4,
+                "audioSinkTime": 1.291
+              },
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 22,
+                "audioBytes": 5165,
+                "rms": 0.21222238583690156,
+                "sinkTime": 1.2,
+                "audioSinkTime": 1.291
+              }
+            ],
+            [
+              {
+                "peer": 1,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 235,
+                "audioBytes": 47438,
+                "rms": 0.21339175314283945,
+                "sinkTime": 11.665,
+                "audioSinkTime": 11.576
+              },
+              {
+                "peer": 3,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 32,
+                "audioBytes": 6507,
+                "rms": 0.21279120647636662,
+                "sinkTime": 1.528,
+                "audioSinkTime": 11.576
+              }
+            ],
+            [
+              {
+                "peer": 0,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 267,
+                "audioBytes": 55078,
+                "rms": 0.21353467029927664,
+                "sinkTime": 13.528,
+                "audioSinkTime": 13.46
+              },
+              {
+                "peer": 3,
+                "local": "relay",
+                "remote": "relay",
+                "protocol": "tls",
+                "policy": "relay",
+                "frames": 64,
+                "audioBytes": 13771,
+                "rms": 0.21226264791184773,
+                "sinkTime": 3.306,
+                "audioSinkTime": 13.46
+              }
+            ]
+          ]
+        }
+      ],
+      "credentialsInRoomLink": false,
+      "externalHttpOrWebSocketRequests": [],
+      "oneClientMachine": true,
+      "physicalGrapheneOS": false,
+      "realOsPicker": false
+    }
+  ],
+  "physical_acceptance": {
+    "selectedTransport": "tls",
+    "phoneToBrowser": [
+      {
+        "local": "relay",
+        "remote": "relay",
+        "protocol": "tls",
+        "frames": 3107,
+        "audioBytes": 464159,
+        "audioSamples": 9412800,
+        "rms": 5.0599443049587165e-05
+      }
+    ],
+    "connections": [
+      {
+        "connection": "connected",
+        "ice": "connected",
+        "gathering": "complete",
+        "signalling": "stable",
+        "localDescription": {
+          "type": "answer",
+          "sections": [
+            {
+              "kind": "audio",
+              "rejected": false,
+              "candidates": 1
+            },
+            {
+              "kind": "video",
+              "rejected": false,
+              "candidates": 1
+            }
+          ]
+        },
+        "remoteDescription": {
+          "type": "offer",
+          "sections": [
+            {
+              "kind": "audio",
+              "rejected": false,
+              "candidates": 1
+            },
+            {
+              "kind": "video",
+              "rejected": false,
+              "candidates": 0
+            }
+          ]
+        },
+        "localCandidates": [
+          {
+            "type": "relay",
+            "protocol": "udp",
+            "relayProtocol": "tls"
+          }
+        ],
+        "remoteCandidates": [
+          {
+            "type": "relay",
+            "protocol": "udp"
+          }
+        ]
+      }
+    ],
+    "maximumReceivedPcmRms": 0.0002948981107803328,
+    "signalling": "selected independent Nostr relays",
+    "certificateBypass": false,
+    "owner_phone_picture_and_sound_confirmed": true,
+    "native_transport": "tcp",
+    "native_version": "0.6.108",
+    "native_test_user_google_play_packages": false
+  },
+  "native_tls_open": true,
+  "phone_cleanup": {
+    "owner_user_restored": true,
+    "temporary_user_removed": true,
+    "other_user_ids_preserved": true
+  }
+}

@@ -144,3 +144,11 @@ The follow-up [Archy/Spry integration report](archy-spry-integration-20261023.md
 records four local KithMoot cases against each transport backend and the
 private Archy package preparation. That increment tests the Spry/WebRTC
 combination only; RelaySwarm/Sapflow real-time forwarding is still unimplemented.
+
+The [24 October public and physical qualification](public-call-qualification-20261024.md)
+adds passing browser UDP/TCP/TLS calls, protected sharing and group rejoins,
+plus owner-confirmed picture and sound on physical no-Play GrapheneOS using
+native TCP and browser TLS. Native TLS remains unresolved. These results do
+not change the scope of the combined stack: RelaySwarm and Sapflow are still
+planned contributors to a new real-time forwarding adapter, not components
+of that tested call path.
