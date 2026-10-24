@@ -1,0 +1,1253 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-24T20:42:22.500543+00:00",
+  "android": {
+    "source": "43c4d648aef07807487f58d382cb22ed40682fb1",
+    "sourceTree": "c8d2f9f2dc47b5bf2f8d644396706b044d8e086a",
+    "featurePullRequest": 325,
+    "releasePullRequest": 326,
+    "mergeCommit": "6baf379e11630157db21e1191931c9524f77f1e4",
+    "mergeTreeMatchesQualifiedSource": true,
+    "version": "0.6.111",
+    "versionCode": 134,
+    "apkBytes": 73869071,
+    "apkSha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "signing": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "lineage": {
+      "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "previousCapabilities": {
+        "installedData": true,
+        "sharedUid": false,
+        "permission": true,
+        "rollback": false,
+        "auth": false
+      }
+    },
+    "signingPayloadProof": {
+      "unsignedSha256": "c35dbb09eb71a81449a23d50a664ef0c53965625ff60b4a20481fbab0f8301ae",
+      "signedSha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+      "signedBytes": 73869071,
+      "allPayloadsUnchanged": true,
+      "unchangedZipEntries": 787
+    },
+    "ciRun": 40117697427,
+    "ciStatus": "success",
+    "executedJobsPassed": 17,
+    "ciJobs": [
+      {
+        "name": "verify",
+        "databaseId": 120942346109,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T17:47:08Z",
+        "completedAt": "2026-10-24T18:08:48Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120942346109"
+      },
+      {
+        "name": "recovery-emulator (ordinary)",
+        "databaseId": 120942346313,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T17:47:08Z",
+        "completedAt": "2026-10-24T18:14:30Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120942346313"
+      },
+      {
+        "name": "recovery-emulator (restarts)",
+        "databaseId": 120942346381,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T17:47:08Z",
+        "completedAt": "2026-10-24T18:00:09Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120942346381"
+      },
+      {
+        "name": "package",
+        "databaseId": 120947302414,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:09:20Z",
+        "completedAt": "2026-10-24T18:14:33Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120947302414"
+      },
+      {
+        "name": "recording-private-node-emulator (default)",
+        "databaseId": 120948639437,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:19:05Z",
+        "completedAt": "2026-10-24T18:38:09Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639437"
+      },
+      {
+        "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+        "databaseId": 120948639440,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:23:16Z",
+        "completedAt": "2026-10-24T18:26:07Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639440"
+      },
+      {
+        "name": "signing-lineage-emulator (35)",
+        "databaseId": 120948639450,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:18:05Z",
+        "completedAt": "2026-10-24T18:21:07Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639450"
+      },
+      {
+        "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+        "databaseId": 120948639466,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:17:56Z",
+        "completedAt": "2026-10-24T18:20:36Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639466"
+      },
+      {
+        "name": "recording-restart-emulator",
+        "databaseId": 120948639477,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:24:16Z",
+        "completedAt": "2026-10-24T18:30:05Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639477"
+      },
+      {
+        "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+        "databaseId": 120948639479,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:23:46Z",
+        "completedAt": "2026-10-24T18:26:15Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639479"
+      },
+      {
+        "name": "recording-call-emulator (session, 35)",
+        "databaseId": 120948639482,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:23:52Z",
+        "completedAt": "2026-10-24T18:25:41Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639482"
+      },
+      {
+        "name": "recording-call-emulator (codecs, 33)",
+        "databaseId": 120948639483,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:23:09Z",
+        "completedAt": "2026-10-24T18:25:28Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639483"
+      },
+      {
+        "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+        "databaseId": 120948639484,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:21:51Z",
+        "completedAt": "2026-10-24T18:24:56Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639484"
+      },
+      {
+        "name": "recording-call-emulator (capture, 35)",
+        "databaseId": 120948639487,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:23:41Z",
+        "completedAt": "2026-10-24T18:28:23Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639487"
+      },
+      {
+        "name": "recording-private-node-emulator (google_apis)",
+        "databaseId": 120948639488,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:24:55Z",
+        "completedAt": "2026-10-24T18:44:50Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639488"
+      },
+      {
+        "name": "pending-store-refusal-emulator (offered-before-index)",
+        "databaseId": 120948639524,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:24:44Z",
+        "completedAt": "2026-10-24T18:27:40Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639524"
+      },
+      {
+        "name": "signing-lineage-emulator (33)",
+        "databaseId": 120948639552,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:24:51Z",
+        "completedAt": "2026-10-24T18:28:02Z",
+        "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/40117697427/job/120948639552"
+      }
+    ],
+    "githubRelease": {
+      "assets": [
+        {
+          "apiUrl": "https://api.github.com/repos/forgesworn/kithmoot-android/releases/assets/673011937",
+          "contentType": "application/vnd.android.package-archive",
+          "createdAt": "2026-10-24T18:39:22Z",
+          "digest": "sha256:28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "downloadCount": 0,
+          "id": "RA_kwDOUDt7nM4oHVjh",
+          "label": "",
+          "name": "kithmoot-0.6.111-production.apk",
+          "size": 73869071,
+          "state": "uploaded",
+          "updatedAt": "2026-10-24T18:39:32Z",
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.111/kithmoot-0.6.111-production.apk"
+        }
+      ],
+      "isDraft": false,
+      "publishedAt": "2026-10-24T20:18:23Z",
+      "targetCommitish": "43c4d648aef07807487f58d382cb22ed40682fb1"
+    },
+    "physicalAcceptance": false,
+    "phoneInstalledByThisTask": false
+  },
+  "website": {
+    "featurePullRequest": 565,
+    "metadataPullRequest": 568,
+    "qualifiedHead": "639f9e0c2a36fbbeb007bdbb5b242b38c43ace2b",
+    "mergeCommit": "55e3efadaf9297a1946c443ca674987610b66db6",
+    "sourceTree": "c09246ab685362eaae51df7d13789d024f3c8cf1",
+    "mergeTreeMatchesQualifiedSource": true,
+    "ciRun": 40122054700,
+    "executedJobsPassed": 45,
+    "optionalDiagnosticJobsSkipped": 1,
+    "ciJobs": [
+      {
+        "name": "test (22)",
+        "databaseId": 120955557971,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:30Z",
+        "completedAt": "2026-10-24T18:49:06Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955557971"
+      },
+      {
+        "name": "browser regressions (chromium)",
+        "databaseId": 120955558059,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:27Z",
+        "completedAt": "2026-10-24T18:53:13Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558059"
+      },
+      {
+        "name": "browser regressions (webkit)",
+        "databaseId": 120955558069,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:04Z",
+        "completedAt": "2026-10-24T18:57:25Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558069"
+      },
+      {
+        "name": "browser regressions (firefox 1 of 2)",
+        "databaseId": 120955558091,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:09Z",
+        "completedAt": "2026-10-24T18:52:34Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558091"
+      },
+      {
+        "name": "acceptance (chromium media)",
+        "databaseId": 120955558131,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:48Z",
+        "completedAt": "2026-10-24T18:55:24Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558131"
+      },
+      {
+        "name": "Independent call servers over TLS and participant replacement",
+        "databaseId": 120955558136,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:52Z",
+        "completedAt": "2026-10-24T18:48:18Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558136"
+      },
+      {
+        "name": "protected ordinary startup (webkit, prepared-extension)",
+        "databaseId": 120955558142,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:52:08Z",
+        "completedAt": "2026-10-24T18:58:11Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558142"
+      },
+      {
+        "name": "Private call relay (Chromium and WebKit)",
+        "databaseId": 120955558147,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:49:08Z",
+        "completedAt": "2026-10-24T18:50:34Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558147"
+      },
+      {
+        "name": "protected ordinary startup (firefox, private-root)",
+        "databaseId": 120955558155,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:52Z",
+        "completedAt": "2026-10-24T18:47:58Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558155"
+      },
+      {
+        "name": "protected ordinary startup (chromium, startup-built)",
+        "databaseId": 120955558162,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:48:00Z",
+        "completedAt": "2026-10-24T18:49:17Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558162"
+      },
+      {
+        "name": "protected ordinary startup (webkit, startup-built)",
+        "databaseId": 120955558177,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:49:52Z",
+        "completedAt": "2026-10-24T18:51:13Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558177"
+      },
+      {
+        "name": "protected ordinary startup (chromium, member-startup)",
+        "databaseId": 120955558180,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:30Z",
+        "completedAt": "2026-10-24T18:50:03Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558180"
+      },
+      {
+        "name": "protected ordinary startup (firefox, startup-built)",
+        "databaseId": 120955558181,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:35Z",
+        "completedAt": "2026-10-24T18:45:54Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558181"
+      },
+      {
+        "name": "browser regressions (firefox 2 of 2)",
+        "databaseId": 120955558192,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:56:18Z",
+        "completedAt": "2026-10-24T19:03:31Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558192"
+      },
+      {
+        "name": "protected ordinary startup (webkit, clients)",
+        "databaseId": 120955558196,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:58Z",
+        "completedAt": "2026-10-24T18:47:24Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558196"
+      },
+      {
+        "name": "test (24)",
+        "databaseId": 120955558198,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:52:57Z",
+        "completedAt": "2026-10-24T18:59:29Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558198"
+      },
+      {
+        "name": "protected ordinary startup (chromium, complete-extension)",
+        "databaseId": 120955558200,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:52Z",
+        "completedAt": "2026-10-24T18:52:14Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558200"
+      },
+      {
+        "name": "protected ordinary startup (chromium, startup-guard)",
+        "databaseId": 120955558204,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:47:20Z",
+        "completedAt": "2026-10-24T18:49:10Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558204"
+      },
+      {
+        "name": "protected ordinary startup (firefox, prepared-startup)",
+        "databaseId": 120955558205,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:46:01Z",
+        "completedAt": "2026-10-24T18:53:59Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558205"
+      },
+      {
+        "name": "protected ordinary startup (firefox, member-startup)",
+        "databaseId": 120955558212,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:47:26Z",
+        "completedAt": "2026-10-24T18:52:55Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558212"
+      },
+      {
+        "name": "protected ordinary startup (firefox, startup-guard)",
+        "databaseId": 120955558217,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:49:12Z",
+        "completedAt": "2026-10-24T18:51:44Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558217"
+      },
+      {
+        "name": "protected ordinary startup (webkit, private-root)",
+        "databaseId": 120955558220,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:46:36Z",
+        "completedAt": "2026-10-24T18:49:11Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558220"
+      },
+      {
+        "name": "protected ordinary startup (webkit, complete-extension)",
+        "databaseId": 120955558223,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:58Z",
+        "completedAt": "2026-10-24T18:53:37Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558223"
+      },
+      {
+        "name": "acceptance (chromium calls)",
+        "databaseId": 120955558229,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:53:27Z",
+        "completedAt": "2026-10-24T19:07:06Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558229"
+      },
+      {
+        "name": "protected ordinary startup (firefox, complete-extension)",
+        "databaseId": 120955558232,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:52:15Z",
+        "completedAt": "2026-10-24T19:02:39Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558232"
+      },
+      {
+        "name": "Browser protected sharing and local publisher independence",
+        "databaseId": 120955558235,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:54:40Z",
+        "completedAt": "2026-10-24T18:55:56Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558235"
+      },
+      {
+        "name": "protected ordinary startup (webkit, prepared-startup)",
+        "databaseId": 120955558243,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:44:42Z",
+        "completedAt": "2026-10-24T18:51:55Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558243"
+      },
+      {
+        "name": "acceptance (firefox 1 of 2)",
+        "databaseId": 120955558247,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:54:06Z",
+        "completedAt": "2026-10-24T19:07:45Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558247"
+      },
+      {
+        "name": "protected ordinary startup (chromium, clients)",
+        "databaseId": 120955558248,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:56Z",
+        "completedAt": "2026-10-24T18:47:19Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558248"
+      },
+      {
+        "name": "protected ordinary startup (webkit, member-startup)",
+        "databaseId": 120955558255,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:58:29Z",
+        "completedAt": "2026-10-24T19:04:23Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558255"
+      },
+      {
+        "name": "acceptance (chromium rest 1 of 2)",
+        "databaseId": 120955558256,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:52Z",
+        "completedAt": "2026-10-24T18:59:15Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558256"
+      },
+      {
+        "name": "protected ordinary startup (firefox, prepared-extension)",
+        "databaseId": 120955558259,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:59:16Z",
+        "completedAt": "2026-10-24T19:06:04Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558259"
+      },
+      {
+        "name": "protected ordinary startup (firefox, clients)",
+        "databaseId": 120955558270,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:49:19Z",
+        "completedAt": "2026-10-24T18:50:47Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558270"
+      },
+      {
+        "name": "protected ordinary startup (chromium, prepared-startup)",
+        "databaseId": 120955558282,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:48:20Z",
+        "completedAt": "2026-10-24T18:54:38Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558282"
+      },
+      {
+        "name": "protected ordinary startup (webkit, startup-guard)",
+        "databaseId": 120955558286,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:51:57Z",
+        "completedAt": "2026-10-24T18:53:54Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558286"
+      },
+      {
+        "name": "acceptance (chromium call-relays)",
+        "databaseId": 120955558326,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:53:39Z",
+        "completedAt": "2026-10-24T19:01:41Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558326"
+      },
+      {
+        "name": "protected ordinary startup (chromium, prepared-extension)",
+        "databaseId": 120955558346,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:49:13Z",
+        "completedAt": "2026-10-24T18:53:53Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558346"
+      },
+      {
+        "name": "acceptance (firefox 2 of 2)",
+        "databaseId": 120955558392,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:53:55Z",
+        "completedAt": "2026-10-24T19:06:22Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558392"
+      },
+      {
+        "name": "acceptance (chromium rest 2 of 2)",
+        "databaseId": 120955558395,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:59:28Z",
+        "completedAt": "2026-10-24T19:21:51Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558395"
+      },
+      {
+        "name": "protected ordinary startup (chromium, private-root)",
+        "databaseId": 120955558396,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:51:13Z",
+        "completedAt": "2026-10-24T18:53:26Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558396"
+      },
+      {
+        "name": "acceptance (chromium rooms)",
+        "databaseId": 120955558407,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:45:56Z",
+        "completedAt": "2026-10-24T19:01:05Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558407"
+      },
+      {
+        "name": "acceptance (webkit 1 of 2)",
+        "databaseId": 120955558426,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:53:38Z",
+        "completedAt": "2026-10-24T19:11:11Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558426"
+      },
+      {
+        "name": "acceptance (webkit 2 of 2)",
+        "databaseId": 120955558428,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:54:01Z",
+        "completedAt": "2026-10-24T19:03:39Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558428"
+      },
+      {
+        "name": "acceptance (chromium desktop 2 of 2)",
+        "databaseId": 120955558444,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:55:25Z",
+        "completedAt": "2026-10-24T19:11:22Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558444"
+      },
+      {
+        "name": "acceptance (chromium desktop 1 of 2)",
+        "databaseId": 120955558468,
+        "status": "completed",
+        "conclusion": "success",
+        "startedAt": "2026-10-24T18:59:40Z",
+        "completedAt": "2026-10-24T19:13:05Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558468"
+      },
+      {
+        "name": "diagnostic prior lease (${{ matrix.slice }})",
+        "databaseId": 120955558910,
+        "status": "completed",
+        "conclusion": "skipped",
+        "startedAt": "2026-10-24T18:44:04Z",
+        "completedAt": "2026-10-24T18:44:04Z",
+        "url": "https://github.com/forgesworn/kithmoot/actions/runs/40122054700/job/120955558910"
+      }
+    ],
+    "mainDuplicateRuns": "Cancelled; the merged tree equals the successful qualified PR tree.",
+    "deployed": true,
+    "deployment": "20261024T201836Z",
+    "preservedDesktopVersion": "0.1.103",
+    "retainedRealtimeSDK": "0.5.5-realtime.1",
+    "publicReadback": {
+      "verifiedAt": "2026-10-24T20:23:41.393296+00:00",
+      "version": "0.6.111",
+      "versionCode": 134,
+      "apkSha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+      "checks": [
+        {
+          "url": "https://kithmoot.app/",
+          "bytes": 27314,
+          "sha256": "3319d014925e303180b3fa350a788d6d2455db01782d8618c9991a34ab139914",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/",
+          "bytes": 149898,
+          "sha256": "da6604649408a3f8cad81248a95776af9306cc0d058565a8a0257f0a8270c922",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/sw.js",
+          "bytes": 25359,
+          "sha256": "407e554023d0cc39608d154949a2e5249901f385452a7d5c39efcd48b3e36c1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/manifest.webmanifest",
+          "bytes": 433,
+          "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/android-release.json",
+          "bytes": 806,
+          "sha256": "ee0971dc2a4a843349ca12e37d371f31fe4fd941127790abcade1c44e29d6bed",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/android-release.json.sig",
+          "bytes": 89,
+          "sha256": "bd581f85ea6832155b75bdfb9159752e641c2c06a1de486a25099a473eaab84f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json",
+          "bytes": 1311,
+          "sha256": "c8f77f40ccf3d99ddd94ab5a22175b7efa96af89c8c2236d7b51507103205dab",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/release.json.sig",
+          "bytes": 89,
+          "sha256": "af195a3dbaca567764816a3f268a7e52614123e30ffbb6cc55d53d4e4333405c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/versions.json",
+          "bytes": 68041,
+          "sha256": "3fe8ee96e988738fd56f033cf29d364ceb5a02f4683fe7c9414837671f7a21e3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/downloads/SHA256SUMS.txt",
+          "bytes": 14572,
+          "sha256": "bd8e72a678cc342019d55930650fcced3e59ba9dbe264add43a9b7c254932d6e",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/assets/index-B_f7AKeO.js",
+          "bytes": 4932,
+          "sha256": "d4773c11518d23fa110dfb1a48a7d14eb1e9330c8ea2da08b1757eecd212a500",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/assets/index-7w6UyBS-.css",
+          "bytes": 114609,
+          "sha256": "e7cdbe0fa01ed55683115cffcc579f6be73ad574311db917eda9405391cbda03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/transport.mjs",
+          "bytes": 146528,
+          "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/RELAYSWARM_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/sapflow.mjs",
+          "bytes": 11189,
+          "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+          "bytes": 29599,
+          "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/manifest.json",
+          "bytes": 4986,
+          "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/sapflow_realtime_bg.wasm",
+          "bytes": 31412,
+          "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/j/realtime/SAPFLOW_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/kithmoot-latest.apk?download=1",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/kithmoot-0.6.111-production.apk",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.app/apk/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/",
+          "bytes": 27314,
+          "sha256": "3319d014925e303180b3fa350a788d6d2455db01782d8618c9991a34ab139914",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/",
+          "bytes": 149898,
+          "sha256": "da6604649408a3f8cad81248a95776af9306cc0d058565a8a0257f0a8270c922",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 25359,
+          "sha256": "407e554023d0cc39608d154949a2e5249901f385452a7d5c39efcd48b3e36c1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+          "bytes": 433,
+          "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/android-release.json",
+          "bytes": 806,
+          "sha256": "ee0971dc2a4a843349ca12e37d371f31fe4fd941127790abcade1c44e29d6bed",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+          "bytes": 89,
+          "sha256": "bd581f85ea6832155b75bdfb9159752e641c2c06a1de486a25099a473eaab84f",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/release.json",
+          "bytes": 1311,
+          "sha256": "c8f77f40ccf3d99ddd94ab5a22175b7efa96af89c8c2236d7b51507103205dab",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+          "bytes": 89,
+          "sha256": "af195a3dbaca567764816a3f268a7e52614123e30ffbb6cc55d53d4e4333405c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/versions.json",
+          "bytes": 68041,
+          "sha256": "3fe8ee96e988738fd56f033cf29d364ceb5a02f4683fe7c9414837671f7a21e3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/downloads/SHA256SUMS.txt",
+          "bytes": 14572,
+          "sha256": "bd8e72a678cc342019d55930650fcced3e59ba9dbe264add43a9b7c254932d6e",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-B_f7AKeO.js",
+          "bytes": 4932,
+          "sha256": "d4773c11518d23fa110dfb1a48a7d14eb1e9330c8ea2da08b1757eecd212a500",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-7w6UyBS-.css",
+          "bytes": 114609,
+          "sha256": "e7cdbe0fa01ed55683115cffcc579f6be73ad574311db917eda9405391cbda03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/transport.mjs",
+          "bytes": 146528,
+          "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/RELAYSWARM_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/sapflow.mjs",
+          "bytes": 11189,
+          "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+          "bytes": 29599,
+          "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/manifest.json",
+          "bytes": 4986,
+          "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/sapflow_realtime_bg.wasm",
+          "bytes": 31412,
+          "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/realtime/SAPFLOW_LICENSE",
+          "bytes": 1072,
+          "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk?download=1",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.111-production.apk",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/apk/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        },
+        {
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.111/kithmoot-0.6.111-production.apk",
+          "bytes": 73869071,
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "verified": true
+        }
+      ],
+      "physicalAcceptance": false
+    }
+  },
+  "zapstore": {
+    "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+    "cliVersion": "0.4.12",
+    "existingCliSessionReused": true,
+    "publisherVerifiedBeforeSigning": true,
+    "allSignaturesVerified": true,
+    "published": true,
+    "initialPublication": {
+      "events": [
+        {
+          "kind": 32267,
+          "id": "2eac56f4a1d993840a50b2c5b3326b52f4af5993c1f1f43fa7a0eac5ea0fcd34"
+        },
+        {
+          "kind": 30063,
+          "id": "cca81a3770cd16e1e0399f30605a623215aa94c35b72cf5fe063fa552e64c7a7"
+        },
+        {
+          "kind": 3063,
+          "id": "839d1384db3d4c657465f0a1e415c1be390f65c2305c3aecc732b6a90b354d3f"
+        }
+      ],
+      "relayReply": "the listing will be saved when it is complete",
+      "assetReplyBeforeUpload": "the event will be saved when the referenced blob is uploaded",
+      "assetReplyAfterUpload": "the asset lineage does not match the APK",
+      "independentReadbackFailed": true
+    },
+    "compatibility": {
+      "assetCertificateAncestorVerified": true,
+      "releaseApplicationReferenceVerified": true,
+      "releaseVersionCode": 134,
+      "apkUploadedToStore": {
+        "uploadedAt": "2026-10-24T20:36:58.164Z",
+        "status": 200,
+        "result": {
+          "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+          "size": 73869071,
+          "type": "application/vnd.android.package-archive",
+          "uploaded": 1792874218,
+          "url": "https://cdn.zapstore.dev/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068.apk"
+        }
+      },
+      "certificatePublisherProofCreatedOnSigningHost": true,
+      "privateAndroidKeyExported": false,
+      "certificateProofReturnedIndependently": "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
+      "sourceReferences": [
+        "https://github.com/zapstore/zsp/blob/da133d7a3128018f55bc39121c1398c68cdb3e22/internal/nostr/events.go",
+        "https://github.com/zapstore/zsp/blob/da133d7a3128018f55bc39121c1398c68cdb3e22/internal/identity/x509.go"
+      ]
+    },
+    "signedEvents": [
+      {
+        "kind": 32267,
+        "id": "2eac56f4a1d993840a50b2c5b3326b52f4af5993c1f1f43fa7a0eac5ea0fcd34",
+        "pubkey": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+        "created_at": 1792873310,
+        "tags": [
+          [
+            "d",
+            "dev.forgesworn.kithmoot"
+          ],
+          [
+            "name",
+            "KithMoot"
+          ],
+          [
+            "summary",
+            "Chat, calls, files and AI agents for your group, encrypted end to end"
+          ],
+          [
+            "icon",
+            "https://kithmoot.app/apk/7cf3326d7f90d7661efdd4a4cf9df6fb442039e70a934bbe75f138df0d225f51"
+          ],
+          [
+            "t",
+            "nostr"
+          ],
+          [
+            "t",
+            "chat"
+          ],
+          [
+            "t",
+            "calls"
+          ],
+          [
+            "t",
+            "video"
+          ],
+          [
+            "t",
+            "encryption"
+          ],
+          [
+            "t",
+            "groups"
+          ],
+          [
+            "url",
+            "https://kithmoot.app"
+          ],
+          [
+            "repository",
+            "https://github.com/forgesworn/kithmoot-android"
+          ],
+          [
+            "f",
+            "android-arm64-v8a"
+          ],
+          [
+            "license",
+            "MIT"
+          ],
+          [
+            "h",
+            "acfeaea6e51420e8068fac446ca9d17d7a9ef6a5d20d93894e50fee3d4902a84"
+          ]
+        ],
+        "content": "KithMoot is a private room for your group: chat, voice and video calls,\nscreen sharing and files, with AI agents taking part as members on the same\nterms as people. Everything is encrypted end to end.\n\nThere is no account to make and no company in the middle. A room is a link:\nwhoever holds it is in, and nobody else can read it. Rooms travel over Nostr\nrelays, so no operator holds the guest list or the room state.\n\nThe Android app rings for calls while it is closed, answers from the lock\nscreen, and works with headset and car buttons to answer, reject and hang\nup. The same rooms open in the browser and on Mac, Windows and Linux.\n\nFree and open source. Works without Google Play services; no Firebase, no\nanalytics.\n",
+        "sig": "b09f449a1daf09018413d01fd14776dc376d63fcfdd7a53cc07ec4301372b01336795c22ff8e83530f99bfb7a47f61497b52537904005b9813d87dbf86db5688"
+      },
+      {
+        "id": "86e319be99366f764bb384d3bf19edf5c6ada5335a5605164a8960b6a85bffc2",
+        "pubkey": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+        "created_at": 1792874470,
+        "kind": 30063,
+        "tags": [
+          [
+            "i",
+            "dev.forgesworn.kithmoot"
+          ],
+          [
+            "version",
+            "0.6.111"
+          ],
+          [
+            "d",
+            "dev.forgesworn.kithmoot@0.6.111"
+          ],
+          [
+            "c",
+            "main"
+          ],
+          [
+            "f",
+            "android-arm64-v8a"
+          ],
+          [
+            "a",
+            "32267:da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd:dev.forgesworn.kithmoot"
+          ],
+          [
+            "e",
+            "0c66818d3f91383964c3d8e1a4663157288eb4ce3397cdd9dcbce835d8918d1a",
+            "wss://relay.zapstore.dev"
+          ],
+          [
+            "version_code",
+            "134"
+          ]
+        ],
+        "content": "Pair Spry once, then use KithMoot\u2019s normal Call button in a conversation or group. The app obtains and renews per-device relay access automatically, without entering TURN usernames or passwords.\n\nFor private home calls, each person needs their own reachable paired Spry node and the matching ForgeSworn Archipelago update. A third participant\u2019s VPS can be offline. A publicly reachable Spry can also serve guests without a node. See the [Spry installation guide](https://github.com/forgesworn/archipelago-apps/blob/main/apps/spry/README.md).\n\nAndroid 0.6.111, version code 134. Production certificate and preview signing lineage retained. APK SHA-256: `28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068`.\n\nAll 17 hosted Android release checks passed. Local protocol/app tests, release lint, production packaging and signature checks passed. All 787 ZIP payload entries match the tested unsigned input. Physical no-Play GrapheneOS audio/video, the installed bundle and independent home-broadband acceptance remain separate gates; no phone was installed or active call interrupted by this release work.\n",
+        "sig": "84a7a0f999f3673cdf34b1a80a808afd03e6554247f962abfca705fbb799abdfd02b5f3b20d4d3304bff35bab5f1adef063eedb120d48811b568527d509505de"
+      },
+      {
+        "id": "0c66818d3f91383964c3d8e1a4663157288eb4ce3397cdd9dcbce835d8918d1a",
+        "pubkey": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+        "created_at": 1792874323,
+        "kind": 3063,
+        "tags": [
+          [
+            "i",
+            "dev.forgesworn.kithmoot"
+          ],
+          [
+            "x",
+            "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068"
+          ],
+          [
+            "version",
+            "0.6.111"
+          ],
+          [
+            "url",
+            "https://kithmoot.app/apk/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068"
+          ],
+          [
+            "m",
+            "application/vnd.android.package-archive"
+          ],
+          [
+            "size",
+            "73869071"
+          ],
+          [
+            "f",
+            "android-arm64-v8a"
+          ],
+          [
+            "min_platform_version",
+            "33"
+          ],
+          [
+            "target_platform_version",
+            "35"
+          ],
+          [
+            "filename",
+            "kithmoot-0.6.111-production.apk"
+          ],
+          [
+            "commit",
+            "43c4d648aef07807487f58d382cb22ed40682fb1"
+          ],
+          [
+            "version_code",
+            "134"
+          ],
+          [
+            "apk_certificate_hash",
+            "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9"
+          ],
+          [
+            "apk_certificate_ancestor",
+            "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874"
+          ]
+        ],
+        "content": "",
+        "sig": "f012d4753504b36140b423bcd4c1192a1e4520f41954e4a46586b69aa8bd326f427fc696809822b02cb2114f50fedfa9d771d8876093aebc0199ca7122634364"
+      },
+      {
+        "id": "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
+        "pubkey": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+        "created_at": 1792874451,
+        "kind": 30509,
+        "tags": [
+          [
+            "d",
+            "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9"
+          ],
+          [
+            "signature",
+            "nubWYSE9G91ceP4eQmqlMm8AvQ8sV/fMS8E+oC5lsySPTZn6wkza3Kf2R6LR/frA6ktUsFCN/gwD4WWEHc+xBTRTSfKa41dX90oiTM4leV3RXK5VqtXkHjqfrOppOjTPeX67nDWlj/m0jhM2UwvKStChQcjpKPHCMC6GqGnFG+4Ma1IoFVt0E0L7dvUC4HmQ6H7jbiYeVhVuMEPXM8SvcoQp9pUPft00FR3TXzT7HkJbZgUI9nPxuJhy6jhQvcY6XcnUaFabYBWSsO3Kz8ignqbEcPnTmkaa/XTE2GWyoGvN9R7y/Wqr/vMRUMI0PXMk8RIf8ABSZ4deRP3SYW/1c2Aai7k1euQkv03AKuIiq+tRYcP/Qjtc/5fdYd2GgeZuMz/stLwO0v+U0Wj6cdCqGMwW08FUISZNI3GGSTlcZMLCPphLAU5p6ZYjennj6GhMW/j3c6KUPNFvxqEk6kPjojyxC0bpc9p22oGZ082vuGfHjIr2nEB5gAdzE1q6tb9OVY2W4H8UjUWlsTj/ImoP23OB+CDlzs/BGxgDX7DKP93ok84QH0A1iiTn4ev3eMWc8O48I3VXTez+IK2aAH6ZCAagwpUyNuOEcqYSA8MBO9Uaf88PavoHTt7MAAgoE9d1kiuZvfEHccI5jRMWLSA5szXXuY+o4xfFBWseFgCROUI="
+          ],
+          [
+            "expiry",
+            "1824410451"
+          ]
+        ],
+        "content": "",
+        "sig": "42844204e84cb2559ab5ebdabe3c3f9b150b719ab6c361629a7288984dcb6e48f5ea9801e75c4f4b7e0cb5b52f6968d63f7b5498d0f9e42051a39b632a240b80"
+      }
+    ],
+    "relayAcknowledgements": [
+      [
+        "OK",
+        "2eac56f4a1d993840a50b2c5b3326b52f4af5993c1f1f43fa7a0eac5ea0fcd34",
+        true,
+        "the listing will be saved when it is complete"
+      ],
+      [
+        "OK",
+        "86e319be99366f764bb384d3bf19edf5c6ada5335a5605164a8960b6a85bffc2",
+        true,
+        "the listing will be saved when it is complete"
+      ],
+      [
+        "OK",
+        "0c66818d3f91383964c3d8e1a4663157288eb4ce3397cdd9dcbce835d8918d1a",
+        true,
+        "the listing will be saved when it is complete"
+      ],
+      [
+        "OK",
+        "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
+        true,
+        ""
+      ]
+    ],
+    "independentReadback": {
+      "verifiedAt": "2026-10-24T20:41:34.078Z",
+      "relay": "wss://relay.zapstore.dev",
+      "eoseReceived": true,
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.111",
+      "versionCode": 134,
+      "channel": "main",
+      "applicationEventId": "2eac56f4a1d993840a50b2c5b3326b52f4af5993c1f1f43fa7a0eac5ea0fcd34",
+      "releaseEventId": "86e319be99366f764bb384d3bf19edf5c6ada5335a5605164a8960b6a85bffc2",
+      "assetEventId": "0c66818d3f91383964c3d8e1a4663157288eb4ce3397cdd9dcbce835d8918d1a",
+      "releaseCreatedAt": "2026-10-24T20:41:10.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "apk": {
+        "url": "https://kithmoot.app/apk/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+        "bytes": 73869071,
+        "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+            "bytes": 73869071,
+            "sha256": "28dcd327f6f00a4f652d2b549388ed6323112eb87de07df85ba908277a244068",
+            "publicDownloadVerified": true
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    }
+  },
+  "limits": [
+    "Physical no-Play GrapheneOS echo, volume, sustained two-way audio/video and independent home-broadband acceptance remain unverified.",
+    "No phone installation, profile switch, route or volume change, camera/microphone test or active-call interruption by this task.",
+    "Experimental RelaySwarm/Sapflow realtime SDK is not integrated into the Android call engine.",
+    "Private home callers each need their own reachable paired Spry node and matching ForgeSworn Archipelago update; installed-node acceptance is separate.",
+    "Zapstore client indexing and installation are separate from relay publication and public APK verification."
+  ]
+}
