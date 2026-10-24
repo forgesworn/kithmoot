@@ -21,6 +21,7 @@ function account(transport: Transport, participant: number): CallRelay {
 
 async function configure(page: Page, relay: CallRelay, check = false) {
   await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
   await page.getByLabel('Call relay connection file', { exact: true }).setInputFiles({
     name: 'private-operator-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(relay)),
   })

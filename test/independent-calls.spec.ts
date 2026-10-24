@@ -13,6 +13,7 @@ async function account(instance: 'alpha' | 'beta', participant: number): Promise
 
 async function configure(page: Page, relay: CallRelay, importFile = false): Promise<void> {
   await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
   if (importFile) {
     await page.getByLabel('Call relay connection file', { exact: true }).setInputFiles({
       name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(relay)),
@@ -244,6 +245,7 @@ test('connection files need review and saving; relay checks exchange real data, 
   try {
     await page.goto(baseURL!)
     await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
     const relay = await account('beta', 0)
     const file = page.getByLabel('Call relay connection file', { exact: true })
     const upload = (value: unknown) => file.setInputFiles({ name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)) })
