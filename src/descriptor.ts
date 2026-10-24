@@ -7,6 +7,7 @@ import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { evaluateAccess } from './access.js'
+import { parseSpryOffer } from './spry.js'
 import type { ForwarderRef, IceServerRef, RoomDescriptor, RoomPolicy } from './types.js'
 
 export interface EncodeDescriptorOptions {
@@ -123,6 +124,7 @@ export function encodeDescriptorEvent(descriptor: RoomDescriptor, opts: EncodeDe
     ...(descriptor.proof ? { proof: descriptor.proof } : {}),
     forwarders: projectList(descriptor.forwarders, projectForwarder),
     iceServers: projectList(descriptor.iceServers, projectIceServer),
+    ...(parseSpryOffer(descriptor.spry) ? { spry: parseSpryOffer(descriptor.spry) } : {}),
     updatedAt: descriptor.updatedAt,
   }
   const root = opts.epoch ?? { id: opts.roomId, key: opts.roomKey }
@@ -175,6 +177,7 @@ export function decodeDescriptorEvent(event: Event, opts: DecodeDescriptorOption
       ...(raw.proof ? { proof: raw.proof } : {}),
       forwarders: projectList(raw.forwarders, projectForwarder),
       iceServers: projectList(raw.iceServers, projectIceServer),
+      ...(parseSpryOffer(raw.spry) ? { spry: parseSpryOffer(raw.spry) } : {}),
       updatedAt: raw.updatedAt as number,
     }
 

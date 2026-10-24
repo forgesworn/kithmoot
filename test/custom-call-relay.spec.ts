@@ -25,6 +25,7 @@ test('configured URI alternatives work in the real browser constructor and retai
 
 async function configure(page: Page, relay: Relay) {
   await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
   await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
   await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
   await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)

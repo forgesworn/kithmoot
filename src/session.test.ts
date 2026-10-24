@@ -1325,6 +1325,20 @@ describe('RoomSession and forwarders', () => {
     session.leave()
   })
 
+  it('delivers a shared Spry offer to an already joined member', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    const publisher = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    await publisher.join([], {})
+    const offered = vi.fn()
+    session.onDescriptor(offered)
+    const spry = { v: 1 as const, endpoint: 'https://relay.example:3744', token: 'a'.repeat(43), expiresAt: NOW + 100 }
+    await publisher.publishDescriptor({ spry })
+    await settle()
+    expect(session.descriptor?.spry).toEqual(spry)
+    expect(offered).toHaveBeenCalledWith(expect.objectContaining({ spry }))
+  })
+
   it('ignores a descriptor for a room it is not in', async () => {
     const { relay, session } = build()
     await session.join([], {})

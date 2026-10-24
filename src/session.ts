@@ -1,4 +1,5 @@
 import { getPublicKey } from 'nostr-tools/pure'
+import type { SpryOffer } from './spry.js'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { ProtocolTimers } from './protocol-timers.js'
@@ -679,6 +680,7 @@ export class RoomSession {
   #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
+  #descriptorListeners = new Set<(descriptor: RoomDescriptor) => void>()
   /**
    * Remote-track subscribers, held HERE rather than on the mesh.
    *
@@ -2544,13 +2546,14 @@ export class RoomSession {
   publishDescriptor(config: {
     forwarders?: ForwarderRef[]
     iceServers?: IceServerRef[]
+    spry?: SpryOffer
     /** Unix seconds. Defaults to now; exposed so a caller can supersede a
      *  descriptor whose publisher's clock ran ahead. */
     updatedAt?: number
   }): Promise<void> {
     return protocolTask(this.#opts.protocol, 'descriptor-publication', execution => this.#publishOwnedDescriptor(config, execution))
   }
-  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; updatedAt?: number },
+  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; spry?: SpryOffer; updatedAt?: number },
     execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#opts.protocol) config = captureProtocolData(config)
     const prepare = () => {
@@ -2567,6 +2570,7 @@ export class RoomSession {
         ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
         forwarders: config.forwarders ?? [],
         iceServers: config.iceServers ?? [],
+        ...(config.spry ? { spry: config.spry } : {}),
         updatedAt: config.updatedAt ?? this.#now(),
       },
       { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
@@ -2604,6 +2608,9 @@ export class RoomSession {
 
     this.#descriptor = descriptor
     this.#mesh?.setForwarders(descriptor.forwarders)
+    for (const listener of this.#descriptorListeners) {
+      try { listener(descriptor) } catch { /* An adapter cannot take down room signalling. */ }
+    }
   }
 
   /**
@@ -3497,6 +3504,12 @@ export class RoomSession {
     return () => this.#listeners.delete(cb)
   }
 
+  onDescriptor(cb: (descriptor: RoomDescriptor) => void): () => void {
+    this.#descriptorListeners.add(cb)
+    if (this.#descriptor) cb(this.#descriptor)
+    return () => this.#descriptorListeners.delete(cb)
+  }
+
   /**
    * Say goodbye and close everything.
    *
@@ -3574,6 +3587,7 @@ export class RoomSession {
     for (const log of this.#channels.values()) log.close()
     this.#channels.clear()
     this.#listeners.clear()
+    this.#descriptorListeners.clear()
     this.#entries.clear()
     this.#seenAt.clear()
     const retention = this.#retentionWork?.catch(() => {}).then(() => {

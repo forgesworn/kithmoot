@@ -303,6 +303,9 @@ import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFol
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { completeSpryPairing, loadSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
+import { SpryRoom } from './spry-room.js'
+import { spryRequest } from '../../src/spry.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -407,6 +410,9 @@ for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey',
  * of the page treats a fragment as a room link, and the words should not be
  * left in history. They live in memory only until the code has been looked up.
  */
+// Consume a one-use pairing code before room parsing, history, referrers or invitations can see it.
+const spryPairingHash = location.hash.startsWith('#spry=') ? location.hash : undefined
+if (spryPairingHash) history.replaceState(null, '', location.pathname + location.search)
 let linkWords: { code: string; words: string } | undefined
 /** Invitations at the top of Chats (invitations.ts), made on first render.
  *  Declared this early because the list can render before People is set up. */
@@ -2847,6 +2853,7 @@ window.addEventListener('storage', (event) => {
 })
 
 let session: RoomSession | undefined
+const spryRooms = new WeakMap<RoomSession, SpryRoom>()
 /** Recording signatures always use the originating session's device key. */
 const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
 let joining = false
@@ -5356,6 +5363,12 @@ async function joinCall(): Promise<void> {
   if (docked()) return
   const s = session
   if (!s || s.call) return
+  try { await spryRooms.get(s)?.prepare() }
+  catch (error) {
+    if (sessionRelayOnly.get(s)) throw error
+    noteRelayMissing(true)
+  }
+  if (session !== s) return
   // “Hide my IP address” with no relay: refuse the call, never fall back to direct.
   if (sessionRelayBlocked.get(s) === true) {
     noteRelayMissing(true)
@@ -13422,7 +13435,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // unless this device explicitly requires a relay before any media can
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
-    const deviceRelay = loadCallRelay(localStorage)
+    const spryPairing = loadSpryPairing(localStorage, credential?.pubkey ?? currentIdentity().pubkey)
+    const deviceRelay = spryPairing ? undefined : loadCallRelay(localStorage)
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
     let resolvedIceServers = deviceRelay ? callRelayServers(deviceRelay) : relayOnly
       ? await resolveIceServers(roomIceUrls, deviceRelay)
@@ -13466,11 +13480,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // A docked call keeps refreshing its own credentials while another room
     // is on screen, so the guard is the session, not the screen.
     let created: RoomSession | undefined
+    let spryActive = false
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     const refreshIce = (): void => {
+      if (spryActive) return
       resolveIceServers(roomIceUrls, deviceRelay)
         .then((resolved) => {
           if (!alive()) return
+          if (spryActive) return
           const fresh = withDeviceStun(resolved, deviceStun)
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
@@ -13737,7 +13754,30 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // after it did is: a cheap round trip here catches it before the join
     // event is the thing that discovers it, the slow and public way.
     if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
+    if (!roomUsesBothy && !deviceRelay) {
+      const relay = new SpryRoom(s, spryPairing, servers => {
+        if (!alive()) return
+        spryActive = true
+        resolvedIceServers = withDeviceStun(servers, deviceStun)
+        stunOnly = withoutTurn(resolvedIceServers)
+        turnRelayConfigured = hasRelay(resolvedIceServers)
+        sessionRelayBlocked.set(s, relayOnly && !turnRelayConfigured)
+        if (turnRelayConfigured) noteRelayMissing(false)
+        for (const key of ownConnections) {
+          const pc = openConnections.get(key)
+          if (!pc || pc.signalingState === 'closed') continue
+          try {
+            const config = pc.getConfiguration()
+            const serversForLink = relayOnly || key.startsWith('turn:') ? resolvedIceServers : stunOnly
+            pc.setConfiguration({ ...config, iceServers: serversForLink })
+            pc.restartIce()
+          } catch { /* Existing media keeps its current allocation until reconnect. */ }
+        }
+      }, fetch, deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
+      spryRooms.set(s, relay)
+    }
     await s.join(chatOnly ? [] : currentAdverts(), chatOnly ? {} : currentClaims())
+
     if (session !== s) return
     // Another tab of this browser, same account, may already be on this
     // room's call under the identical device key - see call-tab-lock.ts.
@@ -13908,6 +13948,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
+    if (failed) spryRooms.get(failed)?.close()
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
     await closeFailedRoomWithCatalogues(failed,failedTransport,()=>failed?closeRoomBoardCatalogues(failed):Promise.resolve(),()=>{
@@ -15281,6 +15322,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
+  if (old && !keepCall) spryRooms.get(old)?.close()
   const boardsClosing=old&&!keepCall?closeRoomBoardCatalogues(old):Promise.resolve()
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
@@ -15483,6 +15525,7 @@ function dockCall(room: KnownRoom): void {
 function resumeDockedCall(): void {
   const c = dockedCall
   if (!c) return
+  spryRooms.get(c.session)?.close()
   closeAccountMessageViews()
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
@@ -17615,6 +17658,11 @@ function renderSettingsRows(): void {
 
 function renderCallRelay(): void {
   try {
+    const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    $('spryPairingStatus').textContent = pairing ? `Paired with ${new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry on your Archipelago node, then choose Pair with KithMoot.'
+    $('spryPairingRemove').hidden = !pairing
+  } catch { $('spryPairingStatus').textContent = 'The Spry pairing is unavailable. Remove it and pair again.'; $('spryPairingRemove').hidden = false }
+  try {
     const relay = loadCallRelay(localStorage)
     ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
     ;($('callRelayUsername') as HTMLInputElement).value = relay?.username ?? ''
@@ -17622,6 +17670,20 @@ function renderCallRelay(): void {
     $('callRelayStatus').textContent = relay ? 'A call relay is saved on this device.' : 'No call relay is saved.'
   } catch { $('callRelayStatus').textContent = 'The saved call relay could not be read. Save it again or remove it.' }
 }
+
+$('spryPairingRemove').addEventListener('click', async () => {
+  const button = $('spryPairingRemove') as HTMLButtonElement
+  button.disabled = true
+  try {
+    const pair = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    if (pair) await spryRequest(pair.endpoint, '/v1/pairings/remove-self', { id: pair.id }, pair.secretKey)
+    removeSpryPairing(localStorage)
+    for (const active of [session, dockedCall?.session]) if (active) { spryRooms.get(active)?.close(); spryRooms.delete(active) }
+    renderCallRelay()
+    setStatus('Spry unpaired. Existing relay access expires within five minutes.')
+  } catch { setStatus('Spry could not be unpaired. Check your connection and try again, or remove the pairing on your node.') }
+  finally { button.disabled = false }
+})
 
 $('callRelaySave').addEventListener('click', () => {
   try {
@@ -21650,6 +21712,16 @@ const identityReady = restoreSessionWithExtensionGrace()
     // tidied away now, with the account's signer if it came back.
     void runDueDestructs()
   })
+
+if (spryPairingHash) void identityReady.then(async () => {
+  const participant = currentIdentity().pubkey
+  const paired = await completeSpryPairing(spryPairingHash, localStorage, participant, host => confirmAction({
+    title: 'Pair Spry with KithMoot?',
+    message: `${host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.`,
+    confirmLabel: 'Pair Spry', isCurrent: () => currentIdentity().pubkey === participant,
+  }))
+  if (paired) { renderCallRelay(); setStatus('Spry paired. Relay access will be shared automatically in your calls.') }
+}).catch(() => setStatus('Spry could not be paired. Open Spry on your node and choose Pair with KithMoot again.'))
 
 // A room this device has joined goes straight in, as the identity that joined
 // it; so does an explicit room switch or safe update in this tab. An
