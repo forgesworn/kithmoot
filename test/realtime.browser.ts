@@ -4,6 +4,7 @@ import { RealtimeCallAdapter, loadRealtimeRuntime, connectRealtimeService, newPu
   createRealtimeAudioMixer, type RealtimeAudioMixer, type SourceBinding, type LocalSource, type TransportRuntime, type QueueFactory } from '../src/realtime/index.js'
 import { BrowserShare } from '../app/src/browser-share.js'
 import { createMeshTransport } from './realtime-mesh.js'
+import { createRealtimeProcessingAudioContext } from '../src/realtime/audio-context.js'
 
 let runtime: TransportRuntime, queueFactory: QueueFactory
 let pool: InstanceType<TransportRuntime['RelayPool']>, session: InstanceType<TransportRuntime['RelaySwarmSession']>
@@ -44,7 +45,9 @@ function generated(index: number): MediaStream {
     for (let bit = 0; bit < 24; bit++) { context.fillStyle = marker & (1 << bit) ? '#ffffff' : '#000000'; context.fillRect(bit * 12, 160, 10, 10) }
   }
   paint(); const timer = setInterval(paint, 50)
-  const stream = canvas.captureStream(15), audio = new AudioContext({ sampleRate: 48_000 })
+  // This graph exports a tone track; only the listener's audio element needs
+  // a speaker device. Duplicate hardware sinks exhaust headless output slots.
+  const stream = canvas.captureStream(15), audio = createRealtimeProcessingAudioContext()
   const oscillator = audio.createOscillator(), gain = audio.createGain(), destination = audio.createMediaStreamDestination()
   oscillator.frequency.value = 440 + index * 80; gain.gain.value = .1; oscillator.connect(gain); gain.connect(destination); oscillator.start()
   stream.addTrack(destination.stream.getAudioTracks()[0]!)

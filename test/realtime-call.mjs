@@ -76,6 +76,7 @@ const call = (page, method, arg) => page.evaluate(({ method, arg }) => window.re
 async function healthy(pages, expected, timeout = 60000) {
   return until(async () => {
     const rows = await Promise.all(pages.map(page => call(page, 'metrics')));
+    if (rows.some(row => row.media.some(m => m.audioError !== null || m.videoError !== null))) throw new Error('Realtime playback reported a media element failure');
     if (rows.some((row, i) => row.errors.length || row.media.length !== expected[i] || row.adapter.closed || row.transport.closed || !row.transport.ready)) {
       if (rows.some(row => row.errors.length || row.adapter.closed || row.transport.closed || !row.transport.ready)) throw new Error('A realtime endpoint failed closed');
       return false;
