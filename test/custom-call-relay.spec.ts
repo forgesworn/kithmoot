@@ -25,6 +25,7 @@ test('configured URI alternatives work in the real browser constructor and retai
 
 async function configure(page: Page, relay: Relay) {
   await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
   await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
   await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
   await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)
@@ -122,6 +123,7 @@ test('an existing room carries two-way audio and video through a private relay c
     await openSettings(pages[1], 'Connections')
     await expect(pages[1].getByLabel('Relay username', { exact: true })).toHaveValue('friend')
     await pages[1].screenshot({ path: test.info().outputPath('call-relay-settings.png') })
+    await pages[1].getByText('Other call relays', { exact: true }).click()
     await pages[1].getByRole('button', { name: 'Remove call relay', exact: true }).click()
     expect(await pages[1].evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
   } finally { await Promise.all(contexts.map(context => context.close())) }

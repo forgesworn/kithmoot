@@ -293,6 +293,11 @@
         <p class="note">Optional addresses, separated by commas. Rooms you start share these addresses with everyone who joins. STUN helps devices connect directly.</p>
         <input id="iceServers" />
         <fieldset>
+          <legend>Spry</legend>
+          <p id="spryPairingStatus" class="note" role="status">Install Spry on your Archipelago node, then choose Pair with KithMoot.</p>
+          <button id="spryPairingRemove" type="button" hidden>Unpair Spry</button>
+        </fieldset>
+        <details><summary>Other call relays</summary><fieldset>
           <legend>Call relay (TURN)</legend>
           <p class="note">Use a relay you trust when devices cannot connect directly. Set it on each device that needs it. Saved in this browser; the password is never added to room links. After changing it, leave and reopen the room.</p>
           <p class="note">Have a connection file from your provider or self-hosting operator? Import it, review the addresses, then save. The file contains a password: keep it private. Your chosen server can see connection metadata.</p>
@@ -309,7 +314,7 @@
           <p class="note" id="callRelayCheckNote">Testing contacts your saved relay and sends test data. The server sees your IP address and login. No camera or microphone is used.</p>
           <button id="callRelayCheck" type="button" aria-describedby="callRelayCheckNote">Test saved call relay</button>
           <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
-        </fieldset>
+        </fieldset></details>
         </section>
         <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
         <p class="note">

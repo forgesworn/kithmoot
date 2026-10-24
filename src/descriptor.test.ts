@@ -41,6 +41,13 @@ async function fixture(over: Partial<RoomDescriptor> = {}) {
 const decrypted = (event: Event, roomKey: Uint8Array): string => nip44.v2.decrypt(event.content, roomKey)
 
 describe('room descriptor events', () => {
+  it('carries only the scoped Spry offer inside the authenticated ciphertext', async () => {
+    const spry = { v: 1 as const, endpoint: 'https://relay.example:3744', token: 'a'.repeat(43), expiresAt: NOW + 100 }
+    const { roomId, roomKey, deviceSk, descriptor } = await fixture({ spry })
+    const event = encodeDescriptorEvent(descriptor, { roomId, roomKey, deviceSk })
+    expect(event.content).not.toContain(spry.token)
+    expect(decodeDescriptorEvent(event, { roomId, roomKey, now: NOW })?.spry).toEqual(spry)
+  })
   it('is an ephemeral kind, so no relay keeps a record that the room existed', async () => {
     expect(KINDS.DESCRIPTOR).toBeGreaterThanOrEqual(20000)
     expect(KINDS.DESCRIPTOR).toBeLessThan(30000)

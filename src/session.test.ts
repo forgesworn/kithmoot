@@ -8,6 +8,7 @@ import { issueKindredProof } from './access.js'
 import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { KINDS } from './kinds.js'
+import { Mesh } from './mesh.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
 import { PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js'
@@ -1325,6 +1326,24 @@ describe('RoomSession and forwarders', () => {
     session.leave()
   })
 
+  it('delivers a shared Spry offer to an already joined member', async () => {
+    const { relay, session } = build()
+    await session.join([], {})
+    const publisher = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    await publisher.join([], {})
+    const offered = vi.fn()
+    session.onDescriptor(offered)
+    const spry = { v: 1 as const, endpoint: 'https://relay.example:3744', token: 'a'.repeat(43), expiresAt: NOW + 100 }
+    const applyForwarders = vi.spyOn(Mesh.prototype, 'setForwarders')
+    try {
+      await publisher.publishDescriptor({ spry })
+      await settle()
+      expect(session.descriptor?.spry).toEqual(spry)
+      expect(offered).toHaveBeenCalledWith(expect.objectContaining({ spry }))
+      expect(applyForwarders).not.toHaveBeenCalled()
+    } finally { applyForwarders.mockRestore() }
+  })
+
   it('ignores a descriptor for a room it is not in', async () => {
     const { relay, session } = build()
     await session.join([], {})
@@ -1375,6 +1394,15 @@ describe('RoomSession and forwarders', () => {
     })
     await settle()
     expect(session.forwarderDevice).toBe(REPLACEMENT)
+    expect(session.peerDescriptors().find(value => value.device === publisher.device)?.updatedAt).toBe(NOW)
+    const another = new RoomSession({ transport: new SimTransport(relay), secret: secret(), identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), now, announceJitterMs: 0 })
+    await another.join([], {})
+    await another.publishDescriptor({ updatedAt: NOW - 30 })
+    await settle()
+    expect(session.forwarderDevice).toBe(REPLACEMENT)
+    expect(session.peerDescriptors().find(value => value.device === another.device)?.updatedAt).toBe(NOW - 30)
+    session.forgetParticipants([another.participant])
+    expect(session.peerDescriptors().some(value => value.device === another.device)).toBe(false)
     publisher.leave()
     session.leave()
   })

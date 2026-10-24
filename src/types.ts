@@ -1,5 +1,6 @@
 import type { Reachability } from './reachability.js'
 import type { LiveRecordingState } from './live-recording.js'
+import type { SpryOffer } from './spry.js'
 // `DeviceCredential`, `AccessTier`, `AgentRule`, `RoomPolicy` and `KindredProof`
 // moved to @forgesworn/fold-kit (see the T2.1 codec cutover). Imported as types
 // rather than redeclared, so there is exactly one definition of each. Everything
@@ -348,6 +349,8 @@ export interface RoomDescriptor {
   forwarders: ForwarderRef[]
   /** STUN/TURN servers offered to every member. */
   iceServers: IceServerRef[]
+  /** Short-lived operator access, inside this encrypted descriptor only. */
+  spry?: SpryOffer
   /** Unix seconds. */
   updatedAt: number
 }

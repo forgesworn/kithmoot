@@ -231,7 +231,8 @@ test('an update waits for drafts and calls, then returns to the room without a p
     // using enlarged text. This is the physical iPhone trap which prompted
     // the recoverable call blocker: the media controls can be far below the
     // notice and must not be a prerequisite for updating.
-    await page.locator('#callToggle').click()
+    if (await page.locator('#callToggle').getAttribute('data-live') !== 'true') await page.locator('#callToggle').click()
+    await expect(page.locator('#callToggle')).toHaveAttribute('data-live', 'true')
     if (canUseSyntheticMic) await page.locator('#toggleMic').click()
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))

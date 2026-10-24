@@ -1,4 +1,5 @@
 import { getPublicKey } from 'nostr-tools/pure'
+import type { SpryOffer } from './spry.js'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
 import { ProtocolTimers } from './protocol-timers.js'
@@ -680,6 +681,9 @@ export class RoomSession {
   #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
+  #descriptorListeners = new Set<(descriptor: RoomDescriptor) => void>()
+  #peerDescriptorListeners = new Set<() => void>()
+  #peerDescriptors = new Map<string, { descriptor: RoomDescriptor; id: string }>()
   /**
    * Remote-track subscribers, held HERE rather than on the mesh.
    *
@@ -2545,13 +2549,14 @@ export class RoomSession {
   publishDescriptor(config: {
     forwarders?: ForwarderRef[]
     iceServers?: IceServerRef[]
+    spry?: SpryOffer
     /** Unix seconds. Defaults to now; exposed so a caller can supersede a
      *  descriptor whose publisher's clock ran ahead. */
     updatedAt?: number
   }): Promise<void> {
     return protocolTask(this.#opts.protocol, 'descriptor-publication', execution => this.#publishOwnedDescriptor(config, execution))
   }
-  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; updatedAt?: number },
+  async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; spry?: SpryOffer; updatedAt?: number },
     execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#opts.protocol) config = captureProtocolData(config)
     const prepare = () => {
@@ -2568,6 +2573,7 @@ export class RoomSession {
         ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
         forwarders: config.forwarders ?? [],
         iceServers: config.iceServers ?? [],
+        ...(config.spry ? { spry: config.spry } : {}),
         updatedAt: config.updatedAt ?? this.#now(),
       },
       { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
@@ -2598,13 +2604,30 @@ export class RoomSession {
     })
     if (!descriptor) return
     if (this.#removed.has(descriptor.participant)) return
+    // Each credentialled device owns its own advert. A newer advert from one
+    // node must not suppress another room member's peer card.
+    const previous = this.#peerDescriptors.get(descriptor.device)
+    if ((!previous || descriptor.updatedAt > previous.descriptor.updatedAt ||
+      descriptor.updatedAt === previous.descriptor.updatedAt && event.id > previous.id) &&
+      (previous || this.#peerDescriptors.size < 256)) {
+      this.#peerDescriptors.set(descriptor.device, { descriptor, id: event.id })
+      for (const listener of this.#peerDescriptorListeners) {
+        try { listener() } catch { /* An adapter cannot take down room signalling. */ }
+      }
+    }
     // Ordered on `updatedAt`, not on arrival: relays deliver out of order,
     // and a stale descriptor turning up late must not repoint a room that has
     // already moved on.
     if (this.#descriptor && this.#descriptor.updatedAt > descriptor.updatedAt) return
 
+    const forwardersChanged = JSON.stringify(this.#descriptor?.forwarders ?? []) !== JSON.stringify(descriptor.forwarders)
     this.#descriptor = descriptor
-    this.#mesh?.setForwarders(descriptor.forwarders)
+    // Access adapters must see the descriptor before media reconciliation:
+    // a relay-only peer factory may still be waiting for those credentials.
+    for (const listener of this.#descriptorListeners) {
+      try { listener(descriptor) } catch { /* An adapter cannot take down room signalling. */ }
+    }
+    if (forwardersChanged) this.#mesh?.setForwarders(descriptor.forwarders)
   }
 
   /**
@@ -3498,6 +3521,23 @@ export class RoomSession {
     return () => this.#listeners.delete(cb)
   }
 
+  onDescriptor(cb: (descriptor: RoomDescriptor) => void): () => void {
+    this.#descriptorListeners.add(cb)
+    if (this.#descriptor) cb(this.#descriptor)
+    return () => this.#descriptorListeners.delete(cb)
+  }
+
+  /** Bounded per-device adverts, after admission, epoch and removal checks. */
+  peerDescriptors(): RoomDescriptor[] {
+    return [...this.#peerDescriptors.values()].map(value => value.descriptor)
+      .filter(descriptor => !this.#removed.has(descriptor.participant))
+  }
+  onPeerDescriptors(cb: () => void): () => void {
+    this.#peerDescriptorListeners.add(cb)
+    cb()
+    return () => this.#peerDescriptorListeners.delete(cb)
+  }
+
   /**
    * Say goodbye and close everything.
    *
@@ -3575,6 +3615,9 @@ export class RoomSession {
     for (const log of this.#channels.values()) log.close()
     this.#channels.clear()
     this.#listeners.clear()
+    this.#descriptorListeners.clear()
+    this.#peerDescriptorListeners.clear()
+    this.#peerDescriptors.clear()
     this.#entries.clear()
     this.#seenAt.clear()
     const retention = this.#retentionWork?.catch(() => {}).then(() => {
