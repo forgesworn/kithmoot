@@ -234,6 +234,13 @@ try {
     } catch (error) {
       group.passed = false; group.failure = error.message;
       group.final = await Promise.all(pages.map(page => call(page, 'metrics').catch(() => ({ unavailable: true }))));
+      // Only generated-fixture counters and playback states. No keys, peer
+      // identities, candidates, SDP, addresses or media enter failure logs.
+      process.stderr.write(JSON.stringify({ generatedFixtureFailure: true, participants: count,
+        endpoints: group.final.map(row => ({ ready: row.transport?.ready, closed: row.adapter?.closed,
+          decoders: row.adapter?.decoders, media: row.media?.map(m => ({ width: m.width, rms: m.rms,
+            videoTime: m.videoTime, audioTime: m.audioTime, audible: m.audible,
+            audioError: m.audioError, videoError: m.videoError })), errorCount: row.errors?.length })) }) + '\n');
       throw error;
     } finally {
       results.groups.push(group); await writeFile(join(output, 'results.json'), JSON.stringify(results, null, 2) + '\n');

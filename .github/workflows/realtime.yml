@@ -90,6 +90,7 @@ jobs:
           mkdir -p release/realtime
           npm pack --ignore-scripts --pack-destination release/realtime
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: realtime-adapter-linux-x64
           path: |
@@ -98,5 +99,5 @@ jobs:
             kithmoot/dist/realtime-runtime/
             kithmoot/test-results/realtime-forwarded/results.json
             kithmoot/test-results/realtime-mesh/results.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
