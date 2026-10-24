@@ -6,6 +6,24 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.110 call routing and transport recovery, 24 October 2026
+
+Version **0.6.110**, code **133**, restores the existing headset/speaker choice
+when Android changes communication routes or activates call mode, and adds
+bounded native ICE restart/rebuild recovery to the released profile-1 call
+path (kithmoot-android #324). It does not integrate the experimental realtime
+SDK and makes no claim to resolve every echo or one-way-media report.
+
+The production APK was built from Android source
+`9908de74370555800fe786f5a51f6110927843ad`, SHA-256
+`8899e1283d34586be634db22819162fa14e2356d99d07c37d165cdcae0b03ea1`,
+73,828,111 bytes, with the retained production signing certificate and lineage.
+All 787 ZIP payload entries match the unsigned input. Hosted CI and public
+readback are separate gates. The owner's current Pixel call is left untouched;
+physical GrapheneOS echo, speech, video and network-change acceptance remain
+open. Zapstore publication requires an available connection to the established
+publisher and an independent signed-event readback.
+
 ## Android 0.6.109 a member's own link and the password eye, 24 October 2026
 
 Version **0.6.109**, code **132**. Make a link from this phone: a member that
