@@ -29,6 +29,7 @@ async function suite() {
     'src/node/native-realtime.mjs': 'export const fixtureNative = true;',
     'native-patches/version.patch': 'Synthetic patch input', 'scripts/build-native-realtime.mjs': 'export const fixtureBuild = true;',
     'scripts/native-patches/libjuice.patch': 'Synthetic native source patch',
+    '.gitattributes': 'scripts/native-patches/*.patch text eol=lf\n',
   })
   const sapflow = await repository(sapflowRoot, {
     '.gitignore': 'build.rs\n', 'Cargo.toml': '[workspace]\nmembers=["crates/sapflow-core","crates/sapflow-realtime-wasm","crates/other"]\n',
@@ -89,6 +90,9 @@ describe('reviewed realtime build source closure', () => {
     await expect(reviewRealtimeSource(f.swarmSelection)).rejects.toThrow('source differs')
     await rm(join(f.relayswarmRoot, 'native-patches/extra.patch'))
     await put(f.relayswarmRoot, 'scripts/native-patches/extra.patch', 'New native compilation input at the actual builder path')
+    await expect(reviewRealtimeSource(f.swarmSelection)).rejects.toThrow('source differs')
+    await rm(join(f.relayswarmRoot, 'scripts/native-patches/extra.patch'))
+    await put(f.relayswarmRoot, '.gitattributes', '* -text\n')
     await expect(reviewRealtimeSource(f.swarmSelection)).rejects.toThrow('source differs')
   })
 

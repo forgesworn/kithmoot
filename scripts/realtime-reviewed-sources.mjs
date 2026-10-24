@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 // unrelated protocol crates are deliberately outside these source closures.
 const inputs = {
   relayswarm: {
-    files: ['package.json', 'package-lock.json', 'LICENSE', 'src/relay-session.mjs',
+    files: ['package.json', 'package-lock.json', '.gitattributes', 'LICENSE', 'src/relay-session.mjs',
       'src/browser/realtime-peer.mjs', 'src/node/native-realtime.mjs', 'scripts/build-native-realtime.mjs'],
     directories: ['native-patches', 'scripts/native-patches'],
   },
