@@ -6,6 +6,21 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.109 a member's own link and the password eye, 24 October 2026
+
+Version **0.6.109**, code **132**. Make a link from this phone: a member that
+can no longer answer a room's temporary link makes one this phone answers,
+naming the room's authority (link version 5, fold-kit 0.15.0), so whoever it
+lets in catches up even after a rekey (kithmoot-android #322). The call relay
+password has an eye button (#321). Older clients refuse a version 5 link with
+"needs a newer version".
+
+The production APK is built from Android source `e4c77dd9` (the head of pull
+request #323), SHA-256
+`8e2221df0305f91d6204c4c4a7246a5a805e7e0e006ab81ce836e4ea2e0f96a3`, 73,824,015
+bytes, signed with the retained production certificate. Installed over 0.6.108
+on a Pixel with its data.
+
 ## Android 0.6.108 room info, signer wait and invite wording, 23 October 2026
 
 Version **0.6.108**, code **131**. Room info keeps a member's name on one
