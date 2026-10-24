@@ -42,7 +42,20 @@ test('issuer requests omit cookies and room information while fresh guests recei
       })
     }
     const pages = await Promise.all(contexts.map(context => context.newPage()))
-    const link = await createRoom(pages[0], baseURL!)
+    const startupErrors: string[] = []
+    pages[0].on('pageerror', error => startupErrors.push(error.message))
+    pages[0].on('requestfailed', req => startupErrors.push(JSON.stringify({ kind: req.resourceType(), path: new URL(req.url()).pathname, error: req.failure()?.errorText })))
+    pages[0].on('response', response => {
+      if (response.status() >= 400) startupErrors.push(JSON.stringify({ kind: response.request().resourceType(), path: new URL(response.url()).pathname, status: response.status() }))
+    })
+    let link: string
+    try { link = await createRoom(pages[0], baseURL!) }
+    catch (error) {
+      // This is the fresh pre-call page only: omit URLs, storage, request
+      // bodies, cookies and credentials from the bounded failure evidence.
+      console.log('Automatic-call startup diagnostic', JSON.stringify({ errors: startupErrors.slice(0, 12), page: await pages[0].evaluate(() => ({ title: document.title, ready: document.readyState, startup: document.documentElement.dataset.ordinaryStartup, text: document.body.innerText.slice(0, 2000) })) }))
+      throw error
+    }
     await turnOnMedia(pages[0])
     await open(pages[1], link, 'Rowan'); await join(pages[1])
     await expect(pages[1].locator('#roomArea')).toBeVisible()
