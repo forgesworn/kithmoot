@@ -6,6 +6,7 @@ import { girnelAccess, type GirnelBoard, type GirnelWindow, type GirnelBorrowedA
 import './boards-panel.css'
 import popupStyles from './boards-panel.css?inline'
 import type { RoomBoard } from '../../src/room-boards.js'
+import { addReveal } from './reveal.js'
 
 interface Scope { id: string; name: string }
 function errorText(error: unknown): string {
@@ -88,6 +89,7 @@ export class BoardsPanel {
     linkInput.type = 'password'; linkInput.autocomplete = 'off'; linkInput.maxLength = 32768
     linkLabel.append(linkInput)
     const openLink = this.button('Open this board link', () => {}); openLink.type = 'submit'; linkForm.append(linkLabel, openLink)
+    addReveal(linkInput, 'board link')
     linkForm.onsubmit = event => {event.preventDefault(); void this.openLink(linkInput.value).then(() => {linkInput.value = ''; linkForm.hidden = true}).catch(error => this.report(error))}
     this.#context = this.el('p', 'Boards · KithMoot'); this.#context.className = 'boardsContext'; this.#context.id = 'boardsContext'
     this.#saved = this.el('nav'); this.#saved.id = 'boardsSaved'; this.#saved.className = 'boardsSaved'; this.#saved.setAttribute('aria-label', 'Your boards')

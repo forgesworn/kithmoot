@@ -347,3 +347,23 @@ test('relay identity permission is explicit, names the chosen account and is wit
     await rm(certificateDirectory, { recursive: true, force: true })
   }
 })
+
+test('the call relay password has an eye button that shows and hides it', async ({ page, baseURL }) => {
+  await page.goto(baseURL!)
+  await openSettings(page, 'Connections')
+  // Found by its exact label: the eye sits beside the field, not inside its name.
+  const password = page.getByLabel('Relay password', { exact: true })
+  const eye = page.getByRole('button', { name: 'Show relay password', exact: true })
+  await password.fill('synthetic-relay-password')
+  await expect(password).toHaveAttribute('type', 'password')
+  await expect(eye).toHaveAttribute('aria-pressed', 'false')
+  await eye.click()
+  await expect(password).toHaveAttribute('type', 'text')
+  await expect(password).toHaveValue('synthetic-relay-password')
+  await expect(password).toBeFocused()
+  await expect(eye).toHaveAttribute('aria-pressed', 'true')
+  await expect(eye).toHaveAttribute('title', 'Hide relay password')
+  await eye.click()
+  await expect(password).toHaveAttribute('type', 'password')
+  await expect(eye).toHaveAttribute('aria-pressed', 'false')
+})

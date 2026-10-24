@@ -349,6 +349,29 @@ textarea {
   border-radius: var(--r-s);
 }
 
+/* A secret field and its eye button (reveal.ts): the field takes the row,
+   the button is one square control at its end. */
+.reveal {
+  display: flex;
+  gap: var(--s1);
+  align-items: stretch;
+}
+
+.reveal > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.reveal > .revealToggle {
+  flex: none;
+  width: var(--ctl);
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* A field says where it is before it is typed in and says plainly when it
    has the keyboard: one 2px ring in the focus colour, laid over its own
    border so there is a single crisp edge. An outline, not a glow, so
