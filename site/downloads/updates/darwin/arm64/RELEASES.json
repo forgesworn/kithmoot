@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.102",
+  "currentRelease": "0.1.103",
   "releases": [
     {
-      "version": "0.1.102",
+      "version": "0.1.103",
       "updateTo": {
-        "version": "0.1.102",
-        "pub_date": "2026-10-23T09:29:44Z",
-        "notes": "Calls use Cloudflare\u2019s public STUN server instead of ForgeSworn\u2019s, or your own; you can also save your own call relay.",
-        "name": "0.1.102",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.102/KithMoot-0.1.102-mac-arm64.zip",
-        "sha256": "4064d892719f525f5f7954569ef4afe78b3935b12bcf6eb09973443eab4b8ab7",
-        "size": 170904028
+        "version": "0.1.103",
+        "pub_date": "2026-10-24T10:43:28Z",
+        "notes": "A member can make a link from their own device when nobody else can let people in; New link keeps the room\u2019s owner key; passwords have an eye button.",
+        "name": "0.1.103",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.103/KithMoot-0.1.103-mac-arm64.zip",
+        "sha256": "adc870d851dfbfd5df63f46499f60847fae0eddf8f2ffaba5afbc372f4d60021",
+        "size": 170911420
       }
     }
   ]

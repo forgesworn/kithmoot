@@ -1,5 +1,11 @@
 # Changelog
 
+## Desktop 0.1.103, 24 October 2026
+
+- Make a link from this device. When this device can no longer let people in with a room's link, because its permission from the device that made the link has run out (twelve hours after that device last let someone in), Room info, Invite link says so and offers a link this device answers. The link names the room's owner key, so whoever joins with it catches up even in a room whose key has changed.
+- New link no longer splits a room: it changes the link but keeps the room's owner key, so members who joined with the old link still follow the room, and ending the room reaches them.
+- Passwords and pairing codes have an eye button to show and hide them, starting with the call relay (TURN) password in Settings, Connections.
+
 ## Desktop 0.1.102, 23 October 2026
 
 - Calls find your device's public address with Cloudflare's public STUN server instead of ForgeSworn's. STUN carries no messages, files or call media. To use your own, enter it under Settings, Connections, "Your STUN server": it stays on this device and is never added to room links.
