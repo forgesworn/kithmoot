@@ -1,6 +1,6 @@
 {
   "name": "kithmoot",
-  "version": "0.5.4",
+  "version": "0.5.5-realtime.1",
   "description": "An open Slack with agents over Nostr - a workspace nobody owns",
   "keywords": [
     "nostr",
@@ -54,7 +54,11 @@
     "CHANGELOG.md",
     "docs/decisions.md",
     "docs/agents.md",
-    "docs/nostr-identity.md"
+    "docs/nostr-identity.md",
+    "docs/realtime-call-adapter.md",
+    "docs/realtime-wire.md",
+    "docs/research/realtime-adapter-qualification-20261024.md",
+    "docs/evidence/realtime-adapter-20261024.json"
   ],
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",

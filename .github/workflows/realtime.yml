@@ -1,0 +1,102 @@
+name: Combined realtime adapter
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md', 'site/**', 'desktop/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['docs/**', '*.md', 'site/**', 'desktop/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adapter:
+    name: Actual suite WASM, native forwarding and 2/4/8 browser media
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: kithmoot
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          path: kithmoot
+          persist-credentials: false
+      - name: Read the exact reviewed dependency revisions
+        id: sources
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync,appendFileSync} from 'node:fs';
+          const p=JSON.parse(readFileSync('realtime-sources.json','utf8'));
+          for(const name of ['relayswarm','sapflow']) {
+            if(!/^[0-9a-f]{40}$/.test(p[name])) throw new Error('Invalid reviewed revision');
+            appendFileSync(process.env.GITHUB_OUTPUT,name+'='+p[name]+'\n');
+          }
+          JS
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: forgesworn/relayswarm
+          ref: ${{ steps.sources.outputs.relayswarm }}
+          path: relayswarm
+          persist-credentials: false
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          repository: forgesworn/sapflow
+          ref: ${{ steps.sources.outputs.sapflow }}
+          path: sapflow
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            kithmoot/package-lock.json
+            relayswarm/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: relayswarm
+      - name: Prepare the pinned WASM toolchain
+        working-directory: sapflow
+        run: |
+          rustup toolchain install --profile minimal
+          rustup target add wasm32-unknown-unknown
+          if [ "$(wasm-bindgen --version 2>/dev/null || true)" != "wasm-bindgen 0.2.129" ]; then
+            cargo install wasm-bindgen-cli --version 0.2.129 --locked --force
+          fi
+      - name: Build the owned native source sidecar
+        working-directory: relayswarm
+        run: node scripts/build-native-realtime.mjs
+      - name: Build and check exact prepared runtime assets
+        run: |
+          npm run build:realtime
+          npm run build:lib
+          npm run test:realtime:unit
+          npx vitest run test/realtime-build.test.ts --maxWorkers=1
+      - run: npx playwright install --with-deps chromium
+      - name: Forwarded generated media, protected sharing, loss and replacement
+        run: npm run test:realtime
+        env:
+          REALTIME_RESULTS_DIR: test-results/realtime-forwarded
+      - name: Same-codec mesh comparison
+        run: npm run test:realtime
+        env:
+          REALTIME_TOPOLOGY: mesh
+          REALTIME_RESULTS_DIR: test-results/realtime-mesh
+      - name: Package the exact built SDK and notices
+        run: |
+          mkdir -p release/realtime
+          npm pack --ignore-scripts --pack-destination release/realtime
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: realtime-adapter-linux-x64
+          path: |
+            kithmoot/release/realtime/
+            kithmoot/dist/realtime-forwarder.mjs
+            kithmoot/dist/realtime-runtime/
+            kithmoot/test-results/realtime-forwarded/results.json
+            kithmoot/test-results/realtime-mesh/results.json
+          if-no-files-found: error
+          retention-days: 14
