@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "date": "2026-10-23",
+  "label": "Self-contained local product runtime; not Internet connectivity or legal exemption proof",
+  "sourceParentCommit": "16d52c4b9130a66b8468b3795a2ce803b9ebc440",
+  "sourceSha256": {
+    "app/src/browser-share.ts": "0ae4072072e153818069a1f6b2565a0a226c20a3aac29f1bef87dab96eb9d532",
+    "app/src/browser-share-plan.ts": "146c63a864d261905728f26b28c0faeb390d06af79911b668876eb3455ebfa74",
+    "app/src/browser-share-plan.test.ts": "d8b9f09eede19651ee7482850c4ed0cb899fa3f9995cd92813a3cf10b9aad833",
+    "app/src/call-timeline.ts": "814cd9f12a796ea1811b8ea9f35aa5d851d32535245c310ba13841730611641e",
+    "app/src/call-timeline.test.ts": "72b4413a4e767752ea44fd0af59b6dfdc19dd9db07dfb0f3e463fa0519600bd2",
+    "app/src/main.ts": "8bac1d516d96a6e306a1747b54cae79612515c37765ade59024db17909c11fbf",
+    "test/browser.ts": "c163f4bed95a5ed243aaad8c501023b5d84c0b9efc86a5860036d6c1aedd4d27",
+    "test/browser-protected-share.spec.ts": "b6253a552d6ce10efedbc4f036eb61482e203af512062dc29105ef3bc3534bbf",
+    "test/browser-protected-share-fixture.ts": "6292e284743100695aa06192ff94c3d175f1eb5980c1d471557379a4d57b2377",
+    "test/publisher-independence.spec.ts": "eb18cfe93de70c26f88469258243fd58a54e283ee79be9852952401684253361",
+    "playwright.publisher.config.ts": "c9d04c7e90268f700a0d06d69d72809424452a71e63949d2525fba003a12c446",
+    "package.json": "c5cf304a87ad8652dabe23297ce7caf5a1b066341de17f1482068b06a3f509a0",
+    "package-lock.json": "3688c3653ad59be4f6908b6f9b08df231172feb4b10adae3fb8e01ed45abd63d",
+    ".github/workflows/ci.yml": "b4bb07c7ed835d171ecd63f2ddfa8b197687d554c161825c6cb2114766037d7e"
+  },
+  "environment": {
+    "os": "macOS-14.6.1-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "node": "24.21.0",
+    "chromium": "151.0.7922.34",
+    "dependencies": "Reused existing checkout installation, not a fresh npm ci",
+    "versions": {
+      "@playwright/test": "1.62.1",
+      "typescript": "5.9.3",
+      "esbuild": "0.28.2",
+      "vite": "8.2.2",
+      "vitest": "4.1.11"
+    }
+  },
+  "browserRun": {
+    "startedAt": "2026-10-23T15:14:53.100Z",
+    "durationMs": 17825.686999999998,
+    "passed": 5,
+    "failed": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "title": "protected sharing sends only the cropped/redacted canvas, hides sound and covers source changes",
+        "status": "passed",
+        "durationMs": 2038
+      },
+      {
+        "title": "cancelling while the picker is pending stops every track in a late result",
+        "status": "passed",
+        "durationMs": 142
+      },
+      {
+        "title": "source closure and compositor failure stop protected output and raw capture",
+        "status": "passed",
+        "durationMs": 681
+      },
+      {
+        "title": "monitor, unknown and sharing-controls sources are refused before any publication",
+        "status": "passed",
+        "durationMs": 407
+      },
+      {
+        "title": "fresh browser rooms chat, call, protect a share and reconnect with only independent local infrastructure",
+        "status": "passed",
+        "durationMs": 5874
+      }
+    ]
+  },
+  "journey": {
+    "scope": "two fresh browser contexts on one local host; independent static assets and test Nostr relay",
+    "publisherRuntimeAvailable": false,
+    "externalHttpAttempts": [],
+    "deniedExternalWebSocketOrigins": [
+      "wss://purplepag.es",
+      "wss://relay.damus.io",
+      "wss://relay.primal.net"
+    ],
+    "chat": true,
+    "twoWayAudioVideo": true,
+    "protectedSharePublished": true,
+    "protectedShareDecoded": true,
+    "reconnect": true,
+    "legacyCallEventConsoleRecords": 0,
+    "diagnosticExportHook": false,
+    "separateNetworks": false,
+    "realProviderSelection": false,
+    "noLoggingAudit": false,
+    "legalExemptionEstablished": false
+  },
+  "localChecks": {
+    "npm run typecheck": "passed, exit 0",
+    "focusedUnitTests": {
+      "files": 5,
+      "passed": 69,
+      "failed": 0
+    },
+    "productionBuild": "passed through publisher Playwright configuration with no TURN issuer or meeting-code endpoint",
+    "builtTelemetryMarkerCheck": "passed; not a zero-logging audit",
+    "hostedCI": "not run for these local changes"
+  },
+  "protectionScope": {
+    "syntheticWindowSource": true,
+    "syntheticAreaCrop": true,
+    "remoteMarkerScan": true,
+    "hiddenSharedAudioDisabled": true,
+    "changedSourceRequiresConfirmation": true,
+    "latePickerTracksStopped": true,
+    "sourceClosureStopsCapture": true,
+    "compositorFailureStopsCapture": true,
+    "monitorUnknownAndOwnControlsLabelRefused": true,
+    "realOsPickerAcceptance": false,
+    "otherBrowsers": false,
+    "physicalGrapheneOs": false,
+    "recordingAndExportSinks": false
+  },
+  "qualification": {
+    "hosting": "Local preview serves built static assets and models independently hosted distribution; no separate legal operator is established",
+    "relay": "Explicitly injected local Nostr fixture, not automatic real-provider onboarding",
+    "network": "All external browser HTTP and WebSockets denied; native ICE configuration contains no servers; not a process or host egress audit",
+    "remaining": [
+      "Separate networks, restrictive NAT and blocked UDP",
+      "Legitimate independent provider availability and replacement",
+      "Admission, revocation, key-custody and deployment-authority audit",
+      "Complete client, dependency and host logging audit",
+      "Enforced endpoint-only FIPS transport",
+      "Actual platform capture and physical GrapheneOS acceptance"
+    ],
+    "legalNotesRevision": "924320346136fd34c49dc01a05ff620f26d252b3",
+    "legalNotesVerified": "2026-09-28; relevant updates 2026-10-23",
+    "legalApplication": "U: reasoned application, no blanket OSA exemption",
+    "independentReview": "Two bounded AI reviews support factual publisher boundary with the recorded limits; no external legal adviser contacted"
+  },
+  "buildAssetSha256": {
+    "app/dist/assets/main-qh23nmQm.js": "6b2e8c6147ad47a4952aa61e6a010c9550b18cc29fb81a9ec1e1949e0989a97c"
+  }
+}

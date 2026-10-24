@@ -295,6 +295,9 @@
         <fieldset>
           <legend>Call relay (TURN)</legend>
           <p class="note">Use a relay you trust when devices cannot connect directly. Set it on each device that needs it. Saved in this browser; the password is never added to room links. After changing it, leave and reopen the room.</p>
+          <p class="note">Have a connection file from your provider or self-hosting operator? Import it, review the addresses, then save. The file contains a password: keep it private. Your chosen server can see connection metadata.</p>
+          <button id="callRelayImport" type="button">Import call relay file</button>
+          <input id="callRelayFile" type="file" accept=".json,application/json" aria-label="Call relay connection file" hidden />
           <label for="callRelayUrls">Relay addresses</label>
           <input id="callRelayUrls" placeholder="turn:relay.example:3478, turns:relay.example:5349" autocomplete="off" spellcheck="false" />
           <label for="callRelayUsername">Relay username</label>
@@ -303,6 +306,8 @@
           <input id="callRelayPassword" type="password" autocomplete="off" />
           <button id="callRelaySave" type="button">Save call relay</button>
           <button id="callRelayRemove" type="button">Remove call relay</button>
+          <p class="note" id="callRelayCheckNote">Testing contacts your saved relay and sends test data. The server sees your IP address and login. No camera or microphone is used.</p>
+          <button id="callRelayCheck" type="button" aria-describedby="callRelayCheckNote">Test saved call relay</button>
           <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
         </fieldset>
         </section>

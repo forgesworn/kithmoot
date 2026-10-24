@@ -1,0 +1,296 @@
+{
+  "date": "2026-10-23",
+  "phase": "repeat after synthetic label change",
+  "stats": {
+    "startTime": "2026-10-23T15:54:38.958Z",
+    "duration": 117947.239,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "finding": "One restored group receiver had only one peer with decoded video and audio energy, expected two. Prior strengthened run passed; repeat exposes an intermittent reconnect gap.",
+  "status": "Final explicitly visible Gallery qualification passed; earlier/default layouts not qualified and no production fix inferred",
+  "diagnosticAttempt": {
+    "stats": {
+      "startTime": "2026-10-23T15:59:31.184Z",
+      "duration": 61864.541000000005,
+      "expected": 0,
+      "skipped": 0,
+      "unexpected": 1,
+      "flaky": 0
+    },
+    "boundedState": {
+      "phase": "initial group",
+      "peers": [
+        {
+          "pairs": [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 2389331,
+              "frames": 723,
+              "audioEnergy": 3.3315927922014548
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1958227,
+              "frames": 631,
+              "audioEnergy": 2.9229387676083904
+            }
+          ],
+          "states": [
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            },
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "pairs": [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 2423791,
+              "frames": 744,
+              "audioEnergy": 3.456312779819671
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1486381,
+              "frames": 628,
+              "audioEnergy": 2.904914083606074
+            }
+          ],
+          "states": [
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            },
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "pairs": [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1676617,
+              "frames": 644,
+              "audioEnergy": 3.0139500324944137
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1790423,
+              "frames": 644,
+              "audioEnergy": 3.002047866784926
+            }
+          ],
+          "states": [
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            },
+            {
+              "connection": "connected",
+              "ice": "connected",
+              "signalling": "stable",
+              "sending": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "enabled": true
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "enabled": true
+                }
+              ],
+              "receiving": [
+                {
+                  "kind": "audio",
+                  "state": "live",
+                  "muted": false
+                },
+                {
+                  "kind": "video",
+                  "state": "live",
+                  "muted": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "measurementFinding": "A growth-predicate failure had six live receiving directions in its subsequent bounded snapshot. The final measurement now establishes a fresh baseline when a peer or inbound RTP identity/counter resets, and still requires new decoded video and audio energy. No production media fix inferred.",
+  "repeatBeforeLayoutQualification": {
+    "startedAt": "2026-10-23T16:02:08.637Z",
+    "durationMs": 136413.356,
+    "status": "failed",
+    "phase": "repeat reconnect 2",
+    "finding": "One connected TLS receiving direction had framesDecoded 0 with audioEnergy 5.749889216990801; other five directions decoded video. Both media transceivers reported sendrecv. Actual rendered/paused sinks were not recorded by that version of the probe."
+  },
+  "nextQualification": "Completed: final 1920x1080 Gallery run passed all six media directions and three extra reload/rejoin cycles, with zero skipped cases. Retained earlier negative observations are not erased by the pass.",
+  "finalStats": {
+    "startTime": "2026-10-23T16:12:59.051Z",
+    "duration": 72555.973,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "driverTimeout": {
+    "finding": "A direct click targeted Gallery controls inside a closed Layout menu. Final driver uses chooseCallMore with the real Layout submenu.",
+    "testDurationMs": 180024
+  }
+}

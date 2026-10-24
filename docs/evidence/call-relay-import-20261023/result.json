@@ -1,0 +1,298 @@
+{
+  "run": "final",
+  "parentCommit": "0ca0a0d5",
+  "stats": {
+    "startTime": "2026-10-23T16:45:34.636Z",
+    "duration": 93778.19,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "cases": [
+    {
+      "title": "participants use separate TLS call servers, group-call and replace a failed server without replacing the room",
+      "status": "passed",
+      "durationMs": 59016,
+      "independent-call-connectivity": {
+        "transport": "TLS over TCP only from browsers to TURN; UDP between TURN instances",
+        "publisherRuntimeAvailable": false,
+        "instanceCount": 2,
+        "participants": 3,
+        "oneToOne": [
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 96996,
+              "frames": 65,
+              "audioEnergy": 0.2841928556829661,
+              "mediaEpoch": "IT01A3975328355|IT01V1408652443"
+            }
+          ],
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 257386,
+              "frames": 77,
+              "audioEnergy": 0.34917616457673195,
+              "mediaEpoch": "IT01A1009895016|IT01V3488654196"
+            }
+          ]
+        ],
+        "group": [
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 404323,
+              "frames": 207,
+              "audioEnergy": 0.9535907705232018,
+              "mediaEpoch": "IT01A3975328355|IT01V1408652443"
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 307858,
+              "frames": 102,
+              "audioEnergy": 0.36684765326879526,
+              "mediaEpoch": "IT01A2305715983|IT01V4067891444"
+            }
+          ],
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 778511,
+              "frames": 223,
+              "audioEnergy": 1.024679779772989,
+              "mediaEpoch": "IT01A1009895016|IT01V3488654196"
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 321327,
+              "frames": 102,
+              "audioEnergy": 0.4020118970607148,
+              "mediaEpoch": "IT01A271284965|IT01V850044145"
+            }
+          ],
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 353047,
+              "frames": 109,
+              "audioEnergy": 0.5166371318273572,
+              "mediaEpoch": "IT01A4002333056|IT01V4237769966"
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 386611,
+              "frames": 110,
+              "audioEnergy": 0.5122139837345308,
+              "mediaEpoch": "IT01A875192304|IT01V1367298047"
+            }
+          ]
+        ],
+        "restored": [
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 267399,
+              "frames": 79,
+              "audioEnergy": 0.35973748403230277,
+              "mediaEpoch": "IT01A3082837582|IT01V243953524"
+            },
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 271947,
+              "frames": 79,
+              "audioEnergy": 0.3629107357795066,
+              "mediaEpoch": "IT01A1887345148|IT01V1628696528"
+            }
+          ],
+          [
+            {
+              "peer": 1,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1008910,
+              "frames": 318,
+              "audioEnergy": 1.4193734156310571,
+              "mediaEpoch": "IT01A271284965|IT01V850044145"
+            },
+            {
+              "peer": 2,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 250318,
+              "frames": 73,
+              "audioEnergy": 0.31195920058173204,
+              "mediaEpoch": "IT01A1150196737|IT01V2916214863"
+            }
+          ],
+          [
+            {
+              "peer": 0,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 1137267,
+              "frames": 330,
+              "audioEnergy": 1.533246066254524,
+              "mediaEpoch": "IT01A4002333056|IT01V4237769966"
+            },
+            {
+              "peer": 2,
+              "local": "relay",
+              "remote": "relay",
+              "relayProtocol": "tls",
+              "bytes": 247620,
+              "frames": 73,
+              "audioEnergy": 0.3139101709081331,
+              "mediaEpoch": "IT01A1662593737|IT01V1403855903"
+            }
+          ]
+        ],
+        "chatDuringTransportOutage": true,
+        "roomLinkReplaced": false,
+        "providerReplacement": "explicit device Settings then reopen; not automatic failover",
+        "subsequentReconnectCycles": 3,
+        "directCandidatesAllowed": false,
+        "externalRequests": [],
+        "separateNetworks": false,
+        "publicCertificateQualified": false,
+        "publicProviderSelected": false,
+        "guestSetupRemoved": false,
+        "legalExemptionEstablished": false,
+        "guestConfiguration": "separate provider login file imported and explicitly saved; no manual server/password entry for guests"
+      }
+    },
+    {
+      "title": "connection files need review and saving; relay checks exchange real data, refuse bad credentials and cancel cleanly",
+      "status": "passed",
+      "durationMs": 15535,
+      "call-relay-import-and-check": {
+        "importContactsServer": false,
+        "explicitSaveRequired": true,
+        "rootFieldsRefused": true,
+        "oversizeRefused": true,
+        "relayOnlyDataRoundTrip": true,
+        "testPeersClosed": true,
+        "unsavedChangesNotTested": true,
+        "badCredentialRefused": true,
+        "settingsCloseCancels": true,
+        "mediaQualified": false,
+        "noAutomaticProvider": true,
+        "publicProviderSelected": false,
+        "legalExemptionEstablished": false
+      }
+    }
+  ],
+  "sourceSha256": {
+    "app/src/main.ts": "259acfc29f4e501433fa8cc19403d6022cd1ac61f7554b0ddace65e2c8f4f495",
+    "app/index.html": "c5494631fa00cd15ee8a35004ac02fc774e8be4e8ae7752e79d47ea56a2213b6",
+    "app/src/call-relay-profile.ts": "c1bf525341087a4ffe0f54b7a55cfd0a7e7cc03f9f42cee69d139cf76635cf8f",
+    "app/src/call-relay-profile.test.ts": "9b589a317898f63c0cb754cdb0c2b2feca23062a1c06e6bba8dd176fc76de31e",
+    "app/src/call-relay-check.ts": "c6024edb1c107c7252c729ece8738a8f60f7d588c945a128a46ca6fa8af8d699",
+    "test/independent-calls.spec.ts": "bb45e02adeb19c53f554c7d6469e9b7e6a0be17ebcd125ca556f68633d461bd6",
+    "playwright.independent-calls.config.ts": "6dbbd1177a969fbeba8ce4fd5c1a620feb140a088888d7fc98608c2147424b2f",
+    "test/independent-call-fixture.py": "602c8422c1c663de128683f1f44ac98e97bc63e35a733d07c95f6dc0e5fa7901"
+  },
+  "limitations": {
+    "syntheticLocalFixturesOnly": true,
+    "independentPublicProviderQualified": false,
+    "separateNetworks": false,
+    "automaticGuestSetup": false,
+    "intermittentRejoinVideoIssueResolved": false,
+    "legalExemptionEstablished": false
+  },
+  "publisherRegression": {
+    "stats": {
+      "startTime": "2026-10-23T16:47:41.097Z",
+      "duration": 18336.905,
+      "expected": 5,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "cases": [
+      {
+        "title": "protected sharing sends only the cropped/redacted canvas, hides sound and covers source changes",
+        "status": "passed"
+      },
+      {
+        "title": "cancelling while the picker is pending stops every track in a late result",
+        "status": "passed"
+      },
+      {
+        "title": "source closure and compositor failure stop protected output and raw capture",
+        "status": "passed"
+      },
+      {
+        "title": "monitor, unknown and sharing-controls sources are refused before any publication",
+        "status": "passed"
+      },
+      {
+        "title": "fresh browser rooms chat, call, protect a share and reconnect with only independent local infrastructure",
+        "status": "passed"
+      }
+    ]
+  },
+  "unitTests": {
+    "command": "node_modules/.bin/vitest run app/src/call-relay-profile.test.ts app/src/call-relay.test.ts app/src/relay-only.test.ts",
+    "passed": 39,
+    "failed": 0,
+    "files": 3
+  },
+  "legalReview": {
+    "kind": "bounded AI source review, not legal advice",
+    "notesRevision": "9243203",
+    "verifiedDate": "2026-09-28",
+    "relevantUpdateDate": "2026-10-23",
+    "conclusion": "No new publisher admission or issuer authority identified in this increment; legal application remains unresolved",
+    "notEstablished": [
+      "issuer authenticity",
+      "per-device credential scope",
+      "provider permission",
+      "expiry or renewal",
+      "full no-logging behaviour",
+      "OSA exemption"
+    ]
+  },
+  "checks": {
+    "typecheck": "npm run typecheck passed on final source",
+    "productionBuild": "passed during both final Playwright runs; pinned native-web checks and no-telemetry-marker guard passed",
+    "diffCheck": "git diff --check passed",
+    "hostedCI": "not run",
+    "androidDevice": "not run",
+    "freshDependencyInstallation": false
+  }
+}

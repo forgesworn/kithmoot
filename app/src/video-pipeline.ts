@@ -320,6 +320,15 @@ export class CameraPipeline {
     return this.#stream?.getVideoTracks()[0]
   }
 
+  /** Playback facts for the opt-in synthetic diagnostic build. No frames,
+   * device identifiers, labels or persistent recording. */
+  get playback() {
+    return { paused: this.#video.paused, readyState: this.#video.readyState,
+      width: this.#video.videoWidth, height: this.#video.videoHeight,
+      time: this.#video.currentTime, sourceState: this.sourceTrack?.readyState,
+      sourceMuted: this.sourceTrack?.muted, sourceEnabled: this.sourceTrack?.enabled }
+  }
+
   get stats(): CameraStats {
     const mask = this.#effect.maskSize
     return {

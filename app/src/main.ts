@@ -31,6 +31,7 @@ import type { BrowserMlsGrantDevelopmentPanel } from './mls-grant-development-pa
 import type { BrowserMlsRoomDevelopmentPanel } from './mls-room-development-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
+import { BrowserShare } from './browser-share.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
@@ -147,7 +148,7 @@ import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
-import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
+import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -301,8 +302,10 @@ import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
-import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
+import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
+import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -656,6 +659,7 @@ const desktopShareArea = new DesktopShareArea({
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
+const browserShare = new BrowserShare(() => screenTrack?.dispatchEvent(new Event('ended')))
 // Marks drawn on a whole-screen share, shown over the screen being shared:
 // that share's own preview is a blank tile (see `applySelfMirrorGuard`).
 const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
@@ -675,7 +679,7 @@ const chatArtPicker = new ChatArtPicker({
     return granted
   },
 })
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); shareMarksOverlay.close() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); browserShare.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -5278,19 +5282,14 @@ function renderCallTabNotice(): void {
   if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
 }
 
-// A rolling, redacted record of what happened during this call, and a
-// per-pair health sampler that turns single-snapshot stats into "is it
-// actually moving". Both feed `collectDiagnostics` below; see
-// app/src/call-timeline.ts for what they will and will not record.
-const callTimeline = new CallTimeline()
+// Call history exists only in explicitly instrumented synthetic test builds.
+// Ordinary builds retain no timeline and expose no diagnostic export hook.
+const syntheticCallDiagnostics = import.meta.env.VITE_TEST_DIAGNOSTICS === 'true'
+const callTimeline = new CallTimeline(Date.now, syntheticCallDiagnostics)
 
-/** Which call this device said it was on, and why a call rang or did not.
- *  To the timeline for a pasted report, and to the console as well: the
- *  timeline keeps ten minutes, and a ring nobody can explain is usually
- *  asked about later than that. Short ids only, as the timeline takes. */
+/** Diagnostic call events are discarded in ordinary builds, never printed. */
 function logCall(kind: 'call-declared' | 'call-ring', who: string | undefined, detail: string): void {
   callTimeline.record(kind, who, detail)
-  console.info(`[kithmoot] ${kind}${who ? ` ${who.slice(0, 8)}` : ''}: ${detail}`)
 }
 const pairHealthSampler = new PairHealthSampler()
 
@@ -5392,7 +5391,7 @@ async function joinCall(): Promise<void> {
 /** Everything of this device's that was live, off, and the previews with it.
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
-  desktopShareArea.stop()
+  desktopShareArea.stop(); browserShare.stop()
   shareMarksOverlay.close()
   desktopRedaction.closeAll()
   desktopRedaction.setHidden(false)
@@ -6693,7 +6692,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 }
 
 let screenStarting = false
-async function toggleScreen(area = false): Promise<void> {
+async function toggleScreen(area = false, protectedShare = false): Promise<void> {
   if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
@@ -6701,7 +6700,7 @@ async function toggleScreen(area = false): Promise<void> {
   if (!screenTrack && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!screenTrack) callWanted = true
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -6751,20 +6750,20 @@ async function toggleScreen(area = false): Promise<void> {
       // Awaited only in the desktop app: a browser's own chooser keeps the
       // click's activation without a round trip in front of it.
       if (desktopRedaction.supported) await desktopRedaction.begin()
-      stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      stream = protectedShare ? await browserShare.start(area) : area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
       // Read off the raw capture, before any redaction canvas stands in for it.
       capture = {
         deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
         ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
       }
-      if (!area && desktopRedaction.supported) {
+      if (!protectedShare && !area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
       }
     }
     finally { screenStarting = false }
-    if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
+    if (generation !== callGeneration || leftCall || !meetingLetsMeSend()) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); browserShare.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     // An area share already tracks this precisely, reactively, via the
@@ -6778,7 +6777,7 @@ async function toggleScreen(area = false): Promise<void> {
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== callGeneration) return
-        desktopShareArea.stop()
+        desktopShareArea.stop(); browserShare.stop()
         shareMarksOverlay.close()
         screenTrack = undefined
         shareMayShowItself = false
@@ -7189,6 +7188,8 @@ function updateUi(): void {
   updateRedactionControls()
   const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
   if (areaButton) areaButton.disabled = !!screenTrack
+  const protectedButton = document.getElementById('shareProtected') as HTMLButtonElement | null
+  if (protectedButton) protectedButton.disabled = !!screenTrack
   const share = $('toggleScreen')
   const sharing = !!screenTrack
   share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
@@ -9063,6 +9064,8 @@ function describeStopped(stopped: string[]): string {
  *  screen. Says which were on. Shared by an admin's mute and meeting mode. */
 function stopSending(): string[] {
   const stopped: string[] = []
+  // Also cancel a protected preview whose permission/confirmation is pending.
+  browserShare.stop()
   if (micTrack) {
     micTrack.removeEventListener('ended', onMicEnded)
     micTrack.stop()
@@ -9080,7 +9083,7 @@ function stopSending(): string[] {
     stopped.push('camera')
   }
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -12782,15 +12785,15 @@ function syncRemoteVideos(): void {
   for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
-    const moving = clock > entry.last + 0.001
+    const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
+    const moving = pictureAdvanced(entry.last, clock, hasFrame)
     entry.last = clock
     if (moving) {
       noteProgress(entry.track, now)
-      // Keep a newly negotiated sink connected so it can decode, but do not
-      // let its empty black rectangle take half of a grouped person's card.
-      // The first painted frame makes it a picture and earns its place.
-      if (entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     }
+    // Reveal real picture data even when a still frame's clock is zero.
+    // An initial empty sink must remain attached without claiming playback.
+    if (hasFrame && entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
@@ -13130,6 +13133,7 @@ const short = (hex: string | undefined) => (hex ? hex.slice(0, 8) : hex)
  * is not something a "copy" button should put on their clipboard.
  */
 async function collectDiagnostics(): Promise<string> {
+  if (!syntheticCallDiagnostics) return '{}'
   const s = mediaSession()
   const pick = (r: Record<string, unknown>, keys: string[]) =>
     Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))
@@ -13199,6 +13203,7 @@ async function collectDiagnostics(): Promise<string> {
       callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
+      camera: camera ? { playback: camera.playback, stats: camera.stats, totals: camera.totals } : undefined,
       screenAudio: screenAudioTrack
         ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
         : { present: false },
@@ -13486,9 +13491,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
     const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
+      const available = liveIceServers(resolvedIceServers)
       const configuration = relayOnly
-        ? relayOnlyIceConfiguration(resolvedIceServers)
-        : { iceServers: context?.tier === 'turn' ? resolvedIceServers : stunOnly }
+        ? relayOnlyIceConfiguration(available)
+        : { iceServers: context?.tier === 'turn' ? available : stunOnly }
       const pc = deviceRelay ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
@@ -17576,6 +17582,7 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  if (name !== 'connections') cancelCallRelayActions()
   if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
@@ -17613,7 +17620,19 @@ function renderSettingsRows(): void {
   renderFilesSettings()
 }
 
+let callRelayActionGeneration = 0
+let callRelayCheckAbort: AbortController | undefined
+function cancelCallRelayActions(): void {
+  callRelayActionGeneration++
+  if (callRelayCheckAbort) $('callRelayStatus').textContent = 'Relay test stopped.'
+  callRelayCheckAbort?.abort()
+  callRelayCheckAbort = undefined
+  ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+  ;($('callRelayFile') as HTMLInputElement).value = ''
+}
+
 function renderCallRelay(): void {
+  cancelCallRelayActions()
   try {
     const relay = loadCallRelay(localStorage)
     ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
@@ -17624,6 +17643,7 @@ function renderCallRelay(): void {
 }
 
 $('callRelaySave').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
       ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
@@ -17636,11 +17656,60 @@ $('callRelaySave').addEventListener('click', () => {
   }
 })
 $('callRelayRemove').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     saveCallRelay(localStorage, undefined)
     renderCallRelay()
     $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
   } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+})
+
+$('callRelayImport').addEventListener('click', () => ($('callRelayFile') as HTMLInputElement).click())
+$('callRelayFile').addEventListener('change', async () => {
+  const input = $('callRelayFile') as HTMLInputElement
+  const file = input.files?.[0]
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  if (!file) return
+  try {
+    if (file.size > CALL_RELAY_PROFILE_LIMIT) throw new Error()
+    const relay = parseCallRelayProfile(await file.text())
+    if (generation !== callRelayActionGeneration) return
+    ;($('callRelayUrls') as HTMLInputElement).value = relay.urls.join(', ')
+    ;($('callRelayUsername') as HTMLInputElement).value = relay.username
+    ;($('callRelayPassword') as HTMLInputElement).value = relay.credential
+    $('callRelayStatus').textContent = 'File imported for review. Check the addresses, then save. Importing has made no connection and has not saved the login.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = INVALID_CALL_RELAY_PROFILE
+  }
+})
+for (const id of ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']) $(id).addEventListener('input', cancelCallRelayActions)
+$('callRelayCheck').addEventListener('click', async () => {
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  const controller = new AbortController()
+  callRelayCheckAbort = controller
+  try {
+    const relay = loadCallRelay(localStorage)
+    if (!relay) { $('callRelayStatus').textContent = 'Save a call relay before testing it.'; return }
+    const reviewed = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
+      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    if (JSON.stringify(reviewed) !== JSON.stringify(relay)) {
+      $('callRelayStatus').textContent = 'Save the changes before testing, so the test uses the addresses shown here.'
+      return
+    }
+    ;($('callRelayCheck') as HTMLButtonElement).disabled = true
+    $('callRelayStatus').textContent = 'Testing the saved relay with temporary connections…'
+    await checkCallRelay(relay, controller.signal)
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your saved relay. This checks this device, not a call with someone else.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = CALL_RELAY_CHECK_FAILED
+  } finally {
+    if (generation === callRelayActionGeneration) {
+      callRelayCheckAbort = undefined
+      ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+    }
+  }
 })
 
 /** Shows this device's own STUN choice; blank means the default. */
@@ -17689,6 +17758,7 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  cancelCallRelayActions()
   // Do not keep a saved password in the hidden settings form.
   ;($('callRelayPassword') as HTMLInputElement).value = ''
   closeAccountMessageViews()
@@ -18651,14 +18721,23 @@ $('toggleMic').addEventListener('click', () => {
 $('toggleCamera').addEventListener('click', () => {
   toggleCamera().then(() => noteMediaBlocked(undefined)).catch((err) => noteMediaBlocked('Camera', err))
 })
-if (window.kithmootDesktop?.supportsShareArea) {
+if (window.kithmootDesktop?.supportsShareArea || (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function')) {
   const area = document.createElement('button')
   area.id = 'shareArea'
   area.className = 'toggle'
   area.textContent = 'Share an area'
-  area.onclick = () => { toggleScreen(true).catch(showShareError) }
+  area.onclick = () => { toggleScreen(true, !window.kithmootDesktop).catch(showShareError) }
   // Behind More, beside the other ways to share: the bar keeps one Share.
   $('shareExtras').append(area)
+  $('shareExtras').hidden = false
+}
+if (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function') {
+  const protect = document.createElement('button')
+  protect.id = 'shareProtected'
+  protect.className = 'toggle'
+  protect.textContent = 'Share with redaction'
+  protect.onclick = () => { toggleScreen(false, true).catch(showShareError) }
+  $('shareExtras').append(protect)
   $('shareExtras').hidden = false
 }
 // Boxes live on the real screen, so Wayland (which forbids placing a window)

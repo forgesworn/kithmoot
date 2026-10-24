@@ -1,0 +1,23 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T18:08:52.951Z",
+    "duration": 18621.795,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": false,
+  "sourceRepairMade": false,
+  "cases": [
+    {
+      "title": "a delayed first camera frame after rejoin keeps its playback sink attached",
+      "status": "failed",
+      "durationMs": 10340,
+      "errors": [
+        "Error: a sink with no first frame was parked out of the rendering tree\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: true\nReceived: false\n\n  169 |     expect(held?.clock).toBe(0)\n  170 |     expect(held?.width).toBe(0)\n> 171 |     expect(held?.insideRoom, 'a sink with no first frame was parked out of the rendering tree').toBe(true)\n      |                                                                                                 ^\n  172 |     expect(held?.awaiting).toBe(true)\n  173 |     for (const page of pages) await movingMedia(page, 1)\n  174 |     await test.info().attach('delayed-first-frame-rejoin', { contentType: 'application/json', body: JSON.stringify({\n    at <checkout>/test/automatic-calls.spec.ts:171:97"
+      ],
+      "attachments": {}
+    }
+  ]
+}

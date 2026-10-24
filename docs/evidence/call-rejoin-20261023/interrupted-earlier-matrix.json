@@ -1,0 +1,67 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T18:23:45.137Z",
+    "duration": 353653.613,
+    "expected": 3,
+    "skipped": 2,
+    "unexpected": 3,
+    "flaky": 0
+  },
+  "diagnosticsEnabled": false,
+  "observerCpuRate": 4,
+  "responseBodyObserverSuperseded": true,
+  "interrupted": true,
+  "cases": [
+    {
+      "title": "issuer requests omit cookies and room information while fresh guests receive distinct logins",
+      "status": "failed",
+      "durationMs": 10576,
+      "errors": [
+        "Error: expect(received).toBeGreaterThanOrEqual(expected)\n\nExpected: >= 2\nReceived:    1\n\nCall Log:\n- Timeout 5000ms exceeded while waiting on the predicate\n\n  53 |     // its own transport allocation yet.\n  54 |     await turnOnMedia(pages[1])\n> 55 |     await expect.poll(() => replies.length).toBeGreaterThanOrEqual(2)\n     |                                             ^\n  56 |     expect(new Set(replies.map(reply => reply.username)).size).toBe(replies.length)\n  57 |     for (const page of pages) {\n  58 |       const stored = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }))\n    at <checkout>/test/automatic-calls.spec.ts:55:45"
+      ]
+    },
+    {
+      "title": "a delayed first camera frame after rejoin keeps its playback sink attached",
+      "status": "passed",
+      "durationMs": 19679,
+      "errors": []
+    },
+    {
+      "title": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+      "status": "failed",
+      "durationMs": 166916,
+      "errors": [
+        "Error: every remote participant must supply decoded video, audio and a playing video sink\n\nevery remote participant must supply decoded video, audio and a playing video sink\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n\nCall Log:\n- Timeout 45000ms exceeded while waiting on the predicate\n\n  112 |   if (peers > 1) await chooseCallMore(page, 'Gallery', 'Layout')\n  113 |   await expect.poll(async () => (await sample(page)).filter(row => row.frames > 5 && row.energy > 0 && row.sinkTime > 0).length,\n> 114 |     { timeout: 45_000, message: 'every remote participant must supply decoded video, audio and a playing video sink' }).toBe(peers)\n      |                                                                                                                         ^\n  115 |   const baseline = new Map((await sample(page)).map(row => [row.peer, row]))\n  116 |   await expect.poll(async () => (await sample(page)).filter(row => {\n  117 |     const before = baseline.get(row.peer)\n    at movingMedia (<checkout>/test/automatic-calls.spec.ts:114:121)\n    at <checkout>/test/automatic-calls.spec.ts:266:44"
+      ]
+    },
+    {
+      "title": "issuer refusal preserves chat and refuses a relay-only call without creating a peer",
+      "status": "passed",
+      "durationMs": 2323,
+      "errors": []
+    },
+    {
+      "title": "issuer requests omit cookies and room information while fresh guests receive distinct logins",
+      "status": "failed",
+      "durationMs": 10590,
+      "errors": [
+        "Error: expect(locator).toHaveAttribute(expected) failed\n\nLocator:  locator('#toggleMic')\nExpected: \"true\"\nReceived: \"false\"\nTimeout:  5000ms\n\nCall log:\n  - Expect \"toHaveAttribute\" with timeout 5000ms\n  - waiting for locator('#toggleMic')\n    12 \u00d7 locator resolved to <button id=\"toggleMic\" class=\"toggle\" data-on=\"false\" aria-pressed=\"false\" aria-label=\"Microphone\" title=\"Microphone (\u2318D)\" aria-keyshortcuts=\"Control+D Meta+D\">\u2026</button>\n       - unexpected value \"false\"\n\n\n   at browser.ts:718\n\n  716 |   await page.locator('#toggleMic').click()\n  717 |   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')\n> 718 |   await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')\n      |                                            ^\n  719 | }\n  720 |\n  721 | /**\n    at turnOnMedia (<checkout>/test/browser.ts:718:44)\n    at <checkout>/test/automatic-calls.spec.ts:49:5"
+      ]
+    },
+    {
+      "title": "a delayed first camera frame after rejoin keeps its playback sink attached",
+      "status": "passed",
+      "durationMs": 30009,
+      "errors": []
+    },
+    {
+      "title": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+      "status": "interrupted",
+      "durationMs": 41819,
+      "errors": [
+        "Error: locator.evaluate: Test ended.\nCall log:\n  - waiting for locator('#callMoreMenu')\n    - locator resolved to hidden <div role=\"menu\" popover=\"manual\" id=\"callMoreMenu\" class=\"menuPopover\" aria-label=\"More call controls\">\u2026</div>\n\n\n   at browser.ts:856\n\n  854 |   await openCall(page)\n  855 |   // Asked of the popover itself: the button's `aria-expanded` follows it a task later.\n> 856 |   if (!await page.locator('#callMoreMenu').evaluate(menu => menu.matches(':popover-open'))) await page.locator('#callExtras').click()\n      |                                            ^\n  857 |   await expect(page.locator('#callMoreMenu')).toBeVisible()\n  858 | }\n  859 |\n    at openCallMore (<checkout>/test/browser.ts:856:44)\n    at chooseCallMore (<checkout>/test/browser.ts:863:3)\n    at movingMedia (<checkout>/test/automatic-calls.spec.ts:112:18)\n    at <checkout>/test/automatic-calls.spec.ts:266:44"
+      ]
+    }
+  ],
+  "note": "Stopped after known failures. Native group stall remains relevant; later successful reruns do not establish its repair."
+}

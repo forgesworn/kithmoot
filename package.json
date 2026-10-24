@@ -1,6 +1,6 @@
 {
   "name": "kithmoot",
-  "version": "0.5.4",
+  "version": "0.5.5-realtime.1",
   "description": "An open Slack with agents over Nostr - a workspace nobody owns",
   "keywords": [
     "nostr",
@@ -37,10 +37,16 @@
       "import": "./dist/src/index.js",
       "default": "./dist/src/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./realtime": {
+      "types": "./dist/src/realtime/index.d.ts",
+      "import": "./dist/src/realtime/index.js"
+    }
   },
   "files": [
     "dist/src",
+    "dist/realtime-forwarder.mjs",
+    "dist/realtime-runtime",
     "bin",
     "server/forwarder.mjs",
     "vectors/kithmoot-vectors.json",
@@ -48,13 +54,20 @@
     "CHANGELOG.md",
     "docs/decisions.md",
     "docs/agents.md",
-    "docs/nostr-identity.md"
+    "docs/nostr-identity.md",
+    "docs/realtime-call-adapter.md",
+    "docs/realtime-wire.md",
+    "docs/research/realtime-adapter-qualification-20261024.md",
+    "docs/evidence/realtime-adapter-20261024.json"
   ],
   "scripts": {
     "brand:build": "node scripts/build-brand-assets.mjs",
     "brand:site": "node scripts/build-site-brand.mjs",
     "build": "node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && vite build --config app/vite.config.ts && node scripts/check-no-telemetry.mjs app/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
+    "build:realtime": "node scripts/build-realtime.mjs",
+    "test:realtime": "node test/realtime-call.mjs",
+    "test:realtime:unit": "vitest run src/realtime/*.test.ts --maxWorkers=1",
     "prepack": "npm run build:lib",
     "demo": "vite --config app/vite.config.ts --host",
     "forwarder": "npm run build:lib && node server/forwarder.mjs",
@@ -67,6 +80,9 @@
     "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
     "test:call-relay": "playwright test --config playwright.call-relay.config.ts",
+    "test:publisher": "playwright test --config playwright.publisher.config.ts",
+    "test:independent-calls": "playwright test --config playwright.independent-calls.config.ts",
+    "test:automatic-calls": "playwright test --config playwright.automatic-calls.config.ts",
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
     "test:context-packages": "node test/context-package-smoke.mjs",

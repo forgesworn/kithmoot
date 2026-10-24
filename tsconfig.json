@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts", "server/realtime-forwarder.ts"],
   "exclude": ["src/**/*.test.ts", "test/**/*.test.ts", "node_modules", "dist"]
 }

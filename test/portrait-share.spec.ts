@@ -73,10 +73,10 @@ async function expectShareUncovered(tile: Locator, label: string): Promise<void>
   await expect.poll(() => share.evaluate(v => (v as HTMLVideoElement).videoHeight), { message: `${label}: the share never decoded`, timeout: 90_000 })
     .toBeGreaterThan(0)
   await share.scrollIntoViewIfNeeded()
-  // The fitting runs on the next frame after the picture's shape is known.
-  await tile.page().waitForTimeout(500)
-
-  const report = await share.evaluate((video: HTMLVideoElement) => {
+  // Decoding precedes the liveness tick that reveals the sink, then layout
+  // fits the picture. Wait for the actual uncovered picture, not a fixed
+  // half-second that can expire before the one-second liveness tick.
+  await expect.poll(() => share.evaluate((video: HTMLVideoElement) => {
     const problems: string[] = []
     const rect = video.getBoundingClientRect()
     if (rect.width < 40 || rect.height < 40) problems.push(`share is only ${rect.width.toFixed(0)}x${rect.height.toFixed(0)}`)
@@ -111,8 +111,7 @@ async function expectShareUncovered(tile: Locator, label: string): Promise<void>
       }
     }
     return problems
-  })
-  expect(report, `${label}: ${report.join('; ')}`).toEqual([])
+  }), { message: `${label}: the decoded portrait share must be on screen and uncovered`, timeout: 10_000 }).toEqual([])
 }
 
 test('a portrait share is shown whole and nothing sits on it', async ({ browser, baseURL }) => {

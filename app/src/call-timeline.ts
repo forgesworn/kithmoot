@@ -1,7 +1,7 @@
 /**
- * A rolling, redacted timeline of what happened during a call, and a
- * per-pair health summary, both meant for one destination only: pasted into
- * a chat as part of a bug report (see `collectDiagnostics` in `main.ts`).
+ * An opt-in synthetic-test timeline and per-pair health summary.
+ * Ordinary builds discard timeline entries and disable diagnostic export
+ * (see `collectDiagnostics` in `main.ts`).
  *
  * Because of that destination, this module never records and never accepts
  * for recording: SDP bodies, ICE candidate strings, message content, room
@@ -97,14 +97,16 @@ export class CallTimeline {
   readonly #startedAt: number
   #entries: TimelineEntry[] = []
 
-  constructor(now: () => number = Date.now) {
+  /** Only synthetic acceptance builds opt into retaining diagnostic history. */
+  constructor(now: () => number = Date.now, private readonly enabled = false) {
     this.#now = now
-    this.#startedAt = now()
+    this.#startedAt = enabled ? now() : 0
   }
 
   /** Record one entry. Never throws: a bad `device` or `detail` is simply
    *  dropped from the entry rather than failing the call that reported it. */
   record(kind: TimelineKind, device?: string, detail?: string): void {
+    if (!this.enabled) return
     const atMs = this.#now() - this.#startedAt
     this.#entries.push({ atMs, kind, device: sanitiseDevice(device), detail: sanitiseDetail(detail) })
     this.#prune()

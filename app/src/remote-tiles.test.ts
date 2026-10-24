@@ -7,6 +7,7 @@ import {
   RTP_GRACE_MS,
   FROZEN_REBIND_MS,
   judgePicture,
+  pictureAdvanced,
   STALLED_CHECKS,
   TileLiveness,
   tileDevice,
@@ -446,5 +447,33 @@ describe('judgePicture', () => {
       s = judged.state
     }
     expect(new Set(actions)).toEqual(new Set(['none']))
+  })
+})
+
+describe('first-frame playback clock', () => {
+  it('does not mistake the initial zero clock for a frame, including after rebind', () => {
+    expect(pictureAdvanced(-1, 0, false)).toBe(false)
+    expect(pictureAdvanced(-1, 0, true)).toBe(false)
+  })
+  it('requires decoded picture data before treating a changed clock as playback', () => {
+    expect(pictureAdvanced(-1, 0.5, false)).toBe(false)
+    expect(pictureAdvanced(-1, 0.5, true)).toBe(true)
+    expect(pictureAdvanced(0.5, 0.5, true)).toBe(false)
+    expect(pictureAdvanced(0.5, 0, false)).toBe(false)
+  })
+  it('keeps a delayed first picture in place through repeated recovery polls', () => {
+    let last = -1
+    let state: PictureState = { stalled: 0, played: false, onScreen: true }
+    for (let at = 0; at < 8000; at += 1000) {
+      const moving = pictureAdvanced(last, 0, false)
+      last = 0
+      const result = judgePicture(state, { moving, arriving: false, visible: true, at })
+      state = result.state
+      expect(result.action).toBe('none')
+      expect(state.played).toBe(false)
+    }
+    const first = judgePicture(state, { moving: pictureAdvanced(last, 0.1, true), arriving: true, visible: true, at: 8000 })
+    expect(first.state.played).toBe(true)
+    expect(first.state.onScreen).toBe(true)
   })
 })
