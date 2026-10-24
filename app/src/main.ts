@@ -31,6 +31,7 @@ import type { BrowserMlsGrantDevelopmentPanel } from './mls-grant-development-pa
 import type { BrowserMlsRoomDevelopmentPanel } from './mls-room-development-panel.js'
 import { DesktopShareArea } from './share-area.js'
 import { DesktopRedaction } from './redaction.js'
+import { BrowserShare } from './browser-share.js'
 import { ShareMarksOverlay } from './share-marks-overlay.js'
 import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
@@ -147,7 +148,7 @@ import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
-import { bindRoles, judgePicture, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
+import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
 import { CallTabLock, type CallTabLockHandlers } from './call-tab-lock.js'
@@ -166,6 +167,7 @@ import {
   decodeJoinUrl,
   createRoomInvitation,
   roomInvitation,
+  invitationAuthority,
   deriveInvitationId,
   hostRoomInvitation,
   requestRoomAdmissionCapability,
@@ -301,11 +303,13 @@ import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
-import { resolveIceServers as resolveIceServersFor, hasRelay, RELAY_MISSING_NOTICE } from './ice-resolve.js'
+import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { completeSpryPairing, loadSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
 import { SpryRoom } from './spry-room.js'
 import { spryRequest } from '../../src/spry.js'
+import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
+import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
 import { BoxRelayReader } from './box-relay-reader.js'
 import { BoxDiscovery, boxDiscoveryRevision } from './box-discovery.js'
@@ -662,6 +666,7 @@ const desktopShareArea = new DesktopShareArea({
   ended: () => screenTrack?.dispatchEvent(new Event('ended')),
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
+const browserShare = new BrowserShare(() => screenTrack?.dispatchEvent(new Event('ended')))
 // Marks drawn on a whole-screen share, shown over the screen being shared:
 // that share's own preview is a blank tile (see `applySelfMirrorGuard`).
 const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
@@ -681,7 +686,7 @@ const chatArtPicker = new ChatArtPicker({
     return granted
   },
 })
-window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); shareMarksOverlay.close() })
+window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); browserShare.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
 // originating collection; closing the tab still discards it.
@@ -1967,14 +1972,19 @@ function startRoomBookmarks(account: SignetSession): void {
 // ---------------------------------------------------------------------------
 
 interface RoomUrlPayload {
-  /** Version 2 is an invitation. Absence means a legacy room-secret link. */
-  v?: 2 | 3
+  /** Version 2 is an invitation, 3 a group invitation, 5 a member's
+   *  invitation naming the room's authority. Absence means a legacy
+   *  room-secret link. */
+  v?: 2 | 3 | 5
   /** Legacy v1 room traffic secret. Never emitted for a new room. */
   s?: string
   /** Version 2 invitation bearer. */
   j?: string
   /** Version 2 inviter pubkey. */
   h?: string
+  /** Version 5: the room's authority, when the inviter is a member's own
+   *  key (`RoomInvitation.authority`). */
+  o?: string
   r: string[]
   i: string[]
   /** The room's admission rule, in the library's own join-URL field. Carried
@@ -2010,11 +2020,18 @@ function safeIceUrls(urls: string[]): string[] {
 
 function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
   const relays = linkRelays(pool)
+  // A member's own link names the room's authority beside its inviter, as
+  // fold-kit's `encodeRoomLink` writes it; every other link is unchanged.
+  const named = roomInvitationCapability?.authority !== undefined && roomInvitationCapability.authority !== roomInvitationCapability.inviter
+    ? roomInvitationCapability.authority
+    : undefined
+  if (named && roomInvitationCapability?.persistent) throw new Error('a group link cannot name another authority')
   const payload: RoomUrlPayload = roomInvitationCapability
     ? {
-        v: roomInvitationCapability.persistent ? 3 : 2,
+        v: named ? 5 : roomInvitationCapability.persistent ? 3 : 2,
         j: base64urlnopad.encode(roomInvitationCapability.bearer),
         h: roomInvitationCapability.inviter,
+        ...(named ? { o: named } : {}),
         r: relays,
         i: urls,
       }
@@ -2156,11 +2173,12 @@ let invitationTransport: ManagedRelayPool | undefined
  */
 let expectedEpoch: number | undefined
 
-/** The room's authority: the root inviter pinned in a v2 link. A rekey
- *  signed by it moves this browser to the new epoch; a legacy secret link
- *  has none, and stays where it joined. */
+/** The room's authority: the root inviter pinned in a v2 link, or the
+ *  authority a member's v5 link names beside its own inviter. A rekey signed
+ *  by it moves this browser to the new epoch; a legacy secret link has none,
+ *  and stays where it joined. */
 function roomAuthority(): string | undefined {
-  return roomInvitationCapability?.inviter
+  return roomInvitationCapability ? invitationAuthority(roomInvitationCapability) : undefined
 }
 
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
@@ -2682,7 +2700,7 @@ function renderKeepChoice(): void {
   const row = $('keepRow')
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
-  const creator = invitationAuthoritySk !== undefined && invitationDelegation.length === 0
+  const creator = isRoomAuthority()
   row.hidden = creator || !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
@@ -2904,7 +2922,7 @@ function mediaUsesBothy(): boolean {
 function callRecordingAuthority(): Uint8Array | undefined {
   if (!dockedCall) return isRoomAuthority() ? invitationAuthoritySk : undefined
   const ui = dockedCall.ui
-  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability?.inviter === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
+  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability && invitationAuthority(ui.roomInvitationCapability) === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
 }
 
 function participantRecordingReady(s = mediaSession()): boolean {
@@ -5041,6 +5059,11 @@ function showRoomUi(): void {
   renderOpenInApp()
   $('join').hidden = false
   tryPendingJoin()
+  renderShareControls()
+}
+
+/** The invite page's link and the controls that go with who holds it. */
+function renderShareControls(): void {
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
@@ -5050,10 +5073,71 @@ function showRoomUi(): void {
   // else was reading about a control that was not on their page.
   $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
   renderEndRoom()
-  $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden
+  $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden || !isRoomAuthority()
+  renderInvitationAvailability()
+}
+
+/** What the invite page says about who lets newcomers in, and the button
+ *  for a member's own link when this device can no longer answer the room's. */
+function renderInvitationAvailability(): void {
+  const lapsed = cannotAnswerRoomLink()
+  ;($('ownLink') as HTMLButtonElement).hidden = !lapsed
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
     ? 'This group stays available when everyone closes the app. Anyone with this invitation can join and read its shared history.'
-    : 'Keep a member’s tab open to admit newcomers. Temporary invitation permissions last up to twelve hours.'
+    : lapsed
+      ? 'This device can no longer let people in with this link: its permission from the device that made the link has run out. Make a link from this device and share that one instead, then keep the room open here so it can let them in.'
+      : 'Keep a member’s tab open to admit newcomers. Temporary invitation permissions last up to twelve hours.'
+}
+
+/**
+ * Whether this device can no longer answer requests to join made with the
+ * room's temporary link: it holds no key for the link, or its permission
+ * from the device that made it, which lasts at most twelve hours from that
+ * device's own last answer, has run out. A group link admits by itself, and
+ * a room with a keeper (a Bothy route or an announced keeper) has the keeper
+ * answer, so neither lapses here; and a device not yet in the room has
+ * nothing to offer.
+ */
+function cannotAnswerRoomLink(now = nowSeconds()): boolean {
+  if (roomUsesBothy || keeperParticipant !== undefined || !session || session.closed) return false
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || !roomAuthority()) return false
+  if (!invitationAuthoritySk) return true
+  return invitationDelegation.length > 0 && Math.min(...invitationDelegation.map(cert => cert.expiresAt)) <= now
+}
+
+/**
+ * A link of this device's own, for a member that can no longer answer the
+ * room's link (`cannotAnswerRoomLink`). A fresh bearer and inviter key held
+ * here answer requests to join, and the link names the room's authority
+ * (`o`, link version 5), so a newcomer pins the key every member pinned and
+ * catches up on the room's keys from any member. It asks, like the room's
+ * temporary link: a group link that admits by itself is the authority's to
+ * make. The old link is not retired: only the device that made it can.
+ */
+async function makeOwnInvitation(): Promise<void> {
+  if (await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)) throw new Error('New invitations are unavailable on this Bothy text route.')
+  const authority = roomAuthority()
+  if (!authority || !cannotAnswerRoomLink()) throw new Error('This device can still let people in with the room’s link.')
+  const created = createRoomInvitation(false)
+  const invitation: RoomInvitation = { ...created.invitation, authority }
+  storeInvitationOwner(invitation, roomSecret, created.inviterSk, roomEndsAt, roomDestruct)
+  stopInvitationHost()
+  roomInvitationCapability = invitation
+  invitationAuthoritySk = created.inviterSk
+  invitationDelegation = []
+  serveCurrentInvitation()
+
+  const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  history.replaceState(null, '', url)
+  ;($('shareUrl') as HTMLInputElement).value = url
+  // The link kept for the list is the one this device answers now.
+  rememberCurrentRoom()
+  if (($('shareQrDetails') as HTMLDetailsElement).open) {
+    renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
+  }
+  renderShareControls()
+  renderKeepChoice()
+  setStatus('This device has its own link now. Share it, and keep the room open here so it can let people in.')
 }
 
 /** Everything that is not the conversation, revealed once there is a
@@ -5285,19 +5369,14 @@ function renderCallTabNotice(): void {
   if (held) $('callTabNoticeText').textContent = "This room's call is open in another tab."
 }
 
-// A rolling, redacted record of what happened during this call, and a
-// per-pair health sampler that turns single-snapshot stats into "is it
-// actually moving". Both feed `collectDiagnostics` below; see
-// app/src/call-timeline.ts for what they will and will not record.
-const callTimeline = new CallTimeline()
+// Call history exists only in explicitly instrumented synthetic test builds.
+// Ordinary builds retain no timeline and expose no diagnostic export hook.
+const syntheticCallDiagnostics = import.meta.env.VITE_TEST_DIAGNOSTICS === 'true'
+const callTimeline = new CallTimeline(Date.now, syntheticCallDiagnostics)
 
-/** Which call this device said it was on, and why a call rang or did not.
- *  To the timeline for a pasted report, and to the console as well: the
- *  timeline keeps ten minutes, and a ring nobody can explain is usually
- *  asked about later than that. Short ids only, as the timeline takes. */
+/** Diagnostic call events are discarded in ordinary builds, never printed. */
 function logCall(kind: 'call-declared' | 'call-ring', who: string | undefined, detail: string): void {
   callTimeline.record(kind, who, detail)
-  console.info(`[kithmoot] ${kind}${who ? ` ${who.slice(0, 8)}` : ''}: ${detail}`)
 }
 const pairHealthSampler = new PairHealthSampler()
 
@@ -5405,7 +5484,7 @@ async function joinCall(): Promise<void> {
 /** Everything of this device's that was live, off, and the previews with it.
  *  Shared by leaving a call and closing the room. */
 function stopLocalMedia(): void {
-  desktopShareArea.stop()
+  desktopShareArea.stop(); browserShare.stop()
   shareMarksOverlay.close()
   desktopRedaction.closeAll()
   desktopRedaction.setHidden(false)
@@ -5789,6 +5868,9 @@ function showInfoPage(name: string, row?: HTMLElement): void {
     meetingCodePasswordTouched = false
     renderInviteEnds()
     renderMeetingCode()
+    // A member's permission to answer for the room's link runs out while the
+    // room is open: say so, and offer its own link, when the page is opened.
+    renderInvitationAvailability()
   }
   sheet.scrollTop = 0
   if (name === 'main' && previous !== 'main' && infoRow?.isConnected && !infoRow.hidden) infoRow.focus({ preventScroll: true })
@@ -6168,6 +6250,8 @@ async function rotateRoomInvitation(): Promise<void> {
   const invitation: RoomInvitation = {
     ...createRoomInvitation(retired.persistent === true).invitation,
     inviter: retired.inviter,
+    // A member's own link names the room's authority: its new one does too.
+    ...(retired.authority !== undefined ? { authority: retired.authority } : {}),
   }
   // A conference room's fresh link ends when the room does.
   storeInvitationOwner(invitation, roomSecret, authoritySk, roomEndsAt, roomDestruct)
@@ -6238,7 +6322,8 @@ function closeWhenSettled(pool: ManagedRelayPool): void {
 }
 
 async function makeRoomPersistent(): Promise<void> {
-  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length) return
+  // The room's authority alone: a member's own link only ever asks.
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length || !isRoomAuthority()) return
   // A fresh bearer prevents an old, never-used meeting link from silently
   // becoming durable access. Keep the room's authority and conversation.
   const invitation: RoomInvitation = {
@@ -6706,7 +6791,7 @@ interface ScreenCaptureOptions extends DisplayMediaStreamOptions {
 }
 
 let screenStarting = false
-async function toggleScreen(area = false): Promise<void> {
+async function toggleScreen(area = false, protectedShare = false): Promise<void> {
   if (mediaUsesBothy()) throw new Error('Screen sharing is unavailable on this text-only Bothy route.')
   const generation = callGeneration
   if (switchingRoom) return
@@ -6714,7 +6799,7 @@ async function toggleScreen(area = false): Promise<void> {
   if (!screenTrack && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!screenTrack) callWanted = true
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -6764,20 +6849,20 @@ async function toggleScreen(area = false): Promise<void> {
       // Awaited only in the desktop app: a browser's own chooser keeps the
       // click's activation without a round trip in front of it.
       if (desktopRedaction.supported) await desktopRedaction.begin()
-      stream = area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
+      stream = protectedShare ? await browserShare.start(area) : area ? await desktopShareArea.start() : await navigator.mediaDevices.getDisplayMedia(options)
       surface = stream.getVideoTracks()[0]?.getSettings().displaySurface
       // Read off the raw capture, before any redaction canvas stands in for it.
       capture = {
         deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
         ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
       }
-      if (!area && desktopRedaction.supported) {
+      if (!protectedShare && !area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
       }
     }
     finally { screenStarting = false }
-    if (generation !== callGeneration || leftCall) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); return }
+    if (generation !== callGeneration || leftCall || !meetingLetsMeSend()) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); browserShare.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
     // An area share already tracks this precisely, reactively, via the
@@ -6791,7 +6876,7 @@ async function toggleScreen(area = false): Promise<void> {
       // ours - the toggle has to notice either way.
       screenTrack.addEventListener('ended', () => {
         if (generation !== callGeneration) return
-        desktopShareArea.stop()
+        desktopShareArea.stop(); browserShare.stop()
         shareMarksOverlay.close()
         screenTrack = undefined
         shareMayShowItself = false
@@ -7202,6 +7287,8 @@ function updateUi(): void {
   updateRedactionControls()
   const areaButton = document.getElementById('shareArea') as HTMLButtonElement | null
   if (areaButton) areaButton.disabled = !!screenTrack
+  const protectedButton = document.getElementById('shareProtected') as HTMLButtonElement | null
+  if (protectedButton) protectedButton.disabled = !!screenTrack
   const share = $('toggleScreen')
   const sharing = !!screenTrack
   share.setAttribute('aria-label', sharing ? 'Stop screen sharing' : 'Screen share')
@@ -9076,6 +9163,8 @@ function describeStopped(stopped: string[]): string {
  *  screen. Says which were on. Shared by an admin's mute and meeting mode. */
 function stopSending(): string[] {
   const stopped: string[] = []
+  // Also cancel a protected preview whose permission/confirmation is pending.
+  browserShare.stop()
   if (micTrack) {
     micTrack.removeEventListener('ended', onMicEnded)
     micTrack.stop()
@@ -9093,7 +9182,7 @@ function stopSending(): string[] {
     stopped.push('camera')
   }
   if (screenTrack) {
-    desktopShareArea.stop()
+    desktopShareArea.stop(); browserShare.stop()
     shareMarksOverlay.close()
     screenTrack.stop()
     screenTrack = undefined
@@ -12795,15 +12884,15 @@ function syncRemoteVideos(): void {
   for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
-    const moving = clock > entry.last + 0.001
+    const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
+    const moving = pictureAdvanced(entry.last, clock, hasFrame)
     entry.last = clock
     if (moving) {
       noteProgress(entry.track, now)
-      // Keep a newly negotiated sink connected so it can decode, but do not
-      // let its empty black rectangle take half of a grouped person's card.
-      // The first painted frame makes it a picture and earns its place.
-      if (entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     }
+    // Reveal real picture data even when a still frame's clock is zero.
+    // An initial empty sink must remain attached without claiming playback.
+    if (hasFrame && entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
@@ -13143,6 +13232,7 @@ const short = (hex: string | undefined) => (hex ? hex.slice(0, 8) : hex)
  * is not something a "copy" button should put on their clipboard.
  */
 async function collectDiagnostics(): Promise<string> {
+  if (!syntheticCallDiagnostics) return '{}'
   const s = mediaSession()
   const pick = (r: Record<string, unknown>, keys: string[]) =>
     Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]]))
@@ -13212,6 +13302,7 @@ async function collectDiagnostics(): Promise<string> {
       callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
+      camera: camera ? { playback: camera.playback, stats: camera.stats, totals: camera.totals } : undefined,
       screenAudio: screenAudioTrack
         ? { present: true, muted: screenAudioTrack.muted, readyState: screenAudioTrack.readyState }
         : { present: false },
@@ -13503,9 +13594,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
     const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
+      const available = liveIceServers(resolvedIceServers)
       const configuration = relayOnly
-        ? relayOnlyIceConfiguration(resolvedIceServers)
-        : { iceServers: context?.tier === 'turn' ? resolvedIceServers : stunOnly }
+        ? relayOnlyIceConfiguration(available)
+        : { iceServers: context?.tier === 'turn' ? available : stunOnly }
       const pc = deviceRelay ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
@@ -14169,7 +14261,7 @@ function watchKnownRoom(room: KnownRoom): void {
   const pastEpochs = kept && epoch && kept.epoch.epoch === epoch.epoch ? pastRootsOf(kept) : []
   // This device's copy of a rekey opens with its key for the room and the
   // seal keys its credentials named there, as the session's does.
-  const authority = link.invitation?.inviter
+  const authority = link.invitation ? invitationAuthority(link.invitation) : undefined
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId)
   let named: RoomNameRecord | undefined
   const followName = (): void => {
@@ -17015,7 +17107,7 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   if (root.roomId !== room.roomId) return 'The saved admission does not open this room.'
   const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
   return observeWorkspaceActivity({ ...root, participant: account, name: joiningName() ?? '', transport: pool, policy: link.policy,
-    epoch: loadRoomEpoch(room.roomId), authority: link.invitation?.inviter,
+    epoch: loadRoomEpoch(room.roomId), authority: link.invitation ? invitationAuthority(link.invitation) : undefined,
     deviceSk: loadDeviceKeyFor(credentialStore, room.roomId), sealSks: () => loadOwnSealKeysFor(credentialStore, room.roomId).reverse(),
     loadJournal: async () => localStorage.getItem(`kithmoot.assignments.v1.${account}.${room.roomId}`) ?? undefined,
     isBlocked: contactIsBlocked, valid, changed, now: nowSeconds,
@@ -17619,6 +17711,7 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  if (name !== 'connections') cancelCallRelayActions()
   if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
@@ -17656,7 +17749,19 @@ function renderSettingsRows(): void {
   renderFilesSettings()
 }
 
+let callRelayActionGeneration = 0
+let callRelayCheckAbort: AbortController | undefined
+function cancelCallRelayActions(): void {
+  callRelayActionGeneration++
+  if (callRelayCheckAbort) $('callRelayStatus').textContent = 'Relay test stopped.'
+  callRelayCheckAbort?.abort()
+  callRelayCheckAbort = undefined
+  ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+  ;($('callRelayFile') as HTMLInputElement).value = ''
+}
+
 function renderCallRelay(): void {
+  cancelCallRelayActions()
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
     $('spryPairingStatus').textContent = pairing ? `Paired with ${new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry on your Archipelago node, then choose Pair with KithMoot.'
@@ -17686,6 +17791,7 @@ $('spryPairingRemove').addEventListener('click', async () => {
 })
 
 $('callRelaySave').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
       ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
@@ -17698,11 +17804,60 @@ $('callRelaySave').addEventListener('click', () => {
   }
 })
 $('callRelayRemove').addEventListener('click', () => {
+  cancelCallRelayActions()
   try {
     saveCallRelay(localStorage, undefined)
     renderCallRelay()
     $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
   } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+})
+
+$('callRelayImport').addEventListener('click', () => ($('callRelayFile') as HTMLInputElement).click())
+$('callRelayFile').addEventListener('change', async () => {
+  const input = $('callRelayFile') as HTMLInputElement
+  const file = input.files?.[0]
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  if (!file) return
+  try {
+    if (file.size > CALL_RELAY_PROFILE_LIMIT) throw new Error()
+    const relay = parseCallRelayProfile(await file.text())
+    if (generation !== callRelayActionGeneration) return
+    ;($('callRelayUrls') as HTMLInputElement).value = relay.urls.join(', ')
+    ;($('callRelayUsername') as HTMLInputElement).value = relay.username
+    ;($('callRelayPassword') as HTMLInputElement).value = relay.credential
+    $('callRelayStatus').textContent = 'File imported for review. Check the addresses, then save. Importing has made no connection and has not saved the login.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = INVALID_CALL_RELAY_PROFILE
+  }
+})
+for (const id of ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']) $(id).addEventListener('input', cancelCallRelayActions)
+$('callRelayCheck').addEventListener('click', async () => {
+  cancelCallRelayActions()
+  const generation = callRelayActionGeneration
+  const controller = new AbortController()
+  callRelayCheckAbort = controller
+  try {
+    const relay = loadCallRelay(localStorage)
+    if (!relay) { $('callRelayStatus').textContent = 'Save a call relay before testing it.'; return }
+    const reviewed = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
+      ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
+    if (JSON.stringify(reviewed) !== JSON.stringify(relay)) {
+      $('callRelayStatus').textContent = 'Save the changes before testing, so the test uses the addresses shown here.'
+      return
+    }
+    ;($('callRelayCheck') as HTMLButtonElement).disabled = true
+    $('callRelayStatus').textContent = 'Testing the saved relay with temporary connections…'
+    await checkCallRelay(relay, controller.signal)
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your saved relay. This checks this device, not a call with someone else.'
+  } catch {
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = CALL_RELAY_CHECK_FAILED
+  } finally {
+    if (generation === callRelayActionGeneration) {
+      callRelayCheckAbort = undefined
+      ;($('callRelayCheck') as HTMLButtonElement).disabled = false
+    }
+  }
 })
 
 /** Shows this device's own STUN choice; blank means the default. */
@@ -17751,6 +17906,7 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  cancelCallRelayActions()
   // Do not keep a saved password in the hidden settings form.
   ;($('callRelayPassword') as HTMLInputElement).value = ''
   closeAccountMessageViews()
@@ -18688,6 +18844,13 @@ $('rotateShare').addEventListener('click', async () => {
   try { await rotateRoomInvitation() } catch (err) { setStatus(describeError(err)) }
   finally { --roomOperation; refreshRoomNavigation() }
 })
+$('ownLink').addEventListener('click', async () => {
+  const button = $('ownLink') as HTMLButtonElement
+  button.disabled = true
+  ++roomOperation
+  try { await makeOwnInvitation() } catch (error) { setStatus(describeError(error)) }
+  finally { button.disabled = false; --roomOperation; refreshRoomNavigation() }
+})
 $('makePersistent').addEventListener('click', async () => {
   const button = $('makePersistent') as HTMLButtonElement
   button.disabled = true
@@ -18713,14 +18876,23 @@ $('toggleMic').addEventListener('click', () => {
 $('toggleCamera').addEventListener('click', () => {
   toggleCamera().then(() => noteMediaBlocked(undefined)).catch((err) => noteMediaBlocked('Camera', err))
 })
-if (window.kithmootDesktop?.supportsShareArea) {
+if (window.kithmootDesktop?.supportsShareArea || (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function')) {
   const area = document.createElement('button')
   area.id = 'shareArea'
   area.className = 'toggle'
   area.textContent = 'Share an area'
-  area.onclick = () => { toggleScreen(true).catch(showShareError) }
+  area.onclick = () => { toggleScreen(true, !window.kithmootDesktop).catch(showShareError) }
   // Behind More, beside the other ways to share: the bar keeps one Share.
   $('shareExtras').append(area)
+  $('shareExtras').hidden = false
+}
+if (!window.kithmootDesktop && typeof navigator.mediaDevices?.getDisplayMedia === 'function') {
+  const protect = document.createElement('button')
+  protect.id = 'shareProtected'
+  protect.className = 'toggle'
+  protect.textContent = 'Share with redaction'
+  protect.onclick = () => { toggleScreen(false, true).catch(showShareError) }
+  $('shareExtras').append(protect)
   $('shareExtras').hidden = false
 }
 // Boxes live on the real screen, so Wayland (which forbids placing a window)
@@ -19459,7 +19631,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
-  const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation?.inviter)
+  const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation ? invitationAuthority(link.invitation) : undefined)
   // The room on screen knows every channel it opened; one in the background
   // is read in epoch 0 and the epochs its records keep, in the channels every
   // client writes in. Named channels of a room not open here are not known.
@@ -19612,7 +19784,7 @@ async function learnDestructAtDoor(room: KnownRoom): Promise<void> {
     const kept = loadKeptRoomEpoch(deviceStore, roomId)
     const previous: EpochKeys = kept && kept.epoch.epoch > 0 ? deriveEpoch(kept.epoch) : { epoch: 0, id: roomId, key: deriveRoom(secret).roomKey }
     const relays = relayConnections.configuration(`room:${roomId}`, link.relays).filter(relay => relay.read).map(relay => relay.url)
-    if (await closingRekeyDestructs(roomId, link.invitation.inviter, previous, relays).catch(() => false)) {
+    if (await closingRekeyDestructs(roomId, invitationAuthority(link.invitation), previous, relays).catch(() => false)) {
       destructSecrets.set(roomId, secret)
       markRoomDestruct(roomId)
     }

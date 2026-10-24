@@ -1,0 +1,2759 @@
+{
+  "sourcePin": "4cab546c6117ce5dfd28b86a4ddcd4cd943978f5",
+  "method": "cargo metadata --locked --format-version 1; additional --filter-platform aarch64-apple-darwin for normal/build traversal. Includes unbuilt other-target and development packages. Metadata inventory, not a completed licence or binary-linkage audit.",
+  "packageCount": 457,
+  "macosNormalBuildClosureCount": 335,
+  "rootLicence": "MIT",
+  "linuxDistributionReviewRequired": [
+    "rustables 0.8.8 GPL-3.0-or-later",
+    "rustables-macros 0.1.3 GPL-3.0-or-later"
+  ],
+  "otherNoticeReviewRequired": [
+    "option-ext 0.2.0 MPL-2.0 and permissive dependency notices"
+  ],
+  "binaryDistributionApproved": false,
+  "packages": [
+    {
+      "name": "aead",
+      "version": "0.5.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "aho-corasick",
+      "version": "1.1.5",
+      "licence": "Unlicense OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "alloca",
+      "version": "0.4.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "allocator-api2",
+      "version": "0.2.21",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "anes",
+      "version": "0.1.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "anstream",
+      "version": "1.0.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "anstyle",
+      "version": "1.0.14",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "anstyle-parse",
+      "version": "1.0.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "anstyle-query",
+      "version": "1.1.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "anstyle-wincon",
+      "version": "3.0.11",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "anyhow",
+      "version": "1.0.104",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "approx",
+      "version": "0.5.1",
+      "licence": "Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "arc-swap",
+      "version": "1.9.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "async-channel",
+      "version": "2.5.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "async-task",
+      "version": "4.7.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "async-utility",
+      "version": "0.3.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "async-wsocket",
+      "version": "0.13.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "atomic",
+      "version": "0.6.1",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "atomic-destructor",
+      "version": "0.3.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "atomic-waker",
+      "version": "1.1.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "autocfg",
+      "version": "1.5.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "base64",
+      "version": "0.22.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "base64ct",
+      "version": "1.8.3",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bech32",
+      "version": "0.11.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bech32",
+      "version": "0.12.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bindgen",
+      "version": "0.72.1",
+      "licence": "BSD-3-Clause",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "bip39",
+      "version": "2.2.2",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bit-set",
+      "version": "0.5.3",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bit-vec",
+      "version": "0.6.3",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitcoin-consensus-encoding",
+      "version": "1.2.0",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitcoin-internals",
+      "version": "0.6.0",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitcoin-io",
+      "version": "0.1.101",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitcoin_hashes",
+      "version": "0.14.101",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitflags",
+      "version": "1.3.2",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bitflags",
+      "version": "2.13.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "block-buffer",
+      "version": "0.10.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "block-buffer",
+      "version": "0.12.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "block-padding",
+      "version": "0.3.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "block2",
+      "version": "0.6.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "blocking",
+      "version": "1.7.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "bluer",
+      "version": "0.17.4",
+      "licence": "BSD-2-Clause",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "bumpalo",
+      "version": "3.20.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "by_address",
+      "version": "1.2.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bytemuck",
+      "version": "1.25.2",
+      "licence": "Zlib OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "bytes",
+      "version": "1.12.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "c2rust-bitfields",
+      "version": "0.18.0",
+      "licence": "BSD-3-Clause",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "c2rust-bitfields-derive",
+      "version": "0.18.0",
+      "licence": "BSD-3-Clause",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "cast",
+      "version": "0.3.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "castaway",
+      "version": "0.2.4",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cbc",
+      "version": "0.1.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cc",
+      "version": "1.4.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cexpr",
+      "version": "0.6.0",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cfg_aliases",
+      "version": "0.2.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "chacha20",
+      "version": "0.10.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "chacha20",
+      "version": "0.9.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "chacha20poly1305",
+      "version": "0.10.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ciborium",
+      "version": "0.2.2",
+      "licence": "Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "ciborium-io",
+      "version": "0.2.2",
+      "licence": "Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "ciborium-ll",
+      "version": "0.2.2",
+      "licence": "Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "cipher",
+      "version": "0.4.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "clang-sys",
+      "version": "1.9.1",
+      "licence": "Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "clap",
+      "version": "4.6.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "clap_builder",
+      "version": "4.6.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "clap_derive",
+      "version": "4.6.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "clap_lex",
+      "version": "1.1.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cmov",
+      "version": "0.5.4",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "colorchoice",
+      "version": "1.0.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "compact_str",
+      "version": "0.9.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "concurrent-queue",
+      "version": "2.5.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "const-oid",
+      "version": "0.10.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "convert_case",
+      "version": "0.10.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "convert_case",
+      "version": "0.4.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.2.17",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.3.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "criterion",
+      "version": "0.8.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "criterion-plot",
+      "version": "0.8.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "critical-section",
+      "version": "1.2.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "crossbeam-channel",
+      "version": "0.5.16",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "crossbeam-deque",
+      "version": "0.8.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "crossbeam-epoch",
+      "version": "0.9.20",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "crossbeam-utils",
+      "version": "0.8.22",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "crossterm",
+      "version": "0.29.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "crossterm_winapi",
+      "version": "0.9.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "crunchy",
+      "version": "0.2.4",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "crypto-common",
+      "version": "0.1.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "crypto-common",
+      "version": "0.2.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "csscolorparser",
+      "version": "0.6.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ctutils",
+      "version": "0.4.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "custom_debug",
+      "version": "0.6.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "custom_debug_derive",
+      "version": "0.6.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "darling",
+      "version": "0.20.11",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "darling",
+      "version": "0.24.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "darling_core",
+      "version": "0.20.11",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "darling_core",
+      "version": "0.24.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "darling_macro",
+      "version": "0.20.11",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "darling_macro",
+      "version": "0.24.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "data-encoding",
+      "version": "2.11.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "dbus",
+      "version": "0.9.12",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "dbus-crossroads",
+      "version": "0.5.3",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "dbus-tokio",
+      "version": "0.7.6",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "deltae",
+      "version": "0.3.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "deranged",
+      "version": "0.5.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "derive_more",
+      "version": "0.99.20",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "derive_more",
+      "version": "2.1.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "derive_more-impl",
+      "version": "2.1.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "digest",
+      "version": "0.10.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "digest",
+      "version": "0.11.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "dirs",
+      "version": "6.0.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "dirs-sys",
+      "version": "0.5.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "dispatch2",
+      "version": "0.3.1",
+      "licence": "Zlib OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "displaydoc",
+      "version": "0.2.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "document-features",
+      "version": "0.2.12",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "either",
+      "version": "1.18.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "equivalent",
+      "version": "1.0.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "errno",
+      "version": "0.3.14",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "euclid",
+      "version": "0.22.14",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "event-listener",
+      "version": "5.4.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "event-listener-strategy",
+      "version": "0.5.4",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "fancy-regex",
+      "version": "0.11.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "fastrand",
+      "version": "2.5.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "filedescriptor",
+      "version": "0.8.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.11",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "finl_unicode",
+      "version": "1.4.0",
+      "licence": "(MIT OR Apache-2.0) AND Unicode-DFS-2016",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "fips-core",
+      "version": "0.0.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "fips-mesh",
+      "version": "0.6.0-dev",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "fixedbitset",
+      "version": "0.4.2",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "flume",
+      "version": "0.12.0",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "fnv",
+      "version": "1.0.7",
+      "licence": "Apache-2.0 / MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "foldhash",
+      "version": "0.2.0",
+      "licence": "Zlib",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "form_urlencoded",
+      "version": "1.2.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-channel",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-core",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-executor",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-io",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-lite",
+      "version": "2.6.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "futures-macro",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-sink",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-task",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "futures-util",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "generic-array",
+      "version": "0.14.7",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "getrandom",
+      "version": "0.2.17",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "getrandom",
+      "version": "0.3.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "getrandom",
+      "version": "0.4.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "glob",
+      "version": "0.3.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "gloo-timers",
+      "version": "0.3.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "half",
+      "version": "2.7.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.16.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "heck",
+      "version": "0.5.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hex",
+      "version": "0.4.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hex-conservative",
+      "version": "0.2.2",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hex-conservative",
+      "version": "1.2.0",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hkdf",
+      "version": "0.13.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hmac",
+      "version": "0.12.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hmac",
+      "version": "0.13.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "http",
+      "version": "1.5.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "httparse",
+      "version": "1.10.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "hybrid-array",
+      "version": "0.4.14",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_collections",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_locale_core",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_normalizer",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_normalizer_data",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_properties",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_properties_data",
+      "version": "2.3.0",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "icu_provider",
+      "version": "2.3.1",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ident_case",
+      "version": "1.0.1",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "idna",
+      "version": "1.1.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "idna_adapter",
+      "version": "1.2.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "if-addrs",
+      "version": "0.15.0",
+      "licence": "MIT OR BSD-3-Clause",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "indexmap",
+      "version": "2.14.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "indoc",
+      "version": "2.0.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "inout",
+      "version": "0.1.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "instability",
+      "version": "0.3.13",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "instant",
+      "version": "0.1.13",
+      "licence": "BSD-3-Clause",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "ipnet",
+      "version": "2.12.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ipnetwork",
+      "version": "0.21.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "is_terminal_polyfill",
+      "version": "1.70.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "itertools",
+      "version": "0.13.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "itertools",
+      "version": "0.14.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "itoa",
+      "version": "1.0.18",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "js-sys",
+      "version": "0.3.104",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "kasuari",
+      "version": "0.4.12",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "lab",
+      "version": "0.11.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "lazy_static",
+      "version": "1.5.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "libc",
+      "version": "0.2.189",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "libdbus-sys",
+      "version": "0.2.7",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "libloading",
+      "version": "0.8.9",
+      "licence": "ISC",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "libloading",
+      "version": "0.9.0",
+      "licence": "ISC",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "libm",
+      "version": "0.2.16",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "libredox",
+      "version": "0.1.20",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "line-clipping",
+      "version": "0.3.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "linux-raw-sys",
+      "version": "0.12.1",
+      "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "litemap",
+      "version": "0.8.3",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "litrs",
+      "version": "1.0.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "lock_api",
+      "version": "0.4.14",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "log",
+      "version": "0.4.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "lru",
+      "version": "0.16.4",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "lru",
+      "version": "0.18.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "mac_address",
+      "version": "1.1.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "macaddr",
+      "version": "1.0.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "matchers",
+      "version": "0.2.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "mdns-sd",
+      "version": "0.20.3",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "memchr",
+      "version": "2.8.3",
+      "licence": "Unlicense OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "memmem",
+      "version": "0.1.1",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "memoffset",
+      "version": "0.9.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "minimal-lexical",
+      "version": "0.2.1",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "mio",
+      "version": "1.2.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "negentropy",
+      "version": "0.5.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "netlink-packet-core",
+      "version": "0.8.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "netlink-packet-netfilter",
+      "version": "0.3.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "netlink-packet-route",
+      "version": "0.30.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "netlink-proto",
+      "version": "0.12.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "netlink-sys",
+      "version": "0.8.8",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "nix",
+      "version": "0.29.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nix",
+      "version": "0.30.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "nix",
+      "version": "0.31.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nom",
+      "version": "7.1.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nostr",
+      "version": "0.44.8",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nostr-database",
+      "version": "0.44.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nostr-gossip",
+      "version": "0.44.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nostr-relay-pool",
+      "version": "0.44.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nostr-sdk",
+      "version": "0.44.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "nu-ansi-term",
+      "version": "0.50.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "num-conv",
+      "version": "0.2.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "num-derive",
+      "version": "0.4.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "num_threads",
+      "version": "0.1.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "objc2",
+      "version": "0.6.5",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "objc2-core-bluetooth",
+      "version": "0.3.2",
+      "licence": "Zlib OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "objc2-core-foundation",
+      "version": "0.3.2",
+      "licence": "Zlib OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "objc2-encode",
+      "version": "4.1.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "objc2-foundation",
+      "version": "0.3.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "once_cell",
+      "version": "1.21.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "once_cell_polyfill",
+      "version": "1.70.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "oorandom",
+      "version": "11.1.5",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "opaque-debug",
+      "version": "0.3.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "option-ext",
+      "version": "0.2.0",
+      "licence": "MPL-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ordered-float",
+      "version": "4.6.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "page_size",
+      "version": "0.6.0",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "palette",
+      "version": "0.7.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "palette_derive",
+      "version": "0.7.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "palette_math",
+      "version": "0.7.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "parking",
+      "version": "2.2.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "parking_lot",
+      "version": "0.12.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "parking_lot_core",
+      "version": "0.9.12",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "password-hash",
+      "version": "0.5.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "paste",
+      "version": "1.0.15",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "pbkdf2",
+      "version": "0.12.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "percent-encoding",
+      "version": "2.3.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "pest",
+      "version": "2.9.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "pest_derive",
+      "version": "2.9.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "pest_generator",
+      "version": "2.9.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "pest_meta",
+      "version": "2.9.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "phf",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "phf_codegen",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "phf_generator",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "phf_macros",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "phf_shared",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "pin-project",
+      "version": "1.1.13",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "pin-project-internal",
+      "version": "1.1.13",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "pin-project-lite",
+      "version": "0.2.17",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "piper",
+      "version": "0.2.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.34",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "plotters",
+      "version": "0.3.7",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "plotters-backend",
+      "version": "0.3.7",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "plotters-svg",
+      "version": "0.3.7",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "poly1305",
+      "version": "0.8.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "portable-atomic",
+      "version": "1.15.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "potential_utf",
+      "version": "0.1.6",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "powerfmt",
+      "version": "0.2.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ppv-lite86",
+      "version": "0.2.21",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "prettyplease",
+      "version": "0.2.37",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "proc-macro2-diagnostics",
+      "version": "0.10.1",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "procfs",
+      "version": "0.18.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "procfs-core",
+      "version": "0.18.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "quote",
+      "version": "1.0.47",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "r-efi",
+      "version": "5.3.0",
+      "licence": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "r-efi",
+      "version": "6.0.0",
+      "licence": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rand",
+      "version": "0.10.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand",
+      "version": "0.8.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand",
+      "version": "0.9.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.3.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand_chacha",
+      "version": "0.9.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand_core",
+      "version": "0.10.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand_core",
+      "version": "0.6.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rand_core",
+      "version": "0.9.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui",
+      "version": "0.30.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-core",
+      "version": "0.1.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-crossterm",
+      "version": "0.1.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-macros",
+      "version": "0.7.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-termina",
+      "version": "0.1.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-termwiz",
+      "version": "0.1.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ratatui-widgets",
+      "version": "0.3.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rayon",
+      "version": "1.12.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rayon-core",
+      "version": "1.13.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "redox_syscall",
+      "version": "0.5.18",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "redox_users",
+      "version": "0.5.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "regex",
+      "version": "1.13.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "regex-automata",
+      "version": "0.4.18",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ring",
+      "version": "0.17.14",
+      "licence": "Apache-2.0 AND ISC",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rtnetlink",
+      "version": "0.21.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rustables",
+      "version": "0.8.8",
+      "licence": "GPL-3.0-or-later",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rustables-macros",
+      "version": "0.1.3",
+      "licence": "GPL-3.0-or-later",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rustc-hash",
+      "version": "2.1.3",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "rustc_version",
+      "version": "0.4.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rustix",
+      "version": "1.1.4",
+      "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rustls",
+      "version": "0.23.46",
+      "licence": "Apache-2.0 OR ISC OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rustls-pki-types",
+      "version": "1.15.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rustls-webpki",
+      "version": "0.103.15",
+      "licence": "ISC",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "rustversion",
+      "version": "1.0.23",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ryu",
+      "version": "1.0.23",
+      "licence": "Apache-2.0 OR BSL-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "salsa20",
+      "version": "0.10.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "same-file",
+      "version": "1.0.6",
+      "licence": "Unlicense/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "scopeguard",
+      "version": "1.2.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "scrypt",
+      "version": "0.11.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "secp256k1",
+      "version": "0.29.1",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "secp256k1",
+      "version": "0.30.0",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "secp256k1-sys",
+      "version": "0.10.1",
+      "licence": "CC0-1.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "semver",
+      "version": "1.0.28",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "serde",
+      "version": "1.0.229",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "serde_core",
+      "version": "1.0.229",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "serde_derive",
+      "version": "1.0.229",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "serde_json",
+      "version": "1.0.151",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "serde_yaml",
+      "version": "0.9.34+deprecated",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "sha1",
+      "version": "0.10.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "sha2",
+      "version": "0.10.9",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "sha2",
+      "version": "0.11.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "sharded-slab",
+      "version": "0.1.7",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "shlex",
+      "version": "1.3.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "signal-hook",
+      "version": "0.3.18",
+      "licence": "Apache-2.0/MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "signal-hook-mio",
+      "version": "0.2.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "signal-hook-registry",
+      "version": "1.4.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "simple-dns",
+      "version": "0.11.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "siphasher",
+      "version": "1.0.3",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "slab",
+      "version": "0.4.12",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "smallvec",
+      "version": "1.15.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "socket-pktinfo",
+      "version": "0.4.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "socket2",
+      "version": "0.6.5",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "spin",
+      "version": "0.9.9",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "stable_deref_trait",
+      "version": "1.2.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "static_assertions",
+      "version": "1.1.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "strsim",
+      "version": "0.11.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "strum",
+      "version": "0.26.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "strum",
+      "version": "0.28.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "strum_macros",
+      "version": "0.26.4",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "strum_macros",
+      "version": "0.28.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "subtle",
+      "version": "2.6.1",
+      "licence": "BSD-3-Clause",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "syn",
+      "version": "1.0.109",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "syn",
+      "version": "2.0.119",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "syn",
+      "version": "3.0.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "synstructure",
+      "version": "0.13.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tempfile",
+      "version": "3.27.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "termina",
+      "version": "0.3.3",
+      "licence": "MIT OR MPL-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "terminfo",
+      "version": "0.9.0",
+      "licence": "WTFPL",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "termios",
+      "version": "0.3.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "termwiz",
+      "version": "0.23.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "thiserror",
+      "version": "1.0.69",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "thiserror",
+      "version": "2.0.20",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "1.0.69",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "thiserror-impl",
+      "version": "2.0.20",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "thread_local",
+      "version": "1.1.10",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "time",
+      "version": "0.3.55",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "time-core",
+      "version": "0.1.9",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tinystr",
+      "version": "0.8.4",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tinytemplate",
+      "version": "1.2.1",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.12.0",
+      "licence": "Zlib OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tinyvec_macros",
+      "version": "0.1.1",
+      "licence": "MIT OR Apache-2.0 OR Zlib",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio",
+      "version": "1.53.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio-macros",
+      "version": "2.7.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio-rustls",
+      "version": "0.26.4",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio-socks",
+      "version": "0.5.3",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio-stream",
+      "version": "0.1.19",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "tokio-tungstenite",
+      "version": "0.26.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tokio-util",
+      "version": "0.7.19",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tracing",
+      "version": "0.1.44",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tracing-attributes",
+      "version": "0.1.31",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tracing-core",
+      "version": "0.1.36",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tracing-log",
+      "version": "0.2.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tracing-subscriber",
+      "version": "0.3.23",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tun",
+      "version": "0.8.14",
+      "licence": "WTFPL",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "tungstenite",
+      "version": "0.26.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "typenum",
+      "version": "1.20.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "ucd-trie",
+      "version": "0.1.7",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unicode-ident",
+      "version": "1.0.24",
+      "licence": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.25",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unicode-segmentation",
+      "version": "1.13.3",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unicode-truncate",
+      "version": "2.0.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unicode-width",
+      "version": "0.2.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "universal-hash",
+      "version": "0.5.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "unsafe-libyaml",
+      "version": "0.2.11",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "untrusted",
+      "version": "0.9.0",
+      "licence": "ISC",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "url",
+      "version": "2.5.8",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "utf-8",
+      "version": "0.7.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "utf8_iter",
+      "version": "1.0.4",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "utf8parse",
+      "version": "0.2.2",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "uuid",
+      "version": "1.26.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "valuable",
+      "version": "0.1.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "version_check",
+      "version": "0.9.5",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "vtparse",
+      "version": "0.6.2",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "walkdir",
+      "version": "2.5.0",
+      "licence": "Unlicense/MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasi",
+      "version": "0.11.1+wasi-snapshot-preview1",
+      "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasip2",
+      "version": "1.0.4+wasi-0.2.12",
+      "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.127",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasm-bindgen-futures",
+      "version": "0.4.77",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasm-bindgen-macro",
+      "version": "0.2.127",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasm-bindgen-macro-support",
+      "version": "0.2.127",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.127",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "web-sys",
+      "version": "0.3.104",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "webpki-roots",
+      "version": "0.26.11",
+      "licence": "CDLA-Permissive-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "webpki-roots",
+      "version": "1.0.9",
+      "licence": "CDLA-Permissive-2.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-bidi",
+      "version": "0.2.3",
+      "licence": "MIT AND Unicode-DFS-2016",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-blob-leases",
+      "version": "0.1.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-color-types",
+      "version": "0.3.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-dynamic",
+      "version": "0.2.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-dynamic-derive",
+      "version": "0.1.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "wezterm-input-types",
+      "version": "0.1.0",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "widestring",
+      "version": "1.2.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "winapi",
+      "version": "0.3.9",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "winapi-i686-pc-windows-gnu",
+      "version": "0.4.0",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "winapi-util",
+      "version": "0.1.11",
+      "licence": "Unlicense OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "winapi-x86_64-pc-windows-gnu",
+      "version": "0.4.0",
+      "licence": "MIT/Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows-link",
+      "version": "0.2.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows-service",
+      "version": "0.8.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.52.0",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.61.2",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows-targets",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_i686_gnu",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_i686_msvc",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "version": "0.52.6",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wintun",
+      "version": "0.5.1",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wintun-bindings",
+      "version": "0.7.40",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "wit-bindgen",
+      "version": "0.57.1",
+      "licence": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "writeable",
+      "version": "0.6.4",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "yansi",
+      "version": "1.0.1",
+      "licence": "MIT OR Apache-2.0",
+      "inMacosNormalBuildClosure": false
+    },
+    {
+      "name": "yoke",
+      "version": "0.8.3",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "yoke-derive",
+      "version": "0.8.2",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerocopy",
+      "version": "0.8.56",
+      "licence": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerocopy-derive",
+      "version": "0.8.56",
+      "licence": "BSD-2-Clause OR Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerofrom",
+      "version": "0.1.8",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerofrom-derive",
+      "version": "0.1.7",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zeroize",
+      "version": "1.9.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zeroize_derive",
+      "version": "1.5.0",
+      "licence": "Apache-2.0 OR MIT",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerotrie",
+      "version": "0.2.5",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerovec",
+      "version": "0.11.8",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zerovec-derive",
+      "version": "0.11.6",
+      "licence": "Unicode-3.0",
+      "inMacosNormalBuildClosure": true
+    },
+    {
+      "name": "zmij",
+      "version": "1.0.23",
+      "licence": "MIT",
+      "inMacosNormalBuildClosure": true
+    }
+  ]
+}

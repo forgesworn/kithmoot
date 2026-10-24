@@ -1,0 +1,51 @@
+{
+  "reviewer": "Independent AI legal-review agent; not external legal advice",
+  "date": "2026-10-23",
+  "sharedNotesRevision": "924320346136fd34c49dc01a05ff620f26d252b3",
+  "notesOverallVerified": "2026-09-28",
+  "notesRelevantUpdates": "2026-10-23",
+  "reviewedFiles": [
+    "test/fips-call/mesh.py",
+    "test/fips-call/run.mjs",
+    "test/fips-call/leaf-probe.py"
+  ],
+  "findings": [
+    {
+      "finding": "The local helper copies opaque datagrams; browser endpoints retain DTLS/SRTP media encryption.",
+      "evidence": "mesh.py Mesh.pump; run.mjs RTCPeerConnection and candidate-only rewrite"
+    },
+    {
+      "finding": "One browser page constructs predefined synthetic pairs. No KithMoot invitation, membership, revocation or production room admission is tested.",
+      "evidence": "run.mjs fixture initialisation and edges loops"
+    },
+    {
+      "finding": "leaf_only does not enforce no-transit at this upstream pin. Withdraw initial inference that the flag establishes caller/transit separation.",
+      "evidence": "leaf-probe.py plus leaf-transit.json: transitDelivered true"
+    },
+    {
+      "finding": "An endpoint-only or transit-is-opt-in assurance needs separate tested enforcement. Actual forwarding activity requires its own infrastructure/privacy and conditional telecoms, PECR and IPA assessment.",
+      "status": "application remains open"
+    },
+    {
+      "finding": "Forwarding does not automatically make every endpoint a provider of an underlying user-to-user service. Actual application admission and service control remain separate questions.",
+      "status": "no blanket classification"
+    },
+    {
+      "finding": "A future remote gateway needs separate assessment of opaque forwarding, room authority, accounts, media-key termination and recording.",
+      "status": "not implemented or reviewed"
+    },
+    {
+      "finding": "The bounded local fixture is not evidence that a public calling service is exempt from the OSA.",
+      "status": "no exemption or compliance conclusion"
+    }
+  ],
+  "notReviewed": [
+    "All-country law",
+    "Public deployment",
+    "Complete dependency licence obligations",
+    "Full product provider classification",
+    "Production metadata retention or lawful basis"
+  ],
+  "externalContacts": false,
+  "productionChanges": false
+}

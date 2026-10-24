@@ -334,8 +334,9 @@ export interface RoomSessionBaseOptions {
    */
   pastEpochs?: readonly LeftEpoch[]
   /**
-   * The room's authority: the root inviter pubkey pinned in the link. A
-   * rekey signed by it is followed, and a request for the current epoch is
+   * The room's authority: `invitationAuthority(link.invitation)`, the root
+   * inviter pinned in the link, or the authority a member's own link (version
+   * 5) names beside its inviter. A rekey signed by it is followed, and a request for the current epoch is
    * addressed to it. Omit it - a legacy secret link has none - and the
    * session stays in the epoch it joined in for its whole life.
    */

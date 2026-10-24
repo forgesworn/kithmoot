@@ -1,0 +1,2527 @@
+{
+  "format": 2,
+  "date": "2026-10-24",
+  "disposition": "Experimental combined SDK built and qualified at 2/4/8; repeated public UDP eight-person calls pass. Standard website and Android integration remain separate.",
+  "rootBaseRevision": "90e9eb289dfc9d0cef75ad60a4ae9387c7e8721a",
+  "spryReviewedRuntimeRevision": "a76496bbcb60e637c0606c8da5919b5a3b2b3cf3",
+  "media": {
+    "generatedOnly": true,
+    "videoCodec": "VP8",
+    "width": 320,
+    "height": 180,
+    "framesPerSecond": 12,
+    "targetVideoBitsPerSecond": 200000,
+    "audioCodec": "Opus",
+    "channels": 1,
+    "sampleRate": 48000,
+    "targetAudioBitsPerSecond": 24000
+  },
+  "limits": {
+    "participantsOnOneHost": true,
+    "operatingSystemCapturePicker": false,
+    "physicalNewAdapterAcceptance": false,
+    "androidIntegrated": false,
+    "standardWebsiteSwitched": false,
+    "hostedCI": false,
+    "published": false,
+    "onlineSafetyActExemptionEstablished": false,
+    "eightPersonRepeatPictureAgeP95Ms": 1431,
+    "speechLatencyQualified": false,
+    "batteryQualified": false,
+    "linuxRuntimeQualified": false
+  },
+  "checks": {
+    "realtimeAndBuildGuardsTargeted": {
+      "passed": 116,
+      "filesPassed": 9
+    },
+    "preexistingFullUnit": {
+      "passed": 7330,
+      "skipped": 3,
+      "filesPassed": 417,
+      "filesSkipped": 1
+    },
+    "relayswarmNativeUnit": {
+      "passed": 15
+    },
+    "typecheckIncludingOperator": "passed",
+    "buildLibrary": "passed",
+    "buildPwaAndTelemetryGuard": "passed",
+    "buildRealtimeWithReviewedSources": "passed",
+    "npmPackDryRunIncludesSdkNativeRuntimePatchesAndLicences": true,
+    "browserAssetsExcludeNativeBinaryAndBackend": true,
+    "providerFinalHealth": {
+      "running": true,
+      "oomKilled": false
+    }
+  },
+  "publicTeardown": {
+    "sameCredentialsUsedAcrossAcceptedEightPersonCalls": true,
+    "relayPortsBeforeFirstAttempt": 0,
+    "relayPortsAfterStatsOnlyFailure": 0,
+    "relayPortsBetweenAcceptedEightPersonCalls": 0,
+    "relayPortsAfterRepeatEightTwoFourSeries": 0,
+    "activeEightPersonRelayPortsObserved": 16,
+    "serverAllocationLimit": 32,
+    "serverPerUsernameAllocationLimit": 8,
+    "serverRestarted": false,
+    "quotasChanged": false,
+    "rootSecretExported": false
+  },
+  "artifacts": {
+    "sources": [
+      {
+        "repository": "sapflow",
+        "head": "1d71a5c0da0035bdc23d0da141fd147dc665f573",
+        "reviewedRevision": "f25ea21e660418794e2fb2192f264e176e08d379",
+        "reviewedSourceMatch": true,
+        "workingTree": false,
+        "files": {
+          ".cargo/config.toml": "79b30c8d18a7b280a4fa01fc787af48ab7561782d9aa4876814fdf0d3b995c11",
+          "Cargo.lock": "033d43ef3bae1bfe1664ba65a08fedf7be9f8151bc8ae0d50fd8e507eaca7dab",
+          "Cargo.toml": "00495bad93694b877a747486010dcd85a5363d32c96698f71f92d242c0a2ea59",
+          "LICENSE": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "crates/sapflow-bench/Cargo.toml": "0ba7f5b8e62377d9956bf20b2bb1e3698a8a260fa12d0165cb5d6791c76eeb05",
+          "crates/sapflow-client/Cargo.toml": "010b6dfffb890f78fcd7a1355fe972062049b31f7fe2dc284a1b246a59b6c94d",
+          "crates/sapflow-core/Cargo.toml": "8895849b6d88eee7deb30898b8dad64877f6cb4eb3071a5281ed07f5ba44f0c6",
+          "crates/sapflow-core/src/lib.rs": "cd3b76d4613f4201ad109687553bd8a5c2b4823c2476ec01917e6c93435346ae",
+          "crates/sapflow-core/src/limits.rs": "7c0016e5625ec18407aadbffed7c6c242a11c532c783fcca08d89bf1db4d26ff",
+          "crates/sapflow-core/src/publish_attempt_tests.rs": "addffd35ee231315b995f830e385a3bdae6bcbef27d34234920faef123c270db",
+          "crates/sapflow-core/src/publish_session.rs": "569d89dfc11bdcf3edd75c16b25f520f6fd78f67ce31c1ae4bf8f80f6fcb6122",
+          "crates/sapflow-core/src/publish_session/tests.rs": "2210af5a3fcdef0c19e4ba82a86b9ff407e432fb147bc96f00d9d65bc2fc1079",
+          "crates/sapflow-core/src/realtime.rs": "e2579f44aa91c9505d3ff364dac8b6ba113308b31872fd09f57eab44bf8f4380",
+          "crates/sapflow-core/src/realtime_tests.rs": "cf052ef443e430a837ff6c5a82cd5605e486bc517cb20bff1f4cbf1ac860bf77",
+          "crates/sapflow-core/src/recording.rs": "3b52c7d5750b83ddeadafb5dd783bbd8851de7d403d6983e24650bb68919960f",
+          "crates/sapflow-core/src/tracks.rs": "daa8e8fa945bd21bc74d2880c1bee7b031d15009b9998fdf9a37d81f1a2c9a44",
+          "crates/sapflow-ffi/Cargo.toml": "7cf62104b9abdbad30dc0ed1caae676638313e74b3d2277b49c76cd49624e525",
+          "crates/sapflow-hls/Cargo.toml": "c53f09043d60f13612823572108f054c707915267ef6953ab4cbb6a7b40dc081",
+          "crates/sapflow-realtime-wasm/Cargo.toml": "d8501f888906c9be25d1eaccaf41181e7219bdc973d4112088900734f3c53401",
+          "crates/sapflow-realtime-wasm/browser.mjs": "c43dc0c29ca059380826ea7b378ab876bbe0e1bf87a0910344be63a302c7362f",
+          "crates/sapflow-realtime-wasm/src/lib.rs": "1a262c5aa2e13dcfd7552f13c05ef862492fa5e06f08f15c13043bac9ff93f5e",
+          "crates/sapflow-rtmp/Cargo.toml": "a727198dfaa4c44e93537e84a41a7b66acc3a8f7f4fe1b6d714d311165528d5d",
+          "crates/sapflow-server/Cargo.toml": "5ba947b2e1ffbce6c4a249e673c13f0d0dc4410fcbf1cff4732c50a28c4d38d5",
+          "crates/sapflow-signet-ffi/Cargo.toml": "d5f8d68e1c19e0e7738ed3c20452aaa3d446fc212af503486d54436f0d56a6dc",
+          "crates/sapflow-srt/Cargo.toml": "a50a00ebe619af2f3934c61878f80b589a9f3626c68aa3f1c80b5e76a32451ee",
+          "rust-toolchain.toml": "7dbcd3c9663e0120a47fdc32fa56cdcc3dbc075e3b8a1a8377036a9af1dec578",
+          "scripts/build-realtime-wasm.sh": "1436114a7661bcb12b58084ed3dca6db3cc9837c7e99e51626114f7de7094c0b",
+          "scripts/third-party-licences.py": "88d5cafc52e6c4587ff41c92313b03280dc4051f7d88571cd34445946c0d4ac0",
+          "vendor/async-wsocket/Cargo.toml": "3adc34ed994de52c9f17d243ba430421bda190b05087d0e79d95b641a61fa424",
+          "vendor/nostr-connect/Cargo.toml": "89de435998d1ea260d914f4effc4198245417c560bbdae2e53a257c7895fff4a",
+          "vendor/nostr-sdk/Cargo.toml": "03855cce8c132906c0b84688b94b7e9a4bb0fa1d4984871143bf643b379a0f8d",
+          "vendor/signet-nip46-client/Cargo.toml": "f50713935e30e95730e745b0a1f8cee50e11e3b3da8fe1c2b4216eedc810ebbd"
+        },
+        "symlinks": {},
+        "extraFiles": [],
+        "missingFiles": [],
+        "changedFiles": []
+      },
+      {
+        "repository": "relayswarm",
+        "head": "6ddbc96ea83e644551cf55448cf71133cc8dee5b",
+        "reviewedRevision": "6ddbc96ea83e644551cf55448cf71133cc8dee5b",
+        "reviewedSourceMatch": true,
+        "workingTree": false,
+        "files": {
+          "LICENSE": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "package-lock.json": "6c29ebc1331ad4fea1bfe6345a4165189ed8678ceda3d4a1f12697043a3620ea",
+          "package.json": "c8aed13db11be32931505e86e867f09fc31599b72b82d15c3ac0d5b4f79c8136",
+          "scripts/build-native-realtime.mjs": "4be5c5b04cbcdc994a0a6bbb16454694d066955175bfd546e41ef50bf6643ff7",
+          "scripts/native-patches/libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50",
+          "scripts/native-patches/libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "src/browser/realtime-peer.mjs": "1efa64b0ea3854d786f581af7a6c7bccb14c18b82769103638701a263b3edb9b",
+          "src/node/native-realtime.mjs": "e6839a60aaaddbe8c1cdea4cee751eda416eb8af79692ed06b2dcfa170cfeebd",
+          "src/relay-session.mjs": "02ea3453d1397f6b8b3b3d94912f6de262feab4c0386ccab4f84d4e03eee499a"
+        },
+        "symlinks": {},
+        "extraFiles": [],
+        "missingFiles": [],
+        "changedFiles": []
+      }
+    ],
+    "assets": {
+      "transport.mjs": "8e496f41ee9f03e647a54841d2ee539be13791a314fc524dd4d3fe36ff76ad68",
+      "sapflow.mjs": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+      "sapflow_realtime_bg.wasm": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3"
+    },
+    "backend": {
+      "kind": "node-datachannel-native-patched",
+      "version": "0.33.4",
+      "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+      "role": "initiator-only",
+      "license": "MPL-2.0",
+      "native": {
+        "format": 1,
+        "bindingVersion": "0.33.4",
+        "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "sourceModified": true,
+        "sources": {
+          "nodeDataChannel": "5f4365700d4dcc51ab2a3d90eb2d05592bf84c7a",
+          "libdatachannel": "443f6934d9007eb7076ab7825ba330f355fcbead",
+          "libjuice": "3c40a3545b6b1b62c7adee7f8f2bd58aa290afd6",
+          "usrsctp": "fec583d54493f879d2ae44a743423bf8a04371ab",
+          "plog": "94899e0b926ac1b0f4750bfbd495167b4a6ae9ef",
+          "openssl": "c9a9e5b10105ad850b6e4d1122c645c67767c341",
+          "nodeLicense": "def0bdf8abee441cfcbf793a8dc24a6f3b899573:sha256:537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "nodeHeaders": "v24.13.0:sha256:f5589e2b4b962af05381a31d11c3c9b004daf8bd63c95c0e1a406600daa8ae88",
+          "nodeAddonApi": "8.5.0:sha512:/bRZty2mXUIFY/xU5HLvveNHlswNJej+RnxBjOMkidWfwZzgTbPG1E3K5TOxRLOR+5hX7bSofy8yf1hZevMS8A=="
+        },
+        "patches": {
+          "libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        },
+        "build": {
+          "maxJobs": 2,
+          "media": false,
+          "websocket": false
+        },
+        "files": {
+          "native-addon.node": "ede568c39136031393f87394f8be365cb108c2be9a8ed74c19f7835655dd8e26",
+          "SOURCE_NOTICE.txt": "1153574e78a017d8fb440c48a4b790ec2df8a23c6f70256b29086029e6cf6b8b",
+          "LICENSES/node-datachannel.txt": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+          "LICENSES/libdatachannel.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/libjuice.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/usrsctp.txt": "fa53711b25af4b9a9b8dadfea3cb38166ec4b96760c8d62b284055554537d9ef",
+          "LICENSES/plog.txt": "e4d01796524cbc13b1571a1f0914823c6a23b316ba039e7014f47a4eef7fd4c3",
+          "LICENSES/openssl.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+          "LICENSES/node-addon-api.txt": "89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c",
+          "LICENSES/node-headers.txt": "537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "patches/libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "patches/libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        }
+      },
+      "source": {
+        "repository": "relayswarm",
+        "head": "6ddbc96ea83e644551cf55448cf71133cc8dee5b",
+        "reviewedRevision": "6ddbc96ea83e644551cf55448cf71133cc8dee5b",
+        "reviewedSourceMatch": true,
+        "workingTree": false,
+        "files": {
+          "LICENSE": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+          "package-lock.json": "6c29ebc1331ad4fea1bfe6345a4165189ed8678ceda3d4a1f12697043a3620ea",
+          "package.json": "c8aed13db11be32931505e86e867f09fc31599b72b82d15c3ac0d5b4f79c8136",
+          "scripts/build-native-realtime.mjs": "4be5c5b04cbcdc994a0a6bbb16454694d066955175bfd546e41ef50bf6643ff7",
+          "scripts/native-patches/libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50",
+          "scripts/native-patches/libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "src/browser/realtime-peer.mjs": "1efa64b0ea3854d786f581af7a6c7bccb14c18b82769103638701a263b3edb9b",
+          "src/node/native-realtime.mjs": "e6839a60aaaddbe8c1cdea4cee751eda416eb8af79692ed06b2dcfa170cfeebd",
+          "src/relay-session.mjs": "02ea3453d1397f6b8b3b3d94912f6de262feab4c0386ccab4f84d4e03eee499a"
+        },
+        "symlinks": {},
+        "extraFiles": [],
+        "missingFiles": [],
+        "changedFiles": []
+      },
+      "facadeSha256": "14643825998472c26de29a807c52890306fcca41af2f1710e00463a9ec78a9c0",
+      "bundleSha256": "7c8dd8267068337c269e7cafe43a637c313287c8f60e9db3fb72370d6ef180b2"
+    },
+    "fixtureSha256": "54459e0cae255c3237f7a3d59f1d4935ec9f76c19c6b895d73961d8fff750287",
+    "operatorSha256": "7c8dd8267068337c269e7cafe43a637c313287c8f60e9db3fb72370d6ef180b2"
+  },
+  "runs": [
+    {
+      "name": "patched-public-eight-b",
+      "rawEvidenceSha256": "488a07893446f22fe326e2081d288d3fd0eb27f1ec372e74b42e653f228d9b54",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "forwarded",
+      "publicSpry": true,
+      "shutdownGraceMs": 6000,
+      "groups": [
+        {
+          "participants": 8,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4081.0628750000005,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              65141,
+              72092,
+              67934,
+              68253,
+              68474,
+              71079,
+              65236,
+              70205
+            ],
+            "publishedFrames": [
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253
+            ],
+            "receivedFrames": [
+              1707,
+              1797,
+              1755,
+              1592,
+              1699,
+              1808,
+              1705,
+              1777
+            ],
+            "decodedVideoFrames": [
+              [
+                33,
+                45,
+                38,
+                35,
+                43,
+                46,
+                28
+              ],
+              [
+                42,
+                48,
+                41,
+                44,
+                45,
+                48,
+                38
+              ],
+              [
+                41,
+                42,
+                39,
+                43,
+                43,
+                47,
+                37
+              ],
+              [
+                41,
+                38,
+                40,
+                31,
+                40,
+                31,
+                26
+              ],
+              [
+                30,
+                38,
+                42,
+                43,
+                43,
+                39,
+                28
+              ],
+              [
+                46,
+                43,
+                49,
+                46,
+                44,
+                48,
+                38
+              ],
+              [
+                43,
+                40,
+                46,
+                43,
+                42,
+                43,
+                35
+              ],
+              [
+                45,
+                43,
+                49,
+                45,
+                44,
+                46,
+                48
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                173,
+                173,
+                177,
+                169,
+                171,
+                169,
+                170
+              ],
+              [
+                169,
+                174,
+                169,
+                169,
+                171,
+                171,
+                170
+              ],
+              [
+                167,
+                170,
+                165,
+                168,
+                167,
+                169,
+                168
+              ],
+              [
+                172,
+                177,
+                178,
+                174,
+                175,
+                173,
+                174
+              ],
+              [
+                166,
+                174,
+                177,
+                175,
+                169,
+                169,
+                172
+              ],
+              [
+                182,
+                184,
+                184,
+                183,
+                178,
+                183,
+                182
+              ],
+              [
+                168,
+                170,
+                173,
+                170,
+                170,
+                170,
+                172
+              ],
+              [
+                165,
+                167,
+                168,
+                166,
+                170,
+                170,
+                170
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 392,
+            "invalidMarkerSamples": 56,
+            "syntheticFrameAgeMs": {
+              "median": 433,
+              "p95": 692
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 120.38574999999946,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 8
+        }
+      ]
+    },
+    {
+      "name": "patched-public-repeat",
+      "rawEvidenceSha256": "b4fea246639e149a10c936c60d06de34b21f6f1663779acc610db51e451e9ee8",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "forwarded",
+      "publicSpry": true,
+      "shutdownGraceMs": 6000,
+      "groups": [
+        {
+          "participants": 8,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4080.3808339999987,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              65059,
+              70438,
+              68222,
+              70016,
+              68110,
+              68784,
+              59699,
+              68815
+            ],
+            "publishedFrames": [
+              252,
+              252,
+              252,
+              252,
+              253,
+              252,
+              252,
+              252
+            ],
+            "receivedFrames": [
+              1924,
+              1747,
+              2077,
+              1892,
+              2030,
+              1963,
+              1511,
+              1856
+            ],
+            "decodedVideoFrames": [
+              [
+                46,
+                43,
+                46,
+                36,
+                39,
+                46,
+                48
+              ],
+              [
+                43,
+                44,
+                41,
+                44,
+                43,
+                44,
+                43
+              ],
+              [
+                55,
+                51,
+                51,
+                37,
+                43,
+                47,
+                51
+              ],
+              [
+                49,
+                45,
+                41,
+                46,
+                37,
+                46,
+                41
+              ],
+              [
+                53,
+                49,
+                44,
+                50,
+                40,
+                47,
+                45
+              ],
+              [
+                50,
+                46,
+                42,
+                43,
+                41,
+                41,
+                50
+              ],
+              [
+                34,
+                28,
+                32,
+                29,
+                30,
+                29,
+                35
+              ],
+              [
+                47,
+                44,
+                47,
+                47,
+                47,
+                35,
+                51
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                193,
+                189,
+                195,
+                191,
+                193,
+                188,
+                190
+              ],
+              [
+                180,
+                178,
+                176,
+                174,
+                175,
+                172,
+                175
+              ],
+              [
+                198,
+                195,
+                196,
+                195,
+                194,
+                196,
+                195
+              ],
+              [
+                190,
+                189,
+                189,
+                190,
+                189,
+                187,
+                189
+              ],
+              [
+                194,
+                192,
+                190,
+                193,
+                191,
+                190,
+                189
+              ],
+              [
+                189,
+                187,
+                184,
+                188,
+                188,
+                184,
+                186
+              ],
+              [
+                131,
+                132,
+                131,
+                128,
+                134,
+                133,
+                134
+              ],
+              [
+                183,
+                184,
+                181,
+                185,
+                179,
+                183,
+                181
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 370,
+            "invalidMarkerSamples": 78,
+            "syntheticFrameAgeMs": {
+              "median": 401,
+              "p95": 1431
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 119.2427090000001,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 8
+        },
+        {
+          "participants": 2,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4064.0085,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              66624,
+              70525
+            ],
+            "publishedFrames": [
+              251,
+              251
+            ],
+            "receivedFrames": [
+              253,
+              250
+            ],
+            "decodedVideoFrames": [
+              [
+                49
+              ],
+              [
+                48
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                204
+              ],
+              [
+                200
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 16,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 288,
+              "p95": 338
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 92.52670800000124,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            1,
+            1
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 2
+        },
+        {
+          "participants": 4,
+          "passed": true,
+          "protectedShare": true,
+          "forwarderReplacement": true,
+          "protectedHideResume": true,
+          "changedSourceCoveredUntilConfirmed": true,
+          "measurement": {
+            "durationMs": 4057.425625,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              114582,
+              70367,
+              69521,
+              69940
+            ],
+            "publishedFrames": [
+              502,
+              251,
+              251,
+              251
+            ],
+            "receivedFrames": [
+              751,
+              1002,
+              1000,
+              1001
+            ],
+            "decodedVideoFrames": [
+              [
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                199,
+                202,
+                202
+              ],
+              [
+                201,
+                201,
+                202,
+                202
+              ],
+              [
+                201,
+                201,
+                198,
+                202
+              ],
+              [
+                199,
+                199,
+                200,
+                202
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 96,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 234,
+              "p95": 299
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 89.58191700000316,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            }
+          ],
+          "replacedOperatorShutdown": {
+            "forced": false,
+            "code": 0,
+            "signal": null,
+            "durationMs": 83.04262500000186,
+            "stdoutBytes": 24,
+            "stderrBytes": 0
+          },
+          "initialSourceCounts": [
+            3,
+            4,
+            4,
+            4
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 4,
+          "minimumInjectedDrops": 12
+        }
+      ]
+    },
+    {
+      "name": "patched-final-direct",
+      "rawEvidenceSha256": "49002b4c9fdb5ead32c511e1c41ad3b9213b0ff28d725ba2833bd7039e9bd2ff",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "forwarded",
+      "publicSpry": false,
+      "shutdownGraceMs": 6000,
+      "groups": [
+        {
+          "participants": 2,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4065.683833,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              67986,
+              69081
+            ],
+            "publishedFrames": [
+              251,
+              251
+            ],
+            "receivedFrames": [
+              251,
+              251
+            ],
+            "decodedVideoFrames": [
+              [
+                48
+              ],
+              [
+                48
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                203
+              ],
+              [
+                203
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 16,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 114,
+              "p95": 171
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 129.8634579999998,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            1,
+            1
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0
+        },
+        {
+          "participants": 4,
+          "passed": true,
+          "protectedShare": true,
+          "forwarderReplacement": true,
+          "protectedHideResume": true,
+          "changedSourceCoveredUntilConfirmed": true,
+          "measurement": {
+            "durationMs": 4062.8485,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              119505,
+              70837,
+              70106,
+              68828
+            ],
+            "publishedFrames": [
+              504,
+              252,
+              252,
+              252
+            ],
+            "receivedFrames": [
+              756,
+              1008,
+              1008,
+              1008
+            ],
+            "decodedVideoFrames": [
+              [
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                203,
+                203,
+                203
+              ],
+              [
+                203,
+                203,
+                203,
+                203
+              ],
+              [
+                203,
+                203,
+                203,
+                203
+              ],
+              [
+                203,
+                203,
+                203,
+                203
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 96,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 102,
+              "p95": 209
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 13.430707999999868,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            }
+          ],
+          "replacedOperatorShutdown": {
+            "forced": false,
+            "code": 0,
+            "signal": null,
+            "durationMs": 7.726167000000714,
+            "stdoutBytes": 24,
+            "stderrBytes": 0
+          },
+          "initialSourceCounts": [
+            3,
+            4,
+            4,
+            4
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0,
+          "minimumInjectedDrops": 12
+        },
+        {
+          "participants": 8,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4089.509124999997,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              67752,
+              70386,
+              69013,
+              69700,
+              71900,
+              70395,
+              64403,
+              69069
+            ],
+            "publishedFrames": [
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253
+            ],
+            "receivedFrames": [
+              1776,
+              1777,
+              1777,
+              1777,
+              1777,
+              1777,
+              1777,
+              1776
+            ],
+            "decodedVideoFrames": [
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                204,
+                204,
+                204,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                204,
+                204,
+                205,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                204,
+                204,
+                205,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                205,
+                205,
+                204,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                204,
+                205,
+                204,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                205,
+                205,
+                205,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                205,
+                205,
+                205,
+                205,
+                205,
+                205,
+                205
+              ],
+              [
+                205,
+                204,
+                205,
+                205,
+                205,
+                205,
+                205
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 448,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 96,
+              "p95": 202
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "durationMs": 14.522334000001138,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0
+        }
+      ]
+    },
+    {
+      "name": "patched-final-mesh",
+      "rawEvidenceSha256": "fbbeda6809c8bf6281c2720f10d333af41248d966126d1be1d4aabed5f40ab14",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "mesh",
+      "publicSpry": false,
+      "shutdownGraceMs": 6000,
+      "groups": [
+        {
+          "participants": 2,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4053.4830000000006,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              66306,
+              71661
+            ],
+            "publishedFrames": [
+              252,
+              252
+            ],
+            "receivedFrames": [
+              252,
+              252
+            ],
+            "decodedVideoFrames": [
+              [
+                49
+              ],
+              [
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                203
+              ],
+              [
+                203
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 16,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 100,
+              "p95": 162
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            1,
+            1
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0
+        },
+        {
+          "participants": 4,
+          "passed": true,
+          "protectedShare": true,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4050.702209000001,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              362472,
+              214428,
+              219021,
+              218394
+            ],
+            "publishedFrames": [
+              503,
+              251,
+              251,
+              251
+            ],
+            "receivedFrames": [
+              753,
+              1005,
+              1005,
+              1005
+            ],
+            "decodedVideoFrames": [
+              [
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                202,
+                202,
+                202
+              ],
+              [
+                202,
+                203,
+                202,
+                202
+              ],
+              [
+                202,
+                203,
+                202,
+                202
+              ],
+              [
+                202,
+                203,
+                202,
+                202
+              ]
+            ],
+            "connectionCopies": 3,
+            "latencySamples": 96,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 107,
+              "p95": 171
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            3,
+            4,
+            4,
+            4
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0
+        },
+        {
+          "participants": 8,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4083.3534170000003,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              476938,
+              500234,
+              487830,
+              497672,
+              491253,
+              481614,
+              463309,
+              502131
+            ],
+            "publishedFrames": [
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253,
+              253
+            ],
+            "receivedFrames": [
+              1771,
+              1771,
+              1771,
+              1771,
+              1771,
+              1771,
+              1771,
+              1771
+            ],
+            "decodedVideoFrames": [
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ],
+              [
+                49,
+                49,
+                49,
+                49,
+                49,
+                49,
+                49
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ],
+              [
+                204,
+                204,
+                204,
+                204,
+                204,
+                204,
+                204
+              ]
+            ],
+            "connectionCopies": 7,
+            "latencySamples": 448,
+            "invalidMarkerSamples": 0,
+            "syntheticFrameAgeMs": {
+              "median": 83,
+              "p95": 163
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 0
+        }
+      ]
+    }
+  ],
+  "nativeTurnLifecycle": {
+    "passed": true,
+    "syntheticCredentialsOnly": true,
+    "liveServiceContacted": false,
+    "results": [
+      {
+        "scenario": "normal",
+        "passed": true,
+        "cycles": 2,
+        "allocationTransitions": [
+          8,
+          0,
+          8,
+          0
+        ],
+        "authenticatedAllocates": 16,
+        "refreshZeroRequests": 16,
+        "authenticatedSameTupleReleaseRequests": 16,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 1,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 2412,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "drop-first-two",
+        "passed": true,
+        "cycles": 2,
+        "allocationTransitions": [
+          8,
+          0,
+          8,
+          0
+        ],
+        "authenticatedAllocates": 16,
+        "refreshZeroRequests": 48,
+        "authenticatedSameTupleReleaseRequests": 48,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 3,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 3801,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "stale-delayed",
+        "passed": true,
+        "cycles": 2,
+        "allocationTransitions": [
+          8,
+          0,
+          8,
+          0
+        ],
+        "authenticatedAllocates": 16,
+        "refreshZeroRequests": 80,
+        "authenticatedSameTupleReleaseRequests": 80,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 5,
+        "staleNonceChallenges": 16,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 7128,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "forged-hmac",
+        "passed": true,
+        "cycles": 1,
+        "allocationTransitions": [
+          8,
+          0
+        ],
+        "authenticatedAllocates": 8,
+        "refreshZeroRequests": 24,
+        "authenticatedSameTupleReleaseRequests": 24,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 3,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 2042,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "forged-txid",
+        "passed": true,
+        "cycles": 1,
+        "allocationTransitions": [
+          8,
+          0
+        ],
+        "authenticatedAllocates": 8,
+        "refreshZeroRequests": 24,
+        "authenticatedSameTupleReleaseRequests": 24,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 3,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 2046,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "lost-ack",
+        "passed": true,
+        "cycles": 1,
+        "allocationTransitions": [
+          8,
+          0
+        ],
+        "authenticatedAllocates": 8,
+        "refreshZeroRequests": 40,
+        "authenticatedSameTupleReleaseRequests": 40,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 5,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 4244,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "late-ack",
+        "passed": true,
+        "cycles": 1,
+        "allocationTransitions": [
+          8,
+          0
+        ],
+        "authenticatedAllocates": 8,
+        "refreshZeroRequests": 40,
+        "authenticatedSameTupleReleaseRequests": 40,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 5,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 0,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 4267,
+        "partitionReleaseExpected": null,
+        "exitCode": 0,
+        "stderrPresent": false
+      },
+      {
+        "scenario": "blackhole",
+        "passed": true,
+        "cycles": 1,
+        "allocationTransitions": [
+          8,
+          8
+        ],
+        "authenticatedAllocates": 8,
+        "refreshZeroRequests": 40,
+        "authenticatedSameTupleReleaseRequests": 40,
+        "invalidReleaseRequests": 0,
+        "maximumRequestsPerAllocation": 5,
+        "staleNonceChallenges": 0,
+        "remainingAllocations": 8,
+        "cleanupReturned": true,
+        "closeToProcessExitMs": 4254,
+        "partitionReleaseExpected": false,
+        "exitCode": 0,
+        "stderrPresent": false
+      }
+    ],
+    "artifact": {
+      "platform": "darwin",
+      "arch": "arm64",
+      "bindingVersion": "0.33.4",
+      "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+      "binarySha256": "ede568c39136031393f87394f8be365cb108c2be9a8ed74c19f7835655dd8e26",
+      "libjuicePatchSha256": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069"
+    },
+    "timingDefinition": "closeToProcessExitMs includes controlled fixture waits, later cycles and final native cleanup; it is not a network latency measurement.",
+    "liveSpryAcceptance": false,
+    "linuxRuntimeAcceptance": false
+  },
+  "nativeBrowserTransport": {
+    "passed": true,
+    "generatedDatagramsOnly": true,
+    "nativeInitiator": true,
+    "browserAnswerer": true,
+    "browserObservedDcep": {
+      "ordered": false,
+      "maxPacketLifeTime": 250,
+      "maxRetransmits": null,
+      "label": "relayswarm-live-v1"
+    },
+    "binaryBidirectional": true,
+    "unknownIncomingChannelRefused": true,
+    "certificateBypass": false,
+    "ice": "loopback-direct",
+    "publicNat": false,
+    "physicalDevice": false,
+    "packageVersion": "0.33.4",
+    "native": {
+      "ownedPeers": 1,
+      "closed": false,
+      "disposed": false,
+      "packageVersion": "0.33.4",
+      "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+      "role": "initiator-only",
+      "maxPacketLifeTimeMs": 250
+    },
+    "cleanupOwnedPeers": 0,
+    "binarySha256": "ede568c39136031393f87394f8be365cb108c2be9a8ed74c19f7835655dd8e26"
+  },
+  "shortActiveTelemetry": {
+    "format": 2,
+    "scope": "Qualified short public native N8 window, confirmed 16 concurrent Spry allocations; observation only, not a capacity benchmark",
+    "nativeSourceReferenceProvidedByParent": "6ddbc96ea83e644551cf55448cf71133cc8dee5b",
+    "m4": {
+      "sampleCount": 46,
+      "activeOperatorObservations": 10,
+      "idleObservations": 36,
+      "activeFirstUnixTime": 1792813642.4786031,
+      "activeLastUnixTime": 1792813651.535388,
+      "qualifiedCpuIntervals": 9,
+      "cpuIntervalPercentMedian": 20.914,
+      "cpuIntervalPercentMax": 37.74,
+      "rssKiBMax": 106624,
+      "threads": null,
+      "cpuScope": "whole operator process, 100percent is one logical CPU",
+      "discoverySubsecondCpuDeltaExcluded": true,
+      "threadCountUnqualified": true
+    },
+    "spry": {
+      "sampleCount": 46,
+      "allocationPresentObservations": 9,
+      "idleObservations": 37,
+      "portCountMax": 16,
+      "portCountFinal": 0,
+      "allocationPresentCpuPercentMedian": 9.173,
+      "allocationPresentCpuPercentMax": 10.301,
+      "cpuThrottledUsecDelta": 0,
+      "udpKernelDropsDelta": 0,
+      "rxQueueBytesMax": 896,
+      "txQueueBytesMax": 9856,
+      "oomKillDelta": 0,
+      "rssKiBMax": 3260
+    },
+    "repeatPrearm": "No operator detected; expired with zero samples; excluded and its task-only files removed",
+    "noRawCommandlinesConfigurationsLogsOrMediaSaved": true,
+    "monitorsLeftRunning": false,
+    "dataFiles": {
+      "m4.jsonl": "946558cf4eb66204e25635f06401019fbe5a762d8db2dd7d5b13b9b53ac76231",
+      "spry.jsonl": "78a1e2fcceba7433b040c90ba03b9a4eae54bd190d79d286aa2bae21758c61df"
+    },
+    "qualification": "Short active eight-person public-call observation including transitions; A/B run identity is not assigned; not a capacity or battery benchmark."
+  },
+  "historicalFailures": [
+    {
+      "name": "native-public-spry",
+      "rawEvidenceSha256": "0df7e188819fe4c60ab319c82f436d8aa1fb7e4f54da0ffa955ba016d7f89b24",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "forwarded",
+      "publicSpry": true,
+      "shutdownGraceMs": 3000,
+      "groups": [
+        {
+          "participants": 2,
+          "passed": true,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4063.4340420000003,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              67331,
+              72750
+            ],
+            "publishedFrames": [
+              252,
+              252
+            ],
+            "receivedFrames": [
+              252,
+              253
+            ],
+            "decodedVideoFrames": [
+              [
+                47
+              ],
+              [
+                46
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                198
+              ],
+              [
+                195
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 15,
+            "invalidMarkerSamples": 1,
+            "syntheticFrameAgeMs": {
+              "median": 274,
+              "p95": 350
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            }
+          ],
+          "initialSourceCounts": [
+            1,
+            1
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 2
+        },
+        {
+          "participants": 4,
+          "passed": true,
+          "protectedShare": true,
+          "forwarderReplacement": true,
+          "protectedHideResume": true,
+          "changedSourceCoveredUntilConfirmed": true,
+          "measurement": {
+            "durationMs": 4051.6389579999995,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              113938,
+              69712,
+              69385,
+              68955
+            ],
+            "publishedFrames": [
+              503,
+              251,
+              251,
+              251
+            ],
+            "receivedFrames": [
+              736,
+              984,
+              982,
+              982
+            ],
+            "decodedVideoFrames": [
+              [
+                47,
+                48,
+                47
+              ],
+              [
+                44,
+                43,
+                48,
+                47
+              ],
+              [
+                43,
+                43,
+                47,
+                47
+              ],
+              [
+                43,
+                43,
+                47,
+                47
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                196,
+                198,
+                197
+              ],
+              [
+                194,
+                193,
+                193,
+                194
+              ],
+              [
+                195,
+                194,
+                196,
+                197
+              ],
+              [
+                198,
+                196,
+                196,
+                197
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 93,
+            "invalidMarkerSamples": 3,
+            "syntheticFrameAgeMs": {
+              "median": 294,
+              "p95": 386
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "operatorShutdown": [
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 0,
+              "stderrBytes": 0,
+              "absent": true
+            },
+            {
+              "forced": false,
+              "code": 0,
+              "signal": null,
+              "stdoutBytes": 24,
+              "stderrBytes": 0
+            }
+          ],
+          "replacedOperatorShutdown": {
+            "forced": false,
+            "code": 0,
+            "signal": null,
+            "stdoutBytes": 24,
+            "stderrBytes": 0
+          },
+          "initialSourceCounts": [
+            3,
+            4,
+            4,
+            4
+          ],
+          "allSourcesFreshDuringMeasurement": true,
+          "callerTracksPreserved": true,
+          "verifiedRelayPairs": 4,
+          "minimumInjectedDrops": 12
+        },
+        {
+          "participants": 8,
+          "passed": false,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "failure": "Native backend connection setup failed after earlier groups retained TURN allocations; two of eight transports ready.",
+          "readyEndpoints": 2
+        }
+      ],
+      "backendIdentity": {
+        "kind": "node-datachannel-native",
+        "bindingVersion": "0.33.4",
+        "libraryVersion": "0.24.5",
+        "operatorSha256": "17d711be9e48da9bae7069d4879134b2a0c1ebc5ff70f8969c5207d37bb4acce",
+        "fixtureSha256": "7e5d88848d8abfeebf461ed4575e8aa4d53a1d728e70be806bf9654eba573143",
+        "reviewedRevisions": {
+          "relayswarm": "b4126a4eac526a406e30fd5e6c228232be5d4d58",
+          "sapflow": "f25ea21e660418794e2fb2192f264e176e08d379"
+        }
+      }
+    },
+    {
+      "name": "patched-public-eight-a",
+      "rawEvidenceSha256": "c33675d740ad985865c3d046a780ede2d5db0494ea209b2944879e021467b07d",
+      "runtime": {
+        "node": "v24.13.0",
+        "chromium": "151.0.7922.34",
+        "platform": "darwin",
+        "arch": "arm64"
+      },
+      "topology": "forwarded",
+      "publicSpry": true,
+      "shutdownGraceMs": 6000,
+      "groups": [
+        {
+          "participants": 8,
+          "passed": false,
+          "protectedShare": false,
+          "forwarderReplacement": false,
+          "measurement": {
+            "durationMs": 4079.0784999999996,
+            "requestedDurationMs": 4000,
+            "uploadBytes": [
+              66945,
+              70777,
+              66962,
+              67295,
+              68772,
+              69722,
+              67256,
+              68286
+            ],
+            "publishedFrames": [
+              252,
+              252,
+              252,
+              252,
+              252,
+              252,
+              252,
+              252
+            ],
+            "receivedFrames": [
+              1643,
+              1751,
+              1756,
+              1658,
+              1735,
+              1716,
+              1718,
+              1766
+            ],
+            "decodedVideoFrames": [
+              [
+                45,
+                41,
+                46,
+                41,
+                41,
+                46,
+                44
+              ],
+              [
+                43,
+                43,
+                43,
+                45,
+                44,
+                44,
+                46
+              ],
+              [
+                49,
+                49,
+                48,
+                48,
+                49,
+                48,
+                49
+              ],
+              [
+                46,
+                46,
+                46,
+                42,
+                41,
+                46,
+                46
+              ],
+              [
+                44,
+                43,
+                43,
+                43,
+                43,
+                44,
+                47
+              ],
+              [
+                48,
+                43,
+                49,
+                42,
+                42,
+                47,
+                49
+              ],
+              [
+                47,
+                48,
+                48,
+                47,
+                48,
+                47,
+                48
+              ],
+              [
+                45,
+                43,
+                45,
+                44,
+                45,
+                45,
+                44
+              ]
+            ],
+            "decodedAudioFrames": [
+              [
+                178,
+                176,
+                179,
+                176,
+                179,
+                179,
+                177
+              ],
+              [
+                180,
+                178,
+                177,
+                178,
+                178,
+                179,
+                176
+              ],
+              [
+                189,
+                187,
+                189,
+                186,
+                189,
+                189,
+                188
+              ],
+              [
+                179,
+                178,
+                178,
+                177,
+                180,
+                179,
+                180
+              ],
+              [
+                177,
+                175,
+                179,
+                174,
+                176,
+                175,
+                176
+              ],
+              [
+                178,
+                182,
+                183,
+                180,
+                179,
+                183,
+                183
+              ],
+              [
+                192,
+                195,
+                195,
+                192,
+                191,
+                192,
+                194
+              ],
+              [
+                176,
+                175,
+                179,
+                176,
+                174,
+                173,
+                176
+              ]
+            ],
+            "connectionCopies": 1,
+            "latencySamples": 418,
+            "invalidMarkerSamples": 30,
+            "syntheticFrameAgeMs": {
+              "median": 401,
+              "p95": 551
+            },
+            "sameHostClocks": true,
+            "timestampQuantisationMs": 10,
+            "freshPlaybackEverySource": true
+          },
+          "failure": "All sources delivered fresh media; qualification failed because one eager candidate-stat snapshot was empty. Fixed authoritative selected-pair lookup and bounded polling without relaxing relay evidence.",
+          "readyEndpoints": 8
+        }
+      ],
+      "backendIdentity": {
+        "kind": "node-datachannel-native-patched",
+        "bindingVersion": "0.33.4",
+        "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+        "operatorSha256": "7c8dd8267068337c269e7cafe43a637c313287c8f60e9db3fb72370d6ef180b2",
+        "fixtureSha256": "7e5d88848d8abfeebf461ed4575e8aa4d53a1d728e70be806bf9654eba573143",
+        "reviewedRevisions": {
+          "sapflow": "f25ea21e660418794e2fb2192f264e176e08d379",
+          "relayswarm": "6ddbc96ea83e644551cf55448cf71133cc8dee5b"
+        }
+      }
+    }
+  ],
+  "cleanup": {
+    "providerTemporaryProfilesRemoved": 20,
+    "localTemporaryProfilesRemoved": 10,
+    "nativeBuildScratchRemoved": true,
+    "browserFixtureCleanup": {
+      "activeOwnedNodeProcesses": 0,
+      "privateFixtureRemoved": true,
+      "sharedDependenciesPreserved": true
+    },
+    "preexistingServicesAndEmulatorPreserved": true,
+    "retainedReviewBuilds": [
+      "dist/realtime-runtime/",
+      "dist/realtime-forwarder.mjs",
+      "app/public/realtime/",
+      "../relayswarm/target/realtime-native/"
+    ],
+    "retainedGeneratedDiagnosticResults": "test-results/realtime/historical-results/"
+  }
+}

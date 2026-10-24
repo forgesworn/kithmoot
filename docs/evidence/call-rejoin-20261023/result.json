@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-23",
+  "baseCommit": "e1a866e03f105974c106774a563af68983747fc4",
+  "sourceSha256": {
+    "app/src/main.ts": "f0782e791789e0cb947b92b88d0a8b450d8b29bf385f9dee5cbaa069f93e8c89",
+    "app/src/remote-tiles.ts": "0d952e57459ab722c14e2e886ef84dc93d919eea14713fb62ca86a1fbdd38215",
+    "app/src/remote-tiles.test.ts": "a3285ebb4adb135db47196514a0ca9a5cdff77ee513fe59ee50ac5defc47ab9a",
+    "app/src/video-pipeline.ts": "e3dfabb4398e5fae0849e1e9d16cb5da9f37e1ebccdeb533c1363e81a04a9193",
+    "test/automatic-calls.spec.ts": "c1e1420557bb62b922b9e6e13498c07f0a3f36d7c067fc5080e89432b933176d",
+    "test/automatic-call-state.ts": "8b28d1d866d02b7ba255a24048b03dfd66e91c5945cb1a23422e10d9e186468d",
+    "test/automatic-call-fixture.py": "f0a02b1013f7379f72866d0a6e5dff60417e1c3a09ef7e9a6da67baaa34040ca",
+    "playwright.automatic-calls.config.ts": "0a8740fab9ab633e9cd10f728e69fc53ae53a9fd0bc445ded6e6ceedf1beaea8",
+    "playwright.publisher.config.ts": "448ab37b751fe86cdae0076dcddb4987c6a877afdea7affd48d96a11fdb0277c",
+    "package-lock.json": "3688c3653ad59be4f6908b6f9b08df231172feb4b10adae3fb8e01ed45abd63d"
+  },
+  "qualification": {
+    "deterministicFirstFrameRegression": {
+      "before": "failed: zero-clock zero-width sink was outside room",
+      "after": "passed: held awaiting sink, then fresh media both ways"
+    },
+    "unitTests": {
+      "passed": 96,
+      "files": 4,
+      "remoteTileSubset": 41,
+      "command": "node_modules/.bin/vitest run app/src/remote-tiles.test.ts app/src/call-stage.test.ts app/src/call-relay.test.ts app/src/relay-only.test.ts app/src/call-timeline.test.ts",
+      "absentRequestedFile": "app/src/call-stage.test.ts"
+    },
+    "typecheck": {
+      "libraryAndApp": "passed npm run typecheck",
+      "finalTestEdits": "passed tsc --noEmit -p tsconfig.json"
+    },
+    "ordinaryAutomaticCallGate": {
+      "passed": 4,
+      "failed": 0,
+      "groupRejoinCycles": 3,
+      "diagnosticsEnabled": false,
+      "probeBranchesPresent": false,
+      "evidence": "ordinary-final.json"
+    },
+    "ordinaryPublisherProtectedSharingGate": {
+      "passed": 5,
+      "failed": 0,
+      "diagnosticsEnabled": false,
+      "evidence": "publisher-final.json"
+    },
+    "diagnosticCpu4Gate": {
+      "passed": 4,
+      "failed": 0,
+      "evidence": "diagnostic-four-case-pass.json",
+      "recoveryProbeTriggered": false
+    },
+    "diagnosticCpu4GroupRepeat": {
+      "passed": 3,
+      "groupRejoinCycles": 9,
+      "evidence": "diagnostic-nine-rejoins-pass.json",
+      "recoveryProbeTriggered": false
+    },
+    "nativeMediaStall": "unresolved intermittent symptom; see native-stall-and-partial-probe.json",
+    "hostedCI": false,
+    "deployed": false,
+    "separateNetworks": false,
+    "independentOperators": false,
+    "realOsCapturePicker": false,
+    "android": false,
+    "physicalGrapheneOS": false,
+    "publicProviderSelected": false,
+    "zeroLoggingAuditCompleted": false,
+    "legalExemptionEstablished": false
+  },
+  "cleanup": {
+    "testServersAndContainers": "stopped by fixture teardown; verified before handover",
+    "generatedOutputs": "removed after recording evidence",
+    "prototypeWorktree": "retained: unmerged work"
+  }
+}

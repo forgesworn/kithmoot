@@ -1,0 +1,281 @@
+{
+  "passed": true,
+  "checkedAt": "2026-10-23T14:25:59.288Z",
+  "ready": true,
+  "pin": "4cab546c6117ce5dfd28b86a4ddcd4cd943978f5",
+  "binarySha256": "dea4e57ff0c6a5662700b60980c9c42d79a97608c77862e64601ecf93d73ca83",
+  "leafNodes": 4,
+  "transitNodes": 1,
+  "transportMtu": 1472,
+  "chromiumVersion": "151.0.7922.34",
+  "nodeVersion": "v24.21.0",
+  "scope": "single-host synthetic helper-assisted browser mesh",
+  "phases": [
+    {
+      "participants": 2,
+      "elapsedMs": 5389,
+      "observationMs": 4000,
+      "decodedFrameDeltas": [
+        40,
+        40
+      ],
+      "media": [
+        {
+          "frames": 48,
+          "energy": 4.589000001079427,
+          "lost": 0,
+          "jitter": 0.002,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 48,
+          "energy": 4.609999999999946,
+          "lost": 0,
+          "jitter": 0.002,
+          "rtt": 0.002,
+          "connected": true
+        }
+      ]
+    },
+    {
+      "participants": 4,
+      "elapsedMs": 6368,
+      "observationMs": 4000,
+      "decodedFrameDeltas": [
+        40,
+        40,
+        41,
+        40,
+        40,
+        40,
+        40,
+        39,
+        39,
+        40,
+        39,
+        40
+      ],
+      "media": [
+        {
+          "frames": 116,
+          "energy": 10.959000001079291,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.003,
+          "connected": true
+        },
+        {
+          "frames": 116,
+          "energy": 10.97999999999981,
+          "lost": 0,
+          "jitter": 0.008,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 65,
+          "energy": 5.896216220743898,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.001,
+          "connected": true
+        },
+        {
+          "frames": 62,
+          "energy": 5.889999999999919,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.003,
+          "connected": true
+        },
+        {
+          "frames": 61,
+          "energy": 5.696647824510091,
+          "lost": 0,
+          "jitter": 0.005,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 58,
+          "energy": 5.619999999999925,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.001,
+          "connected": true
+        },
+        {
+          "frames": 58,
+          "energy": 5.339999999999931,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 56,
+          "energy": 5.349543687343108,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 53,
+          "energy": 5.079999999999936,
+          "lost": 0,
+          "jitter": 0.005,
+          "rtt": 0.002,
+          "connected": true
+        },
+        {
+          "frames": 53,
+          "energy": 5.089999999999936,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.004,
+          "connected": true
+        },
+        {
+          "frames": 50,
+          "energy": 4.9199999999999395,
+          "lost": 0,
+          "jitter": 0.004,
+          "rtt": 0.001,
+          "connected": true
+        },
+        {
+          "frames": 50,
+          "energy": 4.939999999999939,
+          "lost": 0,
+          "jitter": 0.006,
+          "rtt": 0.002,
+          "connected": true
+        }
+      ]
+    }
+  ],
+  "bridges": [
+    [
+      {
+        "sent": 927,
+        "received": 910,
+        "oversize": 0,
+        "untrusted": 1,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 910,
+        "received": 927,
+        "oversize": 0,
+        "untrusted": 3,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ],
+    [
+      {
+        "sent": 515,
+        "received": 511,
+        "oversize": 0,
+        "untrusted": 1,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 511,
+        "received": 515,
+        "oversize": 0,
+        "untrusted": 3,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ],
+    [
+      {
+        "sent": 495,
+        "received": 489,
+        "oversize": 0,
+        "untrusted": 1,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 489,
+        "received": 495,
+        "oversize": 0,
+        "untrusted": 3,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ],
+    [
+      {
+        "sent": 461,
+        "received": 463,
+        "oversize": 0,
+        "untrusted": 1,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 463,
+        "received": 461,
+        "oversize": 0,
+        "untrusted": 3,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ],
+    [
+      {
+        "sent": 457,
+        "received": 456,
+        "oversize": 0,
+        "untrusted": 1,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 456,
+        "received": 457,
+        "oversize": 0,
+        "untrusted": 3,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ],
+    [
+      {
+        "sent": 440,
+        "received": 427,
+        "oversize": 0,
+        "untrusted": 0,
+        "blocked": 0,
+        "maximum": 1362
+      },
+      {
+        "sent": 427,
+        "received": 440,
+        "oversize": 0,
+        "untrusted": 2,
+        "blocked": 0,
+        "maximum": 1362
+      }
+    ]
+  ],
+  "identityProbe": {
+    "expected": 1,
+    "wrong": 0
+  },
+  "transitCutStoppedDelivery": true,
+  "unproven": [
+    "separate networks and NAT",
+    "Android and physical GrapheneOS",
+    "browser without helper",
+    "battery",
+    "production admission and abuse limits"
+  ]
+}

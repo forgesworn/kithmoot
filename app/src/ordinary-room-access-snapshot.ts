@@ -286,9 +286,11 @@ function link(raw: unknown, allocated: RoomLink[]): RoomLink {
     const bytes = base64urlnopad.decode(fragment)
     let payload: unknown
     try { payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) } finally { bytes.fill(0) }
-    object(payload, [], ['v','s','j','h','r','i','a','n']) // Pairing codes are never retained room links.
+    object(payload, [], ['v','s','j','h','o','r','i','a','n']) // Pairing codes are never retained room links.
     if (payload.v === undefined ? typeof payload.s !== 'string' || Object.hasOwn(payload,'j') || Object.hasOwn(payload,'h') :
-        ![2,3].includes(payload.v as number) || typeof payload.j !== 'string' || typeof payload.h !== 'string' || Object.hasOwn(payload,'s')) hold()
+        ![2,3,5].includes(payload.v as number) || typeof payload.j !== 'string' || typeof payload.h !== 'string' || Object.hasOwn(payload,'s')) hold()
+    // Only a member's link (version 5) names the room's authority, and it must.
+    if ((payload.v === 5) !== Object.hasOwn(payload,'o')) hold()
     if (Object.hasOwn(payload,'n')) name(payload.n)
     // Fold validates known policy values, but its parser tolerates null and
     // unknown fields. Retained custody cannot silently lose a restriction.

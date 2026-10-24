@@ -1,0 +1,258 @@
+{
+  "stats": {
+    "startTime": "2026-10-23T17:16:33.909Z",
+    "duration": 144440.519,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "cases": [
+    {
+      "title": "fresh guests automatically obtain separate temporary transport logins and group-call without Settings or files",
+      "expectedStatus": "passed",
+      "results": [
+        {
+          "status": "failed",
+          "duration": 110637,
+          "errors": [
+            "Error: every remote participant must supply decoded video and audio\n\nevery remote participant must supply decoded video and audio\n\nexpect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1\n\nCall Log:\n- Timeout 45000ms exceeded while waiting on the predicate\n\n  34 |   if (peers > 1) await chooseCallMore(page, 'Gallery', 'Layout')\n  35 |   await expect.poll(async () => (await sample(page)).filter(row => row.frames > 5 && row.energy > 0).length,\n> 36 |     { timeout: 45_000, message: 'every remote participant must supply decoded video and audio' }).toBe(peers)\n     |                                                                                                   ^\n  37 |   const baseline = new Map((await sample(page)).map(row => [row.peer, row]))\n  38 |   await expect.poll(async () => (await sample(page)).filter(row => {\n  39 |     const before = baseline.get(row.peer)\n    at movingMedia (<checkout>/test/automatic-calls.spec.ts:36:99)\n    at <checkout>/test/automatic-calls.spec.ts:116:45"
+          ],
+          "boundedFailure": {
+            "phase": "rejoin",
+            "peers": [
+              {
+                "media": [
+                  {
+                    "peer": 0,
+                    "frames": 1862,
+                    "energy": 9.325815459765407,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A68727018|IT01V2122732147"
+                  },
+                  {
+                    "peer": 2,
+                    "frames": 1001,
+                    "energy": 4.47648149138749,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1858467573|IT01V4187683317"
+                  }
+                ],
+                "sinks": [
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 106.108529,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  },
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 103.105,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  },
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 51.144,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "media": [
+                  {
+                    "peer": 0,
+                    "frames": 1855,
+                    "energy": 9.436565532751377,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A1000274793|IT01V3193058497"
+                  },
+                  {
+                    "peer": 2,
+                    "frames": 0,
+                    "energy": 4.391269315085055,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A569793827|IT01V1632777718"
+                  }
+                ],
+                "sinks": [
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 103.66155,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  },
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 103.874,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "media": [
+                  {
+                    "peer": 0,
+                    "frames": 1003,
+                    "energy": 4.718085014542055,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A730062396|IT01V3330743345"
+                  },
+                  {
+                    "peer": 1,
+                    "frames": 945,
+                    "energy": 4.713594766150305,
+                    "local": "relay",
+                    "remote": "relay",
+                    "protocol": "tls",
+                    "epoch": "IT01A2881285308|IT01V2677597222"
+                  }
+                ],
+                "sinks": [
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 51.691762,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  },
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 51.625,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  },
+                  {
+                    "connected": true,
+                    "paused": false,
+                    "visible": true,
+                    "offPage": false,
+                    "time": 0,
+                    "tracks": [
+                      {
+                        "kind": "video",
+                        "state": "live",
+                        "muted": false,
+                        "enabled": true
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "issuer refusal preserves chat and refuses a relay-only call without creating a peer",
+      "expectedStatus": "passed",
+      "results": [
+        {
+          "status": "passed",
+          "duration": 2050,
+          "errors": []
+        }
+      ]
+    }
+  ],
+  "sourceSha256": {
+    "app/src/ice-resolve.ts": "b0b5562a94c4bfc8b49a1bb234a24c17829590d6b289a5aa9b3ad429bbaf5660",
+    "app/src/ice-issuer.test.ts": "edcb05eb49134fabdabd669442187cf998c8a9f4680d5b9a0ca01cc2d304dd71",
+    "app/src/main.ts": "ed6862d203de9db43fd11c537862eeabb16f75555f08bc7f1d52519412845ca0",
+    "app/src/call-stun.ts": "42ad3f043778d38d060be0ec59741c819b70f9277ad2809fe2b0c6ab5d4041fa",
+    "app/src/switch-off-notices.test.ts": "b747b6613317621a5a2e84ac3ba59c870e63e01aefc4779f1a15f2c72a73c511",
+    "playwright.automatic-calls.config.ts": "0a8740fab9ab633e9cd10f728e69fc53ae53a9fd0bc445ded6e6ceedf1beaea8",
+    "test/automatic-call-fixture.py": "770b0becaab555e080fbde2ebcd0e133af19d7f3036f439b2bc98e4bcfb892e6",
+    "test/automatic-calls.spec.ts": "aa5556149e2e011bf3d023063b17d5170ae825150b97678792d970b162b44a9b",
+    "server/turn-credentials.mjs": "49ca003e61f59a35bbef5a533f63c2cae19bb8709b7d75b96c4a23d3f0bd7660",
+    "src/turn.ts": "84e74fa4bcf5367955c90601353e67fd01f9942d02737c92cd8666f44d4c357f"
+  },
+  "checks": {
+    "targetedUnitTests": 79,
+    "targetedUnitFiles": 5,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "hostedCi": "not run",
+    "publicProviderQualified": false,
+    "separateNetworks": false,
+    "publicPkiQualified": false,
+    "grapheneOsAccepted": false,
+    "osaExemptionEstablished": false
+  },
+  "finding": "Automatic issuance, one-to-one, initial three-person group and pre-rejoin distinct-login/storage checks passed before the rejoin media failure. Issuer aggregate HTTP boundary assertions were after rejoin and were not reached. Refusal case passed. No video repair made."
+}

@@ -1,0 +1,46 @@
+{
+  "passed": false,
+  "checkedAt": "2026-10-23T14:20:19.294Z",
+  "stage": "two-participant media",
+  "transportMtu": 1280,
+  "failureDetails": {
+    "media": [
+      {
+        "frames": 0,
+        "energy": 0,
+        "lost": 0,
+        "jitter": 0,
+        "rtt": 0.002,
+        "connected": false
+      },
+      {
+        "frames": 0,
+        "energy": 0,
+        "lost": 0,
+        "jitter": 0,
+        "rtt": 0.003,
+        "connected": false
+      }
+    ],
+    "bridges": [
+      [
+        {
+          "sent": 40,
+          "received": 46,
+          "oversize": 0,
+          "untrusted": 1,
+          "blocked": 0,
+          "maximum": 1170
+        },
+        {
+          "sent": 46,
+          "received": 40,
+          "oversize": 6,
+          "untrusted": 3,
+          "blocked": 0,
+          "maximum": 1170
+        }
+      ]
+    ]
+  }
+}

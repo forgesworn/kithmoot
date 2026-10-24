@@ -1,0 +1,27 @@
+{
+  "sourcePin": "4cab546c6117ce5dfd28b86a4ddcd4cd943978f5",
+  "sourceRepository": "https://github.com/jmcorgan/fips",
+  "kithmootBase": "bd322c6de13c389f67713171487e54fdba763e6b",
+  "build": "cargo build --locked --bin fips --jobs 2",
+  "toolchain": "1.94.1-aarch64-apple-darwin",
+  "buildProfile": "dev",
+  "sourceModified": false,
+  "sha256": {
+    "test/fips-call/mesh.py": "79bf93664bda85b060faadd5dd7c959d67c716f82a39d8c47f16d2c94156d4c1",
+    "test/fips-call/run.mjs": "89407fbe08cdc3a8079f1894f5482b7df6b24aa14cc6b79bf748e3dfc262089c",
+    "test/fips-call/leaf-probe.py": "ac299df455ab4c74f390c7a22e2290f2c0dd8d28bc3022c262f0f23f0ab3382e"
+  },
+  "upstreamFilesSha256": {
+    "LICENSE": "574561d7bedffa84106ff132e16904f7768cd12d13fc10166ac89e276c6b72ef",
+    "Cargo.lock": "2b1be3dadf2794b53caebdbb511f0b9627b44c5b02cb07ebc8f373cbbd3753c8",
+    "Cargo.toml": "efcb67b0fe081b7448ff95e2f1c52f281fcdfe3b381cb2be5e965a900cb118d8"
+  },
+  "note": "Media 1472 and leaf probe ran with current fixture. Default-MTU failure preceded the identity probe and explicit optional leaf_only override; neither changes its failing path. No binaries or private identity keys included.",
+  "evidenceSha256": {
+    "leaf-transit.json": "ba0ba08bdf61a77b011bf87bfcf9868f2435b3e57e43ad98005d3625f58046fe",
+    "legal-review.json": "4a9d5232153602b6a89bb3d40dcce19daee55389d03153ff63ceeeb7feef548e",
+    "licence-inventory.json": "4ba7a155cb9e74a37f7daec47e1759c09bcf7fb9cef6d4cfe361c5fdc58b43a5",
+    "media-1280.json": "94116be5477ad6cb12e6e9c9cc1f1bb0fa3ed2b82d53b4f02757362e8a7f565d",
+    "media-1472.json": "5b4ec7b9f8923dc5c2e6ddc3bc120e11578aec5df66c1421fccdfc9216183b3a"
+  }
+}
