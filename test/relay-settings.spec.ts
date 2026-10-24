@@ -351,6 +351,7 @@ test('relay identity permission is explicit, names the chosen account and is wit
 test('the call relay password has an eye button that shows and hides it', async ({ page, baseURL }) => {
   await page.goto(baseURL!)
   await openSettings(page, 'Connections')
+  await page.getByText('Other call relays', { exact: true }).click()
   // Found by its exact label: the eye sits beside the field, not inside its name.
   const password = page.getByLabel('Relay password', { exact: true })
   const eye = page.getByRole('button', { name: 'Show relay password', exact: true })
