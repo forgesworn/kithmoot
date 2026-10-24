@@ -1,0 +1,1088 @@
+{
+  "format": 1,
+  "release": "0.5.5-realtime.1",
+  "status": "qualified-preview",
+  "sdkRevision": "c4890f29609c40ee8b678f7b4d69953b71494deb",
+  "sources": {
+    "relayswarm": "de2cbd6f32dc6b890c814324282dd0bcd5574e8f",
+    "sapflow": "27cea3d2fa629ee23724f40a9e6ae75f2a8ac5df"
+  },
+  "componentMerges": {
+    "relayswarm": "7fee40c649ad3d26ec852484118b3dccf4dbca00",
+    "sapflow": "748bdb8b098e12b7223a367f2343ab5d760d3e32"
+  },
+  "successfulHostedRuns": {
+    "combinedLinux": "https://github.com/forgesworn/kithmoot/actions/runs/40083034244",
+    "relayswarmNative": "https://github.com/forgesworn/relayswarm/actions/runs/40076877834",
+    "relayswarmFull": "https://github.com/forgesworn/relayswarm/actions/runs/40076877883",
+    "sapflowFull": "https://github.com/forgesworn/sapflow/actions/runs/40074465554",
+    "sapflowMain": "https://github.com/forgesworn/sapflow/actions/runs/40076146077",
+    "relayswarmMainNative": "https://github.com/forgesworn/relayswarm/actions/runs/40078223114",
+    "relayswarmMainFull": "https://github.com/forgesworn/relayswarm/actions/runs/40078223144",
+    "kithmootFull": "https://github.com/forgesworn/kithmoot/actions/runs/40083034237"
+  },
+  "generatedMediaOnly": true,
+  "clientNetwork": "one host",
+  "normalApplicationIntegrated": false,
+  "newManagedService": false,
+  "osaClassification": "unresolved",
+  "native": {
+    "linux-x64": {
+      "receipt": {
+        "format": 1,
+        "bindingVersion": "0.33.4",
+        "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+        "platform": "linux",
+        "arch": "x64",
+        "sourceModified": true,
+        "sources": {
+          "nodeDataChannel": "5f4365700d4dcc51ab2a3d90eb2d05592bf84c7a",
+          "libdatachannel": "443f6934d9007eb7076ab7825ba330f355fcbead",
+          "libjuice": "3c40a3545b6b1b62c7adee7f8f2bd58aa290afd6",
+          "usrsctp": "fec583d54493f879d2ae44a743423bf8a04371ab",
+          "plog": "94899e0b926ac1b0f4750bfbd495167b4a6ae9ef",
+          "openssl": "c9a9e5b10105ad850b6e4d1122c645c67767c341",
+          "nodeLicense": "def0bdf8abee441cfcbf793a8dc24a6f3b899573:sha256:537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "nodeHeaders": "v24.13.0:sha256:f5589e2b4b962af05381a31d11c3c9b004daf8bd63c95c0e1a406600daa8ae88",
+          "nodeAddonApi": "8.5.0:sha512:/bRZty2mXUIFY/xU5HLvveNHlswNJej+RnxBjOMkidWfwZzgTbPG1E3K5TOxRLOR+5hX7bSofy8yf1hZevMS8A=="
+        },
+        "patches": {
+          "libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        },
+        "build": {
+          "maxJobs": 2,
+          "media": false,
+          "websocket": false
+        },
+        "files": {
+          "native-addon.node": "e16bcbc781d2fda757e7d34e7ec99c49234ca88b5cdb0f02e920cea494d4ad36",
+          "SOURCE_NOTICE.txt": "1153574e78a017d8fb440c48a4b790ec2df8a23c6f70256b29086029e6cf6b8b",
+          "LICENSES/node-datachannel.txt": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+          "LICENSES/libdatachannel.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/libjuice.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/usrsctp.txt": "fa53711b25af4b9a9b8dadfea3cb38166ec4b96760c8d62b284055554537d9ef",
+          "LICENSES/plog.txt": "e4d01796524cbc13b1571a1f0914823c6a23b316ba039e7014f47a4eef7fd4c3",
+          "LICENSES/openssl.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+          "LICENSES/node-addon-api.txt": "89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c",
+          "LICENSES/node-headers.txt": "537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "patches/libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "patches/libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        }
+      },
+      "binarySha256": "e16bcbc781d2fda757e7d34e7ec99c49234ca88b5cdb0f02e920cea494d4ad36"
+    },
+    "darwin-arm64": {
+      "receipt": {
+        "format": 1,
+        "bindingVersion": "0.33.4",
+        "libraryVersion": "0.24.5-forgesworn-turn-close.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "sourceModified": true,
+        "sources": {
+          "nodeDataChannel": "5f4365700d4dcc51ab2a3d90eb2d05592bf84c7a",
+          "libdatachannel": "443f6934d9007eb7076ab7825ba330f355fcbead",
+          "libjuice": "3c40a3545b6b1b62c7adee7f8f2bd58aa290afd6",
+          "usrsctp": "fec583d54493f879d2ae44a743423bf8a04371ab",
+          "plog": "94899e0b926ac1b0f4750bfbd495167b4a6ae9ef",
+          "openssl": "c9a9e5b10105ad850b6e4d1122c645c67767c341",
+          "nodeLicense": "def0bdf8abee441cfcbf793a8dc24a6f3b899573:sha256:537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "nodeHeaders": "v24.13.0:sha256:f5589e2b4b962af05381a31d11c3c9b004daf8bd63c95c0e1a406600daa8ae88",
+          "nodeAddonApi": "8.5.0:sha512:/bRZty2mXUIFY/xU5HLvveNHlswNJej+RnxBjOMkidWfwZzgTbPG1E3K5TOxRLOR+5hX7bSofy8yf1hZevMS8A=="
+        },
+        "patches": {
+          "libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        },
+        "build": {
+          "maxJobs": 2,
+          "media": false,
+          "websocket": false
+        },
+        "files": {
+          "native-addon.node": "f5bc07b4f6320737b033332f9f6c94ef6f91a01250613db7b0017f4109ad4c69",
+          "SOURCE_NOTICE.txt": "1153574e78a017d8fb440c48a4b790ec2df8a23c6f70256b29086029e6cf6b8b",
+          "LICENSES/node-datachannel.txt": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+          "LICENSES/libdatachannel.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/libjuice.txt": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85",
+          "LICENSES/usrsctp.txt": "fa53711b25af4b9a9b8dadfea3cb38166ec4b96760c8d62b284055554537d9ef",
+          "LICENSES/plog.txt": "e4d01796524cbc13b1571a1f0914823c6a23b316ba039e7014f47a4eef7fd4c3",
+          "LICENSES/openssl.txt": "7d5450cb2d142651b8afa315b5f238efc805dad827d91ba367d8516bc9d49e7a",
+          "LICENSES/node-addon-api.txt": "89024017b88a9f2b763f79b941a4f2db3b4428edfcacdc0b23866b2da633ad0c",
+          "LICENSES/node-headers.txt": "537308465103a306d0e3eecf42632b4ff1b48aaaec044e9fc10a78c81fd00b34",
+          "patches/libjuice-turn-close.patch": "fe802d2af81470a65f9f2dee2c393a8d8468129a228714f2041960e013020069",
+          "patches/libdatachannel-version.patch": "a81117db1686a20f8a9eeb95325018b2e2f65cdab7dbc90c74b26300db717e50"
+        }
+      },
+      "binarySha256": "f5bc07b4f6320737b033332f9f6c94ef6f91a01250613db7b0017f4109ad4c69"
+    }
+  },
+  "groups": {
+    "forwarded": [
+      {
+        "participants": 2,
+        "passed": true,
+        "protectedShare": false,
+        "forwarderReplacement": false,
+        "measurement": {
+          "durationMs": 4049.7651719999994,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            66756,
+            71449
+          ],
+          "publishedFrames": [
+            251,
+            252
+          ],
+          "receivedFrames": [
+            251,
+            251
+          ],
+          "decodedVideoFrames": [
+            [
+              49
+            ],
+            [
+              49
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              202
+            ],
+            [
+              202
+            ]
+          ],
+          "connectionCopies": 1,
+          "latencySamples": 16,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 91,
+            "p95": 146
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      },
+      {
+        "participants": 4,
+        "passed": true,
+        "protectedShare": true,
+        "forwarderReplacement": true,
+        "measurement": {
+          "durationMs": 4177.506232,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            119540,
+            72512,
+            72777,
+            70665
+          ],
+          "publishedFrames": [
+            517,
+            258,
+            258,
+            258
+          ],
+          "receivedFrames": [
+            774,
+            1032,
+            1034,
+            1034
+          ],
+          "decodedVideoFrames": [
+            [
+              50,
+              50,
+              50
+            ],
+            [
+              50,
+              50,
+              50,
+              50
+            ],
+            [
+              50,
+              51,
+              50,
+              50
+            ],
+            [
+              50,
+              50,
+              50,
+              50
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              208,
+              208,
+              208
+            ],
+            [
+              208,
+              208,
+              208,
+              208
+            ],
+            [
+              208,
+              208,
+              209,
+              208
+            ],
+            [
+              208,
+              208,
+              208,
+              208
+            ]
+          ],
+          "connectionCopies": 1,
+          "latencySamples": 96,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 89,
+            "p95": 142
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      },
+      {
+        "participants": 8,
+        "passed": true,
+        "protectedShare": false,
+        "forwarderReplacement": false,
+        "measurement": {
+          "durationMs": 5463.489676000001,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            85380,
+            88919,
+            89733,
+            89478,
+            88577,
+            85819,
+            81734,
+            87063
+          ],
+          "publishedFrames": [
+            320,
+            323,
+            327,
+            316,
+            318,
+            321,
+            324,
+            326
+          ],
+          "receivedFrames": [
+            2251,
+            2252,
+            2248,
+            2257,
+            2256,
+            2254,
+            2249,
+            2260
+          ],
+          "decodedVideoFrames": [
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ],
+            [
+              64,
+              64,
+              64,
+              64,
+              64,
+              64,
+              64
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              259,
+              264,
+              252,
+              254,
+              257,
+              261,
+              263
+            ],
+            [
+              256,
+              264,
+              252,
+              254,
+              257,
+              261,
+              263
+            ],
+            [
+              256,
+              259,
+              252,
+              254,
+              258,
+              261,
+              263
+            ],
+            [
+              256,
+              259,
+              264,
+              254,
+              257,
+              261,
+              263
+            ],
+            [
+              256,
+              258,
+              264,
+              251,
+              257,
+              261,
+              263
+            ],
+            [
+              256,
+              259,
+              264,
+              250,
+              254,
+              261,
+              263
+            ],
+            [
+              256,
+              259,
+              264,
+              253,
+              255,
+              259,
+              262
+            ],
+            [
+              256,
+              259,
+              264,
+              252,
+              254,
+              257,
+              261
+            ]
+          ],
+          "connectionCopies": 1,
+          "latencySamples": 448,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 104,
+            "p95": 175
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      }
+    ],
+    "mesh": [
+      {
+        "participants": 2,
+        "passed": true,
+        "protectedShare": false,
+        "forwarderReplacement": false,
+        "measurement": {
+          "durationMs": 4048.5573770000005,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            70266,
+            71082
+          ],
+          "publishedFrames": [
+            251,
+            251
+          ],
+          "receivedFrames": [
+            251,
+            251
+          ],
+          "decodedVideoFrames": [
+            [
+              49
+            ],
+            [
+              49
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              202
+            ],
+            [
+              202
+            ]
+          ],
+          "connectionCopies": 1,
+          "latencySamples": 16,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 94,
+            "p95": 185
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      },
+      {
+        "participants": 4,
+        "passed": true,
+        "protectedShare": true,
+        "forwarderReplacement": false,
+        "measurement": {
+          "durationMs": 4151.630891999999,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            356616,
+            227469,
+            216255,
+            223926
+          ],
+          "publishedFrames": [
+            512,
+            257,
+            257,
+            257
+          ],
+          "receivedFrames": [
+            771,
+            1026,
+            1026,
+            1026
+          ],
+          "decodedVideoFrames": [
+            [
+              50,
+              50,
+              50
+            ],
+            [
+              50,
+              50,
+              50,
+              50
+            ],
+            [
+              49,
+              50,
+              50,
+              50
+            ],
+            [
+              49,
+              50,
+              50,
+              50
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              207,
+              207,
+              207
+            ],
+            [
+              206,
+              207,
+              207,
+              207
+            ],
+            [
+              206,
+              207,
+              207,
+              207
+            ],
+            [
+              206,
+              207,
+              207,
+              207
+            ]
+          ],
+          "connectionCopies": 3,
+          "latencySamples": 96,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 82,
+            "p95": 135
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      },
+      {
+        "participants": 8,
+        "passed": true,
+        "protectedShare": false,
+        "forwarderReplacement": false,
+        "measurement": {
+          "durationMs": 5213.790342,
+          "requestedDurationMs": 4000,
+          "uploadBytes": [
+            564571,
+            612178,
+            579558,
+            588021,
+            595721,
+            569569,
+            548058,
+            596113
+          ],
+          "publishedFrames": [
+            308,
+            306,
+            301,
+            307,
+            305,
+            305,
+            309,
+            305
+          ],
+          "receivedFrames": [
+            2134,
+            2136,
+            2145,
+            2140,
+            2143,
+            2143,
+            2140,
+            2144
+          ],
+          "decodedVideoFrames": [
+            [
+              61,
+              61,
+              61,
+              61,
+              61,
+              61,
+              61
+            ],
+            [
+              62,
+              61,
+              61,
+              61,
+              61,
+              61,
+              61
+            ],
+            [
+              62,
+              61,
+              61,
+              61,
+              61,
+              62,
+              61
+            ],
+            [
+              62,
+              62,
+              61,
+              61,
+              61,
+              62,
+              61
+            ],
+            [
+              62,
+              62,
+              61,
+              61,
+              61,
+              62,
+              61
+            ],
+            [
+              62,
+              61,
+              61,
+              62,
+              61,
+              62,
+              61
+            ],
+            [
+              62,
+              61,
+              61,
+              61,
+              61,
+              61,
+              61
+            ],
+            [
+              62,
+              62,
+              61,
+              61,
+              61,
+              61,
+              61
+            ]
+          ],
+          "decodedAudioFrames": [
+            [
+              245,
+              240,
+              245,
+              244,
+              244,
+              247,
+              245
+            ],
+            [
+              248,
+              240,
+              245,
+              244,
+              244,
+              247,
+              245
+            ],
+            [
+              248,
+              245,
+              245,
+              244,
+              245,
+              248,
+              245
+            ],
+            [
+              248,
+              245,
+              241,
+              244,
+              245,
+              248,
+              245
+            ],
+            [
+              248,
+              245,
+              239,
+              245,
+              244,
+              248,
+              245
+            ],
+            [
+              248,
+              245,
+              240,
+              245,
+              245,
+              248,
+              245
+            ],
+            [
+              248,
+              245,
+              240,
+              245,
+              244,
+              244,
+              245
+            ],
+            [
+              248,
+              245,
+              240,
+              245,
+              244,
+              245,
+              248
+            ]
+          ],
+          "connectionCopies": 7,
+          "latencySamples": 448,
+          "invalidMarkerSamples": 0,
+          "syntheticFrameAgeMs": {
+            "median": 119,
+            "p95": 198
+          },
+          "sameHostClocks": true,
+          "timestampQuantisationMs": 10,
+          "freshPlaybackEverySource": true
+        }
+      }
+    ]
+  },
+  "assets": {
+    "README.md": "66a83077aaf9a55d4bbc3b40b29db7dd1bbfdfa1840319410eac284e4398c6c9",
+    "forgesworn-context-0.2.0.tgz": "21d245f9e392edca59539bcdaec4835e70969b47d9a661351e5338cf6e6851a6",
+    "forgesworn-context-tools-0.2.0.tgz": "36dedf15feb076504f5736c65f62a3553e2a29a572d86387f7e3deab1453cc1e",
+    "hosted-linux-forwarded.json": "b6865ff43575426c163b83ccaef1201e6b2fdf2b5667ae67e8d00629fbebea59",
+    "hosted-linux-mesh.json": "6a579de17b976a0f521f9783e9d7d5a80255a198a11bd8965f899cc1f0534b41",
+    "kithmoot-0.5.5-realtime.1-linux-x64.tgz": "e476b92bf5a19d03e2537c3b0beaae92ee9ab9a040dea876a550ab8f5a987aaf",
+    "kithmoot-realtime-browser-0.5.5-realtime.1.tar.gz": "c46734dc66a43123b1cb7b853c9fd809698bf0bc8df8efa206a2e07f43a5f9aa",
+    "relayswarm-realtime-native-macos-arm64.tar.gz": "2816dd7178f3cbff1a09f80d0399a64f8a8e581e1e47fe042057a6e581f46606"
+  },
+  "packaging": {
+    "cleanInstall": "passed",
+    "sdkImport": "passed",
+    "auditVulnerabilities": 0,
+    "contextCompanions": "locally packed from the same SDK source; all three archives explicitly supplied to npm install",
+    "registryPublication": false
+  },
+  "qualificationCorrections": [
+    {
+      "run": "https://github.com/forgesworn/kithmoot/actions/runs/40076720960",
+      "failure": "Eight-person Linux fixture: all transport/codec paths decoded, final listener playback element reported MEDIA_ERR_DECODE and zero playback clock. Synthetic tone generators unnecessarily allocated output sinks.",
+      "change": "Use processing-only AudioContexts for generated source tones; preserve all per-listener clock and RMS checks.",
+      "passingRetest": "https://github.com/forgesworn/kithmoot/actions/runs/40077635964"
+    },
+    {
+      "run": "https://github.com/forgesworn/kithmoot/actions/runs/40077635958",
+      "failure": "Two portrait-share layout tests checked at 500 ms, before the one-second UI liveness tick revealed decoded video.",
+      "change": "Bounded polling for the actual on-screen, uncropped and uncovered share; every original geometry/overlap assertion retained.",
+      "localRetest": "All four Chromium portrait-sharing tests passed."
+    },
+    {
+      "run": "https://github.com/forgesworn/kithmoot/actions/runs/40079129608/job/120828905062",
+      "failure": "Chromium initial page.goto failed in 200 ms with ERR_NETWORK_CHANGED before room creation. Second independent-call test passed.",
+      "action": "Targeted hosted rerun after all jobs complete; no source or assertion change."
+    },
+    {
+      "run": "https://github.com/forgesworn/kithmoot/actions/runs/40079129608/job/120835478412",
+      "failure": "On the first targeted rerun independent TLS calls passed, but the first automatic-call case could not see the room-creation controls within 30 seconds. The other four automatic-call cases passed. Hosted runner retained no browser trace.",
+      "localRetest": "The exact first automatic-call case passed locally with strict external-network blocking and a trace (24.6 seconds). No source or assertion change.",
+      "action": "Second targeted hosted rerun requested with runner debugging; startup cause remains unconfirmed."
+    },
+    {
+      "runs": [
+        "https://github.com/forgesworn/kithmoot/actions/runs/40079129608/attempts/2",
+        "https://github.com/forgesworn/kithmoot/actions/runs/40079129608/attempts/3"
+      ],
+      "failure": "First strict-network automatic-call case could not see room controls on Linux. Four other cases passed in each attempt. Cause remains unconfirmed.",
+      "localEvidence": "Exact first case passed on macOS; Linux Chromium reached room creation against the local server; isolated Linux build/server startup probe passed three repeats.",
+      "change": "Added bounded fresh pre-call startup phase and failed-resource diagnostics to the existing test; no application change, assertion removal or timeout increase.",
+      "passingRetest": "https://github.com/forgesworn/kithmoot/actions/runs/40083034237/job/120840308013",
+      "cleanup": "Temporary Linux container, downloaded image, copied source tree and local browser trace removed."
+    }
+  ],
+  "mergedRevision": "71c972c81493e1968fcb9f3834bad710976e0f77",
+  "qualifiedTree": "d058ceadfd82f44bb51720ddbfdd909fb7c4a1e5",
+  "tag": "v0.5.5-realtime.1",
+  "kithmootHostedChecks": {
+    "conclusion": "success",
+    "headSha": "c4890f29609c40ee8b678f7b4d69953b71494deb",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "name": "Private call relay (Chromium and WebKit)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "browser regressions (webkit)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Independent call servers over TLS and participant replacement",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "browser regressions (firefox 1 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, member-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "browser regressions (chromium)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (webkit 2 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "test (22)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium desktop 1 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, startup-guard)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, private-root)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (firefox 1 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "Browser protected sharing and local publisher independence",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, startup-built)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "browser regressions (firefox 2 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium desktop 2 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, clients)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, prepared-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium calls)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (webkit 1 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium rest 1 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, complete-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium call-relays)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (firefox 2 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (webkit, prepared-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium rest 2 of 2)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "test (24)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium rooms)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, startup-guard)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, prepared-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, private-root)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, member-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "acceptance (chromium media)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, prepared-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, startup-built)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, complete-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, startup-guard)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, complete-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, startup-built)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, clients)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, prepared-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, clients)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (chromium, member-startup)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, prepared-extension)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "success",
+        "name": "protected ordinary startup (firefox, private-root)",
+        "status": "completed"
+      },
+      {
+        "conclusion": "skipped",
+        "name": "diagnostic prior lease (${{ matrix.slice }})",
+        "status": "completed"
+      }
+    ],
+    "status": "completed"
+  }
+}

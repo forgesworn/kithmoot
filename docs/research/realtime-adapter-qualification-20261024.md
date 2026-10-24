@@ -3,6 +3,9 @@
 24 October 2026. Experimental SDK implementation, not a deployment or a
 switch of the existing website or Android call engine.
 
+Subsequent hosted qualification, publication and deployment are recorded in
+[the SDK preview delivery](realtime-release-20261024.md).
+
 The adapter now combines **Spry + RelaySwarm + Sapflow**. Spry provides TURN
 reachability when explicitly selected; RelaySwarm supplies signed encrypted
 rendezvous and bounded datagrams; Sapflow's actual Rust/WASM queue schedules
@@ -140,8 +143,9 @@ The standard website and Android application have not been switched to this
 SDK. Native Android/Swift endpoint interoperability, physical no-Play
 GrapheneOS acceptance of this adapter, real OS sharing pickers, independent
 client networks, blocked-UDP fallback, WAN loss/jitter, longer calls and
-battery use remain separate work. Hosted CI, publication and deployment have
-not been performed for this increment.
+battery use remain separate work. Hosted CI, publication and deployment were
+not part of this initial snapshot; the subsequent delivery record above
+contains those results.
 
 The existing [combined legal assessment](combined-call-transport-20261023.md)
 remains unresolved. This implementation does not establish an Online Safety

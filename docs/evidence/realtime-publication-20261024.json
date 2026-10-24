@@ -1,0 +1,212 @@
+{
+  "format": 1,
+  "httpsCertificateBypass": false,
+  "files": [
+    {
+      "host": "kithmoot.app",
+      "path": "j/index.html",
+      "sha256": "3d9a8a1a32a1cd92bcdc8dcd4aa11552f4a378c9c8b76aae7a1bc5abf458f919",
+      "bytes": 149461
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/sw.js",
+      "sha256": "634883b17ecf996cf05543c17b8e7875cf3350405ca25b23852a45391a934cd5",
+      "bytes": 25359
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/manifest.webmanifest",
+      "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+      "bytes": 433
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "android-release.json",
+      "sha256": "298b44d55e964d6fff38c1f8d8c94e3b7aa5f39fbe792af8cbab9835c26c7b68",
+      "bytes": 806
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "android-release.json.sig",
+      "sha256": "e8c6ec51ceb1c02a21beaa82b5e2867c9fc6b6a796c245ca6e25a3fffa05972d",
+      "bytes": 89
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "downloads/release.json",
+      "sha256": "6ec13d305992dd3dc9cdc5cab74ae6228584052e85c1f574d768057281737f6c",
+      "bytes": 1311
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "downloads/release.json.sig",
+      "sha256": "11e5d46819b38e7c0a01b5180821a84d6328babd190f19f1f734531e486d00a2",
+      "bytes": 89
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/transport.mjs",
+      "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+      "bytes": 146528
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/RELAYSWARM_LICENSE",
+      "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+      "bytes": 1072
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/sapflow.mjs",
+      "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+      "bytes": 11189
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+      "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+      "bytes": 29599
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/manifest.json",
+      "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+      "bytes": 4986
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/sapflow_realtime_bg.wasm",
+      "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+      "bytes": 31412
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/realtime/SAPFLOW_LICENSE",
+      "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+      "bytes": 1072
+    },
+    {
+      "host": "kithmoot.app",
+      "path": "j/assets/index-BWfqhawH.js",
+      "sha256": "049f7a45136653079b3f4b984dead97f2c56e00a03ff18c28dffdc2d17a79330",
+      "bytes": 4932
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/index.html",
+      "sha256": "3d9a8a1a32a1cd92bcdc8dcd4aa11552f4a378c9c8b76aae7a1bc5abf458f919",
+      "bytes": 149461
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/sw.js",
+      "sha256": "634883b17ecf996cf05543c17b8e7875cf3350405ca25b23852a45391a934cd5",
+      "bytes": 25359
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/manifest.webmanifest",
+      "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f",
+      "bytes": 433
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "android-release.json",
+      "sha256": "298b44d55e964d6fff38c1f8d8c94e3b7aa5f39fbe792af8cbab9835c26c7b68",
+      "bytes": 806
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "android-release.json.sig",
+      "sha256": "e8c6ec51ceb1c02a21beaa82b5e2867c9fc6b6a796c245ca6e25a3fffa05972d",
+      "bytes": 89
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "downloads/release.json",
+      "sha256": "6ec13d305992dd3dc9cdc5cab74ae6228584052e85c1f574d768057281737f6c",
+      "bytes": 1311
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "downloads/release.json.sig",
+      "sha256": "11e5d46819b38e7c0a01b5180821a84d6328babd190f19f1f734531e486d00a2",
+      "bytes": 89
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/transport.mjs",
+      "sha256": "12e3e35d7e36e8a5196778a84cb968700e60048cc29f57e8070b2264990d8e03",
+      "bytes": 146528
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/RELAYSWARM_LICENSE",
+      "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+      "bytes": 1072
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/sapflow.mjs",
+      "sha256": "a6b5d838a86d123d840b0bd251b62532aac0534f2ee87965e5b03c139553d643",
+      "bytes": 11189
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/SAPFLOW_THIRD_PARTY_LICENSES.txt",
+      "sha256": "f23e23171c6c1b436c9bc0359694e7c2c9dc2844d2c7c79ed9223dbde5c9bd04",
+      "bytes": 29599
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/manifest.json",
+      "sha256": "17933ac2fc74e4b88d485a807fe63b21cc1fa150aba128215cf101837745fe1c",
+      "bytes": 4986
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/sapflow_realtime_bg.wasm",
+      "sha256": "3630befcd25cd83b454bf7e1775bdd00239e38abdd93056b81006029f1987be3",
+      "bytes": 31412
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/realtime/SAPFLOW_LICENSE",
+      "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+      "bytes": 1072
+    },
+    {
+      "host": "kithmoot.forgesworn.dev",
+      "path": "j/assets/index-BWfqhawH.js",
+      "sha256": "049f7a45136653079b3f4b984dead97f2c56e00a03ff18c28dffdc2d17a79330",
+      "bytes": 4932
+    }
+  ],
+  "releaseUrl": "https://github.com/forgesworn/kithmoot/releases/tag/v0.5.5-realtime.1",
+  "deployment": {
+    "revision": "71c972c81493e1968fcb9f3834bad710976e0f77",
+    "record": "20261024T101632Z 71c972c81493e1968fcb9f3834bad710976e0f77 2026-10-24T10:16:51Z",
+    "atomicStaticRelease": true,
+    "serverConfigurationChanged": false
+  },
+  "releaseAssets": {
+    "README.md": "66a83077aaf9a55d4bbc3b40b29db7dd1bbfdfa1840319410eac284e4398c6c9",
+    "SHA256SUMS": "2ce784d460e032ca2408726aa037d92fbae7514ebe79f72df66edd9a408b1b36",
+    "forgesworn-context-0.2.0.tgz": "21d245f9e392edca59539bcdaec4835e70969b47d9a661351e5338cf6e6851a6",
+    "forgesworn-context-tools-0.2.0.tgz": "36dedf15feb076504f5736c65f62a3553e2a29a572d86387f7e3deab1453cc1e",
+    "hosted-linux-forwarded.json": "b6865ff43575426c163b83ccaef1201e6b2fdf2b5667ae67e8d00629fbebea59",
+    "hosted-linux-mesh.json": "6a579de17b976a0f521f9783e9d7d5a80255a198a11bd8965f899cc1f0534b41",
+    "kithmoot-0.5.5-realtime.1-linux-x64.tgz": "e476b92bf5a19d03e2537c3b0beaae92ee9ab9a040dea876a550ab8f5a987aaf",
+    "kithmoot-realtime-browser-0.5.5-realtime.1.tar.gz": "c46734dc66a43123b1cb7b853c9fd809698bf0bc8df8efa206a2e07f43a5f9aa",
+    "relayswarm-realtime-native-macos-arm64.tar.gz": "2816dd7178f3cbff1a09f80d0399a64f8a8e581e1e47fe042057a6e581f46606",
+    "release-evidence.json": "ace3a9cb846c235e2070d074f7414052a6ac45ed44d6a3227c8b2623da4759bc"
+  },
+  "anonymousChecksumDownloadVerified": true,
+  "preservedAndroid": {
+    "version": "0.6.108",
+    "versionCode": 131,
+    "apkSha256": "471e4c8f592398207dcd2e262b684b5c12ac75cc067f494f71b21adaf3fe436f"
+  },
+  "androidCallAcceptance": "Not established by this SDK release. User reports loudspeaker echo, dropped calls and asymmetric media around a VPN change; investigated separately."
+}
