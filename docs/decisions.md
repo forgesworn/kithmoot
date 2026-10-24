@@ -2472,6 +2472,12 @@ member. The owner chose three things:
   the authority's to make, so a member cannot open an ask-first room to
   walk-ins, and Make this a group stays with the room's authority.
 
+In a room where somebody has been removed, a member hands the key only to
+people the room knows (#207). A newcomer let in with a member's link who did
+not prove an account is not yet known, so the member is asked a second time,
+"let them in?", when the newcomer asks for the key; saying yes brings them up
+to date.
+
 It does not reach a room whose latest rekey came before 3 October 2026, when
 rekeys began carrying the commitment a member needs to hand an epoch on:
 there only the authority can bring a newcomer past the first epoch. And

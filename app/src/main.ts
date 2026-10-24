@@ -5083,10 +5083,13 @@ function renderInvitationAvailability(): void {
  * room's temporary link: it holds no key for the link, or its permission
  * from the device that made it, which lasts at most twelve hours from that
  * device's own last answer, has run out. A group link admits by itself, and
- * a Bothy room's keeper answers, so neither ever lapses here.
+ * a room with a keeper (a Bothy route or an announced keeper) has the keeper
+ * answer, so neither lapses here; and a device not yet in the room has
+ * nothing to offer.
  */
 function cannotAnswerRoomLink(now = nowSeconds()): boolean {
-  if (roomUsesBothy || !roomInvitationCapability || roomInvitationCapability.persistent || !roomAuthority()) return false
+  if (roomUsesBothy || keeperParticipant !== undefined || !session || session.closed) return false
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || !roomAuthority()) return false
   if (!invitationAuthoritySk) return true
   return invitationDelegation.length > 0 && Math.min(...invitationDelegation.map(cert => cert.expiresAt)) <= now
 }
