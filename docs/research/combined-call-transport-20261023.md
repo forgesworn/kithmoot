@@ -152,3 +152,13 @@ native TCP and browser TLS. Native TLS remains unresolved. These results do
 not change the scope of the combined stack: RelaySwarm and Sapflow are still
 planned contributors to a new real-time forwarding adapter, not components
 of that tested call path.
+
+The later [combined realtime adapter qualification](realtime-adapter-qualification-20261024.md)
+records a separate experimental SDK that now uses RelaySwarm datagrams and
+Sapflow's actual Rust/WASM queue with operator-selected Spry TURN. Direct,
+same-codec mesh and public UDP 2/4/8 media gates pass; repeated public
+eight-person calls use the same credentials and release their allocations
+after the native teardown fix. The eight-person picture-age tail reached
+1.431 seconds in the short repeat run, so production quality remains open. This SDK
+has not replaced the standard website or Android call engine and does not
+resolve the legal classification above.

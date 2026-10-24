@@ -37,10 +37,16 @@
       "import": "./dist/src/index.js",
       "default": "./dist/src/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./realtime": {
+      "types": "./dist/src/realtime/index.d.ts",
+      "import": "./dist/src/realtime/index.js"
+    }
   },
   "files": [
     "dist/src",
+    "dist/realtime-forwarder.mjs",
+    "dist/realtime-runtime",
     "bin",
     "server/forwarder.mjs",
     "vectors/kithmoot-vectors.json",
@@ -55,6 +61,9 @@
     "brand:site": "node scripts/build-site-brand.mjs",
     "build": "node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && vite build --config app/vite.config.ts && node scripts/check-no-telemetry.mjs app/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
+    "build:realtime": "node scripts/build-realtime.mjs",
+    "test:realtime": "node test/realtime-call.mjs",
+    "test:realtime:unit": "vitest run src/realtime/*.test.ts --maxWorkers=1",
     "prepack": "npm run build:lib",
     "demo": "vite --config app/vite.config.ts --host",
     "forwarder": "npm run build:lib && node server/forwarder.mjs",
