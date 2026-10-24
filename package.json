@@ -98,7 +98,7 @@
     "@anthropic-ai/sdk": "^0.123.0",
     "@forgesworn/context": "0.2.0",
     "@forgesworn/context-tools": "0.2.0",
-    "@forgesworn/fold-kit": "0.14.0",
+    "@forgesworn/fold-kit": "0.15.0",
     "@forgesworn/signet-contacts": "github:forgesworn/signet-contacts#fbb13cdeefb3e07421228ab3245b7e17e403ecab",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@noble/ciphers": "2.1.1",
