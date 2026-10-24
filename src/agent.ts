@@ -19,6 +19,7 @@ import {
   createRoomInvitation,
   encodeInvitationRetirement,
   hostRoomInvitation,
+  invitationAuthority,
   requestRoomAdmissionCapability,
   roomInvitation,
 } from './invitation.js'
@@ -904,7 +905,7 @@ export class RoomAgent {
       // handing it to newcomers after a restart.
       ...(opts.keeper?.past?.length ? { pastEpochs: opts.keeper.past } : {}),
       endsAt: opts.endsAt ?? opts.keeper?.endsAt,
-      authority: opts.link.invitation?.inviter,
+      authority: opts.link.invitation ? invitationAuthority(opts.link.invitation) : undefined,
       // A keeper is the authority: it holds the epoch and waits for nobody.
       expectedEpoch: opts.keeper ? (opts.epoch?.epoch ?? 0) : opts.expectedEpoch,
       epochSettleMs: opts.epochSettleMs,
@@ -1154,7 +1155,7 @@ export class RoomAgent {
    * once, that another keeper copy signed a different one.
    */
   #adoptRoomStorage(control: Extract<ControlMessage, { op: 'storage' }>): void {
-    const authority = this.link.invitation?.inviter
+    const authority = this.link.invitation ? invitationAuthority(this.link.invitation) : undefined
     if (!authority) return
     if (!verifyRoomStorage({ roomId: this.roomId, version: control.version, nodes: control.nodes, sig: control.sig, authority })) return
     if (this.#keeper) {
@@ -1375,7 +1376,7 @@ export class RoomAgent {
    */
   #adoptRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, m: ChatMessage): void {
     if (this.#liveKeeper) return // This profile's transport/relay policy belongs to its journal owner.
-    const authority = this.link.invitation?.inviter
+    const authority = this.link.invitation ? invitationAuthority(this.link.invitation) : undefined
     if (!authority) return
     if (control.version <= this.#relaysVersion) return
     if (!verifyRoomRelays({ roomId: this.roomId, version: control.version, relays: control.relays, sig: control.sig, authority })) return
@@ -1406,7 +1407,7 @@ export class RoomAgent {
     // The admin list is worth reading from history: the keeper said it
     // once, and it is signed, so it is as true replayed as it was live.
     if (control.op === 'admins') {
-      const authority = this.link.invitation?.inviter
+      const authority = this.link.invitation ? invitationAuthority(this.link.invitation) : undefined
       if (!authority || control.host !== m.participant || m.sentAt < this.#announcedAdminsAt) return
       if (!verifyAdmins({ roomId: this.roomId, epoch: control.epoch, admins: control.admins, sig: control.sig, authority })) return
       this.#announcedAdmins.clear()
@@ -1416,7 +1417,7 @@ export class RoomAgent {
     }
     // Same reasoning as the admin list: signed, so as true replayed as live.
     if (control.op === 'channels') {
-      const authority = this.link.invitation?.inviter
+      const authority = this.link.invitation ? invitationAuthority(this.link.invitation) : undefined
       if (!authority || control.host !== m.participant || m.sentAt < this.#announcedChannelsAt) return
       if (!verifyChannels({ roomId: this.roomId, epoch: control.epoch, channels: control.channels, sig: control.sig, authority })) return
       this.#announcedChannels.clear()
@@ -1428,7 +1429,7 @@ export class RoomAgent {
     // Meeting mode: signed by the authority, so believed whoever reposted
     // it, replayed or live; the newest version wins.
     if (control.op === 'meeting') {
-      const authority = this.link.invitation?.inviter
+      const authority = this.link.invitation ? invitationAuthority(this.link.invitation) : undefined
       if (!authority || (this.#meeting && this.#meeting.version >= control.version)) return
       const policy: MeetingPolicy = { on: control.on, speakers: control.speakers, version: control.version }
       if (!verifyMeetingPolicy({ roomId: this.roomId, policy, sig: control.sig, authority })) return

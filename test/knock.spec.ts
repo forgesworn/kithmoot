@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openRoomInfoPage, nameCreator } from './browser.js'
 import { testRelaysFor } from './relays.js'
+import { parseRoomLink } from '../src/link.js'
 
 async function askedRoom(browser: Browser, baseURL: string) {
   const hostContext = await newDeviceContext(browser, baseURL, { viewport: { width: 390, height: 844 } })
@@ -350,4 +351,53 @@ test('people with the link ask, and the person in the room lets them in or decli
     await openRoomInfoPage(host, 'Invite link')
     await expect(host.locator('#toggleKnock')).toHaveAttribute('data-on', 'true')
   } finally { await a.close(); await b.close(); await c.close() }
+})
+
+test("a member whose permission to answer has run out makes its own link, and a newcomer gets in through it", async ({ browser, baseURL }) => {
+  const { hostContext, guestContext, host, guest } = await askedRoom(browser, baseURL!)
+  const newcomerContext = await newDeviceContext(browser, baseURL!)
+  try {
+    const card = await startAskedRoom(host, guest, baseURL!)
+    const roomLink = await host.locator('#shareUrl').inputValue()
+    await card.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#join')).toBeVisible()
+    await guest.locator('#join').click()
+    await expect(guest.locator('#roomArea')).toBeVisible()
+
+    // The device that made the room's link goes, and Rowan's permission to
+    // answer for it, at most twelve hours, runs out.
+    await hostContext.close()
+    const later = Date.now() + 13 * 3600_000
+    await guest.clock.install()
+    await guest.clock.setSystemTime(later)
+    await openRoomInfoPage(guest, 'Invite link')
+    await expect(guest.locator('#invitationAvailability')).toContainText('can no longer let people in with this link')
+    await guest.getByRole('button', { name: 'Make a link from this device', exact: true }).click()
+    await expect(guest.locator('#status')).toContainText('This device has its own link now')
+    await expect(guest.getByRole('button', { name: 'Make a link from this device', exact: true })).toBeHidden()
+    const own = await guest.locator('#shareUrl').inputValue()
+    expect(own).not.toBe(roomLink)
+    // Rowan's own key answers; the link names the room's authority, the
+    // inviter of the room's own link, which every member pinned.
+    const ownInvitation = parseRoomLink(own).invitation!
+    expect(ownInvitation.inviter).not.toBe(parseRoomLink(roomLink).invitation!.inviter)
+    expect(ownInvitation.authority).toBe(parseRoomLink(roomLink).invitation!.inviter)
+    expect(ownInvitation.persistent).toBeUndefined()
+    await guest.locator('#roomSheetClose').click()
+
+    const newcomer = await newcomerContext.newPage()
+    await newcomer.clock.install({ time: later })
+    await newcomer.addInitScript(() => localStorage.setItem('kithmoot.name', 'Wren'))
+    await newcomer.goto(own)
+    await requestAdmission(newcomer)
+    const ask = guest.locator('#approvals .approvalCard.knock')
+    await expect(ask).toContainText('Wren wants to join')
+    await ask.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(newcomer.locator('#join')).toBeVisible()
+    await newcomer.locator('#join').click()
+    await expect(newcomer.locator('#roomArea')).toBeVisible()
+    await guest.locator('#chatInput').fill('Welcome, Wren')
+    await guest.locator('#chatInput').press('Enter')
+    await expect(newcomer.locator('#chatLog')).toContainText('Welcome, Wren')
+  } finally { await hostContext.close().catch(() => {}); await guestContext.close(); await newcomerContext.close() }
 })

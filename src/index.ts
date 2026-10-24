@@ -113,6 +113,7 @@ export type {
 export {
   createRoomInvitation,
   roomInvitation,
+  invitationAuthority,
   deriveInvitationId,
   encodeInvitationRequest,
   encodeInvitationAccountProof,

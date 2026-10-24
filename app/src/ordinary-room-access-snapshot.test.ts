@@ -183,6 +183,20 @@ describe('strict ordinary room/access snapshots',()=>{
       if(fault==='group-delegate')value.delegateSk=bytesToHex(key(3))
       records.set(name,JSON.stringify(value));expect(()=>validate(records,false,options)).toThrow(OrdinaryStateHold)
     })
+  it("preserves a member's own link that names the room's authority (version 5)",()=>{
+    const memberSk=key(9),invitation={...roomInvitation(new Uint8Array(32).fill(8),getPublicKey(memberSk)),authority:getPublicKey(key(1))}
+    const url=encodeRoomLink(BASE,{invitation,relays:['wss://relay.example'],iceUrls:[]}),store=memoryDeviceStore()
+    rememberRoom(store,{roomId:ROOM,link:url,openedAt:100});storeInvitationOwner(store,invitation,ROOT,memberSk,100)
+    const records=new Map(store.keys().map(name=>[name,store.get(name)!]))
+    expect(validate(records,false,options).invitations).toEqual([{invitationId:deriveInvitationId(invitation),roomId:ROOM,kind:'owner',persistent:false}])
+  })
+  it.each(['o-without-v5','v5-without-o'] as const)('holds a retained link whose authority field does not match its version (%s)',fault=>{
+    const {records,url}=fixture(),payload=JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(url).hash.slice(1))))
+    if(fault==='o-without-v5')payload.o=getPublicKey(key(3))
+    if(fault==='v5-without-o')payload.v=5
+    records.set(ROOM_PREFIX+ROOM,JSON.stringify({link:BASE+'#'+base64urlnopad.encode(new TextEncoder().encode(JSON.stringify(payload))),openedAt:100,readAt:0}))
+    expect(()=>validate(records,false,options)).toThrow(OrdinaryStateHold)
+  })
   it.each(['pairing','ambiguous','unsafe-relay','unknown-field','invalid-name','bad-policy','null-policy','unknown-policy-field'] as const)
     ('holds %s retained link rather than silently filtering it',fault=>{
       const {records,url}=fixture(),payload=JSON.parse(new TextDecoder().decode(base64urlnopad.decode(new URL(url).hash.slice(1))))

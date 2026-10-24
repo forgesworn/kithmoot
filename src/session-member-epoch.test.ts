@@ -13,6 +13,8 @@ import type { RekeyNotice } from './epoch.js'
 import { MEMBER_EPOCH_KINDS, readRekeyEvidence, requestMemberEpoch } from './member-epoch.js'
 import { KINDS } from './kinds.js'
 import { deriveRoom } from './room.js'
+import { createRoomInvitation, hostRoomInvitation, invitationAuthority, requestRoomAdmissionCapability } from './invitation.js'
+import { encodeRoomLink, parseRoomLink } from './link.js'
 
 const NOW = 1_800_000_000
 const now = () => NOW
@@ -50,6 +52,63 @@ function member(relay: SimRelay, name: string, authority: string, extra: Partial
 }
 
 describe('member epoch catch-up', () => {
+  it("a newcomer let in with a member's own link pins the room's authority from it and catches up past a removal", async () => {
+    const relay = new SimRelay({ replay: true })
+    const authoritySk = generateSecretKey()
+    const authority = getPublicKey(authoritySk)
+    const keeper = member(relay, 'Keeper', authority)
+    const alice = member(relay, 'Alice', authority)
+    const mallory = member(relay, 'Mallory', authority)
+    await keeper.join([], {})
+    await alice.join([], {})
+    await mallory.join([], {})
+    await settle()
+    // A removal: from here a member hands the key only to people it knows.
+    await keeper.rekey({ authoritySk, removed: [mallory.participant] })
+    await settle()
+    expect(alice.epoch).toBe(1)
+    // The authority and the device that made the room's link are gone.
+    await keeper.leave()
+    await mallory.leave()
+
+    // Alice makes a link of her own: her fresh key answers requests to join,
+    // and the link (version 5) names the room's authority.
+    const own = createRoomInvitation()
+    const invitation = { ...own.invitation, authority }
+    const url = encodeRoomLink('https://example.test/j/', { invitation, relays: [], iceUrls: [] })
+    const host = hostRoomInvitation({ transport: new SimTransport(relay), invitation, inviterSk: own.inviterSk, roomSecret: SECRET, now, epoch: () => alice.epoch })
+    try {
+      const link = parseRoomLink(url)
+      expect(link.invitation!.inviter).toBe(own.invitation.inviter)
+      expect(invitationAuthority(link.invitation!)).toBe(authority)
+      const admission = await requestRoomAdmissionCapability({ transport: new SimTransport(relay), invitation: link.invitation!, now, timeoutMs: 15_000, retryMs: 50 })
+      expect(admission.secret).toEqual(SECRET)
+      expect(admission.epoch).toBe(1)
+
+      // Pinned from the link, Bob's epoch request proves admission under the
+      // room's authority, and Alice, who let him in, answers it.
+      const bob = member(relay, 'Bob', invitationAuthority(link.invitation!))
+      alice.letIn(bob.participant)
+      await bob.join([], {})
+      await settle()
+      expect(bob.epoch).toBe(1)
+      expect(bob.epochKeys().key).toEqual(alice.epochKeys().key)
+
+      // Before link version 5, a newcomer pinned the link's inviter: the
+      // authority's rekeys mean nothing to it, and it stays at epoch 0.
+      const eve = member(relay, 'Eve', link.invitation!.inviter)
+      alice.letIn(eve.participant)
+      await eve.join([], {})
+      await settle()
+      expect(eve.epoch).toBe(0)
+      await eve.leave()
+      await bob.leave()
+    } finally {
+      host.close()
+      await alice.leave()
+    }
+  }, 60_000)
+
   it('with the authority offline, a device at epoch 0 recovers epoch 1 from a member, and nothing names that member', async () => {
     const relay = new SimRelay({ replay: true })
     const authoritySk = generateSecretKey()

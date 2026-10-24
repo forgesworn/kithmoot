@@ -166,6 +166,7 @@ import {
   decodeJoinUrl,
   createRoomInvitation,
   roomInvitation,
+  invitationAuthority,
   deriveInvitationId,
   hostRoomInvitation,
   requestRoomAdmissionCapability,
@@ -1961,14 +1962,19 @@ function startRoomBookmarks(account: SignetSession): void {
 // ---------------------------------------------------------------------------
 
 interface RoomUrlPayload {
-  /** Version 2 is an invitation. Absence means a legacy room-secret link. */
-  v?: 2 | 3
+  /** Version 2 is an invitation, 3 a group invitation, 5 a member's
+   *  invitation naming the room's authority. Absence means a legacy
+   *  room-secret link. */
+  v?: 2 | 3 | 5
   /** Legacy v1 room traffic secret. Never emitted for a new room. */
   s?: string
   /** Version 2 invitation bearer. */
   j?: string
   /** Version 2 inviter pubkey. */
   h?: string
+  /** Version 5: the room's authority, when the inviter is a member's own
+   *  key (`RoomInvitation.authority`). */
+  o?: string
   r: string[]
   i: string[]
   /** The room's admission rule, in the library's own join-URL field. Carried
@@ -2004,11 +2010,18 @@ function safeIceUrls(urls: string[]): string[] {
 
 function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
   const relays = linkRelays(pool)
+  // A member's own link names the room's authority beside its inviter, as
+  // fold-kit's `encodeRoomLink` writes it; every other link is unchanged.
+  const named = roomInvitationCapability?.authority !== undefined && roomInvitationCapability.authority !== roomInvitationCapability.inviter
+    ? roomInvitationCapability.authority
+    : undefined
+  if (named && roomInvitationCapability?.persistent) throw new Error('a group link cannot name another authority')
   const payload: RoomUrlPayload = roomInvitationCapability
     ? {
-        v: roomInvitationCapability.persistent ? 3 : 2,
+        v: named ? 5 : roomInvitationCapability.persistent ? 3 : 2,
         j: base64urlnopad.encode(roomInvitationCapability.bearer),
         h: roomInvitationCapability.inviter,
+        ...(named ? { o: named } : {}),
         r: relays,
         i: urls,
       }
@@ -2150,11 +2163,12 @@ let invitationTransport: ManagedRelayPool | undefined
  */
 let expectedEpoch: number | undefined
 
-/** The room's authority: the root inviter pinned in a v2 link. A rekey
- *  signed by it moves this browser to the new epoch; a legacy secret link
- *  has none, and stays where it joined. */
+/** The room's authority: the root inviter pinned in a v2 link, or the
+ *  authority a member's v5 link names beside its own inviter. A rekey signed
+ *  by it moves this browser to the new epoch; a legacy secret link has none,
+ *  and stays where it joined. */
 function roomAuthority(): string | undefined {
-  return roomInvitationCapability?.inviter
+  return roomInvitationCapability ? invitationAuthority(roomInvitationCapability) : undefined
 }
 
 const ADMISSION_CACHE_PREFIX = 'kithmoot.admission.v1.'
@@ -2676,7 +2690,7 @@ function renderKeepChoice(): void {
   const row = $('keepRow')
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
-  const creator = invitationAuthoritySk !== undefined && invitationDelegation.length === 0
+  const creator = isRoomAuthority()
   row.hidden = creator || !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
@@ -2897,7 +2911,7 @@ function mediaUsesBothy(): boolean {
 function callRecordingAuthority(): Uint8Array | undefined {
   if (!dockedCall) return isRoomAuthority() ? invitationAuthoritySk : undefined
   const ui = dockedCall.ui
-  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability?.inviter === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
+  return ui.invitationAuthoritySk && ui.invitationDelegation.length === 0 && ui.roomInvitationCapability && invitationAuthority(ui.roomInvitationCapability) === getPublicKey(ui.invitationAuthoritySk) ? ui.invitationAuthoritySk : undefined
 }
 
 function participantRecordingReady(s = mediaSession()): boolean {
@@ -5034,6 +5048,11 @@ function showRoomUi(): void {
   renderOpenInApp()
   $('join').hidden = false
   tryPendingJoin()
+  renderShareControls()
+}
+
+/** The invite page's link and the controls that go with who holds it. */
+function renderShareControls(): void {
   ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
@@ -5043,10 +5062,68 @@ function showRoomUi(): void {
   // else was reading about a control that was not on their page.
   $('rotateNote').hidden = ($('rotateShare') as HTMLButtonElement).hidden
   renderEndRoom()
-  $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden
+  $('makePersistent').hidden = Boolean(roomInvitationCapability?.persistent) || $('rotateNote').hidden || !isRoomAuthority()
+  renderInvitationAvailability()
+}
+
+/** What the invite page says about who lets newcomers in, and the button
+ *  for a member's own link when this device can no longer answer the room's. */
+function renderInvitationAvailability(): void {
+  const lapsed = cannotAnswerRoomLink()
+  ;($('ownLink') as HTMLButtonElement).hidden = !lapsed
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
     ? 'This group stays available when everyone closes the app. Anyone with this invitation can join and read its shared history.'
-    : 'Keep a member’s tab open to admit newcomers. Temporary invitation permissions last up to twelve hours.'
+    : lapsed
+      ? 'This device can no longer let people in with this link: its permission from the device that made the link has run out. Make a link from this device and share that one instead, then keep the room open here so it can let them in.'
+      : 'Keep a member’s tab open to admit newcomers. Temporary invitation permissions last up to twelve hours.'
+}
+
+/**
+ * Whether this device can no longer answer requests to join made with the
+ * room's temporary link: it holds no key for the link, or its permission
+ * from the device that made it, which lasts at most twelve hours from that
+ * device's own last answer, has run out. A group link admits by itself, and
+ * a Bothy room's keeper answers, so neither ever lapses here.
+ */
+function cannotAnswerRoomLink(now = nowSeconds()): boolean {
+  if (roomUsesBothy || !roomInvitationCapability || roomInvitationCapability.persistent || !roomAuthority()) return false
+  if (!invitationAuthoritySk) return true
+  return invitationDelegation.length > 0 && Math.min(...invitationDelegation.map(cert => cert.expiresAt)) <= now
+}
+
+/**
+ * A link of this device's own, for a member that can no longer answer the
+ * room's link (`cannotAnswerRoomLink`). A fresh bearer and inviter key held
+ * here answer requests to join, and the link names the room's authority
+ * (`o`, link version 5), so a newcomer pins the key every member pinned and
+ * catches up on the room's keys from any member. It asks, like the room's
+ * temporary link: a group link that admits by itself is the authority's to
+ * make. The old link is not retired: only the device that made it can.
+ */
+async function makeOwnInvitation(): Promise<void> {
+  if (await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)) throw new Error('New invitations are unavailable on this Bothy text route.')
+  const authority = roomAuthority()
+  if (!authority || !cannotAnswerRoomLink()) throw new Error('This device can still let people in with the room’s link.')
+  const created = createRoomInvitation(false)
+  const invitation: RoomInvitation = { ...created.invitation, authority }
+  storeInvitationOwner(invitation, roomSecret, created.inviterSk, roomEndsAt, roomDestruct)
+  stopInvitationHost()
+  roomInvitationCapability = invitation
+  invitationAuthoritySk = created.inviterSk
+  invitationDelegation = []
+  serveCurrentInvitation()
+
+  const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  history.replaceState(null, '', url)
+  ;($('shareUrl') as HTMLInputElement).value = url
+  // The link kept for the list is the one this device answers now.
+  rememberCurrentRoom()
+  if (($('shareQrDetails') as HTMLDetailsElement).open) {
+    renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
+  }
+  renderShareControls()
+  renderKeepChoice()
+  setStatus('This device has its own link now. Share it, and keep the room open here so it can let people in.')
 }
 
 /** Everything that is not the conversation, revealed once there is a
@@ -5776,6 +5853,9 @@ function showInfoPage(name: string, row?: HTMLElement): void {
     meetingCodePasswordTouched = false
     renderInviteEnds()
     renderMeetingCode()
+    // A member's permission to answer for the room's link runs out while the
+    // room is open: say so, and offer its own link, when the page is opened.
+    renderInvitationAvailability()
   }
   sheet.scrollTop = 0
   if (name === 'main' && previous !== 'main' && infoRow?.isConnected && !infoRow.hidden) infoRow.focus({ preventScroll: true })
@@ -6155,6 +6235,8 @@ async function rotateRoomInvitation(): Promise<void> {
   const invitation: RoomInvitation = {
     ...createRoomInvitation(retired.persistent === true).invitation,
     inviter: retired.inviter,
+    // A member's own link names the room's authority: its new one does too.
+    ...(retired.authority !== undefined ? { authority: retired.authority } : {}),
   }
   // A conference room's fresh link ends when the room does.
   storeInvitationOwner(invitation, roomSecret, authoritySk, roomEndsAt, roomDestruct)
@@ -6225,7 +6307,8 @@ function closeWhenSettled(pool: ManagedRelayPool): void {
 }
 
 async function makeRoomPersistent(): Promise<void> {
-  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length) return
+  // The room's authority alone: a member's own link only ever asks.
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length || !isRoomAuthority()) return
   // A fresh bearer prevents an old, never-used meeting link from silently
   // becoming durable access. Keep the room's authority and conversation.
   const invitation: RoomInvitation = {
@@ -14128,7 +14211,7 @@ function watchKnownRoom(room: KnownRoom): void {
   const pastEpochs = kept && epoch && kept.epoch.epoch === epoch.epoch ? pastRootsOf(kept) : []
   // This device's copy of a rekey opens with its key for the room and the
   // seal keys its credentials named there, as the session's does.
-  const authority = link.invitation?.inviter
+  const authority = link.invitation ? invitationAuthority(link.invitation) : undefined
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId)
   let named: RoomNameRecord | undefined
   const followName = (): void => {
@@ -16972,7 +17055,7 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   if (root.roomId !== room.roomId) return 'The saved admission does not open this room.'
   const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
   return observeWorkspaceActivity({ ...root, participant: account, name: joiningName() ?? '', transport: pool, policy: link.policy,
-    epoch: loadRoomEpoch(room.roomId), authority: link.invitation?.inviter,
+    epoch: loadRoomEpoch(room.roomId), authority: link.invitation ? invitationAuthority(link.invitation) : undefined,
     deviceSk: loadDeviceKeyFor(credentialStore, room.roomId), sealSks: () => loadOwnSealKeysFor(credentialStore, room.roomId).reverse(),
     loadJournal: async () => localStorage.getItem(`kithmoot.assignments.v1.${account}.${room.roomId}`) ?? undefined,
     isBlocked: contactIsBlocked, valid, changed, now: nowSeconds,
@@ -18626,6 +18709,13 @@ $('rotateShare').addEventListener('click', async () => {
   try { await rotateRoomInvitation() } catch (err) { setStatus(describeError(err)) }
   finally { --roomOperation; refreshRoomNavigation() }
 })
+$('ownLink').addEventListener('click', async () => {
+  const button = $('ownLink') as HTMLButtonElement
+  button.disabled = true
+  ++roomOperation
+  try { await makeOwnInvitation() } catch (error) { setStatus(describeError(error)) }
+  finally { button.disabled = false; --roomOperation; refreshRoomNavigation() }
+})
 $('makePersistent').addEventListener('click', async () => {
   const button = $('makePersistent') as HTMLButtonElement
   button.disabled = true
@@ -19397,7 +19487,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
   const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
-  const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation?.inviter)
+  const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation ? invitationAuthority(link.invitation) : undefined)
   // The room on screen knows every channel it opened; one in the background
   // is read in epoch 0 and the epochs its records keep, in the channels every
   // client writes in. Named channels of a room not open here are not known.
@@ -19550,7 +19640,7 @@ async function learnDestructAtDoor(room: KnownRoom): Promise<void> {
     const kept = loadKeptRoomEpoch(deviceStore, roomId)
     const previous: EpochKeys = kept && kept.epoch.epoch > 0 ? deriveEpoch(kept.epoch) : { epoch: 0, id: roomId, key: deriveRoom(secret).roomKey }
     const relays = relayConnections.configuration(`room:${roomId}`, link.relays).filter(relay => relay.read).map(relay => relay.url)
-    if (await closingRekeyDestructs(roomId, link.invitation.inviter, previous, relays).catch(() => false)) {
+    if (await closingRekeyDestructs(roomId, invitationAuthority(link.invitation), previous, relays).catch(() => false)) {
       destructSecrets.set(roomId, secret)
       markRoomDestruct(roomId)
     }

@@ -2440,3 +2440,45 @@ copy of the web app, so a web deploy does not change it. A separate
 authenticated private call relay remains for an arranged call; it is not
 an app default or a public credential issuer. See the closure record and
 call-transport position for the distinction and the open operator input.
+
+## A member's own link names the room's authority (owner, 24 October 2026)
+
+A room's authority is the key that signs its rekeys, removals and closing,
+its relay list and its meeting rules. It was always the inviter of the link a
+device joined with. On a temporary link only that inviter, or a member it
+delegated, can let anyone in, and a delegation lasts at most twelve hours
+from the inviter's own last answer. So a temporary room shut to new devices
+twelve hours after the device that made its link left. A member could make a
+link of its own, but its inviter then became the newcomer's authority: in a
+room that had rekeyed, the newcomer's catch-up requests were refused and it
+waited for ever. The owner's room The moot hit both on 23 October.
+
+A member whose permission to answer has run out can now make a link from
+its own device. The link's inviter is the member's fresh key, which answers
+requests to join, and the link names the room's authority beside it (`o`,
+link version 5, fold-kit 0.15.0). Whoever it lets in pins the key every
+member pinned, so it follows the room's rekeys and catches up from any
+member. The owner chose three things:
+
+- A new link version rather than a new field on version 2, so an app that
+  does not know it says it needs a newer version instead of joining and
+  getting stuck. A link whose inviter is the authority is written exactly as
+  before.
+- The authority rides in the link, not in the answer that lets someone in.
+  An answer can come from any delegated member, and a field there would let
+  any of them name an authority of their own; in the link only the person
+  who made it does, and they already hold the room.
+- A member's own link only ever asks. A group link that admits by itself is
+  the authority's to make, so a member cannot open an ask-first room to
+  walk-ins, and Make this a group stays with the room's authority.
+
+It does not reach a room whose latest rekey came before 3 October 2026, when
+rekeys began carrying the commitment a member needs to hand an epoch on:
+there only the authority can bring a newcomer past the first epoch. And
+still only the authority can rekey, remove or close: a room whose authority
+has gone for good can never remove anybody.
+
+Found on the way and fixed first (#558): New link gave the room's link a
+fresh inviter key, which split the room, since the creator then signed with
+a key no member had pinned. New link now keeps the inviter and changes only
+the bearer.
