@@ -210,7 +210,18 @@
       "isDraft": false,
       "publishedAt": "2026-10-24T14:16:39Z",
       "targetCommitish": "9908de74370555800fe786f5a51f6110927843ad"
-    }
+    },
+    "initialFailedJobs": [
+      {
+        "name": "recovery-emulator (restarts)",
+        "id": 120867471217,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "started_at": "2026-10-24T12:05:47Z",
+        "completed_at": "2026-10-24T12:16:50Z"
+      }
+    ]
   },
   "website": {
     "pullRequest": 566,
