@@ -305,7 +305,7 @@ import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFol
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
-import { PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
+import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
 import { completeSpryPairing, loadSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
 import { SpryRoom } from './spry-room.js'
@@ -793,10 +793,6 @@ const relayStorage = {
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
 let boxDiscovery: BoxDiscovery | undefined
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
-/** The pool scope for the public call relay query. No relay is ever granted
- *  NIP-42 authentication in this scope, so the query goes over a connection
- *  that is not signed in and tells no relay which key searched. */
-const PUBLIC_CALL_RELAY_SCOPE = 'public-call-relays'
 /** Finding public call relays: off until the person turns it on. See
  *  app/src/public-call-relays.ts and docs/2026-10-25-public-relay-discovery.md. */
 const publicCallRelays = new PublicCallRelays({
@@ -810,7 +806,7 @@ const publicCallRelays = new PublicCallRelays({
   search: async now => {
     const urls = publicRelayQueryRelays(relayConnections.personal('default'), relayConnections.health('default'))
     if (urls.length === 0) return []
-    const pool = relayConnections.pool(PUBLIC_CALL_RELAY_SCOPE, urls)
+    const pool = relayConnections.pool(PUBLIC_CALL_RELAY_SCOPE, publicRelayPoolHints(urls))
     try { return await queryPublicRelayAdverts(pool, urls, now) } finally { pool.close() }
   },
 })
@@ -18018,7 +18014,7 @@ function renderPublicRelays(): void {
     radio.addEventListener('change', () => {
       cancelPublicRelayCheck()
       publicCallRelays.select(entry.key)
-      $('publicRelaysStatus').textContent = 'Selected for your calls on this visit. Check it to keep using it next time.'
+      $('publicRelaysStatus').textContent = 'Selected for your calls on this visit. It is remembered on this device once a check or a call through it works.'
       ;($('publicRelaysCheck') as HTMLButtonElement).disabled = false
       $('publicRelaysForget').hidden = false
     })

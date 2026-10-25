@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
+import { useWebSocketImplementation } from 'nostr-tools/pool'
+import { FakeWebSocket } from '../../test/fake-socket.js'
+import { RelayConnections } from './relay-settings.js'
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import { CALL_RELAY_KEY } from './call-relay.js'
 import {
-  PUBLIC_CALL_RELAYS_KEY, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, PUBLIC_RELAY_RENEW_FAILED, PUBLIC_RELAY_START_FAILED,
-  PublicCallRelays, PublicRelayCall, callRelaySource, cleanOperatorNote, publicRelayFilter, publicRelayIceServer,
+  PUBLIC_CALL_RELAYS_KEY, PUBLIC_CALL_RELAY_SCOPE, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, PUBLIC_RELAY_RENEW_FAILED, PUBLIC_RELAY_START_FAILED,
+  PublicCallRelays, PublicRelayCall, callRelaySource, cleanOperatorNote, publicRelayFilter, publicRelayIceServer, publicRelayPoolHints,
   publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts, shortTransportKey, type PublicRelayCallHooks,
 } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
@@ -92,6 +95,20 @@ describe('query discipline', () => {
     expect(first).toEqual(second)
   })
   it('stays off by default', () => expect(setup([]).relays.enabled).toBe(false))
+  it('queries over a pool that is not signed in and holds exactly the chosen relays', () => {
+    useWebSocketImplementation(FakeWebSocket as unknown as typeof WebSocket)
+    const store = new MemoryStore()
+    const connections = new RelayConnections(store, ['wss://relay.primal.net/', 'wss://nos.lol/'])
+    // The exact legacy pair, which a room's hints would gain a third relay from.
+    const urls = ['wss://relay.primal.net/', 'wss://nos.lol/']
+    const pool = connections.pool(PUBLIC_CALL_RELAY_SCOPE, publicRelayPoolHints(urls))
+    try {
+      expect(pool.configuration().map(relay => relay.url)).toEqual(urls)
+      expect(pool.configuration().every(relay => relay.read && !relay.write)).toBe(true)
+      for (const url of urls) expect(connections.authenticationIdentity(PUBLIC_CALL_RELAY_SCOPE, url)).toBeUndefined()
+      expect(connections.health(PUBLIC_CALL_RELAY_SCOPE, publicRelayPoolHints(urls)).every(relay => relay.authentication === undefined)).toBe(true)
+    } finally { pool.close() }
+  })
 })
 
 describe('picker listing', () => {

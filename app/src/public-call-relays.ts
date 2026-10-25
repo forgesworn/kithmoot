@@ -66,6 +66,17 @@ export function publicRelayQueryRelays(personal: readonly RelayConfig[], health:
   return personal.filter(relay => relay.read && !failing.has(relay.url)).map(relay => relay.url)
 }
 
+/** The pool scope for the query. No relay is ever granted NIP-42
+ *  authentication in this scope, so the query goes over a connection that is
+ *  not signed in and tells no relay which key searched. */
+export const PUBLIC_CALL_RELAY_SCOPE = 'public-call-relays'
+/** The query pool's relays: exactly these, read-only. Read-only also keeps
+ *  them out of the rewrite that gives a legacy pair of room relays a third,
+ *  so no relay is added for discovery. */
+export function publicRelayPoolHints(urls: readonly string[]): RelayConfig[] {
+  return urls.map(url => ({ url, read: true, write: false }))
+}
+
 export function publicRelayFilter(nowSeconds: number): Filter {
   return { kinds: [PUBLIC_RELAY_KIND], '#d': [PUBLIC_RELAY_IDENTIFIER], limit: PUBLIC_RELAY_QUERY_LIMIT, since: nowSeconds - PUBLIC_RELAY_MAX_LIFETIME }
 }
