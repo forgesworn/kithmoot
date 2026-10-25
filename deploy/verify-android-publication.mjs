@@ -62,6 +62,15 @@ const downloadFilename = requireString('downloadFilename', /^[a-zA-Z0-9][a-zA-Z0
 if (!/^[0-9a-f]{64}$/.test(expectedApkSha)) fail('apkSha256 must be a SHA-256 digest')
 if (!/^[0-9a-f]{64}$/.test(expectedCertificate)) fail('currentCertificateSha256 must be a SHA-256 digest')
 if (downloadFilename !== `kithmoot-${versionName}-${channel}.apk`) fail('downloadFilename does not match the release version and channel')
+if (publication.releaseNotes !== undefined) {
+  const notes = publication.releaseNotes
+  if (!Array.isArray(notes) || ![2, 3].includes(notes.length)) fail('releaseNotes must contain 2 or 3 notes')
+  for (const note of notes) {
+    if (typeof note !== 'string' || note.trim().length === 0 || note.trim() !== note || note.length > 140 || /[\p{Cc}\p{Cf}]/u.test(note)) {
+      fail('releaseNotes entries must be trimmed single-line plain text of at most 140 characters')
+    }
+  }
+}
 
 const schemes = publication.signatureSchemes
 if (!schemes || ['v1', 'v2', 'v3'].some(name => typeof schemes[name] !== 'boolean')) {
