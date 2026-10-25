@@ -3,7 +3,7 @@ import { build } from 'esbuild'
 
 const origin = 'https://browser-mls-grant-custody.kithmoot.test'
 let bundle: string
-test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-grant-custody.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'G', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
+test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-grant-custody.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'G', define: { 'import.meta.env.BASE_URL': '"/"', 'import.meta.env.DEV': 'false', 'import.meta.env.VITE_MIXED_INVITATION_LAB': '"false"' } })).outputFiles[0].text })
 async function fixture(context: BrowserContext) {
   await context.route(origin + '/**', route => new URL(route.request().url()).pathname === '/fixture.js'
     ? route.fulfill({ contentType: 'text/javascript', body: bundle })

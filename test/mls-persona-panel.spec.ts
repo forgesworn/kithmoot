@@ -7,7 +7,7 @@ import { concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { pairingFixture } from './mls-pairing-fixture.js'
 const origin = 'https://browser-mls-panel.kithmoot.test'
 let bundle: string
-test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-panel.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'P', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
+test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-panel.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'P', define: { 'import.meta.env.BASE_URL': '"/"', 'import.meta.env.DEV': 'false', 'import.meta.env.VITE_MIXED_INVITATION_LAB': '"false"' } })).outputFiles[0].text })
 async function fixture(context: BrowserContext) {
   const key = new Uint8Array(32).fill(91), pairing = pairingFixture(key)
   const witness = { seq: 0n, advances: 0, reads: 0, enrolled: false, offline: false, digest: new Uint8Array(32) }
