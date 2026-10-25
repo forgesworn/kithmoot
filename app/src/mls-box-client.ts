@@ -29,8 +29,8 @@ export interface SlotDeposited { outcome: 'won' | 'duplicate' | 'taken'; attempt
 export interface SlotState { state: 'empty' | 'filled' | 'expired' | 'void'; attempt?: number; receipt?: Uint8Array; signedReceipt?: Uint8Array; envelope?: Uint8Array }
 export interface FetchRecord { mailbox: Uint8Array; receipt: Uint8Array; envelope: Uint8Array }
 export interface AckItem { mailbox: Uint8Array; receipt: Uint8Array }
-export type BoxTracePhase = 'request-start' | 'sign-start' | 'consent-start' | 'consent-end' | 'sign-complete' | 'sign-refused' | 'accept-refused' | 'transport-start' | 'transport-end' | 'transport-refused' | 'parse-start' | 'parse-end' | 'timeout' | 'inactive' | 'caller-return' | 'caller-finally' | 'work-settled' | 'invalidate' | 'settled-start' | 'settled-end'
-export interface BoxTraceEvent { request: number; phase: BoxTracePhase; elapsedMs: number; result?: BoxAnswer<never>['state'] | VaultRefusal }
+export type BoxTracePhase = 'request-start' | 'sign-start' | 'consent-start' | 'consent-end' | 'sign-complete' | 'sign-refused' | 'accept-refused' | 'transport-start' | 'transport-end' | 'transport-refused' | 'node-refused' | 'parse-start' | 'parse-end' | 'timeout' | 'inactive' | 'caller-return' | 'caller-finally' | 'work-settled' | 'invalidate' | 'settled-start' | 'settled-end'
+export interface BoxTraceEvent { request: number; phase: BoxTracePhase; elapsedMs: number; result?: BoxAnswer<never>['state'] | VaultRefusal | 'node-authentication' | 'node-replay' | 'node-authority' | 'node-expired' | 'node-other' }
 export type BoxTraceObserver = (event: BoxTraceEvent) => void
 type Signer = Pick<CoordinatedMlsVault, 'signBoxRequestV1' | 'acceptBoxReply' | 'current'>
 type Json = Record<string, unknown>
@@ -262,9 +262,10 @@ export class BrowserMlsBoxClient {
           if (result) return { state: 'ok', ...result }
           if (status !== 409) return { state: 'malformed' }
         }
-        if (!raw.length) return { state: 'refused', status, code: null, serverTime: null }
+        if (!raw.length) { trace('node-refused', 'node-other'); return { state: 'refused', status, code: null, serverTime: null } }
         const refused = raw.length <= MAX_JSON ? answer(raw, []) : undefined
         if (!refused || !Object.hasOwn(REFUSALS, refused.code) || REFUSALS[refused.code] !== status) return { state: 'malformed' }
+        trace('node-refused', refused.code === 'authentication' ? 'node-authentication' : refused.code === 'replay' ? 'node-replay' : refused.code === 'authority' ? 'node-authority' : refused.code === 'expired' ? 'node-expired' : 'node-other')
         return { state: 'refused', status, code: refused.code, serverTime: refused.server_time }
       }
       // An abandoned prompt/request can still be running. Keep its capacity

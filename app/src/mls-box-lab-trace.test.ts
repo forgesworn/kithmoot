@@ -16,3 +16,10 @@ test('trace output drops extra fields, stays bounded and does not return its mut
   read.events[0].elapsedMs = -1
   expect(readBoxLabTrace().events[0].elapsedMs).toBe(0)
 })
+
+test('unknown phases, result strings and non-finite timing values cannot enter a trace', () => {
+  vi.stubEnv('DEV', true); vi.stubEnv('VITE_MIXED_INVITATION_LAB', 'true')
+  startBoxLabTrace(); const record = boxLabTraceObserver()!
+  for (const changed of [{phase:'private-value'},{result:'private-value'},{elapsedMs:Infinity},{request:-1}]) record({request:1,phase:'sign-start',elapsedMs:0,...changed} as any)
+  expect(readBoxLabTrace()).toEqual({ events:[],overflow:false })
+})

@@ -328,3 +328,10 @@ it('a diagnostic observer cannot alter actual authentication or parsing', async 
   const f = setup(200, capabilities, 1000, () => { throw new Error('diagnostic-only') })
   expect(await f.client.capabilities()).toMatchObject({ state: 'ok', value: { installation } })
 })
+
+it('safe trace classifies a validated node permission refusal without retaining response data', async () => {
+  const events: BoxTraceEvent[] = [], f = setup(403, body('authority'), 1000, event => events.push(event))
+  expect(await f.client.capabilities()).toMatchObject({ state: 'refused', status: 403, code: 'authority' })
+  expect(events).toContainEqual({ request: 1, phase: 'node-refused', elapsedMs: expect.any(Number), result: 'node-authority' })
+  expect(JSON.stringify(events)).not.toContain('server_time')
+})
