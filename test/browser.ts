@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContextOptions, type BrowserCon
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { openRoomUrl, sameRoomLink, withRelays, testRelays } from './relays.js'
+import { openRoomCreationPage } from './room-creation-startup.js'
 
 /** The companion relay's port, and the two addresses built from it. See the
  *  comment above `TEST_RELAY_PORT` in relays.ts for how the port is chosen;
@@ -645,7 +646,7 @@ export async function nameCreator(page: Page, name: string): Promise<void> {
 /** Start a room and return its link. The creator is inside it as `name`. */
 export async function createRoom(page: Page, baseURL: string, relays = testRelays(), name = 'Ada'): Promise<string> {
   if (relays) await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
-  await page.goto(baseURL)
+  await openRoomCreationPage(page, baseURL)
   await startRoom(page, { name })
   // The link exists as soon as the room does, but the drawer around it stays
   // hidden until somebody opens it: wait for the value rather than for it to

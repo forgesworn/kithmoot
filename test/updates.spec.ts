@@ -8,6 +8,7 @@ import { LOCAL_TEST_RELAY } from './relays.js'
 async function releaseServer(options: { beforeWorkerResponse?: () => Promise<void> } = {}) {
   let revision = 1
   let delayActivation = 0
+  let closed = false
   const root = resolve('app/dist')
   const requests: string[] = []
   const mime: Record<string, string> = { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' }
@@ -20,6 +21,17 @@ async function releaseServer(options: { beforeWorkerResponse?: () => Promise<voi
       if (relative === 'blank.html') {
         res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' })
         res.end('<!doctype html><title>Artwork cache setup</title>')
+        return
+      }
+      if (relative === 'legacy-artwork-sw.js') {
+        res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' })
+        res.end(`self.addEventListener('install', event => event.waitUntil((async () => {
+          const cache = await caches.open('workbox-precache-v2-' + self.registration.scope);
+          for (const path of ['chat-art/coffee.gif', 'chat-art/laugh.gif', 'emoji/happy.png']) {
+            const url = new URL(path, self.registration.scope);
+            await cache.put(url.href + '?__WB_REVISION__=legacy', await fetch(url));
+          }
+        })()));`)
         return
       }
       const file = resolve(root, relative)
@@ -53,6 +65,8 @@ async function releaseServer(options: { beforeWorkerResponse?: () => Promise<voi
       delayActivation = options.delayActivation ?? 0
     },
     close: async () => {
+      if (closed) return
+      closed = true
       server.closeAllConnections()
       await new Promise<void>((r, reject) => server.close(err => err ? reject(err) : r()))
     },
@@ -307,6 +321,10 @@ test('an open PWA finds updates automatically and checks again after reconnectin
     await page.screenshot({ path: testInfo.outputPath('update-large-text.png') })
     await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
     await expect(page.locator('#updateNotice')).toBeHidden()
+    // load precedes completion of the app's lazy startup imports. Do not
+    // interrupt those requests when testing the subsequent reconnect.
+    await expect(page.locator('#home')).toBeVisible()
+    await page.waitForLoadState('networkidle')
     await context.setOffline(true)
     release.publish()
     await page.clock.fastForward(60_000)
@@ -327,32 +345,36 @@ test('an upgrade migrates cached originals without network before old precache c
   try {
     const page = await context.newPage()
     await page.goto(new URL('blank.html', release.base).href)
+    // Seed through an installed worker, as the previous PWA did, rather
+    // than synthesising its CacheStorage from a page process.
     await page.evaluate(async scope => {
-      const cache = await caches.open(`workbox-precache-v2-${scope}`)
-      for (const path of ['chat-art/coffee.gif', 'chat-art/laugh.gif', 'emoji/happy.png']) {
-        const url = new URL(path, scope)
-        const response = await fetch(url)
-        await cache.put(`${url.href}?__WB_REVISION__=legacy`, response)
-      }
+      await navigator.serviceWorker.register(new URL('legacy-artwork-sw.js', scope), { scope })
+      await navigator.serviceWorker.ready
     }, release.base)
+    await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state)).toBe('activated')
     release.clearRequests()
     await page.goto(release.base)
-    await page.evaluate(async () => { await navigator.serviceWorker.ready })
-    await page.reload()
+    await expect(page.locator('#updateNotice')).toBeVisible()
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state)).toBe('activated')
     expect(originalRequests()).toEqual([])
-    const cacheState = await page.evaluate(async scope => {
+    const cacheState = () => page.evaluate(async scope => {
       const old = await caches.open(`workbox-precache-v2-${scope}`)
       const runtime = await caches.open('kithmoot-original-artwork-v1')
       const original = (requests: readonly Request[]) => requests.map(request => request.url).filter(url => /\/(?:chat-art|emoji)\/[^/]+\.(?:png|gif)(?:\?|$)/.test(url))
-      return { precache: original(await old.keys()), runtime: original(await runtime.keys()) }
+      return { precache: original(await old.keys()).sort(), runtime: original(await runtime.keys()).sort() }
     }, release.base)
-    expect(cacheState.precache).toEqual([])
-    expect(cacheState.runtime.sort()).toEqual([
-      new URL('chat-art/coffee.gif', release.base).href,
-      new URL('chat-art/laugh.gif', release.base).href,
-      new URL('emoji/happy.png', release.base).href,
-    ].sort())
-    await context.setOffline(true)
+    await expect.poll(cacheState).toEqual({
+      precache: [],
+      runtime: [
+        new URL('chat-art/coffee.gif', release.base).href,
+        new URL('chat-art/laugh.gif', release.base).href,
+        new URL('emoji/happy.png', release.base).href,
+      ],
+    })
+    expect(originalRequests()).toEqual([])
+    await release.close()
+    await expect(fetch(release.base)).rejects.toThrow()
     const offline = await page.evaluate(async scope => {
       const responses = []
       for (const path of ['chat-art/coffee.gif', 'chat-art/laugh.gif', 'emoji/happy.png']) {
