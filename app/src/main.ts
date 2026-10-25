@@ -3197,7 +3197,10 @@ let people: PeopleView | undefined
 const follows = new FollowBook({
   relays: () => PROFILE_RELAYS,
   transport: urls => relayConnections.pool('follows', urls),
-  onChange: () => { renderPeople(); renderInvitations() },
+  // Disabling saved public lookups happens before the later invitation
+  // views are initialised. Keep privacy effective now and repaint after
+  // this synchronous application composition has finished.
+  onChange: () => queueMicrotask(() => { renderPeople(); renderInvitations() }),
 })
 follows.setEnabled(profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
