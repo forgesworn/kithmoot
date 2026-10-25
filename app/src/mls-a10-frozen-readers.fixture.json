@@ -20,5 +20,13 @@
       "fixtureSha256": "3c97379f991c870652369f8aacf645b2ee7906992fbceb12231b2fec1efc4644",
       "transformation": "Verbatim old envelope decoder function with its identical primitive predicates. Grant-record validator imported from current source; legacy record schema is unchanged. The old class #read invokes this decoder before any write or ready mark."
     }
-  }
+  },
+  "unchangedDataContractDependencies": {
+    "mls-membership-store.ts": "75a12cdab90ca36eaed6bf77f903fce4870bacbd89d60d247989f373927ccda2",
+    "mls-revocation-outbox-store.ts": "6b48ba8a298052ff764e9e4f83a45651772725068d6fb774e09f5fe7bf272144",
+    "mls-revocation-binding.ts": "7519d89fa4cd4ba2a035593a2c137206fcd7d82dd44f85c19173bb0369cbf475",
+    "mls-keeper-inbox-auth.ts": "8bd452baa8a29d2915eb868549fb0174c0882cd7b6ee0f9565bd8f1a4eca4a46",
+    "../../src/vmls-revocation-request.ts": "3e043ca73e30c9d0918728369acca3e6daf1ed1c657a281a8717c4f9bd979e82"
+  },
+  "legacyRecordDecoderSha256": "937f6117c0335fb2c6519b5034dd1767270b93cbd67c0dd43973c0ffb8a207c8"
 }

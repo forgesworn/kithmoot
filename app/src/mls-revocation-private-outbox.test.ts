@@ -148,7 +148,7 @@ describe('concrete private standalone revocation sending', () => {
     const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
       { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
-      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit, source: { session: '11'.repeat(32), leaf: '77'.repeat(32) } })
     await saveMlsMembership(f.tx, await readMlsMembership(f.viewTx()))
     await f.tx.dropVault(Array.from(new TextEncoder().encode('kithmoot.admin-storage-outbox.v1'), b => b.toString(16).padStart(2, '0')).join(''))
     await frozenRemember(f.tx, f.identity.pubkey, f.keeper.pubkey, '22'.repeat(32), [{ identity: f.identity.pubkey, device: '88'.repeat(32), homeBox: f.node, own: false, pending: false }], f.now())
@@ -165,18 +165,20 @@ describe('concrete private standalone revocation sending', () => {
     await expect(old.send(f.operation, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('no longer retained')
     expect(f.sent).toHaveLength(frames); expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.identity.signEvent).not.toHaveBeenCalled(); noPublic(f)
   })
-  it('persists a shared critical recovery fence for ambiguous pre-isolation state and the frozen a10 sender refuses before public side effects', async () => {
+  it.each(['session','node','source-less'] as const)('fences ambiguous pre-isolation %s evidence and the frozen a10 sender refuses before public side effects', async change => {
     const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
       { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
-      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
-    const pre = await readMlsMembership(f.viewTx()); pre.standalone!.observations[0].sessions.push('22'.repeat(32))
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit, ...(change === 'source-less' ? {} : { source: { session: '11'.repeat(32), leaf: '77'.repeat(32) } }) })
+    const pre = await readMlsMembership(f.viewTx())
+    if (change === 'session') pre.standalone!.observations[0].sessions.push('22'.repeat(32))
+    if (change === 'node') pre.standalone!.observations[0].boxes.push('99'.repeat(32))
     await saveMlsMembership(f.tx, pre)
     const rawPre = JSON.parse(new TextDecoder().decode((await f.tx.readVault(Array.from(new TextEncoder().encode('kithmoot.mls-membership.v1'), b => b.toString(16).padStart(2, '0')).join('')))!) )
     const ownBefore = structuredClone(await readMlsMembership(f.viewTx()))
     await expect(f.outbox.records()).rejects.toThrow('recovery is fenced')
     const shared = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.adminStorageRecoveryFence)
-    expect(shared).toMatchObject({ ...rawPre, version: 2, adminStorageRecoveryFence: { originalVersion: 1, reason: 'different-isolated-observation', operations: [f.operation] } })
+    expect(shared).toMatchObject({ ...rawPre, version: 2, adminStorageRecoveryFence: { originalVersion: 1, reason: change === 'source-less' ? 'unproven-source-session' : 'aggregated-legacy-scope', operations: [f.operation] } })
     expect(await readMlsMembership(f.viewTx())).toEqual(ownBefore)
     const old = new FrozenA10Outbox(f.coordinator as any, f.context, f.now)
     await expect(old.send(f.operation, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('Invalid MLS membership journal')

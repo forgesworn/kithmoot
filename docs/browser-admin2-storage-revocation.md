@@ -65,10 +65,11 @@ downgrades after withdrawal or expiry.
 
 `kithmoot.admin-storage-outbox.v1` holds Admin2 observations and attempts wholly
 separately from legacy standalone state. A frozen a10 public reader cannot
-find a new Admin2 operation. Exactly bound canonical pre-isolation observations
-are moved atomically under the persona witness, preserving attempts and all
+find a new Admin2 operation. Only canonical pre-isolation observations with the exact one-node and
+recorded one-source-session mapping are moved atomically under the persona witness, preserving attempts and all
 other legacy entries. Existing binding, permission and attempt history is
-retained. Unsupported forms or differing isolated collisions preserve all
+retained. Source-less or aggregated observations, unsupported forms and differing
+isolated collisions preserve all
 original shared fields behind a critical membership v2 recovery fence; the
 old reader refuses it before public discovery or crypto. No data is silently
 discarded, reset or automatically downgraded. Ambiguous fenced data requires

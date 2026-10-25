@@ -103,6 +103,8 @@ export async function isolateLegacyStorageRequests(tx: PersonaTransaction): Prom
   for (const observation of candidates) {
     const bound = byOperation.get(observation.operation)!
     if (observation.sender !== bound.sender || observation.keeper !== bound.keeper || observation.device !== bound.device || !observation.boxes.includes(bound.node)) return fence('binding-differs')
+    if (observation.boxes.length !== 1 || observation.sessions.length !== 1) return fence('aggregated-legacy-scope')
+    if (!bound.source || observation.sessions[0] !== bound.source.session) return fence('unproven-source-session')
     const p = observation.attempt?.private
     if (p && ![destination(bound), ...bound.history.map(h => h.binding)].some(b => b.keeper === p.keeper && b.node === p.node && b.box.routeId === p.routeId && b.box.eventUrl === p.eventUrl && b.permission.id === p.permissionId && b.transmitter === p.transmittingDevice)) return fence('unmatched-private-attempt')
     const previous = ownState.observations.find(r => r.operation === observation.operation)
