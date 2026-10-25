@@ -47,7 +47,7 @@ export function callRelayServers(relay: CallRelay): RTCIceServer[] {
 
 /** The configuration without plain TURN/TCP URIs, for the one known WebKit
  * syntax incompatibility, or the original error when that is not the cause. */
-function withoutPlainTurnTcp(config: RTCConfiguration, error: unknown): RTCConfiguration {
+export function withoutPlainTurnTcp(config: RTCConfiguration, error: unknown): RTCConfiguration {
   if (!error || typeof error !== 'object' || !('name' in error) ||
       !['SyntaxError', 'NotSupportedError'].includes(String(error.name))) throw error
   const servers = config.iceServers ?? []

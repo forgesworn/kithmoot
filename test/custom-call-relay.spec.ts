@@ -1,13 +1,15 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, inbound, joinWithMedia, newDeviceContext, openSettings, closeSettings, remoteAudioCount, remotePictures, SYNTHETIC_MIC } from './browser.js'
-import { callRelayPeerConnection } from '../app/src/call-relay.js'
+import { callRelayPeerConnection, withoutPlainTurnTcp } from '../app/src/call-relay.js'
 
 interface Relay { urls: string[]; username: string; credential: string }
 
 test('configured URI alternatives work in the real browser constructor and retain relay-only privacy', async ({ page }) => {
   // Execute the implementation itself in each browser. About:blank has no
   // application CSP; this evaluates only our own source, with synthetic login.
-  const result = await page.evaluate(source => {
+  const result = await page.evaluate(([helper, source]) => {
+    // The constructor calls its WebKit filter by name, so define it first.
+    globalThis.eval(helper)
     const create = globalThis.eval(`(${source})`) as (config: RTCConfiguration) => RTCPeerConnection
     const pc = create({ iceTransportPolicy: 'relay', iceServers: [{
       urls: ['turn:relay.example:3478', 'turn:relay.example:3478?transport=tcp', 'turns:relay.example:5349'],
@@ -17,7 +19,7 @@ test('configured URI alternatives work in the real browser constructor and retai
       const config = pc.getConfiguration()
       return { policy: config.iceTransportPolicy, urls: config.iceServers?.flatMap(server => [server.urls].flat()), username: config.iceServers?.[0].username }
     } finally { pc.close() }
-  }, callRelayPeerConnection.toString())
+  }, [withoutPlainTurnTcp.toString(), callRelayPeerConnection.toString()] as const)
   expect(result.policy).toBe('relay')
   expect(result.urls).toEqual(expect.arrayContaining(['turn:relay.example:3478', 'turns:relay.example:5349']))
   expect(result.username).toBe('compat-test')
