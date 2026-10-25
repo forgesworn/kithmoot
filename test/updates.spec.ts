@@ -307,6 +307,10 @@ test('an open PWA finds updates automatically and checks again after reconnectin
     await page.screenshot({ path: testInfo.outputPath('update-large-text.png') })
     await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
     await expect(page.locator('#updateNotice')).toBeHidden()
+    // load precedes completion of the app's lazy startup imports. Do not
+    // interrupt those requests when testing the subsequent reconnect.
+    await expect(page.locator('#home')).toBeVisible()
+    await page.waitForLoadState('networkidle')
     await context.setOffline(true)
     release.publish()
     await page.clock.fastForward(60_000)
@@ -338,20 +342,24 @@ test('an upgrade migrates cached originals without network before old precache c
     release.clearRequests()
     await page.goto(release.base)
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    await expect.poll(() => page.evaluate(async () => (await navigator.serviceWorker.ready).active?.state)).toBe('activated')
     await page.reload()
     expect(originalRequests()).toEqual([])
-    const cacheState = await page.evaluate(async scope => {
+    const cacheState = () => page.evaluate(async scope => {
       const old = await caches.open(`workbox-precache-v2-${scope}`)
       const runtime = await caches.open('kithmoot-original-artwork-v1')
       const original = (requests: readonly Request[]) => requests.map(request => request.url).filter(url => /\/(?:chat-art|emoji)\/[^/]+\.(?:png|gif)(?:\?|$)/.test(url))
-      return { precache: original(await old.keys()), runtime: original(await runtime.keys()) }
+      return { precache: original(await old.keys()).sort(), runtime: original(await runtime.keys()).sort() }
     }, release.base)
-    expect(cacheState.precache).toEqual([])
-    expect(cacheState.runtime.sort()).toEqual([
-      new URL('chat-art/coffee.gif', release.base).href,
-      new URL('chat-art/laugh.gif', release.base).href,
-      new URL('emoji/happy.png', release.base).href,
-    ].sort())
+    await expect.poll(cacheState).toEqual({
+      precache: [],
+      runtime: [
+        new URL('chat-art/coffee.gif', release.base).href,
+        new URL('chat-art/laugh.gif', release.base).href,
+        new URL('emoji/happy.png', release.base).href,
+      ],
+    })
+    expect(originalRequests()).toEqual([])
     await context.setOffline(true)
     const offline = await page.evaluate(async scope => {
       const responses = []
