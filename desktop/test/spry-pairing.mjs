@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { stopIsolatedApp } from './isolated-app.mjs'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const profile = await mkdtemp(join(tmpdir(), 'kithmoot-spry-desktop-'))
 const hash = '#spry=' + Buffer.from(JSON.stringify({ v: 1, endpoint: 'https://relay.example:3744', code: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 180 })).toString('base64url')
@@ -41,16 +42,6 @@ try {
   expect(await app.evaluate(() => globalThis.__spryClaims)).toBe(1)
   console.log('Native Spry cold/warm link handoff and explicit pairing passed in an isolated profile.')
 } finally {
-  if (app) {
-    const child = app.process()
-    let timer
-    await Promise.race([app.close().catch(() => {}), new Promise(resolve => { timer = setTimeout(resolve, 5000) })])
-    clearTimeout(timer)
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = new Promise(resolve => child.once('exit', resolve))
-      child.kill('SIGKILL')
-      await exited
-    }
-  }
+  await stopIsolatedApp(app, profile)
   await rm(profile, { recursive: true, force: true })
 }
