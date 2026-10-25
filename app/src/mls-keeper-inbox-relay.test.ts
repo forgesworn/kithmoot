@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import { localIdentity } from '../../src/identity.js'
 import { NostrMlsKeeperInboxTransport } from './mls-keeper-inbox-relay.js'
@@ -18,10 +18,10 @@ class Socket {
 }
 const wrap = (at = 100, recipient = keeper) => finalizeEvent({ kind: 1059, created_at: at, tags: [['p', recipient]], content: 'encrypted' }, new Uint8Array(32).fill(43))
 const wire = (value: unknown) => JSON.parse(JSON.stringify(value))
-function fixture(circle = false, authentication = false) {
+function fixture(circle = false, authentication = false, budgets?: { openMs: number; authMs: number; pageMs: number }) {
   const socket = new Socket(), sign = vi.fn(localIdentity(secret).signEvent)
   let current = true
-  const transport = new NostrMlsKeeperInboxTransport(() => socket as unknown as WebSocket, 100, () => 150)
+  const transport = new NostrMlsKeeperInboxTransport(() => socket as unknown as WebSocket, budgets?.pageMs ?? 100, () => 150, budgets)
   const query = { relay: { url: 'wss://keeper.test', read: true, write: false, ...(circle ? { circle: true } : {}) }, keeper, since: 50, until: 150,
     current: () => current, ...(authentication ? { authentication: { pubkey: keeper, signEvent: sign } } : {}) }
   return { socket, transport, query, sign, stop: () => { current = false } }
@@ -52,7 +52,7 @@ describe('finite keeper inbox stored pages', () => {
     f.socket.frame(['AUTH', 'opaque']); f.socket.frame(['EOSE', id])
     expect(await pending).toEqual({ complete: true, events: [] }); expect(f.sign).not.toHaveBeenCalled()
   })
-  it('retries a refused public page only after exact verified AUTH OK, within the same deadline', async () => {
+  it('retries a refused public page only after exact verified AUTH OK', async () => {
     const f = fixture(false, true), pending = f.transport.page(f.query)
     f.socket.open(); const old = f.socket.sent[0][1]
     f.socket.frame(['AUTH', 'opaque']); f.socket.frame(['CLOSED', old, 'auth-required: identify'])
@@ -96,7 +96,8 @@ describe('finite keeper inbox stored pages', () => {
     expect(await pending).toMatchObject({ complete: false }); expect(f.socket.closed).toBe(true)
   })
   it('caps verified pages independently of a relay ignoring its requested limit', async () => {
-    const f = fixture(), pending = f.transport.page(f.query); f.socket.open(); const id = f.socket.sent[0][1]
+    // This case measures the item cap, independently of host crypto CPU time.
+    const f = fixture(false, false, { openMs: 1000, authMs: 1000, pageMs: 5000 }), pending = f.transport.page(f.query); f.socket.open(); const id = f.socket.sent[0][1]
     for (let i = 0; i < 65; i++) f.socket.frame(['EVENT', id, finalizeEvent({ kind: 1059, created_at: 100, tags: [['p', keeper]], content: `encrypted-${i}` }, secret)])
     const page = await pending
     expect(page.complete).toBe(false); expect(page.events).toHaveLength(64); expect(f.socket.closed).toBe(true)
@@ -125,5 +126,118 @@ describe('finite keeper inbox stored pages', () => {
     held.sign.mockImplementation(template => new Promise(resolve => { release = () => { void localIdentity(secret).signEvent(template).then(resolve) } }))
     const late = held.transport.page(held.query); held.socket.open(); held.socket.frame(['AUTH', 'circle']); held.stop()
     release(); expect(await late).toEqual({ complete: false, events: [] }); expect(held.socket.sent).toEqual([])
+  })
+})
+
+
+const smallBudgets = { openMs: 40, authMs: 200, pageMs: 20 }
+const fakePhaseClock = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] })
+afterEach(() => { vi.useRealTimers() })
+function delayedSignature(f: ReturnType<typeof fixture>) {
+  const sign = f.sign.getMockImplementation()!
+  let release!: () => void
+  f.sign.mockImplementation(template => new Promise(resolve => { release = () => { void sign(template).then(resolve) } }))
+  return () => release()
+}
+
+describe('bounded keeper inbox connection, AUTH and page phases', () => {
+  it('allows matching private AUTH beyond the page budget and starts a fresh page only after matching OK', async () => {
+    fakePhaseClock()
+    const f = fixture(true, true, smallBudgets), release = delayedSignature(f), pending = f.transport.page(f.query)
+    f.socket.open(); f.socket.frame(['AUTH', 'private'])
+    await vi.advanceTimersByTimeAsync(60)
+    expect(f.socket.closed).toBe(false); expect(f.socket.sent).toEqual([])
+    release(); await vi.advanceTimersByTimeAsync(0)
+    const auth = f.socket.sent[0][1]
+    expect(f.socket.sent.map(frame => frame[0])).toEqual(['AUTH'])
+    f.socket.frame(['OK', 'wrong-id', true, ''])
+    await vi.advanceTimersByTimeAsync(60)
+    expect(f.socket.sent.map(frame => frame[0])).toEqual(['AUTH'])
+    f.socket.frame(['OK', auth.id, true, ''])
+    expect(f.socket.sent.map(frame => frame[0])).toEqual(['AUTH', 'REQ'])
+    await vi.advanceTimersByTimeAsync(19)
+    f.socket.frame(['EOSE', f.socket.sent[1][1]])
+    expect(await pending).toEqual({ complete: true, events: [] })
+  })
+
+  it('gives an explicitly consented public AUTH retry its own auth and fresh page budgets', async () => {
+    fakePhaseClock()
+    const f = fixture(false, true, smallBudgets), release = delayedSignature(f), pending = f.transport.page(f.query)
+    f.socket.open(); const old = f.socket.sent[0][1]
+    f.socket.frame(['AUTH', 'public'])
+    expect(f.sign).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(5)
+    f.socket.frame(['CLOSED', old, 'auth-required: identify'])
+    await vi.advanceTimersByTimeAsync(60)
+    expect(f.socket.closed).toBe(false); expect(f.socket.sent.map(frame => frame[0])).toEqual(['REQ'])
+    f.socket.frame(['EOSE', old])
+    release(); await vi.advanceTimersByTimeAsync(0)
+    const auth = f.socket.sent[1][1]
+    await vi.advanceTimersByTimeAsync(40)
+    f.socket.frame(['OK', auth.id, true, ''])
+    const fresh = f.socket.sent[2][1]
+    expect(fresh).not.toBe(old)
+    await vi.advanceTimersByTimeAsync(19)
+    f.socket.frame(['EOSE', old]); f.socket.frame(['EOSE', fresh])
+    expect(await pending).toEqual({ complete: true, events: [] })
+    expect(f.sign).toHaveBeenCalledOnce()
+  })
+
+  it.each(['challenge', 'signature', 'matching-ok'] as const)('AUTH expiry during %s cannot release late AUTH or REQ', async waiting => {
+    fakePhaseClock()
+    const f = fixture(true, true, { ...smallBudgets, authMs: 60 })
+    const release = waiting === 'signature' ? delayedSignature(f) : undefined
+    const pending = f.transport.page(f.query)
+    f.socket.open()
+    if (waiting !== 'challenge') f.socket.frame(['AUTH', 'private'])
+    await vi.advanceTimersByTimeAsync(61)
+    expect(await pending).toEqual({ complete: false, events: [] }); expect(f.socket.closed).toBe(true)
+    const before = f.socket.sent.map(frame => frame[0])
+    expect(before).toEqual(waiting === 'matching-ok' ? ['AUTH'] : [])
+    if (release) { release(); await vi.advanceTimersByTimeAsync(0) }
+    f.socket.frame(['AUTH', 'private'])
+    const auth = f.socket.sent.find(frame => frame[0] === 'AUTH')?.[1]
+    if (auth) f.socket.frame(['OK', auth.id, true, ''])
+    expect(f.socket.sent.map(frame => frame[0])).toEqual(before)
+    if (waiting === 'challenge') expect(f.sign).not.toHaveBeenCalled()
+  })
+
+  it('withdrawal while a noncancellable valid signature is pending suppresses its reply and query', async () => {
+    fakePhaseClock()
+    const f = fixture(true, true, smallBudgets), release = delayedSignature(f), pending = f.transport.page(f.query)
+    f.socket.open(); f.socket.frame(['AUTH', 'private'])
+    await vi.advanceTimersByTimeAsync(40)
+    f.stop(); await vi.advanceTimersByTimeAsync(25)
+    expect(await pending).toEqual({ complete: false, events: [] })
+    release(); await vi.advanceTimersByTimeAsync(0)
+    expect(f.socket.sent).toEqual([]); expect(f.socket.closed).toBe(true)
+  })
+
+  it('connection expiry prevents a late socket open from beginning AUTH', async () => {
+    fakePhaseClock()
+    const f = fixture(true, true, smallBudgets), pending = f.transport.page(f.query)
+    await vi.advanceTimersByTimeAsync(41)
+    expect(await pending).toEqual({ complete: false, events: [] })
+    f.socket.open(); f.socket.frame(['AUTH', 'late'])
+    expect(f.sign).not.toHaveBeenCalled(); expect(f.socket.sent).toEqual([])
+  })
+
+  it('an unsolicited public AUTH challenge cannot extend an unauthenticated page budget', async () => {
+    fakePhaseClock()
+    const f = fixture(false, true, smallBudgets), pending = f.transport.page(f.query)
+    f.socket.open(); f.socket.frame(['AUTH', 'unsolicited'])
+    await vi.advanceTimersByTimeAsync(21)
+    expect(await pending).toEqual({ complete: false, events: [] })
+    expect(f.sign).not.toHaveBeenCalled(); expect(f.socket.sent.map(frame => frame[0])).toEqual(['REQ', 'CLOSE'])
+  })
+
+  it('the stored page still expires independently after successful AUTH', async () => {
+    fakePhaseClock()
+    const f = fixture(true, true, smallBudgets), pending = f.transport.page(f.query)
+    f.socket.open(); f.socket.frame(['AUTH', 'private']); await vi.advanceTimersByTimeAsync(0)
+    f.socket.frame(['OK', f.socket.sent[0][1].id, true, ''])
+    await vi.advanceTimersByTimeAsync(21)
+    expect(await pending).toEqual({ complete: false, events: [] }); expect(f.socket.closed).toBe(true)
+    expect(f.socket.sent.map(frame => frame[0])).toEqual(['AUTH', 'REQ', 'CLOSE'])
   })
 })

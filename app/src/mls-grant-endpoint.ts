@@ -5,7 +5,7 @@ import { BrowserLinkRelay, linkWebSocket } from './browser-link-relay.js'
 import type { LinkEngine, LinkListener, LinkRequest, LinkResponse, LinkSocket, StartLink } from './browser-link-types.js'
 import { BrowserMlsGrantForeground, type MlsGrantForegroundScope } from './mls-grant-custody.js'
 import { BrowserMlsGrantLinkVault, MLS_GRANT_LINK_OWNER } from './mls-grant-link-vault.js'
-import { readMlsKeeperInboxPage, type MlsKeeperInboxPage } from './mls-keeper-inbox-relay.js'
+import { MLS_KEEPER_INBOX_BUDGETS, readMlsKeeperInboxPage, type MlsKeeperInboxPage } from './mls-keeper-inbox-relay.js'
 import { mlsGrantScope, type MlsGrantRecord } from './mls-grant-ledger.js'
 
 const stale = () => new Error('The dedicated grant endpoint is unavailable in this foreground account.')
@@ -167,7 +167,7 @@ export class BrowserMlsGrantEndpoint {
     }) }
     return readMlsKeeperInboxPage({ relay: { url: selected.eventUrl, read: true, write: false, circle: true },
       keeper: permission.keeper, since: permission.since, until: permission.until, current: live, authentication: identity },
-      url => new Socket(url), 5_000, () => Math.floor(Date.now() / 1000), () => `vmls-private-keeper-${++this.#inboxSerial}`)
+      url => new Socket(url), MLS_KEEPER_INBOX_BUDGETS.pageMs, () => Math.floor(Date.now() / 1000), () => `vmls-private-keeper-${++this.#inboxSerial}`)
   }
   carrier(record: MlsGrantRecord, identity: ParticipantIdentity): { publish: BrowserLinkRelay['publish']; close(): void } {
     const binding = this.#bound()

@@ -184,3 +184,14 @@ can move only to a strictly older signed boundary; an ambiguous or expired
 backfill window holds without becoming a new head. No mode claims that retained
 history is complete. Safe progress through a blocked timestamp still requires
 a stronger paging API; this patch adds no such protocol.
+
+Connection opening, authentication and stored-page receipt have separate bounded
+budgets: at most 30 seconds for the socket to open, 75 seconds for a required
+NIP-42 challenge/signature/matching OK, then a fresh five seconds for the
+stored-page query. Private queries start only after successful keeper AUTH.
+Public checks without required authentication keep their finite page budget; an
+unsolicited AUTH challenge does not extend it. An explicitly consented
+auth-required public retry gets its own bounded AUTH phase and fresh page budget.
+Consent withdrawal or phase expiry discards late signer replies and opens no
+public fallback. These budgets allow supported signer waits; they do not resolve
+the historic Cambium SDK stall or establish hardware/network acceptance.
