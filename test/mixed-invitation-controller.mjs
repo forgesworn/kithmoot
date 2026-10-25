@@ -1,9 +1,10 @@
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
 import { permittedApprovalDto } from './mixed-invitation-approval-guard.mjs'
+import { safeErrorDiagnostic } from './mixed-invitation-error-diagnostic.mjs'
 import { chromium } from '@playwright/test'
 import { createServer } from 'node:http'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 
@@ -11,6 +12,8 @@ const app = 'http://localhost:28445/j/'
 const control = 'http://127.0.0.1:28440'
 const bark = path.resolve('.lab/bark-built-6c303065')
 const profile = path.resolve('.lab/browser-profile')
+const sourceRoot = path.resolve('.')
+const sourceModules = new Set((await Promise.all(['app/src','src'].map(dir=>readdir(path.resolve(dir),{recursive:true})))).flat().map(name=>path.basename(name)))
 await mkdir(profile, { recursive: true, mode: 0o700 })
 const context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true,
   args: ['--enable-unsafe-extension-debugging', `--disable-extensions-except=${bark}`, `--load-extension=${bark}`],
@@ -61,8 +64,9 @@ function httpRequest(url, method, headers, body, hasPostData, source) {
 page.on('websocket', socket => { socket.on('framesent', e => frame(e.payload, 'app-websocket', endpointOf(socket.url()))); socket.on('socketerror', () => failures++) })
 page.on('request', request => { const body=request.postDataBuffer();httpRequest(request.url(),request.method(),request.headers(),body,!!body,'app-http') })
 const diagnostics=[]
-const clean = e => ({ name: /^(?:Error|TypeError|RangeError|AbortError|TimeoutError|NotAllowedError|InvalidStateError)$/.test(e?.name) ? e.name : 'Error', messageSha256:digest(String(e?.message??e)) })
-page.on('pageerror', e => { failures++; diagnostics.push(clean(e)) })
+const clean = (e,source='controller-operation') => safeErrorDiagnostic(e,new URL(app).origin,sourceRoot,sourceModules,source)
+let diagnosticsOverflow=false
+page.on('pageerror', e => { failures++; if(diagnostics.length<100)diagnostics.push(clean(e,'app-pageerror'));else diagnosticsOverflow=true })
 // CDP observes the built extension's actual worker socket, in addition to app
 // sockets. Payloads are immediately reduced to metadata and digests.
 const browserCdp = await context.browser().newBrowserCDPSession()
@@ -192,9 +196,9 @@ async function ordinarySnapshot(args) {
   return {scenario,actor:'alice',...state}
 }
 
-let inlineSigninBusy=false
+let inlineSigninBusy=false, inlineSigninPending=false
 async function signinInline() {
-  if(inlineSigninBusy)return {handling:true}
+  if(inlineSigninBusy||inlineSigninPending)return {handling:true,selected:false}
   inlineSigninBusy=true
   try {
     if(new URL(page.url()).origin!==new URL(app).origin)throw new Error('Signet picker is outside exact local app origin')
@@ -207,7 +211,8 @@ async function signinInline() {
       await advanced.click()
     }
     if(await extension.count()!==1||!await extension.isVisible()||!(await extension.textContent())?.includes('Browser extension'))throw new Error('Exact browser-extension Signet choice unavailable')
-    await extension.click()
+    inlineSigninPending=true
+    try { await extension.click() } catch(error) { inlineSigninPending=false;throw error }
     return {selected:true,method:'nip07',originMatched:true}
   } finally { inlineSigninBusy=false }
 }
@@ -217,8 +222,15 @@ async function continueOrdinaryDoor(args) {
   const deadline=Date.now()+90_000
   while(Date.now()<deadline){
     if(await page.locator('#roomArea').isVisible())return {roomOpen:true}
-    if(await page.locator('#signet-login-dialog').isVisible()){await signinInline();continue}
     if(context.pages().some(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){await page.waitForTimeout(200);continue}
+    if(await page.locator('#signet-login-dialog').isVisible()){
+      if(!inlineSigninPending)await signinInline()
+      await page.waitForTimeout(200);continue
+    }
+    if(inlineSigninPending){
+      if(await page.locator('#signOut').evaluate(e=>!e.hidden))inlineSigninPending=false
+      else {await page.waitForTimeout(200);continue}
+    }
     const join=page.locator('#join')
     if(await join.isVisible()&&await join.isEnabled()){
       const label=(await join.textContent())?.trim()??''
@@ -238,6 +250,20 @@ async function continueOrdinaryDoor(args) {
     await page.waitForTimeout(200)
   }
   throw new Error('Actual signed-in ordinary room did not open after its UI door')
+}
+
+async function ordinaryDoorDiagnostics() {
+  return page.evaluate(async () => {
+    const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(byte=>byte.toString(16).padStart(2,'0')).join('')
+    const status=document.querySelector('#status'), message=status?.textContent??''
+    const join=document.querySelector('#join'), label=join?.textContent?.trim()??''
+    const joinMode=!join||join.hidden?'hidden':label==='Join'?'name':label==='Continue with your Nostr extension'?'extension':/^Continue (?:with your Nostr account|as .+)$/.test(label)?'account':'other'
+    return {roomOpen:!!document.querySelector('#roomArea')&&!document.querySelector('#roomArea').hidden,
+      joinMode,joinEnabled:!!join&&!join.disabled,signetPickerVisible:!!document.querySelector('#signet-login-dialog[open]'),
+      statusHasText:!!message,statusProblemTone:!!message&&!status.classList.contains('progress')&&!status.classList.contains('done'),
+      statusTone:!message?'empty':status.classList.contains('progress')?'progress':status.classList.contains('done')?'done':'problem',
+      statusLength:message.length,statusSha256:message?await hash(message):null}
+  })
 }
 
 async function settings() {
@@ -486,7 +512,7 @@ async function run(step,args) {
       provision:details.provision?{keyClasses:Object.keys(details.provision).sort().map(k=>['v','expectedPersona','targetDevice','index','expiresAt','nonce'].includes(k)?k:'other'),sha256:digest(JSON.stringify(stable(details.provision)))}:undefined})
   }return reviews }
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
-  if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message)}:null),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics}
+  if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics,diagnosticsOverflow}
   if(step==='observe-start') return startWindow(args.name,args.needles??[])
   if(step==='public-control') {
     if(page.url()==='about:blank')throw new Error('Navigate actual app before public positive control')
