@@ -2175,8 +2175,10 @@ test(`a muted room keeps its number but leaves the counts, and comes back on its
     // A room on the list is watched once this device has been in it.
     await joinRoom(page, 2)
     await joinRoom(page)
-    await keepers[2]!.chat.send('Doors at seven.')
+    const latest = `Doors at seven${suffix}.`
+    await keepers[2]!.chat.send(latest)
     const row = page.locator('#roomList li.roomRow', { hasText: 'Town hall' })
+    await expect(row).toContainText(latest)
     await expect(row.locator('.unread')).toHaveCount(1, { timeout: 30_000 })
     // Receive the real agent message before moving the browser's wall clock.
     // Anchor local calendar time while retaining the installed timer clock.
@@ -2186,39 +2188,53 @@ test(`a muted room keeps its number but leaves the counts, and comes back on its
       return now.getTime()
     }, { hour, minute })
     await page.clock.setSystemTime(muteStart)
-    const countText = async () => (await page.locator('#railChatsCount').isVisible()) ? Number(await page.locator('#railChatsCount').innerText()) : 0
-    const before = await countText()
+    // Other watched rooms can finish replaying while the clock advances.
+    // Compare the live room contributions and title in one DOM snapshot.
+    const expectCounts = async () => {
+      await expect.poll(() => page.evaluate(() => {
+        const badge = document.querySelector<HTMLElement>('#railChatsCount')!
+        const total = badge.hidden ? 0 : Number(badge.textContent)
+        const expected = [...document.querySelectorAll('#roomList li.roomRow .unread')]
+          .filter(item => item.getAttribute('data-muted') !== 'true')
+          .reduce((sum, item) => sum + Number(item.getAttribute('data-count')), 0)
+        return { totalMatches: total === expected, titleMatches: document.title === (expected > 0 ? `(${expected}) KithMoot` : 'KithMoot') }
+      })).toEqual({ totalMatches: true, titleMatches: true })
+    }
     const own = Number(await row.locator('.unread').getAttribute('data-count'))
     expect(own).toBeGreaterThan(0)
-    expect(before).toBeGreaterThanOrEqual(own)
-    await expect.poll(() => page.title()).toBe(`(${before}) KithMoot`)
+    await expectCounts()
     // The row's own menu, as a right-click.
     await row.click({ button: 'right' })
     const rowMenu = page.locator(`#roomMenu-${await row.getAttribute('data-room')}`)
     await notificationsOf(page, rowMenu)
     await expect(rowMenu.getByRole('menuitem', { name: /^Mute for/ })).toHaveText(MUTE_LENGTHS)
     await rowMenu.getByRole('menuitem', { name: 'Mute for 1 hour' }).click()
-    await expect.poll(countText).toBe(before - own)
-    await expect.poll(() => page.title()).toBe(before - own > 0 ? `(${before - own}) KithMoot` : 'KithMoot')
     await expect(row.locator('.unread')).toHaveAttribute('data-muted', 'true')
+    await expect(row.locator('.unread')).toHaveAttribute('data-count', String(own))
+    await expectCounts()
     await expect(row.locator('.roomMute')).toHaveCount(1)
     expect(await row.locator('.sr-only').textContent()).toMatch(mutedLabel)
     // The hour passes with the page open: within two seconds all of it goes.
     await page.clock.fastForward('01:00:02')
     await expect(row.locator('.roomMute')).toHaveCount(0, { timeout: 2000 })
     await expect(row.locator('.unread')).not.toHaveAttribute('data-muted', 'true')
-    await expect.poll(countText).toBe(before)
+    await expect(row.locator('.unread')).toHaveAttribute('data-count', String(own))
+    await expectCounts()
     expect(await muteKeys(page)).toEqual([])
     // An explicit Unmute does the same sooner.
     await row.click({ button: 'right' })
     await notificationsOf(page, rowMenu)
     await rowMenu.getByRole('menuitem', { name: 'Mute for 1 day' }).click()
-    await expect.poll(countText).toBe(before - own)
+    await expect(row.locator('.unread')).toHaveAttribute('data-muted', 'true')
+    await expect(row.locator('.unread')).toHaveAttribute('data-count', String(own))
+    await expectCounts()
     await row.click({ button: 'right' })
     await notificationsOf(page, rowMenu)
     await rowMenu.getByRole('menuitem', { name: 'Unmute' }).click()
     await expect(page.locator('#status')).toHaveText('Unmuted.')
-    await expect.poll(countText).toBe(before)
+    await expect(row.locator('.unread')).not.toHaveAttribute('data-muted', 'true')
+    await expect(row.locator('.unread')).toHaveAttribute('data-count', String(own))
+    await expectCounts()
   } finally { await context.close() }
 })
 }

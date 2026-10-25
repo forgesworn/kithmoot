@@ -6,6 +6,33 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Combined Android 0.6.113 candidate
+
+Version **0.6.113**, code **136**, combines the performance changes with
+optional public call relay discovery, call loudspeaker selection, chat scroll
+restoration, the account picture and larger menu actions, and signed update notes.
+It supersedes the unpublished 0.6.114 candidate; there is one combined release.
+
+Discovery starts off, reads signed adverts from the account's Nostr read relays,
+and supplies no operator directory. Checking a relay needs no camera or microphone.
+Device-entered relays and Spry take priority; Hide IP on calls never falls back
+direct. Call end and lapse remove the discovered server and login.
+
+The signed production candidate is built from Android source
+`7c06623681d152ae3f8ef03361ef16be3c6e1629`, SHA-256
+`03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb`,
+64,822,754 bytes. All 797 ZIP payload entries match the unsigned input.
+Protocol tests (563), app tests (2,753), release lint and the production build
+passed on the signing host. The device-free recovery runner passed all 15 checks.
+Hosted CI, merge and public readback remain separate gates until recorded in the
+publication receipt. See `evidence/android-0.6.113-candidate-20261025.json`.
+
+Privacy 4.5 names Android 0.6.113, its single-allocation check and the absence
+of a web-app identifier. The call-transport position records the 25 October
+Android parity review without changing the existing reading. Physical no-Play
+GrapheneOS audio quality, TLS hostname verification, real DNS refusal,
+relay-only calls and layout remain open; this task touched no physical device.
+
 ## Android 0.6.111 Spry device pairing, published 24 October 2026
 
 Version **0.6.111**, code **134**, pairs a device with Spry once and obtains
@@ -527,6 +554,10 @@ physical acceptance evidence before changing this repository.
    certificate and its five reviewed capabilities unchanged.
 3. Change the Android article in `site/index.html` to the production attributes
    and copy below. Keep the stable `/apk/kithmoot-latest.apk` link.
+4. Add `releaseNotes`: two or three concise, trimmed, single-line plain-text
+   notes of at most 140 characters each, in display order. The Android update
+   prompt supplies bullets; do not include bullet prefixes, markup or newlines.
+   Older apps ignore the field. Sign only after the final notes are in place.
 
 ```html
 <article id="android" class="platform" data-android-channel="production" data-android-version="0.6.0" data-android-version-code="23">

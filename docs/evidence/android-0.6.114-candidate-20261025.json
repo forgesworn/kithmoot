@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-25T15:24:42.602480Z",
+  "versionName": "0.6.114",
+  "versionCode": 137,
+  "androidSource": "2fe8cf8253f80327575c030ddd9f0349802dcf14",
+  "androidSourceTree": "177324bf131f5912af5598a5837d32ecf2db225d",
+  "androidPr": "https://github.com/forgesworn/kithmoot-android/pull/330",
+  "androidCi": "https://github.com/forgesworn/kithmoot-android/actions/runs/40205327175",
+  "apk": {
+    "filename": "kithmoot-0.6.114-production.apk",
+    "bytes": 64822754,
+    "sha256": "85bf810e84bed04016a8f39963edda002fd3a15224f59c29c032e3c6b4d61f19",
+    "unsignedSha256": "ee85a19e344aad948315402ec01bf0bda8ecef70934a16395f1cab6c1cb71823",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "zipPayloadEntries": 797,
+    "zipPayloadMatchesUnsigned": true,
+    "arm64Only": true,
+    "debuggable": false,
+    "minSdk": 33,
+    "targetSdk": 35,
+    "v3Only": true,
+    "embeddedLineageIndependentlyVerified": true,
+    "mappingSha256": "89b68fdafafb86c52da0ba18dd19e0fbb7f6c8575d1eef2221a2bda79745d42c"
+  },
+  "localValidation": {
+    "host": "M4 signing host",
+    "protocolTests": 560,
+    "appTests": 2745,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "releaseLint": "passed",
+    "assembleRelease": "passed",
+    "websiteApkVerifier": "passed",
+    "signedUpdateManifests": "passed",
+    "websiteBuild": "passed"
+  },
+  "preBuildReview": {
+    "soundness": "Source and metadata match; the established certificate, lineage and update key are retained. R8 keeps the original app/Kotlin API for the existing instrumentation without disabling minification.",
+    "legalCover": "Android parity reviewed against the existing position. Privacy 4.5 names the version, one-allocation check and absence of a web-app identifier. No publisher-run relay, directory, operator list or telemetry is added.",
+    "lawNoteVerified": "2026-09-28",
+    "lawNoteSection213PrimaryRead": "2026-10-25",
+    "applicationsRemainUncheckedReadings": true,
+    "reviewer": "implementing agent"
+  },
+  "hostedCiPassed": false,
+  "publiclyShipped": false,
+  "physicalAndroidAcceptance": false,
+  "physicalDeviceTouched": false,
+  "pendingPhysicalChecks": [
+    "No-Play GrapheneOS turns hostname verification using an IP URL and setHostname",
+    "DNS refusal through a real resolver",
+    "Relay-only call through a discovered operator",
+    "Relay check without microphone permission",
+    "Dialog layout and larger text"
+  ],
+  "initialCandidate": {
+    "androidSource": "6dc26c1541658434b784da212baafe7d0a6f6634",
+    "apkSha256": "ab93399bfdee57baa1c899f9cd77b85e4d327bc75048f3acd12ad4f73ddf50bd",
+    "apkBytes": 60817323,
+    "recordedAt": "2026-10-25T13:30:14.090662Z"
+  },
+  "sharedCompatibilityFix": {
+    "source": "041a17759873d03a29de79d9c9ee825d0ea85633",
+    "androidPr": 331,
+    "hostedJobsPassed": 17
+  },
+  "supersededBy": "0.6.113",
+  "supersededReason": "Combined into the still-unpublished 0.6.113 release at the owner direction.",
+  "supersededAt": "2026-10-25T19:05:56.649059+00:00"
+}

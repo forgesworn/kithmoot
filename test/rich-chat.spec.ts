@@ -36,9 +36,12 @@ async function staticAppServer() {
   await new Promise<void>(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Static app server failed to start')
+  let closed = false
   return {
     base: `http://127.0.0.1:${address.port}/j/`,
     close: async () => {
+      if (closed) return
+      closed = true
       server.closeAllConnections()
       await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
     },
@@ -59,6 +62,17 @@ async function openGIFs(page: Page) {
 async function expectCurrentSrc(image: Locator, expected: string | RegExp) {
   const suffix = typeof expected === 'string' ? new RegExp(`${expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) : expected
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.currentSrc)).toMatch(suffix)
+}
+
+async function expectCultThumbnail(image: Locator, displaySize: number) {
+  // Candidate choice also depends on DPR and the browser's cached images.
+  // Check the declared slot, bundled derivative and decoding separately.
+  await expect(image).toHaveAttribute('sizes', `${displaySize}px`)
+  await expectCurrentSrc(image, /\/600-cult-cutout-(?:64|128|256|384)-[^/]+\.webp$/)
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) =>
+    element.complete && element.naturalWidth > 0
+      && element.srcset.split(',').some(candidate => candidate.trim().split(/\s+/)[0] === element.currentSrc),
+  )).toBe(true)
 }
 
 async function expectPlayback(image: Locator, animated: boolean) {
@@ -166,7 +180,7 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect.poll(() => row.locator('.cultEmoji img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(32)
     await writer.chat.send(':600_spin:')
     const standalone = page.locator('#chatLog .cultSticker').last()
-    await expectCurrentSrc(standalone.locator('img'), /\/600-cult-cutout-128-[^/]+\.webp$/)
+    await expectCultThumbnail(standalone.locator('img'), 112)
     await expect.poll(() => standalone.locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(100)
     expect(registryRequests).toBe(0)
     await page.locator('#emojiToggle').click(); await (await artworkSearch(page, 'Search emoji')).fill('600')
@@ -178,14 +192,14 @@ for (const member of [false, true]) test(`full reactions, clickable profiles and
     await expect(page.locator('.chatArtPicker [role=status]')).toContainText(member ? 'unlocked' : 'No member packs')
     expect(registryRequests).toBe(1)
     await expect(page.locator('.emojiGrid button')).toHaveCount(basic600 + (member ? 8 : 0))
-    if (member) await expectCurrentSrc(page.locator('.chatArtPicker').getByRole('button', { name: /:600_spin:/ }).locator('img'), /\/600-cult-cutout-128-[^/]+\.webp$/)
+    if (member) await expectCultThumbnail(page.locator('.chatArtPicker').getByRole('button', { name: /:600_spin:/ }).locator('img'), 44)
     await page.getByRole('button', { name: 'Close emoji picker' }).click()
     if (member) {
       await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
       await page.getByRole('button', { name: 'More emoji reactions', exact: true }).click()
       await (await artworkSearch(page, 'Search emoji')).fill('600')
       await page.locator('.chatArtPicker').getByRole('button', { name: /:600_spin:/ }).click()
-      await expectCurrentSrc(page.locator('.reactionFeedback img'), /\/600-cult-cutout-128-[^/]+\.webp$/)
+      await expectCultThumbnail(page.locator('.reactionFeedback img'), 72)
       await expect(page.locator('.reactionFeedback')).toHaveCount(0)
     }
     await row.getByRole('button', { name: 'React to message from Rowan', exact: true }).click()
@@ -404,7 +418,14 @@ test('a fresh service worker decodes every public artwork derivative offline', a
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
     await page.reload()
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true)
-    await context.setOffline(true)
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state)).toBe('activated')
+    await expect(page.locator('#home')).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    // WebKit's offline emulation rejects even literal worker responses:
+    // https://github.com/microsoft/playwright/issues/42775
+    // Stopping the origin proves the real outage path in every browser.
+    await app.close()
+    await expect(fetch(app.base)).rejects.toThrow()
     await page.reload()
     const receipt = JSON.parse(await readFile(new URL('../artwork/derivatives-v1.json', import.meta.url), 'utf8')) as { outputs: Array<{ output: { path: string; bytes: number; sha256: string } }> }
     const checks = receipt.outputs.map(entry => entry.output).filter(output => output.path.startsWith('app/public/')).map(output => ({
