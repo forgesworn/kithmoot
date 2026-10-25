@@ -13,6 +13,7 @@ export class SpryRoom {
   #key: string
   #closed = false
   #work?: Promise<void>
+  #pairRevision = 0
   #peerUpdatePending = false
   #peerRevision = Date.now()
   #timer: ReturnType<typeof setInterval>
@@ -100,12 +101,13 @@ export class SpryRoom {
   }
   async #refresh(): Promise<void> {
     if (this.#closed) return
+    const revision = this.#pairRevision
     const now = Date.now() / 1000
     let failure: unknown
     if (this.pairing && (!this.#own || this.#own.expiresAt - now < 360)) {
       try {
         const own = await spryGrant(this.pairing, this.session.roomId, this.fetcher)
-        if (this.#closed) return
+        if (this.#closed || revision !== this.#pairRevision) return
         this.#offer = this.#own = own
         this.retain(own)
         await this.publish().catch(() => {})
@@ -120,7 +122,7 @@ export class SpryRoom {
       if ((this.#credentials.get(id)?.expiresAt ?? 0) - now > 90) continue
       try {
         const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing)
-        if (this.#closed) return
+        if (this.#closed || revision !== this.#pairRevision) return
         this.#credentials.set(id, credential)
         const renewed = { ...offer, expiresAt: credential.accessExpiresAt, ...(credential.node ? { node: credential.node } : {}) }
         if (this.#own?.token === offer.token && this.#own.endpoint === offer.endpoint) {
@@ -146,6 +148,20 @@ export class SpryRoom {
     }
     try { await this.refresh() } catch (error) { if (this.#credentialUntil <= Date.now() / 1000) throw error }
     this.#applyCredentials()
+  }
+  /** Account sync can arrive after the room opens; no room rejoin is needed. */
+  setPairing(pair: SpryPairing | undefined): void {
+    if (this.#closed || pair?.id === this.pairing?.id && pair?.endpoint === this.pairing?.endpoint && pair?.secretKey === this.pairing?.secretKey) return
+    this.#pairRevision++
+    this.pairing = pair
+    this.#own = undefined
+    this.#offer = this.#shared
+    this.#credentials.clear()
+    this.#credentialUntil = 0
+    this.#applied = ''
+    for (const finish of this.#waiters) finish()
+    if (this.#work) this.#peerUpdatePending = true
+    else void this.refresh().catch(() => {})
   }
   close(): void {
     this.#closed = true; clearInterval(this.#timer)

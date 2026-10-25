@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { stopIsolatedApp } from './isolated-app.mjs'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-smoke-'))
 const packaged = Boolean(process.env.DESKTOP_EXECUTABLE)
@@ -22,7 +23,7 @@ try {
   const page = await app.firstWindow()
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
-  await expect(page.locator('#create')).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Start a room', exact: true })).toBeVisible({ timeout: 30_000 })
   const state = await page.evaluate(async () => ({
     secure: isSecureContext, node: typeof window.require, process: typeof window.process,
     bridge: Object.keys(window.kithmootDesktop ?? {}),
@@ -34,7 +35,7 @@ try {
   }))
   expect(state.secure).toBe(true)
   expect(state.node).toBe('undefined'); expect(state.process).toBe('undefined')
-  expect(state.bridge).toEqual(['supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState']); expect(state.workers).toBe(0)
+  expect(state.bridge).toEqual(['titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState']); expect(state.workers).toBe(0)
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')
@@ -88,13 +89,13 @@ try {
   await mkdir(join(desktop, 'artifacts'), { recursive: true })
   await page.screenshot({ path: join(desktop, 'artifacts/home.png') })
   expect(errors).toEqual([])
-  await app.close()
+  await stopIsolatedApp(app, profile)
   app = await launch()
   const reopened = await app.firstWindow()
-  await expect(reopened.locator('#create')).toBeVisible({ timeout: 30_000 })
+  await expect(reopened.getByRole('button', { name: 'Start a room', exact: true })).toBeVisible({ timeout: 30_000 })
   expect(await reopened.evaluate(() => localStorage.getItem('desktop-smoke-persistence'))).toBe('synthetic')
   console.log('PASS: native area frame, resize, capture chooser gesture, closure, bundled UI, secure context, sandbox bridge, no Node exposure, CSP, traversal denial, no service worker, notifications available, profile persists across app restart and screenshot')
 } finally {
-  if (app) await app.close()
+  await stopIsolatedApp(app, profile)
   await rm(profile, { recursive: true, force: true })
 }
