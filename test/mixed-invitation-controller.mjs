@@ -31,16 +31,17 @@ const page = await context.newPage()
 let active, result, failures = 0, observe = false, needles = [], observations = [], violations = 0, privateObservedFrames = [], observedBytes = 0, observerOverflow = false
 const digest = v => createHash('sha256').update(v).digest('hex')
 
-function frame(payload, source) {
+function endpointOf(url) { try { const u=new URL(url); return { origin:u.origin, path:u.pathname } } catch { return undefined } }
+function frame(payload, source, endpoint) {
   if (!observe) return
   const wire = Buffer.from(payload), raw = wire.toString('utf8')
-  if (observedBytes + wire.length <= 16 * 1024 * 1024) { privateObservedFrames.push(wire); observedBytes += wire.length } else observerOverflow = true
+  if (observedBytes + wire.length <= 16 * 1024 * 1024) { privateObservedFrames.push({wire,source,endpoint}); observedBytes += wire.length } else observerOverflow = true
   for (const needle of needles) if (wireMatches(wire, needle)) violations++
   let type = 'opaque', kind, tags
   try { const value = JSON.parse(raw); if (Array.isArray(value)) { type = value[0]; const e = value.find(v => v && typeof v === 'object' && Number.isInteger(v.kind)); if (e) { kind=e.kind; tags=e.tags?.map(t=>t[0]) } } } catch {}
-  observations.push({ source, type, kind, tags, length: wire.length, sha256: digest(wire) })
+  observations.push({ source, ...(endpoint??{endpointUnknown:true}), type, kind, tags, length: wire.length, sha256: digest(wire) })
 }
-page.on('websocket', socket => { socket.on('framesent', e => frame(e.payload, 'app-websocket')); socket.on('socketerror', () => failures++) })
+page.on('websocket', socket => { socket.on('framesent', e => frame(e.payload, 'app-websocket', endpointOf(socket.url()))); socket.on('socketerror', () => failures++) })
 page.on('request', request => { if (!observe) return; const u=new URL(request.url()); observations.push({ source:'request', method:request.method(), origin:u.origin, path:u.pathname, length:request.postDataBuffer()?.length ?? 0 }); if(request.postData()) for(const n of needles) if(n && request.postData().includes(n)) violations++ })
 const diagnostics=[]
 const clean = e => String(e?.message ?? e).replace(/(?:bunker|bothy|nostrconnect):[^\s]+/g,'[private capability]').replace(/[0-9a-f]{64,}/g,'[identifier]').slice(0,1000)
@@ -48,7 +49,7 @@ page.on('pageerror', e => { failures++; diagnostics.push(clean(e)) })
 // CDP observes the built extension's actual worker socket, in addition to app
 // sockets. Payloads are immediately reduced to metadata and digests.
 const browserCdp = await context.browser().newBrowserCDPSession()
-const workerSessions = new Map(), workerTargets = new Set(), enabledWorkers = new Set()
+const workerSessions = new Map(), workerTargets = new Set(), enabledWorkers = new Set(), workerSocketEndpoints = new Map()
 const workerCoverage = { attached: 0, enabled: 0, detached: 0, errors: 0 }
 let cdpCommand = 0
 async function attachWorker(target) {
@@ -71,7 +72,8 @@ browserCdp.on('Target.receivedMessageFromTarget', event => {
       if (m.error) workerCoverage.errors++
       else if (!enabledWorkers.has(watched.target)) { enabledWorkers.add(watched.target); workerCoverage.enabled++ }
     }
-    if (m.method === 'Network.webSocketFrameSent') frame(m.params.response.opcode === 2 ? Buffer.from(m.params.response.payloadData, 'base64') : m.params.response.payloadData, 'bark-worker-websocket')
+    if (m.method === 'Network.webSocketCreated') workerSocketEndpoints.set(`${event.sessionId}:${m.params.requestId}`, endpointOf(m.params.url))
+    if (m.method === 'Network.webSocketFrameSent') frame(m.params.response.opcode === 2 ? Buffer.from(m.params.response.payloadData, 'base64') : m.params.response.payloadData, 'bark-worker-websocket', workerSocketEndpoints.get(`${event.sessionId}:${m.params.requestId}`))
   } catch { workerCoverage.errors++ }
 })
 browserCdp.on('Target.detachedFromTarget', event => {
@@ -193,7 +195,16 @@ async function run(step,args) {
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
   if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message)}:null),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics}
   if(step==='observe-start') {observations=[];privateObservedFrames=[];observedBytes=0;observerOverflow=false;violations=0;needles=args.needles??[];observe=true;return {started:true}}
-  if(step==='observe-audit') { const checked=args.needles??[];let matches=0;for(const frame of privateObservedFrames)for(const needle of checked)if(wireMatches(frame,needle))matches++;return {workerCoverage,currentWorkerTargets:workerTargets.size,alive:privateObservedFrames.length>0,observerOverflow,frames:privateObservedFrames.length,sourceCounts:observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),laterAuditCoverage:'websocket frames only; HTTP checks use needles active at request time',checkedNeedles:checked.length,matches,observationDigest:digest(JSON.stringify(observations))} }
+  if(step==='observe-audit') {
+    const checked=args.needles??[];let matches=0,unattributedFrames=0;const endpoints={}
+    for(const entry of privateObservedFrames) {
+      if(!entry.endpoint)unattributedFrames++
+      const key=entry.endpoint?`${entry.source} ${entry.endpoint.origin}${entry.endpoint.path}`:`${entry.source} [unattributed]`
+      const count=endpoints[key]??={frames:0,matches:0};count.frames++
+      for(const needle of checked)if(wireMatches(entry.wire,needle)){matches++;count.matches++}
+    }
+    return {workerCoverage,currentWorkerTargets:workerTargets.size,alive:privateObservedFrames.length>0,observerOverflow,frames:privateObservedFrames.length,unattributedFrames,endpoints,sourceCounts:observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),laterAuditCoverage:'websocket frames only; HTTP checks use needles active at request time',checkedNeedles:checked.length,matches,observationDigest:digest(JSON.stringify(observations))}
+  }
   if(step==='observe') return {workerCoverage,currentWorkerTargets:workerTargets.size,blockedNetworkAttempts,observerOverflow,alive:observations.length>0,violations,pageErrors:failures,observations}
   if(step==='witness-enrol') {
     const state=await page.evaluate(()=>window.__mixedInvitationLab.step('account-state'))
