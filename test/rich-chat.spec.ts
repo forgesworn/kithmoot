@@ -36,9 +36,12 @@ async function staticAppServer() {
   await new Promise<void>(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Static app server failed to start')
+  let closed = false
   return {
     base: `http://127.0.0.1:${address.port}/j/`,
     close: async () => {
+      if (closed) return
+      closed = true
       server.closeAllConnections()
       await new Promise<void>((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose()))
     },
@@ -418,7 +421,11 @@ test('a fresh service worker decodes every public artwork derivative offline', a
     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state)).toBe('activated')
     await expect(page.locator('#home')).toBeVisible()
     await page.waitForLoadState('networkidle')
-    await context.setOffline(true)
+    // WebKit's offline emulation rejects even literal worker responses:
+    // https://github.com/microsoft/playwright/issues/42775
+    // Stopping the origin proves the real outage path in every browser.
+    await app.close()
+    await expect(fetch(app.base)).rejects.toThrow()
     await page.reload()
     const receipt = JSON.parse(await readFile(new URL('../artwork/derivatives-v1.json', import.meta.url), 'utf8')) as { outputs: Array<{ output: { path: string; bytes: number; sha256: string } }> }
     const checks = receipt.outputs.map(entry => entry.output).filter(output => output.path.startsWith('app/public/')).map(output => ({
