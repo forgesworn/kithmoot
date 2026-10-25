@@ -5,7 +5,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DESKTOP_PATHS, composeDesktopMetadata, validateDesktopMetadata, snapshotCurrent, assertCurrent, activateDesktopMetadata } from './desktop-only-publication.mjs'
+import { DESKTOP_PATHS, composeDesktopMetadata, validateDesktopMetadata, snapshotCurrent, assertCurrent, activateDesktopMetadata } from '../../deploy/desktop-only-publication.mjs'
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex')
 const stringify = value => JSON.stringify(value, null, 2) + '\n'
