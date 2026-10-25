@@ -38,6 +38,14 @@ describe('finite keeper inbox stored pages', () => {
     expect(await pending).toEqual({ complete: true, events: [wire(event)] })
     expect(f.sign).not.toHaveBeenCalled(); expect(f.socket.closed).toBe(true)
   })
+  it('retains signed query-matching unsupported shapes as original paging boundaries without accepting forged copies', async () => {
+    const f = fixture(), pending = f.transport.page(f.query); f.socket.open(); const id = f.socket.sent[0][1]
+    const unsupported = finalizeEvent({ kind: 1059, created_at: 100, tags: [['p', keeper], ['x', 'unsupported']], content: 'opaque' }, secret)
+    f.socket.frame(['EVENT', id, { ...unsupported, created_at: 50, verified: true }])
+    f.socket.frame(['EVENT', id, unsupported]); f.socket.frame(['EOSE', id])
+    expect(await pending).toEqual({ complete: true, events: [wire(unsupported)] })
+    expect(f.sign).not.toHaveBeenCalled()
+  })
   it('does not let an unsolicited public AUTH challenge prompt the keeper signer', async () => {
     const f = fixture(false, true), pending = f.transport.page(f.query)
     f.socket.open(); const id = f.socket.sent[0][1]

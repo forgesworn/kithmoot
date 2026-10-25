@@ -72,6 +72,20 @@ describe('foreground keeper revocation inbox', () => {
     expect(await f.inbox.receive([await f.wrap()], keeper)).toMatchObject({ state: 'active', value: { prompts: [] } })
     expect((await readMlsMembership(f.tx)).inbox?.seen).toHaveLength(1)
   })
+  it('does not commit a prompt when operation permission is withdrawn during its retained-grant lookup', async () => {
+    const f = await fixture(); await f.grant()
+    const wrapper = await f.wrap(), originalAll = f.grants.all.getMockImplementation()!
+    let permitted = true, release!: () => void
+    f.grants.all.mockImplementationOnce(() => new Promise(resolve => { release = () => { void originalAll().then(resolve) } }))
+    const receiver = { ...keeper, decrypt: vi.fn(keeper.decrypt) }
+    const pending = f.inbox.receive([wrapper, await f.wrap()], receiver, () => permitted)
+    await vi.waitFor(() => expect(f.grants.all).toHaveBeenCalledOnce(), { interval: 1 })
+    permitted = false; release()
+    expect(await pending).toMatchObject({ state: 'pending' })
+    expect(receiver.decrypt).toHaveBeenCalledTimes(2)
+    const state = (await readMlsMembership(f.tx)).inbox!
+    expect(state.seen).toHaveLength(1); expect(state.attempts).toHaveLength(1); expect(state.prompts).toEqual([])
+  })
   it('shows conflicting targets from one person together without granting withdrawal authority', async () => {
     const f = await fixture(); await f.grant(); await f.grant(nextDevice)
     const result = await f.inbox.receive([await f.wrap(), await f.wrap(nextDevice)], keeper)

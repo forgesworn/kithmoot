@@ -50,11 +50,15 @@ export class BrowserMlsGrantDevelopmentPanel {
       </fieldset>
       <fieldset><legend>Keeper requests</legend>
         <button data-inbox type="button">Check retained requests</button>
+        <p>Private checks use the selected saved grant route. This check sends its recipient query and account identification to the selected Bothy over Link; Link relays can still observe timing and volume. This reads requests already held there; member request sending remains separate.</p>
+        <label><input data-private-auth type="checkbox">Allow this account to identify to the selected private Bothy for this check</label>
+        <button data-private-check type="button">Check selected Bothy privately</button><button data-private-older type="button">Check older requests privately</button>
+        <p>Normal checks read a fresh window. Older-request checks resume the retained inclusive boundary; they do not prove older history is complete.</p>
         <p>Public DM relay checks reveal the receiving account, your connection address, timing and volume to the relays.</p>
         <label>Directory relay addresses <input data-directory autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
         <label>Optional DM relay to identify to <input data-auth-relay autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
         <label><input data-auth type="checkbox">Allow this account to identify to that DM relay for this check</label>
-        <button data-check type="button">Check public DM relays now</button><div data-inbox-list></div>
+        <button data-check type="button">Check public DM relays now</button><button data-check-older type="button">Check older public requests</button><div data-inbox-list></div>
         <p data-keeper-review></p><button data-approve type="button" disabled>Approve reviewed request</button><button data-dismiss type="button" disabled>Dismiss reviewed request</button>
       </fieldset>`
     root.body.append(this.dialog)
@@ -78,7 +82,8 @@ export class BrowserMlsGrantDevelopmentPanel {
       this.#clearReviews(); this.#list('members-list', [])
     }) }
     this.#select('room').onchange = () => { this.#retireSelection(); this.#list('members-list', []) }
-    this.#select('route').onchange = () => this.#retireSelection()
+    this.#select('route').onchange = () => { this.#input('private-auth').checked = false; this.#retireSelection() }
+    this.#input('private-auth').onchange = () => { if (!this.#input('private-auth').checked) this.#retireSelection() }
     this.#input('auth').onchange = () => { if (!this.#input('auth').checked) this.#retireSelection() }
     this.#button('members').onclick = () => { void this.#members() }
     this.#button('member-confirm').onclick = () => {
@@ -88,13 +93,32 @@ export class BrowserMlsGrantDevelopmentPanel {
       void this.#work(async () => { const status = this.#active(await this.#owner.memberBegin(room, plan)); this.#status(removalText(status)) })
     }
     this.#button('inbox').onclick = () => { void this.#inbox() }
-    this.#button('check').onclick = () => {
+    for (const mode of ['latest', 'retained'] as const) this.#button(mode === 'latest' ? 'private-check' : 'private-older').onclick = () => {
+      const routeId = this.#select('route').value, epoch = this.#epoch
+      if (!routeId || !this.#input('private-auth').checked) { this.#status('Select a saved grant route and allow identification to that private Bothy.'); return }
+      const permission = { routeId, authenticate: true, mode, current: () => epoch === this.#epoch && this.dialog.open &&
+        this.#select('route').value === routeId && this.#input('private-auth').checked }
+      void this.#work(async () => {
+        const scan = this.#active(this.#active(await this.#owner.keeperCheckPrivate(permission)))
+        this.#renderInbox(scan.view)
+        this.#status(mode === 'latest'
+          ? (scan.complete ? 'Latest private page processed. Retained older progress is unchanged.' : 'Latest private check is incomplete. Retained older progress is unchanged; no public fallback was used.')
+          : (scan.complete ? 'This older private page was processed; older history remains unconfirmed.' : 'Older private check is incomplete; its inclusive boundary is retained.'))
+      })
+    }
+    for (const mode of ['latest', 'retained'] as const) this.#button(mode === 'latest' ? 'check' : 'check-older').onclick = () => {
       const relays = this.#urls('directory'), relay = this.#input('auth-relay').value.trim(), epoch = this.#epoch
       const authenticate = this.#input('auth').checked
       if (authenticate && !relay) { this.#status('Enter the exact DM relay before allowing identification.'); return }
       const permissions = relay ? [{ relay: { url: relay, read: true, write: false }, authenticate,
         current: () => epoch === this.#epoch && this.dialog.open && (!authenticate || this.#input('auth').checked) }] : []
-      void this.#work(async () => { const scan = this.#active(this.#active(await this.#owner.keeperCheck(relays, permissions))); this.#renderInbox(scan.view); this.#status(scan.complete ? 'This finite relay check completed.' : 'This check is incomplete; retained requests remain available.') })
+      void this.#work(async () => {
+        const scan = this.#active(this.#active(await this.#owner.keeperCheck(relays, permissions, mode)))
+        this.#renderInbox(scan.view)
+        this.#status(mode === 'latest'
+          ? (scan.complete ? 'Latest public page processed. Retained older progress is unchanged.' : 'Latest public check is incomplete. Retained older progress is unchanged.')
+          : (scan.complete ? 'This older public page was processed; older history remains unconfirmed.' : 'Older public check is incomplete; its inclusive boundary is retained.'))
+      })
     }
     for (const approve of [true, false]) this.#button(approve ? 'approve' : 'dismiss').onclick = () => {
       const plan = this.#keeperPlan
@@ -118,7 +142,7 @@ export class BrowserMlsGrantDevelopmentPanel {
     if (this.dialog.open) this.dialog.close()
     this.#epoch++; this.#rooms = []; this.#clearReviews()
     this.#text('account').textContent = ''; this.#status('')
-    this.#input('code').value = ''; this.#input('auth').checked = false
+    this.#input('code').value = ''; this.#input('auth').checked = false; this.#input('private-auth').checked = false
     this.#select('room').replaceChildren(); this.#select('route').replaceChildren()
     for (const list of ['members-list','record-list','inbox-list']) this.#list(list, [])
     return this.#owner.pause()
@@ -135,6 +159,7 @@ export class BrowserMlsGrantDevelopmentPanel {
   }
   async #routes(): Promise<void> { await this.#work(async () => {
     const routes = this.#active(await this.#owner.routes())
+    this.#input('private-auth').checked = false
     this.#select('route').replaceChildren(...routes.map(route => this.#option(route.routeId, route.routeId)))
   }) }
   async #members(): Promise<void> { const room = this.#selectedRoom(); if (!room) return

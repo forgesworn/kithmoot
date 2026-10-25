@@ -16,7 +16,8 @@ import { BrowserMlsRevocationInbox, type MlsRevocationInboxContext } from './mls
 import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from './mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController } from './mls-keeper-request-controller.js'
 import { BrowserMlsMembershipController, type MlsRemovalPlan } from './mls-membership-controller.js'
-import { BrowserMlsKeeperInboxFetch, type MlsKeeperInboxReadPermission } from './mls-keeper-inbox-fetch.js'
+import { BrowserMlsKeeperInboxFetch, type MlsKeeperInboxReadPermission, type MlsKeeperInboxScanMode } from './mls-keeper-inbox-fetch.js'
+import { BrowserMlsKeeperPrivateInboxFetch, type MlsKeeperPrivateInboxPermission } from './mls-keeper-private-inbox-fetch.js'
 import { NostrMlsKeeperInboxTransport } from './mls-keeper-inbox-relay.js'
 import { NostrVmlsRevocationTransport } from './mls-revocation-relay.js'
 import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
@@ -133,7 +134,8 @@ export class BrowserMlsGrantDevelopmentOwner {
       return services.inbox.receive(selected, active.revocation)
     })
   }
-  keeperCheck(discoveryRelays: readonly string[], permissions: readonly MlsKeeperInboxReadPermission[] = []) {
+  keeperCheck(discoveryRelays: readonly string[], permissions: readonly MlsKeeperInboxReadPermission[] = [], mode: MlsKeeperInboxScanMode = 'latest') {
+    if (mode !== 'latest' && mode !== 'retained') throw new Error('Select a latest or retained keeper inbox check.')
     const selectedRelays = relaySnapshot(discoveryRelays)
     if (!Array.isArray(permissions) || permissions.length > 6) throw new Error('Invalid keeper inbox read permissions.')
     const selectedPermissions = permissions.map(permission => {
@@ -150,7 +152,20 @@ export class BrowserMlsGrantDevelopmentOwner {
       const page = new NostrMlsKeeperInboxTransport(url => this.#socket(url))
       const fetch = new BrowserMlsKeeperInboxFetch(services.coordinator, services.inbox,
         { directory: keeper => directory.directory(keeper), page: query => page.page(query) }, () => this.#active?.inbox)
-      return fetch.check(active.revocation, selectedPermissions)
+      return fetch.check(active.revocation, selectedPermissions, mode)
+    })
+  }
+  keeperCheckPrivate(input: MlsKeeperPrivateInboxPermission) {
+    if (!input || typeof input.routeId !== 'string' || input.authenticate !== true || typeof input.current !== 'function') {
+      throw new Error('Select a saved private route and allow keeper identification to that Bothy.')
+    }
+    const mode = input.mode ?? 'latest'
+    if (mode !== 'latest' && mode !== 'retained') throw new Error('Select a latest or retained private inbox check.')
+    const permission = { routeId: input.routeId, authenticate: true, mode, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot decrypt keeper requests.')
+      const fetch = new BrowserMlsKeeperPrivateInboxFetch(services.coordinator, services.inbox, this.#endpoint, () => this.#active?.inbox)
+      return fetch.check(active.revocation, permission)
     })
   }
   keeperReview(operation: string) { return this.#run(true, services => services.decisions.plan(operation)) }

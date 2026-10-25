@@ -32,8 +32,13 @@ export interface MlsRevocationInboxState {
   /** Witnessed reservations precede signer use, including failed attempts. */
   attempts?: number[]
   scan?: MlsKeeperInboxScan
+  privateScan?: MlsKeeperPrivateInboxScan
   directory?: { at: number; complete: boolean; relays: string[] }
   promptAfter?: { sender: string; until: number }[]
+}
+export interface MlsKeeperPrivateInboxScan {
+  lastPageAt: number | null
+  cursors: { keeper: string; routeId: string; eventUrl: string; until: number }[]
 }
 export interface MlsKeeperInboxScan {
   lastPageAt: number | null
@@ -49,7 +54,7 @@ const relay = (v: unknown): v is string => typeof v === 'string' && v.length <= 
  * than an additional vault slot that would reduce the room quota. */
 export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void {
   const invalid = (): never => { throw new InvalidPersonaRecord('Invalid MLS revocation inbox') }
-  if (!value || typeof value !== 'object' || !exact(value, ['checkedAt', 'keeper', 'prompts', 'seen', ...(value.attempts === undefined ? [] : ['attempts']), ...(value.scan === undefined ? [] : ['scan']), ...(value.directory === undefined ? [] : ['directory']), ...(value.promptAfter === undefined ? [] : ['promptAfter'])].sort().join(',')) || !hex32(value.keeper) || !time(value.checkedAt) ||
+  if (!value || typeof value !== 'object' || !exact(value, ['checkedAt', 'keeper', 'prompts', 'seen', ...(value.attempts === undefined ? [] : ['attempts']), ...(value.scan === undefined ? [] : ['scan']), ...(value.privateScan === undefined ? [] : ['privateScan']), ...(value.directory === undefined ? [] : ['directory']), ...(value.promptAfter === undefined ? [] : ['promptAfter'])].sort().join(',')) || !hex32(value.keeper) || !time(value.checkedAt) ||
       !Array.isArray(value.seen) || value.seen.length > MAX_MLS_REVOCATION_SEEN || !Array.isArray(value.prompts) || value.prompts.length > MAX_MLS_REVOCATION_PROMPTS) invalid()
   const seen = new Set<string>(), operations = new Set<string>()
   if (value.promptAfter !== undefined && (!Array.isArray(value.promptAfter) || value.promptAfter.length > MAX_MLS_KEEPER_PROMPT_COOLDOWNS ||
@@ -61,6 +66,14 @@ export function validateMlsRevocationInbox(value: MlsRevocationInboxState): void
     if (!scan || !exact(scan, 'cursors,lastPageAt,nextRelay') || !(scan.lastPageAt === null || time(scan.lastPageAt) && scan.lastPageAt <= value.checkedAt) || !(scan.nextRelay === null || relay(scan.nextRelay)) ||
       !Array.isArray(scan.cursors) || scan.cursors.length > 6 || scan.cursors.some(item => !item || !exact(item, 'relay,until') || !relay(item.relay) || !time(item.until) || item.until > value.checkedAt) ||
       new Set(scan.cursors.map(item => item.relay)).size !== scan.cursors.length) invalid()
+  }
+  if (value.privateScan !== undefined) {
+    const scan = value.privateScan
+    if (!scan || !exact(scan, 'cursors,lastPageAt') || !(scan.lastPageAt === null || time(scan.lastPageAt) && scan.lastPageAt <= value.checkedAt) ||
+        !Array.isArray(scan.cursors) || scan.cursors.length > 16 || scan.cursors.some(item => !item || !exact(item, 'eventUrl,keeper,routeId,until') ||
+          item.keeper !== value.keeper || typeof item.routeId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(item.routeId) ||
+          !relay(item.eventUrl) || !time(item.until) || item.until > value.checkedAt) ||
+        new Set(scan.cursors.map(item => JSON.stringify([item.keeper, item.routeId, item.eventUrl]))).size !== scan.cursors.length) invalid()
   }
   if (value.directory !== undefined) {
     const directory = value.directory

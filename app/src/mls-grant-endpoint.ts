@@ -1,10 +1,11 @@
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { BrowserLink, type LinkOwnership, type PairedBox } from './browser-link.js'
 import { startBrowserLink } from './browser-link-runtime.js'
-import { BrowserLinkRelay } from './browser-link-relay.js'
+import { BrowserLinkRelay, linkWebSocket } from './browser-link-relay.js'
 import type { LinkEngine, LinkListener, LinkRequest, LinkResponse, LinkSocket, StartLink } from './browser-link-types.js'
 import { BrowserMlsGrantForeground, type MlsGrantForegroundScope } from './mls-grant-custody.js'
 import { BrowserMlsGrantLinkVault, MLS_GRANT_LINK_OWNER } from './mls-grant-link-vault.js'
+import { readMlsKeeperInboxPage, type MlsKeeperInboxPage } from './mls-keeper-inbox-relay.js'
 import { mlsGrantScope, type MlsGrantRecord } from './mls-grant-ledger.js'
 
 const stale = () => new Error('The dedicated grant endpoint is unavailable in this foreground account.')
@@ -25,6 +26,7 @@ export class BrowserMlsGrantEndpoint {
   #shutdownFailed = false
   #owned = false
   #closing = false
+  #inboxSerial = 0
   #retired = new WeakSet<MlsGrantForegroundScope>()
   constructor(private readonly foreground: BrowserMlsGrantForeground,
     private readonly identity: () => ParticipantIdentity | undefined, private readonly mayConnect: () => boolean,
@@ -140,6 +142,32 @@ export class BrowserMlsGrantEndpoint {
         this.#sockets.add(socket); listener.onOpen?.(); return socket
       } catch (error) { native.disconnect(); close(); throw error }
     })
+  }
+  /** Read p-tag keeper wraps over this endpoint's saved private route only.
+   * Pairing is not event authority: Bothy must accept keeper NIP-42 before REQ.
+   * No ordinary room carrier, directory or native WebSocket is involved. */
+  async keeperInboxPage(box: Readonly<PairedBox>, input: {
+    keeper: string; since: number; until: number; authenticate: boolean; current(): boolean
+  }): Promise<MlsKeeperInboxPage> {
+    const binding = this.#bound(), selected = Object.freeze({ routeId: box.routeId, eventUrl: box.eventUrl })
+    const permission = { ...input, current: input.current.bind(input) }
+    const live = () => {
+      try {
+        binding.check()
+        return permission.current() && this.#link.boxes().some(saved => saved.routeId === selected.routeId && saved.eventUrl === selected.eventUrl)
+      } catch { return false }
+    }
+    if (permission.authenticate !== true || permission.keeper !== binding.account || !live()) throw stale()
+    const Socket = linkWebSocket(this, selected)
+    const identity: ParticipantIdentity = { pubkey: binding.account, signEvent: template => this.#track(binding, async () => {
+      if (!live()) throw stale()
+      const event = await binding.identity.signEvent(template)
+      if (!live()) throw stale()
+      return event
+    }) }
+    return readMlsKeeperInboxPage({ relay: { url: selected.eventUrl, read: true, write: false, circle: true },
+      keeper: permission.keeper, since: permission.since, until: permission.until, current: live, authentication: identity },
+      url => new Socket(url), 5_000, () => Math.floor(Date.now() / 1000), () => `vmls-private-keeper-${++this.#inboxSerial}`)
   }
   carrier(record: MlsGrantRecord, identity: ParticipantIdentity): { publish: BrowserLinkRelay['publish']; close(): void } {
     const binding = this.#bound()

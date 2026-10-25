@@ -30,8 +30,8 @@ export class BrowserMlsRevocationInbox {
     private context: () => MlsRevocationInboxContext | undefined,
     private now: () => number = () => Math.floor(Date.now() / 1000)) {}
 
-  async view(): Promise<CoordinationResult<MlsRevocationInboxView>> {
-    const scope = this.#scope(), current = () => this.#current(scope)
+  async view(operationCurrent: () => boolean = () => true): Promise<CoordinationResult<MlsRevocationInboxView>> {
+    const scope = this.#scope(), current = () => { try { return operationCurrent() && this.#current(scope) } catch { return false } }
     return this.coordinator.transact(scope.vault.persona, async tx => {
       const state = await this.#state(tx, scope), ledger = await this.#ledger(), prompts: MlsKeeperRequestView[] = [], rosters: RosterCache = new Map()
       for (const prompt of state.prompts) {
@@ -45,11 +45,20 @@ export class BrowserMlsRevocationInbox {
     }, current)
   }
 
-  async receive(wrappers: readonly Event[], identity: VmlsRevocationIdentity): Promise<CoordinationResult<MlsRevocationInboxView>> {
+  async receive(wrappers: readonly Event[], identity: VmlsRevocationIdentity, operationCurrent: () => boolean = () => true): Promise<CoordinationResult<MlsRevocationInboxView>> {
     if (this.#running) throw new Error('A foreground request check is already running.')
     if (!Array.isArray(wrappers) || wrappers.length > MAX_MLS_REVOCATION_CANDIDATES) throw new Error('Too many revocation request candidates.')
-    const scope = this.#scope(), current = () => this.#current(scope)
+    const scope = this.#scope(), current = () => { try { return operationCurrent() && this.#current(scope) } catch { return false } }
     if (identity.pubkey !== scope.vault.persona) throw new Error('Sign in as the receiving keeper.')
+    // The operation permission joins the account/foreground guard at every
+    // signer boundary and witnessed transaction, not only after the page read.
+    const decrypt = identity.decrypt.bind(identity)
+    const guarded: VmlsRevocationIdentity = { ...identity, decrypt: async (peer, ciphertext) => {
+      if (!current()) throw new Error('The keeper intake permission changed.')
+      const plaintext = await decrypt(peer, ciphertext)
+      if (!current()) throw new Error('The keeper intake permission changed.')
+      return plaintext
+    } }
     this.#running = true
     let decryptions = 0
     try {
@@ -77,7 +86,7 @@ export class BrowserMlsRevocationInbox {
         if (before.state !== 'active') return before
         if (!before.value) continue
         decryptions++
-        const request = await unwrapVmlsRevocationRequest(wrapper, identity, this.#time(), current)
+        const request = await unwrapVmlsRevocationRequest(wrapper, guarded, this.#time(), current)
         if (!current()) return { state: 'pending', reason: 'stale', refused: false }
         const saved = await this.coordinator.transact(scope.vault.persona, async tx => {
           const state = await this.#state(tx, scope)
@@ -106,7 +115,7 @@ export class BrowserMlsRevocationInbox {
         if (saved.state !== 'active') return saved
       }
       if (!current()) return { state: 'pending', reason: 'stale', refused: false }
-      return await this.view()
+      return await this.view(operationCurrent)
     } finally { this.#running = false }
   }
 
