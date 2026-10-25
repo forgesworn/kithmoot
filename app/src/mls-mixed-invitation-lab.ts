@@ -50,7 +50,7 @@ function install() {
       let result: any
       // Every invitation operation selects one explicit engine; the ordinary
       // public-room observation branch remains independently available.
-      if (['create', 'drive', 'issue', 'export', 'accept', 'response', 'import-response', 'registration-request', 'register', 'receipt-add', 'update', 'remove', 'send', 'role', 'roles', 'snapshot'].includes(step)) labProfile()
+      if (['create', 'drive', 'issue', 'export', 'accept', 'response', 'import-response', 'registration-request', 'register', 'receipt-add', 'update', 'remove', 'send', 'role', 'roles', 'snapshot', 'protected-snapshot'].includes(step)) labProfile()
       switch (step) {
         case 'ordinary-public-context': if (!ordinaryPublicContext) throw new Error('Actual ordinary context unavailable.'); result = ordinaryPublicContext(); break
         case 'account-state': result = await need(account).state(); break
@@ -117,9 +117,10 @@ function install() {
         case 'remove': result = await need(rooms).invitation(a.routeId, { type: 'remove', session: a.session, leafId: a.leafId }); break
         case 'send': result = await need(rooms).invitation(a.routeId, { type: 'send', session: a.session, text: a.body }); break
         case 'roles':
+        case 'protected-snapshot':
         case 'snapshot': {
           reviewedRoles.delete(a.session)
-          result = await need(rooms).invitation(a.routeId, { type: 'read', session: a.session })
+          result = step === 'protected-snapshot' ? await need(rooms).protectedSnapshot(a.session) : await need(rooms).invitation(a.routeId, { type: 'read', session: a.session })
           if (result?.state === 'done' && result.value?.state === 'active') {
             const v = result.value.value
             if (v.profile !== labProfile()) throw new Error('Saved room differs from the selected invitation lab profile.')
@@ -129,7 +130,7 @@ function install() {
               sha256: bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', m.body))) })))
             v.history.forEach((m: any) => m.body.fill(0))
             result = { state: 'done', value: { state: 'active', value: { session: v.session, generation: v.generation, phase: v.phase, updateRequired: v.updateRequired,
-              profile: v.profile, ...(v.adminRoles ? { adminRoles: v.adminRoles } : {}), members: v.members, ...(step === 'snapshot' ? { history } : {}), outboxCount: v.outbox.length, watchCount: v.watch.length } } }
+              profile: v.profile, ...(v.adminRoles ? { adminRoles: v.adminRoles } : {}), members: v.members, ...(step !== 'roles' ? { history } : {}), outboxCount: v.outbox.length, watchCount: v.watch.length } } }
           }
           break
         }

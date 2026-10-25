@@ -91,3 +91,13 @@ test('room readiness uses only the captured actual owner and returns its bounded
   expect(await lab.step('room-device-readiness')).toEqual({ state: 'done', value: { deviceReady: false, refusal: 'witness-pending' } })
   expect(owner.deviceReadiness).toHaveBeenCalledWith()
 })
+
+test('explicit protected snapshot cannot dispatch node transport or an invitation action', async () => {
+  await setup()
+  owner.protectedSnapshot = vi.fn().mockResolvedValue(active())
+  const read = await lab.step('protected-snapshot', { session })
+  expect(read.value.value.profile).toBe('InvitationAdmins2')
+  expect(read.value.value.adminRoles).toEqual(roles())
+  expect(owner.protectedSnapshot).toHaveBeenCalledWith(session)
+  expect(owner.invitation).not.toHaveBeenCalled()
+})

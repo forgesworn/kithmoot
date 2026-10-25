@@ -114,6 +114,18 @@ export class BrowserMlsRoomDevelopmentOwner {
     })
   }
 
+  /** Explicit local evidence only: witness-confirmed native state without a
+   * node request. This grants no transport, mutation or admission authority. */
+  protectedSnapshot(session: string) {
+    if (!hex(session)) throw stale()
+    return this.#run(true, async (services, active) => {
+      const vault = services.vault.context(location.origin, active.account.persona)
+      const saved = await services.coordinator.transact(active.account.persona, async tx => (await readMlsRoom(tx, session)).binding.rendezvousKey, active.current)
+      if (saved.state !== 'active') return saved
+      return services.rooms.read({ vault, rendezvousKey: saved.value, current: active.current }, session)
+    })
+  }
+
   /** One read-only authenticated capabilities probe against the saved room. */
   nodeHealth(routeId: string, session: string) {
     if (!routeShape(routeId) || !hex(session)) throw stale()
