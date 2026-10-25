@@ -102,6 +102,20 @@ async function run(step,args) {
   }
   if(step==='signin') { await page.goto(app+'?signin=nostr'); if(await page.locator('#signOut').evaluateAll(es=>es.some(e=>!e.hidden)))return {signedIn:true,restored:true};await page.getByRole('button',{name:'Advanced',exact:true}).click();await page.getByRole('button',{name:/Browser extension/}).click();await page.locator('#homeSignIn').waitFor({state:'hidden',timeout:60000});return {signedIn:true} }
   if(step==='open') return openPanel(args.panel)
+  if(step==='refresh-preview-shell') {
+    const result = await page.evaluate(async ({origin, scope}) => {
+      const registration = await navigator.serviceWorker.getRegistration(scope)
+      if (!registration) return { state: 'no-dev-worker' }
+      const script = registration.active?.scriptURL ?? registration.waiting?.scriptURL ?? registration.installing?.scriptURL
+      if (!script) throw new Error('Preview worker has no concrete script')
+      const url = new URL(script)
+      if (url.origin !== origin || url.pathname !== '/j/dev-sw.js' || registration.scope !== scope) throw new Error('Only this disposable Vite dev worker may be refreshed')
+      if (!await registration.unregister()) throw new Error('Preview dev worker refresh refused')
+      return { state: 'dev-worker-unregistered' }
+    }, { origin: new URL(app).origin, scope: new URL('/j/', app).href })
+    await page.goto('about:blank'); await page.goto(app)
+    return { ...result, protectedStorageUntouched: true }
+  }
   if(step==='navigate') {await page.goto(app);return {navigated:true}}
   if(step==='reload') {await page.reload();return {reloaded:true}}
   if(step==='enrol-device') {await page.locator('#mlsWitnessVaultRead').click();await page.locator('#mlsWitnessDeviceNew').waitFor({state:'visible',timeout:60000});await page.locator('#mlsWitnessDeviceNew').click();return {awaitingConfirmation:true}}
