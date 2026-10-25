@@ -1,4 +1,4 @@
-import { invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { labStoragePreviewEnabled } from './mls-lab-storage-preview.js'
 import type { Event } from 'nostr-tools/pure'
 import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import type { VaultContext } from './mls-vault.js'
@@ -290,7 +290,7 @@ export class BrowserMlsGrantEndpoint {
     if (!live()) throw stale()
   }
   async publishLabDeviceGrant(box: Readonly<PairedBox>, event: Event, device: string, operationCurrent: () => boolean): Promise<void> {
-    if (!invitationPreviewEnabled()) throw stale()
+    if (!labStoragePreviewEnabled()) throw stale()
     const binding = this.#bound(), selected = Object.freeze({ ...box })
     const live = () => operationCurrent() === true
     await this.#saved(binding, selected, live)

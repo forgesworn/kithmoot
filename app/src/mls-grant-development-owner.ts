@@ -1,4 +1,4 @@
-import { invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { labStoragePreviewEnabled } from './mls-lab-storage-preview.js'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { confirmAction } from './confirm-action.js'
@@ -89,7 +89,7 @@ export class BrowserMlsGrantDevelopmentOwner {
    * The actual account signs; only the selected node's authenticated ACK can
    * accept its keeper authority. No member-grant ledger state is invented. */
   authoriseEnrolledDevice(routeId: string, persona: string, device: string) {
-    if (!invitationPreviewEnabled() || !hex(persona) || !hex(device)) throw stale()
+    if (!labStoragePreviewEnabled() || !hex(persona) || !hex(device)) throw stale()
     return this.#run(true, async (_services, active) => {
       await this.#endpoint.resume(active.account.persona)
       const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(item => item.routeId === routeId)
