@@ -1,5 +1,5 @@
 import { npubEncode } from 'nostr-tools/nip19'
-import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
+import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
 import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
 import { safeErrorDiagnostic } from './mixed-invitation-error-diagnostic.mjs'
 import { chromium } from '@playwright/test'
@@ -8,10 +8,14 @@ import { mkdir, readdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 
-const app = 'http://localhost:28445/j/'
-const control = 'http://127.0.0.1:28440'
-const bark = path.resolve('.lab/bark-built-6c303065')
-const profile = path.resolve('.lab/browser-profile')
+const labProfile = process.env.MIXED_INVITATION_LAB_PROFILE ?? 'Invitation1'
+if (!['Invitation1', 'InvitationAdmins2'].includes(labProfile)) throw new Error('Explicit supported invitation lab profile required')
+const app = process.env.MIXED_INVITATION_APP_URL ?? 'http://localhost:28445/j/'
+const control = process.env.MIXED_INVITATION_CONTROL_URL ?? 'http://127.0.0.1:28440'
+if (!['localhost', '127.0.0.1'].includes(new URL(app).hostname) || !['localhost', '127.0.0.1'].includes(new URL(control).hostname)) throw new Error('Disposable browser lab requires loopback app and control endpoints')
+const bark = path.resolve(process.env.MIXED_INVITATION_BARK_PATH ?? '.lab/bark-built-6c303065')
+if (labProfile === 'InvitationAdmins2' && !process.env.MIXED_INVITATION_BROWSER_PROFILE) throw new Error('Admin2 requires an explicit fresh private browser profile path')
+const profile = path.resolve(process.env.MIXED_INVITATION_BROWSER_PROFILE ?? '.lab/browser-profile')
 const sourceRoot = path.resolve('.')
 const sourceModules = new Set((await Promise.all(['app/src','src'].map(dir=>readdir(path.resolve(dir),{recursive:true})))).flat().map(name=>path.basename(name)))
 const packageModules = new Set((await readdir(path.resolve('packages'),{recursive:true})).map(name=>path.basename(name)))
@@ -35,7 +39,7 @@ await context.routeWebSocket(url => !allowedNetworkOrigins.has(url.origin), sock
 })
 await context.route('**/*', route => { const u=new URL(route.request().url());if(route.request().url().startsWith(`chrome-extension://${extension}/`) || allowedNetworkOrigins.has(u.origin))return route.continue();blockedNetworkAttempts.push({kind:'request',...endpointSummary(route.request().url(),knownOrigins)});return route.abort('blockedbyclient') })
 const page = await context.newPage()
-const namedWindows = new Set(['bootstrap', 'ordinary', 'private', 'fault', 'reconnect', 'refusal'])
+const namedWindows = new Set(['bootstrap', 'ordinary', 'private', 'fault', 'reconnect', 'refusal', 'admin-policy', 'admin-refusal'])
 let active, result, failures = 0, observe = true, windowName = 'bootstrap', needles = [], observations = [], violations = 0, activePrivateTerms = []
 let observedBytes = 0, observerOverflow = false, unattributedFrames = 0, frameCount = 0, httpBodyUnobserved = 0, publicControl = null, controlSubscription
 const closedWindows = []
@@ -303,7 +307,13 @@ async function openPanel(kind) {
   await page.waitForFunction(kind=>window.__mixedInvitationLab?.ready()[kind==='room'?'rooms':kind==='grant'?'grants':'account'],kind)
   return {opened:kind}
 }
+async function requireLabProfile() {
+  const actual = await page.evaluate(() => window.__mixedInvitationLab?.profile())
+  if (actual !== labProfile) throw new Error('Actual browser preview differs from the explicitly selected controller profile')
+  return { profile: actual, experimental: true, qualificationOnly: true }
+}
 async function run(step,args) {
+  if(step === 'lab-profile') return requireLabProfile()
   if(step==='configure-ownstack') {
     await settings();await page.locator('#defaultRelaySettings').click()
     while(await page.locator('#relayList button[aria-label^="Remove "]').count())await page.locator('#relayList button[aria-label^="Remove "]').first().click()
@@ -541,7 +551,12 @@ async function run(step,args) {
   }return reviews }
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
   if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics,diagnosticsOverflow}
-  if(step==='observe-start') return startWindow(args.name,args.needles??[])
+  if(step==='observe-start') {
+    if(args.adminRoles !== undefined && labProfile !== 'InvitationAdmins2') throw new Error('Admin policy observation requires the Admin2 lab')
+    const selected = args.needles ?? []
+    if(!Array.isArray(selected)) throw new Error('Prospective needles must be an array')
+    return startWindow(args.name,[...selected,...(args.adminRoles === undefined ? [] : adminPolicyNeedles(args.adminRoles))])
+  }
   if(step==='public-control') {
     if(page.url()==='about:blank')throw new Error('Navigate actual app before public positive control')
     const before=observations.length
@@ -570,9 +585,10 @@ async function run(step,args) {
     const e=state.enrolment;if(e.state!=='genesis')throw new Error('Actual account has no genesis')
     const r=await fetch(control+'/private/fixture',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:'/witness/enrol',body:{subject:e.subject,installation:e.installation,writer:e.writer,initial_digest:e.digest}})});if(!r.ok)throw new Error('Witness keeper enrolment refused');return {enrolled:true}
   }
+  await requireLabProfile()
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');

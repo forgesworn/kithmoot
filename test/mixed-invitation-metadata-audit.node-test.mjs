@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { frameSummary, httpSummary, matchesNeedleNow, sha256, withinBudget, assertProspectiveNeedles, windowTransition } from './mixed-invitation-metadata-audit.mjs'
+import { frameSummary, httpSummary, matchesNeedleNow, sha256, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles } from './mixed-invitation-metadata-audit.mjs'
 
 test('REQ and COUNT disclose filter shape and digests without selector values', () => {
   const author='ab'.repeat(32), recipient='cd'.repeat(32)
@@ -82,4 +82,22 @@ test('retrospective needles are refused after prospective arming', () => {
   assert.doesNotThrow(()=>assertProspectiveNeedles(['armed'],['armed']))
   assert.throws(()=>assertProspectiveNeedles(['later'],['armed']),/Retrospective needles/)
   assert.throws(()=>assertProspectiveNeedles('later',['armed']),/Retrospective needles/)
+})
+
+
+test('Admin2 policy observations arm applied commitment and exact device leaves prospectively', () => {
+  const own = '11'.repeat(32), other = '22'.repeat(32), commitment = '33'.repeat(32)
+  const roles = { version:1,profile:'InvitationAdmins2',policy:'designated-leaf-admins/1',adminSetCommitment:commitment,
+    ownLeafId:own,ownIsAdmin:true,adminLeafIds:[own,other] }
+  const needles = adminPolicyNeedles(roles)
+  assert.deepEqual(needles,[commitment,own,other])
+  assert.equal(matchesNeedleNow(needles,[Buffer.from(commitment,'hex')]),1)
+  assert.equal(matchesNeedleNow(needles,[Buffer.from(other,'hex')]),1)
+  assert.throws(()=>adminPolicyNeedles({...roles,profile:'Invitation1'}),/Applied Admin2/)
+  assert.throws(()=>adminPolicyNeedles({...roles,adminLeafIds:[other,own]}),/Applied Admin2/)
+  assert.throws(()=>adminPolicyNeedles({...roles,ownIsAdmin:false}),/Applied Admin2/)
+  assert.throws(()=>adminPolicyNeedles({...roles,adminSetCommitment:'bad'}),/Applied Admin2/)
+  const summary=frameSummary(JSON.stringify(['EVENT',{kind:1,content:commitment,tags:[['p',other]]}]))
+  assert.equal(JSON.stringify(summary).includes(commitment),false)
+  assert.equal(JSON.stringify(summary).includes(other),false)
 })

@@ -85,3 +85,16 @@ export function windowTransition(summary, name, nextNeedles, namedWindows) {
     throw new Error('Named window and bounded prospective needles required')
   return { closed:JSON.parse(JSON.stringify(summary)), name, needles:[...nextNeedles] }
 }
+
+// Supplied only through the private controller before a named window opens.
+// Applied native roles arm commitment and exact leaf identifiers in all supported
+// wire encodings. Values remain private; receipts contain only counts/digests.
+export function adminPolicyNeedles(roles) {
+  const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+  if (!roles || roles.version !== 1 || roles.profile !== 'InvitationAdmins2' || roles.policy !== 'designated-leaf-admins/1' ||
+      !hex(roles.adminSetCommitment) || !hex(roles.ownLeafId) || typeof roles.ownIsAdmin !== 'boolean' ||
+      !Array.isArray(roles.adminLeafIds) || roles.adminLeafIds.length < 1 || roles.adminLeafIds.length > 64 ||
+      !roles.adminLeafIds.every(hex) || roles.adminLeafIds.some((id, index) => index > 0 && id <= roles.adminLeafIds[index - 1]) ||
+      roles.ownIsAdmin !== roles.adminLeafIds.includes(roles.ownLeafId)) throw new Error('Applied Admin2 role view required before observation')
+  return [...new Set([roles.adminSetCommitment, roles.ownLeafId, ...roles.adminLeafIds])]
+}
