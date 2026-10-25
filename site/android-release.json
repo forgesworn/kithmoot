@@ -7,7 +7,7 @@
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 73889551,
-  "apkSha256": "6af7250986856aa534c04589e16cb1569a946fbd1665621de693a60b4a8bc1b7",
+  "apkSha256": "834b884ccce287dd213289ab9b43804b419544d2ea47a1502f0394072bfa2eac",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
