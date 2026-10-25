@@ -17890,7 +17890,6 @@ function renderSettingsRows(): void {
 let callRelayActionGeneration = 0
 let callRelayCheckAbort: AbortController | undefined
 function cancelCallRelayActions(): void {
-  ;($('spryPairingInput') as HTMLInputElement).value = ''
   callRelayActionGeneration++
   if (callRelayCheckAbort) $('callRelayStatus').textContent = 'Relay test stopped.'
   callRelayCheckAbort?.abort()
