@@ -1,8 +1,14 @@
 {
-  "version": "0.1.104",
+  "version": "0.1.106",
   "channel": "preview",
   "published": "2026-10-25",
   "files": [
+    {
+      "filename": "KithMoot-0.1.106-mac-arm64.zip",
+      "version": "0.1.106",
+      "bytes": 170927336,
+      "sha256": "fcd857b3053afa002b4fee963b79f51b15b448067636ac68ccca719cc44b4086"
+    },
     {
       "filename": "KithMoot-0.1.104-mac-arm64.zip",
       "version": "0.1.104",
