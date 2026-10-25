@@ -6,7 +6,8 @@ let bundle: string
 test.beforeAll(async () => {
   bundle = (await build({ entryPoints: ['test/invitation-profile-journey.browser-entry.ts'], bundle: true, write: false,
     format: 'iife', globalName: 'J', define: { 'import.meta.env.BASE_URL': '"/"', 'import.meta.env.DEV': 'true',
-      'import.meta.env.VITE_BROWSER_MLS_INVITATION_PREVIEW': '"true"' } })).outputFiles[0].text
+      'import.meta.env.VITE_BROWSER_MLS_INVITATION_PREVIEW': '"true"',
+      'import.meta.env.VITE_MIXED_INVITATION_LAB': '"false"' } })).outputFiles[0].text
 })
 async function fixture(context: BrowserContext) {
   const publicRequests: string[] = []
@@ -87,6 +88,12 @@ test('actual development panel keeps trusted inviter independent, guards account
     for (const key of ['target-persona','target-device','target-rz','target-home','remove-leaf'])
       (document.querySelector('[data-' + key + ']') as HTMLInputElement).value = '22'.repeat(32)
   })
+  await expect(f.page.locator('[data-invite-hours]')).toHaveValue('6')
+  await expect(f.page.locator('[data-invite-hours]')).toHaveAttribute('min', '2')
+  await f.page.locator('[data-invite-hours]').fill('1')
+  await f.page.locator('[data-issue-invitation]').click()
+  await expect(f.page.locator('[data-status]')).toContainText('Joining needs more than one hour remaining')
+  await f.page.locator('[data-invite-hours]').fill('6')
   for (const key of ['read-invitation-room','issue-invitation','export-invitation','recover-response','update-invitation-room','send-invitation-room','remove-invitation-member']) {
     await f.page.locator('[data-' + key + ']').click()
     await expect(f.page.locator('[data-status]')).toContainText('Reopen')

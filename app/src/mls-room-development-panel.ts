@@ -45,7 +45,8 @@ export class BrowserMlsRoomDevelopmentPanel {
       <label>Intended enrolled device <input data-target-device autocomplete="off" spellcheck="false" maxlength="64"></label>
       <label>Intended rendezvous key <input data-target-rz autocomplete="off" spellcheck="false" maxlength="64"></label>
       <label>Intended leaf home node <input data-target-home autocomplete="off" spellcheck="false" maxlength="64"></label>
-      <label>Invitation lifetime (hours, at most 168) <input data-invite-hours type="number" min="1" max="168" value="24"></label>
+      <label>Invitation lifetime (hours, at most 168) <input data-invite-hours type="number" min="2" max="168" value="6"></label>
+      <p>Joining needs more than one hour of validity remaining. Expiry must fit the inviter’s current room binding.</p>
       <button data-issue-invitation type="button">Review and issue private invitation</button><button data-export-invitation type="button">Recover last saved invitation</button>
       <label>Private invitation bytes <textarea data-private-invitation autocomplete="off" spellcheck="false" maxlength="16384"></textarea></label>
       <label>Expected inviter from your trusted private contact (enter independently) <input data-expected-inviter autocomplete="off" spellcheck="false" maxlength="64"></label>
@@ -140,7 +141,7 @@ export class BrowserMlsRoomDevelopmentPanel {
     const selectedRoom = () => (this.#text('invite-room') as HTMLSelectElement).value
     this.#button('issue-invitation').onclick = () => {
       const hours = Number(this.#input('invite-hours').value)
-      if (!Number.isSafeInteger(hours) || hours < 1 || hours > 168) { this.#text('status').textContent = 'Choose one to 168 hours covered by the current binding and credential.'; return }
+      if (!Number.isSafeInteger(hours) || hours < 2 || hours > 168) { this.#text('status').textContent = 'Choose two to 168 hours. Joining needs more than one hour remaining, and expiry must fit the inviter’s current room binding.'; return }
       invitation({ type: 'issue', session: selectedRoom(), target: { persona: this.#input('target-persona').value.trim(), device: this.#input('target-device').value.trim(),
         rendezvous: this.#input('target-rz').value.trim(), leafHome: this.#input('target-home').value.trim(), expiresAt: Math.floor(Date.now() / 1000) + hours * 3600 } })
     }
