@@ -6,6 +6,30 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.114 public call relay discovery
+
+Version **0.6.114**, code **137**, adds optional public call relay discovery
+under Settings, Connections. It starts off, uses the account's existing
+Nostr read relays without signing in, and supplies no operator list or
+directory. A selected operator can be checked without camera or microphone
+use. Device-entered relays and Spry take priority; Hide IP on calls never
+falls back direct. Leave and lapse remove the discovered server/login.
+
+The production candidate is built from Android source
+`6dc26c1541658434b784da212baafe7d0a6f6634`, SHA-256
+`ab93399bfdee57baa1c899f9cd77b85e4d327bc75048f3acd12ad4f73ddf50bd`,
+60,817,323 bytes. The retained certificate and two-signer lineage verify,
+and all 691 ZIP payload entries match the unsigned input. Protocol tests
+(560), app tests (2,745), release lint and the production build passed on
+the M4. Hosted CI, merge and public readback remain separate gates until
+recorded in the publication receipt.
+
+Privacy 4.5 now names Android 0.6.114, its single-allocation check and the
+absence of a web-app identifier. The call-transport position records the
+25 October 2026 Android parity review without changing the existing reading.
+Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
+relay-only calls and layout remain open; no physical device was touched.
+
 ## Android 0.6.111 Spry device pairing, published 24 October 2026
 
 Version **0.6.111**, code **134**, pairs a device with Spry once and obtains

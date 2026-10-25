@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-25T13:30:14.090662Z",
+  "versionName": "0.6.114",
+  "versionCode": 137,
+  "androidSource": "6dc26c1541658434b784da212baafe7d0a6f6634",
+  "androidSourceTree": "ae3aadaa13c4019f8e984b319462a71bb2d9431c",
+  "androidPr": "https://github.com/forgesworn/kithmoot-android/pull/330",
+  "androidCi": "https://github.com/forgesworn/kithmoot-android/actions/runs/40196972305",
+  "apk": {
+    "filename": "kithmoot-0.6.114-production.apk",
+    "bytes": 60817323,
+    "sha256": "ab93399bfdee57baa1c899f9cd77b85e4d327bc75048f3acd12ad4f73ddf50bd",
+    "unsignedSha256": "e0aaf5fb65c6cbae83a4895157c87ca2e7ab382e42329d275f5c34714840b7f3",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "zipPayloadEntries": 691,
+    "zipPayloadMatchesUnsigned": true,
+    "arm64Only": true,
+    "debuggable": false,
+    "minSdk": 33,
+    "targetSdk": 35,
+    "v3Only": true,
+    "embeddedLineageIndependentlyVerified": true
+  },
+  "localValidation": {
+    "host": "M4 signing host",
+    "protocolTests": 560,
+    "appTests": 2745,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "releaseLint": "passed",
+    "assembleRelease": "passed",
+    "websiteApkVerifier": "passed",
+    "signedUpdateManifests": "passed",
+    "websiteBuild": "passed"
+  },
+  "preBuildReview": {
+    "soundness": "Source and metadata match; the established certificate, lineage and update key are retained. R8 keeps the original app/Kotlin API for the existing instrumentation without disabling minification.",
+    "legalCover": "Android parity reviewed against the existing position. Privacy 4.5 names the version, one-allocation check and absence of a web-app identifier. No publisher-run relay, directory, operator list or telemetry is added.",
+    "lawNoteVerified": "2026-09-28",
+    "lawNoteSection213PrimaryRead": "2026-10-25",
+    "applicationsRemainUncheckedReadings": true,
+    "reviewer": "implementing agent"
+  },
+  "hostedCiPassed": false,
+  "publiclyShipped": false,
+  "physicalAndroidAcceptance": false,
+  "physicalDeviceTouched": false,
+  "pendingPhysicalChecks": [
+    "No-Play GrapheneOS turns hostname verification using an IP URL and setHostname",
+    "DNS refusal through a real resolver",
+    "Relay-only call through a discovered operator",
+    "Relay check without microphone permission",
+    "Dialog layout and larger text"
+  ]
+}

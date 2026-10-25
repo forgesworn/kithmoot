@@ -89,8 +89,8 @@ optional where its answer would change the design.
 Device-side discovery of operator-signed Spry adverts (kind 31478) was
 reviewed against law note 2.13 (design:
 `docs/2026-10-25-public-relay-discovery.md`). It is off by default. When the
-user turns it on, the web app reads adverts from the Nostr relays in the
-device's own Connections list, over a connection that is not signed in, and
+user turns it on, the web app and Android from version 0.6.114 read adverts
+from the Nostr relays in the device's own Connections list, over a connection that is not signed in, and
 the user chooses a relay; the chosen operator issues an hour-long login
 directly to the device. ForgeSworn runs no relay, index, directory, cache or
 credential issuer for it and ships no list of call relays; it does not
@@ -105,7 +105,13 @@ defaults, a publisher-set ordering or block list, or any count of which
 relays people use would change this answer and needs a fresh review. The
 privacy notice (sections 4.5, 4.6 and 7) and the "Check it yourself" page
 describe what the device's relays and the chosen operator see. Android
-parity is a separate change under the same rules.
+parity was reviewed on 25 October 2026 under the same rules, with no change
+to the reading. Android sends no web-app identifier, checks one relay
+allocation without camera or microphone use, pins checked public addresses
+while retaining the TLS hostname, and drops public logins when the call
+ends. The Android addendum is `docs/2026-10-25-public-call-relays-android.md`
+in the Android repository. Its physical TLS, DNS, relay-only and layout
+checks remain separate acceptance gates.
 
 ## Documentation and publication
 
