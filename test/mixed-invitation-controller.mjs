@@ -158,6 +158,40 @@ function checkApproval(details, expected) {
   if(!expected.sha256||digest(JSON.stringify(stable(actual)))!==expected.sha256)throw new Error('Bark request digest mismatch')
 }
 
+const ordinaryScenarios=new Set(['alice-created','keeper-created'])
+const HEX64=/^[0-9a-f]{64}$/
+function ordinaryScenario(args) {
+  if(!ordinaryScenarios.has(args?.scenario)||args.actor!=='alice')throw new Error('Named synthetic ordinary scenario and Alice actor required')
+  return args.scenario
+}
+function boundedOrdinaryText(value,limit,label) {
+  if(typeof value!=='string'||!value.trim()||Buffer.byteLength(value)>limit||/[\u0000-\u001f\u007f]/.test(value))throw new Error(`Bounded ${label} required`)
+  return value
+}
+function expectedHash(value,label) { if(typeof value!=='string'||!HEX64.test(value))throw new Error(`Expected ${label} digest required`);return value }
+function expectedPubkey(value) { if(typeof value!=='string'||!HEX64.test(value))throw new Error('Independent expected participant public key required');return value }
+async function ordinarySnapshot(args) {
+  const scenario=ordinaryScenario(args)
+  const account=args.expectedAccountPubkey===undefined?undefined:expectedPubkey(args.expectedAccountPubkey)
+  const state=await page.evaluate(async expectedAccount => {
+    const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(byte=>byte.toString(16).padStart(2,'0')).join('')
+    const room=document.querySelector('#roomArea'), title=document.querySelector('#roomTitle')?.textContent??''
+    const share=document.querySelector('#shareUrl')?.value??''
+    const roster=[...document.querySelectorAll('#sheetRoster [data-participant]')].map(row=>row.dataset.participant).filter(Boolean)
+    const messages=[...document.querySelectorAll('#chatLog .msg[data-message-id]')]
+    const valid=messages.filter(row=>/^[0-9a-f]{64}$/.test(row.dataset.messageAuthor??''))
+    const last=await Promise.all(valid.slice(-10).map(async row=>({idSha256:await hash(row.dataset.messageId??''),
+      authorSha256:await hash(row.dataset.messageAuthor),bodySha256:await hash(row.querySelector('.messageBody .bubble .text')?.textContent??''),mine:row.classList.contains('mine')})))
+    const host=document.querySelector('#hostPanel'), rotate=document.querySelector('#rotateShare')
+    return {roomOpen:!!room&&!room.hidden,roomTitleSha256:await hash(title),shareUrlSha256:share?await hash(share):null,
+      rosterCount:roster.length,participantSha256:(await Promise.all(roster.map(hash))).sort(),accountPresent:expectedAccount===undefined?undefined:roster.includes(expectedAccount),
+      hostAvailable:!!host&&!host.hidden,hostRowCount:document.querySelectorAll('#hostList .hostRow').length,
+      rotateAvailable:!!rotate&&!rotate.hidden,messageCount:valid.length,discardedMessageRows:messages.length-valid.length,lastMessages:last}
+  },account)
+  if(account&&!state.accountPresent)throw new Error('Expected account absent from actual room roster')
+  return {scenario,actor:'alice',...state}
+}
+
 async function settings() {
   for (let i=0;i<30;i++) { if(await page.locator('#settingsPane').isVisible()) break; await page.locator('#openAppSettings').evaluate(e=>e.click()); await page.waitForTimeout(100) }
   if(await page.locator('#settingsPane').getAttribute('data-page') !== 'main') await page.locator('#settingsBack').click()
@@ -208,6 +242,138 @@ async function run(step,args) {
     await popup.close();return {paired:true,personaSha256:digest(cfg.rootPub),independentPublicPinMatched:true}
   }
   if(step==='signin') { await page.goto(app+'?signin=nostr'); if(await page.locator('#signOut').evaluateAll(es=>es.some(e=>!e.hidden)))return {signedIn:true,restored:true};await page.getByRole('button',{name:'Advanced',exact:true}).click();await page.getByRole('button',{name:/Browser extension/}).click();await page.locator('#homeSignIn').waitFor({state:'hidden',timeout:60000});return {signedIn:true} }
+  if(step==='ordinary-create') {
+    if(ordinaryScenario(args)!=='alice-created')throw new Error('Only Alice-created scenario creates a browser room')
+    const name=boundedOrdinaryText(args.name,64,'synthetic room name')
+    if(expectedHash(args.expectedNameSha256,'room name')!==digest(name))throw new Error('Room name digest mismatch')
+    const opener=await page.locator('#newRoom').isVisible()?'#newRoom':'#homeNewRoom'
+    await page.locator(opener).click()
+    await page.locator('#newRoomDialog').waitFor({state:'visible'})
+    await page.locator('#roomName').fill(name)
+    await page.locator('#roomAsk').uncheck()
+    await page.locator('#roomEnds').selectOption('0')
+    if(await page.locator('#newRoomYourNameRow').isVisible())await page.locator('#newRoomYourName').fill(boundedOrdinaryText(args.displayName,64,'creator display name'))
+    if(await page.locator('#roomAsk').isChecked()||await page.locator('#roomEnds').inputValue()!=='0')throw new Error('Persistent group-room UI choice did not hold')
+    await page.locator('#create').click()
+    await page.locator('#roomArea').waitFor({state:'visible',timeout:90000})
+    const snapshot=await ordinarySnapshot(args)
+    if(snapshot.roomTitleSha256!==args.expectedNameSha256)throw new Error('Created room title differs from expected synthetic name')
+    return {created:true,persistentGroup:true,admissionAsk:false,endsNever:true,...snapshot}
+  }
+  if(step==='ordinary-open-link') {
+    const scenario=ordinaryScenario(args)
+    const link=boundedOrdinaryText(args.url,8192,'private invitation URL')
+    const parsed=new URL(link)
+    if(parsed.origin!==new URL(app).origin||parsed.pathname!=='/j/'||!parsed.hash||parsed.username||parsed.password)throw new Error('Only exact local KithMoot invitation URL is allowed')
+    if(expectedHash(args.expectedShareUrlSha256,'invitation')!==digest(link))throw new Error('Invitation digest mismatch')
+    if(await page.locator('#roomArea').isVisible()&&await page.locator('#chatInput').inputValue())throw new Error('Send or discard current draft before opening another room')
+    await page.goto('about:blank')
+    await page.goto(parsed.href)
+    return {scenario,actor:'alice',linkSha256:digest(link),opened:true,arrivalVisible:await page.locator('#identity').isVisible(),roomOpen:await page.locator('#roomArea').isVisible()}
+  }
+  if(step==='ordinary-join') {
+    ordinaryScenario(args)
+    if(!await page.locator('#roomArea').isVisible()) {
+      await page.locator('#join').waitFor({state:'visible',timeout:60000})
+      if(await page.locator('#displayName').isVisible()&&!await page.locator('#displayName').inputValue())await page.locator('#displayName').fill(boundedOrdinaryText(args.displayName,64,'joining display name'))
+      if(await page.locator('#joinMediaChoice').isVisible()){
+        await page.locator('#joinMic').uncheck()
+        await page.locator('#joinCamera').uncheck()
+      }
+      await page.locator('#join').click()
+      await page.locator('#roomArea').waitFor({state:'visible',timeout:90000})
+    }
+    const snapshot=await ordinarySnapshot(args)
+    if(!snapshot.roomOpen)throw new Error('Actual room UI did not open')
+    return {joined:true,...snapshot}
+  }
+  if(step==='ordinary-send') {
+    ordinaryScenario(args)
+    const body=boundedOrdinaryText(args.body,512,'synthetic chat body')
+    if(expectedHash(args.expectedBodySha256,'chat body')!==digest(body))throw new Error('Chat body digest mismatch')
+    const before=await ordinarySnapshot(args)
+    if(!before.roomOpen||before.roomTitleSha256!==expectedHash(args.expectedRoomTitleSha256,'room title'))throw new Error('Actual room does not match expected send target')
+    const input=page.locator('#chatInput')
+    if(await input.inputValue())throw new Error('Current chat draft must be empty')
+    const count=await page.locator('#chatLog .msg.mine .messageBody .bubble .text').evaluateAll((nodes,text)=>nodes.filter(n=>n.textContent===text).length,body)
+    await input.fill(body);await input.press('Enter')
+    await page.waitForFunction(({text,count})=>[...document.querySelectorAll('#chatLog .msg.mine .messageBody .bubble .text')].filter(n=>n.textContent===text).length>count,{text:body,count},{timeout:30000})
+    return {scenario:args.scenario,actor:'alice',bodySha256:digest(body),localMessageObserved:true,roomTitleSha256:before.roomTitleSha256}
+  }
+  if(step==='ordinary-receive') {
+    ordinaryScenario(args)
+    const bodySha256=expectedHash(args.expectedBodySha256,'received chat body')
+    const authorSha256=expectedHash(args.expectedAuthorSha256,'independent sender')
+    const before=await ordinarySnapshot(args)
+    if(!before.roomOpen||before.roomTitleSha256!==expectedHash(args.expectedRoomTitleSha256,'room title'))throw new Error('Actual room does not match expected receive target')
+    if(before.messageCount>5000)throw new Error('Bounded chat observation required')
+    const prior=await page.evaluate(async expected=>{
+      const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(byte=>byte.toString(16).padStart(2,'0')).join('')
+      let count=0
+      for(const row of document.querySelectorAll('#chatLog .msg[data-message-id]')){
+        const author=row.dataset.messageAuthor
+        if(row.classList.contains('mine')||!author||!/^[0-9a-f]{64}$/.test(author)||await hash(author)!==expected.author)continue
+        if(await hash(row.querySelector('.messageBody .bubble .text')?.textContent??'')===expected.body)count++
+      }
+      return count
+    },{body:bodySha256,author:authorSha256})
+    await page.waitForFunction(async expected=>{
+      const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(byte=>byte.toString(16).padStart(2,'0')).join('')
+      let count=0
+      for(const row of document.querySelectorAll('#chatLog .msg[data-message-id]')){
+        const author=row.dataset.messageAuthor
+        if(row.classList.contains('mine')||!author||!/^[0-9a-f]{64}$/.test(author)||await hash(author)!==expected.author)continue
+        if(await hash(row.querySelector('.messageBody .bubble .text')?.textContent??'')===expected.body)count++
+      }
+      return count>expected.prior
+    },{body:bodySha256,author:authorSha256,prior},{timeout:60000})
+    return {scenario:args.scenario,actor:'alice',remoteMessageObserved:true,bodySha256,authorSha256,priorMatches:prior}
+  }
+  if(step==='ordinary-rotate') {
+    if(ordinaryScenario(args)!=='alice-created')throw new Error('Fresh-link rotation belongs only to Alice-created scenario')
+    const oldHash=expectedHash(args.expectedOldShareSha256,'old room link')
+    const before=await ordinarySnapshot(args)
+    if(!before.roomOpen||before.roomTitleSha256!==expectedHash(args.expectedRoomTitleSha256,'room title')||before.shareUrlSha256!==oldHash)throw new Error('Rotation target differs from actual room/link')
+    await page.locator('#roomIdentity').click()
+    await page.locator('#roomSheet').waitFor({state:'visible'})
+    await page.locator('#infoInvite').click()
+    await page.locator('#inviteDialog').waitFor({state:'visible'})
+    if(!await page.locator('#rotateShare').isVisible())throw new Error('Actual creator fresh-link control is unavailable')
+    await page.locator('#rotateShare').click()
+    if(await page.locator('#actionTitle').textContent()!=='Replace the room link?'||await page.locator('#actionConfirm').textContent()!=='Replace link')throw new Error('Unexpected fresh-link confirmation')
+    await page.locator('#actionConfirm').click()
+    let changed=false
+    try{await page.waitForFunction(async old=>{const value=document.querySelector('#shareUrl')?.value??'';const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)));return [...bytes].map(v=>v.toString(16).padStart(2,'0')).join('')!==old},oldHash,{timeout:45000});changed=true}catch{}
+    const after=await ordinarySnapshot(args)
+    return {scenario:'alice-created',actor:'alice',rotationRequested:true,changed:changed&&after.shareUrlSha256!==oldHash,oldShareUrlSha256:oldHash,newShareUrlSha256:after.shareUrlSha256}
+  }
+  if(step==='ordinary-host-remove') {
+    if(ordinaryScenario(args)!=='keeper-created')throw new Error('Host removal belongs only to keeper-created scenario')
+    const participant=expectedPubkey(args.expectedParticipantPubkey), name=boundedOrdinaryText(args.expectedParticipantName,64,'participant name')
+    const before=await ordinarySnapshot(args)
+    if(!before.roomOpen||before.roomTitleSha256!==expectedHash(args.expectedRoomTitleSha256,'room title'))throw new Error('Actual room does not match removal target')
+    await page.locator('#roomIdentity').click()
+    await page.locator('#roomSheet').waitFor({state:'visible'})
+    if(!await page.locator('#hostPanel').isVisible())throw new Error('Actual account has no Host panel')
+    if(!await page.locator('#hostPanel').evaluate(e=>e.open))await page.locator('#hostPanel > summary').click()
+    const match=await page.evaluate(({participant,name})=>{
+      const roster=[...document.querySelectorAll('#sheetRoster [data-participant]')]
+      const target=roster.find(row=>row.dataset.participant===participant)
+      const names=roster.filter(row=>row.querySelector('.rosterIdentity .name')?.textContent===name)
+      const hosts=[...document.querySelectorAll('#hostList .hostRow')]
+      const candidates=hosts.map((row,index)=>({row,index})).filter(({row})=>row.querySelector('.who .name')?.textContent===name&&[...row.querySelectorAll('button')].some(b=>b.textContent==='Remove'))
+      return {rosterMatched:target?.querySelector('.rosterIdentity .name')?.textContent===name,uniqueRosterName:names.length===1,hostMatches:candidates.length,hostIndex:candidates[0]?.index}
+    },{participant,name})
+    if(!match.rosterMatched||!match.uniqueRosterName||match.hostMatches!==1)throw new Error('Host row cannot be bound uniquely to expected participant')
+    await page.locator('#hostList .hostRow').nth(match.hostIndex).getByRole('button',{name:'Remove',exact:true}).click()
+    const title=await page.locator('#actionTitle').textContent()
+    if(!title?.startsWith(`Remove ${name}`)||await page.locator('#actionConfirm').textContent()!=='Remove from room')throw new Error('Unexpected host removal confirmation')
+    await page.locator('#actionConfirm').click()
+    let removedObserved=false
+    try{await page.waitForFunction(pubkey=>![...document.querySelectorAll('#sheetRoster [data-participant]')].some(row=>row.dataset.participant===pubkey),participant,{timeout:30000});removedObserved=true}catch{}
+    return {scenario:'keeper-created',actor:'alice',participantSha256:digest(participant),nameSha256:digest(name),removeRequested:true,removedObserved}
+  }
+  if(step==='ordinary-snapshot')return ordinarySnapshot(args)
   if(step==='open') return openPanel(args.panel)
   if(step==='refresh-preview-shell') {
     const result = await page.evaluate(async ({origin, scope}) => {
@@ -327,6 +493,16 @@ const server=createServer(async(req,res)=>{
         if(dto)break
       }
       res.end(JSON.stringify(dto??null));return
+    }
+    if(req.method==='GET'&&req.url==='/private/ordinary-share'){
+      if(req.socket.remoteAddress!=='127.0.0.1'&&req.socket.remoteAddress!=='::ffff:127.0.0.1'){res.writeHead(403).end('{}');return}
+      if(active){res.writeHead(409).end('{}');return}
+      if(!await page.locator('#roomArea').isVisible()){res.writeHead(409).end('{}');return}
+      const url=await page.locator('#shareUrl').inputValue()
+      if(typeof url!=='string'||Buffer.byteLength(url)>8192){res.writeHead(409).end('{}');return}
+      const parsed=new URL(url)
+      if(parsed.origin!==new URL(app).origin||parsed.pathname!=='/j/'||!parsed.hash){res.writeHead(409).end('{}');return}
+      res.end(JSON.stringify({url,sha256:digest(url)}));return
     }
     if(req.url==='/result'){res.end(JSON.stringify({active,result}));return}
     if(req.url==='/state'){res.end(JSON.stringify({active,complete:!!result,failures}));return}
