@@ -49,8 +49,8 @@ nothing from it.
    first time. Adverts, the replay watermark and the last good relay are
    kept on the device only; they are never published, shared or served.
 5. **Credentials come from the operator.** For a call, the app asks the
-   chosen relay's credential endpoint for a 10-minute login and renews it at
-   two thirds of its life. The login stays on the device, as hand-entered
+   chosen relay's credential endpoint for an hour-long login and renews it
+   on the call's ICE refresh (review change 1). The login stays on the device, as hand-entered
    logins do today. It is never put in a room link, an invitation or a
    Nostr event.
 6. **Relay-only keeps its promise.** If the user picked relay-only mode, a
