@@ -89,7 +89,7 @@ optional where its answer would change the design.
 Device-side discovery of operator-signed Spry adverts (kind 31478) was
 reviewed against law note 2.13 (design:
 `docs/2026-10-25-public-relay-discovery.md`). It is off by default. When the
-user turns it on, the web app and Android from version 0.6.114 read adverts
+user turns it on, the web app and Android from version 0.6.113 read adverts
 from the Nostr relays in the device's own Connections list, over a connection that is not signed in, and
 the user chooses a relay; the chosen operator issues an hour-long login
 directly to the device. ForgeSworn runs no relay, index, directory, cache or
