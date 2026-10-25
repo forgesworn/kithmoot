@@ -10,6 +10,9 @@ import { BrowserMlsBoxClient } from '../app/src/mls-box-client.js'
 import { RendezvousVault, BrowserRendezvousVaultStorage, type RendezvousReceipt } from '../app/src/rendezvous-vault.js'
 import { withMlsRendezvous, type MlsRendezvousCustody } from '../app/src/mls-rendezvous-custody.js'
 import { readInvitationRegistrationRequest } from '../app/src/mls-invitation-package.js'
+import { BrowserBarkRendezvous, captureBarkRendezvous, barkRendezvousFor, publicRendezvousDeviceCurrent } from '../app/src/mls-bark-rendezvous.js'
+import { BrowserMlsRoomForeground } from '../app/src/mls-room-foreground.js'
+import { BrowserMlsRoomCreateCustody } from '../app/src/mls-room-create-rendezvous.js'
 import { loadMlsEngine } from '../app/src/mls-engine.js'
 import { readMlsRoom } from '../app/src/mls-room-store.js'
 import { personaWriter, pairedWitnessIdentity } from '../app/src/mls-writer-identity.js'
@@ -204,6 +207,70 @@ export async function invitationFixture() {
 
   return {
     box, installation,
+    /** Typed extension transport is synthetic; its child ciphertext is real
+     * NIP44 from the CHILD scalar to the actual witnessed app-owned target.
+     * Neither the target secret nor any fixture secret leaves this closure. */
+    async barkProvision(mode = 'success') {
+      const a = actor('bob'), previous = (window as any).nostr
+      const source = new RendezvousVault(new BrowserRendezvousVaultStorage())
+      const child = new Uint8Array(32).fill(72), rz = getPublicKey(child)
+      let calls = 0, requestKeys = '', target = '', approvedIndex = 0
+      const provider = { heartwood: { provisionRendezvousV1: async (request: any) => {
+        calls++; target = request.targetDevice; approvedIndex = request.index
+        requestKeys = Object.keys(request).sort().join(',')
+        if (mode === 'provider-change') (window as any).nostr = { ...provider }
+        if (mode === 'callable-change') provider.heartwood.provisionRendezvousV1 = async () => ''
+        if (mode === 'account-change') a.active = false
+        if (mode === 'expiry') clock += 481
+        const fields = { v: 1, p: request.expectedPersona, d: request.targetDevice, rz,
+          u: 'rendezvous', i: request.index, n: request.nonce, e: request.expiresAt }
+        const inner = { ...fields, ...(mode === 'inner-index' ? { i: request.index + 1 } : {}), k: base64urlnopad.encode(child) }
+        const outer = { ...fields, ...(mode === 'nonce' ? { n: base64urlnopad.encode(new Uint8Array(16)) } : {}),
+          c: encrypt(JSON.stringify(inner), getConversationKey(child, request.targetDevice)) }
+        return JSON.stringify(outer)
+      } } }
+      ;(window as any).nostr = provider
+      const signer = { method: 'nip07', pubkey: a.persona }
+      captureBarkRendezvous(signer, a.persona, provider)
+      const binding = barkRendezvousFor(signer)!
+      const ctx = { persona: a.persona, provider: binding, current: () => a.active }
+      let bark = new BrowserBarkRendezvous(a.host, source, () => clock)
+      let error = '', publicKeys = '', forgedCurrent = false, installed = false, restartSame = false, roomState = '', custodyCurrent = false
+      try {
+        if (mode === 'offline') a.witness.offline = true
+        if (mode === 'lost-target-ack') a.witness.loseAdvance = true
+        let device
+        try { device = await bark.publicDevice(ctx) } catch (e) { error = String(e) }
+        if (mode === 'lost-target-ack') {
+          if (device || calls) throw new Error('Target exposed before its witness acknowledgement')
+          reopen(a); bark = new BrowserBarkRendezvous(a.host, source, () => clock)
+          device = await bark.publicDevice(ctx)
+        }
+        if (device) {
+          publicKeys = Object.keys(device).sort().join(',')
+          forgedCurrent = publicRendezvousDeviceCurrent({ ...device }, a.persona)
+          try {
+            const receipt = await bark.provision(ctx, 7, clock + 480)
+            const saved = await source.active(a.persona, device.device)
+            try { installed = !!saved && saved.receipt.rendezvousPubkey === rz && receipt.rendezvousPubkey === rz }
+            finally { saved?.wipe() }
+            reopen(a); bark = new BrowserBarkRendezvous(a.host, source, () => clock)
+            const again = await bark.publicDevice(ctx); restartSame = again.device === device.device
+            const foreground = new BrowserMlsRoomForeground()
+            const custody = new BrowserMlsRoomCreateCustody(foreground, () => undefined, () => bark.publicDevice(ctx))
+            const result = await foreground.run(a.persona, () => a.active, scope => custody.withInvitation(scope, async held => {
+              custodyCurrent = held.current() && held.receipt.rendezvousPubkey === rz
+              return a.rooms.create({ ...context(a, held.current), rendezvousKey: rz },
+                { name: 'Bark protected handoff', homeBox: box, installation, expiresAt: clock + 86400, experimentalInvitation: true }, consent)
+            }))
+            roomState = result.state === 'done' ? result.value.state : result.state
+          } catch (e) { error = String(e) }
+          const saved = await source.active(a.persona, device.device)
+          try { installed = !!saved && saved.receipt.rendezvousPubkey === rz } finally { saved?.wipe() }
+        }
+        return { calls, requestKeys, publicKeys, forgedCurrent, installed, restartSame, roomState, custodyCurrent, targetBound: !!target && target.length === 64, approvedIndex, error }
+      } finally { (window as any).nostr = previous; child.fill(0); await source.clear(a.persona) }
+    },
     metadata(name: InvitationActorName) { const a = actor(name); return { persona: a.persona, device: a.device, rendezvous: a.rendezvous, session: a.session } },
     async create(name: InvitationActorName, experimental = true) {
       const a = actor(name)

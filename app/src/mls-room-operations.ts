@@ -491,18 +491,13 @@ export class BrowserMlsRoomOperations {
     try {
       if (!current()) throw new StaleMlsOperation()
       if (!hex(rz)) throw new MlsRoomRefused('malformed')
-      let selectedInvitation = context.experimentalInvitation === true
-      if (context.sessionId) {
-        const selected = await this.coordinator.transact(ctx.persona, async tx => !!(await readMlsRoom(tx, context.sessionId!)).invitation, current)
-        if (selected.state !== 'active') return selected
-        selectedInvitation = selected.value
-      }
-      const identity = checked(await this.vault.credential(ctx)), wasm = (selectedInvitation ? await loadInvitationEngine() : await loadMlsEngine()) as unknown as Awaited<ReturnType<typeof loadMlsEngine>>
+      const identity = checked(await this.vault.credential(ctx)), wasm = await loadMlsEngine()
       if (!current()) throw new StaleMlsOperation()
       const live = () => current() && this.now() < Math.min(identity.device.credentialExpiresAt, validUntil)
       platform = new wasm.Platform(hexToBytes(identity.device.device), hexToBytes(rz), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
       const host = new BrowserMlsSessionHost<Session>(this.coordinator, async (id, plaintext, mark, tx) => {
         const room = await readMlsRoom(tx, bytesToHex(id))
+        if (room.invitation && !invitationPreviewEnabled()) throw new MlsRoomRefused('experimental-disabled')
         return room.invitation ? (wasm.Session as any).openInvitationSession(platform!, id, plaintext, mark, invitationRestart(tx, room))
           : wasm.Session.open(platform!, id, plaintext, mark)
       })
@@ -624,11 +619,8 @@ export class BrowserMlsRoomOperations {
     context = { ...context, vault: { ...context.vault }, current: () => epoch === this.#epoch && valid() }
     let consumed = false
     try {
-      const selected = await this.coordinator.transact(context.vault.persona, async tx => { const room = await readMlsRoom(tx, id); return { invitation: !!room.invitation, installation: room.invitation?.groupInstallation } }, context.current)
-      if (selected.state !== 'active') return selected
-      if (selected.value.invitation && !registration) throw new MlsRoomRefused('registration-receipt-required')
-      const wasm = (selected.value.invitation ? await loadInvitationEngine() : await loadMlsEngine()) as unknown as Awaited<ReturnType<typeof loadMlsEngine>>
-      if ((!registration && !(client instanceof BrowserMlsBoxClient)) || registration && (!selected.value.invitation || !selected.value.installation) || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
+      const wasm = await loadMlsEngine()
+      if ((!registration && !(client instanceof BrowserMlsBoxClient)) || registration && !invitationPreviewEnabled() || !Number.isSafeInteger(boxNow) || boxNow < 0 ||
           capabilities.length < 1 || capabilities.length > 64 || capabilities.some(capability => !(capability instanceof wasm.Capability))) throw new MlsRoomRefused('malformed')
       const binding = (capability: Capability) => {
         const info = wasm.Capability.prototype.info.call(capability), expiresAt = Number(info.expiresAt)
@@ -651,6 +643,8 @@ export class BrowserMlsRoomOperations {
           const retained = room.pendingAdds ?? []
           if (retained.length + candidates.length > 64 || candidates.some(candidate => retained.some(item =>
               item.route.leafId === candidate.route.leafId || item.route.packageId === candidate.route.packageId || item.route.welcomeMailbox === candidate.route.welcomeMailbox))) throw new MlsRoomRefused('pending-add-full')
+          if (room.invitation && !registration) throw new MlsRoomRefused('registration-receipt-required')
+          if (registration && !room.invitation) throw new MlsRoomRefused('wrong-profile')
           if (room.binding.installation === null) throw new MlsRoomRefused('not-joined')
           if (!registration && client!.box !== room.binding.homeBox || routes.some(route => route.homeBox !== room.binding.homeBox || watched.has(route.welcomeMailbox))) throw new MlsRoomRefused('invalid-package-route')
           if (known.length + routes.length > 64 || new Set([...known, ...routes].map(route => route.packageId)).size !== known.length + routes.length ||
@@ -664,7 +658,7 @@ export class BrowserMlsRoomOperations {
             const hold = journal.inbox?.prompts.find(prompt => ['approved', 'done'].includes(prompt.state) && prompt.request.device === candidate.device)
             if (hold) throw new MlsRoomRefused(hold.request.sender === candidate.identity ? 'compromised-device-admission' : 'device-person-conflict')
           }
-          if (registration) for (const route of routes) verifyInvitationRegistrationReceipt(registration, { node: route.homeBox, installation: selected.value.installation!, packageId: route.packageId, welcomeMailbox: route.welcomeMailbox, expiresAt: route.expiresAt }, this.now())
+          if (registration) for (const route of routes) verifyInvitationRegistrationReceipt(registration, { node: route.homeBox, installation: room.invitation!.groupInstallation, packageId: route.packageId, welcomeMailbox: route.welcomeMailbox, expiresAt: route.expiresAt }, this.now())
           await assertMembershipMutationAllowed(tx, scope.wasm, id, room, scope.ctx.persona, session)
         }
         const checked = await scope.host.step(scope.hostContext, id, session => ({ snapshot: null, value: undefined }),

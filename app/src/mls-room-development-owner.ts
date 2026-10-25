@@ -19,6 +19,7 @@ import { BrowserMlsMessageDriver, type MlsDriverRound } from './mls-message-driv
 import { pairedWitnessIdentity } from './mls-writer-identity.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { wipeLinkState } from './browser-link-vault.js'
+import { BrowserBarkRendezvous, type BarkRendezvousProvider, type BarkRendezvousContext } from './mls-bark-rendezvous.js'
 import { readInvitationRegistrationRequest } from './mls-invitation-package.js'
 import { loadInvitationEngine, invitationPreviewEnabled } from './mls-invitation-engine.js'
 import { readInvitationContext, INVITATION_SIGN_METHOD } from '../../src/vmls/invitation.js'
@@ -30,10 +31,11 @@ export interface MlsRoomDevelopmentContext extends MlsAccountContext {
     readonly owner: object; readonly signEvent: ParticipantIdentity['signEvent']
     readonly crypt?: { readonly owner: object; readonly encrypt: VmlsRevocationIdentity['encrypt']; readonly decrypt: VmlsRevocationIdentity['decrypt'] }
     readonly rendezvous?: MlsRoomCreateDevice
+    readonly barkRendezvous?: BarkRendezvousProvider
   }
 }
 interface Active { account: MlsRoomDevelopmentContext; identity: ParticipantIdentity; scope: MlsRoomForegroundScope; clients: Set<BrowserMlsBoxClient>; drivers: Set<BrowserMlsMessageDriver>; current(): boolean }
-interface Services { links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: RoomCoordinatedMlsVault; rooms: BrowserMlsRoomOperations; creation: BrowserMlsRoomCreateCustody }
+interface Services { links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: RoomCoordinatedMlsVault; rooms: BrowserMlsRoomOperations; creation: BrowserMlsRoomCreateCustody; bark: BrowserBarkRendezvous }
 const stale = () => new Error('Reopen the development room workflow in the current foreground account.')
 const hex = (value: string) => /^[0-9a-f]{64}(?![\s\S])/.test(value)
 const routeShape = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(value)
@@ -51,6 +53,7 @@ function wipe(value: unknown, seen = new Set<object>()): void {
 const matches = (next: MlsRoomDevelopmentContext['authority'] | undefined, before: MlsRoomDevelopmentContext['authority']) =>
   !!next && next.owner === before.owner && next.signEvent === before.signEvent &&
   next.crypt?.owner === before.crypt?.owner && next.crypt?.encrypt === before.crypt?.encrypt && next.crypt?.decrypt === before.crypt?.decrypt
+  && next.barkRendezvous === before.barkRendezvous && (!before.barkRendezvous || before.barkRendezvous.current())
   && next.rendezvous?.owner === before.rendezvous?.owner && next.rendezvous?.deviceKey === before.rendezvous?.deviceKey &&
   next.rendezvous?.provisionOwner === before.rendezvous?.provisionOwner && next.rendezvous?.provision === before.rendezvous?.provision
 async function join(work: readonly Promise<unknown>[]): Promise<void> {
@@ -79,6 +82,25 @@ export class BrowserMlsRoomDevelopmentOwner {
     this.#consent = new BrowserMlsRoomConsent(root)
   }
 
+  /** Explicit Bark operation; target creation is witnessed before its public
+   * key is sent, and the actual encrypted child is installed before release. */
+  provisionBark(index: number) {
+    const clock = new BrowserMlsRoomCeremonyClock()
+    return this.#run(true, async (services, active) => {
+      if (!active.account.authority.barkRendezvous) throw new Error('Reconnect this account through a supporting Bark extension.')
+      const receipt = await services.bark.provision(this.#barkContext(active), index, (clock.read() ?? 0) + 480)
+      return { state: 'saved' as const, receipt }
+    }, (result, failure) => {
+      if (failure || !clock.current() || Math.floor(Date.now() / 1000) >= result.receipt.expiresAt) throw new Error('The Bark provision result is held. Reopen the saved child before retrying.')
+      return result
+    }, clock.current)
+  }
+  #barkContext(active: Active): BarkRendezvousContext {
+    const provider = active.account.authority.barkRendezvous
+    if (!provider) throw stale()
+    return { persona: active.account.persona, provider, current: active.current }
+  }
+
   create(routeId: string, name: string, lifetime: number, experimentalInvitation = false): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
     if (!routeShape(routeId) || typeof name !== 'string' || !name.trim() || name.length > 120 ||
         !Number.isSafeInteger(lifetime) || lifetime < 3600 || lifetime > 30 * 86400) throw new Error('Choose a saved route, a room name and a lifetime between one hour and thirty days.')
@@ -90,7 +112,7 @@ export class BrowserMlsRoomDevelopmentOwner {
     const pending = (reason: string): MlsRoomCreateView => ({ state: 'pending', reason,
       ...(candidate?.state === 'active' ? { session: candidate.value.session } : {}) })
     return this.#run<MlsRoomCreateView>(true, async (services, active) => {
-      if (!active.account.authority.rendezvous) return { state: 'held', reason: 'Provision this bunker browser’s rendezvous child first.' }
+      if (!active.account.authority.rendezvous && !active.account.authority.barkRendezvous) return { state: 'held', reason: 'Provision this browser’s rendezvous child through Bark or its retained bunker ceremony first.' }
       const deadline = clock.deadline
       const consent: ConsentPrompt = permission => this.#consent.ask(this.#foreground, active.scope, permission, deadline,
         () => active.current() && (!custody || custody.current()))
@@ -452,8 +474,13 @@ export class BrowserMlsRoomDevelopmentOwner {
     const links = new BrowserPersonaLinks(() => !!this.#active?.current() && this.#active.account.mode === 'normal')
     const coordinator = new BrowserPersonaCoordinator(new BrowserMlsPersonaStore(), links.channels)
     const vault = new RoomCoordinatedMlsVault(coordinator, this.#foreground, { generation: () => this.#epoch })
+    const bark = new BrowserBarkRendezvous(coordinator)
     const creation = new BrowserMlsRoomCreateCustody(this.#foreground,
-      () => this.#active?.current() ? this.context()?.authority.rendezvous : undefined)
-    return { links, coordinator, vault, rooms: new BrowserMlsRoomOperations(coordinator, vault), creation }
+      () => this.#active?.current() ? this.context()?.authority.rendezvous : undefined,
+      async () => {
+        const active = this.#active
+        return active?.current() && active.account.authority.barkRendezvous ? bark.publicDevice(this.#barkContext(active)) : undefined
+      })
+    return { links, coordinator, vault, bark, rooms: new BrowserMlsRoomOperations(coordinator, vault), creation }
   }
 }

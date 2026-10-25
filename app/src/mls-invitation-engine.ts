@@ -2,7 +2,7 @@ import type * as Binding from '../public/vmls-wasm-invitation/vmls_wasm.js'
 /** Separate development input. The production bundle and its verifier retain
  * their original immutable pin. No network fallback or production activation. */
 let binding: Promise<typeof Binding & Record<string, any>> | undefined
-export const invitationPreviewEnabled = () => import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_INVITATION_PREVIEW === 'true'
+export const invitationPreviewEnabled = () => import.meta.env?.DEV === true && import.meta.env?.VITE_BROWSER_MLS_INVITATION_PREVIEW === 'true'
 export function loadInvitationEngine(): Promise<typeof Binding & Record<string, any>> {
   if (!invitationPreviewEnabled()) return Promise.reject(new Error('The experimental invitation profile requires an explicit development preview.'))
   return binding ??= (async () => {

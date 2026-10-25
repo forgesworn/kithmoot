@@ -3,11 +3,11 @@
  *
  * This is intentionally separate from contacts, accounts and room storage.
  * It accepts only Heartwood's bounded encrypted provision reply, opens it
- * through the browser's retained NIP-46 *device* key, and keeps the verified
- * child under a non-extractable WebCrypto key in IndexedDB.  It deliberately
- * does not invent a browser device key or a generic signer decrypt API. The
- * account ceremony supplies the retained NIP-46 client-key operation only for
- * Heartwood's purpose-specific rendezvous provision response.
+ * through a purpose-specific device operation, and keeps the verified child
+ * under a non-extractable WebCrypto key in IndexedDB. The account ceremony
+ * supplies either its retained NIP-46 client-key operation or its protected
+ * app-owned Bark transport target, only for Heartwood's rendezvous provision
+ * response. Neither route adds generic account-key decryption.
  */
 import { base64urlnopad } from '@scure/base'
 import { getPublicKey } from 'nostr-tools/pure'
@@ -32,8 +32,8 @@ export interface RendezvousReceipt {
   expiresAt: number
 }
 
-/** A constrained NIP-44 operation whose private half is the browser's
- * retained NIP-46 client key, never the account identity key. */
+/** A constrained NIP-44 operation using a retained NIP-46 client key or
+ * protected app-owned transport target, never the account identity key. */
 export interface RendezvousDeviceCrypt {
   decrypt(peerPubkey: string, ciphertext: string): Promise<string>
 }

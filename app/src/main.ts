@@ -379,6 +379,7 @@ import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPre
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
+import { captureBarkRendezvous, barkRendezvousFor } from './mls-bark-rendezvous.js'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import { ContextPanel } from './context-panel.js'
 import { AssignmentPanel, type BoardSummary } from './assignment-panel.js'
@@ -1524,6 +1525,7 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
     nostrSession = account
+    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
@@ -1686,6 +1688,7 @@ async function signInWithNostr(): Promise<void> {
     if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
     relayConnections.clearAuthentication()
     nostrSession = account
+    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
@@ -1714,10 +1717,10 @@ async function signOutOfNostr(): Promise<void> {
     // A signed-out account must not leave its device-specific rendezvous child
     // behind. Do this before changing the visible account state: a storage
     // failure keeps the account connected rather than pretending the clear won.
-    // Only a live bunker can create a rendezvous child. Do not initialise the
-    // encrypted IndexedDB vault for ordinary extension/remote sign-ins merely
-    // because they are signing out.
-    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    // Clear a child only for a captured provision-capable account. Avoid
+    // initialising the encrypted vault for ordinary extension/remote sign-ins
+    // merely because they are signing out.
+    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
     admissionController?.abort()
     clearImportedHistorySearch()
@@ -1811,7 +1814,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     contextPanel.close()
     await browserLinkPanel.link.forget()
     // As above, avoid creating a vault on a browser that never held one.
-    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
     admissionController?.abort()
     clearImportedHistorySearch()
@@ -17450,6 +17453,7 @@ if (browserMlsPreview) {
         const signer = current.signer, crypt = signer.nip44, bunker = rendezvousBunker(current)
         return { persona: current.pubkey, identity: { pubkey: current.pubkey, signEvent: signer.signEvent.bind(signer) },
           authority: { owner: signer, signEvent: signer.signEvent,
+            ...(barkRendezvousFor(signer) ? { barkRendezvous: barkRendezvousFor(signer) } : {}),
             ...(bunker ? { rendezvous: { owner: bunker, deviceKey: bunker.clientSecretKey,
               provisionOwner: bunker.nip46, provision: bunker.nip46.provisionRendezvous } } : {}),
             ...(crypt ? { crypt: { owner: crypt, encrypt: crypt.encrypt, decrypt: crypt.decrypt } } : {}) },

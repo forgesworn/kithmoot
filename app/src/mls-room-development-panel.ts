@@ -23,7 +23,9 @@ export class BrowserMlsRoomDevelopmentPanel {
       <label>Link relay addresses <input data-relays autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
       <label>Room pairing code <input data-code type="password" autocomplete="off" maxlength="32768"></label>
       <button data-pair type="button">Pair room connection</button><button data-routes type="button">Read saved room routes</button><div data-route-list></div></fieldset>
-      <fieldset><legend>Create a local MLS room</legend><p>Prepare and enrol your MLS device in witness settings and provision this bunker browser’s rendezvous child first. Creation authenticates the selected Bothy installation twice. It does not deliver messages.</p>
+      <fieldset data-bark-provision><legend>Bark rendezvous device</legend><p>After witness enrolment, ask Bark for a root-derived child encrypted to this browser’s protected dedicated target key. The signer must approve this exact target, index and expiry. The current child remains usable only until that bounded expiry.</p>
+      <label>Rendezvous index <input data-bark-index type="number" min="0" max="4294967295" value="0"></label><button data-bark-provision-button type="button">Review Bark device provisioning</button><p data-bark-device></p></fieldset>
+      <fieldset><legend>Create a local MLS room</legend><p>Prepare and enrol your MLS device in witness settings and provision this browser’s rendezvous child through Bark or its retained bunker ceremony first. Creation authenticates the selected Bothy installation twice. It does not deliver messages.</p>
       <label>Saved room route <select data-create-route><option value="">Read saved routes first</option></select></label>
       <label>Room name <input data-create-name maxlength="120" autocomplete="off"></label>
       <label>Binding lifetime in days <input data-create-days type="number" min="1" max="30" value="7"></label>
@@ -64,6 +66,12 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#text('invitation-toggle').hidden = !invitationPreviewEnabled()
     this.#text('invitation-controls').hidden = !invitationPreviewEnabled()
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
+    this.#button('bark-provision-button').onclick = () => { void this.#work(async epoch => {
+      const index = Number(this.#input('bark-index').value)
+      const result = this.#value(await this.#owner.provisionBark(index), epoch)
+      this.#text('bark-device').textContent = `Public target: ${result.receipt.device}\nRendezvous: ${result.receipt.rendezvousPubkey}\nIndex: ${result.receipt.index}\nExpires: ${new Date(result.receipt.expiresAt * 1000).toISOString()}`
+      this.#text('status').textContent = 'The actual encrypted Bark child was installed. Keep the account and foreground current for the bounded room ceremony.'
+    }) }
     this.#button('close').onclick = () => this.close()
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close() })
     this.dialog.addEventListener('close', () => { if (!this.dialog.open) void this.invalidate().catch(() => {}) })
@@ -168,7 +176,7 @@ export class BrowserMlsRoomDevelopmentPanel {
   invalidate(): Promise<void> {
     this.#epoch++
     if (this.dialog.open) this.dialog.close()
-    for (const name of ['account', 'status', 'route-list', 'room-list']) this.#text(name).replaceChildren()
+    for (const name of ['account', 'status', 'route-list', 'room-list', 'bark-device']) this.#text(name).replaceChildren()
     this.#input('code').value = ''; this.#input('relays').value = ''
     this.#input('create-name').value = ''; this.#input('create-days').value = '7'
     this.#input('create-invitation').checked = false

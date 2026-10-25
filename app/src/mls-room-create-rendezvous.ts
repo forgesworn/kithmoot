@@ -2,6 +2,7 @@ import { RendezvousVault, BrowserRendezvousVaultStorage, type RendezvousReceipt 
 import { MlsRoomRefused } from './mls-room-store.js'
 import { BrowserMlsRoomForeground, type MlsRoomForegroundScope } from './mls-room-foreground.js'
 import { withMlsRendezvous, type MlsRendezvousCustody } from './mls-rendezvous-custody.js'
+import { publicRendezvousDeviceCurrent, type PublicRendezvousDevice } from './mls-bark-rendezvous.js'
 import { getPublicKey } from 'nostr-tools/pure'
 
 /** Raw references from the actual application's retained bunker ceremony.
@@ -18,10 +19,22 @@ export interface MlsRoomCreateDevice {
 export class BrowserMlsRoomCreateCustody {
   readonly #source = new RendezvousVault(new BrowserRendezvousVaultStorage())
   constructor(private readonly foreground: BrowserMlsRoomForeground,
-    private readonly device: () => MlsRoomCreateDevice | undefined) {
+    private readonly device: () => MlsRoomCreateDevice | undefined,
+    private readonly protectedDevice?: () => Promise<PublicRendezvousDevice | undefined>) {
     if (!(foreground instanceof BrowserMlsRoomForeground)) throw new Error('Room creation requires its concrete foreground.')
   }
   async withInvitation<T>(scope: MlsRoomForegroundScope, work: (custody: MlsRoomCreateRendezvous & MlsRendezvousCustody) => Promise<T>): Promise<T> {
+    const protectedDevice = await this.protectedDevice?.()
+    if (protectedDevice) {
+      if (!this.foreground.active(scope) || !publicRendezvousDeviceCurrent(protectedDevice, scope.account)) throw stale()
+      const child = await this.#source.active(scope.account, protectedDevice.device)
+      if (!child) throw stale()
+      const receipt = Object.freeze({ ...child.receipt }); child.wipe()
+      const current = () => this.foreground.active(scope) && publicRendezvousDeviceCurrent(protectedDevice, scope.account)
+      return withMlsRendezvous(this.#source, receipt, () => Math.floor(Date.now() / 1000), current, async held => {
+        try { return await work(Object.freeze({ ...held, receipt })) } finally { await this.foreground.drain(scope) }
+      })
+    }
     const raw = this.device()
     if (!raw || !raw.owner || typeof raw.owner !== 'object' || !raw.provisionOwner || typeof raw.provisionOwner !== 'object' || typeof raw.provision !== 'function' ||
         !(raw.deviceKey instanceof Uint8Array) || raw.deviceKey.length !== 32 || !this.foreground.active(scope)) throw stale()
@@ -40,7 +53,17 @@ export class BrowserMlsRoomCreateCustody {
       finally { await this.foreground.drain(scope) }
     })
   }
-  withCurrent<T>(scope: MlsRoomForegroundScope, work: (custody: MlsRoomCreateRendezvous) => Promise<T>): Promise<T> {
+  async withCurrent<T>(scope: MlsRoomForegroundScope, work: (custody: MlsRoomCreateRendezvous) => Promise<T>): Promise<T> {
+    const protectedDevice = await this.protectedDevice?.()
+    if (protectedDevice) {
+      if (!this.foreground.active(scope) || !publicRendezvousDeviceCurrent(protectedDevice, scope.account)) throw stale()
+      return withMlsRoomCreateRendezvous(this.#source, this.foreground, scope, protectedDevice.device, () => Math.floor(Date.now() / 1000), held => {
+        const current = () => this.foreground.active(scope) && publicRendezvousDeviceCurrent(protectedDevice, scope.account)
+        const custody = Object.freeze({ receipt: held.receipt, current: () => current() && held.current(), releaseCurrent: () => current() && held.releaseCurrent() })
+        if (!custody.current()) throw stale()
+        return work(custody)
+      })
+    }
     const value = this.device()
     if (!value || !value.owner || typeof value.owner !== 'object' || !value.provisionOwner || typeof value.provisionOwner !== 'object' || typeof value.provision !== 'function' ||
         !(value.deviceKey instanceof Uint8Array) || value.deviceKey.length !== 32) return Promise.reject(stale())
@@ -76,7 +99,7 @@ const stale = () => new MlsRoomRefused('stale-rendezvous')
 
 /** Reads the actual encrypted child, rather than accepting a caller receipt
  * or copying active(). The application must obtain device from its retained
- * NIP-46 client key, not from an enrolled MLS device or a text field. Lock
+ * NIP-46 client key or protected app target, not an MLS device or text field. Lock
  * order is child then persona. The concrete foreground joins every registered
  * actual signing/consent tail before unlock, including when lower create
  * cancellation wins. Never invoke this helper from a tracked nested task. */
