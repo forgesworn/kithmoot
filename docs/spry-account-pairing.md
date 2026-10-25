@@ -1,6 +1,6 @@
 # Spry on your devices
 
-Update desktop to 0.1.104 and Android to 0.6.112, or use the current web app.
+Update desktop to 0.1.105 and Android to 0.6.112, or use the current web app.
 Sign in with the same Nostr account on each device. Install/open Spry on your
 node, choose **Pair with KithMoot**, open the KithMoot app and approve **Pair
 Spry**. Its account pairing then follows your other signed-in devices through
@@ -11,6 +11,15 @@ An existing local pairing made under that Nostr account can be shared using
 signer/relay. A guest pairing stays on that device. The browser handoff offers
 **Open KithMoot app** and a locally drawn Android QR for a device without the
 account. Each such guest app needs a fresh one-use code.
+
+Spry's handoff offers **Open KithMoot app** and **Copy pairing link**. Safari
+does not need to sign into KithMoot: open the installed app where you are
+already signed in. Desktop 0.1.105 and the current web app also accept a
+copied app or web link in **Settings → Connections → Spry → Spry pairing
+link**. Paste it and choose **Pair Spry**, then approve the node shown.
+The one-use code is cleared from the input before the request and is never
+stored as settings. Android 0.6.112 already opens the native pairing link;
+use the link or local Android QR when its app is not signed into that account.
 
 The shared account record contains the Spry endpoint, pairing id and pairing
 authority key. It is signed by the account and NIP-44 encrypted to that same

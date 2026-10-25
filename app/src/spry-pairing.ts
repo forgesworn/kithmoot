@@ -1,6 +1,17 @@
 import { claimSpryPairing, parseSpryPairingLink, parseSpryOffer, spryEndpoint, type SpryPairing, type SpryOffer } from '../../src/spry.js'
 
 const KEY = 'kithmoot.spry-pairing.v1'
+/** Accept a pasted app/web pairing link without navigating or contacting it. */
+export function parseSpryPairingInput(text: string): string {
+  const value = text.trim()
+  if (value.length > 4096) throw new Error('This Spry pairing link could not be read.')
+  const url = new URL(value)
+  const app = url.protocol === 'kithmoot:' && url.host === 'join' && ['', '/'].includes(url.pathname)
+  const web = url.protocol === 'https:' && url.host && ['/j', '/j/'].includes(url.pathname)
+  if ((!app && !web) || url.username || url.password || url.search) throw new Error('This Spry pairing link could not be read.')
+  parseSpryPairingLink(url.hash)
+  return url.hash
+}
 export function parseAccountSpryPairing(value: unknown): SpryPairing {
   if (!value || typeof value !== 'object') throw new Error('Invalid Spry pairing')
   const raw = value as Partial<SpryPairing>
@@ -47,10 +58,12 @@ export function saveSpryOffer(store: Pick<Storage, 'getItem' | 'setItem'>, parti
 }
 
 export async function completeSpryPairing(hash: string, store: Pick<Storage, 'setItem'>, participant: string,
-  confirm: (host: string) => Promise<boolean>, fetcher: typeof fetch = fetch): Promise<boolean> {
+  confirm: (host: string) => Promise<boolean>, fetcher: typeof fetch = fetch, isCurrent: () => boolean = () => true): Promise<boolean> {
   const link = parseSpryPairingLink(hash)
   if (!await confirm(link.endpoint.startsWith('spry:') ? 'Your Spry node' : new URL(link.endpoint).hostname)) return false
+  if (!isCurrent()) return false
   const pair = await claimSpryPairing(link, fetcher)
+  if (!isCurrent()) return false
   saveSpryPairing(store, pair, participant)
   return true
 }

@@ -307,7 +307,7 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
-import { completeSpryPairing, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
+import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
@@ -422,6 +422,7 @@ for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey',
  */
 // Consume a one-use pairing code before room parsing, history, referrers or invitations can see it.
 const spryPairingHash = location.hash.startsWith('#spry=') ? location.hash : undefined
+let spryPairingInFlight = false
 if (spryPairingHash) history.replaceState(null, '', location.pathname + location.search)
 let linkWords: { code: string; words: string } | undefined
 /** Invitations at the top of Chats (invitations.ts), made on first render.
@@ -17943,6 +17944,21 @@ $('spryPairingRemove').addEventListener('click', async () => {
   finally { button.disabled = false }
 })
 
+$('spryPairingAdd').addEventListener('click', () => {
+  const input = $('spryPairingInput') as HTMLInputElement
+  try {
+    const hash = parseSpryPairingInput(input.value)
+    input.value = ''
+    void pairSpryOnThisDevice(hash, true)
+  } catch {
+    $('spryPairingStatus').textContent = 'That pairing link is invalid or expired. Copy a fresh link from Spry, including the part after #.'
+    input.focus()
+  }
+})
+$('spryPairingInput').addEventListener('keydown', event => {
+  if (event.key === 'Enter') { event.preventDefault(); $('spryPairingAdd').click() }
+})
+
 $('spryAccountSync').addEventListener('click', async () => {
   const sync = spryAccountSync
   if (!sync) return
@@ -22176,23 +22192,38 @@ const identityReady = restoreSessionWithExtensionGrace()
     void runDueDestructs()
   })
 
-if (spryPairingHash) void identityReady.then(async () => {
-  const participant = currentIdentity().pubkey
-  const paired = await completeSpryPairing(spryPairingHash, localStorage, participant, host => confirmSpryPairingTarget(spryPairingHash, host, {
-    desktop: import.meta.env.VITE_DESKTOP === 'true', syncAccount: nostrSession?.pubkey === participant && !!nostrSession.signer.nip44,
-    isCurrent: () => currentIdentity().pubkey === participant,
-  }))
-  if (paired) {
-    if (currentIdentity().pubkey !== participant) return
-    renderCallRelay()
-    const pair = loadSpryPairing(localStorage, participant)
-    const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
-    if (currentIdentity().pubkey !== participant) return
-    setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
-      : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
-      : 'Spry paired on this device. Relay access will be shared automatically in your calls.')
+async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void> {
+  if (spryPairingInFlight) return
+  spryPairingInFlight = true
+  const button = $('spryPairingAdd') as HTMLButtonElement
+  button.disabled = true
+  try {
+    await identityReady
+    const participant = currentIdentity().pubkey
+    const isCurrent = () => currentIdentity().pubkey === participant
+    const paired = await completeSpryPairing(hash, localStorage, participant, host => confirmSpryPairingTarget(hash, host, {
+      desktop: pasted || import.meta.env.VITE_DESKTOP === 'true', syncAccount: nostrSession?.pubkey === participant && !!nostrSession.signer.nip44,
+      isCurrent: () => currentIdentity().pubkey === participant,
+    }), fetch, isCurrent)
+    if (paired) {
+      if (currentIdentity().pubkey !== participant) return
+      renderCallRelay()
+      const pair = loadSpryPairing(localStorage, participant)
+      if (pair) for (const active of [session, dockedCall?.session]) if (active?.participant === participant) spryRooms.get(active)?.setPairing(pair)
+      const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
+      if (currentIdentity().pubkey !== participant) return
+      setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
+        : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
+        : 'Spry paired on this device. Relay access will be shared automatically in your calls.')
+    }
+  } catch {
+    const message = 'Spry could not be paired. Copy a fresh pairing link from Spry and try again.'
+    $('spryPairingStatus').textContent = message
+    setStatus(message)
   }
-}).catch(() => setStatus('Spry could not be paired. Open Spry on your node and choose Pair with KithMoot again.'))
+  finally { spryPairingInFlight = false; button.disabled = false }
+}
+if (spryPairingHash) void pairSpryOnThisDevice(spryPairingHash)
 
 // A room this device has joined goes straight in, as the identity that joined
 // it; so does an explicit room switch or safe update in this tab. An
