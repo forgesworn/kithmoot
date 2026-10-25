@@ -316,6 +316,21 @@
           <p class="note" id="callRelayCheckNote">Testing contacts your saved relay and sends test data. The server sees your IP address and login. No camera or microphone is used.</p>
           <button id="callRelayCheck" type="button" aria-describedby="callRelayCheckNote">Test saved call relay</button>
           <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
+        </fieldset>
+        <fieldset id="publicRelays">
+          <legend>Public call relays</legend>
+          <label><input id="publicRelaysOn" type="checkbox" aria-describedby="publicRelaysNote" /> Find public call relays on my Nostr relays</label>
+          <p class="note" id="publicRelaysNote">Off unless you turn it on. The app asks the Nostr relays in your Connections list for adverts that relay operators publish themselves; each of those relays learns your IP address, the time and that a search for call relays was made. Public call relays are run by strangers. KithMoot runs no list of them and does not check, rank or vouch for anyone listed. A relay you use sees your IP address and your call’s timing and volume, but not its content.</p>
+          <p id="publicRelaysBlocked" class="note" hidden>Your Spry pairing or your own call relay is used for calls, so public call relays are not looked up.</p>
+          <div id="publicRelaysPicker" hidden>
+            <button id="publicRelaysFind" type="button">Look again</button>
+            <p class="note">Region and notes are what each operator says about itself. Nothing here is checked.</p>
+            <ul id="publicRelaysList" class="publicRelaysList" aria-label="Public call relays found"></ul>
+            <p class="note" id="publicRelaysCheckNote">Checking contacts only the relay you selected: its operator learns your IP address, the time and which web app asked, and issues an hour-long login kept on this device for that check and your next call. No camera or microphone is used.</p>
+            <button id="publicRelaysCheck" type="button" aria-describedby="publicRelaysCheckNote" disabled>Check and use the selected relay</button>
+            <button id="publicRelaysForget" type="button" hidden>Stop using a public relay</button>
+          </div>
+          <p id="publicRelaysStatus" class="note" role="status" aria-live="polite"></p>
         </fieldset></details>
         </section>
         <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>

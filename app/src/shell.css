@@ -536,3 +536,13 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 #settingsPane .blockedList li { display: flex; align-items: center; gap: var(--s3); min-height: 48px; border-bottom: 1px solid var(--line); }
 #settingsPane .blockedList .blockedName { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 #settingsPane .blockedList button { flex: 0 0 auto; margin: 0; }
+
+/* Public call relays: what operators say about themselves, kept apart from
+   the Nostr relay list. A note is at most two lines and never reorders. */
+.publicRelaysList { list-style: none; margin: var(--s2) 0; padding: 0; display: grid; gap: var(--s2); }
+.publicRelaysList label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s1) var(--s2); align-items: start; min-height: 44px; }
+.publicRelaysList input { margin: 0.2rem 0 0; }
+.publicRelaysList .publicRelayHost { overflow-wrap: anywhere; font-weight: 600; }
+.publicRelaysList .publicRelayMeta, .publicRelaysList .publicRelayClaim { grid-column: 2; font-size: 0.875rem; overflow-wrap: anywhere; }
+.publicRelaysList .publicRelayClaim bdi { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; unicode-bidi: isolate; }
+.publicRelaysList .publicRelayWarn { grid-column: 2; font-size: 0.875rem; font-weight: 600; }
