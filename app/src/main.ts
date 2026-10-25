@@ -304,7 +304,9 @@ import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritanc
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
-import { callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
+import type { PublicRelayLogin } from '../../src/public-call-relays.js'
 import { completeSpryPairing, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
@@ -793,6 +795,27 @@ const relayStorage = {
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
 let boxDiscovery: BoxDiscovery | undefined
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
+/** Finding public call relays: off until the person turns it on. See
+ *  app/src/public-call-relays.ts and docs/2026-10-25-public-relay-discovery.md. */
+const publicCallRelays = new PublicCallRelays({
+  store: {
+    getItem: key => { try { return localStorage.getItem(key) } catch { return null } },
+    setItem: (key, value) => localStorage.setItem(key, value),
+    removeItem: key => localStorage.removeItem(key),
+  },
+  // One query to this device's own default read relays, then the
+  // connection is let go: no standing subscription, no relay added.
+  search: async now => {
+    const urls = publicRelayQueryRelays(relayConnections.personal('default'), relayConnections.health('default'))
+    if (urls.length === 0) return []
+    const pool = relayConnections.pool(PUBLIC_CALL_RELAY_SCOPE, publicRelayPoolHints(urls))
+    try { return await queryPublicRelayAdverts(pool, urls, now) } finally { pool.close() }
+  },
+})
+/** Each session's use of a discovered relay for its call, if any. */
+const publicRelayRoutes = new WeakMap<RoomSession, { start(): Promise<void>; end(): void }>()
+/** Said in place of the generic notice once a discovered relay is lost. */
+let callRelayLostNotice: string | undefined
 const browserLink = new BrowserLink(startBrowserLink)
 // Remains unavailable in production until browser integration and review pass.
 const browserMlsPreview = import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_PREVIEW === 'true'
@@ -904,7 +927,7 @@ let turnRelayConfigured = false
  *  connection with no relay. */
 function noteRelayMissing(missing: boolean): void {
   const note = $('relayMissingNote')
-  note.textContent = RELAY_MISSING_NOTICE
+  note.textContent = callRelayLostNotice ?? RELAY_MISSING_NOTICE
   note.hidden = !missing
 }
 /** How often a joined page re-fetches its TURN credential. The credential
@@ -5470,6 +5493,10 @@ async function joinCall(): Promise<void> {
     noteRelayMissing(true)
   }
   if (session !== s) return
+  // Below the room's own TURN or Spry offer, above the default: a relay
+  // the person chose from public adverts, asked for a login now.
+  await publicRelayRoutes.get(s)?.start().catch(() => {})
+  if (session !== s) return
   await waitForExistingCall(s, callPresenceReadyAt.get(s) ?? 0)
   if (session !== s || s.closed) return
   // “Hide my IP address” with no relay: refuse the call, never fall back to direct.
@@ -5571,6 +5598,7 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
       publishActiveTracks()
       if (s) await s.setCall(null)
     }
+    if (s) publicRelayRoutes.get(s)?.end()
     setCallOpen(false)
     void callWakeLock.release()
     autoplayBanner.hide()
@@ -13596,13 +13624,27 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // is on screen, so the guard is the session, not the screen.
     let created: RoomSession | undefined
     let spryActive = false
+    // A relay found over Nostr for this call (app/src/public-call-relays.ts).
+    // While its call lasts it stands in for the default relay, so the
+    // default is not fetched over it, and once lost nothing replaces it but
+    // what the person chose: never a fresh search and never a direct path
+    // for relay-only.
+    let publicCall: PublicRelayCall | undefined
+    let publicRelayInUse = false
+    let beforePublicRelay: RTCIceServer[] | undefined
+    const roomTurn = !isDefaultIceUrls(roomIceUrls) && roomIceUrls.some(url => /^turns?:/i.test(url))
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     const refreshIce = (): void => {
       if (spryActive) return
+      if (publicCall) {
+        // Renewal runs only while this session has a call.
+        if (publicCall.active && created?.call) void publicCall.renew(ICE_REFRESH_MS)
+        return
+      }
       resolveIceServers(roomIceUrls, deviceRelay)
         .then((resolved) => {
           if (!alive()) return
-          if (spryActive) return
+          if (spryActive || publicCall) return
           const fresh = withDeviceStun(resolved, deviceStun)
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
@@ -13622,7 +13664,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(available)
         : { iceServers: context?.tier === 'turn' ? available : stunOnly }
-      const pc = deviceRelay ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
+      const pc = deviceRelay || publicRelayInUse ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
       // only honest source for whether this device could carry anybody.
@@ -13870,28 +13912,94 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // after it did is: a cheap round trip here catches it before the join
     // event is the thing that discovers it, the slow and public way.
     if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
+    // New servers for this session, and its live connections restarted on
+    // them. `viaCallRelay` routes the change through the WebKit TURN/TCP
+    // filter and, for relay-only, keeps only usable relays.
+    const applyCallServers = (servers: RTCIceServer[], viaCallRelay: boolean): boolean => {
+      resolvedIceServers = servers
+      stunOnly = withoutTurn(resolvedIceServers)
+      turnRelayConfigured = hasRelay(resolvedIceServers)
+      sessionRelayBlocked.set(s, relayOnly && !turnRelayConfigured)
+      if (turnRelayConfigured) noteRelayMissing(false)
+      let failed = false
+      for (const key of ownConnections) {
+        const pc = openConnections.get(key)
+        if (!pc || pc.signalingState === 'closed') continue
+        try {
+          const config = pc.getConfiguration()
+          const serversForLink = relayOnly || key.startsWith('turn:') ? resolvedIceServers : stunOnly
+          if (viaCallRelay) {
+            callRelaySetConfiguration(pc, relayOnly ? { ...config, ...relayOnlyIceConfiguration(serversForLink) } : { ...config, iceServers: serversForLink })
+          } else pc.setConfiguration({ ...config, iceServers: serversForLink })
+          pc.restartIce()
+        } catch { failed = true /* Existing media keeps its current allocation until reconnect. */ }
+      }
+      return !failed
+    }
     if (!roomUsesBothy && !deviceRelay) {
       const relay = new SpryRoom(s, spryPairing, servers => {
         if (!alive()) return
         spryActive = true
-        resolvedIceServers = withDeviceStun(servers, deviceStun)
-        stunOnly = withoutTurn(resolvedIceServers)
-        turnRelayConfigured = hasRelay(resolvedIceServers)
-        sessionRelayBlocked.set(s, relayOnly && !turnRelayConfigured)
-        if (turnRelayConfigured) noteRelayMissing(false)
-        for (const key of ownConnections) {
-          const pc = openConnections.get(key)
-          if (!pc || pc.signalingState === 'closed') continue
-          try {
-            const config = pc.getConfiguration()
-            const serversForLink = relayOnly || key.startsWith('turn:') ? resolvedIceServers : stunOnly
-            pc.setConfiguration({ ...config, iceServers: serversForLink })
-            pc.restartIce()
-          } catch { /* Existing media keeps its current allocation until reconnect. */ }
-        }
+        // The room's Spry offer outranks a discovered relay.
+        if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
+        applyCallServers(withDeviceStun(servers, deviceStun), false)
       }, fetch, deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
       spryRooms.set(s, relay)
     }
+    // A relay the person chose from public adverts, for a call only. It
+    // never enters the descriptor, adverts, claims, links or invitations:
+    // it touches nothing but this session's ICE servers.
+    const applyPublicRelay = (login: PublicRelayLogin | undefined, why: 'start' | 'renew' | 'lost'): void => {
+      if (!alive() || spryActive) return
+      if (why === 'start' || !beforePublicRelay) beforePublicRelay = resolvedIceServers
+      const base = withoutTurn(beforePublicRelay)
+      if (login) {
+        publicRelayInUse = true
+        if (!applyCallServers([...base, publicRelayIceServer(login)], true) && why === 'renew') setStatus('The renewed call relay login could not be applied to every connection. Leave and rejoin the call if it drops.')
+        return
+      }
+      // Lost: the relay is dropped. Relay-only now refuses new connections
+      // rather than going direct; an ordinary call restarts on STUN.
+      if (relayOnly) {
+        resolvedIceServers = base
+        stunOnly = withoutTurn(base)
+        turnRelayConfigured = false
+        sessionRelayBlocked.set(s, true)
+      } else applyCallServers(base, true)
+    }
+    publicRelayRoutes.set(s, {
+      start: async () => {
+        if (chatOnly || roomUsesBothy || spryActive || roomTurn || publicCall ||
+            !publicRelaysMayRun({ enabled: publicCallRelays.enabled, spryPairing: !!spryPairing, handEntered: !!deviceRelay })) return
+        const call = new PublicRelayCall(publicCallRelays, {
+          apply: applyPublicRelay,
+          relayOnly,
+          superseded: () => spryActive || !alive(),
+          notice: text => {
+            if (!alive()) return
+            if (text === PUBLIC_RELAY_LOST || text === PUBLIC_RELAY_LOST_RELAY_ONLY) { callRelayLostNotice = text; noteRelayMissing(true) }
+            else setStatus(text)
+          },
+        })
+        publicCall = call
+        if (!await call.start() && publicCall === call) publicCall = undefined
+      },
+      end: () => {
+        const call = publicCall
+        publicCall = undefined
+        call?.end()
+        callRelayLostNotice = undefined
+        if (publicRelayInUse && !spryActive && beforePublicRelay) {
+          // The call is over: back to what the room had, with no restart.
+          resolvedIceServers = liveIceServers(beforePublicRelay)
+          stunOnly = withoutTurn(resolvedIceServers)
+          turnRelayConfigured = hasRelay(resolvedIceServers)
+          sessionRelayBlocked.set(s, relayOnly && !relayOnlyAvailable(resolvedIceServers))
+        }
+        publicRelayInUse = false
+        beforePublicRelay = undefined
+      },
+    })
     await s.join(chatOnly ? [] : currentAdverts(), chatOnly ? {} : currentClaims())
     callPresenceReadyAt.set(s, Date.now() + 2500)
     void spryRooms.get(s)?.publish().catch(() => {})
@@ -14066,7 +14174,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
-    if (failed) spryRooms.get(failed)?.close()
+    if (failed) { spryRooms.get(failed)?.close(); publicRelayRoutes.get(failed)?.end() }
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
     await closeFailedRoomWithCatalogues(failed,failedTransport,()=>failed?closeRoomBoardCatalogues(failed):Promise.resolve(),()=>{
@@ -15440,7 +15548,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
-  if (old && !keepCall) spryRooms.get(old)?.close()
+  if (old && !keepCall) { spryRooms.get(old)?.close(); publicRelayRoutes.get(old)?.end() }
   const boardsClosing=old&&!keepCall?closeRoomBoardCatalogues(old):Promise.resolve()
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
@@ -15708,6 +15816,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   ++callGeneration
   if (key && reason === 'user') callTabLock.release(key)
   if (c.iceRefreshTimer !== undefined) clearInterval(c.iceRefreshTimer)
+  publicRelayRoutes.get(c.session)?.end()
   tearDownCallMedia()
   closeRoomLogo(c.session)
   tileLiveness.retain([])
@@ -17737,7 +17846,7 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
-  if (name !== 'connections') cancelCallRelayActions()
+  if (name !== 'connections') { cancelCallRelayActions(); cancelPublicRelayCheck() }
   if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
@@ -17749,6 +17858,7 @@ function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
   settingsPane.dataset.page = name
   settingsPane.scrollTop = 0
   if (name === 'files') renderFilesSettings()
+  if (name === 'connections') { renderPublicRelays(); void findPublicRelays() }
   if (!focus) return
   if (name === 'main' && previous !== 'main' && settingsRow?.isConnected) settingsRow.focus({ preventScroll: true })
   else $('settingsTitle').focus({ preventScroll: true })
@@ -17768,6 +17878,7 @@ function applyHideIpDefault(): void {
 
 function renderSettingsRows(): void {
   renderCallRelay()
+  renderPublicRelays()
   renderCallStun()
   ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
@@ -17905,6 +18016,131 @@ $('callRelayCheck').addEventListener('click', async () => {
       callRelayCheckAbort = undefined
       ;($('callRelayCheck') as HTMLButtonElement).disabled = false
     }
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Public call relays found over Nostr. Off until turned on; the picker lists
+// what operators say about themselves, apart from the Nostr relay list, and
+// nothing is chosen for the person the first time.
+// ---------------------------------------------------------------------------
+
+let publicRelayGeneration = 0
+let publicRelayCheckAbort: AbortController | undefined
+function cancelPublicRelayCheck(): void {
+  publicRelayGeneration++
+  if (publicRelayCheckAbort) $('publicRelaysStatus').textContent = 'Relay check stopped.'
+  publicRelayCheckAbort?.abort()
+  publicRelayCheckAbort = undefined
+}
+/** Whether a Spry pairing or a hand-entered relay is set, in which case no
+ *  discovery query or login request is made. */
+function publicRelaysOutranked(): boolean {
+  try { return !!loadSpryPairing(localStorage, currentIdentity().pubkey) || !!loadCallRelay(localStorage) } catch { return true }
+}
+function renderPublicRelays(): void {
+  const on = publicCallRelays.enabled
+  const outranked = publicRelaysOutranked()
+  ;($('publicRelaysOn') as HTMLInputElement).checked = on
+  $('publicRelaysBlocked').hidden = !on || !outranked
+  $('publicRelaysPicker').hidden = !on || outranked
+  const list = $('publicRelaysList')
+  const listed = on && !outranked ? publicCallRelays.listing() : []
+  const selected = publicCallRelays.selected ?? publicCallRelays.lastGood?.key
+  list.replaceChildren(...listed.map(entry => {
+    const item = document.createElement('li')
+    const label = document.createElement('label')
+    const radio = document.createElement('input')
+    radio.type = 'radio'; radio.name = 'publicRelay'; radio.value = entry.key
+    radio.checked = entry.key === selected
+    radio.addEventListener('change', () => {
+      cancelPublicRelayCheck()
+      publicCallRelays.select(entry.key)
+      $('publicRelaysStatus').textContent = 'Selected for your calls on this visit. It is remembered on this device once a check or a call through it works.'
+      ;($('publicRelaysCheck') as HTMLButtonElement).disabled = false
+      $('publicRelaysForget').hidden = false
+    })
+    const host = document.createElement('span')
+    host.className = 'publicRelayHost'
+    // ASCII as advertised: an internationalised name stays xn-- encoded.
+    host.textContent = entry.host
+    const meta = document.createElement('span')
+    meta.className = 'publicRelayMeta'
+    meta.textContent = `Key ${entry.shortKey}${entry.lastGood ? ' · last worked on this device' : ''}`
+    label.append(radio, host, meta)
+    if (entry.knownHostNewKey) {
+      const warn = document.createElement('span')
+      warn.className = 'publicRelayWarn'
+      warn.textContent = 'This address worked before under a different key. It may not be the same operator.'
+      label.append(warn)
+    }
+    if (entry.region || entry.note) {
+      const claim = document.createElement('span')
+      claim.className = 'publicRelayClaim'
+      const said = document.createElement('bdi')
+      said.textContent = `The operator says: ${[entry.region ? `region ${entry.region}` : '', entry.note ?? ''].filter(Boolean).join(' · ')}`
+      claim.append(said)
+      label.append(claim)
+    }
+    item.append(label)
+    return item
+  }))
+  ;($('publicRelaysCheck') as HTMLButtonElement).disabled = !selected || !listed.some(entry => entry.key === selected) || !!publicRelayCheckAbort
+  $('publicRelaysForget').hidden = !publicCallRelays.lastGood && !publicCallRelays.selected
+}
+/** One discovery query when the picker opens or is asked to look again. */
+async function findPublicRelays(force = false): Promise<void> {
+  if (!publicCallRelays.enabled || publicRelaysOutranked()) { renderPublicRelays(); return }
+  if (!force && Date.now() - publicCallRelays.searchedAt < 60_000) { renderPublicRelays(); return }
+  const generation = publicRelayGeneration
+  $('publicRelaysStatus').textContent = 'Asking your Nostr relays for public call relays…'
+  try {
+    const found = await publicCallRelays.discover()
+    if (generation !== publicRelayGeneration) return
+    $('publicRelaysStatus').textContent = found.length ? `${found.length} public call relay${found.length === 1 ? '' : 's'} found. Select one to use it.` : 'No public call relays were found on your Nostr relays.'
+  } catch {
+    if (generation === publicRelayGeneration) $('publicRelaysStatus').textContent = 'Your Nostr relays could not be asked. Try again later.'
+  }
+  renderPublicRelays()
+}
+$('publicRelaysOn').addEventListener('change', () => {
+  cancelPublicRelayCheck()
+  const on = ($('publicRelaysOn') as HTMLInputElement).checked
+  publicCallRelays.setEnabled(on)
+  $('publicRelaysStatus').textContent = on ? '' : 'Turned off. Everything it kept on this device has been cleared.'
+  renderPublicRelays()
+  if (on) void findPublicRelays(true)
+})
+$('publicRelaysFind').addEventListener('click', () => { cancelPublicRelayCheck(); void findPublicRelays(true) })
+$('publicRelaysForget').addEventListener('click', () => {
+  cancelPublicRelayCheck()
+  publicCallRelays.forgetChoice()
+  $('publicRelaysStatus').textContent = 'No public call relay is chosen. Calls use the room’s usual connection.'
+  renderPublicRelays()
+})
+$('publicRelaysCheck').addEventListener('click', async () => {
+  cancelPublicRelayCheck()
+  const key = publicCallRelays.selected ?? publicCallRelays.lastGood?.key
+  if (!key || publicRelaysOutranked()) return
+  const generation = publicRelayGeneration
+  const controller = new AbortController()
+  publicRelayCheckAbort = controller
+  ;($('publicRelaysCheck') as HTMLButtonElement).disabled = true
+  $('publicRelaysStatus').textContent = 'Asking the selected relay for a login and sending test data…'
+  try {
+    // Held in memory only, never saved as a call relay; a call that starts
+    // while it is still good uses it.
+    const login = await publicCallRelays.login(key)
+    if (generation !== publicRelayGeneration) return
+    await checkCallRelay({ urls: [...login.urls], username: login.username, credential: login.credential }, controller.signal)
+    if (generation !== publicRelayGeneration) return
+    publicCallRelays.select(key)
+    publicCallRelays.markGood(key)
+    $('publicRelaysStatus').textContent = 'Test data passed through this relay. Your calls will use it when nothing you set yourself or the room’s own relay comes first.'
+  } catch {
+    if (generation === publicRelayGeneration) $('publicRelaysStatus').textContent = 'The check did not complete. The relay may be busy or unreachable from this network.'
+  } finally {
+    if (generation === publicRelayGeneration) { publicRelayCheckAbort = undefined; renderPublicRelays() }
   }
 })
 

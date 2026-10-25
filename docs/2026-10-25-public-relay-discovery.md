@@ -1,8 +1,8 @@
 # Finding public call relays over Nostr
 
-Design, 25 October 2026. Not built. Both KithMoot change gates (soundness
-review, then legal cover against `docs/legal/call-transport-position.md`)
-must pass before any code lands.
+Design, 25 October 2026. Both KithMoot change gates (soundness review, and
+legal cover against `docs/legal/call-transport-position.md`) have passed;
+their changes are recorded below and bind the build.
 
 ## What it is
 
@@ -30,11 +30,11 @@ nothing from it.
 2. **Only the user's relays.** When on, the app asks the device's read
    relays for kind 31478, `#d` `spry-turn`, with a `limit` of 64. No other
    relay is contacted for discovery, and no relay is added for it.
-   `[DECISION: which set counts as the device's read relays: the
-   Connections list (the shipped defaults for most people), the signed-in
-   account's own relay list (kind 10002), or only relays the user has added
-   by hand. The first makes this design (b) for a user on the defaults; the
-   last keeps it (a) for everyone.]`
+   Decided 25 October 2026: the read relays are the device's default
+   Connections list (`relayConnections.personal('default')`, entries marked
+   read), skipping any that `health('default')` reports failing. Not a
+   room's own relays and not invitation hints. This is design (b) for a user
+   on the shipped defaults.
 3. **Same rules as Spry.** Each advert is checked with the client rules in
    spry-turn `docs/public-mode.md` (signature, expiry, size, freshness,
    replay watermark, hostname rules). The TypeScript check must pass
@@ -66,6 +66,87 @@ nothing from it.
 A room still names its own STUN and TURN servers as it does today. A
 hand-entered device relay still wins over a discovered one.
 
+## Changes from the soundness review
+
+The soundness review on 25 October 2026 found the design sound with these
+changes, which bind the build. Code references are to `origin/main` that
+day.
+
+1. **Logins last an hour.** Spry's relay caps an allocation at the login's
+   remaining life and refuses Refresh after it expires, so a short login
+   cuts a call. Spry's public logins now last 3600 seconds. The call's
+   existing ICE refresh (`ICE_REFRESH_MS`, `app/src/main.ts`) fetches a fresh
+   login from the same operator and applies it with `setConfiguration` and
+   `restartIce`, through the same WebKit `transport=tcp` filter as
+   `callRelayPeerConnection`; a failure there is shown, not swallowed.
+   Renewal runs only while this session has a call, never for someone who
+   is only in the room, with jitter, and retries a 429 before the deadline.
+2. **A separate login fetcher.** Not `fetchTurnCredential`. It sends
+   `POST` with body exactly `{"v":1}` and `Content-Type: application/json`
+   (forcing a CORS preflight), with `mode:'cors'`, `credentials:'omit'`,
+   `redirect:'error'`, `referrerPolicy:'no-referrer'`, `cache:'no-store'`, a
+   4 s timeout and a 4 KiB streaming cap; it needs a 200 with
+   `application/json`. Every returned URL must exactly equal one from the
+   verified advert, or is dropped. `username` must match
+   `^\d+:pub-[0-9a-f]{24}$` with the prefix equal to `expiresAt`;
+   `credential` is base64 of at most 64 characters; `expiresAt` is an
+   integer in `(now, now+3600+60]`.
+3. **Relay-only stays closed.** After a login lapses the relay is dropped
+   and relay-only refuses, as today. Failover goes only to relays the user
+   chose for this call, at most 3 operators counting the check. No fresh
+   discovery mid-call, no direct fallback. The user sees "call relay lost",
+   not the generic notice.
+4. **What a browser can check.** It cannot resolve DNS, so the rule is:
+   the hostname rules ported from Spry, an extra suffix denylist (`arpa`,
+   `lan`, `home`, `localdomain`, `onion`, `alt`, `example`, plus Spry's), TURN
+   ports 3478, 5349 or 443 only, and no TURN packet to a host until a login
+   fetch to the same hostname over HTTPS has succeeded. Never probe in the
+   background. What remains (DNS rebinding on plain `turn:`, internal hosts
+   with valid public certificates) is bounded by the user's selection and
+   the 3-operator cap.
+5. **Storage.** A discovered login is held in memory for one call and
+   dropped when it ends. It never goes through `saveCallRelay` or fills the
+   hand-entered fields. Persisted: the last good relay (transport key and
+   hostname) and replay watermarks (at most 1024, pruned after two hours).
+   Adverts are kept in memory only. Turning the switch off clears all of it.
+   With a Spry pairing or a hand-entered relay present, no discovery query
+   or login request is made.
+6. **Precedence**, tested: Spry pairing, then hand-entered relay, then the
+   room's own TURN or Spry offer, then a discovered relay, then the default.
+   A discovered relay never suppresses `SpryRoom` and never enters adverts,
+   claims, a room descriptor, settings or an invitation. It goes through
+   `callRelayPeerConnection`.
+7. **The verifier is a port of spry-link `advert.rs`**, tested against
+   spry-turn `docs/fixtures/public-advert-v1.json` plus the Rust unit-test
+   table for destinations. Size is the UTF-8 length of the seven-field JSON,
+   checked first; shape limits as Rust; id and signature through
+   `verifyEventUncached` (`src/verify.ts`) on a fresh object; safe-integer
+   numbers; exactly one two-element tag per name; `expiration` 1 to 16 ASCII
+   digits; content with no unknown fields; credential URL with
+   `new URL(s).href === s` plus Rust's label checks; TURN URLs parsed by hand,
+   ASCII only, ASCII case fold; note at most 140 bytes. Verify before
+   advancing the watermark, with one watermark book across relays.
+8. **Display.** Strip bidi, zero-width, BOM and line-separator characters
+   from the note; render with `textContent` inside `<bdi>`, two lines at
+   most. Show the ASCII hostname (leave `xn--` encoded) and a short transport
+   key, and flag a known hostname under a new key. Label the note and region
+   "the operator says"; show the region as a code, not a flag. Keep these
+   apart from the Nostr relay list.
+9. **One query, through the existing pool.** `kinds:[31478]`,
+   `#d:["spry-turn"]`, `limit:64`, `since` two hours ago, when the picker opens
+   or a call needs it; closed at end of stored events or after 5 s. No
+   standing subscription. A pool connection signed in to a relay (NIP-42)
+   tells it which key searched, so use a connection that is not signed in,
+   or the privacy wording must say so.
+10. **Metadata statement additions.** Renewals let the operator link a
+    call's logins by IP and timing, so it learns call length. The check
+    makes two allocations, so it can tell a test. Other call members see the
+    relay in this device's candidates, as with a hand-entered relay. Reuse
+    the check's login for the call while it is valid.
+
+The CSP needs no change (`connect-src` already allows `https:` and
+`wss:`; TURN is not governed by CSP).
+
 ## Legal shape, for the legal-cover gate
 
 This is design (a) in jurisdiction-kit's online-services note, section 2.13,
@@ -91,10 +172,9 @@ Things that would change the answer, and are therefore out of scope:
 
 ## Gates before building
 
-- Soundness review: the advert check, the hostname and address checks
-  (no requests to private addresses), credential handling and relay-only
-  behaviour.
-- Legal cover, KithMoot only, as above; then update
+- Soundness review: done 25 October 2026; its changes are above.
+- Legal cover, KithMoot only: done 25 October 2026 (wording fixes folded
+  in above). Then update
   `docs/legal/call-transport-position.md` and the privacy page in the same
   change that ships it.
 - Android parity is a separate change with the same rules.

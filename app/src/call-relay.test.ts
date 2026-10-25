@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CALL_RELAY_KEY, callRelayPeerConnection, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay } from './call-relay.js'
+import { CALL_RELAY_KEY, callRelayPeerConnection, callRelaySetConfiguration, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay } from './call-relay.js'
 import { resolveIceServers } from './ice-resolve.js'
 
 const relay = parseCallRelay('turn:relay.example:3478, turns:relay.example:5349', 'friend', 'test-secret')!
@@ -70,5 +70,19 @@ describe('a device-owned call relay', () => {
     for (const text of ['{test-secret', '{"urls":[],"username":"u","credential":"test-secret"}', 'x'.repeat(16385)]) {
       expect(() => loadCallRelay({ getItem: () => text })).toThrow('The saved call relay could not be read.')
     }
+  })
+})
+
+describe('renewing a live connection', () => {
+  it('goes through the same WebKit TURN/TCP filter', () => {
+    const config = { iceServers: [{ urls: ['turn:relay.example.org:3478?transport=udp', 'turn:relay.example.org:3478?transport=tcp'], username: 'u', credential: 'p' }] }
+    const applied: RTCConfiguration[] = []
+    const pc = { setConfiguration(next: RTCConfiguration) {
+      if ((next.iceServers ?? []).some(server => [server.urls].flat().some(url => url.endsWith('transport=tcp')))) throw new DOMException('unsupported URI', 'SyntaxError')
+      applied.push(next)
+    } }
+    callRelaySetConfiguration(pc, config)
+    expect(applied).toEqual([{ iceServers: [{ urls: ['turn:relay.example.org:3478?transport=udp'], username: 'u', credential: 'p' }] }])
+    expect(() => callRelaySetConfiguration({ setConfiguration() { throw new Error('closed') } }, config)).toThrow('closed')
   })
 })
