@@ -308,6 +308,7 @@ async function openPanel(kind) {
   return {opened:kind}
 }
 async function requireLabProfile() {
+  await page.waitForFunction(() => typeof window.__mixedInvitationLab?.profile === 'function', null, { timeout: 15000 })
   const actual = await page.evaluate(() => window.__mixedInvitationLab?.profile())
   if (actual !== labProfile) throw new Error('Actual browser preview differs from the explicitly selected controller profile')
   return { profile: actual, experimental: true, qualificationOnly: true }
