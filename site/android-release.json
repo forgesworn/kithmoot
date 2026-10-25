@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.114",
-  "versionCode": 137,
+  "versionName": "0.6.113",
+  "versionCode": 136,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 64822754,
-  "apkSha256": "85bf810e84bed04016a8f39963edda002fd3a15224f59c29c032e3c6b4d61f19",
+  "apkSha256": "03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,5 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.114-production.apk"
+  "downloadFilename": "kithmoot-0.6.113-production.apk",
+  "releaseNotes": [
+    "Choose loudspeaker on or off during a call, with headsets taking priority.",
+    "Open chats at unread messages, see your Nostr picture and use larger account-menu actions.",
+    "Optionally find public call relays in Connections; your own relay and Spry still come first."
+  ]
 }

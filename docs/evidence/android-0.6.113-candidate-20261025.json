@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-25T18:59:04.298712+00:00",
+  "versionName": "0.6.113",
+  "versionCode": 136,
+  "androidSource": "7c06623681d152ae3f8ef03361ef16be3c6e1629",
+  "androidSourceTree": "f919e1dc80c9bee5cdf7f419932672a8f4069b55",
+  "androidPr": "https://github.com/forgesworn/kithmoot-android/pull/330",
+  "androidCi": "https://github.com/forgesworn/kithmoot-android/actions/runs/40223530134",
+  "apk": {
+    "filename": "kithmoot-0.6.113-production.apk",
+    "bytes": 64822754,
+    "sha256": "03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb",
+    "unsignedSha256": "d209ca402b358db19198864a7260b748aaec62bcb10b9bdba915da571a3ad4b8",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "zipPayloadEntries": 797,
+    "zipPayloadMatchesUnsigned": true,
+    "arm64Only": true,
+    "debuggable": false,
+    "minSdk": 33,
+    "targetSdk": 35,
+    "v3Only": true,
+    "embeddedLineageIndependentlyVerified": true,
+    "mappingSha256": "97950954cc98c5c50d4e9da56493d5218458e16abdf51f8194a5b1b57835e3a7"
+  },
+  "localValidation": {
+    "host": "M4 signing host",
+    "protocolTests": 563,
+    "appTests": 2753,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "releaseLint": "passed",
+    "assembleRelease": "passed",
+    "websiteApkVerifier": "passed",
+    "signedUpdateManifests": "passed",
+    "websiteBuild": "passed",
+    "deviceFreeRecoveryRunnerChecks": 15
+  },
+  "preBuildReview": {
+    "soundness": "Combined source reviewed before building; relay-only login removal, audio routing, async chat history, account actions and bounded update-note scrolling are covered. Existing certificate, lineage and update key are retained.",
+    "legalCover": "Android parity reviewed against the existing position. Privacy 4.5 names the version, one-allocation check and absence of a web-app identifier. No publisher-run relay, directory, operator list or telemetry is added.",
+    "lawNoteVerified": "2026-09-28",
+    "lawNoteSection213PrimaryRead": "2026-10-25",
+    "applicationsRemainUncheckedReadings": true,
+    "reviewer": "implementing agent"
+  },
+  "hostedCiPassed": false,
+  "publiclyShipped": false,
+  "physicalAndroidAcceptance": false,
+  "physicalDeviceTouched": false,
+  "pendingPhysicalChecks": [
+    "No-Play GrapheneOS turns hostname verification using an IP URL and setHostname",
+    "DNS refusal through a real resolver",
+    "Relay-only call through a discovered operator",
+    "Relay check without microphone permission",
+    "Dialog layout and larger text",
+    "No-Play GrapheneOS loudspeaker routing, sustained audio quality and larger-text account/update screens"
+  ],
+  "sharedCompatibilityFix": {
+    "source": "041a17759873d03a29de79d9c9ee825d0ea85633",
+    "androidPr": 331,
+    "hostedJobsPassed": 17
+  },
+  "releaseNotes": [
+    "Choose loudspeaker on or off during a call, with headsets taking priority.",
+    "Open chats at unread messages, see your Nostr picture and use larger account-menu actions.",
+    "Optionally find public call relays in Connections; your own relay and Spry still come first."
+  ]
+}

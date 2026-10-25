@@ -67,5 +67,8 @@
     "source": "041a17759873d03a29de79d9c9ee825d0ea85633",
     "androidPr": 331,
     "hostedJobsPassed": 17
-  }
+  },
+  "supersededBy": "0.6.113",
+  "supersededReason": "Combined into the still-unpublished 0.6.113 release at the owner direction.",
+  "supersededAt": "2026-10-25T19:05:56.649059+00:00"
 }

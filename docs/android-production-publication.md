@@ -6,29 +6,32 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
-## Android 0.6.114 public call relay discovery
+## Combined Android 0.6.113 candidate
 
-Version **0.6.114**, code **137**, adds optional public call relay discovery
-under Settings, Connections. It starts off, uses the account's existing
-Nostr read relays without signing in, and supplies no operator list or
-directory. A selected operator can be checked without camera or microphone
-use. Device-entered relays and Spry take priority; Hide IP on calls never
-falls back direct. Leave and lapse remove the discovered server/login.
+Version **0.6.113**, code **136**, combines the performance changes with
+optional public call relay discovery, call loudspeaker selection, chat scroll
+restoration, the account picture and larger menu actions, and signed update notes.
+It supersedes the unpublished 0.6.114 candidate; there is one combined release.
 
-The production candidate is built from Android source
-`2fe8cf8253f80327575c030ddd9f0349802dcf14`, SHA-256
-`85bf810e84bed04016a8f39963edda002fd3a15224f59c29c032e3c6b4d61f19`,
-64,822,754 bytes. The retained certificate and two-signer lineage verify,
-and all 797 ZIP payload entries match the unsigned input. Protocol tests
-(560), app tests (2,745), release lint and the production build passed on
-the M4. Hosted CI, merge and public readback remain separate gates until
-recorded in the publication receipt.
+Discovery starts off, reads signed adverts from the account's Nostr read relays,
+and supplies no operator directory. Checking a relay needs no camera or microphone.
+Device-entered relays and Spry take priority; Hide IP on calls never falls back
+direct. Call end and lapse remove the discovered server and login.
 
-Privacy 4.5 now names Android 0.6.114, its single-allocation check and the
-absence of a web-app identifier. The call-transport position records the
-25 October 2026 Android parity review without changing the existing reading.
-Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
-relay-only calls and layout remain open; no physical device was touched.
+The signed production candidate is built from Android source
+`7c06623681d152ae3f8ef03361ef16be3c6e1629`, SHA-256
+`03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb`,
+64,822,754 bytes. All 797 ZIP payload entries match the unsigned input.
+Protocol tests (563), app tests (2,753), release lint and the production build
+passed on the signing host. The device-free recovery runner passed all 15 checks.
+Hosted CI, merge and public readback remain separate gates until recorded in the
+publication receipt. See `evidence/android-0.6.113-candidate-20261025.json`.
+
+Privacy 4.5 names Android 0.6.113, its single-allocation check and the absence
+of a web-app identifier. The call-transport position records the 25 October
+Android parity review without changing the existing reading. Physical no-Play
+GrapheneOS audio quality, TLS hostname verification, real DNS refusal,
+relay-only calls and layout remain open; this task touched no physical device.
 
 ## Android 0.6.111 Spry device pairing, published 24 October 2026
 
