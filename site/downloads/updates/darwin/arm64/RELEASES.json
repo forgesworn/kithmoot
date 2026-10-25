@@ -1,6 +1,18 @@
 {
-  "currentRelease": "0.1.104",
+  "currentRelease": "0.1.106",
   "releases": [
+    {
+      "version": "0.1.106",
+      "updateTo": {
+        "version": "0.1.106",
+        "pub_date": "2026-10-25T21:30:31.552Z",
+        "notes": "Fix Play sound here for a docked call.",
+        "name": "0.1.106",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.106/KithMoot-0.1.106-mac-arm64.zip",
+        "sha256": "fcd857b3053afa002b4fee963b79f51b15b448067636ac68ccca719cc44b4086",
+        "size": 170927336
+      }
+    },
     {
       "version": "0.1.104",
       "updateTo": {
