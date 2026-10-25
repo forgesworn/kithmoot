@@ -16,10 +16,10 @@ use. Device-entered relays and Spry take priority; Hide IP on calls never
 falls back direct. Leave and lapse remove the discovered server/login.
 
 The production candidate is built from Android source
-`6dc26c1541658434b784da212baafe7d0a6f6634`, SHA-256
-`ab93399bfdee57baa1c899f9cd77b85e4d327bc75048f3acd12ad4f73ddf50bd`,
-60,817,323 bytes. The retained certificate and two-signer lineage verify,
-and all 691 ZIP payload entries match the unsigned input. Protocol tests
+`2fe8cf8253f80327575c030ddd9f0349802dcf14`, SHA-256
+`85bf810e84bed04016a8f39963edda002fd3a15224f59c29c032e3c6b4d61f19`,
+64,822,754 bytes. The retained certificate and two-signer lineage verify,
+and all 797 ZIP payload entries match the unsigned input. Protocol tests
 (560), app tests (2,745), release lint and the production build passed on
 the M4. Hosted CI, merge and public readback remain separate gates until
 recorded in the publication receipt.
