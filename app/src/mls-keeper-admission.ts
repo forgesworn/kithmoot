@@ -1,5 +1,5 @@
 import { readMlsMembership } from './mls-membership-store.js'
-import { InvalidPersonaRecord, BrowserPersonaCoordinator } from './mls-persona-coordinator.js'
+import { InvalidPersonaRecord, BrowserPersonaCoordinator, type PersonaReader } from './mls-persona-coordinator.js'
 import type { MlsRevocationInboxContext } from './mls-revocation-inbox.js'
 import { readMlsRoom } from './mls-room-store.js'
 import { loadMlsEngine } from './mls-engine.js'
@@ -16,7 +16,8 @@ const hex32 = (value: unknown): value is string => typeof value === 'string' && 
  * validate a prospective MLS Add or replace an old-client barrier. */
 export class BrowserMlsKeeperAdmission {
   constructor(private coordinator: Pick<BrowserPersonaCoordinator, 'transact'>,
-    private context: () => MlsRevocationInboxContext | undefined, private vault?: CoordinatedMlsVault) {}
+    private context: () => MlsRevocationInboxContext | undefined, private vault?: CoordinatedMlsVault,
+    private storageScope?: (tx: PersonaReader, node: string, device: string, now: number) => Promise<void>) {}
 
   /** The device gate is already held by the concrete ledger. Retain the
    * persona lock from fresh genuine roster validation through actual grant
@@ -38,6 +39,7 @@ export class BrowserMlsKeeperAdmission {
         JSON.stringify(next.vault) === JSON.stringify(scope.vault)
     }
     const result = await this.coordinator.withConfirmedEffect(keeper, async tx => {
+      await this.storageScope?.(tx, expected.homeBox, device, now())
       const journal = await readMlsMembership(tx)
       if (journal.inbox && journal.inbox.keeper !== keeper) throw new InvalidPersonaRecord('Keeper admission belongs to another persona')
       if (journal.inbox?.prompts.some(prompt => ['approved', 'done'].includes(prompt.state) && prompt.request.device === device)) throw new Error('This device has a retained keeper revocation hold. Recover with a new device key.')
@@ -81,7 +83,15 @@ export class BrowserMlsKeeperAdmission {
     return result.value
   }
 
-  async admit(keeper: string, sender: string, device: string, current: () => boolean): Promise<() => boolean> {
+  async assertGrantScope(keeper: string, node: string, device: string, current: () => boolean, now: () => number): Promise<void> {
+    if (!this.storageScope) return
+    const initial = this.context()
+    if (!initial || initial.vault.persona !== keeper || ![keeper,node,device].every(hex32)) throw new Error('Open the current keeper before checking grant scope.')
+    const live = () => { const next = this.context(); return current() && initial.current() && initial.foreground() && !!next && next.current() && next.foreground() && JSON.stringify(next.vault) === JSON.stringify(initial.vault) }
+    const result = await this.coordinator.transact(keeper, tx => this.storageScope!(tx, node, device, now()), live)
+    if (result.state !== 'active' || !live()) throw new Error('A current protected grant scope check is required.')
+  }
+  async admit(keeper: string, sender: string, device: string, current: () => boolean, node?: string, now: () => number = () => Math.floor(Date.now() / 1000)): Promise<() => boolean> {
     const initial = this.context()
     if (![keeper, sender, device].every(hex32) || !initial || initial.vault.persona !== keeper || !initial.current() || !initial.foreground() || !current()) {
       throw new Error('Open this keeper account in the foreground before installing a grant.')
@@ -93,6 +103,10 @@ export class BrowserMlsKeeperAdmission {
         JSON.stringify(next.vault) === JSON.stringify(scope.vault)
     }
     const checked = await this.coordinator.transact(keeper, async tx => {
+      if (this.storageScope) {
+        if (!hex32(node)) throw new Error('A selected node is required for storage scope exclusion.')
+        await this.storageScope(tx, node, device, now())
+      }
       const journal = await readMlsMembership(tx)
       if (journal.inbox && journal.inbox.keeper !== keeper) throw new InvalidPersonaRecord('Keeper admission belongs to another persona')
       const hold = journal.inbox?.prompts.find(prompt => ['approved', 'done'].includes(prompt.state) && prompt.request.device === device)

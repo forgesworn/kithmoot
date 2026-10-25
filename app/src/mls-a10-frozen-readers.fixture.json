@@ -1,0 +1,24 @@
+{
+  "sourceCommit": "a10ba7198974fc2a4c10d529425aef71e82fe012",
+  "files": {
+    "mls-revocation-outbox-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-revocation-outbox.ts",
+      "originalSha256": "4d255cde805f59f1cdace1a68694c2367af362c9b4dd1ebdcf02690ffe28f4b1",
+      "fixtureSha256": "b65925e191e38e22c488c6cf681da5352d2f7bbf7600c6cfbd17911198275814",
+      "transformation": "Only outbox-state relative import redirected to the frozen state fixture; all other source bytes unchanged."
+    },
+    "mls-revocation-outbox-state-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-revocation-outbox-state.ts",
+      "originalSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
+      "fixtureSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
+      "transformation": "Verbatim original source."
+    },
+    "mls-grant-custody-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-grant-custody.ts",
+      "originalFileSha256": "c4fc3ff4b6fb29fcf5227f93a32bd265f8ba2839d31f35ee5d2a8fb082a0f953",
+      "exactFunctionSha256": "37847dd37e80121861295d9ccee404b537ae85882b5d86c0f0835f23cea45dc8",
+      "fixtureSha256": "3c97379f991c870652369f8aacf645b2ee7906992fbceb12231b2fec1efc4644",
+      "transformation": "Verbatim old envelope decoder function with its identical primitive predicates. Grant-record validator imported from current source; legacy record schema is unchanged. The old class #read invokes this decoder before any write or ready mark."
+    }
+  }
+}

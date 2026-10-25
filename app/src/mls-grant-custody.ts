@@ -1,3 +1,4 @@
+import { assertLegacyGrantScope, assertStorageGrantScopeAvailable, claimStorageGrantScope, changeStorageGrantScope, validateStorageScopes, type MlsStorageScope, type MlsGrantScopeCustody } from './mls-grant-scope-custody.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, concatBytes } from '@noble/hashes/utils.js'
 import { validateMlsGrant, type MlsGrantRecord } from './mls-grant-ledger.js'
@@ -14,7 +15,7 @@ const exact = (value: Record<string, unknown>, keys: string) => Object.keys(valu
 const invalid = () => new Error('The VMLS grant custody could not be verified.')
 const notReady = () => new Error('The VMLS grant writer barrier is not ready.')
 
-export interface MlsGrantCustody { version: 2; phase: 'fenced' | 'ready'; fence: string; records: MlsGrantRecord[] }
+export interface MlsGrantCustody extends MlsGrantScopeCustody {}
 interface Encrypted { key: 'active'; version: 1 | 2; nonce: ArrayBuffer; ciphertext: ArrayBuffer }
 interface Snapshot { keyPresent: boolean; key?: CryptoKey; encrypted?: Encrypted; custody?: MlsGrantCustody; records: MlsGrantRecord[] }
 export type MlsGrantPreparation = { state: 'ready' | 'blocked' | 'interrupted' | 'refused' }
@@ -57,9 +58,9 @@ export function mlsGrantCustodyRecords(value: unknown): MlsGrantRecord[] {
 }
 
 export function mlsGrantCustody(value: unknown): MlsGrantCustody {
-  if (!object(value) || !exact(value, 'fence,phase,records,version') || value.version !== 2 ||
+  if (!object(value) || !exact(value, value.version === 3 ? 'fence,phase,records,storageScopes,version' : 'fence,phase,records,version') || value.version !== 2 && value.version !== 3 ||
       value.phase !== 'fenced' && value.phase !== 'ready' || typeof value.fence !== 'string' || !hex.test(value.fence)) throw invalid()
-  return { version: 2, phase: value.phase, fence: value.fence, records: mlsGrantCustodyRecords(value.records) }
+  return { version: value.version, phase: value.phase, fence: value.fence, records: mlsGrantCustodyRecords(value.records), ...(value.version === 3 ? { storageScopes: validateStorageScopes(value.storageScopes) } : {}) }
 }
 
 /** The full retained snapshot is required; the digest cannot replace it. */
@@ -187,12 +188,47 @@ export class BrowserMlsGrantCustody {
       const snapshot = await this.#read(db, check, signal)
       check()
       if (db.version !== 2 || snapshot.custody?.phase !== 'ready' || !snapshot.key) throw notReady()
+      assertLegacyGrantScope(snapshot.custody, copy, Math.floor(Date.now() / 1000))
       const records = mlsGrantCustodyRecords([...snapshot.records.filter(item => item.node !== copy.node || item.device !== copy.device), copy])
       check()
       await this.#write(db, snapshot, { ...snapshot.custody, records }, snapshot.key, check, signal)
       check()
       }, check, signal)
     }
+    return scope ? this.foreground!.track(scope, work) : work()
+  }
+  async assertLegacyScope(record: Pick<MlsGrantRecord, 'node' | 'device'>, now: number): Promise<void> {
+    const { check, signal } = this.#binding()
+    await this.#exclusive(async () => {
+      check(); const db = await this.#database(), snapshot = await this.#read(db, check, signal)
+      if (db.version !== 2 || snapshot.custody?.phase !== 'ready') throw notReady()
+      assertLegacyGrantScope(snapshot.custody, record, now); check()
+    }, check, signal)
+  }
+  async assertStorageAvailable(record: Pick<MlsGrantRecord, 'node' | 'device'>, now: number): Promise<void> {
+    const { check, signal } = this.#binding()
+    await this.#exclusive(async () => {
+      check(); const db = await this.#database(), snapshot = await this.#read(db, check, signal)
+      if (db.version !== 2 || snapshot.custody?.phase !== 'ready') throw notReady()
+      assertStorageGrantScopeAvailable(snapshot.custody, record, now); check()
+    }, check, signal)
+  }
+  /** A critical v3 payload makes old v2 writers fail closed. The existing
+   * device admission gate must cover the caller's whole signing/network flow. */
+  async claimStorageScope(record: MlsGrantRecord, now: number): Promise<void> {
+    await this.#scopeChange(c => claimStorageGrantScope(c, record, now))
+  }
+  async changeStorageScope(record: MlsGrantRecord, state: MlsStorageScope['state'], now: number): Promise<void> {
+    await this.#scopeChange(c => changeStorageGrantScope(c, record, state, now))
+  }
+  async #scopeChange(change: (custody: MlsGrantCustody) => MlsGrantCustody): Promise<void> {
+    const { check, signal, scope } = this.#binding()
+    const work = () => this.#exclusive(async () => {
+      check(); const db = await this.#database(), snapshot = await this.#read(db, check, signal)
+      if (db.version !== 2 || snapshot.custody?.phase !== 'ready' || !snapshot.key) throw notReady()
+      const custody = change(snapshot.custody)
+      await this.#write(db, snapshot, custody, snapshot.key, check, signal); check()
+    }, check, signal)
     return scope ? this.foreground!.track(scope, work) : work()
   }
   async #exclusive<T>(work: () => Promise<T>, check: () => void = () => {}, signal?: AbortSignal): Promise<T> {

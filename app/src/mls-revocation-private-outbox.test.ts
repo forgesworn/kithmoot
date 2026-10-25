@@ -1,3 +1,5 @@
+import { BrowserMlsRevocationOutbox as FrozenA10Outbox, rememberStandaloneRevocations as frozenRemember } from './mls-revocation-outbox-a10-frozen.fixture.js'
+import { storageOutboxCoordinator, storageOutboxTransaction } from './mls-storage-inbox.js'
 import { retainAdminStorageRequest, adminStorageRequestRevision, adminStorageRequestTarget, withAdminStorageRequestGate } from './mls-admin-storage-request.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
@@ -32,7 +34,7 @@ class MemoryTransaction implements PersonaTransaction {
 }
 const endpoints: BrowserMlsGrantEndpoint[] = []
 afterEach(async () => { for (const endpoint of endpoints.splice(0)) await endpoint.stop(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
-async function fixture(credentialSeconds = 86400) {
+async function fixture(credentialSeconds = 86400, storageMode = false) {
   const key = generateSecretKey(), base = { ...localIdentity(key), ...localPeerCrypt(key) }
   const keeperKey = generateSecretKey(), keeper = { ...localIdentity(keeperKey), ...localPeerCrypt(keeperKey) }
   const identity = { ...base, signEvent: vi.fn(base.signEvent), encrypt: vi.fn(base.encrypt), decrypt: vi.fn(base.decrypt) }
@@ -63,6 +65,8 @@ async function fixture(credentialSeconds = 86400) {
     const value = await work(tx)
     return current() ? { state: 'active', value, marks: new Map() } : { state: 'pending', reason: 'stale', refused: false }
   } }
+  const viewTx = () => storageMode ? storageOutboxTransaction(tx) : tx
+  const sendCoordinator = storageMode ? storageOutboxCoordinator(coordinator as any) : coordinator
   const vault = new CoordinatedMlsVault(coordinator as any, { now: () => clock, generation: () => generation,
     signals: { revision: () => revision, invalidate: () => { revision += 'x' } } })
   const ctx = () => vault.context('https://test', identity.pubkey)
@@ -87,7 +91,7 @@ async function fixture(credentialSeconds = 86400) {
           if (frame[0] === 'EVENT' && !stallAck) queueMicrotask(() => listener.onText?.(JSON.stringify(['OK', frame[1].id, ack, ''])))
         } }
     }) } satisfies LinkEngine
-  const start = vi.fn(async () => { reservations.push(structuredClone((await readMlsMembership(tx)).standalone?.observations[0]?.attempt)); await startHook(); return engine })
+  const start = vi.fn(async () => { reservations.push(structuredClone((await readMlsMembership(viewTx())).standalone?.observations[0]?.attempt)); await startHook(); return engine })
   const foreground = new BrowserMlsGrantForeground(), controller = new AbortController(), scope = { signal: controller.signal, current: () => live && !controller.signal.aborted }
   vi.spyOn(foreground, 'capture').mockImplementation(() => scope)
   vi.spyOn(foreground, 'prepared').mockImplementation(candidate => candidate === scope && scope.current())
@@ -103,14 +107,14 @@ async function fixture(credentialSeconds = 86400) {
   ] }, change.keeperKey ?? keeperKey)
   const permit = permission(), current = () => permitted, consent = vi.fn<KeeperInboxAuthPrompt>(async () => 'approve')
   const options = (over = {}) => ({ identity, endpoint, vault, routeId: box.routeId, permission: permit, consent, current, random: () => 0, ...over })
-  await rememberStandaloneRevocations(tx, identity.pubkey, keeper.pubkey, '11'.repeat(32), [
-    { identity: identity.pubkey, device: '33'.repeat(32), homeBox: '44'.repeat(32), own: false, pending: false },
+  await rememberStandaloneRevocations(viewTx(), identity.pubkey, keeper.pubkey, '11'.repeat(32), [
+    { identity: identity.pubkey, device: '33'.repeat(32), homeBox: storageMode ? node : '44'.repeat(32), own: false, pending: false },
   ], clock)
-  const restart = () => new BrowserMlsRevocationOutbox(coordinator as any, context, () => clock), outbox = restart()
-  const operation = (await readMlsMembership(tx)).standalone!.observations[0]!.operation
+  const restart = () => new BrowserMlsRevocationOutbox(sendCoordinator as any, context, () => clock), outbox = restart()
+  const operation = (await readMlsMembership(viewTx())).standalone!.observations[0]!.operation
   identity.signEvent.mockClear(); identity.encrypt.mockClear()
   const publicTransport = { directory: vi.fn(async () => [await keeper.signEvent(dmRelayListTemplate(['wss://keeper.test/'], clock))]), publish: vi.fn(async () => {}) }
-  return { outbox, restart, operation, options, identity, keeper, permit, permission, node, box, boxes, tx, vault, ctx, endpoint, start, engine, sent, listeners, reservations, nativeSocket, consent, publicTransport,
+  return { outbox, restart, operation, storageMode, coordinator, context, viewTx, options, identity, keeper, permit, permission, node, box, boxes, tx, vault, ctx, endpoint, start, engine, sent, listeners, reservations, nativeSocket, consent, publicTransport,
     now: () => clock, clock: (value: number) => { clock = value }, unpermit: () => { permitted = false }, hide: () => { live = false; controller.abort() },
     swap: () => { generation++ }, replaceSigner: () => { activeIdentity = { ...identity } }, hold: () => { held = true }, refuseAuth: () => { auth = false }, refuseAck: () => { ack = false }, acceptAck: () => { ack = true },
     stallAck: () => { stallAck = true }, stallAuth: () => { stallAuth = true },
@@ -121,15 +125,77 @@ async function fixture(credentialSeconds = 86400) {
     removeSavedRoute: () => { memory.state.routes = memory.state.routes.filter((route: any) => route.routeId !== box.routeId) },
     rebindSavedRoute: () => { memory.state.routes[0].card = otherCard.slice() } }
 }
-const record = async (f: Awaited<ReturnType<typeof fixture>>) => (await readMlsMembership(f.tx)).standalone!.observations[0]!
+const record = async (f: Awaited<ReturnType<typeof fixture>>) => (await readMlsMembership(f.viewTx())).standalone!.observations[0]!
 const noPublic = (f: Awaited<ReturnType<typeof fixture>>) => {
   expect(f.nativeSocket).not.toHaveBeenCalled(); expect(publicRoomOperation).not.toHaveBeenCalled(); expect(f.engine.request).not.toHaveBeenCalled()
   expect(f.publicTransport.directory).not.toHaveBeenCalled(); expect(f.publicTransport.publish).not.toHaveBeenCalled()
 }
 
 describe('concrete private standalone revocation sending', () => {
+  it('the exact a10 public reader cannot observe or send the separate Admin2 outbox', async () => {
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
+      { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+    const old = new FrozenA10Outbox(f.coordinator as any, f.context, f.now)
+    expect(await old.records()).toMatchObject({ state: 'active', value: [] })
+    await expect(old.send(f.operation, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('no longer retained')
+    expect((await readMlsMembership(f.tx)).standalone?.observations).toEqual([])
+    expect((await record(f)).operation).toBe(f.operation)
+    expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.identity.signEvent).not.toHaveBeenCalled(); noPublic(f)
+  })
+  it('atomically migrates an exact pre-isolation request and private attempt, preserves legitimate legacy state, and stops the frozen a10 public sender', async () => {
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
+      { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+    await saveMlsMembership(f.tx, await readMlsMembership(f.viewTx()))
+    await f.tx.dropVault(Array.from(new TextEncoder().encode('kithmoot.admin-storage-outbox.v1'), b => b.toString(16).padStart(2, '0')).join(''))
+    await frozenRemember(f.tx, f.identity.pubkey, f.keeper.pubkey, '22'.repeat(32), [{ identity: f.identity.pubkey, device: '88'.repeat(32), homeBox: f.node, own: false, pending: false }], f.now())
+    const old = new FrozenA10Outbox(f.coordinator as any, f.context, f.now)
+    await old.sendPrivately(f.operation, f.options())
+    const before = await readMlsMembership(f.tx), admin = before.standalone!.observations.find(r => r.operation === f.operation)!, other = before.standalone!.observations.find(r => r.operation !== f.operation)!
+    expect(admin.attempt?.confirmed).toBe(true)
+    f.identity.signEvent.mockClear(); f.identity.encrypt.mockClear(); const frames = f.sent.length
+    await f.outbox.records()
+    expect(await record(f)).toEqual(admin)
+    const legacy = await readMlsMembership(f.tx)
+    expect(legacy.standalone!.observations).toEqual([other]); expect(legacy.removals).toEqual(before.removals)
+    expect(await old.records()).toMatchObject({ state: 'active', value: [{ operation: other.operation }] })
+    await expect(old.send(f.operation, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('no longer retained')
+    expect(f.sent).toHaveLength(frames); expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.identity.signEvent).not.toHaveBeenCalled(); noPublic(f)
+  })
+  it('persists a shared critical recovery fence for ambiguous pre-isolation state and the frozen a10 sender refuses before public side effects', async () => {
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
+      { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+    const pre = await readMlsMembership(f.viewTx()); pre.standalone!.observations[0].sessions.push('22'.repeat(32))
+    await saveMlsMembership(f.tx, pre)
+    const rawPre = JSON.parse(new TextDecoder().decode((await f.tx.readVault(Array.from(new TextEncoder().encode('kithmoot.mls-membership.v1'), b => b.toString(16).padStart(2, '0')).join('')))!) )
+    const ownBefore = structuredClone(await readMlsMembership(f.viewTx()))
+    await expect(f.outbox.records()).rejects.toThrow('recovery is fenced')
+    const shared = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.adminStorageRecoveryFence)
+    expect(shared).toMatchObject({ ...rawPre, version: 2, adminStorageRecoveryFence: { originalVersion: 1, reason: 'different-isolated-observation', operations: [f.operation] } })
+    expect(await readMlsMembership(f.viewTx())).toEqual(ownBefore)
+    const old = new FrozenA10Outbox(f.coordinator as any, f.context, f.now)
+    await expect(old.send(f.operation, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('Invalid MLS membership journal')
+    expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.identity.signEvent).not.toHaveBeenCalled(); noPublic(f)
+  })
+  it.each([-1, 0])('refuses expired/equal-now native own evidence before reserving any private request (%s)', async offset => {
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false }
+    const selection = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, selection)
+    const before = structuredClone(await record(f))
+    await expect(f.outbox.sendPrivately(f.operation, f.options({ withinEvidence: async (work: () => Promise<unknown>) => {
+      adminStorageRequestTarget(f.identity.pubkey, transmitter, [{ ...target, leafId: '99'.repeat(32), device: transmitter, own: true, bindingExpiresAt: f.now() + offset }, target], selection, f.now())
+      return work()
+    } }))).rejects.toThrow('local leaf')
+    expect(await record(f)).toEqual(before); expect(f.start).not.toHaveBeenCalled(); expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.identity.signEvent).not.toHaveBeenCalled(); noPublic(f)
+  })
   it('keeps an Admin2 prepared request private after a failed selected-node route and refuses later public delivery before directory or crypto', async () => {
-    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
       { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
       { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
@@ -143,7 +209,7 @@ describe('concrete private standalone revocation sending', () => {
     expect(f.identity.signEvent).not.toHaveBeenCalled(); expect(f.identity.encrypt).not.toHaveBeenCalled()
   })
   it('refuses substitution of an Admin2 prepared permission even when the replacement is valid for the same node and keeper', async () => {
-    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
       { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
       { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
@@ -153,7 +219,7 @@ describe('concrete private standalone revocation sending', () => {
   })
 
   it('explicitly replaces expired permission with fresh witnessed bindings, retains old attempt evidence and privately retries at the reviewed revision', async () => {
-    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 20_000, own: false, pending: false }
     const initial = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, initial)
@@ -163,7 +229,7 @@ describe('concrete private standalone revocation sending', () => {
     await expect(f.outbox.sendPrivately(f.operation, f.options(), reviewed.requestRevision)).rejects.toThrow('expired')
     expect(f.identity.encrypt).not.toHaveBeenCalled()
     const fresh = { ...initial, permission: f.permission(), rebind: reviewed }
-    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [target], fresh, f.now())).toEqual(target)
+    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [{ ...target, leafId: '99'.repeat(32), device: transmitter, own: true }, target], fresh, f.now())).toEqual(target)
     await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh))
     const retained = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.history)
     expect(retained.records[0].history).toMatchObject([{ binding: { permission: f.permit }, observation: { requestRevision: reviewed.requestRevision, attempt: { confirmed: false } } }])
@@ -179,7 +245,7 @@ describe('concrete private standalone revocation sending', () => {
     noPublic(f)
   })
   it('allows a fresh explicit private revision after the previous wrapped request expires while preserving expired attempt evidence', async () => {
-    const f = await fixture(14 * 86400), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const f = await fixture(14 * 86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 10 * 86400, own: false, pending: false }
     const initial = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, initial)
@@ -187,7 +253,7 @@ describe('concrete private standalone revocation sending', () => {
     const previous = structuredClone(await record(f)); f.clock(previous.attempt!.expiration)
     await f.outbox.records(); expect((await record(f)).attempt).toBeUndefined()
     const expected = await adminStorageRequestRevision(f.tx, f.operation), fresh = { ...initial, permission: f.permission(), rebind: expected }
-    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [target], fresh, f.now())).toEqual(target)
+    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [{ ...target, leafId: '99'.repeat(32), device: transmitter, own: true }, target], fresh, f.now())).toEqual(target)
     await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh))
     const retained = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.attempts)
     expect(retained.records[0].attempts).toContainEqual(previous)
@@ -195,7 +261,7 @@ describe('concrete private standalone revocation sending', () => {
     noPublic(f)
   })
   it('waits for an in-flight private send to settle before an exclusive destination rebind and rejects the now-stale request revision', async () => {
-    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const f = await fixture(86400, true), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
     const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false }
     const selected = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
     await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, selected)

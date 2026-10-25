@@ -1,3 +1,9 @@
+import { mlsGrantCustody as frozenA10Custody } from './mls-grant-custody-a10-frozen.fixture.js'
+import { mlsGrantCustody } from './mls-grant-custody.js'
+import { mlsKeeperGrantAuthority } from './mls-revocation-decision-store.js'
+import { assertLegacyGrantScope, assertStorageGrantScopeAvailable, claimStorageGrantScope, changeStorageGrantScope, type MlsGrantScopeCustody } from './mls-grant-scope-custody.js'
+import { BrowserMlsGrantLedger, planMlsGrant, type MlsGrantRecord } from './mls-grant-ledger.js'
+import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
 import { storageInboxCoordinator, storageInboxTransaction } from './mls-storage-inbox.js'
 import { BrowserMlsKeeperPrivateInboxFetch } from './mls-keeper-private-inbox-fetch.js'
 import { describe, expect, it, vi } from 'vitest'
@@ -48,7 +54,22 @@ async function fixture() {
   const endpoint = new BrowserMlsGrantEndpoint(new BrowserMlsGrantForeground(), () => keeper, () => live)
   vi.spyOn(endpoint, 'pairedBoxes').mockResolvedValue([box]); vi.spyOn(endpoint, 'resume').mockResolvedValue([box])
   const publish = vi.spyOn(endpoint, 'publishLabDeviceGrant').mockImplementation(async (_box, _event, _device, current) => { if (!current()) throw new Error('stale') })
-  const service = new BrowserMlsStorageGrants(coordinator as any, endpoint, context, () => now)
+  let custody: MlsGrantScopeCustody = { version: 2, phase: 'ready', fence: '88'.repeat(32), records: [] }
+  const scopes = {
+    assertStorageAvailable: async (g: Pick<MlsGrantRecord, 'node' | 'device'>, at: number) => assertStorageGrantScopeAvailable(custody, g, at),
+    claimStorageScope: async (g: MlsGrantRecord, at: number) => { custody = claimStorageGrantScope(custody, g, at) },
+    changeStorageScope: async (g: MlsGrantRecord, state: any, at: number) => { custody = changeStorageGrantScope(custody, g, state, at) },
+  }
+  const legacyStore = { all: async () => structuredClone(custody.records), put: async (record: MlsGrantRecord) => {
+    assertLegacyGrantScope(custody, record, now)
+    custody = { ...custody, records: [...custody.records.filter(r => r.node !== record.node || r.device !== record.device), structuredClone(record)] }
+  }, assertLegacyScope: async (g: Pick<MlsGrantRecord, 'node' | 'device'>, at: number) => assertLegacyGrantScope(custody, g, at) }
+  const legacyCarrier = vi.fn(async (_event: Event) => {})
+  const legacySigner = { ...keeper, signEvent: vi.fn(keeper.signEvent) }
+  let service!: BrowserMlsStorageGrants
+  const legacyLedger = new BrowserMlsGrantLedger(() => legacySigner, { resume: async () => [box], boxes: () => [box], pairedBoxes: async () => [box] } as any,
+    legacyStore, () => ({ publish: legacyCarrier, close() {} }), () => now, undefined, undefined, new BrowserMlsKeeperAdmission(coordinator as any, context, undefined, (tx, node, device, at) => service.assertLegacyScope(tx, node, device, at)))
+  service = new BrowserMlsStorageGrants(coordinator as any, endpoint, context, scopes, () => now)
   const storageCoordinator = storageInboxCoordinator(coordinator as any)
   const inbox = new BrowserMlsRevocationInbox(storageCoordinator, service, context, () => now, { storage: tx => service.authority(tx) })
   const signer = { ...keeper, signEvent: vi.fn(keeper.signEvent) }
@@ -58,10 +79,78 @@ async function fixture() {
     const wrapped = await wrapVmlsRevocationRequest(person, { sender: person.pubkey, keeper: keeper.pubkey, device: target, sessions: ['aa'.repeat(32)], boxes: ['bb'.repeat(32)], createdAt: now, expiration: now + 7 * 86400 }, () => 0, () => true)
     return value(await inbox.receive([wrapped], keeper))
   }
-  return { service, inbox, coordinator, storageCoordinator, context, signer, prepare, records, receive, tx, keeper, member, device, publish, endpoint, box,
+  return { service, inbox, scopes, legacySigner, legacyStore, legacyLedger, legacyCarrier, legacyUnguarded: () => new BrowserMlsGrantLedger(() => legacySigner, { resume: async () => [box], boxes: () => [box], pairedBoxes: async () => [box] } as any, legacyStore, () => ({ publish: legacyCarrier, close() {} }), () => now), custody: () => custody, replaceLegacy: (records: MlsGrantRecord[]) => { custody = { ...custody, records } }, coordinator, storageCoordinator, context, signer, prepare, records, receive, tx, keeper, member, device, publish, endpoint, box,
     clock: (at: number) => { now = at }, now: () => now, hide: () => { live = false }, hold: () => { hold = true }, refuseSave: () => { refuseSave = true } }
 }
 describe('protected storage authority separate from MLS', () => {
+  it.each(['installing','active','revoking'] as const)('blocks storage preparation before signing while a legacy scope is %s', async state => {
+    const f = await fixture(), legacy = await planMlsGrant(f.keeper, f.box, f.member.pubkey, f.device, { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) }, f.now())
+    legacy.state = state; f.replaceLegacy([legacy])
+    await expect(f.prepare()).rejects.toThrow('legacy authority')
+    expect(f.signer.signEvent).not.toHaveBeenCalled(); expect(f.publish).not.toHaveBeenCalled(); expect(f.custody().records).toEqual([legacy])
+  })
+  it('persists a critical v3 scope reservation that the exact old decoder refuses, then blocks legacy signing and raw custody creation', async () => {
+    const f = await fixture(), prepared = await f.prepare()
+    expect(mlsGrantCustody(f.custody()).version).toBe(3)
+    expect(() => frozenA10Custody(f.custody())).toThrow('could not be verified')
+    expect(f.custody().records).toEqual([])
+    const room = { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) }
+    await expect(f.legacyLedger.install(f.box, f.member.pubkey, f.device, room)).rejects.toThrow('storage-only authority')
+    expect(f.legacySigner.signEvent).not.toHaveBeenCalled(); expect(f.legacyCarrier).not.toHaveBeenCalled()
+    const raw = await planMlsGrant(f.keeper, f.box, f.member.pubkey, f.device, room, f.now())
+    await expect(f.legacyStore.put(raw)).rejects.toThrow('storage-only authority')
+    value(await f.service.publish(prepared.grant.grantId, prepared.revision, false, () => true))
+    await expect(f.legacyLedger.install(f.box, f.member.pubkey, f.device, room)).rejects.toThrow('storage-only authority')
+    const current = (await f.records())[0]; f.publish.mockRejectedValueOnce(new Error('terminal ACK unknown'))
+    await expect(f.service.publish(current.grant.grantId, current.revision, true, () => true)).rejects.toThrow('terminal ACK unknown')
+    await expect(f.legacyLedger.install(f.box, f.member.pubkey, f.device, room)).rejects.toThrow('storage-only authority')
+  })
+  it('allows expired legacy custody but centrally blocks its exact pending terminal publication while storage owns the scope', async () => {
+    const f = await fixture(), legacy = await planMlsGrant(f.keeper, f.box, f.member.pubkey, f.device, { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) }, f.now() - 31 * 86400)
+    legacy.state = 'revoking'; f.replaceLegacy([legacy]); await f.prepare()
+    await expect(f.legacyUnguarded().withdrawRequestedDevice(mlsKeeperGrantAuthority(legacy), f.member.pubkey, f.device, () => true)).rejects.toThrow('storage-only authority')
+    expect(f.legacyCarrier).not.toHaveBeenCalled(); expect(f.publish).not.toHaveBeenCalled()
+  })
+  it('refuses legacy preparation and withdrawal against preserved historical storage authority even before a scope fence exists', async () => {
+    const f = await fixture(); await f.prepare()
+    const custody = f.custody(); custody.version = 2; delete custody.storageScopes
+    const room = { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) }
+    await expect(f.legacyLedger.install(f.box, f.member.pubkey, f.device, room)).rejects.toThrow('historical custody')
+    expect(f.legacySigner.signEvent).not.toHaveBeenCalled()
+    const expired = await planMlsGrant(f.keeper, f.box, f.member.pubkey, f.device, room, f.now() - 31 * 86400)
+    expired.state = 'revoking'; f.replaceLegacy([expired])
+    await expect(f.legacyLedger.withdrawRequestedDevice(mlsKeeperGrantAuthority(expired), f.member.pubkey, f.device, () => true)).rejects.toThrow('historical custody')
+    expect(f.legacyCarrier).not.toHaveBeenCalled(); expect((await f.records())[0].grant.state).toBe('installing')
+  })
+  it('does not send an exact storage terminal into a live legacy-owned scope after storage expiry', async () => {
+    const f = await fixture(), prepared = await f.prepare(); f.clock(prepared.grant.expiration + 1)
+    await f.legacyLedger.install(f.box, f.member.pubkey, f.device, { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) })
+    await expect(f.service.publish(prepared.grant.grantId, prepared.revision, true, () => true)).rejects.toThrow('legacy authority')
+    expect(f.publish).not.toHaveBeenCalled(); expect((await f.records())[0].revision).toBe(0)
+    expect(f.custody().records[0].state).toBe('active')
+    expect(f.custody().version).toBe(3); expect(() => frozenA10Custody(f.custody())).toThrow()
+  })
+  it('serialises storage preparation behind a legacy installation through actual carrier settlement', async () => {
+    const f = await fixture(); let enter!: () => void, release!: () => void
+    const entered = new Promise<void>(resolve => { enter = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    f.legacyCarrier.mockImplementationOnce(async () => { enter(); await waiting })
+    const install = f.legacyLedger.install(f.box, f.member.pubkey, f.device, { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) })
+    await entered
+    const storage = f.prepare(), refused = expect(storage).rejects.toThrow('legacy authority')
+    await Promise.resolve(); expect(f.signer.signEvent).not.toHaveBeenCalled()
+    release(); await install; await refused; expect(f.publish).not.toHaveBeenCalled()
+  })
+  it('serialises legacy installation behind storage signing and protected scope reservation', async () => {
+    const f = await fixture(); let enter!: () => void, release!: () => void
+    const entered = new Promise<void>(resolve => { enter = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    const sign = f.signer.signEvent.getMockImplementation()!
+    f.signer.signEvent.mockImplementationOnce(async template => { enter(); await waiting; return sign(template) })
+    const storage = f.prepare(); await entered
+    const install = f.legacyLedger.install(f.box, f.member.pubkey, f.device, { session: '55'.repeat(32), name: 'Legacy', leaf: '66'.repeat(32) })
+    const refused = expect(install).rejects.toThrow('storage-only authority')
+    await Promise.resolve(); expect(f.legacySigner.signEvent).not.toHaveBeenCalled()
+    release(); await storage; await refused; expect(f.legacyCarrier).not.toHaveBeenCalled()
+  })
   it('retains both signed statements before any endpoint publication and retries the exact active bytes after unknown ACK', async () => {
     const f = await fixture(), r = await f.prepare()
     expect(f.signer.signEvent).toHaveBeenCalledTimes(2); expect(f.publish).not.toHaveBeenCalled()

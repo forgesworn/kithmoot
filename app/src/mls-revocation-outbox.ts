@@ -1,3 +1,4 @@
+import { storageOutboxAuthority } from './mls-storage-inbox.js'
 import { checkAdminStorageDelivery, withAdminStorageRequestGate, retainAdminStorageAttempt } from './mls-admin-storage-request.js'
 import { sendVmlsRevocationRequest, wrapVmlsRevocationRequest, VMLS_REVOCATION_REQUEST_SECONDS,
   type VmlsRevocationIdentity, type VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
@@ -77,13 +78,16 @@ type PublicOptions = { identity: VmlsRevocationIdentity; transport: VmlsRevocati
 export interface MlsPrivateRevocationOptions {
   identity: VmlsRevocationIdentity; endpoint: BrowserMlsGrantEndpoint; vault: CoordinatedMlsVault
   routeId: string; permission: Event; consent: KeeperInboxAuthPrompt; current(): boolean; random?: () => number
+  /** Concrete owner reopens native evidence inside the operation gate,
+   * before any transport attempt is reserved or signed. */
+  withinEvidence?(work: () => Promise<CoordinationResult<MlsStandaloneRevocationView>>): Promise<CoordinationResult<MlsStandaloneRevocationView>>
 }
 type Delivery = { mode: 'public'; options: PublicOptions } | {
   mode: 'private'; options: MlsPrivateRevocationOptions; guard: () => boolean; permission: KeeperInboxAuthRequest; destination: MlsPrivateRevocationDestination
 }
 interface Sending {
   key: string; scope: string; identity: VmlsRevocationIdentity; sign: VmlsRevocationIdentity['signEvent']; encrypt: VmlsRevocationIdentity['encrypt']; decrypt: VmlsRevocationIdentity['decrypt']
-  owner: object; consent?: KeeperInboxAuthPrompt; current?: () => boolean; vault?: CoordinatedMlsVault
+  owner: object; evidence?: MlsPrivateRevocationOptions['withinEvidence']; consent?: KeeperInboxAuthPrompt; current?: () => boolean; vault?: CoordinatedMlsVault
   pending: Promise<CoordinationResult<MlsStandaloneRevocationView>>
 }
 
@@ -114,7 +118,7 @@ export class BrowserMlsRevocationOutbox {
   sendPrivately(operation: string, input: MlsPrivateRevocationOptions, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {
     try {
       if (!(input.endpoint instanceof BrowserMlsGrantEndpoint) || !(input.vault instanceof CoordinatedMlsVault) ||
-          !input.vault.usesCoordinator(this.coordinator as BrowserPersonaCoordinator) ||
+          !input.vault.usesCoordinator(storageOutboxAuthority(this.coordinator) as BrowserPersonaCoordinator) ||
           typeof input.routeId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(input.routeId) ||
           typeof input.current !== 'function' || typeof input.consent !== 'function' ||
           revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1)) throw new Error('Select a current saved private route and explicit AUTH consent.')
@@ -134,6 +138,7 @@ export class BrowserMlsRevocationOutbox {
     let scope: MlsRevocationOutboxContext
     try { scope = this.#scope() } catch (error) { return Promise.reject(error) }
     const options = delivery.options, identity = options.identity
+    const evidence = delivery.mode === 'private' ? delivery.options.withinEvidence : undefined
     const key = JSON.stringify([delivery.mode, delivery.mode === 'private' ? delivery.destination : null, revision ?? null])
     const context = JSON.stringify(scope.vault), owner = delivery.mode === 'private' ? delivery.options.endpoint : delivery.options.transport
     const consent = delivery.mode === 'private' ? delivery.options.consent : undefined
@@ -142,20 +147,21 @@ export class BrowserMlsRevocationOutbox {
     const existing = this.#sending.get(operation)
     if (existing) {
       if (existing.key !== key || existing.scope !== context || existing.identity !== identity || existing.sign !== identity.signEvent ||
-          existing.encrypt !== identity.encrypt || existing.decrypt !== identity.decrypt || existing.owner !== owner ||
+          existing.encrypt !== identity.encrypt || existing.decrypt !== identity.decrypt || existing.owner !== owner || existing.evidence !== evidence ||
           existing.consent !== consent || existing.current !== current || existing.vault !== vault) return Promise.reject(new Error('A different standalone revocation send is already running.'))
       return existing.pending
     }
     if (this.#sending.size >= MAX_MLS_STANDALONE_OBSERVATIONS) return Promise.reject(new MlsRevocationOutboxFull('The standalone send queue is full.'))
     const pending = this.#send(operation, delivery, scope, revision)
-    const running: Sending = { key, scope: context, identity, sign: identity.signEvent, encrypt: identity.encrypt, decrypt: identity.decrypt, owner, consent, current, vault, pending }
+    const running: Sending = { key, scope: context, identity, sign: identity.signEvent, encrypt: identity.encrypt, decrypt: identity.decrypt, owner, evidence, consent, current, vault, pending }
     this.#sending.set(operation, running)
     void pending.then(() => { if (this.#sending.get(operation) === running) this.#sending.delete(operation) },
       () => { if (this.#sending.get(operation) === running) this.#sending.delete(operation) })
     return pending
   }
   #send(operation: string, delivery: Delivery, scope: MlsRevocationOutboxContext, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {
-    const work = () => this.#sendLocked(operation, delivery, scope, revision)
+    const attempt = () => this.#sendLocked(operation, delivery, scope, revision)
+    const work = () => delivery.mode === 'private' && delivery.options.withinEvidence ? delivery.options.withinEvidence(attempt) : attempt()
     return globalThis.navigator?.locks ? withAdminStorageRequestGate(scope.vault.persona, operation, work, 'shared') : work()
   }
   async #sendLocked(operation: string, delivery: Delivery, scope: MlsRevocationOutboxContext, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {

@@ -1,4 +1,6 @@
-import { adminStorageRequestTarget, retainAdminStorageRequest, withAdminStorageRequestGate, type AdminStorageRequestSelection } from './mls-admin-storage-request.js'
+import { withAdminStorageEvidenceGate } from './mls-admin-storage-evidence-gate.js'
+import { storageOutboxTransaction } from './mls-storage-inbox.js'
+import { adminStorageRequestTarget, isolateLegacyStorageRequests, retainAdminStorageRequest, withAdminStorageRequestGate, type AdminStorageRequestSelection } from './mls-admin-storage-request.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import type { Session as AdminSession, PendingAdminInvitation, VmlsAdminInvitationSignRequestV2, Capability as AdminCapability, AdminIntroduction, PendingAdminIntroduction, Platform as AdminPlatform } from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
 import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-admin-invitation-engine.js'
@@ -179,6 +181,13 @@ async function assertMembershipMutationAllowed(tx: PersonaReader, wasm: Awaited<
 /** Development-only room operations. This is not a box driver: authenticated
  * private invitation admission and normal delivery remain explicit actions.
  * No constructor loads WASM, opens storage or connects to the network. */
+type MlsRoomOperationScope = {
+    host: BrowserMlsSessionHost<Session>; wasm: Awaited<ReturnType<typeof loadMlsEngine>>;
+    platform: InstanceType<Awaited<ReturnType<typeof loadMlsEngine>>['Platform']>;
+    binding: { credential: any; expiresAt?: bigint }; device: string; credentialId: string; credentialExpiresAt: number;
+    ctx: VaultContext; current: () => boolean; hostContext: MlsSessionContext; rz: string;
+  }
+
 export class BrowserMlsRoomOperations {
   #epoch = 0
   #cancel = new Set<() => void>()
@@ -675,12 +684,13 @@ export class BrowserMlsRoomOperations {
     })
   }
 
-  async #using<T>(context: MlsRoomContext, work: (scope: {
-    host: BrowserMlsSessionHost<Session>; wasm: Awaited<ReturnType<typeof loadMlsEngine>>;
-    platform: InstanceType<Awaited<ReturnType<typeof loadMlsEngine>>['Platform']>;
-    binding: { credential: any; expiresAt?: bigint }; device: string; credentialId: string; credentialExpiresAt: number;
-    ctx: VaultContext; current: () => boolean; hostContext: MlsSessionContext; rz: string;
-  }) => Promise<HostedMlsResult<T>>, validUntil = Infinity): Promise<MlsRoomResult<T>> {
+  async #using<T>(context: MlsRoomContext, work: (scope: MlsRoomOperationScope) => Promise<HostedMlsResult<T>>, validUntil = Infinity): Promise<MlsRoomResult<T>> {
+    const run = () => this.#usingHeld(context, work, validUntil)
+    return adminInvitationPreviewEnabled() && context.sessionId
+      ? withAdminStorageEvidenceGate(context.vault.persona, context.sessionId, run) : run()
+  }
+
+  async #usingHeld<T>(context: MlsRoomContext, work: (scope: MlsRoomOperationScope) => Promise<HostedMlsResult<T>>, validUntil = Infinity): Promise<MlsRoomResult<T>> {
     const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch
     const valid = context.current.bind(context)
     const current = () => epoch === this.#epoch && valid() && this.vault.current(ctx)
@@ -1040,7 +1050,10 @@ export class BrowserMlsRoomOperations {
    * no room keeper, role change or membership Remove is created. */
   async prepareAdminStorageRevocation(context: MlsRoomContext, id: string, input: AdminStorageRequestSelection): Promise<MlsRoomResult<{ operation: string }>> {
     context = { ...context, sessionId: id }
-    const selected = structuredClone(input)
+    const selected = { ...structuredClone(input), source: { session: id, leaf: input.leaf } }
+    const isolation = await this.coordinator.transact(context.vault.persona, tx => isolateLegacyStorageRequests(tx), context.current)
+    if (isolation.state !== 'active') return isolation
+    if (isolation.value !== 'ready') return { state: 'refused', reason: 'storage-outbox-recovery-fenced' }
     const prepare = () => this.#using<{ operation: string }>(context, async scope => scope.host.step(scope.hostContext, id, session => {
       if ((session as unknown as AdminSession).profile() !== 'InvitationAdmins2' || session.phase().type !== 'Active') throw new MlsRoomRefused('wrong-profile')
       const target = adminStorageRequestTarget(scope.ctx.persona, scope.device, memberStatuses(session), selected, this.now())
@@ -1050,7 +1063,7 @@ export class BrowserMlsRoomOperations {
     }, async (_room, session, _value, tx) => {
       const target = adminStorageRequestTarget(scope.ctx.persona, scope.device, memberStatuses(session), selected, this.now())
       await retainAdminStorageRequest(tx, scope.ctx.persona, scope.device, target, selected)
-      await rememberStandaloneRevocations(tx, scope.ctx.persona, selected.expectedStorageKeeper, id, [target], this.now())
+      await rememberStandaloneRevocations(storageOutboxTransaction(tx), scope.ctx.persona, selected.expectedStorageKeeper, id, [target], this.now())
     })))
     // Resolve only the lock key first. The locked transaction above reopens
     // the actual native roster and validates every authority field again.
@@ -1060,6 +1073,30 @@ export class BrowserMlsRoomOperations {
     if (!target || !hex(target.device)) throw new MlsRoomRefused('not-current-member')
     return withAdminStorageRequestGate(context.vault.persona,
       mlsStandaloneRevocationOperation(context.vault.persona, selected.expectedStorageKeeper, target.device), prepare)
+  }
+
+  /** Fresh native own+target evidence remains stable under the current
+   * Admin2 room-operation gate while the private outbox settles. No handle is
+   * retained across coordinator calls; no MLS membership mutation occurs. */
+  withAdminStorageSend<T>(context: MlsRoomContext, id: string, operation: string, input: AdminStorageRequestSelection,
+    send: (current: () => boolean) => Promise<HostedMlsResult<T>>): Promise<MlsRoomResult<T>> {
+    context = { ...context, sessionId: id }
+    const selected = structuredClone(input)
+    return this.#using<T>(context, async scope => {
+      const evidence = await scope.host.step<{ expiresAt: number }>(scope.hostContext, id, session => {
+        if ((session as unknown as AdminSession).profile() !== 'InvitationAdmins2' || session.phase().type !== 'Active') throw new MlsRoomRefused('wrong-profile')
+        const members = memberStatuses(session), target = adminStorageRequestTarget(scope.ctx.persona, scope.device, members, selected, this.now())
+        if (operation !== mlsStandaloneRevocationOperation(scope.ctx.persona, selected.expectedStorageKeeper, target.device)) throw new MlsRoomRefused('stale-device')
+        const own = members.find(member => member.own)!
+        return { snapshot: null, value: { expiresAt: Math.min(own.bindingExpiresAt, target.bindingExpiresAt) } }
+      }, this.#edits(scope.ctx, scope, id, room => {
+        if (room.profile !== 'InvitationAdmins2' || room.keeper !== undefined) throw new MlsRoomRefused('wrong-profile')
+      }))
+      if (evidence.state !== 'active') return evidence
+      const current = () => scope.current() && this.now() < evidence.value.expiresAt
+      if (!current()) return { state: 'pending', reason: 'stale', refused: false }
+      return send(current)
+    })
   }
 
   driveRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalEffect>> {

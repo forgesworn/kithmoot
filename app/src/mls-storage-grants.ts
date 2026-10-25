@@ -1,3 +1,5 @@
+import { withMlsDeviceAdmissionGate } from './mls-device-admission-gate.js'
+import type { BrowserMlsGrantCustody } from './mls-grant-custody.js'
 import { storageInboxTransaction } from './mls-storage-inbox.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import type { Event, EventTemplate } from 'nostr-tools/pure'
@@ -62,7 +64,8 @@ async function save(tx: PersonaTransaction, keeper: string, j: Journal): Promise
  * journal versions, admission, room keepers and removal sagas are untouched. */
 export class BrowserMlsStorageGrants {
   constructor(private coordinator: Pick<BrowserPersonaCoordinator, 'transact'>, private endpoint: BrowserMlsGrantEndpoint,
-    private context: () => MlsRevocationInboxContext | undefined, private now: () => number = () => Math.floor(Date.now() / 1000)) {
+    private context: () => MlsRevocationInboxContext | undefined,
+    private scopes: Pick<BrowserMlsGrantCustody, 'assertStorageAvailable' | 'claimStorageScope' | 'changeStorageScope'>, private now: () => number = () => Math.floor(Date.now() / 1000)) {
     if (!(endpoint instanceof BrowserMlsGrantEndpoint)) throw new Error('Use the dedicated grant endpoint.')
   }
   #scope(extra: () => boolean = () => true) {
@@ -76,6 +79,14 @@ export class BrowserMlsStorageGrants {
     const s = this.#scope()
     return structuredClone((await read(tx, s.keeper, this.now())).records.map(r => r.grant))
   }
+  /** Admission-time check also covers preserved pre-fence candidate
+   * custody. It never migrates, deletes or assigns authority to those rows. */
+  async assertLegacyScope(tx: PersonaReader, node: string, device: string, now: number): Promise<void> {
+    const s = this.#scope(), j = await read(tx, s.keeper, now)
+    if (j.records.some(r => r.grant.node === node && r.grant.device === device && r.grant.state !== 'revoked' && r.grant.expiration > now)) {
+      throw new Error('This node/device has retained storage-only authority, including unfenced historical custody; legacy access is blocked.')
+    }
+  }
   /** Inbox authority adapter: only storage records, never legacy keeper scans. */
   async all(): Promise<MlsGrantRecord[]> {
     const result = await this.records()
@@ -83,6 +94,9 @@ export class BrowserMlsStorageGrants {
     return result.value.map(r => r.grant)
   }
   async prepare(routeId: string, persona: string, device: string, identity: ParticipantIdentity, operationCurrent: () => boolean) {
+    return withMlsDeviceAdmissionGate([device], 'exclusive', () => this.#prepare(routeId, persona, device, identity, operationCurrent))
+  }
+  async #prepare(routeId: string, persona: string, device: string, identity: ParticipantIdentity, operationCurrent: () => boolean) {
     const s = this.#scope(operationCurrent)
     if (identity.pubkey !== s.keeper || !hex(persona) || !hex(device)) throw new Error('Select an enrolled persona and device.')
     const box = (await this.endpoint.pairedBoxes(s.keeper)).find(b => b.routeId === routeId)
@@ -90,6 +104,7 @@ export class BrowserMlsStorageGrants {
     const node = mlsBoxNode(box), at = this.now(), expiration = at + 3600
     const before = await this.coordinator.transact(s.keeper, async tx => {
       const j = await read(tx, s.keeper, at)
+      await this.scopes.assertStorageAvailable({ node, device }, j.checkedAt)
       if (j.records.length >= 64 || j.records.some(r => r.grant.node === node && r.grant.device === device && r.grant.state !== 'revoked')) throw new Error('Finish the retained storage grant before preparing a replacement.')
       // A replacement must sort after the exact terminal statement.
       if (j.records.some(r => r.grant.node === node && r.grant.device === device && r.grant.revocation.created_at >= at)) throw new Error('Wait before replacing this terminal storage grant.')
@@ -110,10 +125,18 @@ export class BrowserMlsStorageGrants {
     return this.coordinator.transact(s.keeper, async tx => {
       const j = await read(tx, s.keeper, this.now())
       if (j.checkedAt >= expiration || j.records.some(r => r.grant.node === node && r.grant.device === device && r.grant.state !== 'revoked')) throw new Error('The storage grant preparation changed.')
+      await this.scopes.claimStorageScope(record.grant, j.checkedAt)
       j.records.push(record); await save(tx, s.keeper, j); return structuredClone(record)
     }, s.current)
   }
   async publish(grantId: string, revision: number, revoke: boolean, operationCurrent: () => boolean) {
+    const before = await this.records()
+    if (before.state !== 'active') return before
+    const record = before.value.find(r => r.grant.grantId === grantId)
+    if (!record) throw new Error('No retained storage grant exists.')
+    return withMlsDeviceAdmissionGate([record.grant.device], 'exclusive', () => this.#publish(grantId, revision, revoke, operationCurrent))
+  }
+  async #publish(grantId: string, revision: number, revoke: boolean, operationCurrent: () => boolean) {
     const s = this.#scope(operationCurrent)
     const reserved = await this.coordinator.transact(s.keeper, async tx => {
       const j = await read(tx, s.keeper, this.now()), r = j.records.find(r => r.grant.grantId === grantId)
@@ -122,6 +145,7 @@ export class BrowserMlsStorageGrants {
       if (!revoke && r.grant.expiration <= j.checkedAt) throw new Error('The storage grant expired; installation remains unconfirmed.')
       if (r.grant.state === (revoke ? 'revoked' : 'active')) return { record: structuredClone(r), publish: false, at: j.checkedAt }
       if (r.revision === Number.MAX_SAFE_INTEGER) throw new Error('The storage grant revision is full.')
+      await this.scopes.changeStorageScope(r.grant, revoke ? 'revoking' : 'reserved', j.checkedAt)
       r.revision++; r.grant.state = revoke ? 'revoking' : 'installing'
       await save(tx, s.keeper, j); return { record: structuredClone(r), publish: true, at: j.checkedAt }
     }, s.current)
@@ -134,12 +158,14 @@ export class BrowserMlsStorageGrants {
     await this.endpoint.resume(s.keeper)
     if (!live()) throw new Error('The storage grant operation changed.')
     await this.endpoint.publishLabDeviceGrant(g.box, revoke ? g.revocation : g.active, g.device, live)
-    return this.coordinator.transact(s.keeper, async tx => {
+    const accepted = await this.coordinator.transact(s.keeper, async tx => {
       const j = await read(tx, s.keeper, this.now()), current = j.records.find(item => item.grant.grantId === grantId)
       if (!live() || JSON.stringify(current) !== JSON.stringify(r)) throw new Error('The storage grant changed before acknowledgement.')
       current!.grant.state = revoke ? 'revoked' : 'active'; await save(tx, s.keeper, j)
       return { record: structuredClone(current!), publish: false, at: j.checkedAt }
     }, live)
+    if (accepted.state === 'active') await this.scopes.changeStorageScope(accepted.value.record.grant, revoke ? 'revoked' : 'active', this.now())
+    return accepted
   }
   async review(operation: string) {
     const s = this.#scope()

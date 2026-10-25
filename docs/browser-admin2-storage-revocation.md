@@ -27,7 +27,10 @@ to the independently entered storage keeper, exact saved route/node, current
 transmitting device and exact signed inbox permission. Preparation runs inside
 the actual Admin2 host transaction, with the witnessed native roster and
 current local credential. It requires a committed, unexpired, same-person,
-nonlocal device whose home is the selected node. A permission's valid
+nonlocal device whose home is the selected node. The native own leaf must
+uniquely match the current credential/device and persona, be committed and
+unexpired, and have that node as its home. Both binding expiries are checked
+for preparation, replacement and fresh private sending. A permission's valid
 signature alone does not establish the intended storage keeper. Self,
 pending, absent, conflicting-person or wrong-home targets are refused.
 
@@ -49,9 +52,37 @@ revision. Completed or expired attempts can repeat this way. The protected
 object retains up to 16 replacements and 64 attempts per operation (and a
 512 KiB overall bound), refusing further work without silently pruning
 history. Expired wrapped-attempt evidence is archived before legacy expiry
-pruning. Replacement never silently sends, changes keeper or falls back. Legacy membership and grant journals keep
-their existing versions and validators. Unknown protected persona object IDs
-are preserved by existing writers.
+pruning. Replacement never silently sends, changes keeper or falls back. Legacy grant records keep their existing schema. Shared grant custody gains
+an explicit critical payload **v3** with a separate `storageScopes` field.
+Storage preparation/publication holds the existing device admission gate
+exclusively; protected custody checks exclude live or unknown legacy scopes.
+Legacy admission, persistence and carrier publication exclude storage scopes,
+including preserved historical storage records before a scope fence existed.
+An expired storage grant cannot publish its terminal into a newly live legacy
+scope. Exact frozen a10 v2 custody decoding refuses v3, so old writers cannot
+ignore it. Scope history is retained and the envelope never automatically
+downgrades after withdrawal or expiry.
+
+`kithmoot.admin-storage-outbox.v1` holds Admin2 observations and attempts wholly
+separately from legacy standalone state. A frozen a10 public reader cannot
+find a new Admin2 operation. Exactly bound canonical pre-isolation observations
+are moved atomically under the persona witness, preserving attempts and all
+other legacy entries. Existing binding, permission and attempt history is
+retained. Unsupported forms or differing isolated collisions preserve all
+original shared fields behind a critical membership v2 recovery fence; the
+old reader refuses it before public discovery or crypto. No data is silently
+discarded, reset or automatically downgraded. Ambiguous fenced data requires
+explicit supported recovery.
+
+New bindings retain the actual native source session and target leaf. A
+recovered binding without that source must be explicitly rebound through the
+actual room before sending; a session is never inferred from request hints.
+The concrete owner reopens the witnessed Admin2 roster before reserving a
+private attempt. Current Admin2 room operations share an origin-wide room
+operation gate, held through private send settlement, while current-account,
+credential, own-leaf and target-leaf expiry guards remain live at network
+boundaries. This is local current-candidate coordination, not a claim about
+unobserved remote commits or older room implementations.
 
 Storage intake matches the keeper's own exact issued storage grants. It does
 not open any legacy keeper room or infer storage authority from Admin2 roles.
@@ -98,6 +129,10 @@ bindings, refused roster targets and a complete sealed-request intake through
 explicit storage-only approval/withdrawal without opening any MLS room.
 Concrete private-endpoint regressions verify failed private delivery cannot
 switch an Admin2 request to public discovery/publication.
+
+Frozen compatibility tests run the pinned a10 outbox/state source and exact
+v2 custody envelope decoder, with fixture hashes recorded beside the sources.
+They cover clean isolation, historical migration and critical recovery fences.
 
 The actual selected-node mixed browser/Android lab journey, native witnessed
 request preparation and both storage/membership postconditions still require
