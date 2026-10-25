@@ -123,7 +123,7 @@ export class BrowserMlsGrantDevelopmentPanel {
     this.#text('admin-storage').hidden = !adminInvitationPreviewEnabled()
     this.#button('bootstrap-authorise').onclick = () => { void this.#work(async () => {
       const result = this.#active(await this.#owner.authoriseEnrolledDevice(this.#select('route').value, this.#input('bootstrap-persona').value.trim(), this.#input('bootstrap-device').value.trim()))
-      this.#status(result.state === 'accepted' ? 'The selected node acknowledged this storage permission. This grants no MLS membership.' : 'Storage permission was denied.')
+      this.#status(result.state === 'accepted' ? 'The selected node acknowledged this storage permission. This grants no MLS membership.' : result.state === 'denied' ? 'Storage permission was denied.' : 'Storage permission is unconfirmed. Read protected storage grants before explicitly retrying; no acknowledgement is assumed.')
     }) }
     this.#button('storage-records').onclick = () => { void this.#work(() => this.#refreshStorage()) }
     for (const key of ['storage-leaf','storage-keeper']) this.#input(key).oninput = () => this.#retireSelection()
