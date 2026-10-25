@@ -13,12 +13,17 @@ test('the static Mac update feed exactly identifies the published signed archive
     readJson('../../site/downloads/updates/darwin/arm64/RELEASES.json'),
     readJson('../../site/downloads/versions.json'),
   ])
-  assert.equal(feed.releases.length, 1)
-  const entry = feed.releases[0]
+  // Squirrel selects currentRelease; older release notes may stay in the file.
+  // https://github.com/Squirrel/Squirrel.Mac#update-file-json-format
+  assert.equal(new Set(feed.releases.map(item => item.version)).size, feed.releases.length)
+  const current = feed.releases.filter(item => item.version === feed.currentRelease)
+  assert.equal(current.length, 1)
+  const entry = current[0]
   assert.equal(entry.version, feed.currentRelease)
   assert.equal(entry.updateTo.version, feed.currentRelease)
   assert.equal(entry.updateTo.name, feed.currentRelease)
-  assert.match(entry.updateTo.pub_date, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+  assert.match(entry.updateTo.pub_date, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/)
+  assert.ok(Number.isFinite(Date.parse(entry.updateTo.pub_date)))
   // A platform can stay on its last accepted archive while other platforms
   // advance. Its feed must identify the newest published archive for that Mac.
   const macReleases = versions.desktop.filter(item => item.files.some(file => file.os === 'mac' && file.arch === 'arm64'))
