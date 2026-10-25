@@ -21,7 +21,9 @@ export interface MlsRendezvousCustody {
 
 /** Lock order is rendezvous then persona, never the reverse. The encrypted
  * source stays locked until work and its cleanup finish. Mutators invalidate
- * before waiting, including in another tab. No identity/device-key fallback. */
+ * before waiting, including in another tab. The receipt expiry bounded the
+ * accepted handoff; ongoing use is bound by custody and each request deadline.
+ * No identity/device-key fallback. */
 export async function withMlsRendezvous<T>(source: RendezvousVault, expected: RendezvousReceipt,
   now: () => number, current: () => boolean, work: (custody: MlsRendezvousCustody) => Promise<T>): Promise<T> {
   expected = Object.freeze({ ...expected })
@@ -30,11 +32,11 @@ export async function withMlsRendezvous<T>(source: RendezvousVault, expected: Re
     if (!child || !same(child.receipt, expected)) refuse('stale-rendezvous')
     const held = child as StoredRendezvousChild
     let pending: { answer: MlsEcdhAnswer; request: string; deadline: number; shared: Uint8Array } | undefined
-    const live = () => current() && sourceCurrent() && Number.isSafeInteger(now()) && now() >= 0 && now() < expected.expiresAt
+    const live = () => current() && sourceCurrent() && Number.isSafeInteger(now()) && now() >= 0
     const check = () => { if (!live()) refuse('stale-rendezvous') }
     const custody: MlsRendezvousCustody = {
       current: live,
-      releaseCurrent: () => current() && sourceReleaseCurrent() && Number.isSafeInteger(now()) && now() >= 0 && now() < expected.expiresAt,
+      releaseCurrent: () => current() && sourceReleaseCurrent() && Number.isSafeInteger(now()) && now() >= 0,
       derive(req) {
         check()
         if (pending) refuse('busy')

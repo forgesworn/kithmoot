@@ -118,7 +118,7 @@ export async function withMlsRoomCreateRendezvous<T>(source: RendezvousVault,
     const live = (revision: () => boolean) => {
       try {
         const time = now()
-        return foreground.active(scope) && revision() === true && Number.isSafeInteger(time) && time >= 0 && time < receipt.expiresAt
+        return foreground.active(scope) && revision() === true && Number.isSafeInteger(time) && time >= 0
       } catch { return false }
     }
     let alive = true

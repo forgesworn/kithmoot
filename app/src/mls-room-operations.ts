@@ -402,7 +402,7 @@ export class BrowserMlsRoomOperations {
             const ecdh = Object.freeze({ v: 1 as const, operation: bytesToHex(dh.operation), peer_rz: bytesToHex(dh.peerRz), expires_at: Number(dh.expiresAt) })
             if (ecdh.operation !== typed.operation || ecdh.expires_at !== typed.expires_at || ecdh.peer_rz !== options.adderRz) throw new MlsRoomRefused('malformed')
             const live = () => !disposed && scope.current() && custody.current() && this.now() <= typed.expires_at
-            const remaining = Math.min(typed.expires_at + 1, options.expiresAt, options.rendezvous.expiresAt) - this.now()
+            const remaining = Math.min(typed.expires_at + 1, options.expiresAt) - this.now()
             if (!Number.isSafeInteger(remaining) || remaining <= 0 || remaining > 601) throw new StaleMlsOperation()
             timer = setTimeout(cancel, remaining * 1000)
             // A child mutation in another tab invalidates synchronously, and a

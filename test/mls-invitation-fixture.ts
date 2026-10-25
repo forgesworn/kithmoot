@@ -212,11 +212,13 @@ export async function invitationFixture() {
      * Neither the target secret nor any fixture secret leaves this closure. */
     async barkProvision(mode = 'success') {
       const a = actor('bob'), previous = (window as any).nostr
-      const source = new RendezvousVault(new BrowserRendezvousVaultStorage())
+      let source = new RendezvousVault(new BrowserRendezvousVaultStorage())
       const child = new Uint8Array(32).fill(72), rz = getPublicKey(child)
-      let calls = 0, requestKeys = '', target = '', approvedIndex = 0
+      let calls = 0, requestKeys = '', target = '', approvedIndex = 0, signerOffline = false
+      const dateNow = Date.now
       const provider = { heartwood: { provisionRendezvousV1: async (request: any) => {
-        calls++; target = request.targetDevice; approvedIndex = request.index
+        calls++; if (signerOffline) throw new Error('Fixture signer is offline')
+        target = request.targetDevice; approvedIndex = request.index
         requestKeys = Object.keys(request).sort().join(',')
         if (mode === 'provider-change') (window as any).nostr = { ...provider }
         if (mode === 'callable-change') provider.heartwood.provisionRendezvousV1 = async () => ''
@@ -235,7 +237,7 @@ export async function invitationFixture() {
       const binding = barkRendezvousFor(signer)!
       const ctx = { persona: a.persona, provider: binding, current: () => a.active }
       let bark = new BrowserBarkRendezvous(a.host, source, () => clock)
-      let error = '', publicKeys = '', forgedCurrent = false, installed = false, restartSame = false, roomState = '', custodyCurrent = false
+      let error = '', publicKeys = '', forgedCurrent = false, installed = false, restartSame = false, roomState = '', custodyCurrent = false, legacyState = '', pastHandoff = false
       try {
         if (mode === 'offline') a.witness.offline = true
         if (mode === 'lost-target-ack') a.witness.loseAdvance = true
@@ -254,10 +256,21 @@ export async function invitationFixture() {
             const saved = await source.active(a.persona, device.device)
             try { installed = !!saved && saved.receipt.rendezvousPubkey === rz && receipt.rendezvousPubkey === rz }
             finally { saved?.wipe() }
-            reopen(a); bark = new BrowserBarkRendezvous(a.host, source, () => clock)
+            if (mode === 'retained-offline') {
+              clock = receipt.expiresAt + 121; Date.now = () => clock * 1000
+              signerOffline = true; pastHandoff = clock > receipt.expiresAt
+            }
+            reopen(a); source = new RendezvousVault(new BrowserRendezvousVaultStorage())
+            bark = new BrowserBarkRendezvous(a.host, source, () => clock)
             const again = await bark.publicDevice(ctx); restartSame = again.device === device.device
             const foreground = new BrowserMlsRoomForeground()
             const custody = new BrowserMlsRoomCreateCustody(foreground, () => undefined, () => bark.publicDevice(ctx))
+            if (mode === 'retained-offline') {
+              const legacy = await foreground.run(a.persona, () => a.active, scope => custody.withCurrent(scope, held =>
+                a.rooms.create({ ...context(a, held.current), rendezvousKey: rz },
+                  { name: 'Retained child full-profile room', homeBox: box, installation, expiresAt: clock + 86400 }, consent)))
+              legacyState = legacy.state === 'done' ? legacy.value.state : legacy.state
+            }
             const result = await foreground.run(a.persona, () => a.active, scope => custody.withInvitation(scope, async held => {
               custodyCurrent = held.current() && held.receipt.rendezvousPubkey === rz
               return a.rooms.create({ ...context(a, held.current), rendezvousKey: rz },
@@ -268,8 +281,8 @@ export async function invitationFixture() {
           const saved = await source.active(a.persona, device.device)
           try { installed = !!saved && saved.receipt.rendezvousPubkey === rz } finally { saved?.wipe() }
         }
-        return { calls, requestKeys, publicKeys, forgedCurrent, installed, restartSame, roomState, custodyCurrent, targetBound: !!target && target.length === 64, approvedIndex, error }
-      } finally { (window as any).nostr = previous; child.fill(0); await source.clear(a.persona) }
+        return { calls, requestKeys, publicKeys, forgedCurrent, installed, restartSame, roomState, custodyCurrent, targetBound: !!target && target.length === 64, approvedIndex, legacyState, pastHandoff, error }
+      } finally { Date.now = dateNow; (window as any).nostr = previous; child.fill(0); await source.clear(a.persona) }
     },
     metadata(name: InvitationActorName) { const a = actor(name); return { persona: a.persona, device: a.device, rendezvous: a.rendezvous, session: a.session } },
     async create(name: InvitationActorName, experimental = true) {
@@ -379,6 +392,18 @@ export async function invitationFixture() {
     witness(name: InvitationActorName) { const w = actor(name).witness; return { sequence: String(w.sequence), advances: w.advances, reads: w.reads, offline: w.offline } },
     stats() { return { ...counters, packagesBy: [...counters.packagesBy] } },
     invalidate(name: InvitationActorName) { const a = actor(name); a.active = false; a.generation++; a.rooms.invalidate(); a.host.invalidate(a.persona) },
+    async rotateRendezvous(name: InvitationActorName) {
+      const a = actor(name), scalar = new Uint8Array(32).fill(82), client = new Uint8Array(32).fill(62 + names.indexOf(name))
+      const nonce = crypto.getRandomValues(new Uint8Array(16)), rz = getPublicKey(scalar)
+      const fields = { v: 1, p: a.persona, d: a.receipt.device, rz, u: 'rendezvous', i: a.receipt.index + 1, n: base64urlnopad.encode(nonce), e: clock + 300 }
+      try {
+        const response = JSON.stringify({ ...fields, c: encrypt(JSON.stringify({ ...fields, k: base64urlnopad.encode(scalar) }), getConversationKey(scalar, fields.d)) })
+        const result = await a.rzVault.accept(response, { identity: a.persona, device: fields.d, nonce, now: clock },
+          { decrypt: async (peer, ciphertext) => decrypt(ciphertext, getConversationKey(client, peer)) })
+        if (!result.ok || result.receipt.index !== a.receipt.index + 1) throw new Error('Fixture rotation failed')
+        // Keep the previous expected receipt: its next operation must hold.
+      } finally { scalar.fill(0); client.fill(0); nonce.fill(0) }
+    },
     clearRendezvous(name: InvitationActorName) { const a = actor(name); return a.rzVault.clear(a.persona) },
   }
 }

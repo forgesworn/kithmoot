@@ -29,6 +29,8 @@ export interface RendezvousReceipt {
   device: string
   rendezvousPubkey: string
   index: number
+  /** Provision handoff acceptance deadline, retained as receipt metadata.
+   * The installed child remains usable until rotation, revocation or clear. */
   expiresAt: number
 }
 

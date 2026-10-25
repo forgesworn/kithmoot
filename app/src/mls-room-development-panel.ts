@@ -69,7 +69,7 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#button('bark-provision-button').onclick = () => { void this.#work(async epoch => {
       const index = Number(this.#input('bark-index').value)
       const result = this.#value(await this.#owner.provisionBark(index), epoch)
-      this.#text('bark-device').textContent = `Public target: ${result.receipt.device}\nRendezvous: ${result.receipt.rendezvousPubkey}\nIndex: ${result.receipt.index}\nExpires: ${new Date(result.receipt.expiresAt * 1000).toISOString()}`
+      this.#text('bark-device').textContent = `Public target: ${result.receipt.device}\nRendezvous: ${result.receipt.rendezvousPubkey}\nIndex: ${result.receipt.index}\nHandoff acceptance deadline: ${new Date(result.receipt.expiresAt * 1000).toISOString()}`
       this.#text('status').textContent = 'The actual encrypted Bark child was installed. Keep the account and foreground current for the bounded room ceremony.'
     }) }
     this.#button('close').onclick = () => this.close()

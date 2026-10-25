@@ -38,3 +38,14 @@ test('lost target acknowledgement exposes nothing and a fresh host recovers the 
 test('legacy and invitation rooms coexist in one actual development WASM module', async ({ page }) => {
   expect(await page.evaluate('B.coexistence()')).toEqual({ legacy: 'active', invitation: 'active', legacyRead: 'active', invitationRead: 'active', oneModule: true })
 })
+
+test('accepted protected child reopens past the handoff deadline and creates both room profiles while signer is offline', async ({ page }) => {
+  expect(await page.evaluate('B.provision("retained-offline")')).toMatchObject({ calls: 1, installed: true, restartSame: true,
+    pastHandoff: true, legacyState: 'active', roomState: 'active', custodyCurrent: true, error: '' })
+})
+test('fresh protected runtimes use retained children for actual invitation ECDH after both handoff deadlines', async ({ page }) => {
+  expect(await page.evaluate('B.retainedInvitation()')).toEqual({ issued: 'active', accepted: 'active', reopened: 'active' })
+})
+for (const mode of ['clear', 'rotation', 'account']) test('retained child still holds actual invitation use after ' + mode, async ({ page }) => {
+  expect(await page.evaluate(mode => (globalThis as any).B.retainedInvitation(mode), mode)).toMatchObject({ held: true })
+})

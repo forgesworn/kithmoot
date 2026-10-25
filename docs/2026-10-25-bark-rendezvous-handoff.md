@@ -38,10 +38,19 @@ This is application composition evidence; it does not exercise a physical
 Heartwood, a built Bark extension connected to this application, or native
 Link/Bothy mixed-client messaging.
 
-The existing rendezvous custody treats the provision record's `expiresAt` as
-the usable child deadline. Heartwood limits that record's acceptance window to
-600 seconds. The documented intended child lifetime extends until rotation,
-loss or revocation, but that lifetime is not implemented by this patch. Rooms
-will hold after the existing short deadline. A separate contract and lifecycle
-change with focused tests is required before claiming long-lived restart or
-mixed-client acceptance. This patch preserves all existing time bounds.
+The provision record's `e` (retained as receipt `expiresAt`) is the encrypted
+handoff acceptance deadline, bounded by Heartwood to 600 seconds. Once accepted,
+the protected child remains available for local restart and permitted derivation
+until rotation, revocation, sign-out or loss of its protected state. It does not
+inherit that short handoff deadline. Receipt metadata and exact index bindings
+remain intact; replacing/clearing the child still invalidates held custody before
+waiting for its lock. Room, credential, invitation and per-operation deadlines
+remain independent and enforced. Missing state never triggers automatic
+reprovisioning or a replacement child.
+
+Focused Chromium fixtures advance past the accepted deadline, reconstruct the
+protected vault/coordinator/room runtime, then create both room profiles with the
+signer offline and perform real invitation ECDH through the Rust WASM engine.
+Expired unaccepted replies, currentness changes and clearing still hold. This
+is synthetic browser composition evidence, with physical signer and mixed-client
+acceptance still outstanding. Production remains disabled.
