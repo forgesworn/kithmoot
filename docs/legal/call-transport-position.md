@@ -84,6 +84,29 @@ boundary. An outsourced server does not automatically remove the app
 operator's role `[U]` (2.2, 2.11). A narrow legal review of that boundary is
 optional where its answer would change the design.
 
+### 25 October 2026: public call relays found on the device
+
+Device-side discovery of operator-signed Spry adverts (kind 31478) was
+reviewed against law note 2.13 (design:
+`docs/2026-10-25-public-relay-discovery.md`). It is off by default. When the
+user turns it on, the web app reads adverts from the Nostr relays in the
+device's own Connections list, over a connection that is not signed in, and
+the user chooses a relay; the chosen operator issues an hour-long login
+directly to the device. ForgeSworn runs no relay, index, directory, cache or
+credential issuer for it and ships no list of call relays; it does not
+check, rank or vouch for any operator, and receives no choice, failure or
+usage report. This is design (b) for users on the shipped default Nostr
+relays and design (a) for users who chose their own `[U]` (2.13). Each Nostr
+relay's operator answers for that relay, and each public relay operator for
+their own TURN service `[U]` (2.11). No ForgeSworn credential issuer and no
+named provider as a default still hold. Shipping or fetching a curated
+list, a ForgeSworn-run relay, index or badge, a discovery relay added to the
+defaults, a publisher-set ordering or block list, or any count of which
+relays people use would change this answer and needs a fresh review. The
+privacy notice (sections 4.5, 4.6 and 7) and the "Check it yourself" page
+describe what the device's relays and the chosen operator see. Android
+parity is a separate change under the same rules.
+
 ## Documentation and publication
 
 The public privacy, terms and report pages must describe the device-selected
