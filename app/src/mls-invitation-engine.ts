@@ -8,7 +8,7 @@ export function loadInvitationEngine(): Promise<typeof Binding & Record<string, 
   return binding ??= (async () => {
     const base = `${import.meta.env.BASE_URL}vmls-wasm-invitation/`
     const manifest = await (await fetch(`${base}manifest.json`, { cache: 'no-store' })).json()
-    if (manifest.sourceCommit !== 'fa366b49adcb5ff9b541209fe9ccda31f5d0d15f' || manifest.files?.['vmls_wasm_bg.wasm'] !== '9963d5c5ee6e744a15ac0ebb303bdd71645d65683d003300ed4459e80ffef134' || manifest.files?.['vmls_wasm.js'] !== '9b01589eddd99a6c2cc6823c4f4a6be151011746d1cdf45a224162e8675f2fcc' || manifest.experimental !== true || !/^[0-9a-f]{64}$/.test(manifest.files?.['vmls_wasm_bg.wasm']) || !/^[0-9a-f]{64}$/.test(manifest.files?.['vmls_wasm.js'])) throw new Error('Missing exact experimental artifact provenance.')
+    if (manifest.sourceCommit !== '6d36f5f5faecfa71d3437108defb40e19df19d9d' || manifest.files?.['vmls_wasm_bg.wasm'] !== 'fae524c85758ba90e14fea61ee3706ad2e47cc9ee12e569fb086ab90cc9e7dbc' || manifest.files?.['vmls_wasm.js'] !== '9b01589eddd99a6c2cc6823c4f4a6be151011746d1cdf45a224162e8675f2fcc' || manifest.experimental !== true || manifest.snapshotVersion !== 4 || !/^[0-9a-f]{64}$/.test(manifest.files?.['vmls_wasm_bg.wasm']) || !/^[0-9a-f]{64}$/.test(manifest.files?.['vmls_wasm.js'])) throw new Error('Missing exact experimental artifact provenance.')
     const verified = new Map<string, ArrayBuffer>()
     for (const file of ['vmls_wasm.js', 'vmls_wasm_bg.wasm']) {
       const bytes = await (await fetch(`${base}${file}`, { cache: 'no-store' })).arrayBuffer()

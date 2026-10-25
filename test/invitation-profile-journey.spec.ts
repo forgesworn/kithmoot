@@ -46,6 +46,13 @@ test('actual protected app/WASM journey supports trusted restart, exact response
   await f.page.evaluate("new WebSocket('wss://positive-observer.kithmoot.test/check')")
   await expect.poll(async () => (await f.socketAttempts()).length).toBe(1)
 })
+test('retained pending Add blocks reuse of its package after removal and issuer restart', async ({ context }) => {
+  const f = await fixture(context)
+  const result = await f.page.evaluate('J.retainedPendingAddReplay()') as any
+  expect(result).toMatchObject({ replayState: 'refused', before: 1, after: 1, snapshotVersion: 4, bobPhase: 'Removed' })
+  expect(result.replayReason).toBe('pending-add-full')
+  expect(f.publicRequests).toEqual([]); expect(await f.socketAttempts()).toEqual([])
+})
 test('independent trusted inviter mismatch refuses before adopting a second session', async ({ context }) => {
   const f = await fixture(context)
   const result = await f.page.evaluate('J.wrongInviter()') as any

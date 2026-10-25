@@ -48,6 +48,33 @@ export async function lifecycle() {
     stats: f.stats(),
   }
 }
+export async function retainedPendingAddReplay() {
+  const f: any = await invitationFixture()
+  active('create', await f.create('alice'))
+  const issued = active('issue', await f.issue('alice', 'bob'))
+  const accepted = active('accept', await f.accept('bob', 'alice', issued.authorization))
+  active('record', await f.record('alice', issued.authorization, accepted.response.envelope))
+  const add = active('add', await f.add('alice', issued.authorization, accepted.response.envelope))
+  const committed = await f.commit('alice', add)
+  if (committed.welcomes.length !== 1) throw new Error('Expected one real Welcome')
+  active('welcome', await f.process('bob', committed.welcomes[0]))
+  const update = active('required update', await f.update('bob'))
+  await f.commit('bob', update, ['alice'])
+  const members = active('roster before removal', await f.members('alice'))
+  const bob = members.find((member: any) => !member.own && !member.pending)
+  if (!bob) throw new Error('Joined leaf absent before removal')
+  const removal = active('remove joined leaf', await f.remove('alice', bob.leafId))
+  await f.commit('alice', removal, ['bob'])
+  await f.restart('alice')
+  const before = active('roster before replay', await f.members('alice'))
+  let replay
+  try { replay = await f.add('alice', issued.authorization, accepted.response.envelope) }
+  catch (error) { replay = { state: 'refused', reason: String(error) } }
+  const after = active('roster after replay', await f.members('alice'))
+  const summary = active('protected issuer snapshot', await f.summary('alice'))
+  return { replayState: replay.state, replayReason: replay.reason, before: before.length, after: after.length,
+    snapshotVersion: summary.snapshotVersion, bobPhase: active('removed guest', await f.read('bob')).phase.type }
+}
 export async function wrongInviter() {
   const f: any = await invitationFixture()
   active('create', await f.create('alice'))

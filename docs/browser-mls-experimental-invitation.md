@@ -4,7 +4,7 @@ This separate `Vennel/invitation/1` development profile is unallocated and has
 not had independent security review. Production MLS remains disabled. Existing
 full-profile rooms retain the original WASM runtime, marker, allocation gates
 and installation checks. The invitation marker is experimental `0xF0B4`, with
-version-3 snapshots and membership policy `all-current-members/1`.
+version-4 snapshots and membership policy `all-current-members/1`.
 
 ## Explicit development workflow
 
@@ -87,18 +87,22 @@ The separate development loader pins source commit and exact JS/WASM hashes,
 verifies the candidate manifest and bytes, and executes/instantiates those
 verified bytes directly. It has no production fallback. The original
 `app/public/vmls-wasm` verifier and pin remain unchanged. Artifacts are from
-Vennel `fa366b49adcb5ff9b541209fe9ccda31f5d0d15f`; they are development
-inputs, not a published release or allocation statement.
+Vennel `6d36f5f5faecfa71d3437108defb40e19df19d9d`; they are development
+inputs, not a published release or allocation statement. Earlier version-3
+invitation snapshots refuse to reopen: their past response consumption cannot
+be established. Continuing with this runtime requires a new experimental room.
+Existing full-profile room snapshots remain on their separate runtime and format.
 
 ## Evidence limits
 
 Independent manual-Python context/hash reference vectors, canonical-reader
 and continuity-disposition unit checks, and driver no-deposit negatives are
-included. Six actual Chromium cases cover the protected lifecycle, independent
+included. Seven actual Chromium cases cover the protected lifecycle, independent
 keeper registration and member Add, trusted-inviter mismatch, local marker
 loss, missing/forged receipts, initial adoption reply loss with exact restart
-recovery, and the real panel's account guards/private-field clearing. The
-network-attempt observer includes a positive control. These are synthetic
+recovery, retained pending-Add refusal for the same package after
+removal/restart, and the real panel's account guards/private-field clearing.
+The network-attempt observer includes a positive control. These are synthetic
 own-stack checks; a full owner/native-Link UI journey remains separate.
 
 Reproduce the bounded checks with:
