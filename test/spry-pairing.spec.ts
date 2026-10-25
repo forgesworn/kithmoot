@@ -2,7 +2,7 @@ import { test, expect, type BrowserContext } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { openSettings } from './browser.js'
-import { TEST_RELAY_WS } from './relays.js'
+import { testRelaysFor } from './relays.js'
 
 function pairingHash() {
   return '#spry=' + Buffer.from(JSON.stringify({ v: 1, endpoint: 'https://relay.example:3744', code: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 180 })).toString('base64url')
@@ -49,6 +49,7 @@ test('the device chooser offers an app and phone QR without claiming in the brow
 
 test('pairing one signed-in browser follows the account and unpairing reaches another device', async ({ browser, baseURL }) => {
   const secret = generateSecretKey(), pubkey = getPublicKey(secret)
+  const relay = testRelaysFor(baseURL!)![0]
   const contexts: BrowserContext[] = []
   async function device() {
     const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
@@ -61,9 +62,9 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
       const fixture = window as unknown as { nostr: unknown; __sprySign: (event: unknown) => Promise<unknown>; __spryEncrypt: (peer: string, text: string) => Promise<string>; __spryDecrypt: (peer: string, text: string) => Promise<string> }
       fixture.nostr = { getPublicKey: async () => pubkey, getRelays: async () => ({ [relay]: { read: true, write: true } }),
         signEvent: (event: unknown) => fixture.__sprySign(event), nip44: { encrypt: fixture.__spryEncrypt, decrypt: fixture.__spryDecrypt } }
-    }, { pubkey, relay: TEST_RELAY_WS })
+    }, { pubkey, relay })
     await context.routeWebSocket('**', socket => {
-      if (['localhost', '127.0.0.1', '[::1]'].includes(new URL(socket.url()).hostname)) socket.connectToServer()
+      if (new URL(socket.url()).href === new URL(relay).href) socket.connectToServer()
       else socket.close()
     })
     return context
