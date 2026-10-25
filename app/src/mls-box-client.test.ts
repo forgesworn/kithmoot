@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { invitationRegistrationRequest } from './mls-invitation-package.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { BrowserMlsBoxClient, MAX_MLS_ENVELOPE } from './mls-box-client.js'
@@ -43,6 +45,23 @@ function receipt(box: string, slot = id, attempt = 3, digest = hash) {
 afterEach(() => vi.useRealTimers())
 
 describe('strict browser MLS box client', () => {
+  it('opts into an independent keeper registration receipt and holds an unsigned old-node reply', async () => {
+    const f = setup(201, body('registered'))
+    const request = invitationRegistrationRequest({ node: f.box, installation, packageId: bytesToHex(id), welcomeMailbox: bytesToHex(other), expiresAt: 200 })
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    expect(JSON.parse(new TextDecoder().decode(f.calls[0].body)).registration_receipt).toBe(true)
+    const signed = concatBytes(request, ed25519.sign(sha256(concatBytes(enc.encode('Vennel/invitation/1 package registration\0'), request)), new Uint8Array(32).fill(91)))
+    f.response.body = wire(body('registered', { registrationReceipt: bytesToHex(signed) }))
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toMatchObject({ state: 'ok', value: { registrationReceipt: signed, fresh: true } })
+    f.response.body = wire({ ...body('registered', { registrationReceipt: bytesToHex(signed) }), server_time: 200 })
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    signed[200] ^= 1
+    f.response.body = wire(body('registered', { registrationReceipt: bytesToHex(signed) }))
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    f.response.body = wire(body('registered'))
+    expect((await f.client.registerPackage(id, other, 200, 123)).state).toBe('ok')
+    expect(JSON.parse(new TextDecoder().decode(f.calls.at(-1)!.body))).not.toHaveProperty('registration_receipt')
+  })
   it('does no constructor I/O and pins the requested identity to the verified paired card', () => {
     const f = setup(); expect(f.calls).toEqual([]); expect(f.signed).toEqual([])
     expect(() => new BrowserMlsBoxClient(f.transport, f.route, '00'.repeat(32), f.vault, ctx, async () => 'approve', () => true)).toThrow('differ')

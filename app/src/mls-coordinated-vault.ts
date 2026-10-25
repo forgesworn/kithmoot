@@ -9,6 +9,8 @@ import { base32 } from '@scure/base'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { createDeviceCredential } from '../../src/credential.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
+import { readMlsRoom } from './mls-room-store.js'
+import { INVITATION_SIGN_METHOD, invitationDigest, readInvitationSignBody, type InvitationContext } from '../../src/vmls/invitation.js'
 import { bindingDigest, checkUnsignedBinding, readUnsignedBinding, verifyPersonCredential } from '../../src/vmls/binding.js'
 import { BrowserPersonaCoordinator, InvalidPersonaRecord, type PersonaReader, type PersonaTransaction, type CoordinationResult } from './mls-persona-coordinator.js'
 import { PersonaStorageError } from './mls-persona-store.js'
@@ -44,6 +46,21 @@ const typedScope = (s: ConsentScope) => scopeShape(s) && HEX.test(s.persona) && 
 const leafKey = (r: SignLeafBindingRequest) => JSON.stringify([r.v, r.operation, r.body, r.digest, r.expires_at])
 const boxKey = (r: BoxRequest) => JSON.stringify([r.v, r.box, r.method, r.path, r.payload])
 
+export interface InvitationSignRequest {
+  v: 1; method: typeof INVITATION_SIGN_METHOD; session: string; operation: string
+  body: string; digest: string; expires_at: number
+}
+export interface InvitationSignReply extends SignLeafBindingReply { readonly method: typeof INVITATION_SIGN_METHOD }
+export interface InvitationConsent { method: typeof INVITATION_SIGN_METHOD; principal: string; persona: string; device: string; homeBox: string; context: InvitationContext; purpose?: 'accept' }
+export type InvitationConsentPrompt = (scope: InvitationConsent) => Promise<ConsentDecision>
+interface InvitationJournal { request: string; operation: string; generation: number; revision: string; validBefore: number; deadline: number; state: 'pending' | 'denied' | 'signed'; signature?: string }
+const invitationKey = (r: InvitationSignRequest) => JSON.stringify([r.v, r.method, r.session, r.operation, r.body, r.digest, r.expires_at])
+function invitationShape(input: unknown): InvitationSignRequest | undefined {
+  if (!input || typeof input !== 'object' || Object.keys(input).sort().join(',') !== 'body,digest,expires_at,method,operation,session,v') return
+  const r = input as InvitationSignRequest
+  return r.v === 1 && r.method === INVITATION_SIGN_METHOD && [r.session, r.operation, r.digest].every(v => typeof v === 'string' && HEX.test(v)) &&
+    typeof r.body === 'string' && r.body.length <= 16384 && Number.isSafeInteger(r.expires_at) && r.expires_at >= 0 ? { ...r } : undefined
+}
 interface RecordV1 {
   version: 1
   persona: string
@@ -51,6 +68,7 @@ interface RecordV1 {
   device: DeviceRecord
   policy: PolicyRecord
   journal: JournalEntry[]
+  invitationJournal?: InvitationJournal[]
   retired: string[]
   /** Retained permanently: a migration retry cannot overwrite newer work. */
   migrated: boolean
@@ -83,6 +101,7 @@ export class CoordinatedMlsVault {
   // In-memory only. Do not evict live entries: eviction could repeat an id.
   #boxTimes = new Map<string, number>()
   #boxClockFloor = 0
+  #invitationMade = new WeakMap<object, { ctx: VaultContext; request: string; validBefore: number; deadline: number }>()
   #admissionPrompts = new Set<string>()
   #keeperPrompts = new Set<string>()
   #keeperClockFloor = 0
@@ -384,6 +403,106 @@ export class CoordinatedMlsVault {
     return this.#live(made.validBefore, made.deadline) ? ok(undefined) : refuse('expired')
   }
 
+  /** A distinct device-key purpose. Independently reads the complete canonical
+   * body and original credential; a protected saved room supplies inviter facts.
+   * Reserve before fresh consent. An interrupted prompt stays held, never silently
+   * prompts again. Exact signed retries return the same durable signature. */
+  async signInvitationV1(ctx: VaultContext, input: unknown, consent: InvitationConsentPrompt): Promise<VaultResult<InvitationSignReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = invitationShape(input), body = req && base64Decode(req.body)
+    if (!req || !body) return refuse('malformed')
+    const key = invitationKey(req)
+    const inspect = async (tx: PersonaReader, r: RecordV1 | undefined): Promise<VaultResult<{ prompt: InvitationConsent; validBefore: number }>> => {
+      const reason = this.#device(r), now = this.#now()
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (req.expires_at < now) return refuse('expired')
+      if (req.expires_at > now + MAX_OPERATION_SECONDS || bytesToHex(invitationDigest(body)) !== req.digest) return refuse('malformed')
+      try {
+        const parsed = readInvitationSignBody(body, now, ctx.persona, new Set(r.policy.revoked))
+        const c = parsed.context, room = await readMlsRoom(tx, req.session), b = room.binding
+        if (parsed.credential.id !== r.device.credentialId || parsed.credential.device !== r.device.device ||
+            c.inviterDevice !== b.device || c.inviterRz !== b.rendezvousKey || c.groupHome !== b.homeBox ||
+            c.groupInstallation !== b.installation || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
+        return ok({ prompt: { method: INVITATION_SIGN_METHOD, principal: ctx.principal, persona: ctx.persona, device: r.device.device, homeBox: b.homeBox, context: c },
+          validBefore: Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt) })
+      } catch { return refuse('malformed') }
+    }
+    let retry = false
+    const first = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const journal = r.invitationJournal ??= [], old = journal.find(e => e.operation === req.operation)
+      if (old) {
+        if (old.request !== key) return refuse('replay')
+        if (old.generation !== ctx.generation || old.revision !== ctx.revision) return refuse('stale')
+        if (old.state === 'pending') return refuse('busy')
+        if (old.state === 'denied') return refuse('denied')
+        retry = true; return checked
+      }
+      if (journal.length >= 64) return refuse('busy')
+      journal.push({ request: key, operation: req.operation, generation: ctx.generation, revision: ctx.revision,
+        validBefore: checked.value.validBefore, deadline: req.expires_at, state: 'pending' })
+      await saveRecord(tx, r)
+      return checked
+    }))
+    if (!first.ok) return first
+    let decision: ConsentDecision = 'deny'
+    if (!retry) { try { decision = await consent(structuredClone(first.value.prompt)) } catch { /* durable denial */ } }
+    const answer = await this.#run<InvitationSignReply>(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const entry = r.invitationJournal?.find(e => e.operation === req.operation)
+      if (!entry || entry.request !== key || entry.generation !== ctx.generation || entry.revision !== ctx.revision) return refuse('stale')
+      if (entry.state === 'denied') return refuse('denied')
+      if (entry.state === 'pending') {
+        entry.state = decision === 'approve' ? 'signed' : 'denied'
+        if (entry.state === 'signed') {
+          const scalar = hexToBytes(r.device.scalar)
+          try { entry.signature = bytesToHex(schnorr.sign(hexToBytes(req.digest), scalar, crypto.getRandomValues(new Uint8Array(32)))) }
+          finally { scalar.fill(0) }
+        }
+        await saveRecord(tx, r)
+      }
+      return entry.state === 'signed' && entry.signature ? ok(Object.freeze({ v: 1 as const, method: INVITATION_SIGN_METHOD,
+        operation: req.operation, digest: req.digest, device: r.device.device, signature: entry.signature })) : refuse('denied')
+    }))
+    if (answer.ok) {
+      if (!this.#live(first.value.validBefore, req.expires_at)) return refuse('expired')
+      this.#invitationMade.set(answer.value, { ctx, request: key, validBefore: first.value.validBefore, deadline: req.expires_at })
+    }
+    return answer
+  }
+  /** Revalidate under the host's already-owned protected transaction after
+   * every async boundary. No recursive coordinator or caller freshness flag. */
+  async checkInvitationReply(tx: PersonaReader, ctx: VaultContext, req: InvitationSignRequest, reply: unknown): Promise<VaultResult<InvitationSignReply>> {
+    const provenance = this.acceptInvitationReply(req, reply)
+    if (!provenance.ok) return provenance
+    const body = base64Decode(req.body)
+    if (!body || !this.#current(ctx)) return refuse('stale')
+    try {
+      return await this.#with(tx, ctx.persona, async r => {
+        const reason = this.#device(r)
+        if (reason || !r) return refuse(reason ?? 'unauthorised')
+        const parsed = readInvitationSignBody(body, this.#now(), ctx.persona, new Set(r.policy.revoked))
+        const room = await readMlsRoom(tx, req.session), c = parsed.context, b = room.binding
+        if (bytesToHex(invitationDigest(body)) !== req.digest || parsed.credential.id !== r.device.credentialId || c.inviterDevice !== r.device.device ||
+            c.inviterDevice !== b.device || parsed.credential.id !== b.credentialId || c.inviterRz !== b.rendezvousKey ||
+            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.invitation?.groupId !== c.groupId ||
+            !this.#live(Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt), req.expires_at)) return refuse('stale')
+        return this.acceptInvitationReply(req, reply)
+      })
+    } catch { return refuse('malformed') } finally { body.fill(0) }
+  }
+  acceptInvitationReply(input: InvitationSignRequest, reply: unknown): VaultResult<InvitationSignReply> {
+    const req = invitationShape(input)
+    const made = reply && typeof reply === 'object' ? this.#invitationMade.get(reply) : undefined
+    if (!req || !made) return refuse('unauthorised')
+    if (!this.#current(made.ctx)) return refuse('stale')
+    if (made.request !== invitationKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const value = reply as InvitationSignReply
+    try { return value.method === INVITATION_SIGN_METHOD && schnorr.verify(hexToBytes(value.signature), hexToBytes(req.digest), hexToBytes(value.device)) ? ok(value) : refuse('unauthorised') }
+    catch { return refuse('unauthorised') }
+  }
+
   /** Purpose-specific proof only; the caller's private owner still holds
    * actual child custody and verifies current keeper role before using it.
    * Reserve once under the witness before prompting; never reuse broad scope
@@ -674,6 +793,16 @@ function validateRecord(r: RecordV1, persona: string, installation: string): voi
   if (!r.policy || !Array.isArray(r.policy.approved) || !Array.isArray(r.policy.revoked) || !Array.isArray(r.retired) || !Array.isArray(r.journal)) invalid()
   if (r.policy.approved.length > 1024 || r.policy.revoked.length > 4096 || r.retired.length > 1024 || r.journal.length > MAX_JOURNAL_RECORDS) invalid()
   if (r.policy.approved.some(s => !typedScope(s) || s.persona !== persona) || r.policy.revoked.some(x => !HEX.test(x)) || r.retired.some(x => !HEX.test(x)) || r.retired.includes(d.device)) invalid()
+  if (r.invitationJournal !== undefined) {
+    if (!Array.isArray(r.invitationJournal) || r.invitationJournal.length > 64) invalid()
+    const operations = new Set<string>()
+    for (const e of r.invitationJournal) {
+      if (!e || !HEX.test(e.operation) || operations.has(e.operation) || typeof e.request !== 'string' || e.request.length > 18000 || !Number.isSafeInteger(e.generation) || e.generation < 0 || typeof e.revision !== 'string' ||
+          !Number.isSafeInteger(e.validBefore) || !Number.isSafeInteger(e.deadline) || !['pending', 'denied', 'signed'].includes(e.state) ||
+          (e.state === 'signed' ? typeof e.signature !== 'string' || !/^[0-9a-f]{128}$/.test(e.signature) : e.signature !== undefined)) invalid()
+      operations.add(e.operation)
+    }
+  }
   const ids = new Set<string>()
   for (const e of r.journal) {
     if (!e || !Number.isSafeInteger(e.generation) || e.generation < 0 || (e.revision !== undefined && typeof e.revision !== 'string') || typeof e.principal !== 'string' || !e.principal || !HEX.test(e.handle) || !HEX.test(e.operation) || !HEX.test(e.bodyHash) || !HEX.test(e.digest) || !Number.isSafeInteger(e.deadline) || e.deadline < 0 || !e.outcome) invalid()

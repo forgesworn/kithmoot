@@ -1,6 +1,7 @@
 import { RendezvousVault, BrowserRendezvousVaultStorage, type RendezvousReceipt } from './rendezvous-vault.js'
 import { MlsRoomRefused } from './mls-room-store.js'
 import { BrowserMlsRoomForeground, type MlsRoomForegroundScope } from './mls-room-foreground.js'
+import { withMlsRendezvous, type MlsRendezvousCustody } from './mls-rendezvous-custody.js'
 import { getPublicKey } from 'nostr-tools/pure'
 
 /** Raw references from the actual application's retained bunker ceremony.
@@ -19,6 +20,25 @@ export class BrowserMlsRoomCreateCustody {
   constructor(private readonly foreground: BrowserMlsRoomForeground,
     private readonly device: () => MlsRoomCreateDevice | undefined) {
     if (!(foreground instanceof BrowserMlsRoomForeground)) throw new Error('Room creation requires its concrete foreground.')
+  }
+  async withInvitation<T>(scope: MlsRoomForegroundScope, work: (custody: MlsRoomCreateRendezvous & MlsRendezvousCustody) => Promise<T>): Promise<T> {
+    const raw = this.device()
+    if (!raw || !raw.owner || typeof raw.owner !== 'object' || !raw.provisionOwner || typeof raw.provisionOwner !== 'object' || typeof raw.provision !== 'function' ||
+        !(raw.deviceKey instanceof Uint8Array) || raw.deviceKey.length !== 32 || !this.foreground.active(scope)) throw stale()
+    const before = Object.freeze({ ...raw })
+    const device = getPublicKey(before.deviceKey)
+    const child = await this.#source.active(scope.account, device)
+    if (!child) throw stale()
+    const receipt = Object.freeze({ ...child.receipt }); child.wipe()
+    const current = () => {
+      const next = this.device()
+      return this.foreground.active(scope) && !!next && next.owner === before.owner && next.provisionOwner === before.provisionOwner &&
+        next.provision === before.provision && next.deviceKey === before.deviceKey && getPublicKey(next.deviceKey) === device
+    }
+    return withMlsRendezvous(this.#source, receipt, () => Math.floor(Date.now() / 1000), current, async held => {
+      try { return await work(Object.freeze({ ...held, receipt })) }
+      finally { await this.foreground.drain(scope) }
+    })
   }
   withCurrent<T>(scope: MlsRoomForegroundScope, work: (custody: MlsRoomCreateRendezvous) => Promise<T>): Promise<T> {
     const value = this.device()

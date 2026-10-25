@@ -4,6 +4,7 @@ import type { LinkEngine, LinkRequest, LinkRoute } from './browser-link-types.js
 import type { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import { base64Decode, base64Encode, type ConsentPrompt, type VaultContext, type VaultRefusal } from './mls-vault.js'
 import { pairedWitnessIdentity } from './mls-writer-identity.js'
+import { readInvitationRegistrationRequest, verifyInvitationRegistrationReceipt } from './mls-invitation-package.js'
 import { loadMlsEngine } from './mls-engine.js'
 
 const HEX = /^[0-9a-f]{64}(?![\s\S])/
@@ -178,6 +179,20 @@ export class BrowserMlsBoxClient {
       if (!a || !((status === 201 && a.code === 'registered') || (status === 200 && a.code === 'unchanged'))) return
       return parsed(a, { fresh: a.code === 'registered' })
     }, () => true, settle)
+  }
+  /** Independent keeper action. This grants no MLS admission and requires a
+   * node-signed receipt; an older node's unsigned success remains held. */
+  registerInvitationPackageSettled(request: Uint8Array, serverTime: number): Promise<BoxAnswer<{ fresh: boolean; registrationReceipt: Uint8Array }>> {
+    const expected = readInvitationRegistrationRequest(request, serverTime)
+    if (expected.node !== this.box) throw new Error('The private registration request names another paired node.')
+    const ciphertext = sha256(concatBytes(encoder.encode('VMLS/1 package'), hexToBytes(expected.packageId), hexToBytes(expected.welcomeMailbox)))
+    return this.#request('PUT', `/vmls/v1/packages/${expected.packageId}`, json({ v: 1, welcome_mailbox: expected.welcomeMailbox, expires_at: expected.expiresAt, ciphertext: base64Encode(ciphertext), registration_receipt: true }), MAX_JSON, (status, raw) => {
+      const a = answer(raw, ['registrationReceipt'])
+      if (!a || !((status === 201 && a.code === 'registered') || (status === 200 && a.code === 'unchanged')) || typeof a.registrationReceipt !== 'string' || !/^[0-9a-f]{402}$/.test(a.registrationReceipt)) return
+      const receipt = hexToBytes(a.registrationReceipt)
+      try { verifyInvitationRegistrationReceipt(receipt, expected, Math.max(serverTime, a.server_time)) } catch { receipt.fill(0); return }
+      return parsed(a, { fresh: a.code === 'registered', registrationReceipt: receipt })
+    }, () => true, true)
   }
   withdrawPackage(packageId: Uint8Array): Promise<BoxAnswer<void>> {
     return this.#request('DELETE', `/vmls/v1/packages/${idOf(packageId)}`, new Uint8Array(), MAX_JSON, (status, raw) => {

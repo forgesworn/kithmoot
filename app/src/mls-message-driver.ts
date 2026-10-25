@@ -145,7 +145,11 @@ export class BrowserMlsMessageDriver {
       const heldLeaves = new Set<string>()
       for (const out of outgoing) {
         s = await refresh(); stopPhase(s)
-        const d = out.destination, leaf = d.type === 'Leaf' ? bytesToHex(d.leafId) : undefined
+        const d = out.destination
+        // Private OOB has no box deposit route. Link invitation introductions
+        // require independently provisioned carrier rights and stay held here.
+        if (d.type === 'InvitationOob' || d.type === 'InvitationMailbox') { done.held++; continue }
+        const leaf = d.type === 'Leaf' ? bytesToHex(d.leafId) : undefined
         if (leaf && heldLeaves.has(leaf)) { done.leafHeld++; continue }
         if (!s.outbox.some(r => bytesToHex(r.recordId) === bytesToHex(out.recordId))) continue
         if (d.type === 'CommitSlot' && s.epoch !== null && d.epoch < s.epoch) {

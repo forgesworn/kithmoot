@@ -16,6 +16,7 @@ export interface MlsHistoryEntry { id: string; direction: 'sent' | 'received'; l
 interface StoredMessage extends Omit<MlsHistoryEntry, 'body'> { body: string }
 export interface MlsRoomRecord {
   version: 1; session: string; generation: string; name: string; binding: MlsRoomBinding; history: StoredMessage[]
+  invitation?: { groupId: string; groupInstallation: string; hostInstallation: string; localAnchor: string; context?: string; issued?: string[] }
   keeper?: string
   ordering?: { slot: string; attempt: number }[]
   join?: MlsJoinCeremony
@@ -40,10 +41,12 @@ export async function readMlsRoom(tx: PersonaReader, id: string): Promise<MlsRoo
   finally { bytes.fill(0) }
 }
 function validate(r: MlsRoomRecord, id: string): void {
-  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), ...(r.keeper ? ['keeper'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), ...(r.pendingAdds ? ['pendingAdds'] : []), 'session', 'version'].join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
+  if (!r || typeof r !== 'object' || !keys(r, ['binding', 'generation', 'history', ...(r.join ? ['join'] : []), ...(r.invitation ? ['invitation'] : []), ...(r.keeper ? ['keeper'] : []), 'name', ...(r.ordering ? ['ordering'] : []), ...(r.packages ? ['packages'] : []), ...(r.pendingAdds ? ['pendingAdds'] : []), 'session', 'version'].sort().join(',')) || r.version !== 1 || r.session !== id || !uint(r.generation) || r.generation === '0' ||
     typeof r.name !== 'string' || r.name.length < 1 || r.name.length > 120 || !r.binding || !keys(r.binding, 'credentialId,device,homeBox,installation,rendezvousKey') ||
     ![r.binding.device, r.binding.credentialId, r.binding.rendezvousKey, r.binding.homeBox].every(hex) ||
     !(hex(r.binding.installation) || r.binding.installation === null && r.join) || r.keeper !== undefined && !hex(r.keeper) || !Array.isArray(r.history) || r.history.length > MAX_ROOM_MESSAGES) invalid()
+  if (r.invitation && (!keys(r.invitation, ['groupId', 'groupInstallation', 'hostInstallation', 'localAnchor', ...(r.invitation.context ? ['context'] : []), ...(r.invitation.issued ? ['issued'] : [])].sort().join(',')) || ![r.invitation.groupId, r.invitation.groupInstallation, r.invitation.hostInstallation, r.invitation.localAnchor].every(hex) || r.invitation.context !== undefined && !hex(r.invitation.context))) invalid()
+  if (r.invitation?.issued && (!Array.isArray(r.invitation.issued) || r.invitation.issued.length > 64 || !r.invitation.issued.every(hex) || new Set(r.invitation.issued).size !== r.invitation.issued.length)) invalid()
   if (r.join && (!keys(r.join, 'adderRz,counter,expiresAt,introductionBox,operation') || !hex(r.join.operation) || !hex(r.join.adderRz) || !hex(r.join.introductionBox) || !uint(r.join.counter) || !Number.isSafeInteger(r.join.expiresAt) || r.join.expiresAt < 0)) invalid()
   if (r.ordering && (!Array.isArray(r.ordering) || r.ordering.length > 1024 || r.ordering.some(q => !q || !keys(q, 'attempt,slot') || !hex(q.slot) || !Number.isInteger(q.attempt) || q.attempt < 0 || q.attempt > 0xffffffff) || new Set(r.ordering.map(q => `${q.slot}:${q.attempt}`)).size !== r.ordering.length)) invalid()
   if (r.packages && (!Array.isArray(r.packages) || r.packages.length > 64 || r.packages.some(p => !p || !keys(p, 'expiresAt,homeBox,leafId,packageId,welcomeMailbox') ||

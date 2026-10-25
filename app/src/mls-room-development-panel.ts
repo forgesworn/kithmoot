@@ -1,10 +1,12 @@
 import { BrowserMlsRoomDevelopmentOwner, type MlsRoomDevelopmentContext } from './mls-room-development-owner.js'
 import type { MlsRoomForegroundResult } from './mls-room-foreground.js'
+import { invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { base64Encode, base64Decode } from './mls-vault.js'
 import { addReveal } from './reveal.js'
 
 /** Explicit development-only room custody controls. Opening performs no I/O;
  * creation and a single manual round have explicit private-route ceremonies.
- * Authenticated invitation joining remains held. */
+ * Experimental joining uses a separately gated trusted private ceremony. */
 export class BrowserMlsRoomDevelopmentPanel {
   readonly dialog: HTMLDialogElement
   readonly #owner: BrowserMlsRoomDevelopmentOwner
@@ -15,7 +17,7 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.dialog = root.createElement('dialog'); this.dialog.id = 'mlsRoomDevelopment'; this.dialog.className = 'profileSettings'
     this.dialog.setAttribute('aria-labelledby', 'mlsRoomDevelopmentTitle')
     this.dialog.innerHTML = `<div class="profileSettingsHeader"><h2 id="mlsRoomDevelopmentTitle">MLS room connection</h2><button data-close type="button">Close</button></div>
-      <p class="note">Development preview. Production MLS is unavailable. Creation saves a local witnessed room. One explicit manual round processes its retained work; authenticated invitation joining remains held.</p>
+      <p class="note">Development preview. Production MLS is unavailable. Creation saves a local witnessed room. One explicit manual round processes its retained work; An experimental private invitation workflow is available only with its separate development flag.</p>
       <p>Account: <span data-account></span></p><p data-status role="status" aria-live="polite"></p>
       <fieldset><legend>Dedicated room connection</legend><p>This connection has its own saved routes. Link relays can observe connection timing and volume.</p>
       <label>Link relay addresses <input data-relays autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
@@ -25,13 +27,42 @@ export class BrowserMlsRoomDevelopmentPanel {
       <label>Saved room route <select data-create-route><option value="">Read saved routes first</option></select></label>
       <label>Room name <input data-create-name maxlength="120" autocomplete="off"></label>
       <label>Binding lifetime in days <input data-create-days type="number" min="1" max="30" value="7"></label>
+      <label data-invitation-toggle hidden><input data-create-invitation type="checkbox"> Experimental invitation/1 profile (all current members may Add and Remove)</label>
       <button data-create type="button">Create local MLS room</button></fieldset>
       <fieldset><legend>Saved MLS rooms</legend><button data-rooms type="button">Check saved MLS rooms</button><div data-room-list></div></fieldset>
       <fieldset><legend>One manual delivery round</legend><p>Select this room’s exact home-box route. A round retains uncertain work and holds other destinations. It does not run again automatically.</p>
       <label>Saved room <select data-manual-room><option value="">Check saved rooms first</option></select></label>
       <label>Saved room route <select data-manual-route><option value="">Read saved routes first</option></select></label>
-      <button data-manual type="button">Run one manual round</button></fieldset>`
+      <button data-manual type="button">Run one manual round</button></fieldset>
+      <fieldset data-invitation-controls hidden><legend>Experimental private invitations</legend>
+      <p>Unallocated development profile. Use an authenticated private conversation with the intended person. Paste, QR scanning and operator authentication alone do not authenticate the inviter. Keep these private bytes out of links, public tags, directories and relays. Keeper package registration requires separate node permission. This preview uses one exact paired home box.</p>
+      <label>Saved exact room route <select data-invite-route><option value="">Read saved routes first</option></select></label>
+      <label>Saved experimental room <select data-invite-room><option value="">Check saved rooms first</option></select></label>
+      <label>Intended person's public key <input data-target-persona autocomplete="off" spellcheck="false" maxlength="64"></label>
+      <label>Intended enrolled device <input data-target-device autocomplete="off" spellcheck="false" maxlength="64"></label>
+      <label>Intended rendezvous key <input data-target-rz autocomplete="off" spellcheck="false" maxlength="64"></label>
+      <label>Intended leaf home node <input data-target-home autocomplete="off" spellcheck="false" maxlength="64"></label>
+      <label>Invitation lifetime (hours, at most 168) <input data-invite-hours type="number" min="1" max="168" value="24"></label>
+      <button data-issue-invitation type="button">Review and issue private invitation</button><button data-export-invitation type="button">Recover last saved invitation</button>
+      <label>Private invitation bytes <textarea data-private-invitation autocomplete="off" spellcheck="false" maxlength="16384"></textarea></label>
+      <label>Expected inviter from your trusted private contact (enter independently) <input data-expected-inviter autocomplete="off" spellcheck="false" maxlength="64"></label>
+      <label>Local joined room name <input data-join-name autocomplete="off" maxlength="120"></label>
+      <button data-accept-invitation type="button">Review trusted inviter and accept privately</button><button data-recover-response type="button">Recover exact saved response</button>
+      <label>Private response envelope <textarea data-private-response autocomplete="off" spellcheck="false" maxlength="1450000"></textarea></label>
+      <button data-record-response type="button">Record exact response with witness</button>
+      <p>After recording, a separately authorised keeper may register the package and a current member may propose Add. This does not grant keeper rights to members.</p>
+      <button data-export-registration type="button">Export private package registration request</button>
+      <label>Private package request (for a separately authorised keeper) <textarea data-private-registration autocomplete="off" spellcheck="false" maxlength="184"></textarea></label>
+      <button data-keeper-register type="button">Register package as the selected node’s keeper</button>
+      <label>Private node-signed registration receipt <textarea data-registration-receipt autocomplete="off" spellcheck="false" maxlength="268"></textarea></label>
+      <button data-add-response type="button">Verify keeper receipt and propose member Add</button>
+      <label>Message <input data-message autocomplete="off" maxlength="4096"></label><button data-update-invitation-room type="button">Sign required Update</button><button data-send-invitation-room type="button">Queue message</button>
+      <button data-read-invitation-room type="button">Read saved messages and members</button><pre data-invitation-view></pre>
+      <label>Leaf to remove <input data-remove-leaf autocomplete="off" spellcheck="false" maxlength="64"></label><button data-remove-invitation-member type="button">Remove selected member</button>
+      <p>Run explicit manual rounds for Commit, Welcome, Update and message delivery. No automatic round starts here.</p></fieldset>`
     root.body.append(this.dialog)
+    this.#text('invitation-toggle').hidden = !invitationPreviewEnabled()
+    this.#text('invitation-controls').hidden = !invitationPreviewEnabled()
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('close').onclick = () => this.close()
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close() })
@@ -40,7 +71,7 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#button('routes').onclick = () => { void this.#work(async epoch => {
       const routes = this.#value(await this.#owner.routes(), epoch)
       this.#list('route-list', routes.map(route => route.routeId))
-      for (const name of ['create-route', 'manual-route']) this.#select(name, routes.map(route => ({ value: route.routeId, label: route.routeId })))
+      for (const name of ['create-route', 'manual-route', 'invite-route']) this.#select(name, routes.map(route => ({ value: route.routeId, label: route.routeId })))
       this.#text('status').textContent = `${routes.length} saved room route(s).`
     }) }
     this.#button('pair').onclick = () => {
@@ -54,6 +85,7 @@ export class BrowserMlsRoomDevelopmentPanel {
       const result = this.#value(await this.#owner.roomChoices(), epoch)
       if (result.state !== 'active') throw new Error(`Saved room check ${result.state}.`)
       this.#list('room-list', result.value.map(room => `${room.name} (${room.session.slice(0, 12)}…)`))
+      this.#select('invite-room', result.value.map(room => ({ value: room.session, label: `${room.name} (${room.session.slice(0, 12)}…)` })))
       this.#select('manual-room', result.value.map(room => ({ value: room.session, label: `${room.name} (${room.session.slice(0, 12)}…)` })))
       this.#text('status').textContent = 'Saved rooms checked with the current witness. Select a room and its route for an explicit manual round.'
     }) }
@@ -62,9 +94,9 @@ export class BrowserMlsRoomDevelopmentPanel {
       const days = Number(this.#input('create-days').value)
       void this.#work(async epoch => {
         if (!Number.isSafeInteger(days) || days < 1 || days > 30) throw new Error('Choose a binding lifetime between one and thirty days.')
-        const result = this.#value(await this.#owner.create(route, name, days * 86400), epoch)
+        const result = this.#value(await this.#owner.create(route, name, days * 86400, this.#input('create-invitation').checked), epoch)
         this.#text('status').textContent = result.state === 'saved'
-          ? `Room ${result.session.slice(0, 12)}… saved locally with its witness and installation confirmed. Check saved rooms before a manual round. Invitation joining remains held.` : result.reason
+          ? `Room ${result.session.slice(0, 12)}… saved locally with its witness and installation confirmed. Check saved rooms before a manual round.` : result.reason
         if (result.state === 'saved') this.#input('create-name').value = ''
       })
     }
@@ -77,6 +109,54 @@ export class BrowserMlsRoomDevelopmentPanel {
           : result.reason
       })
     }
+    const privateBytes = (name: string, max: number) => {
+      const value = (this.#text(name) as HTMLTextAreaElement).value.trim()
+      if (value.length > max) throw new Error('Private bytes exceed the bounded ceremony size.')
+      const decoded = base64Decode(value)
+      if (!decoded) throw new Error('Paste the exact base64 bytes exchanged privately.')
+      return decoded
+    }
+    const invitation = (action: any) => { void this.#work(async epoch => {
+      const route = (this.#text('invite-route') as HTMLSelectElement).value
+      const result = this.#value(await this.#owner.invitation(route, action), epoch)
+      if (result.state !== 'active') throw new Error(`Invitation action ${result.state}: ${result.reason ?? 'retained state needs a fresh check'}`)
+      const value = result.value
+      if (value.authorization) { (this.#text('private-invitation') as HTMLTextAreaElement).value = base64Encode(value.authorization); value.authorization.fill(0) }
+      if (value.registrationRequest) { (this.#text('private-registration') as HTMLTextAreaElement).value = base64Encode(value.registrationRequest); value.registrationRequest.fill(0) }
+      if (value.registrationReceipt) { (this.#text('registration-receipt') as HTMLTextAreaElement).value = base64Encode(value.registrationReceipt); value.registrationReceipt.fill(0) }
+      if (value.response) { (this.#text('private-response') as HTMLTextAreaElement).value = base64Encode(value.response.envelope); value.response.envelope.fill(0) }
+      if (value.members || value.history) this.#text('invitation-view').textContent = JSON.stringify({ session: value.session, phase: value.phase, updateRequired: value.updateRequired, members: value.members, history: value.history }, (_key, item) => typeof item === 'bigint' ? String(item) : item instanceof Uint8Array ? new TextDecoder().decode(item) : item, 2)
+      this.#text('status').textContent = `Private invitation action saved${value.session ? ` for session ${value.session}` : ''}. Check saved rooms; delivery requires explicit manual rounds.`
+    }).finally(() => { if (action.authorization) action.authorization.fill(0); if (action.envelope) action.envelope.fill(0); if (action.receipt) action.receipt.fill(0); if (action.request) action.request.fill(0) }) }
+    const selectedRoom = () => (this.#text('invite-room') as HTMLSelectElement).value
+    this.#button('issue-invitation').onclick = () => {
+      const hours = Number(this.#input('invite-hours').value)
+      if (!Number.isSafeInteger(hours) || hours < 1 || hours > 168) { this.#text('status').textContent = 'Choose one to 168 hours covered by the current binding and credential.'; return }
+      invitation({ type: 'issue', session: selectedRoom(), target: { persona: this.#input('target-persona').value.trim(), device: this.#input('target-device').value.trim(),
+        rendezvous: this.#input('target-rz').value.trim(), leafHome: this.#input('target-home').value.trim(), expiresAt: Math.floor(Date.now() / 1000) + hours * 3600 } })
+    }
+    this.#button('export-invitation').onclick = () => invitation({ type: 'export', session: selectedRoom() })
+    this.#button('recover-response').onclick = () => invitation({ type: 'response', session: selectedRoom() })
+    this.#button('accept-invitation').onclick = () => {
+      try { invitation({ type: 'accept', authorization: privateBytes('private-invitation', 16384), expectedInviterPersona: this.#input('expected-inviter').value.trim(), name: this.#input('join-name').value.trim() }) }
+      catch (error) { this.#text('status').textContent = String(error) }
+    }
+    for (const [button, type] of [['record-response', 'record'], ['export-registration', 'registration-request']] as const) this.#button(button).onclick = () => {
+      try { invitation({ type, session: selectedRoom(), authorization: privateBytes('private-invitation', 16384), envelope: privateBytes('private-response', 1450000) }) }
+      catch (error) { this.#text('status').textContent = String(error) }
+    }
+    this.#button('keeper-register').onclick = () => {
+      try { invitation({ type: 'register-package', request: privateBytes('private-registration', 184) }) }
+      catch (error) { this.#text('status').textContent = String(error) }
+    }
+    this.#button('add-response').onclick = () => {
+      try { invitation({ type: 'add', session: selectedRoom(), authorization: privateBytes('private-invitation', 16384), envelope: privateBytes('private-response', 1450000), receipt: privateBytes('registration-receipt', 268) }) }
+      catch (error) { this.#text('status').textContent = String(error) }
+    }
+    this.#button('update-invitation-room').onclick = () => invitation({ type: 'update', session: selectedRoom() })
+    this.#button('send-invitation-room').onclick = () => invitation({ type: 'send', session: selectedRoom(), text: this.#input('message').value })
+    this.#button('read-invitation-room').onclick = () => invitation({ type: 'read', session: selectedRoom() })
+    this.#button('remove-invitation-member').onclick = () => invitation({ type: 'remove', session: selectedRoom(), leafId: this.#input('remove-leaf').value.trim() })
   }
   open(): void {
     if (this.root.visibilityState !== 'visible') return
@@ -91,7 +171,11 @@ export class BrowserMlsRoomDevelopmentPanel {
     for (const name of ['account', 'status', 'route-list', 'room-list']) this.#text(name).replaceChildren()
     this.#input('code').value = ''; this.#input('relays').value = ''
     this.#input('create-name').value = ''; this.#input('create-days').value = '7'
-    for (const name of ['create-route', 'manual-route', 'manual-room']) this.#text(name).replaceChildren()
+    this.#input('create-invitation').checked = false
+    for (const name of ['target-persona', 'target-device', 'target-rz', 'target-home', 'expected-inviter', 'join-name', 'message', 'remove-leaf']) this.#input(name).value = ''
+    for (const name of ['private-invitation', 'private-response', 'private-registration', 'registration-receipt']) (this.#text(name) as HTMLTextAreaElement).value = ''
+    this.#text('invitation-view').replaceChildren()
+    for (const name of ['create-route', 'manual-route', 'manual-room', 'invite-route', 'invite-room']) this.#text(name).replaceChildren()
     return this.#owner.pause()
   }
   async #work(work: (epoch: number) => Promise<void>): Promise<void> {

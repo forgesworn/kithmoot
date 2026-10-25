@@ -19,6 +19,10 @@ import { BrowserMlsMessageDriver, type MlsDriverRound } from './mls-message-driv
 import { pairedWitnessIdentity } from './mls-writer-identity.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { wipeLinkState } from './browser-link-vault.js'
+import { readInvitationRegistrationRequest } from './mls-invitation-package.js'
+import { loadInvitationEngine, invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { readInvitationContext, INVITATION_SIGN_METHOD } from '../../src/vmls/invitation.js'
+import type { InvitationConsentPrompt } from './mls-coordinated-vault.js'
 import type { ConsentPrompt, VaultContext } from './mls-vault.js'
 
 export interface MlsRoomDevelopmentContext extends MlsAccountContext {
@@ -59,7 +63,8 @@ async function join(work: readonly Promise<unknown>[]): Promise<void> {
  * It privately owns endpoint, persona and signer custody; callers cannot supply
  * service substitutes or a grant preparation/readiness mark. Creation has its
  * own exact route/child/readback ceremony. Manual rounds use only an exact
- * saved room and route; authenticated invitation joining stays held. */
+ * saved room and route. Experimental invitation joining has a separate
+ * trusted-contact ceremony and exact protected context adoption. */
 export class BrowserMlsRoomDevelopmentOwner {
   readonly #foreground = new BrowserMlsRoomForeground()
   readonly #endpoint = new BrowserMlsRoomEndpoint(this.#foreground,
@@ -74,7 +79,7 @@ export class BrowserMlsRoomDevelopmentOwner {
     this.#consent = new BrowserMlsRoomConsent(root)
   }
 
-  create(routeId: string, name: string, lifetime: number): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
+  create(routeId: string, name: string, lifetime: number, experimentalInvitation = false): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
     if (!routeShape(routeId) || typeof name !== 'string' || !name.trim() || name.length > 120 ||
         !Number.isSafeInteger(lifetime) || lifetime < 3600 || lifetime > 30 * 86400) throw new Error('Choose a saved route, a room name and a lifetime between one hour and thirty days.')
     const selected = Object.freeze({ routeId, name: name.trim(), lifetime })
@@ -111,7 +116,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         candidate = await services.creation.withCurrent(active.scope, async held => {
           custody = held
           return services.rooms.create({ vault: context!, rendezvousKey: held.receipt.rendezvousPubkey, current: () => active.current() && held.current() },
-            { name: selected.name, homeBox: box, installation, expiresAt: bindingExpiresAt }, consent)
+            { name: selected.name, homeBox: box, installation, expiresAt: bindingExpiresAt, experimentalInvitation }, consent)
         })
         if (candidate.state !== 'active') return candidate.state === 'refused'
           ? { state: 'held', reason: `Room creation refused (${candidate.reason}).` } : pending('Room creation could not be confirmed. Retained state requires a fresh witnessed check.')
@@ -150,6 +155,111 @@ export class BrowserMlsRoomDevelopmentOwner {
     }, clock.current)
   }
 
+  /** Explicit private-OOB ceremonies. The UI's expected inviter is entered
+   * independently from the blob; inspection never fills that trusted pin. */
+  invitation(routeId: string, action:
+    { type: 'issue'; session: string; target: { persona: string; device: string; rendezvous: string; leafHome: string; expiresAt: number } } |
+    { type: 'export'; session: string } | { type: 'response'; session: string } |
+    { type: 'update' | 'read'; session: string } | { type: 'send'; session: string; text: string } | { type: 'remove'; session: string; leafId: string } |
+    { type: 'accept'; name: string; expectedInviterPersona: string; authorization: Uint8Array } |
+    { type: 'record' | 'registration-request'; session: string; authorization: Uint8Array; envelope: Uint8Array } |
+    { type: 'add'; session: string; authorization: Uint8Array; envelope: Uint8Array; receipt: Uint8Array } |
+    { type: 'register-package'; request: Uint8Array }): Promise<MlsRoomForegroundResult<any>> {
+    if (!invitationPreviewEnabled() || !routeShape(routeId)) throw new Error('Choose an exact saved route in the experimental development preview.')
+    const selected = structuredClone(action), clock = new BrowserMlsRoomCeremonyClock()
+    let held: MlsRoomCreateRendezvous | undefined, credentialExpiresAt = 0, keeperReleaseCurrent = () => false
+    return this.#run<any>(true, async (services, active) => {
+      await this.#endpoint.resume(active.account.persona)
+      const ctx = services.vault.context(location.origin, active.account.persona)
+      const original = await services.vault.credential(ctx)
+      if (!original.ok) throw new Error('Enrol a current MLS device before this ceremony.')
+      credentialExpiresAt = original.value.device.credentialExpiresAt
+      const consent: ConsentPrompt = permission => this.#consent.ask(this.#foreground, active.scope, permission, clock.deadline, active.current)
+      const inviteConsent: InvitationConsentPrompt = permission => this.#consent.askInvitation(this.#foreground, active.scope, permission, clock.deadline,
+        () => active.current() && !!held?.current())
+      const client = await this.#client(active, services, routeId, ctx, consent)
+      const caps = await client.capabilities(active.current)
+      if (caps.state !== 'ok') throw new Error('The selected Bothy installation could not be authenticated.')
+      if (selected.type === 'accept') {
+        if (!hex(selected.expectedInviterPersona)) throw new Error('Select the expected inviter through your authenticated private contact or OOB source first.')
+        const wasm = await loadInvitationEngine(), info = wasm.inspectInvitation(BigInt(clock.read() ?? 0), selected.authorization)
+        const c = readInvitationContext(info.contextBytes)
+        if (c.inviterPersona !== selected.expectedInviterPersona || c.joinerPersona !== active.account.persona || c.joinerHome !== client.box || c.groupHome !== client.box || c.groupInstallation !== caps.value.installation) throw new Error('The invitation differs from the trusted inviter, intended account or selected Bothy installation.')
+      }
+      let boxTime: number | undefined
+      if (selected.type === 'register-package') {
+        // An authenticated read supplies node time without a storage grant or
+        // invitation-bearing mailbox. Any returned bytes are ignored and wiped.
+        const probe = crypto.getRandomValues(new Uint8Array(32))
+        const sampled = await client.fetch([probe], undefined, active.current); probe.fill(0)
+        if (sampled.state !== 'ok' || sampled.serverTime === null) throw new Error('The node clock could not be authenticated for package registration.')
+        boxTime = sampled.serverTime
+        wipe(sampled.value)
+        const after = await client.capabilities(active.current)
+        if (after.state !== 'ok' || after.value.installation !== caps.value.installation || !clock.current()) throw new Error('The node installation changed during clock sampling.')
+      }
+      if (selected.type === 'register-package') {
+        const at = clock.read(); if (at === undefined || boxTime === undefined) throw new Error('The keeper registration ceremony expired.')
+        const requested = readInvitationRegistrationRequest(selected.request, at)
+        if (requested.node !== client.box || requested.installation !== caps.value.installation) throw new Error('The private request differs from the independently selected paired node or current installation.')
+        const decision = await this.#consent.askPackageRegistration(this.#foreground, active.scope, { method: 'registerInvitationPackageV1/1',
+          principal: ctx.principal, persona: ctx.persona, device: original.value.device.device, homeBox: client.box, registration: requested }, clock.deadline,
+          () => active.current() && clock.current() && client.isCurrent() && services.vault.current(ctx))
+        if (decision !== 'approve') return { state: 'refused', reason: 'keeper-registration-denied' }
+        const registered = await this.#foreground.track(active.scope, () => client.registerInvitationPackageSettled(selected.request, boxTime!))
+        if (registered.state !== 'ok') return { state: 'pending', reason: 'The node did not return the required signed registration receipt. No member Add is authorised by this result.' }
+        const after = await client.capabilities(active.current)
+        if (after.state !== 'ok' || after.value.installation !== requested.installation) { wipe(registered.value); return { state: 'pending', reason: 'The node installation changed after registration.' } }
+        keeperReleaseCurrent = () => active.current() && clock.current() && services.vault.current(ctx) && client.isCurrent() && client.usesBinding(routeId, requested.node, ctx) && Math.floor(Date.now() / 1000) < requested.expiresAt
+        return { state: 'active', value: { registrationReceipt: registered.value.registrationReceipt, expiresAt: requested.expiresAt } }
+      }
+      return services.creation.withInvitation(active.scope, async custody => {
+        held = custody
+        const context = { vault: ctx, rendezvousKey: custody.receipt.rendezvousPubkey, current: () => active.current() && custody.current() && clock.current() }
+        if ('session' in selected) {
+          if (!hex(selected.session)) throw new Error('Choose an exact saved room.')
+          const checked = await services.coordinator.transact(active.account.persona, async tx => {
+            const room = await readMlsRoom(tx, selected.session)
+            return !!room.invitation && room.binding.homeBox === client.box && room.binding.rendezvousKey === context.rendezvousKey &&
+              (room.binding.installation === null || room.binding.installation === caps.value.installation)
+          }, context.current)
+          if (checked.state !== 'active' || !checked.value) throw new Error('The selected saved experimental room, route or rendezvous child changed.')
+        }
+        switch (selected.type) {
+          case 'issue': return services.rooms.issueInvitation(context, selected.session, selected.target, inviteConsent)
+          case 'export': return services.rooms.exportInvitation(context, selected.session)
+          case 'response': return services.rooms.invitationResponse(context, selected.session)
+          case 'read': return services.rooms.read(context, selected.session)
+          case 'send': return services.rooms.send(context, selected.session, bytesToHex(crypto.getRandomValues(new Uint8Array(32))), new TextEncoder().encode(selected.text))
+          case 'remove': return services.rooms.removeInvitationMember(context, selected.session, selected.leafId)
+          case 'update': {
+            const credential = await services.vault.credential(ctx), at = clock.read()
+            if (!credential.ok || at === undefined) throw new Error('The enrolled credential or ceremony expired.')
+            return services.rooms.update(context, selected.session, Math.min(at + 7 * 86400, credential.value.device.credentialExpiresAt), consent)
+          }
+          case 'accept': {
+            const wasm = await loadInvitationEngine(), inspected = wasm.inspectInvitation(BigInt(clock.read() ?? 0), selected.authorization)
+            const c = readInvitationContext(inspected.contextBytes), identity = await services.vault.credential(ctx)
+            if (!identity.ok || c.joinerDevice !== identity.value.device.device || c.joinerRz !== context.rendezvousKey) throw new Error('This invitation targets a different enrolled device or rendezvous child.')
+            const decision = await this.#consent.askInvitation(this.#foreground, active.scope, { method: INVITATION_SIGN_METHOD, purpose: 'accept',
+              principal: ctx.principal, persona: ctx.persona, device: identity.value.device.device, homeBox: client.box, context: c }, clock.deadline, context.current)
+            if (decision !== 'approve') return { state: 'refused', reason: 'private-ceremony-denied' }
+            return services.rooms.acceptInvitation(context, { name: selected.name, homeBox: client.box, expectedInviterPersona: selected.expectedInviterPersona, authorization: selected.authorization }, custody, consent)
+          }
+          case 'registration-request': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'registration-request' })
+          case 'add': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'add', receipt: selected.receipt })
+          case 'record': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'record' })
+        }
+      })
+    }, (result, failure) => {
+      try {
+        if (failure || !clock.current() || !(selected.type === 'register-package' ? keeperReleaseCurrent() : held?.releaseCurrent()) || Math.floor(Date.now() / 1000) >= credentialExpiresAt ||
+            result?.state === 'active' && Number.isSafeInteger(result.value?.expiresAt) && Math.floor(Date.now() / 1000) >= result.value.expiresAt) { wipe(result); return { state: 'pending', reason: 'The ceremony changed during cleanup. Reopen the saved room; retained invitation work is preserved.' } }
+        return result
+      } finally { wipe(selected) }
+    }, clock.current).finally(() => wipe(selected))
+  }
+
   manualRound(routeId: string, session: string): Promise<MlsRoomForegroundResult<MlsRoomManualView>> {
     if (!routeShape(routeId) || !hex(session)) throw new Error('Choose one saved room and its paired route.')
     const selected = Object.freeze({ routeId, session }), clock = new BrowserMlsRoomCeremonyClock()
@@ -173,7 +283,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         const binding = await this.#foreground.track(active.scope, () => services.coordinator.transact(active.account.persona, async tx => {
           if (!(await mlsRoomIds(tx)).includes(selected.session)) return undefined
           const room = await readMlsRoom(tx, selected.session)
-          return { ...room.binding, introductionBox: room.join?.introductionBox }
+          return { ...room.binding, introductionBox: room.join?.introductionBox, expectedInvitationInstallation: room.invitation?.groupInstallation }
         }, active.current))
         if (binding.state !== 'active') return pending('The saved room requires a fresh witnessed check.')
         const b = binding.value
@@ -181,11 +291,11 @@ export class BrowserMlsRoomDevelopmentOwner {
         if (b.homeBox !== client.box || b.introductionBox !== undefined && b.introductionBox !== client.box) {
           return { state: 'held', reason: 'Select the saved room’s exact home-box route. Delivery across different boxes remains held.' }
         }
-        if (b.installation === null) return { state: 'held', reason: 'This join is still pending. Authenticated invitation and join recovery remain held.' }
+        if (b.installation === null && !b.expectedInvitationInstallation) return { state: 'held', reason: 'This join is still pending. Authenticated invitation and join recovery remain held.' }
         if (b.device !== credential.value.device.device || b.credentialId !== credential.value.device.credentialId) {
           return { state: 'held', reason: 'The saved room belongs to a different MLS device or credential.' }
         }
-        initialBinding = Object.freeze({ device: b.device, credentialId: b.credentialId, rendezvousKey: b.rendezvousKey, homeBox: b.homeBox, installation: b.installation })
+        initialBinding = Object.freeze({ device: b.device, credentialId: b.credentialId, rendezvousKey: b.rendezvousKey, homeBox: b.homeBox, installation: b.installation ?? b.expectedInvitationInstallation! })
         rz = b.rendezvousKey
         const context = { vault: ctx, rendezvousKey: rz, current: active.current }
         const driver = new BrowserMlsMessageDriver(services.rooms, client, context, selected.session, () => this.#endpoint.stop(), navigator.locks,
