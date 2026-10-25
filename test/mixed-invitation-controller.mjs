@@ -14,6 +14,9 @@ const bark = path.resolve('.lab/bark-built-6c303065')
 const profile = path.resolve('.lab/browser-profile')
 const sourceRoot = path.resolve('.')
 const sourceModules = new Set((await Promise.all(['app/src','src'].map(dir=>readdir(path.resolve(dir),{recursive:true})))).flat().map(name=>path.basename(name)))
+const packageModules = new Set((await readdir(path.resolve('packages'),{recursive:true})).map(name=>path.basename(name)))
+const dependencyModules = new Set((await Promise.all(['node_modules/.vite/deps','node_modules/signet-login/dist'].map(dir=>readdir(path.resolve(dir)).catch(()=>[])))).flat())
+const barkModules = new Set((await readdir(bark)).filter(name=>name.endsWith('.js')))
 await mkdir(profile, { recursive: true, mode: 0o700 })
 const context = await chromium.launchPersistentContext(profile, { channel: 'chromium', headless: true,
   args: ['--enable-unsafe-extension-debugging', `--disable-extensions-except=${bark}`, `--load-extension=${bark}`],
@@ -33,7 +36,7 @@ await context.routeWebSocket(url => !allowedNetworkOrigins.has(url.origin), sock
 await context.route('**/*', route => { const u=new URL(route.request().url());if(route.request().url().startsWith(`chrome-extension://${extension}/`) || allowedNetworkOrigins.has(u.origin))return route.continue();blockedNetworkAttempts.push({kind:'request',...endpointSummary(route.request().url(),knownOrigins)});return route.abort('blockedbyclient') })
 const page = await context.newPage()
 const namedWindows = new Set(['bootstrap', 'ordinary', 'private', 'fault', 'reconnect', 'refusal'])
-let active, result, failures = 0, observe = true, windowName = 'bootstrap', needles = [], observations = [], violations = 0
+let active, result, failures = 0, observe = true, windowName = 'bootstrap', needles = [], observations = [], violations = 0, activePrivateTerms = []
 let observedBytes = 0, observerOverflow = false, unattributedFrames = 0, frameCount = 0, httpBodyUnobserved = 0, publicControl = null, controlSubscription
 const closedWindows = []
 const digest = sha256
@@ -64,7 +67,8 @@ function httpRequest(url, method, headers, body, hasPostData, source) {
 page.on('websocket', socket => { socket.on('framesent', e => frame(e.payload, 'app-websocket', endpointOf(socket.url()))); socket.on('socketerror', () => failures++) })
 page.on('request', request => { const body=request.postDataBuffer();httpRequest(request.url(),request.method(),request.headers(),body,!!body,'app-http') })
 const diagnostics=[]
-const clean = (e,source='controller-operation') => safeErrorDiagnostic(e,new URL(app).origin,sourceRoot,sourceModules,source)
+const clean = (e,source='controller-operation') => safeErrorDiagnostic(e,new URL(app).origin,sourceRoot,sourceModules,source,
+  {barkOrigin:`chrome-extension://${extension}`,barkModules,packageModules,dependencyModules,privateTerms:[...needles,...activePrivateTerms]})
 let diagnosticsOverflow=false
 page.on('pageerror', e => { failures++; if(diagnostics.length<100)diagnostics.push(clean(e,'app-pageerror'));else diagnosticsOverflow=true })
 // CDP observes the built extension's actual worker socket, in addition to app
@@ -578,7 +582,8 @@ const server=createServer(async(req,res)=>{
     if(sideSteps.has(step)){const v=await run(step,args);res.end(JSON.stringify({ok:true,result:v}));return}
     if(active){res.writeHead(409).end(JSON.stringify({ok:false,error:'Browser operation still active'}));return}
     active=step;result=undefined
-    void run(step,args).then(value=>{result={step,ok:true,result:value}},error=>{result={step,ok:false,error:'Named browser operation refused',diagnostic:clean(error)};failures++}).finally(()=>{active=undefined})
+    activePrivateTerms=typeof step==='string'&&step.startsWith('ordinary-')&&args&&typeof args==='object'?['name','displayName','body','url'].map(key=>args[key]).filter(value=>typeof value==='string'&&value.length>0&&value.length<=8192):[]
+    void run(step,args).then(value=>{result={step,ok:true,result:value}},error=>{result={step,ok:false,error:'Named browser operation refused',diagnostic:clean(error)};failures++}).finally(()=>{active=undefined;activePrivateTerms=[]})
     res.end(JSON.stringify({queued:true,step}))
   }catch{res.writeHead(400).end(JSON.stringify({ok:false,error:'Browser controller refused command'}))}
 })
