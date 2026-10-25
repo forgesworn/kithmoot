@@ -21,7 +21,7 @@ const relayPort = Number(process.env.E2E_RELAY_PORT ?? 7777)
  * Dynamic imports in development receive Vite's import query; serve only the
  * exact checked-in runtime filenames before its source transform middleware. */
 function pinnedWasmPreview(): Plugin {
-  const files = new Set(['link-web/link_web.js', 'link-web/link_web_bg.wasm', 'vmls-wasm/vmls_wasm.js', 'vmls-wasm/vmls_wasm_bg.wasm', 'vmls-wasm-invitation/vmls_wasm.js', 'vmls-wasm-invitation/vmls_wasm_bg.wasm'])
+  const files = new Set(['link-web/link_web.js', 'link-web/link_web_bg.wasm', 'vmls-wasm/vmls_wasm.js', 'vmls-wasm/vmls_wasm_bg.wasm', 'vmls-wasm-invitation/vmls_wasm.js', 'vmls-wasm-invitation/vmls_wasm_bg.wasm', 'vmls-wasm-admin-invitation/vmls_wasm.js', 'vmls-wasm-admin-invitation/vmls_wasm_bg.wasm'])
   const linkManifest = JSON.parse(readFileSync(join(here, 'public/link-web/manifest.json'), 'utf8'))
   for (const file of Object.keys(linkManifest.files)) if (file.endsWith('.js')) files.add(`link-web/${file}`)
   return { name: 'kithmoot-pinned-wasm-preview', configureServer(server) {

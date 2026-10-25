@@ -65,18 +65,19 @@ function witnessRequest(bytes: Uint8Array): Map<bigint, bigint | Uint8Array> {
   return fields
 }
 
-export async function invitationFixture() {
+export async function invitationFixture(profile: 'Invitation1' | 'InvitationAdmins2' = 'Invitation1') {
+  const admin = profile === 'InvitationAdmins2'
   const instance = crypto.randomUUID(), names: InvitationActorName[] = ['alice', 'bob', 'carol']
   const actors = new Map<InvitationActorName, Actor>()
   let clock = Math.floor(Date.now() / 1000), messageOperation = 0
   const nodeKey = new Uint8Array(32).fill(76), witnessKey = new Uint8Array(32).fill(91)
   const box = bytesToHex(ed25519.getPublicKey(nodeKey)), installation = bytesToHex(sha256(utf8('invitation fixture installation')))
   const nodeRoute = pairingFixture(nodeKey).route, witnessRoute = pairingFixture(witnessKey).route
-  const counters = { packages: 0, ordinaryDeposits: 0, invitationConsents: 0, leafConsents: 0, boxConsents: 0, packagesBy: [] as InvitationActorName[] }
+  const counters = { packages: 0, ordinaryDeposits: 0, invitationConsents: 0, leafConsents: 0, boxConsents: 0, packagesBy: [] as InvitationActorName[], invitationPolicyConsents: [] as string[] }
   const actor = (name: InvitationActorName): Actor => { const value = actors.get(name); if (!value) throw new Error('Unknown fixture actor'); return value }
   const context = (a: Actor, current: () => boolean = () => a.active): MlsRoomContext => ({
     vault: a.vault.context('https://invitation-journey.kithmoot.test', a.persona), rendezvousKey: a.rendezvous,
-    current, experimentalInvitation: true,
+    current, experimentalInvitation: !admin, experimentalAdminInvitation: admin,
   })
   const consent = async (scope: { method?: string }) => { if (scope.method === 'signBoxRequestV1/1') counters.boxConsents++; else counters.leafConsents++; return 'approve' as const }
   const exchange = async (a: Actor, method: 'read' | 'advance', request: Uint8Array): Promise<WitnessAnswer> => {
@@ -175,7 +176,7 @@ export async function invitationFixture() {
   }
   const responseAction = (name: InvitationActorName, authorization: Uint8Array, envelope: Uint8Array, action: { type: 'record' } | { type: 'registration-request' } | { type: 'add'; receipt: Uint8Array }) => {
     const a = actor(name)
-    return custody(a, held => a.rooms.invitationResponseAction(context(a, held.current), a.session, authorization, envelope, held,
+    return custody(a, held => (admin ? a.rooms.adminInvitationResponseAction.bind(a.rooms) : a.rooms.invitationResponseAction.bind(a.rooms))(context(a, held.current), a.session, authorization, envelope, held,
       action.type === 'record' ? { type: 'record' } : action.type === 'registration-request' ? { type: 'registration-request' } : { type: 'add', receipt: action.receipt }))
   }
   const keeperRegister = async (request: Uint8Array) => {
@@ -274,7 +275,7 @@ export async function invitationFixture() {
             const result = await foreground.run(a.persona, () => a.active, scope => custody.withInvitation(scope, async held => {
               custodyCurrent = held.current() && held.receipt.rendezvousPubkey === rz
               return a.rooms.create({ ...context(a, held.current), rendezvousKey: rz },
-                { name: 'Bark protected handoff', homeBox: box, installation, expiresAt: clock + 86400, experimentalInvitation: true }, consent)
+                { name: 'Bark protected handoff', homeBox: box, installation, expiresAt: clock + 86400, experimentalInvitation: !admin, experimentalAdminInvitation: admin }, consent)
             }))
             roomState = result.state === 'done' ? result.value.state : result.state
           } catch (e) { error = String(e) }
@@ -287,18 +288,18 @@ export async function invitationFixture() {
     metadata(name: InvitationActorName) { const a = actor(name); return { persona: a.persona, device: a.device, rendezvous: a.rendezvous, session: a.session } },
     async create(name: InvitationActorName, experimental = true) {
       const a = actor(name)
-      const result = await custody(a, held => a.rooms.create(context(a, held.current), { name: `${name} invitation room`, homeBox: box, installation, expiresAt: clock + 86400, experimentalInvitation: experimental }, consent))
+      const result = await custody(a, held => a.rooms.create(context(a, held.current), { name: `${name} invitation room`, homeBox: box, installation, expiresAt: clock + 86400, experimentalInvitation: experimental && !admin, experimentalAdminInvitation: experimental && admin }, consent))
       if (result.state === 'active') a.session = result.value.session
       return result
     },
     issue(from: InvitationActorName, to: InvitationActorName, overrides: Record<string, unknown> = {}) {
       const a = actor(from), b = actor(to)
-      return custody(a, held => a.rooms.issueInvitation(context(a, held.current), a.session,
-        { persona: b.persona, device: b.device, rendezvous: b.rendezvous, leafHome: box, expiresAt: clock + 86400, ...overrides }, async () => { counters.invitationConsents++; return 'approve' }))
+      return custody(a, held => (admin ? a.rooms.issueAdminInvitation.bind(a.rooms) : a.rooms.issueInvitation.bind(a.rooms))(context(a, held.current), a.session,
+        { persona: b.persona, device: b.device, rendezvous: b.rendezvous, leafHome: box, expiresAt: clock + 86400, ...overrides }, async (permission: any) => { counters.invitationConsents++; if (admin) { if (permission.method !== 'signAdminInvitationV2/1' || !/^[0-9a-f]{64}$/.test(permission.context.adminSetCommitment)) throw new Error('Missing typed Admin2 policy consent'); counters.invitationPolicyConsents.push(permission.context.adminSetCommitment) }; return 'approve' }))
     },
     async accept(to: InvitationActorName, from: InvitationActorName, authorization: Uint8Array, overrides: Record<string, unknown> = {}) {
       const a = actor(to), b = actor(from)
-      const result = await custody(a, held => a.rooms.acceptInvitation(context(a, held.current),
+      const result = await custody(a, held => (admin ? a.rooms.acceptAdminInvitation.bind(a.rooms) : a.rooms.acceptInvitation.bind(a.rooms))(context(a, held.current),
         { name: `${to} accepted invitation`, homeBox: box, expectedInviterPersona: b.persona, authorization, ...overrides }, held, consent))
       if (result.state === 'active') a.session = result.value.session
       return result
@@ -331,7 +332,7 @@ export async function invitationFixture() {
       }
       LockedPersonaStore.prototype.write = hooked
       try {
-        const result = await custody(a, held => a.rooms.acceptInvitation(context(a, held.current),
+        const result = await custody(a, held => (admin ? a.rooms.acceptAdminInvitation.bind(a.rooms) : a.rooms.acceptInvitation.bind(a.rooms))(context(a, held.current),
           { name: `${to} accepted invitation`, homeBox: box, expectedInviterPersona: b.persona, authorization }, held, consent))
         if (result.state === 'active') a.session = result.value.session
         return { result, injected, candidateSessionId, candidateGeneration, witnessBefore, witnessAfter: String(a.witness.sequence),
@@ -341,7 +342,8 @@ export async function invitationFixture() {
         a.witness.loseAdvance = false
       }
     },
-    response(name: InvitationActorName) { const a = actor(name); return a.rooms.invitationResponse(context(a), a.session) },
+    role(name: InvitationActorName, leaf: string, makeAdmin: boolean, expected: string) { const a = actor(name); return a.rooms.changeAdminRole(context(a), a.session, leaf, makeAdmin, expected) },
+    response(name: InvitationActorName) { const a = actor(name); return (admin ? a.rooms.adminInvitationResponse.bind(a.rooms) : a.rooms.invitationResponse.bind(a.rooms))(context(a), a.session) },
     record(name: InvitationActorName, authorization: Uint8Array, envelope: Uint8Array) { return action(name, authorization, envelope, false) },
     add(name: InvitationActorName, authorization: Uint8Array, envelope: Uint8Array) { return action(name, authorization, envelope, true) },
     registrationRequest(name: InvitationActorName, authorization: Uint8Array, envelope: Uint8Array) { return responseAction(name, authorization, envelope, { type: 'registration-request' }) },
@@ -361,7 +363,7 @@ export async function invitationFixture() {
     read(name: InvitationActorName) { const a = actor(name); return a.rooms.read(context(a), a.session) },
     members(name: InvitationActorName) { const a = actor(name); return a.rooms.members(context(a), a.session) },
     restart(name: InvitationActorName) { reopen(actor(name)) },
-    remove(name: InvitationActorName, leafId: string) { const a = actor(name); return a.rooms.removeInvitationMember(context(a), a.session, leafId) },
+    remove(name: InvitationActorName, leafId: string) { const a = actor(name); return (admin ? a.rooms.removeAdminInvitationMember.bind(a.rooms) : a.rooms.removeInvitationMember.bind(a.rooms))(context(a), a.session, leafId) },
     saved(name: InvitationActorName) { const a = actor(name); return a.host.transact(a.persona, tx => readMlsRoom(tx, a.session), () => a.active) },
     async summary(name: InvitationActorName) {
       const a = actor(name)

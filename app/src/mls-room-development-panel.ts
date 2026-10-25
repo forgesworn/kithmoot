@@ -1,3 +1,4 @@
+import { adminInvitationPreviewEnabled } from './mls-admin-invitation-engine.js'
 import { BrowserMlsRoomDevelopmentOwner, type MlsRoomDevelopmentContext } from './mls-room-development-owner.js'
 import type { MlsRoomForegroundResult } from './mls-room-foreground.js'
 import { invitationPreviewEnabled } from './mls-invitation-engine.js'
@@ -12,6 +13,7 @@ export class BrowserMlsRoomDevelopmentPanel {
   readonly #owner: BrowserMlsRoomDevelopmentOwner
   #epoch = 0
   #busy = false
+  #reviewedRoles?: { session: string; commitment: string }
   constructor(private readonly context: () => MlsRoomDevelopmentContext | undefined, private readonly root: Document = document) {
     this.#owner = new BrowserMlsRoomDevelopmentOwner(context, root)
     if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureRoomOwner(this.#owner))
@@ -31,6 +33,7 @@ export class BrowserMlsRoomDevelopmentPanel {
       <label>Room name <input data-create-name maxlength="120" autocomplete="off"></label>
       <label>Binding lifetime in days <input data-create-days type="number" min="1" max="30" value="7"></label>
       <label data-invitation-toggle hidden><input data-create-invitation type="checkbox"> Experimental invitation/1 profile (all current members may Add and Remove)</label>
+      <label data-admin-invitation-toggle hidden><input data-create-admin-invitation type="checkbox"> Designated admin devices (Admin2 experimental preview)</label>
       <button data-create type="button">Create local MLS room</button></fieldset>
       <fieldset><legend>Saved MLS rooms</legend><button data-rooms type="button">Check saved MLS rooms</button><div data-room-list></div></fieldset>
       <fieldset><legend>One manual delivery round</legend><p>Select this room’s exact home-box route. A round retains uncertain work and holds other destinations. It does not run again automatically.</p>
@@ -62,11 +65,19 @@ export class BrowserMlsRoomDevelopmentPanel {
       <button data-add-response type="button">Verify keeper receipt and propose member Add</button>
       <label>Message <input data-message autocomplete="off" maxlength="4096"></label><button data-update-invitation-room type="button">Sign required Update</button><button data-send-invitation-room type="button">Queue message</button>
       <button data-read-invitation-room type="button">Read saved messages and members</button><pre data-invitation-view></pre>
+      <p data-admin-explanation hidden>Admin roles belong to one current device leaf. Other devices and replacement devices need their own role. Ordinary members can send messages and update their own device. Only current admin devices can invite, remove or change roles. The last admin cannot be removed or demoted.</p>
+      <label data-admin-role-controls hidden>Device leaf to change <input data-admin-leaf autocomplete="off" spellcheck="false" maxlength="64"></label><button data-promote-admin type="button" hidden>Make this device an admin</button><button data-demote-admin type="button" hidden>Remove this device’s admin role</button>
       <label>Leaf to remove <input data-remove-leaf autocomplete="off" spellcheck="false" maxlength="64"></label><button data-remove-invitation-member type="button">Remove selected member</button>
       <p>Run explicit manual rounds for Commit, Welcome, Update and message delivery. No automatic round starts here.</p></fieldset>`
     root.body.append(this.dialog)
-    this.#text('invitation-toggle').hidden = !invitationPreviewEnabled()
-    this.#text('invitation-controls').hidden = !invitationPreviewEnabled()
+    this.#text('invitation-toggle').hidden = !invitationPreviewEnabled() || adminInvitationPreviewEnabled()
+    this.#text('admin-invitation-toggle').hidden = !adminInvitationPreviewEnabled()
+    for (const name of ['admin-explanation', 'admin-role-controls', 'promote-admin', 'demote-admin']) this.#text(name).hidden = !adminInvitationPreviewEnabled()
+    this.#text('invitation-controls').hidden = !(invitationPreviewEnabled() || adminInvitationPreviewEnabled())
+    if (adminInvitationPreviewEnabled()) {
+      this.#text('invitation-controls').querySelector('legend')!.textContent = 'Private invitations with designated admin devices (Admin2)'
+      this.#text('invitation-controls').querySelectorAll('p')[1].textContent = 'After recording, a separately authorised keeper may register the package, and a current admin device may invite the member. Node keeper rights do not grant an admin role.'
+    }
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('bark-provision-button').onclick = () => { void this.#work(async epoch => {
       const index = Number(this.#input('bark-index').value)
@@ -104,7 +115,7 @@ export class BrowserMlsRoomDevelopmentPanel {
       const days = Number(this.#input('create-days').value)
       void this.#work(async epoch => {
         if (!Number.isSafeInteger(days) || days < 1 || days > 30) throw new Error('Choose a binding lifetime between one and thirty days.')
-        const result = this.#value(await this.#owner.create(route, name, days * 86400, this.#input('create-invitation').checked), epoch)
+        const result = this.#value(await this.#owner.create(route, name, days * 86400, this.#input('create-invitation').checked, this.#input('create-admin-invitation').checked), epoch)
         this.#text('status').textContent = result.state === 'saved'
           ? `Room ${result.session.slice(0, 12)}… saved locally with its witness and installation confirmed. Check saved rooms before a manual round.` : result.reason
         if (result.state === 'saved') this.#input('create-name').value = ''
@@ -135,7 +146,9 @@ export class BrowserMlsRoomDevelopmentPanel {
       if (value.registrationRequest) { (this.#text('private-registration') as HTMLTextAreaElement).value = base64Encode(value.registrationRequest); value.registrationRequest.fill(0) }
       if (value.registrationReceipt) { (this.#text('registration-receipt') as HTMLTextAreaElement).value = base64Encode(value.registrationReceipt); value.registrationReceipt.fill(0) }
       if (value.response) { (this.#text('private-response') as HTMLTextAreaElement).value = base64Encode(value.response.envelope); value.response.envelope.fill(0) }
-      if (value.members || value.history) this.#text('invitation-view').textContent = JSON.stringify({ session: value.session, phase: value.phase, updateRequired: value.updateRequired, members: value.members, history: value.history }, (_key, item) => typeof item === 'bigint' ? String(item) : item instanceof Uint8Array ? new TextDecoder().decode(item) : item, 2)
+      if (value.adminRoles) this.#reviewedRoles = { session: value.session, commitment: value.adminRoles.adminSetCommitment }
+      else this.#reviewedRoles = undefined
+      if (value.members || value.history) this.#text('invitation-view').textContent = JSON.stringify({ session: value.session, phase: value.phase, updateRequired: value.updateRequired, profile: value.profile, adminRoles: value.adminRoles, members: value.members, history: value.history }, (_key, item) => typeof item === 'bigint' ? String(item) : item instanceof Uint8Array ? new TextDecoder().decode(item) : item, 2)
       this.#text('status').textContent = `Private invitation action saved${value.session ? ` for session ${value.session}` : ''}. Check saved rooms; delivery requires explicit manual rounds.`
     }).finally(() => { if (action.authorization) action.authorization.fill(0); if (action.envelope) action.envelope.fill(0); if (action.receipt) action.receipt.fill(0); if (action.request) action.request.fill(0) }) }
     const selectedRoom = () => (this.#text('invite-room') as HTMLSelectElement).value
@@ -166,6 +179,11 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#button('update-invitation-room').onclick = () => invitation({ type: 'update', session: selectedRoom() })
     this.#button('send-invitation-room').onclick = () => invitation({ type: 'send', session: selectedRoom(), text: this.#input('message').value })
     this.#button('read-invitation-room').onclick = () => invitation({ type: 'read', session: selectedRoom() })
+    for (const [button, makeAdmin] of [['promote-admin', true], ['demote-admin', false]] as const) this.#button(button).onclick = () => {
+      const reviewed = this.#reviewedRoles
+      if (!reviewed || reviewed.session !== selectedRoom()) { this.#text('status').textContent = 'Read this room’s current device roles before changing them.'; return }
+      invitation({ type: 'role', session: reviewed.session, leafId: this.#input('admin-leaf').value.trim(), makeAdmin, expectedCommitment: reviewed.commitment })
+    }
     this.#button('remove-invitation-member').onclick = () => invitation({ type: 'remove', session: selectedRoom(), leafId: this.#input('remove-leaf').value.trim() })
   }
   open(): void {
@@ -182,7 +200,9 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#input('code').value = ''; this.#input('relays').value = ''
     this.#input('create-name').value = ''; this.#input('create-days').value = '7'
     this.#input('create-invitation').checked = false
-    for (const name of ['target-persona', 'target-device', 'target-rz', 'target-home', 'expected-inviter', 'join-name', 'message', 'remove-leaf']) this.#input(name).value = ''
+    this.#input('create-admin-invitation').checked = false
+    this.#reviewedRoles = undefined
+    for (const name of ['target-persona', 'target-device', 'target-rz', 'target-home', 'expected-inviter', 'join-name', 'message', 'remove-leaf', 'admin-leaf']) this.#input(name).value = ''
     for (const name of ['private-invitation', 'private-response', 'private-registration', 'registration-receipt']) (this.#text(name) as HTMLTextAreaElement).value = ''
     this.#text('invitation-view').replaceChildren()
     for (const name of ['create-route', 'manual-route', 'manual-room', 'invite-route', 'invite-room']) this.#text(name).replaceChildren()

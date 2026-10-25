@@ -30,3 +30,7 @@ desktop/artifacts/
 
 # Disposable local lab profiles, private control state and owned caches.
 .lab/
+
+# Exact local Admin2 qualification input; never a production asset.
+app/public/vmls-wasm-admin-invitation/
+build-admin-typecheck.log

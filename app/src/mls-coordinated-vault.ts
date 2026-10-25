@@ -1,3 +1,4 @@
+import { ADMIN_INVITATION_SIGN_METHOD, adminInvitationDigest, readAdminInvitationSignBody, type AdminInvitationContext } from '../../src/vmls/admin-invitation.js'
 /** Typed browser vault under the persona's restore witness (P3-03c).
  * Production remains disabled. Secret records are opened only inside a
  * coordinator transaction; prompts and identity signing happen outside it.
@@ -59,6 +60,20 @@ function invitationShape(input: unknown): InvitationSignRequest | undefined {
   if (!input || typeof input !== 'object' || Object.keys(input).sort().join(',') !== 'body,digest,expires_at,method,operation,session,v') return
   const r = input as InvitationSignRequest
   return r.v === 1 && r.method === INVITATION_SIGN_METHOD && [r.session, r.operation, r.digest].every(v => typeof v === 'string' && HEX.test(v)) &&
+    typeof r.body === 'string' && r.body.length <= 16384 && Number.isSafeInteger(r.expires_at) && r.expires_at >= 0 ? { ...r } : undefined
+}
+export interface AdminInvitationSignRequest {
+  v: 1; method: typeof ADMIN_INVITATION_SIGN_METHOD; session: string; operation: string
+  body: string; digest: string; expires_at: number
+}
+export interface AdminInvitationSignReply extends SignLeafBindingReply { readonly method: typeof ADMIN_INVITATION_SIGN_METHOD }
+export interface AdminInvitationConsent { method: typeof ADMIN_INVITATION_SIGN_METHOD; principal: string; persona: string; device: string; homeBox: string; context: AdminInvitationContext; purpose?: 'accept' }
+export type AdminInvitationConsentPrompt = (scope: AdminInvitationConsent) => Promise<ConsentDecision>
+const adminInvitationKey = (r: AdminInvitationSignRequest) => JSON.stringify([r.v, r.method, r.session, r.operation, r.body, r.digest, r.expires_at])
+function adminInvitationShape(input: unknown): AdminInvitationSignRequest | undefined {
+  if (!input || typeof input !== 'object' || Object.keys(input).sort().join(',') !== 'body,digest,expires_at,method,operation,session,v') return
+  const r = input as AdminInvitationSignRequest
+  return r.v === 1 && r.method === ADMIN_INVITATION_SIGN_METHOD && [r.session, r.operation, r.digest].every(v => typeof v === 'string' && HEX.test(v)) &&
     typeof r.body === 'string' && r.body.length <= 16384 && Number.isSafeInteger(r.expires_at) && r.expires_at >= 0 ? { ...r } : undefined
 }
 interface RecordV1 {
@@ -422,7 +437,7 @@ export class CoordinatedMlsVault {
         const c = parsed.context, room = await readMlsRoom(tx, req.session), b = room.binding
         if (parsed.credential.id !== r.device.credentialId || parsed.credential.device !== r.device.device ||
             c.inviterDevice !== b.device || c.inviterRz !== b.rendezvousKey || c.groupHome !== b.homeBox ||
-            c.groupInstallation !== b.installation || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
+            c.groupInstallation !== b.installation || room.profile === 'InvitationAdmins2' || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
         return ok({ prompt: { method: INVITATION_SIGN_METHOD, principal: ctx.principal, persona: ctx.persona, device: r.device.device, homeBox: b.homeBox, context: c },
           validBefore: Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt) })
       } catch { return refuse('malformed') }
@@ -485,7 +500,7 @@ export class CoordinatedMlsVault {
         const room = await readMlsRoom(tx, req.session), c = parsed.context, b = room.binding
         if (bytesToHex(invitationDigest(body)) !== req.digest || parsed.credential.id !== r.device.credentialId || c.inviterDevice !== r.device.device ||
             c.inviterDevice !== b.device || parsed.credential.id !== b.credentialId || c.inviterRz !== b.rendezvousKey ||
-            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.invitation?.groupId !== c.groupId ||
+            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.profile === 'InvitationAdmins2' || room.invitation?.groupId !== c.groupId ||
             !this.#live(Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt), req.expires_at)) return refuse('stale')
         return this.acceptInvitationReply(req, reply)
       })
@@ -500,6 +515,102 @@ export class CoordinatedMlsVault {
     if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
     const value = reply as InvitationSignReply
     try { return value.method === INVITATION_SIGN_METHOD && schnorr.verify(hexToBytes(value.signature), hexToBytes(req.digest), hexToBytes(value.device)) ? ok(value) : refuse('unauthorised') }
+    catch { return refuse('unauthorised') }
+  }
+
+  async signAdminInvitationV2(ctx: VaultContext, input: unknown, consent: AdminInvitationConsentPrompt): Promise<VaultResult<AdminInvitationSignReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = adminInvitationShape(input), body = req && base64Decode(req.body)
+    if (!req || !body) return refuse('malformed')
+    const key = adminInvitationKey(req)
+    const inspect = async (tx: PersonaReader, r: RecordV1 | undefined): Promise<VaultResult<{ prompt: AdminInvitationConsent; validBefore: number }>> => {
+      const reason = this.#device(r), now = this.#now()
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (req.expires_at < now) return refuse('expired')
+      if (req.expires_at > now + MAX_OPERATION_SECONDS || bytesToHex(adminInvitationDigest(body)) !== req.digest) return refuse('malformed')
+      try {
+        const parsed = readAdminInvitationSignBody(body, now, ctx.persona, new Set(r.policy.revoked))
+        const c = parsed.context, room = await readMlsRoom(tx, req.session), b = room.binding
+        if (parsed.credential.id !== r.device.credentialId || parsed.credential.device !== r.device.device ||
+            c.inviterDevice !== b.device || c.inviterRz !== b.rendezvousKey || c.groupHome !== b.homeBox ||
+            c.groupInstallation !== b.installation || room.profile !== 'InvitationAdmins2' || room.invitation?.adminSetCommitment !== c.adminSetCommitment || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
+        return ok({ prompt: { method: ADMIN_INVITATION_SIGN_METHOD, principal: ctx.principal, persona: ctx.persona, device: r.device.device, homeBox: b.homeBox, context: c },
+          validBefore: Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt) })
+      } catch { return refuse('malformed') }
+    }
+    let retry = false
+    const first = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const journal = r.invitationJournal ??= [], old = journal.find(e => e.operation === req.operation)
+      if (old) {
+        if (old.request !== key) return refuse('replay')
+        if (old.generation !== ctx.generation || old.revision !== ctx.revision) return refuse('stale')
+        if (old.state === 'pending') return refuse('busy')
+        if (old.state === 'denied') return refuse('denied')
+        retry = true; return checked
+      }
+      if (journal.length >= 64) return refuse('busy')
+      journal.push({ request: key, operation: req.operation, generation: ctx.generation, revision: ctx.revision,
+        validBefore: checked.value.validBefore, deadline: req.expires_at, state: 'pending' })
+      await saveRecord(tx, r)
+      return checked
+    }))
+    if (!first.ok) return first
+    let decision: ConsentDecision = 'deny'
+    if (!retry) { try { decision = await consent(structuredClone(first.value.prompt)) } catch { /* durable denial */ } }
+    const answer = await this.#run<AdminInvitationSignReply>(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const entry = r.invitationJournal?.find(e => e.operation === req.operation)
+      if (!entry || entry.request !== key || entry.generation !== ctx.generation || entry.revision !== ctx.revision) return refuse('stale')
+      if (entry.state === 'denied') return refuse('denied')
+      if (entry.state === 'pending') {
+        entry.state = decision === 'approve' ? 'signed' : 'denied'
+        if (entry.state === 'signed') {
+          const scalar = hexToBytes(r.device.scalar)
+          try { entry.signature = bytesToHex(schnorr.sign(hexToBytes(req.digest), scalar, crypto.getRandomValues(new Uint8Array(32)))) }
+          finally { scalar.fill(0) }
+        }
+        await saveRecord(tx, r)
+      }
+      return entry.state === 'signed' && entry.signature ? ok(Object.freeze({ v: 1 as const, method: ADMIN_INVITATION_SIGN_METHOD,
+        operation: req.operation, digest: req.digest, device: r.device.device, signature: entry.signature })) : refuse('denied')
+    }))
+    if (answer.ok) {
+      if (!this.#live(first.value.validBefore, req.expires_at)) return refuse('expired')
+      this.#invitationMade.set(answer.value, { ctx, request: key, validBefore: first.value.validBefore, deadline: req.expires_at })
+    }
+    return answer
+  }
+  /** Revalidate under the host's already-owned protected transaction after
+   * every async boundary. No recursive coordinator or caller freshness flag. */
+  async checkAdminInvitationReply(tx: PersonaReader, ctx: VaultContext, req: AdminInvitationSignRequest, reply: unknown): Promise<VaultResult<AdminInvitationSignReply>> {
+    const provenance = this.acceptAdminInvitationReply(req, reply)
+    if (!provenance.ok) return provenance
+    const body = base64Decode(req.body)
+    if (!body || !this.#current(ctx)) return refuse('stale')
+    try {
+      return await this.#with(tx, ctx.persona, async r => {
+        const reason = this.#device(r)
+        if (reason || !r) return refuse(reason ?? 'unauthorised')
+        const parsed = readAdminInvitationSignBody(body, this.#now(), ctx.persona, new Set(r.policy.revoked))
+        const room = await readMlsRoom(tx, req.session), c = parsed.context, b = room.binding
+        if (bytesToHex(adminInvitationDigest(body)) !== req.digest || parsed.credential.id !== r.device.credentialId || c.inviterDevice !== r.device.device ||
+            c.inviterDevice !== b.device || parsed.credential.id !== b.credentialId || c.inviterRz !== b.rendezvousKey ||
+            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.profile !== 'InvitationAdmins2' || room.invitation?.adminSetCommitment !== c.adminSetCommitment || room.invitation?.groupId !== c.groupId ||
+            !this.#live(Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt), req.expires_at)) return refuse('stale')
+        return this.acceptAdminInvitationReply(req, reply)
+      })
+    } catch { return refuse('malformed') } finally { body.fill(0) }
+  }
+  acceptAdminInvitationReply(input: AdminInvitationSignRequest, reply: unknown): VaultResult<AdminInvitationSignReply> {
+    const req = adminInvitationShape(input)
+    const made = reply && typeof reply === 'object' ? this.#invitationMade.get(reply) : undefined
+    if (!req || !made) return refuse('unauthorised')
+    if (!this.#current(made.ctx)) return refuse('stale')
+    if (made.request !== adminInvitationKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const value = reply as AdminInvitationSignReply
+    try { return value.method === ADMIN_INVITATION_SIGN_METHOD && schnorr.verify(hexToBytes(value.signature), hexToBytes(req.digest), hexToBytes(value.device)) ? ok(value) : refuse('unauthorised') }
     catch { return refuse('unauthorised') }
   }
 

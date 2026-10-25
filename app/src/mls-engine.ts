@@ -1,3 +1,4 @@
+import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-admin-invitation-engine.js'
 import { invitationPreviewEnabled, loadInvitationEngine } from './mls-invitation-engine.js'
 import type * as Binding from '../public/vmls-wasm/vmls_wasm.js'
 
@@ -8,6 +9,7 @@ let binding: Promise<typeof Binding> | undefined
  * trapped-instance guard remains authoritative; callers must never recover
  * an engine failure by dropping witnessed state or creating a fresh group. */
 export function loadMlsEngine(): Promise<typeof Binding> {
+  if (adminInvitationPreviewEnabled()) return loadAdminInvitationEngine() as unknown as Promise<typeof Binding>
   if (invitationPreviewEnabled()) return loadInvitationEngine() as unknown as Promise<typeof Binding>
   return binding ??= (async () => {
     const base = `${import.meta.env.BASE_URL}vmls-wasm/`

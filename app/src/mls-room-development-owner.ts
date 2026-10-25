@@ -1,3 +1,5 @@
+import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-admin-invitation-engine.js'
+import { readAdminInvitationContext, ADMIN_INVITATION_SIGN_METHOD } from '../../src/vmls/admin-invitation.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import type { VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
 import { normaliseRelayConfig } from '../../src/relay-pool.js'
@@ -23,7 +25,7 @@ import { BrowserBarkRendezvous, type BarkRendezvousProvider, type BarkRendezvous
 import { readInvitationRegistrationRequest } from './mls-invitation-package.js'
 import { loadInvitationEngine, invitationPreviewEnabled } from './mls-invitation-engine.js'
 import { readInvitationContext, INVITATION_SIGN_METHOD } from '../../src/vmls/invitation.js'
-import type { InvitationConsentPrompt } from './mls-coordinated-vault.js'
+import type { InvitationConsentPrompt, AdminInvitationConsentPrompt } from './mls-coordinated-vault.js'
 import type { ConsentPrompt, VaultContext } from './mls-vault.js'
 
 export interface MlsRoomDevelopmentContext extends MlsAccountContext {
@@ -101,7 +103,7 @@ export class BrowserMlsRoomDevelopmentOwner {
     return { persona: active.account.persona, provider, current: active.current }
   }
 
-  create(routeId: string, name: string, lifetime: number, experimentalInvitation = false): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
+  create(routeId: string, name: string, lifetime: number, experimentalInvitation = false, experimentalAdminInvitation = false): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
     if (!routeShape(routeId) || typeof name !== 'string' || !name.trim() || name.length > 120 ||
         !Number.isSafeInteger(lifetime) || lifetime < 3600 || lifetime > 30 * 86400) throw new Error('Choose a saved route, a room name and a lifetime between one hour and thirty days.')
     const selected = Object.freeze({ routeId, name: name.trim(), lifetime })
@@ -138,7 +140,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         candidate = await services.creation.withCurrent(active.scope, async held => {
           custody = held
           return services.rooms.create({ vault: context!, rendezvousKey: held.receipt.rendezvousPubkey, current: () => active.current() && held.current() },
-            { name: selected.name, homeBox: box, installation, expiresAt: bindingExpiresAt, experimentalInvitation }, consent)
+            { name: selected.name, homeBox: box, installation, expiresAt: bindingExpiresAt, experimentalInvitation, experimentalAdminInvitation }, consent)
         })
         if (candidate.state !== 'active') return candidate.state === 'refused'
           ? { state: 'held', reason: `Room creation refused (${candidate.reason}).` } : pending('Room creation could not be confirmed. Retained state requires a fresh witnessed check.')
@@ -186,8 +188,10 @@ export class BrowserMlsRoomDevelopmentOwner {
     { type: 'accept'; name: string; expectedInviterPersona: string; authorization: Uint8Array } |
     { type: 'record' | 'registration-request'; session: string; authorization: Uint8Array; envelope: Uint8Array } |
     { type: 'add'; session: string; authorization: Uint8Array; envelope: Uint8Array; receipt: Uint8Array } |
+    { type: 'role'; session: string; leafId: string; makeAdmin: boolean; expectedCommitment: string } |
     { type: 'register-package'; request: Uint8Array }): Promise<MlsRoomForegroundResult<any>> {
-    if (!invitationPreviewEnabled() || !routeShape(routeId)) throw new Error('Choose an exact saved route in the experimental development preview.')
+    if (!(invitationPreviewEnabled() || adminInvitationPreviewEnabled()) || !routeShape(routeId)) throw new Error('Choose an exact saved route in the experimental development preview.')
+    const admin = adminInvitationPreviewEnabled()
     const selected = structuredClone(action), clock = new BrowserMlsRoomCeremonyClock()
     let held: MlsRoomCreateRendezvous | undefined, credentialExpiresAt = 0, keeperReleaseCurrent = () => false
     return this.#run<any>(true, async (services, active) => {
@@ -199,13 +203,15 @@ export class BrowserMlsRoomDevelopmentOwner {
       const consent: ConsentPrompt = permission => this.#consent.ask(this.#foreground, active.scope, permission, clock.deadline, active.current)
       const inviteConsent: InvitationConsentPrompt = permission => this.#consent.askInvitation(this.#foreground, active.scope, permission, clock.deadline,
         () => active.current() && !!held?.current())
+      const adminConsent: AdminInvitationConsentPrompt = permission => this.#consent.askAdminInvitation(this.#foreground, active.scope, permission, clock.deadline,
+        () => active.current() && !!held?.current())
       const client = await this.#client(active, services, routeId, ctx, consent)
       const caps = await client.capabilities(active.current)
       if (caps.state !== 'ok') throw new Error('The selected Bothy installation could not be authenticated.')
       if (selected.type === 'accept') {
         if (!hex(selected.expectedInviterPersona)) throw new Error('Select the expected inviter through your authenticated private contact or OOB source first.')
-        const wasm = await loadInvitationEngine(), info = wasm.inspectInvitation(BigInt(clock.read() ?? 0), selected.authorization)
-        const c = readInvitationContext(info.contextBytes)
+        const wasm = await (admin ? loadAdminInvitationEngine() : loadInvitationEngine()), info = (admin ? wasm.inspectAdminInvitation : wasm.inspectInvitation)(BigInt(clock.read() ?? 0), selected.authorization)
+        const c = admin ? readAdminInvitationContext(info.contextBytes) : readInvitationContext(info.contextBytes)
         if (c.inviterPersona !== selected.expectedInviterPersona || c.joinerPersona !== active.account.persona || c.joinerHome !== client.box || c.groupHome !== client.box || c.groupInstallation !== caps.value.installation) throw new Error('The invitation differs from the trusted inviter, intended account or selected Bothy installation.')
       }
       let boxTime: number | undefined
@@ -242,35 +248,40 @@ export class BrowserMlsRoomDevelopmentOwner {
           if (!hex(selected.session)) throw new Error('Choose an exact saved room.')
           const checked = await services.coordinator.transact(active.account.persona, async tx => {
             const room = await readMlsRoom(tx, selected.session)
-            return !!room.invitation && room.binding.homeBox === client.box && room.binding.rendezvousKey === context.rendezvousKey &&
+            return !!room.invitation && (admin ? room.profile === 'InvitationAdmins2' : room.profile !== 'InvitationAdmins2') && room.binding.homeBox === client.box && room.binding.rendezvousKey === context.rendezvousKey &&
               (room.binding.installation === null || room.binding.installation === caps.value.installation)
           }, context.current)
           if (checked.state !== 'active' || !checked.value) throw new Error('The selected saved experimental room, route or rendezvous child changed.')
         }
         switch (selected.type) {
-          case 'issue': return services.rooms.issueInvitation(context, selected.session, selected.target, inviteConsent)
-          case 'export': return services.rooms.exportInvitation(context, selected.session)
-          case 'response': return services.rooms.invitationResponse(context, selected.session)
+          case 'issue': return admin ? services.rooms.issueAdminInvitation(context, selected.session, selected.target, adminConsent) : services.rooms.issueInvitation(context, selected.session, selected.target, inviteConsent)
+          case 'export': return (admin ? services.rooms.exportAdminInvitation.bind(services.rooms) : services.rooms.exportInvitation.bind(services.rooms))(context, selected.session)
+          case 'response': return (admin ? services.rooms.adminInvitationResponse.bind(services.rooms) : services.rooms.invitationResponse.bind(services.rooms))(context, selected.session)
           case 'read': return services.rooms.read(context, selected.session)
           case 'send': return services.rooms.send(context, selected.session, bytesToHex(crypto.getRandomValues(new Uint8Array(32))), new TextEncoder().encode(selected.text))
-          case 'remove': return services.rooms.removeInvitationMember(context, selected.session, selected.leafId)
+          case 'remove': return (admin ? services.rooms.removeAdminInvitationMember.bind(services.rooms) : services.rooms.removeInvitationMember.bind(services.rooms))(context, selected.session, selected.leafId)
+          case 'role': {
+            if (!admin) throw new Error('Device admin roles require the Admin2 profile.')
+            return services.rooms.changeAdminRole(context, selected.session, selected.leafId, selected.makeAdmin, selected.expectedCommitment)
+          }
           case 'update': {
             const credential = await services.vault.credential(ctx), at = clock.read()
             if (!credential.ok || at === undefined) throw new Error('The enrolled credential or ceremony expired.')
             return services.rooms.update(context, selected.session, Math.min(at + 7 * 86400, credential.value.device.credentialExpiresAt), consent)
           }
           case 'accept': {
-            const wasm = await loadInvitationEngine(), inspected = wasm.inspectInvitation(BigInt(clock.read() ?? 0), selected.authorization)
-            const c = readInvitationContext(inspected.contextBytes), identity = await services.vault.credential(ctx)
+            const wasm = await (admin ? loadAdminInvitationEngine() : loadInvitationEngine()), inspected = (admin ? wasm.inspectAdminInvitation : wasm.inspectInvitation)(BigInt(clock.read() ?? 0), selected.authorization)
+            const c = admin ? readAdminInvitationContext(inspected.contextBytes) : readInvitationContext(inspected.contextBytes), identity = await services.vault.credential(ctx)
             if (!identity.ok || c.joinerDevice !== identity.value.device.device || c.joinerRz !== context.rendezvousKey) throw new Error('This invitation targets a different enrolled device or rendezvous child.')
-            const decision = await this.#consent.askInvitation(this.#foreground, active.scope, { method: INVITATION_SIGN_METHOD, purpose: 'accept',
-              principal: ctx.principal, persona: ctx.persona, device: identity.value.device.device, homeBox: client.box, context: c }, clock.deadline, context.current)
+            const ask = admin ? this.#consent.askAdminInvitation.bind(this.#consent) : this.#consent.askInvitation.bind(this.#consent)
+            const decision = await ask(this.#foreground, active.scope, { method: admin ? ADMIN_INVITATION_SIGN_METHOD : INVITATION_SIGN_METHOD, purpose: 'accept',
+              principal: ctx.principal, persona: ctx.persona, device: identity.value.device.device, homeBox: client.box, context: c } as any, clock.deadline, context.current)
             if (decision !== 'approve') return { state: 'refused', reason: 'private-ceremony-denied' }
-            return services.rooms.acceptInvitation(context, { name: selected.name, homeBox: client.box, expectedInviterPersona: selected.expectedInviterPersona, authorization: selected.authorization }, custody, consent)
+            return (admin ? services.rooms.acceptAdminInvitation.bind(services.rooms) : services.rooms.acceptInvitation.bind(services.rooms))(context, { name: selected.name, homeBox: client.box, expectedInviterPersona: selected.expectedInviterPersona, authorization: selected.authorization }, custody, consent)
           }
-          case 'registration-request': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'registration-request' })
-          case 'add': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'add', receipt: selected.receipt })
-          case 'record': return services.rooms.invitationResponseAction(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'record' })
+          case 'registration-request': return (admin ? services.rooms.adminInvitationResponseAction.bind(services.rooms) : services.rooms.invitationResponseAction.bind(services.rooms))(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'registration-request' })
+          case 'add': return (admin ? services.rooms.adminInvitationResponseAction.bind(services.rooms) : services.rooms.invitationResponseAction.bind(services.rooms))(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'add', receipt: selected.receipt })
+          case 'record': return (admin ? services.rooms.adminInvitationResponseAction.bind(services.rooms) : services.rooms.invitationResponseAction.bind(services.rooms))(context, selected.session, selected.authorization, selected.envelope, custody, { type: 'record' })
         }
       })
     }, (result, failure) => {
