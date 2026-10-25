@@ -1,3 +1,4 @@
+import { readRuntimeConfig } from './mixed-invitation-runtime-config.mjs'
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
 import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
@@ -27,7 +28,9 @@ const context = await chromium.launchPersistentContext(profile, { channel: 'chro
 })
 const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker')
 const extension = new URL(worker.url()).host
-const runtimeConfig = await (await fetch(control + '/private/config')).json()
+const runtimeReady = await fetch(control + '/ready')
+if (!runtimeReady.ok) throw new Error('Read-only runtime status unavailable')
+const runtimeConfig = readRuntimeConfig(await runtimeReady.json())
 const blockedNetworkAttempts=[]
 const allowedNetworkOrigins = new Set([new URL(app).origin, new URL(app.replace(/^http/, 'ws')).origin, ...['linkUrl','relayUrl','publicRelay'].map(k => new URL(runtimeConfig[k]).origin)])
 const knownOrigins = Object.fromEntries([[app,'app'],[app.replace(/^http/,'ws'),'app-socket'],[runtimeConfig.linkUrl,'link'],[runtimeConfig.relayUrl,'signer-relay'],[runtimeConfig.publicRelay,'public-relay']].map(([url,alias])=>[new URL(url).origin,alias]))
