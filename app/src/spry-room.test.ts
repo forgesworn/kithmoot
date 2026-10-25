@@ -5,6 +5,28 @@ import { SpryRoom } from './spry-room.js'
 
 afterEach(() => vi.useRealTimers())
 
+it('uses a pairing loaded from the account after the room has already opened', async () => {
+  const endpoint = 'https://relay.example:3744'
+  const session = { roomId: 'generated-room', call: undefined, descriptor: {}, onDescriptor: () => () => {},
+    onChange: () => () => {}, publishDescriptor: async () => {} } as unknown as RoomSession
+  const paths: string[] = [], apply = vi.fn()
+  const fetcher: typeof fetch = async url => {
+    paths.push(String(url))
+    const expiresAt = Math.floor(Date.now() / 1000) + 300
+    if (String(url).endsWith('/v1/grants')) return Response.json({ v: 1, endpoint, token: 'a'.repeat(43), expiresAt: expiresAt + 86400 })
+    return Response.json({ urls: ['turn:relay.example:3478?transport=udp'], username: `${expiresAt}:${'b'.repeat(24)}`,
+      credential: 'a'.repeat(27) + '=', expiresAt, accessExpiresAt: expiresAt + 86400 })
+  }
+  const broker = new SpryRoom(session, undefined, apply, fetcher)
+  try {
+    broker.setPairing({ v: 1, endpoint, id: 'c'.repeat(43), secretKey: '01'.repeat(32) })
+    await broker.prepare()
+    expect(paths).toContain(endpoint + '/v1/grants')
+    expect(paths).toContain(endpoint + '/v1/credentials')
+    expect(apply).toHaveBeenCalled()
+  } finally { broker.close() }
+})
+
 it('uses an offer received during joining and renews without the paired participant', async () => {
   vi.useFakeTimers()
   const endpoint = 'https://relay.example:3744'

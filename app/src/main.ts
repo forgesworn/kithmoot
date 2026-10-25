@@ -307,7 +307,9 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
-import { completeSpryPairing, loadSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
+import { completeSpryPairing, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
+import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
+import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
 import { waitForExistingCall } from './call-startup.js'
 import { spryRequest } from '../../src/spry.js'
@@ -1723,6 +1725,7 @@ async function signOutOfNostr(): Promise<void> {
     const account = nostrSession
     closeContactInbox()
     void sharedProjects.detach()
+    stopSpryAccountSync()
     bookmarks?.close()
     bookmarks = undefined
     readSync?.close()
@@ -1823,6 +1826,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     closeContactInbox()
     relayConnections.clearAuthentication()
     void sharedProjects.detach()
+    stopSpryAccountSync()
     bookmarks?.close()
     bookmarks = undefined
     readSync?.close()
@@ -1856,6 +1860,11 @@ async function forgetThisBrowserContents(): Promise<void> {
 }
 
 let bookmarks: RoomBookmarks | undefined
+let spryAccountSync: SpryAccountSync | undefined
+function stopSpryAccountSync(): void {
+  spryAccountSync?.close(); spryAccountSync = undefined
+  $('spryAccountSyncStatus').textContent = ''
+}
 function roomStore() { return bookmarks?.rooms ?? deviceStore }
 
 /**
@@ -1928,6 +1937,17 @@ function groupAdmissions(): BookmarkAdmissions {
 }
 
 function startRoomBookmarks(account: SignetSession): void {
+  stopSpryAccountSync()
+  if (account.signer.nip44) {
+    spryAccountSync = new SpryAccountSync(deviceStore, account.signer, relayConnections.pool('default'), pair => {
+      if (nostrSession !== account) return
+      if (pair) saveSpryPairing(localStorage, pair, account.pubkey)
+      else if (loadSpryPairing(localStorage, account.pubkey)) removeSpryPairing(localStorage)
+      for (const active of [session, dockedCall?.session]) if (active?.participant === account.pubkey) spryRooms.get(active)?.setPairing(pair ?? undefined)
+      renderCallRelay()
+    }, message => { if (nostrSession === account) $('spryAccountSyncStatus').textContent = message }, () => nostrSession === account)
+    spryAccountSync.start()
+  }
   void startContactInbox(account)
   const crypt = account.signer.nip44
   if (crypt) void sharedProjects.attach({ pubkey: account.pubkey, signEvent: event => account.signer.signEvent(event),
@@ -17879,6 +17899,10 @@ function cancelCallRelayActions(): void {
 
 function renderCallRelay(): void {
   cancelCallRelayActions()
+  $('spryAccountSync').hidden = !nostrSession?.signer.nip44
+  if (!$('spryAccountSyncStatus').textContent) $('spryAccountSyncStatus').textContent = nostrSession
+    ? 'Pairing while signed in is shared, encrypted, with your other Nostr devices. Choose Sync Spry to share an existing local pairing or retry.'
+    : 'This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices.'
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
     $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry, then choose Pair with KithMoot.'
@@ -17897,13 +17921,31 @@ $('spryPairingRemove').addEventListener('click', async () => {
   const button = $('spryPairingRemove') as HTMLButtonElement
   button.disabled = true
   try {
+    const account = nostrSession
+    const participant = currentIdentity().pubkey
     const pair = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    if (account && spryAccountSync && !await confirmAction({ title: 'Unpair Spry for your account?', message: 'This revokes this pairing for every device that loaded it from your Nostr account. Existing call access can take up to five minutes to expire.', confirmLabel: 'Unpair Spry', danger: true, isCurrent: () => nostrSession === account && currentIdentity().pubkey === participant })) return
     if (pair) await spryRequest(pair.endpoint, '/v1/pairings/remove-self', { id: pair.id }, pair.secretKey)
+    if (nostrSession !== account || currentIdentity().pubkey !== participant) return
     removeSpryPairing(localStorage)
+    if (account) await spryAccountSync?.save(null)
     for (const active of [session, dockedCall?.session]) if (active) { spryRooms.get(active)?.close(); spryRooms.delete(active) }
     renderCallRelay()
     setStatus('Spry unpaired. Existing relay access expires within five minutes.')
   } catch { setStatus('Spry could not be unpaired. Check your connection and try again, or remove the pairing on your node.') }
+  finally { button.disabled = false }
+})
+
+$('spryAccountSync').addEventListener('click', async () => {
+  const sync = spryAccountSync
+  if (!sync) return
+  const button = $('spryAccountSync') as HTMLButtonElement
+  button.disabled = true
+  try {
+    const pair = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    if (pair) await sync.save(pair)
+    else { sync.start(); await sync.retry() }
+  }
   finally { button.disabled = false }
 })
 
@@ -22129,12 +22171,20 @@ const identityReady = restoreSessionWithExtensionGrace()
 
 if (spryPairingHash) void identityReady.then(async () => {
   const participant = currentIdentity().pubkey
-  const paired = await completeSpryPairing(spryPairingHash, localStorage, participant, host => confirmAction({
-    title: 'Pair Spry with KithMoot?',
-    message: `${host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.`,
-    confirmLabel: 'Pair Spry', isCurrent: () => currentIdentity().pubkey === participant,
+  const paired = await completeSpryPairing(spryPairingHash, localStorage, participant, host => confirmSpryPairingTarget(spryPairingHash, host, {
+    desktop: import.meta.env.VITE_DESKTOP === 'true', syncAccount: nostrSession?.pubkey === participant && !!nostrSession.signer.nip44,
+    isCurrent: () => currentIdentity().pubkey === participant,
   }))
-  if (paired) { renderCallRelay(); setStatus('Spry paired. Relay access will be shared automatically in your calls.') }
+  if (paired) {
+    if (currentIdentity().pubkey !== participant) return
+    renderCallRelay()
+    const pair = loadSpryPairing(localStorage, participant)
+    const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
+    if (currentIdentity().pubkey !== participant) return
+    setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
+      : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
+      : 'Spry paired on this device. Relay access will be shared automatically in your calls.')
+  }
 }).catch(() => setStatus('Spry could not be paired. Open Spry on your node and choose Pair with KithMoot again.'))
 
 // A room this device has joined goes straight in, as the identity that joined
