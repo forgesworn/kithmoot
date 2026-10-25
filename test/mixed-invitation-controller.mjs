@@ -181,23 +181,41 @@ function expectedPubkey(value) { if(typeof value!=='string'||!HEX64.test(value))
 async function ordinarySnapshot(args) {
   const scenario=ordinaryScenario(args)
   const account=args.expectedAccountPubkey===undefined?undefined:expectedPubkey(args.expectedAccountPubkey)
-  const state=await page.evaluate(async expectedAccount => {
+  const roomOpen=await page.locator('#roomArea').isVisible()
+  const sheet=page.locator('#roomSheet')
+  const openedSheet=roomOpen&&!await sheet.evaluate(element=>element.open)
+  if(openedSheet){
+    await page.locator('#roomIdentity').click()
+    await page.waitForFunction(()=>document.querySelector('#roomSheet')?.open===true,null,{timeout:5000})
+  }
+  try {
+    if(roomOpen){
+      await page.waitForFunction(expected=>{
+        const rows=[...document.querySelectorAll('#sheetRoster > .rosterRow[data-participant]')]
+        return expected ? rows.some(row=>row.dataset.participant===expected) : rows.length>0
+      },account??null,{timeout:account?15000:5000}).catch(error=>{if(error.name!=='TimeoutError')throw error})
+    }
+    const state=await page.evaluate(async expectedAccount => {
     const hash=async value=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value)))).map(byte=>byte.toString(16).padStart(2,'0')).join('')
     const room=document.querySelector('#roomArea'), title=document.querySelector('#roomTitle')?.textContent??''
     const share=document.querySelector('#shareUrl')?.value??''
-    const roster=[...document.querySelectorAll('#sheetRoster [data-participant]')].map(row=>row.dataset.participant).filter(Boolean)
+    const sheet=document.querySelector('#roomSheet')
+    const roster=sheet?.open?[...document.querySelectorAll('#sheetRoster > .rosterRow[data-participant]')].map(row=>row.dataset.participant).filter(Boolean):[]
+    const rosterObserved=!!sheet?.open&&roster.length>0
     const messages=[...document.querySelectorAll('#chatLog .msg[data-message-id]')]
     const valid=messages.filter(row=>/^[0-9a-f]{64}$/.test(row.dataset.messageAuthor??''))
     const last=await Promise.all(valid.slice(-10).map(async row=>({idSha256:await hash(row.dataset.messageId??''),
       authorSha256:await hash(row.dataset.messageAuthor),bodySha256:await hash(row.querySelector('.messageBody .bubble .text')?.textContent??''),mine:row.classList.contains('mine')})))
     const host=document.querySelector('#hostPanel'), rotate=document.querySelector('#rotateShare')
     return {roomOpen:!!room&&!room.hidden,roomTitleSha256:await hash(title),shareUrlSha256:share?await hash(share):null,
-      rosterCount:roster.length,participantSha256:(await Promise.all(roster.map(hash))).sort(),accountPresent:expectedAccount===undefined?undefined:roster.includes(expectedAccount),
+      rosterObserved,rosterCount:rosterObserved?roster.length:null,participantSha256:rosterObserved?(await Promise.all(roster.map(hash))).sort():[],
+      accountPresent:expectedAccount===undefined?undefined:rosterObserved?roster.includes(expectedAccount):null,
       hostAvailable:!!host&&!host.hidden,hostRowCount:document.querySelectorAll('#hostList .hostRow').length,
       rotateAvailable:!!rotate&&!rotate.hidden,messageCount:valid.length,discardedMessageRows:messages.length-valid.length,lastMessages:last}
-  },account)
-  if(account&&!state.accountPresent)throw new Error('Expected account absent from actual room roster')
-  return {scenario,actor:'alice',...state}
+    },account)
+    if(account&&!state.accountPresent)throw new Error('Expected account not observed in actual room-info roster')
+    return {scenario,actor:'alice',...state}
+  } finally { if(openedSheet)await page.locator('#roomSheetClose').click() }
 }
 
 let inlineSigninBusy=false, inlineSigninPending=false
