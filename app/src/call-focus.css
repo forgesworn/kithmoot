@@ -369,6 +369,25 @@ html[data-call-bar] #deviceControls > #callExtras:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
+/* A muted microphone is the next action on joining: make it explicit. */
+html[data-call-bar] #deviceControls .toggles > #toggleMic[data-on='false'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-size: .75rem;
+  font-weight: 650;
+}
+html[data-call-bar] #deviceControls .toggles > #toggleMic[data-on='false']:hover { filter: brightness(1.1); }
+@media (max-width: 1399px) {
+  html[data-call-bar] #deviceControls #toggleMic .callMicWord { display: none; }
+}
+html[data-call-bar] #deviceControls #callChatToggle[aria-expanded='false'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-size: .75rem;
+  font-weight: 650;
+}
 /* On, open or pressed: the same accent treatment as every toggle. */
 html[data-call-bar] #deviceControls .toggles > .toggle[data-on='true'],
 html[data-call-bar] #deviceControls > #callExtras[aria-expanded='true'],
@@ -393,8 +412,8 @@ html[data-call-bar] #deviceControls #leaveCall {
 html[data-call-bar] #deviceControls #leaveCall:hover { background: var(--call-leave-hover); }
 
 /* The word under each picture. The long names (Microphone, Screen share,
-   Leave call) are the accessible names; what is drawn is Mute or Unmute,
-   Share and Leave. */
+   Leave call) are the accessible names; what is drawn is Mute or Turn mic
+   on, Share and Leave. */
 html[data-call-bar] #deviceControls :is(.callFull, .callWord) { display: none; }
 html[data-call-bar] #deviceControls :is(.callShort, .callLabel) { display: inline; }
 html[data-call-bar] #deviceControls [data-on='true'] > .callLabelOn { display: inline; }

@@ -1022,8 +1022,8 @@ async function startCall(page: Page, index = 0) {
 }
 
 for (const [label, size, touch, words] of [
-  ['1440 by 900', { width: 1440, height: 900 }, false, ['Unmute', 'Camera', 'Share', 'Chat', 'More', 'Leave', 'Full screen']],
-  ['390 by 844', { width: 390, height: 844 }, true, ['Unmute', 'Camera', 'Chat', 'More', 'Leave']],
+  ['1440 by 900', { width: 1440, height: 900 }, false, ['Turn mic on', 'Camera', 'Share', 'Chat', 'More', 'Leave', 'Full screen']],
+  ['390 by 844', { width: 390, height: 844 }, true, ['Turn on', 'Camera', 'Chat', 'More', 'Leave']],
 ] as const) {
   test(`at ${label} the call bar is a toolbar of buttons with a word under each, and one red Leave`, async ({ browser, baseURL }) => {
     const { context, page } = await visitor(browser, baseURL!, size, { touch })
@@ -1271,7 +1271,7 @@ test('on a phone the call bar\'s Chat swaps the stage for the conversation, over
     await expect(page.locator('#callChatBarElapsed')).toHaveAttribute('aria-live', 'off')
     await expect(page.locator('#callChatBarElapsed')).toHaveText(/^· \d\d:\d\d$/, { timeout: 5_000 })
     // Mic, Return and Leave, one Leave on screen.
-    await expect(line.getByRole('button')).toHaveText(['Unmute', 'Return', 'Leave'], { useInnerText: true })
+    await expect(line.getByRole('button')).toHaveText(['Turn mic on', 'Return', 'Leave'], { useInnerText: true })
     await expect(page.getByRole('button', { name: 'Leave call', exact: true }).and(page.locator(':visible'))).toHaveCount(1)
     await line.locator('#callChatBarMic').click()
     await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')

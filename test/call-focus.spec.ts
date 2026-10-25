@@ -45,6 +45,16 @@ async function joinCall(browser: Browser, baseURL: string, url: string, name: st
   await expect(page.locator('#callToggle')).toHaveText('Join call', { timeout: 60_000 })
   await page.locator('#callToggle').click()
   await expect(page.locator('#deviceControls')).toBeVisible()
+  await expect(page.locator('#micIndicator')).toHaveText('Microphone off — turn it on to speak.')
+  await expect(page.locator('#toggleMic .callLabelOff')).toBeVisible()
+  await expect(page.locator('#toggleMic .callLabelOn')).toBeHidden()
+  await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
+  await page.locator('#toggleMic').click()
+  await expect(page.locator('#toggleMic .callLabelOn')).toBeVisible()
+  await expect(page.locator('#toggleMic .callLabelOff')).toBeHidden()
+  await expect(page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+  await page.locator('#toggleMic').click()
+  await expect(page.locator('#toggleMic .callLabelOff')).toBeVisible()
   await page.locator('#toggleCamera').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
   return page
@@ -272,19 +282,24 @@ test('the chat panel opens from the bar, counts what arrived while shut, and is 
     const bob = await joinCall(browser, baseURL!, url, 'Bob', contexts)
     await expect(ada.locator('html')).toHaveAttribute('data-call-first', '', { timeout: 60_000 })
 
-    // Open by default from 1280px, shut below, until this device says.
+    // Open by default wherever the call-first layout fits, until this device says.
     await expect(bob.locator('#callChatToggle')).toHaveAttribute('aria-expanded', 'true')
     await bob.setViewportSize({ width: 1200, height: 800 })
-    await expect(bob.locator('#callChatToggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(bob.locator('#callChatToggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(bob.locator('#chatInput')).toBeVisible()
+    expect(await bob.locator('#toggleMic').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'the microphone action fits beside open chat').toBe(true)
+    await shot(bob, 'chat-open-1200')
     await bob.setViewportSize({ width: 1440, height: 900 })
     await expect(bob.locator('#callChatToggle')).toHaveAttribute('aria-expanded', 'true')
 
-    // Shut, and the stage takes the width back.
+    // Shut, and the stage takes the width back; the way in is explicit.
     const toggle = ada.locator('#callChatToggle')
     await expect(toggle).toHaveAttribute('aria-expanded', 'true')
     const openWidth = (await ada.locator('#callStage').boundingBox())!.width
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(toggle.locator('.callLabel')).toHaveText('Open chat')
+    await expect(toggle).toHaveAttribute('aria-label', 'Open chat')
     await expect.poll(async () => (await ada.locator('#callStage').boundingBox())!.width).toBeGreaterThan(openWidth + 200)
     await expect(ada.locator('#chatInput')).toBeHidden()
     expect(await ada.evaluate(() => localStorage.getItem('kithmoot.call-chat-panel'))).toBe('closed')
@@ -297,7 +312,7 @@ test('the chat panel opens from the bar, counts what arrived while shut, and is 
       await bob.locator('#chatInput').press('Enter')
     }
     await expect(badge).toHaveText('2', { timeout: 60_000 })
-    await expect(toggle).toHaveAttribute('aria-label', 'Chat, 2 unread')
+    await expect(toggle).toHaveAttribute('aria-label', 'Open chat, 2 unread')
     await expect(ada.locator('#callChatAnnounce')).toHaveText('2 new messages in the chat')
     await expect(ada.locator('#callChatAnnounce')).toHaveAttribute('aria-live', 'polite')
     await shot(ada, 'chat-closed-unread')

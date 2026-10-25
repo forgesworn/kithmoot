@@ -264,10 +264,8 @@ test('the divider, by eye, at a laptop and a tablet window, light and dark', asy
     for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
       await ada.setViewportSize(size)
       await ada.waitForTimeout(150)
-      // Below 1280px the chat panel starts shut on a device that has never
-      // said otherwise (see chatPanelOpen in call-focus-model.ts) - open it
-      // by hand so the divider, which only shows beside an open chat, is
-      // there to shoot.
+      // A device may have shut the panel by choice. Open it so the divider,
+      // which only shows beside an open chat, is there to shoot.
       if (await ada.locator('#callChatToggle').getAttribute('aria-expanded') === 'false') {
         await ada.locator('#callChatToggle').click()
       }

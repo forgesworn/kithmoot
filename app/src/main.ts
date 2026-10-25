@@ -7576,7 +7576,7 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       : 'Your microphone is on your other device.'
     micEl.classList.toggle('mine', mine.mic === myDeviceId)
   } else {
-    micEl.textContent = micTrack ? 'Mic: on, not yet claimed' : 'Mic: off'
+    micEl.textContent = micTrack ? 'Mic: on, not yet claimed' : 'Microphone off — turn it on to speak.'
     micEl.classList.remove('mine')
   }
   ;($('claimMic') as HTMLButtonElement).hidden = !micElsewhere
