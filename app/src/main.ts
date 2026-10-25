@@ -17668,7 +17668,7 @@ $('leaveCall').addEventListener('click', () => {
   leaveCall().catch((err) => setStatus(describeError(err)))
 })
 $('listenHere').addEventListener('click', () => {
-  try { monitorClaimedAt = session?.nextRoleClaim('monitor') ?? nowSeconds() }
+  try { monitorClaimedAt = mediaSession()?.nextRoleClaim('monitor') ?? nowSeconds() }
   catch (error) { setStatus(describeError(error)); return }
   besideAnotherDevice = false
   publishActiveTracks()
