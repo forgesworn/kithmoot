@@ -25,15 +25,17 @@ export class SpryAccountSync {
   #incoming?: Event
   #writes = Promise.resolve()
   #key: string
+  #identity: string
   #retrying?: Promise<boolean>
   constructor(private store: DeviceStore, private signer: SignetSigner, private relay: RelayTransport,
     private adopt: (pair: SpryPairing | null) => void, private status: (message: string) => void,
     private current: () => boolean, private now = () => Math.floor(Date.now() / 1000)) {
-    this.#key = `kithmoot.spry-sync.${signer.pubkey}`
+    this.#identity = signer.pubkey
+    this.#key = `kithmoot.spry-sync.${this.#identity}`
   }
-  #live(): boolean { return !this.#closed && this.current() }
+  #live(): boolean { return !this.#closed && this.current() && this.signer.pubkey === this.#identity }
   #valid(event: Event): boolean {
-    return event?.kind === KIND && event.pubkey === this.signer.pubkey &&
+    return event?.kind === KIND && event.pubkey === this.#identity &&
       Number.isSafeInteger(event.created_at) && event.created_at >= 0 && event.created_at <= this.now() + 60 &&
       typeof event.content === 'string' && event.content.length <= 16000 &&
       JSON.stringify(event.tags) === JSON.stringify(tags()) && verifyEventUncached(event)
@@ -55,7 +57,9 @@ export class SpryAccountSync {
       }
       if (this.#pending || this.#removalAt !== undefined) void this.retry()
     } catch { this.status('Spry account sync could not be restored. Your local pairing is kept.') }
-    this.#off = this.relay.subscribe([{ kinds: [KIND], authors: [this.signer.pubkey], '#d': [SPRY_ACCOUNT_ADDRESS] }], event => { void this.receive(event) }, () => { void this.retry() })
+    try {
+      this.#off = this.relay.subscribe([{ kinds: [KIND], authors: [this.#identity], '#d': [SPRY_ACCOUNT_ADDRESS] }], event => { void this.receive(event) }, () => { void this.retry() })
+    } catch { this.status('Spry account lookup could not start. Your local pairing is kept; choose Sync Spry to retry.') }
   }
   receive(event: Event): Promise<void> {
     if (!this.#live() || !this.#valid(event) || this.#seen.has(event.id) || !newer(event, this.#latest)) return Promise.resolve()

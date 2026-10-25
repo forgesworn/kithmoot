@@ -9,7 +9,7 @@ import { SpryAccountSync } from './spry-account-sync.js'
 function actor(secret = generateSecretKey()) {
   const pubkey = getPublicKey(secret)
   const signer: SignetSigner = { pubkey, method: 'nip07', capabilities: { canSignEvents: true, hasNip44: true }, close: async () => {},
-    signEvent: async event => finalizeEvent(event, secret), nip44: {
+    signEvent: async event => finalizeEvent({ ...event, tags: event.tags ?? [], created_at: event.created_at ?? Math.floor(Date.now() / 1000) }, secret), nip44: {
       encrypt: async (peer, text) => encrypt(text, getConversationKey(secret, peer)),
       decrypt: async (peer, text) => decrypt(text, getConversationKey(secret, peer)),
     } }
@@ -76,6 +76,19 @@ it('does not publish a late signer result after the account changes', async () =
   await vi.waitFor(() => expect(release).toBeTypeOf('function'))
   a.changeAccount(); release('late result')
   expect(await saving).toBe(false)
+  expect(a.events).toHaveLength(0)
+  a.sync.close()
+})
+
+it('binds pending work to the original signer public key even if the provider changes in place', async () => {
+  const a = harness(), other = actor()
+  const original = a.signer.nip44!.encrypt
+  a.signer.nip44!.encrypt = async (peer, text) => {
+    const encrypted = await original(peer, text)
+    Object.defineProperty(a.signer, 'pubkey', { value: other.pubkey })
+    return encrypted
+  }
+  expect(await a.sync.save(pair())).toBe(false)
   expect(a.events).toHaveLength(0)
   a.sync.close()
 })

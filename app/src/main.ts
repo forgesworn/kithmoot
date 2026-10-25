@@ -21940,10 +21940,14 @@ if (spryPairingHash) void identityReady.then(async () => {
     isCurrent: () => currentIdentity().pubkey === participant,
   }))
   if (paired) {
+    if (currentIdentity().pubkey !== participant) return
     renderCallRelay()
     const pair = loadSpryPairing(localStorage, participant)
-    if (pair && nostrSession?.pubkey === participant) await spryAccountSync?.save(pair)
-    setStatus('Spry paired. Relay access will be shared automatically in your calls.')
+    const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
+    if (currentIdentity().pubkey !== participant) return
+    setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
+      : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
+      : 'Spry paired on this device. Relay access will be shared automatically in your calls.')
   }
 }).catch(() => setStatus('Spry could not be paired. Open Spry on your node and choose Pair with KithMoot again.'))
 

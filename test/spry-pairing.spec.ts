@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type BrowserContext } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { openSettings } from './browser.js'
@@ -49,7 +49,7 @@ test('the device chooser offers an app and phone QR without claiming in the brow
 
 test('pairing one signed-in browser follows the account and unpairing reaches another device', async ({ browser, baseURL }) => {
   const secret = generateSecretKey(), pubkey = getPublicKey(secret)
-  const contexts = []
+  const contexts: BrowserContext[] = []
   async function device() {
     const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block' })
     contexts.push(context)
@@ -85,10 +85,12 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
       throw new Error('Unexpected fixture request')
     })
     await a.goto(baseURL! + '?signin=nostr' + pairingHash())
+    await a.getByRole('button', { name: /Browser extension/ }).click()
     await a.getByRole('button', { name: 'Pair this Nostr account', exact: true }).click()
     await expect.poll(() => a.evaluate(() => localStorage.getItem('kithmoot.spry-pairing.v1'))).toBeTruthy()
     const b = await (await device()).newPage()
     await b.goto(baseURL! + '?signin=nostr')
+    await b.getByRole('button', { name: /Browser extension/ }).click()
     await expect.poll(() => b.evaluate(() => localStorage.getItem('kithmoot.spry-pairing.v1'))).toBeTruthy()
     const [first, second] = await Promise.all([a, b].map(page => page.evaluate(() => JSON.parse(localStorage.getItem('kithmoot.spry-pairing.v1')!))))
     expect(second).toEqual(first)
@@ -99,7 +101,7 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
     await a.getByRole('alertdialog', { name: 'Unpair Spry for your account?' }).getByRole('button', { name: 'Unpair Spry', exact: true }).click()
     await expect.poll(() => b.evaluate(() => localStorage.getItem('kithmoot.spry-pairing.v1'))).toBeNull()
     expect(revocations).toBe(1)
-  } finally { for (const context of contexts) await context.close() }
+  } finally { await Promise.all(contexts.map(context => context.close().catch(() => {}))) }
 })
 
 test('pairing this browser requires the explicit browser choice', async ({ page, baseURL }) => {

@@ -6,8 +6,8 @@ node, choose **Pair with KithMoot**, open the KithMoot app and approve **Pair
 Spry**. Its account pairing then follows your other signed-in devices through
 your configured account relays. Those devices do not need another pairing code.
 
-An existing local pairing can be shared using **Settings → Connections →
-Spry → Sync Spry** while signed in. This also retries a refused or unavailable
+An existing local pairing made under that Nostr account can be shared using
+**Settings → Connections → Spry → Sync Spry** while signed in. This also retries a refused or unavailable
 signer/relay. A guest pairing stays on that device. The browser handoff offers
 **Open KithMoot app** and a locally drawn Android QR for a device without the
 account. Each such guest app needs a fresh one-use code.
