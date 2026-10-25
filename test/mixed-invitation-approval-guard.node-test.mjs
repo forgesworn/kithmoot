@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { permittedApprovalDto } from './mixed-invitation-approval-guard.mjs'
+import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
 
 const origin='http://localhost:28445'
 const pubkey='ab'.repeat(32)
@@ -36,4 +36,28 @@ test('only typed empty-content MLS signing and exact v1 provision schemas pass',
   assert.deepEqual(permittedApprovalDto({...base,method:'heartwood_provision_rendezvous',provision},origin,now).provision,provision)
   assert.equal(permittedApprovalDto({...base,method:'heartwood_provision_rendezvous',provision:{...provision,extra:'private'}},origin,now),undefined)
   assert.equal(permittedApprovalDto({...base,method:'getPublicKey',event},origin,now),undefined)
+})
+
+test('ordinary public context admits exact live room and account binding only', () => {
+  const roomId='11'.repeat(32), device='22'.repeat(32)
+  const live={sessionAssigned:true,roomId,participant:pubkey,device,arrivalRoomId:roomId,accountPubkey:pubkey,
+    accountMethod:'nip07',signerMethod:'nip07',canSignEvents:true,roomGeneration:2,identityGeneration:3,joining:true,
+    sessionMatchesArrivalRoom:true,accountMatchesParticipant:true}
+  const dto=publicOrdinaryContextDto(live)
+  assert.deepEqual(dto,live)
+  assert.equal(Object.isFrozen(dto),true)
+  assert.equal(publicOrdinaryContextDto({...live,secretKey:'private'}),undefined)
+  assert.equal(publicOrdinaryContextDto({...live,device:'short'}),undefined)
+  assert.equal(publicOrdinaryContextDto({...live,sessionMatchesArrivalRoom:false}),undefined)
+  assert.equal(publicOrdinaryContextDto({...live,accountMatchesParticipant:false}),undefined)
+  assert.equal(publicOrdinaryContextDto({...live,sessionAssigned:false}),undefined)
+  assert.equal(publicOrdinaryContextDto({...live,signerMethod:'visitor'}),undefined)
+})
+
+test('ordinary context can report a room link before any session exists', () => {
+  const waiting={sessionAssigned:false,roomId:null,participant:null,device:null,arrivalRoomId:'11'.repeat(32),
+    accountPubkey:pubkey,accountMethod:'nip07',signerMethod:'nip07',canSignEvents:true,roomGeneration:1,identityGeneration:1,
+    joining:false,sessionMatchesArrivalRoom:false,accountMatchesParticipant:false}
+  assert.deepEqual(publicOrdinaryContextDto(waiting),waiting)
+  assert.equal(publicOrdinaryContextDto({...waiting,device:'22'.repeat(32)}),undefined)
 })

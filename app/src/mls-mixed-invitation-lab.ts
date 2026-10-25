@@ -8,6 +8,11 @@ import { bytesToHex } from '@noble/hashes/utils.js'
 // panels; there is no constructor/context/service/signer/key injection surface.
 const enabled = () => import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true'
 let account: BrowserMlsAccount | undefined, rooms: BrowserMlsRoomDevelopmentOwner | undefined, grants: BrowserMlsGrantDevelopmentOwner | undefined
+type OrdinaryPublicContext = Readonly<{ sessionAssigned: boolean; roomId: string | null; participant: string | null; device: string | null;
+  arrivalRoomId: string | null; accountPubkey: string | null; accountMethod: string | null; signerMethod: string | null;
+  canSignEvents: boolean; roomGeneration: number; identityGeneration: number; joining: boolean;
+  sessionMatchesArrivalRoom: boolean; accountMatchesParticipant: boolean }>
+let ordinaryPublicContext: (() => OrdinaryPublicContext) | undefined
 function need<T>(value: T | undefined): T { if (!enabled() || !value) throw new Error('Open the actual app panel first.'); return value }
 function bytes(value: unknown): Uint8Array {
   if (typeof value !== 'string' || value.length > 1450000) throw new Error('Bounded private bytes required.')
@@ -23,13 +28,15 @@ function wire(value: any): any {
 export function captureAccountOwner(owner: BrowserMlsAccount) { if (enabled()) { account = owner; install() } }
 export function captureRoomOwner(owner: BrowserMlsRoomDevelopmentOwner) { if (enabled()) { rooms = owner; install() } }
 export function captureGrantOwner(owner: BrowserMlsGrantDevelopmentOwner) { if (enabled()) { grants = owner; install() } }
+export function captureOrdinaryPublicContext(read: () => OrdinaryPublicContext) { if (enabled()) { ordinaryPublicContext = read; install() } }
 function install() {
   if (!enabled()) return
   Object.defineProperty(window, '__mixedInvitationLab', { configurable: true, value: Object.freeze({
-    ready: () => ({ account: !!account, rooms: !!rooms, grants: !!grants }),
+    ready: () => ({ account: !!account, rooms: !!rooms, grants: !!grants, ordinary: !!ordinaryPublicContext }),
     async step(step: string, a: Record<string, any> = {}) {
       let result: any
       switch (step) {
+        case 'ordinary-public-context': if (!ordinaryPublicContext) throw new Error('Actual ordinary context unavailable.'); result = ordinaryPublicContext(); break
         case 'account-state': result = await need(account).state(); break
         case 'prepare': result = await need(account).prepare(); break
         case 'pair-witness': result = await need(account).pair(a.code, a.relays); break

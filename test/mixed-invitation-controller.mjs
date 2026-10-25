@@ -1,6 +1,6 @@
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
-import { permittedApprovalDto } from './mixed-invitation-approval-guard.mjs'
+import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
 import { safeErrorDiagnostic } from './mixed-invitation-error-diagnostic.mjs'
 import { chromium } from '@playwright/test'
 import { createServer } from 'node:http'
@@ -321,6 +321,12 @@ async function run(step,args) {
   }
   if(step==='signin') { await page.goto(app+'?signin=nostr'); if(await page.locator('#signOut').evaluateAll(es=>es.some(e=>!e.hidden)))return {signedIn:true,restored:true};await page.getByRole('button',{name:'Advanced',exact:true}).click();await page.getByRole('button',{name:/Browser extension/}).click();await page.locator('#homeSignIn').waitFor({state:'hidden',timeout:60000});return {signedIn:true} }
   if(step==='signin-inline')return signinInline()
+  if(step==='ordinary-public-context') {
+    await page.waitForFunction(()=>window.__mixedInvitationLab?.ready().ordinary===true,null,{timeout:5000})
+    const state=publicOrdinaryContextDto(await page.evaluate(()=>window.__mixedInvitationLab.step('ordinary-public-context')))
+    if(!state)throw new Error('Actual ordinary public binding has invalid shape')
+    return state
+  }
   if(step==='ordinary-create') {
     if(ordinaryScenario(args)!=='alice-created')throw new Error('Only Alice-created scenario creates a browser room')
     const name=boundedOrdinaryText(args.name,64,'synthetic room name')
@@ -548,7 +554,7 @@ async function run(step,args) {
   }
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');

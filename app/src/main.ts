@@ -22281,3 +22281,17 @@ boxDiscovery = new BoxDiscovery({
 })
 boxDiscovery.reconcile()
 document.addEventListener('visibilitychange', () => { if (!document.hidden) boxDiscovery?.tick() })
+// Disposable mixed-client lab: disclose only live public binding values. The
+// signer, room secret, credential, device key and seal secret stay in their
+// existing owners; production builds do not install this hook.
+if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') {
+  void import('./mls-mixed-invitation-lab.js').then(({ captureOrdinaryPublicContext }) => captureOrdinaryPublicContext(() => {
+    const active = session, account = nostrSession, arrivalRoomId = currentRoomId() ?? null
+    return Object.freeze({ sessionAssigned: !!active, roomId: active?.roomId ?? null, participant: active?.participant ?? null,
+      device: active?.device ?? null, arrivalRoomId, accountPubkey: account?.pubkey ?? null,
+      accountMethod: account?.method ?? null, signerMethod: account?.signer.method ?? null,
+      canSignEvents: account?.signer.capabilities.canSignEvents ?? false, roomGeneration, identityGeneration, joining,
+      sessionMatchesArrivalRoom: !!active && active.roomId === arrivalRoomId,
+      accountMatchesParticipant: !!active && !!account && active.participant === account.pubkey })
+  }))
+}

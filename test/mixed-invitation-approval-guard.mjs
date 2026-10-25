@@ -7,6 +7,25 @@ const stable = value => Array.isArray(value) ? value.map(stable) : value && type
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value
 const exactKeys = (value, keys) => Object.keys(value).sort().join(',') === keys.slice().sort().join(',')
 const plain = value => !!value && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype
+const CONTEXT_KEYS = ['sessionAssigned','roomId','participant','device','arrivalRoomId','accountPubkey','accountMethod','signerMethod',
+  'canSignEvents','roomGeneration','identityGeneration','joining','sessionMatchesArrivalRoom','accountMatchesParticipant']
+const LOGIN_METHODS = new Set(['nip07','redirect','bunker','nsec','amber'])
+
+// A read-only, public binding handoff. Reject added fields rather than letting
+// a future lab change accidentally disclose a credential or signer object.
+export function publicOrdinaryContextDto(value) {
+  if (!plain(value) || !exactKeys(value, CONTEXT_KEYS) ||
+      !['sessionAssigned','canSignEvents','joining','sessionMatchesArrivalRoom','accountMatchesParticipant'].every(key=>typeof value[key]==='boolean') ||
+      !['roomGeneration','identityGeneration'].every(key=>Number.isSafeInteger(value[key])&&value[key]>=0) ||
+      !['roomId','participant','device','arrivalRoomId','accountPubkey'].every(key=>value[key]===null||typeof value[key]==='string'&&HEX64.test(value[key])) ||
+      !['accountMethod','signerMethod'].every(key=>value[key]===null||LOGIN_METHODS.has(value[key])) ||
+      (value.sessionAssigned ? !value.roomId||!value.participant||!value.device : value.roomId!==null||value.participant!==null||value.device!==null) ||
+      (value.accountPubkey===null && (value.accountMethod!==null||value.signerMethod!==null||value.canSignEvents)) ||
+      (value.accountPubkey!==null && (value.accountMethod===null||value.signerMethod===null)) ||
+      value.sessionMatchesArrivalRoom!==Boolean(value.roomId&&value.roomId===value.arrivalRoomId) ||
+      value.accountMatchesParticipant!==Boolean(value.participant&&value.participant===value.accountPubkey)) return
+  return Object.freeze({ ...value })
+}
 
 function eventRequest(value, origin) {
   if (!plain(value) || Object.keys(value).some(key => !EVENT_KEYS.has(key)) || !SIGN_KINDS.has(value.kind) ||
