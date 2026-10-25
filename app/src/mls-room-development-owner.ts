@@ -14,6 +14,7 @@ import { BrowserMlsRoomCreateCustody, type MlsRoomCreateDevice, type MlsRoomCrea
 import { BrowserMlsRoomOperations, type MlsRoomResult, type MlsRoomEffect } from './mls-room-operations.js'
 import { mlsRoomIds, readMlsRoom, type MlsRoomBinding } from './mls-room-store.js'
 import { BrowserMlsRoomLinkVault } from './mls-room-link-vault.js'
+import { boxLabTraceObserver } from './mls-box-lab-trace.js'
 import { nodeAuthenticationHeld, type MlsNodeAuthentication } from './mls-room-node-readiness.js'
 import { BrowserMlsBoxClient } from './mls-box-client.js'
 import { BrowserMlsRoomConsent } from './mls-room-consent.js'
@@ -110,6 +111,25 @@ export class BrowserMlsRoomDevelopmentOwner {
     return this.#run(true, async (services, active) => {
       const result = await services.vault.credential(services.vault.context(location.origin, active.account.persona))
       return result.ok ? { deviceReady: true as const } : { deviceReady: false as const, refusal: result.refusal }
+    })
+  }
+
+  /** One read-only authenticated capabilities probe against the saved room. */
+  nodeHealth(routeId: string, session: string) {
+    if (!routeShape(routeId) || !hex(session)) throw stale()
+    return this.#run(true, async (services, active) => {
+      const clock = new BrowserMlsRoomCeremonyClock()
+      await this.#endpoint.resume(active.account.persona)
+      const ctx = services.vault.context(location.origin, active.account.persona)
+      const credential = await services.vault.credential(ctx)
+      if (!credential.ok) return { deviceReady: false, refusal: credential.refusal }
+      const saved = await services.coordinator.transact(active.account.persona, tx => readMlsRoom(tx, session), active.current)
+      if (saved.state !== 'active') return { deviceReady: true, savedRoomReady: false }
+      const consent: ConsentPrompt = permission => this.#consent.ask(this.#foreground, active.scope, permission, clock.deadline, active.current)
+      const client = await this.#client(active, services, routeId, ctx, consent)
+      const answer = await client.capabilities(active.current)
+      return answer.state === 'ok' ? { deviceReady: true, capabilitiesState: 'ok', installationMatches: answer.value.installation === saved.value.binding.installation }
+        : { deviceReady: true, ...nodeAuthenticationHeld(answer) }
     })
   }
 
@@ -396,7 +416,7 @@ export class BrowserMlsRoomDevelopmentOwner {
       const route = routes[0]
       const box = pairedWitnessIdentity({ routeId, card: bytesToHex(route.card), cardSerial: String(route.cardSerial),
         cardVerifiedAt: String(route.cardVerifiedAt), pairedRouteSecret: '', relayUrls: [] })
-      const client = new BrowserMlsBoxClient(this.#endpoint, route, box, services.vault, context, consent, active.current)
+      const client = new BrowserMlsBoxClient(this.#endpoint, route, box, services.vault, context, consent, active.current, 20_000, boxLabTraceObserver())
       active.clients.add(client)
       return client
     } finally { if (state) wipeLinkState(state) }

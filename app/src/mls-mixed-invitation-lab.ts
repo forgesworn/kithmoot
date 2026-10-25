@@ -1,5 +1,6 @@
 import { confirmAction } from './confirm-action.js'
 import type { StorageGrantReview } from './mls-storage-grants.js'
+import { startBoxLabTrace, readBoxLabTrace } from './mls-box-lab-trace.js'
 import type { BrowserMlsAccount } from './mls-persona-account.js'
 import type { BrowserMlsRoomDevelopmentOwner } from './mls-room-development-owner.js'
 import type { BrowserMlsGrantDevelopmentOwner } from './mls-grant-development-owner.js'
@@ -59,6 +60,9 @@ function install() {
         case 'check-witness': result = await need(account).check(); break
         case 'device': result = await need(account).vaultState(); break
         case 'pair-room': result = await need(rooms).pair(a.code, a.relays); break
+        case 'box-trace-start': result = startBoxLabTrace(); break
+        case 'box-trace-read': result = readBoxLabTrace(); break
+        case 'node-health': labProfile(); result = await need(rooms).nodeHealth(a.routeId, a.session); break
         case 'room-device-readiness': labProfile(); result = await need(rooms).deviceReadiness(); break
         case 'routes': result = await need(rooms).routes(); break
         case 'provision': result = await need(rooms).provisionBark(a.index); break

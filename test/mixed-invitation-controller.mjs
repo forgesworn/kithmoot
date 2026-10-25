@@ -593,7 +593,7 @@ async function run(step,args) {
   await requireLabProfile()
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile','box-trace-read'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');

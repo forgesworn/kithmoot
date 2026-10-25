@@ -3,7 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js'
 import { invitationRegistrationRequest } from './mls-invitation-package.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
-import { BrowserMlsBoxClient, MAX_MLS_ENVELOPE } from './mls-box-client.js'
+import { BrowserMlsBoxClient, MAX_MLS_ENVELOPE, type BoxTraceEvent, type BoxTraceObserver } from './mls-box-client.js'
 import { base64Encode } from './mls-vault.js'
 import { pairingFixture } from '../../test/mls-pairing-fixture.js'
 import type { LinkRequest, LinkResponse, LinkRoute } from './browser-link-types.js'
@@ -20,7 +20,7 @@ const ctx = { principal: 'test', persona: '42'.repeat(32), generation: 0, revisi
 const wire = (value: unknown) => enc.encode(JSON.stringify(value))
 const body = (code: string, extra = {}) => ({ v: 1, code, server_time: 123, ...extra })
 const capabilities = { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation }
-function setup(status = 200, payload: unknown = capabilities, timeout = 1000) {
+function setup(status = 200, payload: unknown = capabilities, timeout = 1000, observer?: BoxTraceObserver) {
   const p = pairingFixture(), r = p.route
   const route: LinkRoute = { routeId: r.routeId, card: hexToBytes(r.card), pairedRouteSecret: hexToBytes(r.pairedRouteSecret), cardSerial: BigInt(r.cardSerial), cardVerifiedAt: BigInt(r.cardVerifiedAt) }
   const made = new WeakMap<object, BoxRequest>(), calls: LinkRequest[] = [], signed: BoxRequest[] = []
@@ -32,7 +32,7 @@ function setup(status = 200, payload: unknown = capabilities, timeout = 1000) {
     acceptBoxReply: vi.fn((req: BoxRequest, reply: unknown) => made.get(reply as object) === req ? { ok: true as const, value: reply as BoxReply } : { ok: false as const, refusal: 'unauthorised' as const }),
   }
   const transport = { request: vi.fn(async (req: LinkRequest) => { calls.push(req); return response }) }
-  const client = new BrowserMlsBoxClient(transport, route, p.witness, vault, ctx, async () => 'approve', () => live, timeout)
+  const client = new BrowserMlsBoxClient(transport, route, p.witness, vault, ctx, async () => 'approve', () => live, timeout, observer)
   return { client, calls, signed, response, vault, transport, route, box: p.witness, stale: () => { live = false } }
 }
 function receipt(box: string, slot = id, attempt = 3, digest = hash) {
@@ -297,4 +297,34 @@ describe('strict browser MLS box client', () => {
     if (at === 'before') expect(f.signed).toHaveLength(0)
   })
 
+})
+
+
+it('safe phase tracing distinguishes the caller timeout from a still-running transport and settlement', async () => {
+  vi.useFakeTimers()
+  const events: BoxTraceEvent[] = [], f = setup(200, capabilities, 1000, event => events.push(event))
+  let release!: () => void
+  f.transport.request.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return f.response })
+  const task = f.client.capabilities()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(events.map(e => e.phase)).toContain('transport-start')
+  await vi.advanceTimersByTimeAsync(1001)
+  expect(await task).toEqual({ state: 'unavailable' })
+  expect(events.map(e => e.phase)).toContain('timeout')
+  expect(events.map(e => e.phase)).not.toContain('work-settled')
+  f.client.invalidate()
+  let drained = false
+  const settlement = f.client.settled().then(() => { drained = true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(drained).toBe(false)
+  release(); await settlement
+  const phases = events.map(e => e.phase)
+  expect(phases.indexOf('caller-return')).toBeLessThan(phases.indexOf('work-settled'))
+  expect(phases.at(-1)).toBe('settled-end')
+  expect(events.every(e => Object.keys(e).every(k => ['request','phase','elapsedMs','result'].includes(k)))).toBe(true)
+  expect(events.every(e => Number.isInteger(e.elapsedMs) && e.elapsedMs >= 0)).toBe(true)
+})
+it('a diagnostic observer cannot alter actual authentication or parsing', async () => {
+  const f = setup(200, capabilities, 1000, () => { throw new Error('diagnostic-only') })
+  expect(await f.client.capabilities()).toMatchObject({ state: 'ok', value: { installation } })
 })
