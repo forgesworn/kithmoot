@@ -27,3 +27,6 @@ desktop/artifacts/
 .playwright-mcp/
 
 .local/
+
+# Disposable local lab profiles, private control state and owned caches.
+.lab/

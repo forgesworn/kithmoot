@@ -1,3 +1,4 @@
+import { invitationPreviewEnabled } from './mls-invitation-engine.js'
 import type { Event } from 'nostr-tools/pure'
 import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import type { VaultContext } from './mls-vault.js'
@@ -287,6 +288,19 @@ export class BrowserMlsGrantEndpoint {
     }) }
     await this.#track(binding, () => publishKeeperInboxPermission(terms.event, identity, live, url => new Socket(url)))
     if (!live()) throw stale()
+  }
+  async publishLabDeviceGrant(box: Readonly<PairedBox>, event: Event, device: string, operationCurrent: () => boolean): Promise<void> {
+    if (!invitationPreviewEnabled()) throw stale()
+    const binding = this.#bound(), selected = Object.freeze({ ...box })
+    const live = () => operationCurrent() === true
+    await this.#saved(binding, selected, live)
+    const scope = mlsGrantScope(device)
+    if (event.pubkey !== binding.account || event.kind !== 24242 || event.tags.find(t => t[0] === 'd')?.[1] !== scope || event.tags.find(t => t[0] === 'server')?.[1] !== selected.eventUrl) throw stale()
+    const signer: ParticipantIdentity = { pubkey: binding.account, signEvent: template => this.#track(binding, () => binding.identity.signEvent(template)) }
+    const carrier = new BrowserLinkRelay(this, selected, signer, { room: scope, kinds: [24242] })
+    this.#carriers.add(carrier)
+    try { await this.#track(binding, () => carrier.publish(event)); await this.#saved(binding, selected, live) }
+    finally { carrier.close(); this.#carriers.delete(carrier) }
   }
   carrier(record: MlsGrantRecord, identity: ParticipantIdentity): { publish: BrowserLinkRelay['publish']; close(): void } {
     const binding = this.#bound()

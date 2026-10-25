@@ -1,11 +1,14 @@
-import type { Event } from 'nostr-tools/pure'
+import { invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { verifyEvent, type Event } from 'nostr-tools/pure'
+import { bytesToHex } from '@noble/hashes/utils.js'
+import { confirmAction } from './confirm-action.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import type { VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
 import { normaliseRelayConfig } from '../../src/relay-pool.js'
 import type { MlsAccountContext } from './mls-persona-account.js'
 import { BrowserMlsGrantForeground, type BrowserMlsGrantCustody, type MlsGrantForegroundResult } from './mls-grant-custody.js'
 import { BrowserMlsGrantEndpoint } from './mls-grant-endpoint.js'
-import { BrowserMlsGrantLedger, mlsBoxNode } from './mls-grant-ledger.js'
+import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantScope } from './mls-grant-ledger.js'
 import { BrowserMlsPersonaStore } from './mls-persona-store.js'
 import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaCoordinator } from './mls-persona-coordinator.js'
@@ -82,6 +85,32 @@ export class BrowserMlsGrantDevelopmentOwner {
   #sockets = new Map<WebSocket, Promise<void>>()
   constructor(private readonly context: () => MlsGrantDevelopmentContext | undefined) {}
 
+  /** Disposable lab bootstrap is node storage authority, never MLS admission.
+   * The actual account signs; only the selected node's authenticated ACK can
+   * accept its keeper authority. No member-grant ledger state is invented. */
+  authoriseEnrolledDevice(routeId: string, persona: string, device: string) {
+    if (!invitationPreviewEnabled() || !hex(persona) || !hex(device)) throw stale()
+    return this.#run(true, async (_services, active) => {
+      await this.#endpoint.resume(active.account.persona)
+      const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(item => item.routeId === routeId)
+      if (!box) throw stale()
+      const node = mlsBoxNode(box), scope = mlsGrantScope(device), now = Math.floor(Date.now() / 1000), expiration = now + 3600
+      const current = () => active.current() && document.visibilityState === 'visible' && Math.floor(Date.now() / 1000) < expiration
+      if (!await confirmAction({ title: 'Authorise enrolled device on this node?', confirmLabel: 'Authorise device', isCurrent: current,
+        message: `Disposable development lab storage permission. This creates no MLS membership.\nKeeper: ${active.account.persona}\nNode: ${node}\nPersona: ${persona}\nDevice: ${device}\nScope: ${scope}\nCeiling: 67108864 bytes\nExpiry: ${new Date(expiration * 1000).toISOString()}\nThe node must independently accept this account as its keeper.` })) return { state: 'denied' as const }
+      if (!current()) throw stale()
+      const template = { kind: 24242, created_at: now, content: '', tags: [
+        ['t', 'event-grant'], ['server', box.eventUrl], ['d', scope], ['p', persona], ['device', device],
+        ['grant', bytesToHex(crypto.getRandomValues(new Uint8Array(16)))], ['read', '1460'], ['expiration', String(expiration)],
+        ['vmls', '67108864'], ['status', 'active'],
+      ] }
+      const event = await active.identity.signEvent(structuredClone(template))
+      if (!current() || !verifyEvent(event) || event.pubkey !== active.account.persona || event.kind !== template.kind || event.content !== '' || event.created_at !== now || JSON.stringify(event.tags) !== JSON.stringify(template.tags)) throw stale()
+      await this.#endpoint.publishLabDeviceGrant(box, event, device, current)
+      if (!current()) throw stale()
+      return { state: 'accepted' as const, node, persona, device, eventId: event.id, expiration }
+    })
+  }
   records() { return this.#run(false, services => services.ledger.records()) }
   roomChoices() {
     return this.#run(true, (services, active) => services.coordinator.transact(active.account.persona, async tx => {

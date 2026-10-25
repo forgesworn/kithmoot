@@ -17,6 +17,7 @@ export class BrowserMlsPanel {
   constructor(private readonly context: () => MlsAccountContext | undefined,
     private readonly account = new BrowserMlsAccount(context), private readonly root: Document = document,
     private readonly revocationTransport?: () => VmlsRevocationTransport) {
+    if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureAccountOwner(this.account))
     this.dialog = root.createElement('dialog')
     this.dialog.id = 'mlsWitnessSettings'; this.dialog.className = 'profileSettings'
     this.dialog.setAttribute('aria-labelledby', 'mlsWitnessTitle')

@@ -14,6 +14,7 @@ export class BrowserMlsRoomDevelopmentPanel {
   #busy = false
   constructor(private readonly context: () => MlsRoomDevelopmentContext | undefined, private readonly root: Document = document) {
     this.#owner = new BrowserMlsRoomDevelopmentOwner(context, root)
+    if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureRoomOwner(this.#owner))
     this.dialog = root.createElement('dialog'); this.dialog.id = 'mlsRoomDevelopment'; this.dialog.className = 'profileSettings'
     this.dialog.setAttribute('aria-labelledby', 'mlsRoomDevelopmentTitle')
     this.dialog.innerHTML = `<div class="profileSettingsHeader"><h2 id="mlsRoomDevelopmentTitle">MLS room connection</h2><button data-close type="button">Close</button></div>

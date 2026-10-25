@@ -1,3 +1,4 @@
+import { invitationPreviewEnabled } from './mls-invitation-engine.js'
 import { BrowserMlsGrantDevelopmentOwner, type MlsGrantDevelopmentContext, type MlsDevelopmentRoom } from './mls-grant-development-owner.js'
 import type { MlsRemovalPlan } from './mls-membership-controller.js'
 import { removalComponentCopy } from './mls-membership-controller.js'
@@ -51,6 +52,12 @@ export class BrowserMlsGrantDevelopmentPanel {
         <label>Grant route <select data-route></select></label>
         <button data-records type="button">Read grant ledger</button><div data-record-list></div>
       </fieldset>
+      <fieldset data-bootstrap hidden><legend>Authorise an enrolled device on your node</legend>
+        <p>Experimental node storage permission, separate from MLS membership. Select your saved grant route above. The node independently checks your keeper authority. This permission expires after one hour.</p>
+        <label>Enrolled account public key <input data-bootstrap-persona maxlength="64" autocomplete="off" spellcheck="false"></label>
+        <label>Enrolled MLS device public key <input data-bootstrap-device maxlength="64" autocomplete="off" spellcheck="false"></label>
+        <button data-bootstrap-authorise type="button">Review node storage permission</button>
+      </fieldset>
       <fieldset><legend>Send a retained revocation request</legend>
         <button data-outbox type="button">Check retained send requests</button>
         <label>Retained request <select data-send-request></select></label><p data-send-review></p>
@@ -94,6 +101,12 @@ export class BrowserMlsGrantDevelopmentPanel {
         <p data-keeper-review></p><button data-approve type="button" disabled>Approve reviewed request</button><button data-dismiss type="button" disabled>Dismiss reviewed request</button>
       </fieldset>`
     root.body.append(this.dialog)
+    this.#text('bootstrap').hidden = !invitationPreviewEnabled()
+    this.#button('bootstrap-authorise').onclick = () => { void this.#work(async () => {
+      const result = this.#active(await this.#owner.authoriseEnrolledDevice(this.#select('route').value, this.#input('bootstrap-persona').value.trim(), this.#input('bootstrap-device').value.trim()))
+      this.#status(result.state === 'accepted' ? 'The selected node acknowledged this storage permission. This grants no MLS membership.' : 'Storage permission was denied.')
+    }) }
+    if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureGrantOwner(this.#owner))
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('close').onclick = () => this.close()
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); this.close() })
