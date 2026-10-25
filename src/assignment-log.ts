@@ -7,13 +7,12 @@ import type { ParticipantIdentity } from './identity.js'
 import type { RelayTransport } from './relay-pool.js'
 import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from './types.js'
 import { assignmentId, assignmentPayload, ASSIGNMENT_CHANNEL, projectAssignments, signAssignment, type Assignment, type AssignmentOperation } from './assignments.js'
+import { shouldCompactJournal, type JournalImage, type JournalStorage } from './journal-storage.js'
 
-/** An adapter must make each replace atomic and report storage failures. The
- * string is already encrypted; neither task IDs nor participant keys are clear. */
-export interface AssignmentStorage {
-  load(): Promise<string | undefined>
-  save(encrypted: string): Promise<void>
-}
+/** An adapter must make each replace atomic and report storage failures.
+ * Assignment content is encrypted; v2 references retain the root's existing
+ * physical account/room binding. */
+export interface AssignmentStorage extends JournalStorage {}
 export interface AssignmentLogOptions {
   roomId: string
   roomKey: Uint8Array
@@ -39,13 +38,33 @@ export interface AssignmentReaderOptions extends Pick<AssignmentLogOptions,
   'roomId' | 'roomKey' | 'transport' | 'policy' | 'epoch' | 'now'> {
   readOnly: true
   participant: string
-  storage: Pick<AssignmentStorage, 'load'>
+  storage: Pick<AssignmentStorage, 'load' | 'loadIncremental'>
   /** Maximum initial historical envelopes, from 1 to 512. Defaults to 128. */
   historyLimit?: number
   /** Only request recent envelopes. Defaults to the last 24 hours. */
   since?: number
 }
 interface Pending { inner: Event; outer: Event; reviewRequired?: true }
+interface OutboxCiphertext { pending: Pending; ciphertext: string }
+interface LoadedAssignments {
+  events: Map<string, Event>
+  outbox: Map<string, Pending>
+  eventCiphertexts: Map<string, string>
+  outboxCiphertexts: Map<string, OutboxCiphertext>
+  hasBase: boolean
+  baseBytes: number
+  baseRecordCount: number
+  deltaBytes: number
+  deltaMutations: number
+}
+interface AssignmentDelta { v: 2; add: string[]; outbox?: string[] }
+const MAX_EVENTS = 20_000
+const MAX_OUTBOX = 100
+const REPLAY_RECORDS = 64
+const REPLAY_BYTES = 1024 * 1024
+const encoder = new TextEncoder()
+const utf8 = (value: string): number => encoder.encode(value).byteLength
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 export interface AssignmentLogSnapshot {
   assignments: Assignment[]
   ready: boolean
@@ -73,13 +92,31 @@ export class AssignmentLog {
   #closed = false
   #opened = false
   #generation = 0
+  #incremental = false
+  #storageUncertain = false
+  readonly #eventCiphertexts = new Map<string, string>()
+  readonly #outboxCiphertexts = new Map<string, OutboxCiphertext>()
+  #durableEvents = new Set<string>()
+  #durableOutbox = new Map<string, Pending>()
+  #hasBase = false
+  #baseBytes = 0
+  #baseRecordCount = 0
+  #deltaBytes = 0
+  #deltaMutations = 0
 
   constructor(opts: AssignmentLogOptions | AssignmentReaderOptions) {
+    const incremental = opts.storage.loadIncremental !== undefined
+    if (typeof opts.storage.loadIncremental !== 'function' && incremental) throw new Error('Invalid incremental assignment loader')
     if ('readOnly' in opts) {
       const limit = opts.historyLimit ?? 128
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 512) throw new Error('Invalid assignment history limit')
       if (opts.since !== undefined && (!Number.isSafeInteger(opts.since) || opts.since < 0)) throw new Error('Invalid assignment history start')
+    } else {
+      const appending = opts.storage.appendIncremental !== undefined
+      if (typeof opts.storage.appendIncremental !== 'function' && appending) throw new Error('Invalid incremental assignment appender')
+      if (incremental !== appending) throw new Error('Incremental assignment storage requires both loadIncremental and appendIncremental')
     }
+    this.#incremental = incremental
     this.#opts = opts; this.#epoch = opts.epoch
   }
   get participant(): string { return 'readOnly' in this.#opts ? this.#opts.participant : this.#opts.identity?.pubkey ?? this.#opts.credential()?.pubkey ?? '' }
@@ -103,28 +140,89 @@ export class AssignmentLog {
     if (this.#opened || this.#closed) throw new Error('Assignment log already opened or closed')
     this.#opened = true
     try {
-      const stored = await this.#opts.storage.load()
+      const loaded = await this.#loadStored()
       if (this.#closed) return
-      if (stored) {
-        const cache = JSON.parse(stored) as { v: number; events: string[]; outbox: string[] }
-        if (cache.v !== 1 || !Array.isArray(cache.events) || !Array.isArray(cache.outbox) || cache.events.length > 20_000 || cache.outbox.length > 100) throw new Error('Invalid assignment cache')
-        for (const encrypted of cache.events) {
-          const event = JSON.parse(nip44.v2.decrypt(encrypted, this.#opts.roomKey)) as Event
-          if (!assignmentPayload(event, this.roomId)) throw new Error('Assignment cache failed authentication')
-          this.#events.set(event.id, event)
-        }
-        for (const encrypted of cache.outbox) {
-          const pending = JSON.parse(nip44.v2.decrypt(encrypted, this.#opts.roomKey)) as Pending
-          const p = assignmentPayload(pending.inner, this.roomId)
-          if (!p || pending.inner.pubkey !== this.participant) throw new Error('Assignment outbox failed authentication')
-          this.#outbox.set(p.request, pending)
-        }
-      }
-      if (!this.#closed) this.#subscribe()
+      this.#applyLoaded(loaded)
+      this.#subscribe()
     } catch (e) {
-      if ('readOnly' in this.#opts) { this.#events.clear(); this.#outbox.clear() }
+      this.#clear()
       this.#fail(e); throw e
     }
+  }
+
+  async #image(): Promise<JournalImage> {
+    const image: JournalImage = this.#incremental
+      ? await this.#opts.storage.loadIncremental!()
+      : { base: await this.#opts.storage.load(), deltas: [] }
+    if (!object(image) || (image.base !== undefined && typeof image.base !== 'string') ||
+        !Array.isArray(image.deltas) || image.deltas.length > 4096 || image.deltas.some(delta => typeof delta !== 'string')) throw new Error('Invalid incremental assignment journal')
+    return image
+  }
+
+  async #loadStored(): Promise<LoadedAssignments> {
+    const image = await this.#image()
+    const events = new Map<string, Event>(), outbox = new Map<string, Pending>()
+    const eventCiphertexts = new Map<string, string>()
+    let outboxCiphertexts = new Map<string, OutboxCiphertext>(), eventRecords = 0
+    const addEvent = (encrypted: unknown): void => {
+      if (typeof encrypted !== 'string') throw new Error('Invalid assignment cache')
+      const event = JSON.parse(nip44.v2.decrypt(encrypted, this.#opts.roomKey)) as Event
+      if (!assignmentPayload(event, this.roomId)) throw new Error('Assignment cache failed authentication')
+      events.set(event.id, event); eventCiphertexts.set(event.id, encrypted); eventRecords++
+      if (eventRecords > MAX_EVENTS) throw new Error('Invalid assignment cache')
+    }
+    const replaceOutbox = (encrypted: unknown[]): void => {
+      if (encrypted.length > MAX_OUTBOX) throw new Error('Invalid assignment cache')
+      const next = new Map<string, Pending>(), ciphertexts = new Map<string, OutboxCiphertext>()
+      for (const value of encrypted) {
+        if (typeof value !== 'string') throw new Error('Invalid assignment cache')
+        const pending = JSON.parse(nip44.v2.decrypt(value, this.#opts.roomKey)) as Pending
+        const p = pending && assignmentPayload(pending.inner, this.roomId)
+        if (!p || pending.inner.pubkey !== this.participant) throw new Error('Assignment outbox failed authentication')
+        next.set(p.request, pending); ciphertexts.set(p.request, { pending, ciphertext: value })
+      }
+      outbox.clear(); for (const [request, pending] of next) outbox.set(request, pending)
+      outboxCiphertexts = ciphertexts
+    }
+    if (image.base !== undefined && (image.base.length > 0 || image.deltas.length === 0)) {
+      const cache = JSON.parse(image.base) as { v: number; events: unknown[]; outbox: unknown[] }
+      if (cache.v !== 1 || !Array.isArray(cache.events) || !Array.isArray(cache.outbox) || cache.events.length > MAX_EVENTS || cache.outbox.length > MAX_OUTBOX) throw new Error('Invalid assignment cache')
+      for (const encrypted of cache.events) addEvent(encrypted)
+      replaceOutbox(cache.outbox)
+    }
+    const baseRecordCount = eventRecords + outbox.size
+    let deltaBytes = 0, deltaMutations = 0
+    for (const raw of image.deltas) {
+      const delta = JSON.parse(raw) as AssignmentDelta
+      if (!object(delta)) throw new Error('Invalid assignment delta')
+      const hasOutbox = Object.hasOwn(delta, 'outbox')
+      if (delta.v !== 2 || !Array.isArray(delta.add) || delta.add.length > MAX_EVENTS ||
+          (hasOutbox && !Array.isArray(delta.outbox)) || Object.keys(delta).length !== (hasOutbox ? 3 : 2) ||
+          Object.keys(delta).some(key => !['v', 'add', 'outbox'].includes(key))) throw new Error('Invalid assignment delta')
+      for (const encrypted of delta.add) addEvent(encrypted)
+      if (hasOutbox) replaceOutbox(delta.outbox!)
+      deltaBytes += utf8(raw)
+      deltaMutations += delta.add.length + (hasOutbox ? Math.max(1, delta.outbox!.length) : 0)
+    }
+    return { events, outbox, eventCiphertexts, outboxCiphertexts, hasBase: image.base !== undefined,
+      baseBytes: utf8(image.base ?? ''), baseRecordCount, deltaBytes, deltaMutations }
+  }
+
+  #applyLoaded(loaded: LoadedAssignments): void {
+    this.#events.clear(); for (const [id, event] of loaded.events) this.#events.set(id, event)
+    this.#outbox.clear(); for (const [request, pending] of loaded.outbox) this.#outbox.set(request, pending)
+    this.#eventCiphertexts.clear(); for (const [id, ciphertext] of loaded.eventCiphertexts) this.#eventCiphertexts.set(id, ciphertext)
+    this.#outboxCiphertexts.clear(); for (const [request, ciphertext] of loaded.outboxCiphertexts) this.#outboxCiphertexts.set(request, ciphertext)
+    this.#durableEvents = new Set(loaded.events.keys()); this.#durableOutbox = new Map(loaded.outbox)
+    this.#hasBase = loaded.hasBase; this.#baseBytes = loaded.baseBytes; this.#baseRecordCount = loaded.baseRecordCount
+    this.#deltaBytes = loaded.deltaBytes; this.#deltaMutations = loaded.deltaMutations
+    this.#storageUncertain = false
+  }
+
+  #clear(): void {
+    this.#events.clear(); this.#outbox.clear(); this.#eventCiphertexts.clear(); this.#outboxCiphertexts.clear()
+    this.#durableEvents.clear(); this.#durableOutbox.clear()
+    this.#hasBase = false; this.#baseBytes = 0; this.#baseRecordCount = 0; this.#deltaBytes = 0; this.#deltaMutations = 0
   }
 
   #subscribe(): void {
@@ -134,39 +232,122 @@ export class AssignmentLog {
     const { id } = deriveChannel(root.id, root.key, ASSIGNMENT_CHANNEL)
     const bounded = 'readOnly' in this.#opts
       ? { limit: this.#opts.historyLimit ?? 128, since: this.#opts.since ?? Math.max(0, this.#now() - 86_400) } : undefined
-    let historical = true
-    let received = 0
+    let historical = true, received = 0, stagedBytes = 0
+    let staged: Event[] = [], stagedIds = new Set<string>()
+    const clearStaged = () => { staged = []; stagedIds = new Set(); stagedBytes = 0 }
+    const failed = (e: unknown) => { if (generation === this.#generation && !this.#closed) this.#fail(e) }
+    const flush = async (): Promise<void> => {
+      if (generation !== this.#generation || this.#closed) { clearStaged(); return }
+      if (!staged.length) return
+      const batch = staged; clearStaged()
+      const candidate = new Map(this.#events)
+      for (const event of batch) candidate.set(event.id, event)
+      if (candidate.size > MAX_EVENTS) throw new Error('Assignment history is full; export it before continuing')
+      if (!('readOnly' in this.#opts)) await this.#persist(candidate, this.#outbox)
+      if (generation !== this.#generation || this.#closed) return
+      for (const event of batch) this.#events.set(event.id, event)
+      this.#emit()
+    }
     this.#unsub = this.#opts.transport.subscribe([{ kinds: [KINDS.CHAT], '#d': [id], ...bounded }], outer => {
       if (generation !== this.#generation || this.#closed) return
       if (bounded && historical && (++received > bounded.limit || outer.created_at < bounded.since)) return
       const message = decodeChatEvent(outer, { roomId: this.roomId, roomKey: this.#opts.roomKey, channel: ASSIGNMENT_CHANNEL,
         epoch: this.#epoch, policy: this.#opts.policy, now: this.#now() })
       if (!message?.assignment) return
-      const event = message.assignment
+      const event = message.assignment, initial = historical
       void this.#serial(async () => {
-        if (generation !== this.#generation || this.#closed) return
-        if (this.#events.has(event.id)) return
-        if (this.#events.size >= 20_000) throw new Error('Assignment history is full; export it before continuing')
+        if (generation !== this.#generation || this.#closed || this.#events.has(event.id) || stagedIds.has(event.id)) return
+        if (!initial && staged.length) await flush()
+        if (generation !== this.#generation || this.#closed || this.#events.has(event.id)) return
+        if (initial) {
+          const bytes = utf8(JSON.stringify(event))
+          if (staged.length && (staged.length >= REPLAY_RECORDS || stagedBytes + bytes > REPLAY_BYTES)) await flush()
+          if (generation !== this.#generation || this.#closed || this.#events.has(event.id) || stagedIds.has(event.id)) return
+          staged.push(event); stagedIds.add(event.id); stagedBytes += bytes
+          if (staged.length >= REPLAY_RECORDS || stagedBytes >= REPLAY_BYTES) await flush()
+          return
+        }
+        if (this.#events.size >= MAX_EVENTS) throw new Error('Assignment history is full; export it before continuing')
         const candidate = new Map(this.#events).set(event.id, event)
         if (!('readOnly' in this.#opts)) await this.#persist(candidate, this.#outbox)
+        if (generation !== this.#generation || this.#closed) return
         this.#events.set(event.id, event); this.#emit()
-      }).catch(e => this.#fail(e))
+      }).catch(failed)
     }, () => {
       historical = false
       void this.#serial(async () => {
         if (generation !== this.#generation || this.#closed) return
+        await flush()
+        if (generation !== this.#generation || this.#closed) return
         this.#ready = true; this.#emit()
-      })
+      }).catch(failed)
     })
   }
 
   #now(): number { return (this.#opts.now ?? (() => Math.floor(Date.now() / 1000)))() }
+  #eventCiphertext(event: Event): string {
+    const cached = this.#eventCiphertexts.get(event.id)
+    if (cached) return cached
+    const ciphertext = nip44.v2.encrypt(JSON.stringify(event), this.#opts.roomKey)
+    this.#eventCiphertexts.set(event.id, ciphertext)
+    return ciphertext
+  }
+  #outboxCiphertext(request: string, pending: Pending): string {
+    const cached = this.#outboxCiphertexts.get(request)
+    if (cached?.pending === pending) return cached.ciphertext
+    const ciphertext = nip44.v2.encrypt(JSON.stringify(pending), this.#opts.roomKey)
+    this.#outboxCiphertexts.set(request, { pending, ciphertext })
+    return ciphertext
+  }
+  #snapshot(events: Map<string, Event>, outbox: Map<string, Pending>): string {
+    return JSON.stringify({ v: 1,
+      events: [...events.values()].map(event => this.#eventCiphertext(event)),
+      outbox: [...outbox].map(([request, pending]) => this.#outboxCiphertext(request, pending)),
+    })
+  }
+  async #recoverPersistence(generation: number): Promise<void> {
+    try {
+      const loaded = await this.#loadStored()
+      if (generation !== this.#generation || this.#closed) { this.#storageUncertain = true; return }
+      this.#applyLoaded(loaded); this.#emit()
+    } catch {
+      this.#storageUncertain = true
+      this.#error = 'Assignment storage could not be reloaded after a failed write; reopen the room before continuing'
+      this.#emit()
+    }
+  }
   async #persist(events: Map<string, Event>, outbox: Map<string, Pending>): Promise<void> {
     if ('readOnly' in this.#opts) throw new Error('This assignment reader is read-only')
-    await this.#opts.storage.save(JSON.stringify({ v: 1,
-      events: [...events.values()].map(e => nip44.v2.encrypt(JSON.stringify(e), this.#opts.roomKey)),
-      outbox: [...outbox.values()].map(e => nip44.v2.encrypt(JSON.stringify(e), this.#opts.roomKey)),
-    }))
+    if (this.#storageUncertain) throw new Error(this.#error ?? 'Assignment storage state is uncertain; reopen the room before continuing')
+    const additions = [...events].filter(([id]) => !this.#durableEvents.has(id))
+    const removed = events.size < this.#durableEvents.size || [...this.#durableEvents].some(id => !events.has(id))
+    const outboxChanged = outbox.size !== this.#durableOutbox.size || [...outbox].some(([request, pending]) => this.#durableOutbox.get(request) !== pending)
+    if (!removed && !additions.length && !outboxChanged) return
+    const generation = this.#generation
+    try {
+      const delta: AssignmentDelta = { v: 2, add: additions.map(([, event]) => this.#eventCiphertext(event)),
+        ...(outboxChanged ? { outbox: [...outbox].map(([request, pending]) => this.#outboxCiphertext(request, pending)) } : {}) }
+      const rawDelta = JSON.stringify(delta)
+      const mutations = delta.add.length + (outboxChanged ? Math.max(1, outbox.size) : 0)
+      const compact = removed || !this.#hasBase || (this.#incremental && shouldCompactJournal({
+        baseBytes: this.#baseBytes, deltaBytes: this.#deltaBytes + utf8(rawDelta),
+        baseRecordCount: this.#baseRecordCount, deltaMutations: this.#deltaMutations + mutations,
+      }))
+      if (!this.#incremental || compact) {
+        const snapshot = this.#snapshot(events, outbox)
+        await this.#opts.storage.save(snapshot)
+        this.#hasBase = true; this.#baseBytes = utf8(snapshot); this.#baseRecordCount = events.size + outbox.size
+        this.#deltaBytes = 0; this.#deltaMutations = 0
+      } else {
+        await this.#opts.storage.appendIncremental!(rawDelta)
+        this.#deltaBytes += utf8(rawDelta); this.#deltaMutations += mutations
+      }
+      this.#durableEvents = new Set(events.keys()); this.#durableOutbox = new Map(outbox)
+      for (const request of this.#outboxCiphertexts.keys()) if (!outbox.has(request)) this.#outboxCiphertexts.delete(request)
+    } catch (e) {
+      await this.#recoverPersistence(generation)
+      throw e
+    }
   }
 
   /** Stable request IDs are mandatory at this boundary. Failed/ambiguous sends
@@ -244,6 +425,6 @@ export class AssignmentLog {
   rekey(epoch: EpochRoot): void { if (this.#closed) return; this.#epoch = epoch; if (this.#opened) this.#subscribe() }
   close(): void {
     this.#closed = true; ++this.#generation; this.#unsub?.(); this.#listeners.clear()
-    if ('readOnly' in this.#opts) { this.#events.clear(); this.#outbox.clear() }
+    if ('readOnly' in this.#opts) this.#clear()
   }
 }

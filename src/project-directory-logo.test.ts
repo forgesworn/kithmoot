@@ -1,10 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
+import { nip44 } from 'nostr-tools'
 import { generateSecretKey, type Event } from 'nostr-tools/pure'
+import { base64 } from '@scure/base'
+import { hexToBytes } from '@noble/hashes/utils'
+import { sha256 } from '@noble/hashes/sha2'
+import { hkdf } from '@noble/hashes/hkdf'
 import { localIdentity } from './identity.js'
 import { localPeerCrypt } from './dm.js'
 import { createLogoImage } from './logo-image.js'
-import { ProjectDirectory, type ProjectDirectoryStorage } from './project-directory.js'
+import { decryptEnvelope } from './attachment.js'
+import { ProjectDirectory, PROJECT_DIRECTORY_LABELS, type ProjectDirectoryStorage } from './project-directory.js'
+import { createJournalStorage, type JournalImage, type JournalKeyValueStore } from './journal-storage.js'
 import { projectAuthority, projectId, signProject, wrapProject, type ProjectDefinition, type ProjectIdentity } from './projects.js'
 import { PROJECT_LOGO_APP, signProjectLogo, wrapProjectLogo } from './project-logo.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
@@ -15,6 +22,38 @@ const image = createLogoImage(new Uint8Array(readFileSync(new URL('../desktop/ic
 function cache(): ProjectDirectoryStorage {
   let value: string | undefined
   return { async load() { return value }, async save(next) { value = next } }
+}
+class MemoryStore implements JournalKeyValueStore {
+  readonly values = new Map<string, string>()
+  writes = 0
+  fault?: { write: number; phase: 'before' | 'after' }
+  async get(key: string): Promise<string | undefined> { return this.values.get(key) }
+  async set(key: string, value: string): Promise<void> {
+    const write = ++this.writes
+    if (this.fault?.write === write && this.fault.phase === 'before') { this.fault = undefined; throw new Error('injected failure before write') }
+    this.values.set(key, value)
+    if (this.fault?.write === write && this.fault.phase === 'after') { this.fault = undefined; throw new Error('injected failure after write') }
+  }
+  async remove(key: string): Promise<void> { this.values.delete(key) }
+}
+function counted(root: string, store: MemoryStore) {
+  const journal = createJournalStorage(root, store)
+  const calls = { saves: 0, appends: 0 }
+  return { calls, journal, storage: {
+    load: journal.load,
+    save: async (snapshot: string) => { calls.saves += 1; return journal.save(snapshot) },
+    loadIncremental: journal.loadIncremental,
+    appendIncremental: async (delta: string) => { calls.appends += 1; return journal.appendIncremental(delta) },
+  } satisfies ProjectDirectoryStorage }
+}
+async function deltaKeyFor(who: ProjectIdentity, image: JournalImage): Promise<Uint8Array> {
+  const saved = JSON.parse(image.base!) as { key: string }
+  const keyHex = await who.decrypt(who.pubkey, saved.key)
+  return hkdf(sha256, hexToBytes(keyHex), undefined, PROJECT_DIRECTORY_LABELS[0], 32)
+}
+interface DecodedDelta { v: number; remove?: Record<string, string[]>; put?: Record<string, unknown[]> }
+function decodeDeltas(image: JournalImage, key: Uint8Array): DecodedDelta[] {
+  return image.deltas.map(raw => JSON.parse(nip44.v2.decrypt(raw, key)) as DecodedDelta)
 }
 class GuardedTransport extends SimTransport {
   async publishGuarded(event: Event, current: () => boolean): Promise<void> {
@@ -251,5 +290,94 @@ describe('project logo journal under the directory storage lock', () => {
     const closed = a.close(); release(); await closed
     expect(await saving).toBeInstanceOf(Error)
     expect(await stored.load()).toBe(retained); expect(relay.published).toHaveLength(before)
+  })
+
+  it('persists logo changes as encrypted deltas and restores them without relay history', async () => {
+    const relay = new SimRelay({ replay: true }), owner = who(), member = who()
+    const root = `kithmoot.shared-projects.v1.${member.pubkey}`
+    const store = new MemoryStore()
+    const { storage } = counted(root, store)
+    const a = await open(owner, relay), b = await open(member, relay, storage)
+    try {
+      await a.create(definition(owner, member), 'create-logo-delta-01'); await synced(a)
+      await vi.waitFor(() => expect(b.snapshot().projects).toHaveLength(1))
+      const shared = a.snapshot().projects[0]!
+      await a.updateLogo(shared, shared.heads, [], image, 'share-logo-delta-001'); await synced(a)
+      await vi.waitFor(() => expect(b.snapshot().projects[0]!.logo).toEqual(image))
+      const journalImage = await createJournalStorage(root, store).loadIncremental()
+      const key = await deltaKeyFor(member, journalImage)
+      const deltas = decodeDeltas(journalImage, key)
+      expect(deltas.length).toBeGreaterThan(0)
+      const touched = new Set(deltas.flatMap(delta => [...Object.keys(delta.remove ?? {}), ...Object.keys(delta.put ?? {})]))
+      expect(touched.has('logoWaiting') || touched.has('logoEvents')).toBe(true)
+      const physical = JSON.stringify([...store.values.values()])
+      expect(physical).not.toContain(image.data)
+    } finally { await a.close(); await b.close() }
+    const restored = await open(member, new SimRelay(), counted(root, store).storage)
+    try {
+      expect(restored.snapshot().projects[0]!.logo).toEqual(image)
+      expect(restored.snapshot().projects[0]!.joined).toBe(false)
+    } finally { await restored.close() }
+  })
+
+  it('appends no delta for a failed logo retry pass and one for the acknowledgements', async () => {
+    const relay = new SimRelay({ replay: true }), owner = who()
+    const root = `kithmoot.shared-projects.v1.${owner.pubkey}`
+    const store = new MemoryStore()
+    const { calls, storage } = counted(root, store)
+    const transport = new GuardedTransport(relay), a = await open(owner, relay, storage, transport)
+    try {
+      await a.create(definition(owner), 'create-logo-retry-01'); await synced(a)
+      const base = calls.appends
+      const publish = vi.spyOn(transport, 'publishGuarded').mockRejectedValue(new Error('offline'))
+      const project = a.snapshot().projects[0]!
+      await a.updateLogo(project, project.heads, [], image, 'offline-logo-delta-1')
+      expect(calls.appends).toBe(base + 1)
+      await vi.waitFor(() => expect(publish).toHaveBeenCalled())
+      // The failed pass removes nothing, so it must not write a delta either.
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(calls.appends).toBe(base + 1)
+      expect(a.snapshot().pendingSends).toBe(1)
+      publish.mockRestore()
+      await vi.waitFor(async () => { await a.retry(); expect(a.snapshot().pendingSends).toBe(0) }, { timeout: 10_000 })
+      // The acknowledgement is one delta; the owner's own wrap echoing back
+      // through the relay legitimately adds a waiting-map insertion and its
+      // drain, so only bound the total.
+      expect(calls.appends).toBeGreaterThanOrEqual(base + 2)
+      expect(calls.appends).toBeLessThanOrEqual(base + 4)
+    } finally { await a.close() }
+  })
+
+  it('does not durably lose a waiting logo whose ingress save fails', async () => {
+    const relay = new SimRelay({ replay: true }), owner = who(), member = who()
+    const root = `kithmoot.shared-projects.v1.${member.pubkey}`
+    const store = new MemoryStore()
+    const journal = createJournalStorage(root, store)
+    const b = await open(member, relay, journal)
+    const ref = { owner: owner.pubkey, project: projectId(owner.pubkey, 'create-held-logo-01') }, body = definition(owner, member)
+    const context = { reference: ref, definition: body }
+    const logo = await signProjectLogo(owner, context, { v: 1, op: 'logo', project: ref.project, authority: projectAuthority(ref, body), version: 1, request: 'held-logo-request-01', image })
+    const directoryEvent = await signProject(owner, { v: 1, op: 'snapshot', project: ref.project, revision: 1, parents: [], request: 'create-held-logo-01', definition: body })
+    try {
+      // The logo arrives first; its waiting-map insertion fails durably, so
+      // it must not sit in memory as phantom state the journal never got.
+      store.fault = { write: 1, phase: 'before' }
+      relay.publish(wrapProjectLogo(logo, member.pubkey, context))
+      await vi.waitFor(() => expect(b.snapshot().error).toBeTruthy())
+      relay.publish(wrapProject(directoryEvent, member.pubkey))
+      await new Promise(resolve => setTimeout(resolve, 200))
+      // The project was durably adopted once its own save succeeded; the
+      // failed logo insertion was not, and no phantom logo is visible.
+      expect(b.snapshot().projects).toHaveLength(1)
+      expect(b.snapshot().projects[0]!.logo).toBeUndefined()
+      expect(store.values.has(root)).toBe(true)
+    } finally { await b.close() }
+    // The wrap was never persisted; the relay still has it, and a restart
+    // reconciles the waiting logo against the recovered project.
+    const restored = await open(member, relay, createJournalStorage(root, store))
+    try {
+      await vi.waitFor(() => expect(restored.snapshot().projects[0]!.logo).toEqual(image))
+      expect(restored.snapshot().projects[0]!.joined).toBe(false)
+    } finally { await restored.close() }
   })
 })

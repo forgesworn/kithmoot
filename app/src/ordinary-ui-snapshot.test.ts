@@ -3,7 +3,7 @@ import { validateOrdinaryUiSnapshot as validate } from './ordinary-ui-snapshot.j
 import { OrdinaryStateHold, ORDINARY_VALUE_BYTES } from './ordinary-state-codec.js'
 import { UI_MODES, UI_FAULTS, UI_TAB_FAULTS, uiFixture, damageUiFixture } from '../../test/ordinary-ui-fixture.js'
 
-it.each(UI_MODES)('retains %s writer-cut bytes without clock, catalogue or identity output', mode => {
+it.each(UI_MODES)('retains %s writer-cut bytes without clock, catalogue or identity output', async mode => {
   const f = uiFixture(mode), before = [...f.records]
   const clock = vi.spyOn(Date,'now').mockImplementation(()=>{throw Error('No custody clock')})
   const fetcher = vi.spyOn(globalThis,'fetch').mockImplementation(()=>{throw Error('No custody fetch')})
@@ -29,17 +29,19 @@ it.each(UI_MODES)('retains %s writer-cut bytes without clock, catalogue or ident
     if (mode!=='legacy-desktop-bell') expect(f.provenance.length).toBeGreaterThan(0)
     for(const p of f.provenance) { expect(p.fileSha256).toMatch(/^[0-9a-f]{64}$/); expect(p.snippetSha256).toMatch(/^[0-9a-f]{64}$/) }
   } finally { clock.mockRestore(); fetcher.mockRestore() }
-})
+  // Building a fixture parses app/src/main.ts with the TypeScript API, which
+  // is seconds of work; the default five seconds is not enough in parallel.
+}, 30_000)
 for (const [kind,faults,mode] of [['browser',UI_FAULTS,'browser-all'],['tab',UI_TAB_FAULTS,'tab-all']] as const)
-  it.each(faults)(`${kind} holds %s intact in raw and completed images`, fault => {
+  it.each(faults)(`${kind} holds %s intact in raw and completed images`, async fault => {
     const f = uiFixture(mode); damageUiFixture(f.records,fault); const before=[...f.records]
     for(const migrated of [false,true]) expect(()=>validate(f.records,migrated,{kind})).toThrow(OrdinaryStateHold)
     expect([...f.records]).toEqual(before)
-  })
-it.each(['browser-all','tab-all'] as const)('refuses %s in the wrong physical owner', mode => {
+  }, 30_000)
+it.each(['browser-all','tab-all'] as const)('refuses %s in the wrong physical owner', async mode => {
   const f=uiFixture(mode)
   for(const migrated of [false,true]) expect(()=>validate(f.records,migrated,{kind:f.kind==='browser'?'tab':'browser'})).toThrow(OrdinaryStateHold)
-})
+}, 30_000)
 it('bounds UTF8 before parse, rejects unknown owner kinds, and leaves textSize for classification', () => {
   const records = new Map([['kithmoot:emoji:recents','😀'.repeat(Math.floor(ORDINARY_VALUE_BYTES/4)+1)]])
   const parse = vi.spyOn(JSON,'parse').mockImplementation(()=>{throw Error('Must not parse')})

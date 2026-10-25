@@ -14,15 +14,17 @@ export function withSkinTone(emoji: string, tone: number): string {
 export function familiarArtwork(emoji: string): string | undefined { return drawings.get(canonical(emoji)) }
 export function isFamiliarEmoji(value: unknown): value is string { return typeof value === 'string' && drawings.has(canonical(value)) }
 export const FAMILIAR_SHORTCODES: readonly string[] = FAMILIAR_ART.map(item => item.emoji).filter(emoji => /^:fs_[a-z0-9_]+:$/.test(emoji))
+const familiarShortcodePattern = FAMILIAR_SHORTCODES.length ? new RegExp(`(${FAMILIAR_SHORTCODES.join('|')})`, 'g') : undefined
+const familiarShortcodes = new Set(FAMILIAR_SHORTCODES)
 export function familiarLabel(emoji: string): string | undefined { return definitions.get(canonical(emoji).replace(/[\u{1F3FB}-\u{1F3FF}]/u, ''))?.title }
 
 /** Match complete graphemes: unfamiliar ZWJ sequences and other variants remain untouched. */
 const graphemes = new Intl.Segmenter('en', { granularity: 'grapheme' })
 export function familiarTextParts(text: string): { text: string; artwork?: string }[] {
   const parts: { text: string; artwork?: string }[] = []
-  const chunks = FAMILIAR_SHORTCODES.length ? text.split(new RegExp(`(${FAMILIAR_SHORTCODES.join('|')})`, 'g')) : [text]
+  const chunks = familiarShortcodePattern ? text.split(familiarShortcodePattern) : [text]
   for (const chunk of chunks) {
-    if (FAMILIAR_SHORTCODES.includes(chunk)) { parts.push({ text: chunk, artwork: familiarArtwork(chunk)! }); continue }
+    if (familiarShortcodes.has(chunk)) { parts.push({ text: chunk, artwork: familiarArtwork(chunk)! }); continue }
     for (const { segment } of graphemes.segment(chunk)) {
       const artwork = familiarArtwork(segment)
       if (artwork) parts.push({ text: segment, artwork })

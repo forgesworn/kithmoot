@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRoom, newDeviceContext, open, openCall, turnOnMedia, SYNTHETIC_MIC, join } from './browser.js'
 import { performanceSample } from './performance-sample.js'
+import { RoomAgent } from '../src/agent.js'
 
 const workloads = (process.env.PERF_WORKLOADS ?? process.env.PERF_WORKLOAD ?? 'video').split(',').map(value => value.trim())
 if (new Set(workloads).size !== workloads.length || workloads.some(value => !['idle', 'chat', 'audio', 'video', 'share'].includes(value))) {
@@ -12,11 +13,41 @@ if (new Set(workloads).size !== workloads.length || workloads.some(value => !['i
 }
 const docked = process.env.PERF_DOCKED === '1'
 const popout = process.env.PERF_POPOUT === '1'
+const hidden = process.env.PERF_HIDDEN === '1'
+const requestedSeedMessages = Number(process.env.PERF_SEED_MESSAGES ?? 0)
 if (docked && workloads.some(value => ['idle', 'chat'].includes(value))) throw new Error('A docked workload needs a call')
 if (popout && workloads.some(value => value !== 'share')) throw new Error('A popout workload needs screen sharing')
+if (hidden && workloads.some(value => !['video', 'share'].includes(value))) throw new Error('A hidden workload needs cameras')
+if (!Number.isSafeInteger(requestedSeedMessages) || requestedSeedMessages < 0 || requestedSeedMessages > 500) throw new Error('PERF_SEED_MESSAGES must be 0–500')
 
 /** Count transport work without retaining request URLs, frame bodies or identities. */
-async function monitorPage(context: BrowserContext, page: Page) {
+async function monitorPage(context: BrowserContext, page: Page, hide = false) {
+  await page.addInitScript(() => {
+    const counts = { records: 0, added: 0, removed: 0 }
+    ;(window as unknown as { __perfChatMutations: typeof counts }).__perfChatMutations = counts
+    ;(window as unknown as { __chatRenderPlans: { append: number; full: number; reasons: Record<string, number> } }).__chatRenderPlans = { append: 0, full: 0, reasons: {} }
+    const install = () => {
+      const log = document.getElementById('chatLog')
+      if (!log) return
+      new MutationObserver(records => {
+        for (const record of records) {
+          counts.records++
+          counts.added += record.addedNodes.length
+          counts.removed += record.removedNodes.length
+        }
+      }).observe(log, { childList: true, subtree: true })
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, { once: true })
+    else install()
+  })
+  if (hide) await page.addInitScript(() => {
+    Object.defineProperty(document, 'visibilityState', { get: () => 'hidden' })
+    Object.defineProperty(document, 'hidden', { get: () => true })
+    window.requestAnimationFrame = () => 1
+    window.cancelAnimationFrame = () => {}
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function () { return 1 }
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = function () {}
+  })
   const session = await context.newCDPSession(page)
   const network = { httpRequests: 0, httpResponses: 0, httpFailed: 0, httpEncodedBytes: 0,
     socketsOpened: 0, socketsClosed: 0, framesSent: 0, framesReceived: 0, frameBytesSent: 0, frameBytesReceived: 0 }
@@ -44,13 +75,14 @@ for (const workload of workloads) {
     if (!Number.isFinite(seconds) || seconds < 10 || seconds > 2700) throw new Error('PERF_SECONDS must be 10–2700')
     const contexts: BrowserContext[] = []
     let measurementStarted: number | undefined
+    let seedAgent: RoomAgent | undefined
     const result = {
       schemaVersion: 2, evidence: 'synthetic browser workload on one host', qualified: false,
       source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
       dirty: execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim().length > 0,
       host: { platform: os.platform(), release: os.release(), architecture: os.arch(), cpus: os.cpus().length, loadAverageAtStart: os.loadavg() },
-      browser: browser.version(), requestedDevices: devices, requestedSeconds: seconds,
-      workload: { kind: workload, docked, requestedPopouts: popout ? 1 : 0, chatStrategy: workload === 'chat' ? 'one round-robin message per collection step' : null },
+      browser: browser.version(), requestedDevices: devices, requestedSeconds: seconds, requestedSeedMessages, seededMessages: 0,
+      workload: { kind: workload, docked, hidden, requestedPopouts: popout ? 1 : 0, chatStrategy: workload === 'chat' ? 'one round-robin message per collection step' : null },
       people: 0, agents: 0, physicalDevices: 0, syntheticBrowserClients: 0,
       requestedPublishers: { camera: ['video', 'share'].includes(workload) ? devices : 0,
         audio: ['audio', 'video', 'share'].includes(workload) ? devices : 0, share: workload === 'share' ? 1 : 0 },
@@ -69,15 +101,38 @@ for (const workload of workloads) {
         result.syntheticBrowserClients++
         await context.addInitScript(SYNTHETIC_MIC)
         const page = await context.newPage()
+        page.on('pageerror', err => { if (process.env.PERF_DEBUG === '1') console.log(`[pageerror] device ${device}: ${err.message}`) })
+        page.on('console', msg => { if (process.env.PERF_DEBUG === '1' && msg.type() === 'error') console.log(`[console.error] device ${device}: ${msg.text()}`) })
         pages.push(page)
-        targets.push({ page, device, presentation: 'primary', monitor: await monitorPage(context, page) })
+        targets.push({ page, device, presentation: 'primary', monitor: await monitorPage(context, page, hidden && device === 0) })
       }
-      const room = await createRoom(pages[0]!, baseURL!)
+      const room = await createRoom(pages[0]!, baseURL!, undefined, 'Device 1')
+      if (requestedSeedMessages) {
+        let seedTime = Math.floor(Date.now() / 1000) - requestedSeedMessages * 3 - 60
+        seedAgent = await RoomAgent.join({ link: room, name: 'History seed', agent: false, now: () => seedTime })
+        for (let index = 0; index < requestedSeedMessages; index++) {
+          seedTime += 3
+          await seedAgent.chat.send(`Performance seed ${index + 1}`)
+          result.seededMessages++
+        }
+        await seedAgent.leave()
+        seedAgent = undefined
+      }
       for (const [index, page] of pages.entries()) {
         const started = Date.now()
         await open(page, room, `Device ${index + 1}`)
         await join(page)
         await expect(page.locator('#roomArea')).toBeVisible()
+        if (requestedSeedMessages) {
+          await expect.poll(async () => {
+            const rows = page.locator('#chatLog .msg[data-message-id]')
+            if (await rows.count() >= requestedSeedMessages) return true
+            await page.locator('#chatLog').evaluate(log => { log.scrollTop = 0; log.dispatchEvent(new Event('scroll')) })
+            await page.waitForTimeout(150)
+            return false
+          }, { timeout: 120_000, intervals: [200, 500, 1_000] }).toBe(true)
+          await expect(page.locator('#chatLog .msg[data-message-id]')).toHaveCount(requestedSeedMessages)
+        }
         // Join the existing call after its roster entry arrives, rather than
         // starting a second call before another client's presence settles.
         if (result.requestedPublishers.audio) {
@@ -106,6 +161,12 @@ for (const workload of workloads) {
           const streams = sample.connections.flatMap(c => c.streams)
           const audio = streams.filter(s => s.direction === 'inbound-rtp' && s.kind === 'audio' && Number(s.totalAudioEnergy) > 0).length
           const video = streams.filter(s => s.direction === 'inbound-rtp' && s.kind === 'video' && Number(s.framesDecoded) > 0).length
+          if (process.env.PERF_DEBUG === '1') {
+            const detail = streams.filter(s => s.direction === 'inbound-rtp').map(s => `${s.kind}:n=${s.totalAudioEnergy ?? s.framesDecoded}`)
+            const out = streams.filter(s => s.direction === 'outbound-rtp').map(s => `${s.kind}:sent=${s.bytesSent}:enc=${s.framesEncoded}`)
+            const cam = await page.evaluate(() => (window as unknown as { kithmootCameraDiagnostics?: unknown }).kithmootCameraDiagnostics ?? null)
+            console.log(`[perf-debug] device ${index} audio=${audio} video=${video} in[${detail.join(' ')}] out[${out.join(' ')}] states=${sample.connections.map(c => c.state).join(',')} cam=${JSON.stringify(cam)}`)
+          }
           const expectedVideo = result.requestedPublishers.camera ? devices - 1 + (workload === 'share' && index > 0 ? 1 : 0) : 0
           return audio === (result.requestedPublishers.audio ? devices - 1 : 0) && video === expectedVideo
         }, { timeout: 60_000 }).toBe(true)
@@ -131,6 +192,7 @@ for (const workload of workloads) {
         await expect(pages[1]!.locator('#home')).toBeVisible()
         await expect(pages[1]!.locator('#callDock')).toBeVisible()
       }
+      if (hidden) await expect.poll(() => pages[0]!.evaluate(() => document.visibilityState)).toBe('hidden')
       measurementStarted = Date.now()
       result.measurementStartedAt = new Date(measurementStarted).toISOString()
       while (Date.now() - measurementStarted < seconds * 1000) {
@@ -166,6 +228,7 @@ for (const workload of workloads) {
         loadAverageAtEnd: os.loadavg(),
       }, null, 2) + '\n', { mode: 0o600 })
       await info.attach('performance-baseline', { path: file, contentType: 'application/json' })
+      await seedAgent?.leave().catch(() => {})
       await Promise.allSettled(contexts.map(context => context.close()))
     }
   })

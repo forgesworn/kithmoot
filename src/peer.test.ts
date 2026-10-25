@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Peer, MAX_PENDING_CANDIDATES } from './peer.js'
+import { Peer, MAX_PENDING_CANDIDATES, tuneShareSender } from './peer.js'
 import { createFakeFactory, FakeRTCPeerConnection, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
 
@@ -10,6 +10,61 @@ const fakeAudioTrack = () => fakeMediaTrack('audio')
 
 const LOW = 'a'.repeat(64)
 const HIGH = 'b'.repeat(64)
+
+describe('tuneShareSender', () => {
+  const hinted = (width: number, height: number): MediaStreamTrack => Object.assign(fakeMediaTrack('video'), {
+    contentHint: 'detail',
+    getSettings: () => ({ width, height }),
+  }) as MediaStreamTrack
+  const recordingSender = () => {
+    const parameters = { encodings: [{ maxBitrate: 1_000_000, maxFramerate: 60 }] }
+    const calls: unknown[] = []
+    return {
+      sender: {
+        getParameters: () => parameters,
+        setParameters: (next: unknown) => { calls.push(next); return Promise.resolve() },
+      },
+      calls,
+    }
+  }
+
+  it('budgets a detail-hinted video track by its own resolution and stops downscaling', async () => {
+    const { sender, calls } = recordingSender()
+    tuneShareSender(hinted(1920, 1080), sender)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls).toEqual([{ encodings: [{ maxBitrate: 4_500_000, maxFramerate: 30, scaleResolutionDownBy: 1 }] }])
+  })
+
+  it('gives a 4K share the top budget and a small window the smallest', async () => {
+    for (const [width, height, budget] of [[3840, 2160, 8_000_000], [640, 480, 2_500_000]] as const) {
+      const { sender, calls } = recordingSender()
+      tuneShareSender(hinted(width, height), sender)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect((calls[0] as { encodings: [{ maxBitrate: number }] }).encodings[0]!.maxBitrate).toBe(budget)
+    }
+  })
+
+  it('leaves a camera track on the encoder defaults', () => {
+    const camera = Object.assign(fakeMediaTrack('video'), { getSettings: () => ({ width: 1920, height: 1080 }) }) as MediaStreamTrack
+    const { sender, calls } = recordingSender()
+    tuneShareSender(camera, sender)
+    expect(calls).toEqual([])
+  })
+
+  it('skips senders with no setParameters, like a Node engine', () => {
+    expect(() => tuneShareSender(hinted(1920, 1080), { track: null })).not.toThrow()
+  })
+
+  it('Peer.start applies the tuning where the sender is created', async () => {
+    const factory = createFakeFactory()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+    const { sender, calls } = recordingSender()
+    factory.instances[0]!.addTrack = () => sender as never
+    await peer.start([hinted(1920, 1080)])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls).toHaveLength(1)
+  })
+})
 
 function fakeTrack(): MediaStreamTrack {
   return {} as MediaStreamTrack

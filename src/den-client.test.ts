@@ -17,7 +17,7 @@ import { CONTROL_CHANNEL, decodeControl, encodeControl } from './control.js'
 const cleanup: (() => Promise<void> | void)[] = []
 afterEach(async () => { for (const f of cleanup.splice(0).reverse()) await f() })
 function store(): DenWorkStore & { values: Map<string, string> } {
-  return { values: new Map(), async get(k) { return this.values.get(k) }, async set(k, v) { this.values.set(k, v) } }
+  return { values: new Map(), async get(k) { return this.values.get(k) }, async set(k, v) { this.values.set(k, v) }, async remove(k) { this.values.delete(k) } }
 }
 async function fixture() {
   const relay = new SimRelay({ replay: true })
@@ -126,6 +126,11 @@ describe('Den to KithMoot shared-work journey', () => {
     expect(publicBytes).not.toContain(digest)
     expect(publicBytes).not.toContain(bytesToHex(f.secret))
     expect(JSON.stringify([...f.storage.values])).not.toContain(f.creator.url)
+    const root = `room.${f.creator.roomId}`, head = JSON.parse(f.storage.values.get(root)!)
+    expect(head.v).toBe(2)
+    expect([...f.storage.values.keys()].some(key => key.startsWith(`${root}.journal.v2.`))).toBe(true)
+    const stored = JSON.stringify([...f.storage.values.values()])
+    for (const plaintext of ['Prepare release evidence', 'An artifact with its digest', 'den_create_request_01', assignment.id, digest]) expect(stored).not.toContain(plaintext)
   })
 
   it('restores the same creator and assignment on another Den device without importing private Den data', async () => {

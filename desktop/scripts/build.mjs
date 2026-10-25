@@ -7,5 +7,7 @@ const run = (cmd, args, env = {}) => {
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
 run('npm', ['run', 'build:context'])
+run('npm', ['run', 'artwork:check'])
 run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true' })
+run(process.execPath, [resolve(root, 'scripts/build-artwork-derivatives.mjs'), '--check-built'], { VITE_DESKTOP: 'true' })
 run(process.execPath, [resolve(root, 'scripts/check-no-telemetry.mjs'), resolve(root, 'desktop/web')])

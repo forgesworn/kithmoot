@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
@@ -66,6 +66,111 @@ describe('agent ownership', () => {
     const proof = legacyProof()
     expect(inspectAgentOwnershipSignature(proof, { agent, now: NOW }).ok).toBe(true)
     expect(verifyAgentOwnership(proof, { agent, now: NOW })).toEqual({ ok: false, reason: 'no expiry' })
+  })
+
+  it('verifies repeated identical valid proofs only once', () => {
+    const verify = vi.spyOn(schnorr, 'verify')
+    try {
+      const ownerSk = generateSecretKey()
+      const owner = getPublicKey(ownerSk)
+      const subject = getPublicKey(generateSecretKey())
+      const proof = issueAgentOwnership({ principalSk: ownerSk, agent: subject, issuedAt: NOW, expiresAt: NOW + 3600, label: 'Tally' })
+      expect(verifyAgentOwnership(proof, { agent: subject, now: NOW })).toEqual({ ok: true, principal: owner, label: 'Tally' })
+      expect(inspectAgentOwnershipSignature({ ...proof }, { agent: subject, now: NOW + 1 }).ok).toBe(true)
+      expect(verifyAgentOwnership({
+        ...proof,
+        agent: proof.agent.toUpperCase(),
+        principal: proof.principal.toUpperCase(),
+        sig: proof.sig.toUpperCase(),
+      }, { agent: subject, now: NOW + 2 }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(1)
+    } finally {
+      verify.mockRestore()
+    }
+  })
+
+  it('rechecks agent, label, time and room trust when the signature is cached', () => {
+    const verify = vi.spyOn(schnorr, 'verify')
+    try {
+      const ownerSk = generateSecretKey()
+      const owner = getPublicKey(ownerSk)
+      const subject = getPublicKey(generateSecretKey())
+      const other = getPublicKey(generateSecretKey())
+      const proof = issueAgentOwnership({ principalSk: ownerSk, agent: subject, issuedAt: NOW, expiresAt: NOW + 100 })
+      expect(verifyAgentOwnership(proof, { agent: subject, now: NOW + 1 }).ok).toBe(true)
+      expect(verifyAgentOwnership(proof, { agent: other, now: NOW + 1 })).toEqual({ ok: false, reason: 'names another agent' })
+      expect(verifyAgentOwnership(proof, { agent: subject, now: NOW - 301 })).toEqual({ ok: false, reason: 'issued in the future' })
+      expect(verifyAgentOwnership({ ...proof, expiresAt: NOW }, { agent: subject, now: NOW + 1 })).toEqual({ ok: false, reason: 'expires before issued' })
+      expect(verifyAgentOwnership({ ...proof, label: 'Tal‮ly' }, { agent: subject, now: NOW + 1 })).toEqual({ ok: false, reason: 'label is not as signed' })
+      expect(verifyAgentOwnership(proof, { agent: subject, now: NOW + 100 })).toEqual({ ok: false, reason: 'expired' })
+      expect(verifyAgentOwnership(proof, { agent: subject, now: NOW + 99 }).ok).toBe(true)
+      const policy = { tier: 'open' as const, agents: 'owned-by-members' as const }
+      const entry = { participant: subject, agent: true, owner: proof }
+      expect(evaluateAgentAccess(policy, entry, (p) => p === owner, NOW + 2).admitted).toBe(true)
+      expect(evaluateAgentAccess(policy, entry, () => false, NOW + 2)).toEqual({ admitted: false, reason: 'principal is not in the room' })
+      expect(verify).toHaveBeenCalledTimes(1)
+    } finally {
+      verify.mockRestore()
+    }
+  })
+
+  it('keys the cache by every signed field and retries failed signatures', () => {
+    const verify = vi.spyOn(schnorr, 'verify')
+    try {
+      const ownerSk = generateSecretKey()
+      const owner = getPublicKey(ownerSk)
+      const subject = getPublicKey(generateSecretKey())
+      const other = getPublicKey(generateSecretKey())
+      const proof = issueAgentOwnership({ principalSk: ownerSk, agent: subject, issuedAt: NOW, expiresAt: NOW + 3600, label: 'Tally' })
+      expect(inspectAgentOwnershipSignature(proof, { agent: subject, now: NOW + 1 }).ok).toBe(true)
+      const invalid = [
+        { ...proof, agent: other },
+        { ...proof, principal: other },
+        { ...proof, issuedAt: NOW + 1 },
+        { ...proof, expiresAt: NOW + 7200 },
+        { ...proof, label: 'Boss' },
+        { ...proof, sig: 'ff'.repeat(64) },
+      ]
+      for (let attempt = 0; attempt < 2; attempt++) {
+        for (const candidate of invalid) {
+          expect(inspectAgentOwnershipSignature(candidate, { agent: candidate.agent, now: NOW + 1 })).toEqual({ ok: false, reason: 'bad signature' })
+        }
+      }
+      expect(verify).toHaveBeenCalledTimes(1 + invalid.length * 2)
+      expect(inspectAgentOwnershipSignature(proof, { agent: subject, now: NOW + 1 }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(1 + invalid.length * 2)
+    } finally {
+      verify.mockRestore()
+    }
+  })
+
+  it('bounds the cache and evicts the least recently used proof', () => {
+    const verify = vi.spyOn(schnorr, 'verify')
+    try {
+      const ownerSk = generateSecretKey()
+      const subject = getPublicKey(generateSecretKey())
+      const cacheLimit = 32
+      const proofs = Array.from({ length: cacheLimit + 1 }, (_, i) => issueAgentOwnership({
+        principalSk: ownerSk,
+        agent: subject,
+        issuedAt: NOW + i,
+        expiresAt: NOW + i + 3600,
+      }))
+      for (let i = 0; i < cacheLimit; i++) {
+        expect(verifyAgentOwnership(proofs[i]!, { agent: subject, now: NOW + i }).ok).toBe(true)
+      }
+      expect(verify).toHaveBeenCalledTimes(cacheLimit)
+      expect(verifyAgentOwnership(proofs[0]!, { agent: subject, now: NOW }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(cacheLimit)
+      expect(verifyAgentOwnership(proofs[cacheLimit]!, { agent: subject, now: NOW + cacheLimit }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(cacheLimit + 1)
+      expect(verifyAgentOwnership(proofs[0]!, { agent: subject, now: NOW }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(cacheLimit + 1)
+      expect(verifyAgentOwnership(proofs[1]!, { agent: subject, now: NOW + 1 }).ok).toBe(true)
+      expect(verify).toHaveBeenCalledTimes(cacheLimit + 2)
+    } finally {
+      verify.mockRestore()
+    }
   })
 
   it('an agent cannot be its own principal, and a label is shown only as signed', () => {

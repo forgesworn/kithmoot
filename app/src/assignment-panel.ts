@@ -1,7 +1,16 @@
-import type { AssignmentLog, AssignmentStorage } from '../../src/assignment-log.js'
+import type { AssignmentLog } from '../../src/assignment-log.js'
 import { assignmentHumanAction, type Assignment, type AssignmentAction, type AssignmentOperation } from '../../src/assignments.js'
+import { createJournalStorage, type IncrementalJournalStorage } from '../../src/journal-storage.js'
 import type { RoomSession } from '../../src/session.js'
 import { confirmAction } from './confirm-action.js'
+
+export function browserAssignmentStorage(root: string, storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): IncrementalJournalStorage {
+  return createJournalStorage(root, {
+    get: async key => storage.getItem(key) ?? undefined,
+    set: async (key, value) => { storage.setItem(key, value) },
+    remove: async key => { storage.removeItem(key) },
+  })
+}
 
 interface WorkDraft {
   objective: string
@@ -273,8 +282,7 @@ export class AssignmentPanel {
       })
       if (epoch !== this.#epoch) { releaseOwn?.(); return }
       this.#release = releaseOwn
-      const store: AssignmentStorage = { async load() { return localStorage.getItem(key) ?? undefined }, async save(value) { localStorage.setItem(key, value) } }
-      const log = await session.assignments(store)
+      const log = await session.assignments(browserAssignmentStorage(key, localStorage))
       if (epoch !== this.#epoch) { log.close(); releaseOwn?.(); return }
       this.#log = log; this.#off = log.onChange(() => this.#render()); this.#render()
     } catch (e) {

@@ -2,6 +2,7 @@ import { decode, npubEncode } from 'nostr-tools/nip19'
 import { ProjectDirectory, type SharedProject } from '../../src/project-directory.js'
 import type { ProjectDefinition, ProjectIdentity, ProjectMember, ProjectRoom } from '../../src/projects.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
+import { createJournalStorage, type IncrementalJournalStorage } from '../../src/journal-storage.js'
 import type { Event as NostrEvent } from 'nostr-tools/pure'
 import { parseRoomLink } from '../../src/link.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
@@ -12,6 +13,18 @@ import { renderLogo } from './logo-view.js'
 
 type Person = { pubkey: string; label: string; agent: boolean }
 const shortPerson = (pubkey: string) => { const npub = npubEncode(pubkey); return npub.slice(0, 14) + '…' + npub.slice(-6) }
+
+/** The keyed account journal behind SharedProjectsPanel. The existing root
+ *  key and Web Lock name stay unchanged; capable storage writes the v1
+ *  whole-cache base plus hash-linked, NIP44-encrypted put/remove deltas
+ *  instead of replacing the cache on every commit. */
+export function sharedProjectsStorage(root: string, store: DeviceStore): IncrementalJournalStorage {
+  return createJournalStorage(root, {
+    get: async key => store.get(key) ?? undefined,
+    set: async (key, value) => { store.set(key, value) },
+    remove: async key => { store.remove(key) },
+  })
+}
 
 /** Shared project management. The ordinary navigation renders the same signed
  * project IDs; this panel owns only editing and deliberate invitation joins. */
@@ -100,10 +113,7 @@ export class SharedProjectsPanel {
       })
       if (generation !== this.#generation) { release?.(); return }
       this.#release = release
-      const directory = new ProjectDirectory({ identity, transport, deliver: this.options.deliver, deliverGuarded: this.options.deliverGuarded, storage: {
-        load: async () => this.options.store.get(key) ?? undefined,
-        save: async value => { this.options.store.set(key, value) },
-      } })
+      const directory = new ProjectDirectory({ identity, transport, deliver: this.options.deliver, deliverGuarded: this.options.deliverGuarded, storage: sharedProjectsStorage(key, this.options.store) })
       this.#directory = directory
       this.#off = directory.onChange(() => { this.render(); this.options.changed() })
       await directory.open()

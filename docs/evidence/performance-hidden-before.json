@@ -1,0 +1,2247 @@
+{
+  "schemaVersion": 2,
+  "evidence": "synthetic browser workload on one host",
+  "qualified": false,
+  "source": "50a779cfc19620a9575cb5c614543fbe22b122ee",
+  "dirty": true,
+  "host": {
+    "platform": "darwin",
+    "release": "23.6.0",
+    "architecture": "arm64",
+    "cpus": 8,
+    "loadAverageAtStart": [
+      5.30419921875,
+      5.84033203125,
+      6.140625
+    ]
+  },
+  "browser": "151.0.7922.34",
+  "requestedDevices": 2,
+  "requestedSeconds": 15,
+  "requestedSeedMessages": 0,
+  "seededMessages": 0,
+  "workload": {
+    "kind": "video",
+    "docked": false,
+    "hidden": true,
+    "requestedPopouts": 0,
+    "chatStrategy": null
+  },
+  "people": 0,
+  "agents": 0,
+  "physicalDevices": 0,
+  "syntheticBrowserClients": 2,
+  "requestedPublishers": {
+    "camera": 2,
+    "audio": 2,
+    "share": 0
+  },
+  "cameraPublishers": 2,
+  "audioPublishers": 2,
+  "sharePublishers": 0,
+  "popouts": 0,
+  "chatMessagesDelivered": 0,
+  "chatDeliveryMs": [],
+  "routeRequested": "mesh preferred; loopback signalling",
+  "battery": null,
+  "thermal": null,
+  "startedAt": "2026-10-25T08:13:01.829Z",
+  "measurementStartedAt": "2026-10-25T08:13:04.304Z",
+  "joinedMs": [
+    540,
+    697
+  ],
+  "samples": [
+    {
+      "elapsedMs": 4,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 2182.5999999046326,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 1416,
+                    "packetsReceived": 18,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 201.6,
+                    "jitterBufferEmittedCount": 16320,
+                    "totalAudioEnergy": 0.027676370992300088,
+                    "totalSamplesDuration": 0.36000000000000015,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 8198,
+                    "packetsReceived": 31,
+                    "packetsLost": 0,
+                    "framesDecoded": 4,
+                    "framesPerSecond": 22,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.031258,
+                    "jitterBufferEmittedCount": 4,
+                    "totalDecodeTime": 0.001727,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 2046,
+                    "packetsSent": 24,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 12739,
+                    "packetsSent": 31,
+                    "framesEncoded": 3,
+                    "framesPerSecond": 7,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.015,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0.001,
+                    "bytesSent": 13364,
+                    "bytesReceived": 13566
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 0.793508,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 8,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 320,
+                "height": 240,
+                "time": 0.155,
+                "paused": false,
+                "readyState": 4,
+                "visible": false,
+                "frames": 4,
+                "dropped": 3
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 35,
+            "framesReceived": 56,
+            "frameBytesSent": 77034,
+            "frameBytesReceived": 76852
+          },
+          "renderer": {
+            "Timestamp": 2243412.35639,
+            "Nodes": 7178,
+            "LayoutDuration": 0.066395,
+            "ScriptDuration": 0.517488,
+            "TaskDuration": 1.035804,
+            "JSHeapUsedSize": 10256848,
+            "JSHeapTotalSize": 19595264
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 957.7000002861023,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 2046,
+                    "packetsReceived": 24,
+                    "packetsLost": 0,
+                    "jitter": 0.003,
+                    "jitterBufferDelay": 336,
+                    "jitterBufferEmittedCount": 21120,
+                    "totalAudioEnergy": 0.03832470990704726,
+                    "totalSamplesDuration": 0.5200000000000002,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 9086,
+                    "packetsReceived": 20,
+                    "packetsLost": 0,
+                    "framesDecoded": 1,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.053717999999999995,
+                    "jitterBufferEmittedCount": 1,
+                    "totalDecodeTime": 0.000695,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 1416,
+                    "packetsSent": 18,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 8198,
+                    "packetsSent": 31,
+                    "framesEncoded": 5,
+                    "framesPerSecond": 27,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "totalEncodeTime": 0.008,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 13566,
+                    "bytesReceived": 13364
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 0.286476,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 7,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 0.346,
+                "paused": false,
+                "readyState": 4,
+                "visible": false,
+                "frames": 2,
+                "dropped": 1
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 28,
+            "framesReceived": 50,
+            "frameBytesSent": 61830,
+            "frameBytesReceived": 78610
+          },
+          "renderer": {
+            "Timestamp": 2243412.355672,
+            "Nodes": 6723,
+            "LayoutDuration": 0.032029,
+            "ScriptDuration": 0.226044,
+            "TaskDuration": 0.579785,
+            "JSHeapUsedSize": 12182800,
+            "JSHeapTotalSize": 20119552
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 2012,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 4190.699999809265,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 9596,
+                    "packetsReceived": 118,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 3964.8,
+                    "jitterBufferEmittedCount": 112320,
+                    "totalAudioEnergy": 0.21070409090500145,
+                    "totalSamplesDuration": 2.3699999999999934,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 53738,
+                    "packetsReceived": 97,
+                    "packetsLost": 0,
+                    "framesDecoded": 45,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.282043,
+                    "jitterBufferEmittedCount": 45,
+                    "totalDecodeTime": 0.012425,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 10227,
+                    "packetsSent": 125,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 39151,
+                    "packetsSent": 67,
+                    "framesEncoded": 16,
+                    "framesPerSecond": 7,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.037,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 55909,
+                    "bytesReceived": 75230
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 2.89238,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 21,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 320,
+                "height": 240,
+                "time": 2.155,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 45,
+                "dropped": 6
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 41,
+            "framesReceived": 62,
+            "frameBytesSent": 77367,
+            "frameBytesReceived": 80527
+          },
+          "renderer": {
+            "Timestamp": 2243414.364302,
+            "Nodes": 7232,
+            "LayoutDuration": 0.067683,
+            "ScriptDuration": 0.589547,
+            "TaskDuration": 1.127967,
+            "JSHeapUsedSize": 12546172,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 2966.0999999046326,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 10227,
+                    "packetsReceived": 125,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 5011.2,
+                    "jitterBufferEmittedCount": 118080,
+                    "totalAudioEnergy": 0.2215084690856945,
+                    "totalSamplesDuration": 2.52999999999999,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 35498,
+                    "packetsReceived": 56,
+                    "packetsLost": 0,
+                    "framesDecoded": 14,
+                    "framesPerSecond": 7,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 0.108176,
+                    "jitterBufferEmittedCount": 14,
+                    "totalDecodeTime": 0.008973,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 9596,
+                    "packetsSent": 118,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 53738,
+                    "packetsSent": 97,
+                    "framesEncoded": 45,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "totalEncodeTime": 0.053,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 75230,
+                    "bytesReceived": 55909
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 2.291709,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 47,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 2.4,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 15,
+                "dropped": 4
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 28,
+            "framesReceived": 50,
+            "frameBytesSent": 61830,
+            "frameBytesReceived": 78610
+          },
+          "renderer": {
+            "Timestamp": 2243414.363798,
+            "Nodes": 6791,
+            "LayoutDuration": 0.033092,
+            "ScriptDuration": 0.457134,
+            "TaskDuration": 0.838403,
+            "JSHeapUsedSize": 9623392,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 4022,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 6198.799999713898,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 17777,
+                    "packetsReceived": 219,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 6844.8,
+                    "jitterBufferEmittedCount": 208320,
+                    "totalAudioEnergy": 0.3929454814662484,
+                    "totalSamplesDuration": 4.369999999999951,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 97749,
+                    "packetsReceived": 155,
+                    "packetsLost": 0,
+                    "framesDecoded": 85,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.533477,
+                    "jitterBufferEmittedCount": 85,
+                    "totalDecodeTime": 0.021596999999999998,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 18327,
+                    "packetsSent": 225,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 81085,
+                    "packetsSent": 115,
+                    "framesEncoded": 28,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.061,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 114018,
+                    "bytesReceived": 135148
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 4.893572,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 33,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 320,
+                "height": 240,
+                "time": 4.167,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 85,
+                "dropped": 6
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 55,
+            "framesReceived": 72,
+            "frameBytesSent": 78539,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243416.372547,
+            "Nodes": 7309,
+            "LayoutDuration": 0.070081,
+            "ScriptDuration": 0.658585,
+            "TaskDuration": 1.217383,
+            "JSHeapUsedSize": 9978964,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 4974.200000286102,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 18327,
+                    "packetsReceived": 225,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 7920,
+                    "jitterBufferEmittedCount": 215040,
+                    "totalAudioEnergy": 0.4046874794680315,
+                    "totalSamplesDuration": 4.539999999999948,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 77432,
+                    "packetsReceived": 104,
+                    "packetsLost": 0,
+                    "framesDecoded": 26,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0.001,
+                    "jitterBufferDelay": 0.113356,
+                    "jitterBufferEmittedCount": 26,
+                    "totalDecodeTime": 0.017498,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 17777,
+                    "packetsSent": 219,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 97749,
+                    "packetsSent": 155,
+                    "framesEncoded": 85,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "totalEncodeTime": 0.095,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 135148,
+                    "bytesReceived": 114018
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 4.294993,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 87,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 4.401,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 27,
+                "dropped": 4
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 30,
+            "framesReceived": 52,
+            "frameBytesSent": 61941,
+            "frameBytesReceived": 80519
+          },
+          "renderer": {
+            "Timestamp": 2243416.374257,
+            "Nodes": 6807,
+            "LayoutDuration": 0.033868,
+            "ScriptDuration": 0.660181,
+            "TaskDuration": 1.063402,
+            "JSHeapUsedSize": 10018440,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 6029,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 8206.900000095367,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 25877,
+                    "packetsReceived": 319,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 9753.6,
+                    "jitterBufferEmittedCount": 305280,
+                    "totalAudioEnergy": 0.5759029449517811,
+                    "totalSamplesDuration": 6.379999999999908,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 142262,
+                    "packetsReceived": 215,
+                    "packetsLost": 0,
+                    "framesDecoded": 125,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.8226,
+                    "jitterBufferEmittedCount": 125,
+                    "totalDecodeTime": 0.031358,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 26427,
+                    "packetsSent": 325,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 119159,
+                    "packetsSent": 156,
+                    "framesEncoded": 40,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.08,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 167246,
+                    "bytesReceived": 195509
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 6.893368,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 45,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 320,
+                "height": 240,
+                "time": 6.22,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 125,
+                "dropped": 8
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 56,
+            "framesReceived": 72,
+            "frameBytesSent": 78583,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243418.38047,
+            "Nodes": 7321,
+            "LayoutDuration": 0.070808,
+            "ScriptDuration": 0.723985,
+            "TaskDuration": 1.295252,
+            "JSHeapUsedSize": 10355884,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 6982.300000190735,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 26427,
+                    "packetsReceived": 325,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 10800,
+                    "jitterBufferEmittedCount": 311040,
+                    "totalAudioEnergy": 0.5877202905241767,
+                    "totalSamplesDuration": 6.549999999999905,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 115506,
+                    "packetsReceived": 145,
+                    "packetsLost": 0,
+                    "framesDecoded": 38,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.11958999999999999,
+                    "jitterBufferEmittedCount": 38,
+                    "totalDecodeTime": 0.026327999999999997,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 25877,
+                    "packetsSent": 319,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 142262,
+                    "packetsSent": 215,
+                    "framesEncoded": 125,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "totalEncodeTime": 0.136,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0.001,
+                    "bytesSent": 195509,
+                    "bytesReceived": 167246
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 6.307543,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 127,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 6.203,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 39,
+                "dropped": 4
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 45,
+            "framesReceived": 62,
+            "frameBytesSent": 63157,
+            "frameBytesReceived": 86314
+          },
+          "renderer": {
+            "Timestamp": 2243418.381151,
+            "Nodes": 6896,
+            "LayoutDuration": 0.035431,
+            "ScriptDuration": 0.878481,
+            "TaskDuration": 1.307656,
+            "JSHeapUsedSize": 10908740,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 8037,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 10214.400000095367,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 34058,
+                    "packetsReceived": 420,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 12633.6,
+                    "jitterBufferEmittedCount": 401280,
+                    "totalAudioEnergy": 0.7590159269783403,
+                    "totalSamplesDuration": 8.389999999999866,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 184295,
+                    "packetsReceived": 267,
+                    "packetsLost": 0,
+                    "framesDecoded": 165,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "jitter": 0,
+                    "jitterBufferDelay": 1.122603,
+                    "jitterBufferEmittedCount": 165,
+                    "totalDecodeTime": 0.040625,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 34608,
+                    "packetsSent": 426,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 160982,
+                    "packetsSent": 199,
+                    "framesEncoded": 54,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.109,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 224306,
+                    "bytesReceived": 253113
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 8.895154,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 59,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 320,
+                "height": 240,
+                "time": 8.204,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 165,
+                "dropped": 10
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 56,
+            "framesReceived": 72,
+            "frameBytesSent": 78583,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243420.388103,
+            "Nodes": 7327,
+            "LayoutDuration": 0.071585,
+            "ScriptDuration": 0.804689,
+            "TaskDuration": 1.389151,
+            "JSHeapUsedSize": 10746608,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 8989.800000190735,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 34608,
+                    "packetsReceived": 426,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 13708.8,
+                    "jitterBufferEmittedCount": 408000,
+                    "totalAudioEnergy": 0.770864631872298,
+                    "totalSamplesDuration": 8.559999999999862,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 157329,
+                    "packetsReceived": 188,
+                    "packetsLost": 0,
+                    "framesDecoded": 52,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.12964699999999998,
+                    "jitterBufferEmittedCount": 52,
+                    "totalDecodeTime": 0.037093999999999995,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 34058,
+                    "packetsSent": 420,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 184295,
+                    "packetsSent": 267,
+                    "framesEncoded": 165,
+                    "framesPerSecond": 20,
+                    "frameWidth": 320,
+                    "frameHeight": 240,
+                    "totalEncodeTime": 0.176,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0.001,
+                    "bytesSent": 253113,
+                    "bytesReceived": 224306
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 8.291443,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 167,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 8.404,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 53,
+                "dropped": 5
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 45,
+            "framesReceived": 62,
+            "frameBytesSent": 63157,
+            "frameBytesReceived": 86314
+          },
+          "renderer": {
+            "Timestamp": 2243420.388847,
+            "Nodes": 6920,
+            "LayoutDuration": 0.036453,
+            "ScriptDuration": 1.088848,
+            "TaskDuration": 1.542296,
+            "JSHeapUsedSize": 11336092,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 10043,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 12221.099999904633,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 42158,
+                    "packetsReceived": 520,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 15532.8,
+                    "jitterBufferEmittedCount": 498240,
+                    "totalAudioEnergy": 0.9425133875616382,
+                    "totalSamplesDuration": 10.399999999999823,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 226148,
+                    "packetsReceived": 329,
+                    "packetsLost": 0,
+                    "framesDecoded": 204,
+                    "framesPerSecond": 20,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "jitter": 0,
+                    "jitterBufferDelay": 1.416713,
+                    "jitterBufferEmittedCount": 204,
+                    "totalDecodeTime": 0.049717,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 42708,
+                    "packetsSent": 526,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 195130,
+                    "packetsSent": 235,
+                    "framesEncoded": 65,
+                    "framesPerSecond": 5,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.13,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 273336,
+                    "bytesReceived": 313061
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 10.796157,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 70,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 480,
+                "height": 360,
+                "time": 10.204,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 204,
+                "dropped": 10
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 56,
+            "framesReceived": 72,
+            "frameBytesSent": 78583,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243422.39442,
+            "Nodes": 7404,
+            "LayoutDuration": 0.072693,
+            "ScriptDuration": 0.869657,
+            "TaskDuration": 1.468985,
+            "JSHeapUsedSize": 11420380,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 10996.5,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 42708,
+                    "packetsReceived": 526,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 16579.2,
+                    "jitterBufferEmittedCount": 504000,
+                    "totalAudioEnergy": 0.9537028440981048,
+                    "totalSamplesDuration": 10.55999999999982,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 191477,
+                    "packetsReceived": 224,
+                    "packetsLost": 0,
+                    "framesDecoded": 63,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.144787,
+                    "jitterBufferEmittedCount": 63,
+                    "totalDecodeTime": 0.044927999999999996,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 42158,
+                    "packetsSent": 520,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 226148,
+                    "packetsSent": 329,
+                    "framesEncoded": 204,
+                    "framesPerSecond": 20,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "totalEncodeTime": 0.215,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 313061,
+                    "bytesReceived": 273336
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 10.291515,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 206,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 10.305,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 64,
+                "dropped": 5
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 45,
+            "framesReceived": 62,
+            "frameBytesSent": 63157,
+            "frameBytesReceived": 86314
+          },
+          "renderer": {
+            "Timestamp": 2243422.394967,
+            "Nodes": 7009,
+            "LayoutDuration": 0.037523,
+            "ScriptDuration": 1.305342,
+            "TaskDuration": 1.782995,
+            "JSHeapUsedSize": 12023536,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 12060,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 14231,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 50258,
+                    "packetsReceived": 620,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 18412.8,
+                    "jitterBufferEmittedCount": 594240,
+                    "totalAudioEnergy": 1.1260400831111168,
+                    "totalSamplesDuration": 12.40999999999978,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 312799,
+                    "packetsReceived": 427,
+                    "packetsLost": 0,
+                    "framesDecoded": 244,
+                    "framesPerSecond": 20,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "jitter": 0,
+                    "jitterBufferDelay": 1.7006489999999999,
+                    "jitterBufferEmittedCount": 244,
+                    "totalDecodeTime": 0.068189,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 50808,
+                    "packetsSent": 626,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 232186,
+                    "packetsSent": 276,
+                    "framesEncoded": 77,
+                    "framesPerSecond": 5,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.149,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 325623,
+                    "bytesReceived": 417047
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 12.89159,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 82,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 480,
+                "height": 360,
+                "time": 12.222,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 244,
+                "dropped": 10
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 56,
+            "framesReceived": 72,
+            "frameBytesSent": 78583,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243424.406618,
+            "Nodes": 7410,
+            "LayoutDuration": 0.073334,
+            "ScriptDuration": 0.928034,
+            "TaskDuration": 1.539333,
+            "JSHeapUsedSize": 11756016,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 13012.300000190735,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 50889,
+                    "packetsReceived": 627,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 19488,
+                    "jitterBufferEmittedCount": 600960,
+                    "totalAudioEnergy": 1.1378350396634294,
+                    "totalSamplesDuration": 12.579999999999776,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 228533,
+                    "packetsReceived": 265,
+                    "packetsLost": 0,
+                    "framesDecoded": 75,
+                    "framesPerSecond": 5,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.16744799999999999,
+                    "jitterBufferEmittedCount": 75,
+                    "totalDecodeTime": 0.052884,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 50339,
+                    "packetsSent": 621,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 312799,
+                    "packetsSent": 427,
+                    "framesEncoded": 244,
+                    "framesPerSecond": 19,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "totalEncodeTime": 0.265,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 417166,
+                    "bytesReceived": 325623
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 12.345682,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 247,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 12.202,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 76,
+                "dropped": 5
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 45,
+            "framesReceived": 62,
+            "frameBytesSent": 63157,
+            "frameBytesReceived": 86314
+          },
+          "renderer": {
+            "Timestamp": 2243424.412266,
+            "Nodes": 7025,
+            "LayoutDuration": 0.038089,
+            "ScriptDuration": 1.528308,
+            "TaskDuration": 2.028191,
+            "JSHeapUsedSize": 12369004,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 14072,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 16248.299999713898,
+            "visibility": "hidden",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A174091133",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 58439,
+                    "packetsReceived": 721,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 21321.6,
+                    "jitterBufferEmittedCount": 691200,
+                    "totalAudioEnergy": 1.309095366843851,
+                    "totalSamplesDuration": 14.419999999999737,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V3251370717",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 399419,
+                    "packetsReceived": 526,
+                    "packetsLost": 0,
+                    "framesDecoded": 284,
+                    "framesPerSecond": 20,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "jitter": 0,
+                    "jitterBufferDelay": 1.986827,
+                    "jitterBufferEmittedCount": 284,
+                    "totalDecodeTime": 0.088487,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A1940059275",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 59070,
+                    "packetsSent": 728,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V1958479465",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 274088,
+                    "packetsSent": 320,
+                    "framesEncoded": 91,
+                    "framesPerSecond": 6,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "totalEncodeTime": 0.175,
+                    "qualityLimitationReason": "none",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 382832,
+                    "bytesReceived": 521016
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 14.893181,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 96,
+                "dropped": 2
+              },
+              {
+                "index": 1,
+                "width": 480,
+                "height": 360,
+                "time": 14.255,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 284,
+                "dropped": 10
+              }
+            ],
+            "chatMutations": {
+              "records": 8,
+              "added": 5,
+              "removed": 3
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 56,
+            "framesReceived": 72,
+            "frameBytesSent": 78583,
+            "frameBytesReceived": 86322
+          },
+          "renderer": {
+            "Timestamp": 2243426.422823,
+            "Nodes": 7487,
+            "LayoutDuration": 0.07462,
+            "ScriptDuration": 1.006378,
+            "TaskDuration": 1.633132,
+            "JSHeapUsedSize": 12422788,
+            "JSHeapTotalSize": 19857408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 15023.700000286102,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "connected",
+                "streams": [
+                  {
+                    "series": "0:inbound-rtp:IT01A1940059275",
+                    "direction": "inbound-rtp",
+                    "kind": "audio",
+                    "bytesReceived": 59070,
+                    "packetsReceived": 728,
+                    "packetsLost": 0,
+                    "jitter": 0.002,
+                    "jitterBufferDelay": 22368,
+                    "jitterBufferEmittedCount": 696960,
+                    "totalAudioEnergy": 1.3209892400725294,
+                    "totalSamplesDuration": 14.589999999999733,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:inbound-rtp:IT01V1958479465",
+                    "direction": "inbound-rtp",
+                    "kind": "video",
+                    "bytesReceived": 270435,
+                    "packetsReceived": 309,
+                    "packetsLost": 0,
+                    "framesDecoded": 89,
+                    "framesPerSecond": 7,
+                    "frameWidth": 640,
+                    "frameHeight": 480,
+                    "jitter": 0,
+                    "jitterBufferDelay": 0.18983799999999998,
+                    "jitterBufferEmittedCount": 89,
+                    "totalDecodeTime": 0.062387,
+                    "freezeCount": 0,
+                    "totalFreezesDuration": 0,
+                    "codec": "video/VP8"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01A174091133",
+                    "direction": "outbound-rtp",
+                    "kind": "audio",
+                    "bytesSent": 58439,
+                    "packetsSent": 721,
+                    "codec": "audio/opus"
+                  },
+                  {
+                    "series": "0:outbound-rtp:OT01V3251370717",
+                    "direction": "outbound-rtp",
+                    "kind": "video",
+                    "bytesSent": 399419,
+                    "packetsSent": 526,
+                    "framesEncoded": 284,
+                    "framesPerSecond": 19,
+                    "frameWidth": 480,
+                    "frameHeight": 360,
+                    "totalEncodeTime": 0.327,
+                    "qualityLimitationReason": "bandwidth",
+                    "codec": "video/VP8"
+                  }
+                ],
+                "paths": [
+                  {
+                    "state": "succeeded",
+                    "localType": "host",
+                    "remoteType": "host",
+                    "protocol": "udp",
+                    "relayProtocol": null,
+                    "roundTripSeconds": 0,
+                    "bytesSent": 521016,
+                    "bytesReceived": 382832
+                  }
+                ],
+                "error": null
+              }
+            ],
+            "videos": [
+              {
+                "index": 0,
+                "width": 640,
+                "height": 480,
+                "time": 14.340246,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 286,
+                "dropped": 0
+              },
+              {
+                "index": 1,
+                "width": 640,
+                "height": 480,
+                "time": 14.402,
+                "paused": false,
+                "readyState": 4,
+                "visible": true,
+                "frames": 90,
+                "dropped": 7
+              }
+            ],
+            "chatMutations": {
+              "records": 5,
+              "added": 3,
+              "removed": 2
+            }
+          },
+          "network": {
+            "httpRequests": 10,
+            "httpResponses": 9,
+            "httpFailed": 0,
+            "httpEncodedBytes": 803004,
+            "socketsOpened": 6,
+            "socketsClosed": 4,
+            "framesSent": 45,
+            "framesReceived": 62,
+            "frameBytesSent": 63157,
+            "frameBytesReceived": 86314
+          },
+          "renderer": {
+            "Timestamp": 2243426.424599,
+            "Nodes": 7041,
+            "LayoutDuration": 0.038794,
+            "ScriptDuration": 1.731296,
+            "TaskDuration": 2.256911,
+            "JSHeapUsedSize": 12738228,
+            "JSHeapTotalSize": 20381696
+          }
+        }
+      ]
+    }
+  ],
+  "failure": null,
+  "endedAt": "2026-10-25T08:13:19.306Z",
+  "measurementElapsedMs": 15002,
+  "loadAverageAtEnd": [
+    5.50732421875,
+    5.86279296875,
+    6.1435546875
+  ]
+}

@@ -104,6 +104,24 @@ authority. This is not a distributed exactly-once guarantee for arbitrary extern
 services: the tool driver must obey `start`, persist its external job handles and
 retain normal side-effect approvals.
 
+Browser, Node and Den assignment writers keep their existing roots and locks but
+use a v2 immutable base plus hash-linked delta segments. The base is the exact
+legacy v1 encrypted snapshot. Each delta contains only newly accepted encrypted
+events and, when it changes, the complete bounded encrypted outbox replacement.
+Insertion and outbox acknowledgement therefore commit together. Initial replay
+commits batches of at most 64 events or 1 MiB before exposing them, and live
+updates remain save-before-expose. Ciphertext caching and amortised compaction
+avoid re-encrypting retained records; external legacy adapters retain the
+whole-value fallback.
+
+Den's `DenWorkStore` may implement `remove(key)` for physical segment cleanup.
+Without it, the journal engine uses empty-value tombstones after committed
+compaction, which preserves correctness but postpones reclamation. The generated
+bundle declaration exposes that optional method. Den room roots remain
+`room.<roomId>`; assignment objectives, requests, event IDs and evidence stay
+inside individually encrypted records in base snapshots and delta bodies rather
+than becoming storage keys.
+
 ## Agent integration and recovery
 
 Node 22.13 or later is required; verification uses Node 24. An agent host can

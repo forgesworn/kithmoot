@@ -2,13 +2,15 @@ import { finalizeEvent, getPublicKey, type EventTemplate } from 'nostr-tools/pur
 import { nip44 } from 'nostr-tools'
 import { ProjectDirectory } from '../src/project-directory.js'
 import { RoomAgent } from '../src/agent.js'
+import { createJournalStorage } from '../src/journal-storage.js'
 import { ContextVault } from '../packages/context/src/index.js'
 import { SimRelay, SimTransport } from './sim-relay.js'
 import { largeContextJournal } from './ordinary-capacity-fixture.js'
 import { LEGACY_CONTEXT_CACHES } from './ordinary-journal-legacy-vectors.js'
 
-export const JOURNAL_MODES = ['project-pending', 'project-delivered', 'assignment-pending', 'assignment-overlap',
-  'assignment-delivered', 'context-empty', 'context-one', 'context-large', 'context-fswn1', 'context-wblm1', 'all'] as const
+export const JOURNAL_MODES = ['project-pending', 'project-delivered', 'project-v2-delivered', 'assignment-pending', 'assignment-overlap',
+  'assignment-delivered', 'assignment-v2-pending', 'assignment-v2-overlap', 'assignment-v2-delivered',
+  'context-empty', 'context-one', 'context-large', 'context-fswn1', 'context-wblm1', 'all'] as const
 export type JournalMode = typeof JOURNAL_MODES[number]
 /** Deliberate synthetic signer extension, permitted by current Context event
  * validation: fill an opaque unsigned snapshot field to the exact signed-event
@@ -62,19 +64,26 @@ export async function journalFixture(mode: JournalMode = 'all') {
   let directory: ProjectDirectory | undefined, creator: RoomAgent | undefined, room = '0'.repeat(64)
   try {
     if (mode.startsWith('project-') || mode === 'all') {
-      const cuts: string[] = []
+      const cuts: string[] = [], physical = new Map<string, string>(), root = `kithmoot.shared-projects.v1.${account}`
+      const engine = createJournalStorage(root, {
+        get: async key => physical.get(key), set: async (key, value) => { physical.set(key, value) }, remove: async key => { physical.delete(key) },
+      })
+      const v2 = mode === 'project-v2-delivered'
       directory = new ProjectDirectory({ identity, transport, now: () => 1700000000,
-        storage: { load: async () => undefined, save: async raw => { cuts.push(raw) } } })
+        storage: v2
+          ? { load: () => engine.load(), save: raw => engine.save(raw), loadIncremental: () => engine.loadIncremental(), appendIncremental: delta => engine.appendIncremental(delta) }
+          : { load: async () => undefined, save: async raw => { cuts.push(raw) } } })
       await directory.open()
       await directory.create({ name: 'Private journal fixture', archived: false, authorityRevision: 1, rooms: [],
         members: [{ pubkey: account, kind: 'person', epoch: 1 }] }, 'journal_project_fixture_01')
       for (let i = 0; i < 100 && directory.snapshot().pendingSends; i++) await new Promise(resolve => setTimeout(resolve, 10))
-      if (directory.snapshot().pendingSends || cuts.length !== 2) throw new Error('Actual project writer cuts missing')
-      records.set(`kithmoot.shared-projects.v1.${account}`, cuts[mode === 'project-pending' ? 0 : 1]!)
+      if (directory.snapshot().pendingSends || (!v2 && cuts.length !== 2)) throw new Error('Actual project writer cuts missing')
+      if (v2) for (const [key, value] of physical) records.set(key, value)
+      else records.set(root, cuts[mode === 'project-pending' ? 0 : 1]!)
     }
     if (mode.startsWith('assignment-') || mode === 'all') {
       let fail = false
-      const cuts: string[] = []
+      const cuts: string[] = [], incrementalCuts: Map<string, string>[] = []
       creator = await RoomAgent.create({ base: 'https://ordinary-journal.kithmoot.test/j/', name: 'Synthetic writer', agent: false,
         identity, announceJitterMs: 0, transport: () => {
           const t = new SimTransport(relay), publish = t.publish.bind(t)
@@ -82,13 +91,23 @@ export async function journalFixture(mode: JournalMode = 'all') {
           return t
         } })
       room = creator.session.roomId
-      const log = await creator.session.assignments({ load: async () => undefined, save: async raw => { cuts.push(raw) } })
+      const root = `kithmoot.assignments.v1.${account}.${room}`, physical = new Map<string, string>()
+      const engine = createJournalStorage(root, {
+        get: async key => physical.get(key), set: async (key, value) => { physical.set(key, value) }, remove: async key => { physical.delete(key) },
+      })
+      const incremental = mode.startsWith('assignment-v2-')
+      const log = incremental ? await creator.session.assignments({
+        load: () => engine.load(), save: async raw => { await engine.save(raw); incrementalCuts.push(new Map(physical)) },
+        loadIncremental: () => engine.loadIncremental(), appendIncremental: async delta => { await engine.appendIncremental(delta); incrementalCuts.push(new Map(physical)) },
+      }) : await creator.session.assignments({ load: async () => undefined, save: async raw => { cuts.push(raw) } })
       fail = true
       try { await log.submit(undefined, { op: 'create', objective: 'Private journal', criteria: 'Keep exact bytes', owner: account }, 'journal_assignment_fixture_01') }
       catch (error) { if (!(error instanceof Error) || error.message !== 'Synthetic lost send') throw error }
       fail = false; await log.retry()
-      if (cuts.length !== 3) throw new Error('Actual assignment pending/overlap/ack cuts missing')
-      records.set(`kithmoot.assignments.v1.${account}.${room}`, cuts[mode === 'assignment-pending' ? 0 : mode === 'assignment-overlap' ? 1 : 2]!)
+      if ((incremental ? incrementalCuts.length : cuts.length) !== 3) throw new Error('Actual assignment pending/overlap/ack cuts missing')
+      const cut = mode.endsWith('pending') ? 0 : mode.endsWith('overlap') ? 1 : 2
+      if (incremental) for (const [key, value] of incrementalCuts[cut]!) records.set(key, value)
+      else records.set(root, cuts[cut]!)
     }
     if (mode.startsWith('context-') || mode === 'all') {
       const vault = new ContextVault({ identity, now: () => 1700000000, fetch: async () => { throw new Error('No network') } })
@@ -115,7 +134,7 @@ export function damageJournalFixture(fixture: { account: string; room: string },
   if (fault === 'tab-family') { records.delete(key); records.set('kithmoot.context', raw); return }
   if (fault === 'noncanonical') { records.set(key, raw + ' '); return }
   if (fault === 'duplicate-field') { records.set(key, raw.replace('{', '{"v":1,')); return }
-  if (fault === 'unknown-version') value.v = 2
+  if (fault === 'unknown-version') value.v = 3
   if (fault === 'extra-field') value.repaired = false
   if (fault === 'project-identity' || fault === 'context-identity') value.identity = 'f'.repeat(64)
   if (fault === 'project-key-length') value.key = nip44.v2.encrypt('short', new Uint8Array(32))

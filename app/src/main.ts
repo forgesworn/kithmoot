@@ -2,7 +2,7 @@ import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview
 import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
 import { ParticipantCard } from './participant-card.js'
-import { ChatArtPicker } from './chat-art-picker.js'
+import type { ChatArtPicker } from './chat-art-picker.js'
 import { catalogueArtwork } from './media-catalogue.js'
 import { artworkCards, artworkMessageText } from './chat-artwork.js'
 import { quoteSnippet, replyQuoteOf, type ReplyQuote } from './reply-quote.js'
@@ -62,11 +62,12 @@ import { showMobileRoomView } from './mobile-room-view.js'
 import { callElapsed, dockLabel, switchIntent } from './call-dock.js'
 import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStance, joinDoorOpen, type CallStanceInput } from './call-stance.js'
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
-import { preferredReaction } from './emoji-picker.js'
+import { preferredReaction } from './emoji-preferences.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
-import { REACTION_EMOJIS, reactionsFor, toggleReaction, reactionText } from '../../src/reactions.js'
+import { createReactionIndex, REACTION_EMOJIS, toggleReaction, reactionText } from '../../src/reactions.js'
+import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
@@ -363,10 +364,11 @@ import {
   type VideoEffectState,
 } from '../../src/video-effects.js'
 import { DEFAULT_VOICE_PRESET, type VoicePreset } from '../../src/voice-effects.js'
-import { BACKGROUNDS, CameraPipeline, type BackgroundChoice } from './video-pipeline.js'
+import { BACKGROUNDS, type BackgroundChoice } from './backgrounds.js'
+import type { CameraPipeline } from './video-pipeline.js'
 import { facePrivacyMode } from '../../src/face-privacy.js'
 import type { FacePrivacyState } from './face-privacy.js'
-import { MicPipeline, type MicState } from './voice-pipeline.js'
+import type { MicPipeline, MicState } from './voice-pipeline.js'
 import {
   loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadVoicePreset,
   storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
@@ -381,14 +383,14 @@ import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { captureBarkRendezvous, barkRendezvousFor } from './mls-bark-rendezvous.js'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
-import { ContextPanel } from './context-panel.js'
-import { AssignmentPanel, type BoardSummary } from './assignment-panel.js'
-import { BoardsPanel } from './boards-panel.js'
+import type { ContextPanel } from './context-panel.js'
+import type { AssignmentPanel, BoardSummary } from './assignment-panel.js'
+import type { BoardsPanel } from './boards-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
 import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
 import { closeCataloguesBeforeAccountAdoption, closeFailedRoomWithCatalogues } from './room-board-lifecycle.js'
-import { WorkspaceWorkPanel, workspaceMentions, type WorkspaceObservation } from './workspace-work.js'
+import type { WorkspaceWorkPanel, WorkspaceObservation } from './workspace-work.js'
 import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace-observer.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { credentialSeal } from '../../src/seal.js'
@@ -682,17 +684,36 @@ const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
 const drawingNoticeGate = new DrawingNoticeGate()
 const participantCard = new ParticipantCard(copyMessageText)
 let packGrant: { pubkey: string; until: number } | undefined
-const chatArtPicker = new ChatArtPicker({
-  available: () => !!nostrSession && packGrant?.pubkey === nostrSession.pubkey && packGrant.until > Date.now(),
-  unlock: async () => {
-    const actor = nostrSession
-    if (!actor) throw new Error('Connect your Nostr signer to unlock member packs.')
-    const granted = await unlockCultPack({ pubkey: actor.pubkey, signEvent: unsigned => actor.signer.signEvent(unsigned) })
-    if (nostrSession !== actor) throw new Error('The account changed. Try again.')
-    packGrant = granted ? { pubkey: actor.pubkey, until: Date.now() + 10 * 60_000 } : undefined
-    return granted
-  },
-})
+let chatArtPicker: ChatArtPicker | undefined
+let chatArtPickerLoading: Promise<ChatArtPicker> | undefined
+function loadChatArtPicker(): Promise<ChatArtPicker> {
+  if (chatArtPicker) return Promise.resolve(chatArtPicker)
+  chatArtPickerLoading ??= import('./chat-art-picker.js')
+    .then(({ ChatArtPicker }) => {
+      const picker = new ChatArtPicker({
+        available: () => !!nostrSession && packGrant?.pubkey === nostrSession.pubkey && packGrant.until > Date.now(),
+        unlock: async () => {
+          const actor = nostrSession
+          if (!actor) throw new Error('Connect your Nostr signer to unlock member packs.')
+          const granted = await unlockCultPack({ pubkey: actor.pubkey, signEvent: unsigned => actor.signer.signEvent(unsigned) })
+          if (nostrSession !== actor) throw new Error('The account changed. Try again.')
+          packGrant = granted ? { pubkey: actor.pubkey, until: Date.now() + 10 * 60_000 } : undefined
+          return granted
+        },
+      })
+      chatArtPicker = picker
+      return picker
+    })
+    .catch(error => { chatArtPickerLoading = undefined; throw error })
+  return chatArtPickerLoading
+}
+async function openChatArtReaction(anchor: HTMLElement, react: (emoji: string) => boolean): Promise<void> {
+  const generation = roomGeneration, channel = currentChannel
+  const picker = await loadChatArtPicker()
+  if (roomGeneration !== generation || currentChannel !== channel || !anchor.isConnected) return
+  picker.openReaction(anchor, react)
+}
+
 window.addEventListener('pagehide', () => { shareViewer.close(); floatingSharePreview.close(); desktopShareArea.stop(); browserShare.stop(); shareMarksOverlay.close() })
 let drafts = new ConversationDrafts()
 // Only this tab holds draft text and file keys. Switching rooms retains the
@@ -727,7 +748,7 @@ function closeAllDrafts(): void {
 
 function switchingBlocked(): boolean {
   // A message waiting for a group's storage can wait for days: it does not hold a person in the room. Leaving asks first (`confirmLeavingWaitingMessage`).
-  return joining || roomOperation > 0 || startingDm || assignmentPanel.busy || outbox.blocking || drafts.pending().some(draft => draft.job)
+  return joining || roomOperation > 0 || startingDm || (assignmentPanel?.busy === true) || outbox.blocking || drafts.pending().some(draft => draft.job)
 }
 
 /** Leaving a room with a message waiting for its group's storage loses the message and the files waiting with it: say so, and let the person stay. */
@@ -777,7 +798,7 @@ installUpdates(() => {
 /** `includeWaiting` false leaves out messages waiting for a group's storage, which a person may leave behind after being asked. */
 function hasUnsentWork(includeWaiting = true): boolean {
   captureDraft()
-  return (includeWaiting ? outbox.pending : outbox.blocking) || assignmentPanel.busy || assignmentPanel.hasDrafts || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
+  return (includeWaiting ? outbox.pending : outbox.blocking) || (assignmentPanel?.busy === true) || (assignmentPanel?.hasDrafts === true) || drafts.pending().length > 0 || [...roomDrafts.values()].some(collection => collection.pending().length > 0)
 }
 
 // The relays a new device starts on: three third-party public relays, none run
@@ -1198,8 +1219,15 @@ let loginBusy = false
 
 /** The room this page is in, once a link has been read. Everything a device
  *  keeps is keyed on it; before a room is known there is nothing to keep. */
+const derivedRoomIds = new WeakMap<Uint8Array, string>()
 function currentRoomId(): string | undefined {
-  return (roomSecret as Uint8Array | undefined) ? deriveRoom(roomSecret).roomId : undefined
+  const secret = roomSecret as Uint8Array | undefined
+  if (!secret) return undefined
+  const cached = derivedRoomIds.get(secret)
+  if (cached) return cached
+  const roomId = deriveRoom(secret).roomId
+  derivedRoomIds.set(secret, roomId)
+  return roomId
 }
 
 /** Write the room this page is in down as one this device has been in -
@@ -1642,7 +1670,7 @@ async function reconnectNostr(): Promise<void> {
 
 async function signInWithNostr(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
-    contextPanel.close()
+    closeContextPanel()
     if (loginBusy) return
     if (session || joining) throw new Error('Leave the room before changing your Nostr account.')
     workspaceWork?.reset()
@@ -1710,7 +1738,7 @@ async function signOutOfNostr(): Promise<void> {
     packGrant = undefined
     browserRoomRoutes.pause()
     await browserLinkPanel.stop()
-    contextPanel.close()
+    closeContextPanel()
     if (session || joining) throw new Error('Leave the room before signing out.')
     workspaceWork?.reset()
     await boardsPanel?.reset()
@@ -1812,7 +1840,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     try { forgotten = await privateFileVault.forget(async () => {
     await boardsPanel?.reset()
     await closeRoomBoardCatalogues()
-    contextPanel.close()
+    closeContextPanel()
     await browserLinkPanel.link.forget()
     // As above, avoid creating a vault on a browser that never held one.
     if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
@@ -6471,7 +6499,7 @@ async function toggleMic(): Promise<void> {
   if (switchingRoom) return
   if (!micTrack && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!micTrack) callWanted = true
-  if ([...pendingMedia].some(pipeline => pipeline instanceof MicPipeline)) return
+  if ([...pendingMedia].some(pipeline => 'setPreset' in pipeline)) return
   // An ended output cannot be unmuted. A deliberate press reopens capture.
   if (mic?.state.blocked || micTrack?.readyState === 'ended') {
     micTrack?.removeEventListener('ended', onMicEnded)
@@ -6482,7 +6510,8 @@ async function toggleMic(): Promise<void> {
     updateUi()
   }
   if (!micTrack) {
-    const pipeline = new MicPipeline({
+    const { MicPipeline: MicPipelineCtor } = await import('./voice-pipeline.js')
+    const pipeline = new MicPipelineCtor({
       preset: savedVoicePreset,
       onSourceEnded: () => { if (generation === callGeneration) void recoverCallMedia() },
       onStateChange: (state) => {
@@ -6544,7 +6573,7 @@ async function toggleCamera(): Promise<void> {
   if (switchingRoom) return
   if (!camera && (meetingRefuses() || !await consentToRecordedCall())) return
   if (!camera) callWanted = true
-  if ([...pendingMedia].some(pipeline => pipeline instanceof CameraPipeline)) return
+  if ([...pendingMedia].some(pipeline => 'useCamera' in pipeline)) return
   if (camera) {
     camera.stop()
     camera = undefined
@@ -6559,7 +6588,8 @@ async function toggleCamera(): Promise<void> {
     // people's screens, frozen. See Peer#start.
     publishActiveTracks()
   } else {
-    const pipeline = new CameraPipeline({
+    const { CameraPipeline: CameraPipelineCtor } = await import('./video-pipeline.js')
+    const pipeline = new CameraPipelineCtor({
       mode: savedEffectMode,
       facePrivacy: savedFacePrivacyMode,
       onFacePrivacyChange: state => { if (generation === callGeneration) renderFacePrivacyState(state) },
@@ -6924,6 +6954,10 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
     if (generation !== callGeneration || leftCall || !meetingLetsMeSend()) { for (const track of stream.getTracks()) track.stop(); if (area) desktopShareArea.stop(); browserShare.stop(); return }
     screenTrack = stream.getVideoTracks()[0]
     screenAudioTrack = stream.getAudioTracks()[0]
+    // A share carries text and interfaces, not faces: ask every encoder on
+    // the path for sharpness over motion. The mesh reads the hint when it
+    // budgets the sender (see tuneShareSender in src/peer.ts).
+    if (screenTrack) screenTrack.contentHint = 'detail'
     // An area share already tracks this precisely, reactively, via the
     // frame's own rect (see `wholeDisplay` above, on `desktopShareArea`); a
     // plain share carries the standard hint on the captured track, read
@@ -10369,7 +10403,7 @@ function ingestControl(messages: ChatMessage[]): void {
         const have = catalogues.get(control.host)
         if (have && have.at > m.sentAt) break
         catalogues.set(control.host, { ...control, at: m.sentAt })
-        assignmentPanel.refreshPeople()
+        assignmentPanel?.refreshPeople()
         changed = true
         break
       }
@@ -10549,7 +10583,9 @@ function renderInvites(): void {
           choose.dataset.inviteAction = JSON.stringify([host, entry.id, action.id])
           choose.addEventListener('click', () => {
             const current = session
-            const open = () => { if (current && session === current) assignmentPanel.offerTo(owner, action.id) }
+            const open = () => {
+              if (current && session === current) void withAssignmentPanel(current, panel => panel.offerTo(owner, action.id)).catch(error => setStatus(describeError(error)))
+            }
             const sheet = $('roomSheet') as HTMLDialogElement
             if (sheet.open) { sheet.addEventListener('close', open, { once: true }); sheet.close() }
             else open()
@@ -10793,7 +10829,7 @@ function quietChip(canSend: boolean): HTMLSpanElement {
 const QUIET_MEANING = `Quiet room. Messages ride the gift-wrap stream as dead drops, one every ${slotWords()} at most, and a relay cannot tell whether anything was said, by whom, or when.`
 const QUIET_READ_ONLY = 'This device reads and cannot post: two devices per person can, the one holding the identity and the one it paired.'
 
-function renderChat(messages: ChatMessage[]): void {
+function renderChat(messages: ChatMessage[], allowAppend = false): void {
   // A message on screen no longer needs its pending row.
   if (pendingSends.pending) void pendingSends.arrived(messages.map(message => message.id)).catch(() => setStatus('The message arrived, but this browser could not save its outbox state.'))
   outbox.render()
@@ -10802,7 +10838,7 @@ function renderChat(messages: ChatMessage[]): void {
   // structural work, so the one log has to know which conversation it is
   // showing. See `#chatLog.minutes` in style.css.
   $('chatLog').classList.toggle('minutes', currentChannel === MINUTES_CHANNEL)
-  renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [])
+  renderLog('chatLog', undefined, messages, currentChannel === undefined ? systemLines : [], allowAppend)
   renderEmptyRoom()
   {
     const roster = session?.participants() ?? []
@@ -10931,7 +10967,7 @@ function followNamedConversation(name: string): ReturnType<RoomSession['channel'
       if (session !== owner) return
       const messages = log!.messages()
       channelCounts.set(name, messages.length)
-      if (currentChannel === name) renderChat(messages)
+      if (currentChannel === name) renderChat(messages, true)
       renderChannels()
     }))
   }
@@ -11517,7 +11553,7 @@ function renderComposer(): void {
   $('chatForm').hidden = readOnly
   ;($('chatInput') as HTMLTextAreaElement).readOnly = closed
   ;($('emojiToggle') as HTMLButtonElement).disabled = readOnly || closed
-  if (readOnly || closed) chatArtPicker.close()
+  if (readOnly || closed) chatArtPicker?.close()
   ;($('attachToggle') as HTMLButtonElement).disabled = closed || Boolean(draft.job)
   // A held file does not stop Send where Send is the act (the one-time
   // notice) or where the file can go now. It does where nothing can take it
@@ -11774,9 +11810,9 @@ const lastAnnouncedAt = new Map<string, number>()
 
 /** Read new arrivals from others into `#chatArrivals`, a status region kept
  *  apart from `#chatLog` itself (see C10 in the 13 September accessibility
- *  pass): the log repaints in full on almost every change, and a screen
- *  reader watching the log as its own live region re-announces everything
- *  still on screen along with whatever is actually new. Your own messages
+ *  pass): structural changes still repaint the log, and a screen reader
+ *  watching it as its own live region would re-announce everything still
+ *  on screen along with whatever is actually new. Your own messages
  *  are not announced - you just typed them. */
 function announceArrivals(channelKey: string, conversation: { byKey: Map<string, ResolvedMessage> }): void {
   const previous = lastAnnouncedAt.get(channelKey)
@@ -11860,19 +11896,29 @@ function replyQuoteBlock(quote: ReplyQuote): HTMLElement {
   return button
 }
 
-function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = []): void {
+const renderedChatLogs = new Map<string, ChatRenderSnapshot>()
+
+/** Same-author rows sent close together group under one heading; replies,
+ *  thread replies, retracted rows and transcript lines never do. Shared by
+ *  the painter and the eviction path, which must re-test the row left at
+ *  the head of the log once the rows above it are dropped. */
+function rowGroupsWith(row: HTMLElement, previous: Element | null, resolved: Pick<ResolvedMessage, 'retracted' | 'reply' | 'thread'>): boolean {
+  if (!row.classList.contains('msg') || resolved.retracted || resolved.reply !== undefined || resolved.thread !== undefined) return false
+  if (!(previous instanceof HTMLElement) || !previous.classList.contains('msg') || previous.classList.contains('retracted')) return false
+  const previousAt = Number(previous.dataset.sentAt)
+  const at = Number(row.dataset.sentAt)
+  return previous.dataset.senderGroup === row.dataset.senderGroup && at - previousAt >= 0 &&
+    at - previousAt < 5 * 60 && new Date(at * 1000).toDateString() === new Date(previousAt * 1000).toDateString()
+}
+
+function renderLog(logId: string, countId: string | undefined, messages: ChatMessage[], system: SystemLine[] = [], allowAppend = false): void {
   const log = $(logId)
-  // A receipt or roster update replaces the rows while someone may be
-  // reading a reaction tooltip. Reopen that same message's details using
-  // the new contents and anchor, after scroll restoration has finished.
+  // A full rebuild replaces the rows while someone may be reading a reaction
+  // tooltip. Reopen that same message's details using the new contents and
+  // anchor, after scroll restoration has finished.
   const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
   let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
-  const restoreScroll = chatScroll.before(currentChannel ?? '', unread, !!openReaction)
-  log.innerHTML = ''
-  // What this conversation is, at the top of it, the way a messaging app
-  // puts the thing you should know once at the head of the thread.
-  if (session) log.append(introLines())
   pruneOpenedAttachments(logId, messages)
   wantProfiles(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])), 'room')
 
@@ -11899,10 +11945,33 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   for (const message of messages) if (message.name) agentNames.set(message.participant, message.name)
   for (const view of roster) if (view.name) agentNames.set(view.participant, view.name)
   const writable = channelAvailable(currentChannel) && !(currentChannel && WRITTEN_BY_AGENTS.includes(currentChannel))
+  const ordered = [...conversation.byKey].sort((a, b) => compareMessages(a[1].original, b[1].original))
+  const inOrder = ordered.map(([, resolved]) => resolved)
+  const nextSnapshot: ChatRenderSnapshot = { rawMessages: messages, messageLanes: messages.map(message => message.lane), orderedKeys: ordered.map(([key]) => key), system }
+  const renderPlan = planChatRender(renderedChatLogs.get(logId), nextSnapshot, allowAppend)
+  // The perf harness opts in by defining this before the app loads; the cost
+  // for everyone else is one property lookup per paint.
+  const planStats = (globalThis as { __chatRenderPlans?: { append: number; full: number; reasons: Record<string, number> } }).__chatRenderPlans
+  if (planStats) {
+    if (renderPlan.kind === 'append') planStats.append++
+    else planStats.reasons[renderPlan.reason] = (planStats.reasons[renderPlan.reason] ?? 0) + 1
+  }
+  const appending = renderPlan.kind === 'append'
+  // ChatScroll restores the unread boundary on every paint. An append keeps
+  // the old rows, so retire its old divider before asking it to reconcile.
+  if (appending) for (const divider of log.querySelectorAll('.unreadDivider')) divider.remove()
+  const restoreScroll = chatScroll.before(currentChannel ?? '', unread, !!openReaction)
+  if (!appending) {
+    log.innerHTML = ''
+    // What this conversation is, at the top of it, the way a messaging app
+    // puts the thing you should know once at the head of the thread.
+    if (session) log.append(introLines())
+  }
+  const reactionIndex = createReactionIndex(messages)
 
   // System lines sit in the log where they happened, and look like nothing
   // anybody sent: no name, no key, because nobody did.
-  let nextSystem = 0
+  let nextSystem = appending ? system.length : 0
   const systemUpTo = (at: number): void => {
     // Strictly earlier, not "at or before". A line the page writes about a
     // message - the answer to a typed !minutes - is stamped in the same
@@ -11982,10 +12051,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     row.dataset.sentAt = String(original.sentAt)
     row.dataset.senderGroup = JSON.stringify([original.participant, original.name, original.owner, original.ownerClaim, fromAgent, original.kind])
     const previous = into.lastElementChild as HTMLElement | null
-    const previousAt = Number(previous?.dataset.sentAt)
-    if (!r.retracted && !(r.reply ?? r.thread) && previous?.classList.contains('msg') && !previous.classList.contains('retracted') &&
-      previous.dataset.senderGroup === row.dataset.senderGroup && original.sentAt - previousAt >= 0 &&
-      original.sentAt - previousAt < 5 * 60 && new Date(original.sentAt * 1000).toDateString() === new Date(previousAt * 1000).toDateString()) row.classList.add('continuation')
+    if (rowGroupsWith(row, previous, r)) row.classList.add('continuation')
     // Addressed to the reader, by the field on the wire or by name on a
     // message from before the field existed: the one thing a person scans
     // a busy room for, and exactly what an agent would answer to. Your own
@@ -12069,8 +12135,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       text.replaceChildren()
       const shown = long && !expandedMessages.has(expansionKey) ? messageText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : messageText
       appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
-      paintCustomEmoji(text)
-      if (isCultEmoji(shown.trim()) || isOriginalEmoji(shown.trim())) text.classList.add('cultSticker')
+      const sticker = isCultEmoji(shown.trim()) || isOriginalEmoji(shown.trim())
+      paintCustomEmoji(text, sticker ? 'sticker' : 'inline')
+      if (sticker) text.classList.add('cultSticker')
     }
     paintText()
     text.hidden = !messageText
@@ -12127,7 +12194,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       row.append(status)
       requestStatusUpdates.set(status, update)
     }
-    const reactions = reactionsFor(messages, original)
+    const reactions = reactionIndex.for(original)
     const react = (emoji: string): boolean => {
       const chat = activeChat() ?? session?.chat
       if (!chat || !meParticipant) return false
@@ -12161,11 +12228,16 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       // What a message offers, once, for the panel behind its ⋯ and for the
       // menu a right-click opens: the same actions, the same handlers.
       const messageActionList = (): MessageAction[] => {
+        const channel = currentChannel ?? 'chat'
+        const offer = (summarise: boolean) => {
+          const selected = session
+          void withAssignmentPanel(selected, panel => panel.offerMessage({ id: m.id, participant: m.participant, channel }, summarise)).catch(error => setStatus(describeError(error)))
+        }
         const actions: MessageAction[] = [
           { label: `Reply to ${senderLabel(original)}`, text: 'Reply', run: () => setComposing({ replyTo: original }) },
           { label: 'Copy text', text: 'Copy text', run: () => { void copyMessageText(m.text) } },
-          { label: 'Send as task', text: 'Send as task', run: () => assignmentPanel.offerMessage({ id: m.id, participant: m.participant, channel: currentChannel ?? 'chat' }, false) },
-          { label: 'Summarise this', text: 'Summarise this', run: () => assignmentPanel.offerMessage({ id: m.id, participant: m.participant, channel: currentChannel ?? 'chat' }, true) },
+          { label: 'Send as task', text: 'Send as task', run: () => offer(false) },
+          { label: 'Summarise this', text: 'Summarise this', run: () => offer(true) },
         ]
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
@@ -12177,7 +12249,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const emoji = preferredReaction(base)
         const mineToo = reactions.get(emoji)?.some(entry => entry.reaction!.active && entry.participant === meParticipant)
         return { label: `${mineToo ? 'Remove' : 'Add'} ${emoji} reaction`, text: emoji, pressed: mineToo, run: () => react(emoji) }
-      }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => chatArtPicker.openReaction(anchor, react) }])
+      }).concat([{ label: 'More emoji reactions', text: '+', pressed: false, run: () => { void openChatArtReaction(anchor, react).catch(error => setStatus(describeError(error))) } }])
       const openActions = (anchor: HTMLElement, reactionsOnly = false): void => {
         messageActions.open(anchor, reactionsOnly ? [] : messageActionList(), reactionChoices(anchor))
       }
@@ -12297,14 +12369,35 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   }
 
   // Every message in time order, replies among them wherever their original
-  // is: the quote inside a reply says what it answers.
-  const inOrder = [...conversation.byKey.values()].sort((a, b) => compareMessages(a.original, b.original))
-  for (const r of inOrder) paint(r, log)
+  // is: the quote inside a reply says what it answers. A validated append
+  // paints only the resolved suffix and leaves the existing rows alone; when
+  // the retention cap has dropped leading messages, their rows go too and the
+  // row left at the head re-tests its sender grouping against its new
+  // previous sibling.
+  if (renderPlan.kind === 'append' && renderPlan.evicted > 0) {
+    let dropped = 0
+    for (const child of Array.from(log.children)) {
+      if (dropped >= renderPlan.evicted) break
+      if (child instanceof HTMLElement && 'messageId' in child.dataset) {
+        child.remove()
+        dropped++
+      }
+    }
+    const head = log.querySelector<HTMLElement>(':scope > [data-message-id]')
+    if (head) {
+      head.classList.remove('continuation')
+      const resolved = inOrder[0]
+      if (resolved && rowGroupsWith(head, head.previousElementSibling, resolved)) head.classList.add('continuation')
+    }
+  }
+  const rows = renderPlan.kind === 'append' ? inOrder.slice(renderPlan.resolvedStart) : inOrder
+  for (const r of rows) paint(r, log)
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
   restoreScroll()
   messageActions.refresh()
-  restoreReaction?.()
+  if (!appending) restoreReaction?.()
+  renderedChatLogs.set(logId, { rawMessages: [...messages], messageLanes: nextSnapshot.messageLanes, orderedKeys: nextSnapshot.orderedKeys, system: [...system] })
   if (logId === 'chatLog') announceArrivals(currentChannel ?? '', conversation)
 }
 
@@ -13892,7 +13985,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       // is repainted with its own roster.
       if (isDocked) { repaint(); return }
       announceComings(views, meParticipant)
-      assignmentPanel.refreshPeople()
+      assignmentPanel?.refreshPeople()
       render(views, meParticipant)
       renderInvites()
       renderHost()
@@ -14033,7 +14126,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // A reply draft reads its original message from the new session. Its
     // logs must exist before restoring that context.
     selectRoomDrafts()
-    void assignmentPanel.attach(s)
+    void attachAssignmentPanel(s).catch(error => { if (session === s) setStatus(describeError(error)) })
     iceRefreshTimer = setInterval(refreshIce, ICE_REFRESH_MS)
     scheduleConferenceEnd(s)
     if (!chatOnly) s.publishTracks(activeTracks(), { audience })
@@ -14058,7 +14151,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       // Only when the main chat is the conversation on screen. Repainting
       // regardless put the main chat under whichever tab was selected and
       // left the tab lit, so the page said one thing and showed another.
-      if (currentChannel === undefined) renderChat(messages)
+      if (currentChannel === undefined) renderChat(messages, true)
       // The dot on the Chat tab is how somebody standing elsewhere learns
       // there is something to come back to.
       renderChannels()
@@ -14082,14 +14175,14 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const followChannel = (name: string, notify?: (messages: ChatMessage[]) => void): void => {
       const log = s.channel(name)
       channelLogs.set(name, log)
-      const arrived = (messages: ChatMessage[]): void => {
+      const arrived = (messages: ChatMessage[], allowAppend = false): void => {
         if (session !== s) return
         channelCounts.set(name, messages.length)
         notify?.(messages)
-        if (currentChannel === name) renderChat(messages)
+        if (currentChannel === name) renderChat(messages, allowAppend)
         renderChannels()
       }
-      log.onChange(arrived)
+      log.onChange(messages => arrived(messages, true))
       arrived(log.messages())
     }
     followChannel(AGENT_CHANNEL, notifier.follow({ roomId: joinedRoomId, channel: 'agents', room: roomLabelNow, sender: senderLabel, roster: () => s.participants(), direct: () => dmPeer(roomPolicy, meParticipant) !== undefined }))
@@ -14312,6 +14405,14 @@ $('chatLog').addEventListener('scroll', () => {
 // ---------------------------------------------------------------------------
 
 const roomWatches = new Map<string, { pool: ManagedRelayPool; watch: RoomWatch }>()
+let watchRoomsTimer: ReturnType<typeof setTimeout> | undefined
+function scheduleWatchRoomsRender(): void {
+  if (watchRoomsTimer !== undefined) return
+  watchRoomsTimer = setTimeout(() => {
+    watchRoomsTimer = undefined
+    renderRooms()
+  }, CHAT_PAINT_COALESCE_MS)
+}
 let workspaceWork: WorkspaceWorkPanel | undefined
 let boardsPanel: BoardsPanel | undefined
 const roomBoards = new Map<RoomSession, RoomBoards>()
@@ -14452,7 +14553,7 @@ function watchKnownRoom(room: KnownRoom): void {
       // The name first, so the redraw below shows it.
       followName()
       followLogo()
-      renderRooms()
+      scheduleWatchRoomsRender()
       notify(watch.messages())
     },
   })
@@ -14539,7 +14640,12 @@ function roomHasMention(room: KnownRoom): boolean {
   const self = meParticipant || currentParticipant() || ''
   if (!watched?.watch.readsChat || !self) return false
   const roster = [...watched.watch.present(), { participant: self, name: joiningName() }]
-  return workspaceMentions(watched.watch.messages(), self, room, roster).length > 0
+  return [...resolveConversation(watched.watch.messages()).byKey.values()].some(message => {
+    const shown = message.shown, original = message.original
+    if (message.retracted || classifyMessage(shown, self, roster) !== 'person') return false
+    if (original.sentAt < room.readAt || (original.sentAt === room.readAt && room.readIds?.includes(original.id))) return false
+    return shown.reply?.participant === self || mentionedBy(shown, self, roster)
+  })
 }
 
 /** Private conversations somebody has asked this account for, shown above
@@ -15362,7 +15468,12 @@ function openLocalGroupEditor(room: KnownRoom, opener: HTMLElement): void {
 /** Everything that draws from what the app knows of its rooms: the list, its
  *  counts, the rail. One list now, so one renderer; callers that said
  *  "workspace" before still mean this. */
+let workspaceDraftState: { hasWork: boolean; blocked: boolean } | undefined
+function currentWorkspaceDraftState(): { hasWork: boolean; blocked: boolean } {
+  return { hasWork: draftHasWork(drafts.get(currentChannel)), blocked: switchingBlocked() }
+}
 function renderWorkspace(): void {
+  workspaceDraftState = currentWorkspaceDraftState()
   renderRooms()
 }
 
@@ -15573,11 +15684,11 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}):
   sessionTransport = undefined
   resetIncomingCall()
   quietTransport = undefined
-  assignmentPanel.detach()
-  contextPanel.close()
+  detachAssignmentPanel()
+  closeContextPanel()
   messageActions.close(false)
   conversationSearch.reset()
-  chatArtPicker.close()
+  chatArtPicker?.close()
   participantCard.close()
   if (!keepCall) {
     shareViewer.endCall()
@@ -15714,6 +15825,7 @@ function resetRoomState(): void {
   drafts = new ConversationDrafts()
   restoreDraft()
   chatScroll.suspend()
+  renderedChatLogs.clear()
   $('chatLog').replaceChildren()
   $('conversationHeading').textContent = 'Chat'
   ;($('chatInput') as HTMLTextAreaElement).placeholder = 'Say something'
@@ -15775,7 +15887,7 @@ function resumeDockedCall(): void {
   renderIdentity()
   serveCurrentInvitation()
   selectRoomDrafts()
-  void assignmentPanel.attach(s)
+  void attachAssignmentPanel(s).catch(error => { if (session === s) setStatus(describeError(error)) })
   followReadPositions(s.roomId, deriveRoom(roomSecret).roomKey, s.endsAt)
   // What arrived while the call was docked: the logs kept listening, and
   // only the screen stopped following them.
@@ -16503,6 +16615,11 @@ installCallShortcuts(document, window, {
   toggleCamera: cameraToggleFromShortcut,
   micMuted: () => !micTrack?.enabled,
 })
+// Diagnostics for tests and support: the local camera pipeline's own counters.
+Object.defineProperty(window, 'kithmootCameraDiagnostics', {
+  configurable: true,
+  get: () => camera?.stats ?? null,
+})
 /** Back to the list, below 900 px where the list and the room do not share
  *  the screen. The room stays open behind it, call and drafts and all. */
 function backToList(): void {
@@ -16708,8 +16825,9 @@ function addAnAgent(): void {
  *  the room's board panel opens so the first board is one step away; otherwise
  *  the tasks form opens. */
 function newTask(): void {
-  if (nostrSession?.signer.nip44 && boardsPanel && !boardTab()) openRoomBoard($('roomMenu'))
-  else assignmentPanel.newTask()
+  if (nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
+  const selected = session
+  void withAssignmentPanel(selected, panel => panel.newTask()).catch(error => setStatus(describeError(error)))
 }
 
 function renderRoomMenu(): void {
@@ -17211,15 +17329,66 @@ function linkSignetContacts(opener: HTMLElement): void {
   })
 }
 
-const assignmentPanel = new AssignmentPanel(document, () => {
-  return (session?.participants() ?? []).map(p => {
-    const actions = [...catalogues.values()].flatMap(c => c.agents.filter(a => c.running.some(r => r.id === a.id && r.participant === p.participant)).flatMap(a => a.actions ?? []))
-    return { pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true, actions,
-      ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
-  })
-}, refreshRoomNavigation)
-assignmentPanel.opener = () => $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
-assignmentPanel.onSummary = () => { assignmentSummary = assignmentPanel.summary; renderConversationNav() }
+let browserAssignmentStorage!: typeof import('./assignment-panel.js').browserAssignmentStorage
+let assignmentPanelModuleLoading: Promise<typeof import('./assignment-panel.js')> | undefined
+function loadAssignmentPanelModule(): Promise<typeof import('./assignment-panel.js')> {
+  assignmentPanelModuleLoading ??= import('./assignment-panel.js')
+    .then(module => {
+      browserAssignmentStorage = module.browserAssignmentStorage
+      return module
+    })
+    .catch(error => { assignmentPanelModuleLoading = undefined; throw error })
+  return assignmentPanelModuleLoading
+}
+let assignmentPanel: AssignmentPanel | undefined
+let assignmentPanelLoading: Promise<AssignmentPanel> | undefined
+function loadAssignmentPanel(): Promise<AssignmentPanel> {
+  if (assignmentPanel) return Promise.resolve(assignmentPanel)
+  assignmentPanelLoading ??= loadAssignmentPanelModule()
+    .then(({ AssignmentPanel }) => {
+      const panel = new AssignmentPanel(document, () => {
+        return (session?.participants() ?? []).map(p => {
+          const actions = [...catalogues.values()].flatMap(c => c.agents.filter(a => c.running.some(r => r.id === a.id && r.participant === p.participant)).flatMap(a => a.actions ?? []))
+          return { pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true, actions,
+            ...(p.agent && p.devices.length ? { ownerDevice: [...p.devices].sort()[0] } : {}) }
+        })
+      }, refreshRoomNavigation)
+      panel.opener = () => $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
+      panel.onSummary = () => { assignmentSummary = panel.summary; renderConversationNav() }
+      assignmentPanel = panel
+      return panel
+    })
+    .catch(error => { assignmentPanelLoading = undefined; throw error })
+  return assignmentPanelLoading
+}
+let assignmentAttachSession: RoomSession | undefined
+let assignmentAttachPromise: Promise<void> | undefined
+async function attachAssignmentPanel(selected: RoomSession | undefined): Promise<AssignmentPanel | undefined> {
+  if (!selected) return undefined
+  const generation = roomGeneration, identity = identityGeneration
+  const panel = await loadAssignmentPanel()
+  if (session !== selected || roomGeneration !== generation || identityGeneration !== identity) return undefined
+  if (assignmentAttachSession !== selected || !assignmentAttachPromise) {
+    assignmentAttachSession = selected
+    assignmentAttachPromise = panel.attach(selected)
+  }
+  const attaching = assignmentAttachPromise
+  try { await attaching }
+  catch (error) {
+    if (assignmentAttachPromise === attaching) { assignmentAttachPromise = undefined; assignmentAttachSession = undefined }
+    throw error
+  }
+  return session === selected && roomGeneration === generation && identityGeneration === identity ? panel : undefined
+}
+function detachAssignmentPanel(): void {
+  assignmentAttachSession = assignmentAttachPromise = undefined
+  assignmentPanel?.detach()
+}
+async function withAssignmentPanel(selected: RoomSession | undefined, action: (panel: AssignmentPanel) => void): Promise<void> {
+  const panel = await attachAssignmentPanel(selected)
+  if (!panel || session !== selected) return
+  action(panel)
+}
 
 function workspaceActivityRooms(): KnownRoom[] {
   return navigationRooms().filter(room => {
@@ -17248,10 +17417,11 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   const root = deriveRoom(secret)
   if (root.roomId !== room.roomId) return 'The saved admission does not open this room.'
   const pool = relayConnections.pool(`room:${room.roomId}`, link.relays)
+  const assignmentJournal = browserAssignmentStorage(`kithmoot.assignments.v1.${account}.${room.roomId}`, localStorage)
   return observeWorkspaceActivity({ ...root, participant: account, name: joiningName() ?? '', transport: pool, policy: link.policy,
     epoch: loadRoomEpoch(room.roomId), authority: link.invitation ? invitationAuthority(link.invitation) : undefined,
     deviceSk: loadDeviceKeyFor(credentialStore, room.roomId), sealSks: () => loadOwnSealKeysFor(credentialStore, room.roomId).reverse(),
-    loadJournal: async () => localStorage.getItem(`kithmoot.assignments.v1.${account}.${room.roomId}`) ?? undefined,
+    journal: { load: () => assignmentJournal.load(), loadIncremental: () => assignmentJournal.loadIncremental() },
     isBlocked: contactIsBlocked, valid, changed, now: nowSeconds,
     onEpoch: moved => keepWatchedRekey(room.roomId, secret, moved),
     onClosed: destruct => {
@@ -17262,126 +17432,213 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   })
 }
 
-boardsPanel = new BoardsPanel(document, {
-  session: () => nostrSession ?? undefined,
-  contexts: async (account,current) => legacyBoardContextCustody(deviceStore,account.pubkey,current),
-  projects: () => projectChoices(workspaceActivityRooms()).map(p => ({id: p.key, name: p.name})),
-  rooms: project => workspaceActivityRooms().filter(room => !project || matchesRoom(room, '', project)).map(room => ({id: room.roomId, name: knownRoomLabel(room)})),
-  currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
-  currentProject: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); const choice = room && projectChoices([room]).find(p => !roomProjectContext || p.key === roomProjectContext); return choice ? {id: choice.key, name: choice.name} : undefined},
-  signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
-  showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
-  roomTasks: from => { openDestination('boards'); workspaceWork?.open('work', from) },
-  roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
-  agentRoom: async id => {
-    const account = nostrSession
-    if (!account) throw new Error('Sign in before assigning a card')
-    const linked = workspaceActivityRooms().find(room => room.roomId === id)
-    if (!linked || !boardAgentRoomCurrent(linked, id, linked.link)) throw new Error('This board’s linked chat is no longer available')
-    const selectedLink = linked.link
-    if (session?.roomId !== id) await switchRoom(linked)
-    const selected = session
-    if (nostrSession !== account || !selected || selected.roomId !== id || selected.participant !== account.pubkey) throw new Error('Complete admission in this board’s linked chat before assigning a card')
-    const current = () => {
-      const room = workspaceActivityRooms().find(room => room.roomId === id)
-      return nostrSession === account && session === selected && selected.participant === account.pubkey && boardAgentRoomCurrent(room, id, selectedLink)
-    }
-    // Joining starts the existing journal reader asynchronously. Wait for its
-    // real history, never create a second writer for an embedded view.
-    const deadline = Date.now() + 15_000
-    while (current()) {
-      try {return borrowBoardAgentRoom(selected, assignmentPanel.logFor(selected), current, currentRoomLabel())}
-      catch (error) {if (Date.now() >= deadline) throw error}
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    throw new Error('Your account or this board’s linked chat changed')
-  },
-  roomBoards: id => {
-    const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
-    return s ? roomBoards.get(s)?.boards ?? [] : []
-  },
-  shareBoard: async (room, board) => {
-    const s = session?.roomId === room.id ? session : dockedCall?.session.roomId === room.id ? dockedCall.session : undefined
-    if (!s || nostrSession?.pubkey !== s.participant) throw new Error(`Open ${room.name} and join the chat before sharing this board.`)
-    const boards = roomBoards.get(s)
-    if (!boards) throw new Error('Sign in with an encrypting Nostr signer before sharing the board.')
-    await boards.share(board)
-  },
-  discuss: async (context, card) => {
-    const account = nostrSession?.pubkey, room = workspaceActivityRooms().find(room => room.roomId === context.room?.id)
-    if (!account || !room) throw new Error('Use this board’s labels to choose an admitted chat before discussing a card.')
-    await switchRoom(room)
-    if (nostrSession?.pubkey !== account || !session || session.participant !== account || currentRoomId() !== room.roomId) throw new Error('Complete admission in the linked chat before sharing a card.')
-    selectChannel(undefined); showMobileRoomView('chat')
-    const input = $('chatInput') as HTMLTextAreaElement
-    if (input.value.trim()) throw new Error('Your chat draft is still here. Send or save it before adding this card.')
-    const url = new URL('girnel/embedded/index.html', new URL(import.meta.env.BASE_URL, location.origin)); url.hash = `#/b/${context.boardId}/c/${card.id}`
-    input.value = `${card.title}\n${url.href}`
-    input.dispatchEvent(new Event('input', {bubbles: true})); input.focus()
-    setStatus(`Card title and link added to your draft in ${knownRoomLabel(room)}. Review it before sending to the room.`)
-  },
-})
+let boardsPanelLoading: Promise<BoardsPanel> | undefined
+function loadBoardsPanel(): Promise<BoardsPanel> {
+  if (boardsPanel) return Promise.resolve(boardsPanel)
+  boardsPanelLoading ??= import('./boards-panel.js')
+    .then(({ BoardsPanel }) => {
+      const panel = new BoardsPanel(document, {
+        session: () => nostrSession ?? undefined,
+        contexts: async (account,current) => legacyBoardContextCustody(deviceStore,account.pubkey,current),
+        projects: () => projectChoices(workspaceActivityRooms()).map(p => ({id: p.key, name: p.name})),
+        rooms: project => workspaceActivityRooms().filter(room => !project || matchesRoom(room, '', project)).map(room => ({id: room.roomId, name: knownRoomLabel(room)})),
+        currentRoom: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); return room ? {id: room.roomId, name: knownRoomLabel(room)} : undefined},
+        currentProject: () => {const room = workspaceActivityRooms().find(room => room.roomId === currentRoomId()); const choice = room && projectChoices([room]).find(p => !roomProjectContext || p.key === roomProjectContext); return choice ? {id: choice.key, name: choice.name} : undefined},
+        signIn: () => {void signInWithNostr().catch(error => setStatus(describeError(error)))},
+        showChat: () => {if (session) {showMobileRoomView('chat'); const drawer = document.getElementById('chatDrawerToggle'); if (drawer?.getAttribute('aria-expanded') === 'false') drawer.click()}},
+        roomTasks: from => { openDestination('boards'); void openWorkspaceWork('work', from).catch(error => setStatus(describeError(error))) },
+        roomInvitation: id => workspaceActivityRooms().find(room => room.roomId === id)?.link,
+        agentRoom: async id => {
+          const account = nostrSession
+          if (!account) throw new Error('Sign in before assigning a card')
+          const linked = workspaceActivityRooms().find(room => room.roomId === id)
+          if (!linked || !boardAgentRoomCurrent(linked, id, linked.link)) throw new Error('This board’s linked chat is no longer available')
+          const selectedLink = linked.link
+          if (session?.roomId !== id) await switchRoom(linked)
+          const selected = session
+          if (nostrSession !== account || !selected || selected.roomId !== id || selected.participant !== account.pubkey) throw new Error('Complete admission in this board’s linked chat before assigning a card')
+          const current = () => {
+            const room = workspaceActivityRooms().find(room => room.roomId === id)
+            return nostrSession === account && session === selected && selected.participant === account.pubkey && boardAgentRoomCurrent(room, id, selectedLink)
+          }
+          const assignments = await attachAssignmentPanel(selected)
+          if (!assignments || !current()) throw new Error('Your account or this board’s linked chat changed')
+          // Joining starts the existing journal reader asynchronously. Wait for its
+          // real history, never create a second writer for an embedded view.
+          const deadline = Date.now() + 15_000
+          while (current()) {
+            try {return borrowBoardAgentRoom(selected, assignments.logFor(selected), current, currentRoomLabel())}
+            catch (error) {if (Date.now() >= deadline) throw error}
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          throw new Error('Your account or this board’s linked chat changed')
+        },
+        roomBoards: id => {
+          const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
+          return s ? roomBoards.get(s)?.boards ?? [] : []
+        },
+        shareBoard: async (room, board) => {
+          const s = session?.roomId === room.id ? session : dockedCall?.session.roomId === room.id ? dockedCall.session : undefined
+          if (!s || nostrSession?.pubkey !== s.participant) throw new Error(`Open ${room.name} and join the chat before sharing this board.`)
+          const boards = roomBoards.get(s)
+          if (!boards) throw new Error('Sign in with an encrypting Nostr signer before sharing the board.')
+          await boards.share(board)
+        },
+        discuss: async (context, card) => {
+          const account = nostrSession?.pubkey, room = workspaceActivityRooms().find(room => room.roomId === context.room?.id)
+          if (!account || !room) throw new Error('Use this board’s labels to choose an admitted chat before discussing a card.')
+          await switchRoom(room)
+          if (nostrSession?.pubkey !== account || !session || session.participant !== account || currentRoomId() !== room.roomId) throw new Error('Complete admission in the linked chat before sharing a card.')
+          selectChannel(undefined); showMobileRoomView('chat')
+          const input = $('chatInput') as HTMLTextAreaElement
+          if (input.value.trim()) throw new Error('Your chat draft is still here. Send or save it before adding this card.')
+          const url = new URL('girnel/embedded/index.html', new URL(import.meta.env.BASE_URL, location.origin)); url.hash = `#/b/${context.boardId}/c/${card.id}`
+          input.value = `${card.title}\n${url.href}`
+          input.dispatchEvent(new Event('input', {bubbles: true})); input.focus()
+          setStatus(`Card title and link added to your draft in ${knownRoomLabel(room)}. Review it before sending to the room.`)
+        },
+      })
+      // The tab is drawn again whenever the conversations are, so focus is put
+      // back on whichever Board tab is there now.
+      panel.dialog.addEventListener('close', () => {
+        const active = document.activeElement
+        if (!active || active === document.body) $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
+      })
+      boardsPanel = panel
+      return panel
+    })
+    .catch(error => { boardsPanelLoading = undefined; throw error })
+  return boardsPanelLoading
+}
+// Construct at startup, not at first click: a girnel iframe opened early (the
+// join prompt on another device's board) expects the host bridge and its
+// sync loop to already exist, and lazily loading the panel races that. The
+// chunk is thin UI glue - the board itself stays in its iframe.
+void loadBoardsPanel()
+function openBoardsPanel(from: HTMLElement): void {
+  const identity = identityGeneration, account = nostrSession
+  void loadBoardsPanel().then(panel => {
+    if (identity !== identityGeneration || account !== nostrSession) return
+    panel.open(from.isConnected ? from : $('railBoards'))
+  }).catch(error => setStatus(describeError(error)))
+}
 {
   const button = $('workspaceBoardsOpen')
   button.setAttribute('aria-controls', 'boardsPanel')
-  button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); boardsPanel!.open(button)}, {capture: true})
+  button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); openBoardsPanel(button)}, {capture: true})
 }
 /** The room's board, opened from its tab (or anything standing in for it). */
 function openRoomBoard(from: HTMLElement): void {
   closeRoomSheet()
-  boardsPanel!.open(from)
+  const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
+  if (!selected) return
+  void loadBoardsPanel().then(panel => {
+    if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
+    const opener = from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
+    panel.open(opener)
+  }).catch(error => setStatus(describeError(error)))
 }
-// The tab is drawn again whenever the conversations are, so focus is put back
-// on whichever Board tab is there now.
-$('boardsPanel').addEventListener('close', () => {
-  const active = document.activeElement
-  if (!active || active === document.body) $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
-})
+let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
+function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
+  if (workspaceWork) return Promise.resolve(workspaceWork)
+  workspaceWorkLoading ??= Promise.all([import('./workspace-work.js'), loadAssignmentPanelModule()])
+    .then(([{ WorkspaceWorkPanel }]) => {
+      const panel = new WorkspaceWorkPanel(document, {
+        account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
+        projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
+        projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
+        agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
+        currentRoomTasks: {available: () => !!session, open: async () => {
+          const selected = session
+          if (!selected) throw new Error('Open a chat before viewing its tasks')
+          showRoomPane()
+          // Focus comes back to the room's own Boards control when the panel closes.
+          $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
+          const assignments = await attachAssignmentPanel(selected)
+          if (!assignments || session !== selected) return
+          await assignments.openAssignment()
+        }},
+        signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
+        openOrigin: async (room, target) => {
+          const account = nostrSession?.pubkey, generation = identityGeneration
+          await switchRoom(room)
+          if (account !== nostrSession?.pubkey || generation !== identityGeneration) throw new Error('Your account changed while opening the room.')
+          if (!session || currentRoomId() !== room.roomId) throw new Error('Complete admission in the originating room before viewing this item.')
+          if ('assignment' in target) {
+            const selected = session
+            const assignments = await attachAssignmentPanel(selected)
+            if (!assignments || session !== selected || account !== nostrSession?.pubkey || generation !== identityGeneration || currentRoomId() !== room.roomId) return
+            await assignments.openAssignment(target.assignment || undefined)
+            return
+          }
+          selectChannel(undefined); showMobileRoomView('chat')
+          for (let i = 0; i < 100; i++) {
+            if (account !== nostrSession?.pubkey || generation !== identityGeneration || currentRoomId() !== room.roomId) return
+            const row = [...$('chatLog').querySelectorAll<HTMLElement>('[data-message-id]')].find(el => el.dataset.messageId === target.message.messageId && el.dataset.messageAuthor === target.message.participant)
+            if (row) { row.tabIndex = -1; row.scrollIntoView({ block: 'center' }); row.focus({ preventScroll: true }); return }
+            await new Promise(resolve => setTimeout(resolve, 100))
+          }
+          setStatus('The message is outside the room history currently available. Search or restore older history in this room.')
+        },
+      })
+      workspaceWork = panel
+      return panel
+    })
+    .catch(error => { workspaceWorkLoading = undefined; throw error })
+  return workspaceWorkLoading
+}
+async function showWorkspaceWork(from: HTMLElement): Promise<void> {
+  const identity = identityGeneration, account = nostrSession
+  const panel = await loadWorkspaceWorkPanel()
+  if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
+  panel.show(from.isConnected ? from : $('railBoards'))
+}
+async function openWorkspaceWork(mode: 'inbox' | 'work', from: HTMLElement): Promise<void> {
+  const identity = identityGeneration, account = nostrSession
+  const panel = await loadWorkspaceWorkPanel()
+  if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
+  panel.open(mode, from.isConnected ? from : $('railBoards'))
+}
 // Boards is a destination: the panel of what needs you and what is on the
 // boards sits in the main pane, and is open for as long as it is showing.
 document.addEventListener('shell:destination', event => {
   const destination = (event as CustomEvent<{ destination: string }>).detail.destination
-  if (destination === 'boards') workspaceWork?.show($('railBoards'))
+  if (destination === 'boards') void showWorkspaceWork($('railBoards')).catch(error => setStatus(describeError(error)))
   else if (destination !== 'settings') workspaceWork?.hide()
 })
 
-workspaceWork = new WorkspaceWorkPanel(document, {
-  account: () => nostrSession?.pubkey, rooms: workspaceActivityRooms, label: knownRoomLabel,
-  projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
-  projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
-  agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
-  currentRoomTasks: {available: () => !!session, open: async () => {
-    if (!session) throw new Error('Open a chat before viewing its tasks')
-    showRoomPane()
-    // Focus comes back to the room's own Boards control when the panel closes.
-    $('conversationNav').querySelector<HTMLElement>('button[data-board]')?.focus({ preventScroll: true })
-    await assignmentPanel.openAssignment()
-  }},
-  signIn: () => { void signInWithNostr().catch(error => setStatus(describeError(error))) },
-  openOrigin: async (room, target) => {
-    const account = nostrSession?.pubkey, generation = identityGeneration
-    await switchRoom(room)
-    if (account !== nostrSession?.pubkey || generation !== identityGeneration) throw new Error('Your account changed while opening the room.')
-    if (!session || currentRoomId() !== room.roomId) throw new Error('Complete admission in the originating room before viewing this item.')
-    if ('assignment' in target) { await assignmentPanel.openAssignment(target.assignment || undefined); return }
-    selectChannel(undefined); showMobileRoomView('chat')
-    for (let i = 0; i < 100; i++) {
-      if (account !== nostrSession?.pubkey || generation !== identityGeneration || currentRoomId() !== room.roomId) return
-      const row = [...$('chatLog').querySelectorAll<HTMLElement>('[data-message-id]')].find(el => el.dataset.messageId === target.message.messageId && el.dataset.messageAuthor === target.message.participant)
-      if (row) { row.tabIndex = -1; row.scrollIntoView({ block: 'center' }); row.focus({ preventScroll: true }); return }
-      await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    setStatus('The message is outside the room history currently available. Search or restore older history in this room.')
-  },
-})
-
-const contextPanel = new ContextPanel(document, {
-  identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
-  room: currentRoomId,
-  server: blossomServer,
-  members: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, name: p.name ?? shortKey(p.participant), agent: p.agent === true, proof: session?.agentOwnership(p.participant) })),
-})
-$('openContext').addEventListener('click', () => { closeRoomSheet(); void contextPanel.open() })
+let contextPanel: ContextPanel | undefined
+let contextPanelLoading: Promise<ContextPanel> | undefined
+let contextOpenGeneration = 0
+function loadContextPanel(): Promise<ContextPanel> {
+  if (contextPanel) return Promise.resolve(contextPanel)
+  contextPanelLoading ??= import('./context-panel.js')
+    .then(({ ContextPanel }) => {
+      const panel = new ContextPanel(document, {
+        identity: () => { const crypt = peerCrypt(); if (!crypt) return undefined; const identity = currentIdentity(); return { pubkey: identity.pubkey, signEvent: event => identity.signEvent(event), ...crypt } },
+        room: currentRoomId,
+        server: blossomServer,
+        members: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, name: p.name ?? shortKey(p.participant), agent: p.agent === true, proof: session?.agentOwnership(p.participant) })),
+      })
+      contextPanel = panel
+      return panel
+    })
+    .catch(error => { contextPanelLoading = undefined; throw error })
+  return contextPanelLoading
+}
+function closeContextPanel(): void {
+  contextOpenGeneration++
+  contextPanel?.close()
+}
+async function openContextPanel(): Promise<void> {
+  const request = ++contextOpenGeneration
+  const generation = roomGeneration, identity = identityGeneration, account = nostrSession, selected = session, roomId = currentRoomId()
+  const panel = await loadContextPanel()
+  if (request !== contextOpenGeneration || generation !== roomGeneration || identity !== identityGeneration ||
+      account !== nostrSession || selected !== session || roomId !== currentRoomId()) return
+  await panel.open()
+}
+$('openContext').addEventListener('click', () => { closeRoomSheet(); void openContextPanel().catch(error => setStatus(describeError(error))) })
 $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
 let profileReturnFocus: HTMLElement = $('roomMenu')
 function openProfileSettings(from: HTMLElement): void {
@@ -17675,7 +17932,7 @@ $('leaveCall').addEventListener('click', () => {
   leaveCall().catch((err) => setStatus(describeError(err)))
 })
 $('listenHere').addEventListener('click', () => {
-  try { monitorClaimedAt = session?.nextRoleClaim('monitor') ?? nowSeconds() }
+  try { monitorClaimedAt = mediaSession()?.nextRoleClaim('monitor') ?? nowSeconds() }
   catch (error) { setStatus(describeError(error)); return }
   besideAnotherDevice = false
   publishActiveTracks()
@@ -19290,7 +19547,7 @@ $('voicePresets').addEventListener('click', (event) => {
   if (!preset) return
   savedVoicePreset = preset
   storeVoicePreset(deviceStore, preset)
-  const pipeline = mic ?? [...pendingMedia].find((pending): pending is MicPipeline => pending instanceof MicPipeline)
+  const pipeline = mic ?? [...pendingMedia].find((pending): pending is MicPipeline => 'setPreset' in pending)
   if (pipeline) pipeline.setPreset(preset)
   else renderVoiceState({ preset, status: 'idle', blocked: false, addedLatencyMs: 0, baseLatencyMs: 0 })
 })
@@ -20473,11 +20730,13 @@ function acknowledgeMinutesRequest(): void {
   )
 }
 
-function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
+async function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): Promise<void> {
   const input = $('chatInput') as HTMLTextAreaElement
-  if (input.readOnly) return
-  chatArtPicker.close()
+  if (input.readOnly || !input.isConnected) return
   const generation = roomGeneration, channel = currentChannel
+  const picker = await loadChatArtPicker()
+  if (roomGeneration !== generation || currentChannel !== channel || input.readOnly || !input.isConnected) return
+  picker.close()
   // Touch browsers can reset an inactive textarea's selection after a picker
   // button receives focus. Keep our insertion range until the person moves it.
   let start = input.selectionStart, end = input.selectionEnd, direction = input.selectionDirection
@@ -20487,7 +20746,7 @@ function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
     start = input.selectionStart; end = input.selectionEnd; direction = input.selectionDirection
   }
   for (const event of ['input', 'click', 'keyup', 'select']) input.addEventListener(event, rememberSelection, { signal: selectionEvents.signal })
-  chatArtPicker.openComposer($('emojiToggle'), input, mode, emoji => {
+  picker.openComposer($('emojiToggle'), input, mode, emoji => {
     if (roomGeneration !== generation || currentChannel !== channel || input.readOnly) return
     if (input.value.length - (end - start) + emoji.length > MAX_CHAT_TEXT_LENGTH) {
       setStatus('There is no room for that emoji. Shorten your message first.')
@@ -20508,7 +20767,7 @@ function openChatArt(mode: 'emoji' | 'stickers' | 'gifs'): void {
     if (roomGeneration === generation && currentChannel === channel && input.isConnected) input.setSelectionRange(start, end, direction)
   })
 }
-$('emojiToggle').addEventListener('click', () => openChatArt('emoji'))
+$('emojiToggle').addEventListener('click', () => { void openChatArt('emoji').catch(error => setStatus(describeError(error))) })
 
 // ---------------------------------------------------------------------------
 // What the box is doing besides saying something new
@@ -20747,8 +21006,9 @@ $('chatInput').addEventListener('input', () => {
   growComposer($('chatInput') as HTMLTextAreaElement)
   renderMentionPicker()
   renderDraftBadges()
-  renderWorkspace()
-  ;($('discardDraft') as HTMLButtonElement).hidden = !draftHasWork(draft)
+  const navigation = currentWorkspaceDraftState()
+  if (!workspaceDraftState || workspaceDraftState.hasWork !== navigation.hasWork || workspaceDraftState.blocked !== navigation.blocked) renderWorkspace()
+  ;($('discardDraft') as HTMLButtonElement).hidden = !navigation.hasWork
   $('draftHelp').hidden = drafts.pending().length === 0
 })
 // The caret can move without a keystroke - a tap, a drag, an arrow key -

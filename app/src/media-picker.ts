@@ -1,4 +1,5 @@
 import { searchMediaCatalogue, type CatalogueImage } from './media-catalogue.js'
+import { setLocalImage } from './local-image.js'
 export class MediaPicker {
   readonly #dialog = document.createElement('dialog')
   readonly #query = document.createElement('input')
@@ -26,7 +27,8 @@ export class MediaPicker {
         this.#status.textContent = items.length ? 'Choose a file to add to your message.' : 'No matching files. Try another search.'
         for (const item of items) {
           const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', `Add ${item.name}`)
-          const image = document.createElement('img'); image.src = matchMedia('(prefers-reduced-motion: reduce)').matches ? item.preview : item.url; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
+          const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+          const image = setLocalImage(document.createElement('img'), { fallbackUrl: reducedMotion ? item.preview : item.url, displayUrl: reducedMotion ? item.displayPreview : item.displayUrl }); image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
           const name = document.createElement('span'); name.textContent = item.name
           button.append(image, name)
           button.onclick = async () => {

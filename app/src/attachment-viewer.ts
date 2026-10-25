@@ -1,3 +1,5 @@
+import { setLocalImage } from './local-image.js'
+
 /** Render decrypted images only as images, including SVG. Never navigate to
  * the attachment URL as a document, where active content could execute. */
 export class AttachmentViewer {
@@ -6,7 +8,7 @@ export class AttachmentViewer {
   #url?: string
   #returnFocus?: HTMLElement
 
-  open(file: { url: string; name: string }, trigger: HTMLElement): void {
+  open(file: { url: string; displayUrl?: string; name: string }, trigger: HTMLElement): void {
     this.close()
     this.#url = file.url
     this.#returnFocus = trigger
@@ -18,8 +20,7 @@ export class AttachmentViewer {
     title.textContent = file.name
     const surface = document.createElement('div')
     surface.className = 'attachmentViewerSurface'
-    const img = document.createElement('img')
-    img.src = file.url
+    const img = setLocalImage(document.createElement('img'), { fallbackUrl: file.url, displayUrl: file.displayUrl })
     img.alt = file.name
     surface.append(img)
     const size = document.createElement('button')
@@ -51,8 +52,7 @@ export class AttachmentViewer {
       const label = doc.createElement('span')
       label.textContent = file.name
       bar.append(toggle, label)
-      const picture = doc.createElement('img')
-      picture.src = file.url
+      const picture = setLocalImage(doc.createElement('img'), { fallbackUrl: file.url, displayUrl: file.displayUrl })
       picture.alt = file.name
       doc.body.replaceChildren(bar, picture)
     }

@@ -1,0 +1,821 @@
+{
+  "schemaVersion": 2,
+  "evidence": "synthetic browser workload on one host",
+  "qualified": false,
+  "source": "50a779cfc19620a9575cb5c614543fbe22b122ee",
+  "dirty": true,
+  "host": {
+    "platform": "darwin",
+    "release": "23.6.0",
+    "architecture": "arm64",
+    "cpus": 8,
+    "loadAverageAtStart": [
+      7.53857421875,
+      14.7373046875,
+      19.607421875
+    ]
+  },
+  "browser": "151.0.7922.34",
+  "requestedDevices": 2,
+  "requestedSeconds": 15,
+  "requestedSeedMessages": 500,
+  "seededMessages": 500,
+  "workload": {
+    "kind": "chat",
+    "docked": false,
+    "hidden": false,
+    "requestedPopouts": 0,
+    "chatStrategy": "one round-robin message per collection step"
+  },
+  "people": 0,
+  "agents": 0,
+  "physicalDevices": 0,
+  "syntheticBrowserClients": 2,
+  "requestedPublishers": {
+    "camera": 0,
+    "audio": 0,
+    "share": 0
+  },
+  "cameraPublishers": 0,
+  "audioPublishers": 0,
+  "sharePublishers": 0,
+  "popouts": 0,
+  "chatMessagesDelivered": 7,
+  "chatDeliveryMs": [
+    328,
+    353,
+    328,
+    308,
+    290,
+    454,
+    441
+  ],
+  "routeRequested": "mesh preferred; loopback signalling",
+  "battery": null,
+  "thermal": null,
+  "startedAt": "2026-10-25T15:46:41.524Z",
+  "measurementStartedAt": "2026-10-25T15:46:48.749Z",
+  "joinedMs": [
+    62,
+    1737
+  ],
+  "samples": [
+    {
+      "elapsedMs": 332,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 7214.400000095367,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1012,
+              "added": 1007,
+              "removed": 505
+            },
+            "chatRenderPlans": {
+              "append": 69,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 49,
+            "framesReceived": 1051,
+            "frameBytesSent": 13296,
+            "frameBytesReceived": 1762330
+          },
+          "renderer": {
+            "Timestamp": 2270636.026819,
+            "Nodes": 53016,
+            "LayoutDuration": 0.309505,
+            "ScriptDuration": 1.545692,
+            "TaskDuration": 3.447555,
+            "JSHeapUsedSize": 21220704,
+            "JSHeapTotalSize": 55394304
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 2064.0999999046326,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 508,
+              "added": 505,
+              "removed": 3
+            },
+            "chatRenderPlans": {
+              "append": 4,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 23,
+            "framesReceived": 530,
+            "frameBytesSent": 6667,
+            "frameBytesReceived": 886638
+          },
+          "renderer": {
+            "Timestamp": 2270636.027374,
+            "Nodes": 28564,
+            "LayoutDuration": 0.074083,
+            "ScriptDuration": 0.862456,
+            "TaskDuration": 1.46366,
+            "JSHeapUsedSize": 17343340,
+            "JSHeapTotalSize": 41910272
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 2694,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 9575.699999809265,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1014,
+              "added": 1008,
+              "removed": 506
+            },
+            "chatRenderPlans": {
+              "append": 70,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 49,
+            "framesReceived": 1052,
+            "frameBytesSent": 13296,
+            "frameBytesReceived": 1764248
+          },
+          "renderer": {
+            "Timestamp": 2270638.3887,
+            "Nodes": 53193,
+            "LayoutDuration": 0.315034,
+            "ScriptDuration": 1.570106,
+            "TaskDuration": 3.580534,
+            "JSHeapUsedSize": 30027128,
+            "JSHeapTotalSize": 55640064
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 4425.199999809265,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 512,
+              "added": 507,
+              "removed": 5
+            },
+            "chatRenderPlans": {
+              "append": 5,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 26,
+            "framesReceived": 534,
+            "frameBytesSent": 8661,
+            "frameBytesReceived": 890546
+          },
+          "renderer": {
+            "Timestamp": 2270638.38934,
+            "Nodes": 29339,
+            "LayoutDuration": 0.096788,
+            "ScriptDuration": 0.899044,
+            "TaskDuration": 1.81489,
+            "JSHeapUsedSize": 25501476,
+            "JSHeapTotalSize": 49512448
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 5063,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 11914.699999809265,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1016,
+              "added": 1009,
+              "removed": 507
+            },
+            "chatRenderPlans": {
+              "append": 71,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 54,
+            "framesReceived": 1054,
+            "frameBytesSent": 15355,
+            "frameBytesReceived": 1766247
+          },
+          "renderer": {
+            "Timestamp": 2270640.755522,
+            "Nodes": 53934,
+            "LayoutDuration": 0.342383,
+            "ScriptDuration": 1.617395,
+            "TaskDuration": 3.959853,
+            "JSHeapUsedSize": 12999792,
+            "JSHeapTotalSize": 55492608
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 6761.299999713898,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 516,
+              "added": 509,
+              "removed": 7
+            },
+            "chatRenderPlans": {
+              "append": 6,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 50,
+            "framesReceived": 1050,
+            "frameBytesSent": 10360,
+            "frameBytesReceived": 1765328
+          },
+          "renderer": {
+            "Timestamp": 2270640.743917,
+            "Nodes": 29592,
+            "LayoutDuration": 0.104387,
+            "ScriptDuration": 0.930227,
+            "TaskDuration": 2.07821,
+            "JSHeapUsedSize": 25422596,
+            "JSHeapTotalSize": 52658176
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 7406,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 14276.099999904633,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1018,
+              "added": 1010,
+              "removed": 508
+            },
+            "chatRenderPlans": {
+              "append": 72,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 54,
+            "framesReceived": 1055,
+            "frameBytesSent": 15355,
+            "frameBytesReceived": 1768165
+          },
+          "renderer": {
+            "Timestamp": 2270643.096985,
+            "Nodes": 27379,
+            "LayoutDuration": 0.348828,
+            "ScriptDuration": 1.643528,
+            "TaskDuration": 4.214393,
+            "JSHeapUsedSize": 40078080,
+            "JSHeapTotalSize": 65552384
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 9128.699999809265,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 520,
+              "added": 511,
+              "removed": 9
+            },
+            "chatRenderPlans": {
+              "append": 7,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 51,
+            "framesReceived": 1052,
+            "frameBytesSent": 12243,
+            "frameBytesReceived": 1767327
+          },
+          "renderer": {
+            "Timestamp": 2270643.099367,
+            "Nodes": 30265,
+            "LayoutDuration": 0.127648,
+            "ScriptDuration": 0.967355,
+            "TaskDuration": 2.411171,
+            "JSHeapUsedSize": 13646348,
+            "JSHeapTotalSize": 54247424
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 9704,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 16586.800000190735,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1020,
+              "added": 1011,
+              "removed": 509
+            },
+            "chatRenderPlans": {
+              "append": 73,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 55,
+            "framesReceived": 1057,
+            "frameBytesSent": 17238,
+            "frameBytesReceived": 1770164
+          },
+          "renderer": {
+            "Timestamp": 2270645.399258,
+            "Nodes": 28120,
+            "LayoutDuration": 0.37011,
+            "ScriptDuration": 1.678687,
+            "TaskDuration": 4.519071,
+            "JSHeapUsedSize": 15637628,
+            "JSHeapTotalSize": 83984384
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 11436.5,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 524,
+              "added": 513,
+              "removed": 11
+            },
+            "chatRenderPlans": {
+              "append": 8,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 51,
+            "framesReceived": 1053,
+            "frameBytesSent": 12243,
+            "frameBytesReceived": 1769245
+          },
+          "renderer": {
+            "Timestamp": 2270645.399811,
+            "Nodes": 27431,
+            "LayoutDuration": 0.133665,
+            "ScriptDuration": 0.993548,
+            "TaskDuration": 2.680339,
+            "JSHeapUsedSize": 24326892,
+            "JSHeapTotalSize": 54738944
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 12179,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 19052.099999904633,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1022,
+              "added": 1012,
+              "removed": 510
+            },
+            "chatRenderPlans": {
+              "append": 74,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 55,
+            "framesReceived": 1058,
+            "frameBytesSent": 17238,
+            "frameBytesReceived": 1772082
+          },
+          "renderer": {
+            "Timestamp": 2270647.873593,
+            "Nodes": 28299,
+            "LayoutDuration": 0.376664,
+            "ScriptDuration": 1.707947,
+            "TaskDuration": 4.819231,
+            "JSHeapUsedSize": 41343840,
+            "JSHeapTotalSize": 85393408
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 13904,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 528,
+              "added": 515,
+              "removed": 13
+            },
+            "chatRenderPlans": {
+              "append": 9,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 52,
+            "framesReceived": 1055,
+            "frameBytesSent": 14126,
+            "frameBytesReceived": 1771244
+          },
+          "renderer": {
+            "Timestamp": 2270647.873709,
+            "Nodes": 28104,
+            "LayoutDuration": 0.173608,
+            "ScriptDuration": 1.039188,
+            "TaskDuration": 3.091149,
+            "JSHeapUsedSize": 28234896,
+            "JSHeapTotalSize": 55246848
+          }
+        }
+      ]
+    },
+    {
+      "elapsedMs": 14636,
+      "clients": [
+        {
+          "device": 0,
+          "presentation": "primary",
+          "media": {
+            "atMs": 21510.900000095367,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 1024,
+              "added": 1013,
+              "removed": 511
+            },
+            "chatRenderPlans": {
+              "append": 75,
+              "full": 0,
+              "reasons": {
+                "no-append": 5
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767825,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 57,
+            "framesReceived": 1062,
+            "frameBytesSent": 20833,
+            "frameBytesReceived": 1775909
+          },
+          "renderer": {
+            "Timestamp": 2270650.326021,
+            "Nodes": 29086,
+            "LayoutDuration": 0.415451,
+            "ScriptDuration": 1.772895,
+            "TaskDuration": 5.303203,
+            "JSHeapUsedSize": 20566908,
+            "JSHeapTotalSize": 84230144
+          }
+        },
+        {
+          "device": 1,
+          "presentation": "primary",
+          "media": {
+            "atMs": 16368.199999809265,
+            "visibility": "visible",
+            "connections": [
+              {
+                "connection": 0,
+                "state": "new",
+                "streams": [],
+                "paths": [],
+                "error": null
+              }
+            ],
+            "videos": [],
+            "chatMutations": {
+              "records": 532,
+              "added": 517,
+              "removed": 15
+            },
+            "chatRenderPlans": {
+              "append": 10,
+              "full": 0,
+              "reasons": {
+                "no-append": 3
+              }
+            }
+          },
+          "network": {
+            "httpRequests": 16,
+            "httpResponses": 15,
+            "httpFailed": 0,
+            "httpEncodedBytes": 767802,
+            "socketsOpened": 6,
+            "socketsClosed": 1,
+            "framesSent": 52,
+            "framesReceived": 1057,
+            "frameBytesSent": 14126,
+            "frameBytesReceived": 1774909
+          },
+          "renderer": {
+            "Timestamp": 2270650.330995,
+            "Nodes": 28395,
+            "LayoutDuration": 0.187543,
+            "ScriptDuration": 1.068133,
+            "TaskDuration": 3.442318,
+            "JSHeapUsedSize": 25580280,
+            "JSHeapTotalSize": 55508992
+          }
+        }
+      ]
+    }
+  ],
+  "failure": null,
+  "endedAt": "2026-10-25T15:47:03.752Z",
+  "measurementElapsedMs": 15003,
+  "loadAverageAtEnd": [
+    7.3896484375,
+    14.11572265625,
+    19.2412109375
+  ]
+}
