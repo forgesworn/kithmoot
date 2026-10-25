@@ -1,6 +1,18 @@
 {
-  "currentRelease": "0.1.104",
+  "currentRelease": "0.1.105",
   "releases": [
+    {
+      "version": "0.1.105",
+      "updateTo": {
+        "version": "0.1.105",
+        "pub_date": "2026-10-25T10:46:04.990Z",
+        "notes": "Copy the pairing link from Spry and paste it in Settings → Connections → Spry. Use your existing app sign-in; Safari does not need another account.",
+        "name": "0.1.105",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.105/KithMoot-0.1.105-mac-arm64.zip",
+        "sha256": "4885a96222c6def08bed06d7f50d2a4f0ed473e10f971b18157e2bec60e76804",
+        "size": 170928037
+      }
+    },
     {
       "version": "0.1.104",
       "updateTo": {
