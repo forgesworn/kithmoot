@@ -1,5 +1,6 @@
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
+import { permittedApprovalDto } from './mixed-invitation-approval-guard.mjs'
 import { chromium } from '@playwright/test'
 import { createServer } from 'node:http'
 import { mkdir } from 'node:fs/promises'
@@ -269,7 +270,8 @@ async function run(step,args) {
   }
   if(step==='bark-state') { const states=[];for(const p of context.pages().filter(p=>p.url()===`chrome-extension://${extension}/popup.html`))states.push({activeNpubSha256:digest(await p.locator('#active-npub').textContent()??''),status:await p.locator('#status-dot').getAttribute('class'),pairError:clean(await p.locator('#pair-error').textContent()),setup:await p.locator('#heartwood-address').isVisible(),add:await p.locator('#add-address').isVisible(),main:await p.locator('#main-screen').isVisible()});return states }
   if(step==='bark-review') { const reviews=[]; for(const p of context.pages().filter(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){
-    const details=await approvalDetails(p)
+    const details=await approvalDetails(p).catch(()=>null)
+    if(!details||!Number.isFinite(details.expiresAt)||details.expiresAt<=Date.now())continue
     const actual={method:details.method,origin:details.origin,pubkey:details.pubkey,event:details.event??null,provision:details.provision??null}
     reviews.push({actionable:await p.locator('#allow-btn').isEnabled().catch(()=>false),method:details.method,
       origin:endpointSummary(details.origin,knownOrigins),pubkeySha256:digest(details.pubkey??''),requestSha256:digest(JSON.stringify(stable(actual))),
@@ -313,7 +315,19 @@ async function run(step,args) {
 const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
+  res.setHeader('cache-control','no-store');
   try {
+    if(req.method==='GET'&&req.url==='/private/bark-approval'){
+      if(req.socket.remoteAddress!=='127.0.0.1'&&req.socket.remoteAddress!=='::ffff:127.0.0.1'){res.writeHead(403).end('{}');return}
+      let dto
+      for(const approval of context.pages().filter(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){
+        if(!await approval.locator('#allow-btn').isEnabled().catch(()=>false))continue
+        const details=await approvalDetails(approval).catch(()=>null)
+        dto=permittedApprovalDto(details,new URL(app).origin)
+        if(dto)break
+      }
+      res.end(JSON.stringify(dto??null));return
+    }
     if(req.url==='/result'){res.end(JSON.stringify({active,result}));return}
     if(req.url==='/state'){res.end(JSON.stringify({active,complete:!!result,failures}));return}
     if(req.method!=='POST'||req.url!=='/step'){res.writeHead(404).end('{}');return}
