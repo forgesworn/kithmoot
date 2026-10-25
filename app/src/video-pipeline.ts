@@ -10,7 +10,9 @@ import { ReefBackground, type FishSprite } from '../../src/reef-scene.js'
 import { OwnedCameraVision } from './owned-camera-vision.js'
 import { AutoFramer, personBox } from './auto-frame.js'
 import { FacePrivacy, type FacePrivacyState } from './face-privacy.js'
+import { HiddenCameraScheduler } from './hidden-camera-scheduler.js'
 import type { FacePrivacyMode } from '../../src/face-privacy.js'
+import type { BackgroundChoice } from './backgrounds.js'
 
 /**
  * The camera, with the effect wired into it.
@@ -42,54 +44,16 @@ import type { FacePrivacyMode } from '../../src/face-privacy.js'
  * cheap, and it buys a toggle that never renegotiates.
  */
 
-/** The canvas emits a frame whenever it is drawn to, and it is drawn to once
- *  per decoded camera frame, so this is a ceiling rather than a rate. */
+/** During foreground rendering the canvas is drawn once per decoded camera
+ *  frame, so this is a ceiling rather than a rate. */
 const CAPTURE_FPS = 30
 
 /**
- * How long the loop will go without a frame callback before drawing anyway.
- *
- * `requestAnimationFrame` stops in a background tab, and a background tab
- * that stops publishing video looks to everyone else like the person left.
- * This is the floor under that: about ten frames a second, enough to keep
- * the track alive.
+ * How long the visible loop will go without a frame callback before drawing
+ * anyway. Hidden tabs use the same clock, but the scheduler repeats only a
+ * safe composited frame at low cadence instead of running the camera effects.
  */
 const WATCHDOG_INTERVAL_MS = 100
-
-export interface BackgroundChoice {
-  id: string
-  label: string
-  /** A still picture under `app/public/`. Fetched when the choice is picked
-   *  and not before: the coral photograph is 167KB and nobody who leaves the
-   *  blur on should ever pay for it. */
-  url?: string
-  /** Underwater, so the fish have somewhere to be. The switch that puts them
-   *  there is only offered on these. */
-  sea?: true
-}
-
-/**
- * What you can put behind yourself.
- *
- * The three abstract ones are first and deliberately not photographs: a
- * stock photograph of somebody's office is a picture of a real place, and
- * the point of this feature is to stop publishing pictures of real places.
- * The sea ones are generated rather than taken, for the same reason.
- *
- * The fish are not one of these. They are a switch over whichever sea has
- * been picked, because "which picture" and "is anything swimming in it" are
- * two questions and folding them into one list meant answering the first to
- * get at the second.
- */
-export const BACKGROUNDS: BackgroundChoice[] = [
-  { id: 'slate', label: 'Slate', url: 'backgrounds/slate.svg' },
-  { id: 'ember', label: 'Ember', url: 'backgrounds/ember.svg' },
-  { id: 'fen', label: 'Fen', url: 'backgrounds/fen.svg' },
-  { id: 'sea-lagoon', label: 'Lagoon', url: 'backgrounds/sea-lagoon.webp', sea: true },
-  { id: 'sea-coral', label: 'Coral garden', url: 'backgrounds/sea-coral.webp', sea: true },
-  { id: 'sea-deep', label: 'Deep blue', url: 'backgrounds/sea-deep.webp', sea: true },
-  { id: 'sea-sand', label: 'White sand', url: 'backgrounds/sea-sand.webp', sea: true },
-]
 
 /**
  * Whether this person has asked their machine for less movement.
@@ -183,7 +147,7 @@ export interface CameraPipelineOptions {
 }
 
 export interface CameraStats {
-  /** Frames drawn per second, measured over the last second. */
+  /** Full camera renders per second, measured over the last second. */
   fps: number
   /** How many of the last second's frames took each route. `passthrough`
    *  above zero while the mode is not `off` is a bug, and the counter exists
@@ -195,12 +159,33 @@ export interface CameraStats {
    *  per-pixel in the effect is priced by this and it is the camera's
    *  resolution rather than the model's, so it is worth being able to read. */
   mask: string
+  /** Full renders and hidden keep-alives since start, never shared with the
+   *  FPS, action or render-cost measurements. Timestamps use performance.now(). */
+  fullRenderCount: number
+  keepAliveCount: number
+  lastFullRenderAt: number
+  lastKeepAliveAt: number
+  /** The camera element's decoded size (zero before the first frame), the
+   *  pipeline's liveness and the effect stage's current size: together they
+   *  say whether a stalled picture is the camera, the effect or the loop. */
+  sourceWidth: number
+  sourceHeight: number
+  running: boolean
+  stageWidth: number
+  stageHeight: number
+  /** Watchdog liveness and the published track's state: a hidden tab that
+   *  stops producing frames is one of the three, and this says which. */
+  watchdogTicks: number
+  lastWatchdogAt: number
+  outputTrackState: string
 }
 
 type FrameCallbackHost = HTMLVideoElement & {
   requestVideoFrameCallback?: (cb: (now: number) => void) => number
   cancelVideoFrameCallback?: (handle: number) => void
 }
+
+type CanvasCaptureTrack = MediaStreamTrack & { requestFrame?: () => void }
 
 export class CameraPipeline {
   readonly #video: HTMLVideoElement
@@ -213,6 +198,7 @@ export class CameraPipeline {
   readonly #facePrivacy: FacePrivacy
   readonly #vision = new OwnedCameraVision()
   readonly #framer = new AutoFramer()
+  readonly #hiddenFrames = new HiddenCameraScheduler()
   #framing: boolean
   readonly #onStateChange?: (state: VideoEffectState) => void
   readonly #onSourceEnded?: () => void
@@ -225,7 +211,8 @@ export class CameraPipeline {
   #rafHandle = 0
   #vfcHandle = 0
   #watchdog: ReturnType<typeof setInterval> | null = null
-  #lastDrawAt = 0
+  #lastFullRenderAt = 0
+  #lastKeepAliveAt = 0
   #deviceId: string | undefined
   #facingMode: 'user' | 'environment' = 'user'
   #choice: BackgroundChoice | null = null
@@ -239,6 +226,10 @@ export class CameraPipeline {
   #costTotalMs = 0
   #costFrames = 0
   #frameCostMs = 0
+  #fullRenderCount = 0
+  #keepAliveCount = 0
+  #watchdogTicks = 0
+  #lastWatchdogAt = 0
 
   constructor(opts: CameraPipelineOptions = {}) {
     this.#onStateChange = opts.onStateChange
@@ -336,6 +327,20 @@ export class CameraPipeline {
       actions: { ...this.#window },
       frameCostMs: this.#frameCostMs,
       mask: mask ? `${mask.width}x${mask.height}` : '',
+      fullRenderCount: this.#fullRenderCount,
+      keepAliveCount: this.#keepAliveCount,
+      lastFullRenderAt: this.#lastFullRenderAt,
+      lastKeepAliveAt: this.#lastKeepAliveAt,
+      // The source element only grows these once the camera is decoding;
+      // zero while the published canvas is still blank says where to look.
+      sourceWidth: this.#video.videoWidth,
+      sourceHeight: this.#video.videoHeight,
+      running: this.#running,
+      stageWidth: this.#stage.width,
+      stageHeight: this.#stage.height,
+      watchdogTicks: this.#watchdogTicks,
+      lastWatchdogAt: this.#lastWatchdogAt,
+      outputTrackState: this.track?.readyState ?? 'none',
     }
   }
 
@@ -367,7 +372,11 @@ export class CameraPipeline {
     this.#schedule()
     this.#watchdog = setInterval(() => {
       if (!this.#running) return
-      if (performance.now() - this.#lastDrawAt > WATCHDOG_INTERVAL_MS) this.#draw()
+      const now = performance.now()
+      this.#watchdogTicks += 1
+      this.#lastWatchdogAt = now
+      if (document.visibilityState === 'hidden') this.#hiddenFrame(now)
+      else if (now - this.#lastFullRenderAt > WATCHDOG_INTERVAL_MS) this.#draw()
     }, WATCHDOG_INTERVAL_MS)
     return track
   }
@@ -381,6 +390,7 @@ export class CameraPipeline {
    * the old camera stopped and the new one opened.
    */
   async useCamera(opts: { deviceId?: string; facingMode?: 'user' | 'environment' }): Promise<void> {
+    this.#hiddenFrames.invalidate()
     this.#vision.reset()
     this.#effect.invalidateSource()
     if (opts.facingMode) this.#facingMode = opts.facingMode
@@ -426,6 +436,7 @@ export class CameraPipeline {
   }
 
   setMode(mode: EffectMode): void {
+    this.#hiddenFrames.invalidate()
     this.#effect.setMode(mode)
   }
 
@@ -433,6 +444,7 @@ export class CameraPipeline {
 
 
   setFacePrivacyMode(mode: FacePrivacyMode): void {
+    this.#hiddenFrames.invalidate()
     this.#facePrivacy.setMode(mode)
     // Clear the published canvas synchronously, before the next camera
     // callback or any asynchronous model work can arrive.
@@ -446,6 +458,7 @@ export class CameraPipeline {
 
   /** Keep the person centred, or send the whole frame. */
   setFraming(on: boolean): void {
+    this.#hiddenFrames.invalidate()
     this.#framing = on
     if (!on) this.#framer.reset()
   }
@@ -455,6 +468,7 @@ export class CameraPipeline {
   }
 
   setStrength(strength: number): void {
+    this.#hiddenFrames.invalidate()
     this.#effect.setStrength(strength)
   }
 
@@ -492,6 +506,7 @@ export class CameraPipeline {
    * newer choice.
    */
   async #applyBackground(): Promise<void> {
+    this.#hiddenFrames.invalidate()
     const choice = this.#choice
     const generation = (this.#backgroundGeneration += 1)
     if (!choice?.url) {
@@ -517,12 +532,15 @@ export class CameraPipeline {
       // moment, which is what it looks like most of the time anyway.
       loadFishSprites()
         .then((sprites) => {
-          if (this.#backgroundGeneration === generation) reef.setFishSprites(sprites)
+          if (this.#backgroundGeneration !== generation) return
+          this.#hiddenFrames.invalidate()
+          reef.setFishSprites(sprites)
         })
         .catch(() => {})
       try {
         const image = await loadBackgroundImage(choice)
         if (this.#backgroundGeneration !== generation) return
+        this.#hiddenFrames.invalidate()
         reef.setBackdrop(image, { width: image.naturalWidth, height: image.naturalHeight })
       } catch {
         // The drawn sea is a whole scene on its own. Leave it there.
@@ -532,6 +550,7 @@ export class CameraPipeline {
 
     const image = await loadBackgroundImage(choice)
     if (this.#backgroundGeneration !== generation) return
+    this.#hiddenFrames.invalidate()
     this.#effect.setBackground(image, { width: image.naturalWidth, height: image.naturalHeight })
   }
 
@@ -608,7 +627,7 @@ export class CameraPipeline {
       // Per decoded camera frame, which is the right clock: it neither
       // over-runs a 15fps webcam nor under-runs a 60fps one.
       this.#vfcHandle = host.requestVideoFrameCallback(() => {
-        this.#draw()
+        this.#onFrameCallback()
         this.#schedule()
       })
       return
@@ -616,18 +635,52 @@ export class CameraPipeline {
     // Firefox until recently, and anything older. A repaint clock is close
     // enough and the watchdog covers a background tab.
     this.#rafHandle = requestAnimationFrame(() => {
-      this.#draw()
+      this.#onFrameCallback()
       this.#schedule()
     })
   }
 
+  #onFrameCallback(): void {
+    if (document.visibilityState === 'hidden') {
+      this.#hiddenFrame(performance.now())
+      return
+    }
+    this.#draw()
+  }
+
+  #hiddenFrame(nowMs: number): void {
+    if (!this.#running) return
+    const action = this.#hiddenFrames.next(nowMs)
+    if (action === 'render') {
+      this.#draw()
+      return
+    }
+    if (action !== 'keep-alive') return
+
+    const track = this.track as CanvasCaptureTrack | undefined
+    if (!track || track.readyState === 'ended') return
+    // Repeat the frame that is already safe: the finished stage, blitted onto
+    // the published canvas. A bare requestFrame() does not capture in every
+    // engine once the page is hidden; redrawing keeps the canvas dirty at
+    // trivial cost, since no effect re-runs. requestFrame() is still asked,
+    // for engines where it helps.
+    if (!this.#frame(this.#canvas.width, this.#canvas.height)) {
+      this.#hiddenFrames.invalidate()
+      return
+    }
+    if (typeof track.requestFrame === 'function') track.requestFrame()
+    this.#lastKeepAliveAt = nowMs
+    this.#keepAliveCount += 1
+  }
+
   /** Copy the effect's finished frame out, cropped around the person. */
-  #frame(width: number, height: number): void {
-    if (this.#stage.width !== width || this.#stage.height !== height) return
+  #frame(width: number, height: number): boolean {
+    if (this.#stage.width !== width || this.#stage.height !== height) return false
     if (this.#canvas.width !== width) this.#canvas.width = width
     if (this.#canvas.height !== height) this.#canvas.height = height
     const crop = this.#framing && this.#facePrivacy.mode === 'off' ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
     this.#canvasCtx.drawImage(this.#stage, crop.x * width, crop.y * height, crop.width * width, crop.height * height, 0, 0, width, height)
+    return true
   }
 
   #cancelSchedule(): void {
@@ -644,23 +697,26 @@ export class CameraPipeline {
     const height = this.#video.videoHeight || this.#canvas.height
     if (this.#video.videoWidth === 0 || this.#video.videoHeight === 0) {
       if (this.#facePrivacy.mode !== 'off') {
+        this.#hiddenFrames.invalidate()
         this.#stage.width = width
         this.#stage.height = height
         this.#facePrivacy.cover()
-        this.#frame(width, height)
+        if (this.#frame(width, height)) this.#hiddenFrames.rendered(performance.now())
       }
       return
     }
 
     const startedAt = performance.now()
+    this.#hiddenFrames.invalidate()
     let action: FrameAction = 'cover'
     this.#facePrivacy.render(this.#video, width, height, startedAt, () => {
       action = this.#effect.renderFrame(this.#video, width, height, startedAt)
     })
-    this.#frame(width, height)
+    if (this.#frame(width, height)) this.#hiddenFrames.rendered(startedAt)
     const cost = performance.now() - startedAt
 
-    this.#lastDrawAt = startedAt
+    this.#lastFullRenderAt = startedAt
+    this.#fullRenderCount += 1
     this.#counters[action] += 1
     this.#window[action] += 1
     this.#costTotalMs += cost

@@ -1,5 +1,6 @@
 import { artworkFallbackText, type ChatArtwork } from '../../src/artwork.js'
 import { resolveCatalogueArtwork } from './media-catalogue.js'
+import { setLocalImage } from './local-image.js'
 import './chat-artwork.css'
 
 /** Keep captions, and hide only our exact generated fallback when all artwork resolves. */
@@ -8,7 +9,7 @@ export function artworkMessageText(text: string, artwork: readonly ChatArtwork[]
 }
 
 /** Every image URL comes from the compiled catalogue; unknown references remain text. */
-export function artworkCards(artwork: readonly ChatArtwork[] = [], expand?: (file: { url: string; name: string }, trigger: HTMLElement) => void, text = ''): DocumentFragment {
+export function artworkCards(artwork: readonly ChatArtwork[] = [], expand?: (file: { url: string; displayUrl?: string; name: string }, trigger: HTMLElement) => void, text = ''): DocumentFragment {
   const fragment = document.createDocumentFragment()
   for (const reference of artwork) {
     const item = resolveCatalogueArtwork(reference)
@@ -19,11 +20,12 @@ export function artworkCards(artwork: readonly ChatArtwork[] = [], expand?: (fil
     }
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
     const url = reducedMotion ? item.preview : item.url
+    const displayUrl = reducedMotion ? item.displayPreview : item.displayUrl
     const card = document.createElement('span'); card.className = 'chatArtwork'; card.dataset.artworkId = reference.id; card.dataset.artworkKind = reference.kind
-    const image = document.createElement('img'); image.src = url; image.alt = `${reference.kind === 'gif' ? 'GIF' : 'Sticker'}: ${item.name.replace(/\.(gif|png)$/i, '')}`; image.width = 160; image.height = 160; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
+    const image = setLocalImage(document.createElement('img'), { fallbackUrl: url, displayUrl }); image.alt = `${reference.kind === 'gif' ? 'GIF' : 'Sticker'}: ${item.name.replace(/\.(gif|png)$/i, '')}`; image.width = 160; image.height = 160; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
     if (expand) {
       const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', `Expand ${item.name}`); button.append(image)
-      button.onclick = event => { event.stopPropagation(); expand({ url: new URL(url, document.baseURI).href, name: item.name }, button) }; card.append(button)
+      button.onclick = event => { event.stopPropagation(); expand({ url: new URL(url, document.baseURI).href, displayUrl: new URL(displayUrl, document.baseURI).href, name: item.name }, button) }; card.append(button)
     } else card.append(image)
     fragment.append(card)
   }

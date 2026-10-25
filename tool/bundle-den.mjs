@@ -14,7 +14,7 @@ for (const path of Object.keys(result.metafile.inputs).sort()) sources[path] = h
 await mkdir(dirname(output), { recursive: true })
 await writeFile(output, bytes)
 await writeFile(output.replace(/\.mjs$/, '.d.mts'), `/** Generated public JSON boundary. Canonical implementation: KithMoot. */
-export interface DenWorkStore { get(key: string): Promise<string | undefined>; set(key: string, value: string): Promise<void> }
+export interface DenWorkStore { get(key: string): Promise<string | undefined>; set(key: string, value: string): Promise<void>; remove?(key: string): Promise<void> }
 export declare class DenAssignmentClient {
   constructor(options: { secret: string; device: string; store: DenWorkStore; changed: () => void });
   open(): Promise<void>;

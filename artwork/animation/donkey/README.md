@@ -41,3 +41,17 @@ Export receipts record sizes, hashes and independently probed frame counts.
 Generated scenes, frames, review files and receipts stay outside source control.
 Only the reviewed GIF/PNG assets are copied into app/public/chat-art/; catalogue
 metadata and native integration are owned by the integrating change.
+
+After packaging, run `npm run artwork:generate` to create the three
+`donkey-*.animated.webp` derivatives with `gif2webp` and their stills with
+`cwebp`. The committed profiles are lossless and never use lossy/mixed WebP or
+FFmpeg's WebP encoder. `artwork/derivatives-v1.json` records exact tool
+versions, options, source/output hashes and independent FFprobe qualification.
+
+For each performance, `npm run artwork:check` requires a transparent-source
+512px animation with 120 frames, 5000 ms in total, unchanged per-frame
+durations and infinite looping (loop count zero). It verifies the same values
+from the WebP ANIM/ANMF chunks without invoking image tools. Also review all
+three over light and dark backgrounds for alpha halos, disposal errors,
+cadence and looping; lossless encoding avoids chroma-conversion artefacts but
+does not replace that visual check.

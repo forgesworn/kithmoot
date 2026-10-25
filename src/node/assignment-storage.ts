@@ -2,6 +2,7 @@ import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AssignmentStorage } from '../assignment-log.js'
+import { createJournalStorage, type IncrementalJournalStorage } from '../journal-storage.js'
 
 export async function atomicPrivateWrite(path: string, data: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
@@ -15,10 +16,16 @@ export async function atomicPrivateWrite(path: string, data: string): Promise<vo
   } finally { await unlink(temp).catch(() => {}) }
 }
 
+async function removePrivate(path: string): Promise<void> {
+  try { await unlink(path) } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return; throw e }
+  const dir = await open(dirname(path), 'r')
+  try { await dir.sync() } finally { await dir.close() }
+}
+
 /** The OS releases SQLite's exclusive lock when a writer exits, including a
  * crash. Reopening this cache never authorises execution: the independent
  * durable execution journal retains every uncertain attempt. */
-export async function openAssignmentStorage(path: string): Promise<AssignmentStorage & { close(): Promise<void> }> {
+export async function openAssignmentStorage(path: string): Promise<AssignmentStorage & IncrementalJournalStorage & { close(): Promise<void> }> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const { DatabaseSync } = await import('node:sqlite')
   const lockPath = `${path}.writers.sqlite`
@@ -39,17 +46,34 @@ export async function openAssignmentStorage(path: string): Promise<AssignmentSto
     guard.close()
     throw new Error(`Assignment cache is locked or its prior writer cannot be inspected: ${e instanceof Error ? e.message : String(e)}`)
   }
+  const journal = createJournalStorage(path, {
+    async get(key) { try { return await readFile(key, 'utf8') } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return; throw e } },
+    set: atomicPrivateWrite,
+    remove: removePrivate,
+  })
   let closed = false
+  let tail: Promise<unknown> = Promise.resolve()
+  let closing: Promise<void> | undefined
+  function serial<T>(work: () => Promise<T>): Promise<T> {
+    if (closed) return Promise.reject(new Error('Assignment cache is closed'))
+    const task = tail.then(work)
+    tail = task.catch(() => {})
+    return task
+  }
   return {
-    async load() { try { return await readFile(path, 'utf8') } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return; throw e } },
-    async save(value) {
-      if (closed) throw new Error('Assignment cache is closed')
-      await atomicPrivateWrite(path, value)
-    },
-    async close() {
-      if (closed) return
-      closed = true
-      try { guard.exec('ROLLBACK') } finally { guard.close() }
+    load: () => serial(journal.load),
+    save: value => serial(() => journal.save(value)),
+    loadIncremental: () => serial(journal.loadIncremental),
+    appendIncremental: delta => serial(() => journal.appendIncremental(delta)),
+    close() {
+      if (!closing) {
+        closed = true
+        closing = (async () => {
+          await tail
+          try { guard.exec('ROLLBACK') } finally { guard.close() }
+        })()
+      }
+      return closing
     },
   }
 }

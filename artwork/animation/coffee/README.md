@@ -43,3 +43,17 @@ verifies the committed coffee animation and preview. It regenerates character
 stickers from their original sheets, and never recreates the older flat GIFs.
 `node scripts/build-original-chat-art.mjs --check` verifies packaged hashes
 without modifying assets.
+
+After packaging a reviewed export, run `npm run artwork:generate` to encode
+`app/public/chat-art/coffee.animated.webp` with the installed `gif2webp` and
+its static previews with `cwebp`. The committed profile is lossless, not
+lossy/mixed WebP, and does not use FFmpeg's WebP encoder. The receipt records
+tool versions, options and independent FFprobe results. Routine
+`npm run artwork:check` parses the GIF and RIFF/WebP directly and requires 144
+frames, 6000 ms in total, identical per-frame durations, a 512px canvas and
+infinite looping (loop count zero), without invoking those tools.
+
+Lossless encoding retains the GIF's transparency without a YUV420 conversion,
+but chunk validation is not a visual review. Review a regenerated animation
+over light and dark backgrounds for alpha halos, frame disposal, cadence and
+looping before committing it with `artwork/derivatives-v1.json`.

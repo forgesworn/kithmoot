@@ -1,4 +1,4 @@
-import { AssignmentLog } from '../../src/assignment-log.js'
+import { AssignmentLog, type AssignmentStorage } from '../../src/assignment-log.js'
 import { ChatLog, type EpochRoot } from '../../src/chat.js'
 import { deriveEpoch } from '../../src/epoch.js'
 import { KINDS } from '../../src/kinds.js'
@@ -27,7 +27,7 @@ export function observeWorkspaceActivity(options: {
   participant: string; name: string; roomId: string; roomKey: Uint8Array
   transport: RelayTransport; policy?: RoomPolicy; epoch?: EpochRoot & { epoch: number }
   authority?: string; deviceSk?: Uint8Array; sealSks?: () => Uint8Array[]
-  loadJournal(): Promise<string | undefined>
+  journal: Pick<AssignmentStorage, 'load' | 'loadIncremental'>
   isBlocked(participant: string): boolean
   valid(): boolean
   onEpoch(moved: WatchedRekey): void
@@ -54,9 +54,10 @@ export function observeWorkspaceActivity(options: {
       }, () => { historical = false; eose?.() })
     },
   }
+  const journal = options.journal
   const work = new AssignmentLog({ readOnly: true, participant: options.participant, roomId: options.roomId,
     roomKey: options.roomKey, transport, epoch: options.epoch, policy: options.policy,
-    storage: { load: options.loadJournal }, now, historyLimit: 128 })
+    storage: { load: () => journal.load(), ...(journal.loadIncremental ? { loadIncremental: () => journal.loadIncremental!() } : {}) }, now, historyLimit: 128 })
   const chat = new ChatLog({ roomId: options.roomId, roomKey: options.roomKey, policy: options.policy,
     epoch: options.epoch, transport, now, isBlocked: options.isBlocked, isRemoved: participant => removed.has(participant) })
   const close = () => { if (closed) return; closed = true; work.close(); chat.close(); watch?.close(); options.transport.close() }

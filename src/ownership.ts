@@ -41,6 +41,39 @@ function message(agent: string, principal: string, issuedAt: number, expiresAt: 
   )
 }
 
+const OWNERSHIP_SIGNATURE_CACHE_LIMIT = 32
+const ownershipSignatureCache = new Map<string, true>()
+
+function hasValidOwnershipSignature(proof: AgentOwnership): boolean {
+  const key = JSON.stringify([
+    proof.agent,
+    proof.principal,
+    proof.issuedAt,
+    proof.expiresAt ?? null,
+    proof.label ?? null,
+    proof.sig,
+  ])
+  if (ownershipSignatureCache.has(key)) {
+    ownershipSignatureCache.delete(key)
+    ownershipSignatureCache.set(key, true)
+    return true
+  }
+  try {
+    if (!schnorr.verify(
+      hexToBytes(proof.sig),
+      message(proof.agent, proof.principal, proof.issuedAt, proof.expiresAt, proof.label),
+      hexToBytes(proof.principal),
+    )) return false
+  } catch {
+    return false
+  }
+  ownershipSignatureCache.set(key, true)
+  if (ownershipSignatureCache.size > OWNERSHIP_SIGNATURE_CACHE_LIMIT) {
+    ownershipSignatureCache.delete(ownershipSignatureCache.keys().next().value!)
+  }
+  return true
+}
+
 function requireHex32(value: string, what: string): string {
   if (!HEX64.test(value)) throw new Error(`${what} must be 32-byte hex`)
   return normaliseHex(value)
@@ -140,16 +173,7 @@ export function inspectAgentOwnershipSignature(raw: AgentOwnership, opts: Verify
   if (proof.issuedAt > opts.now + MAX_ISSUED_AHEAD_SECONDS) return { ok: false, reason: 'issued in the future' }
   if (proof.expiresAt !== undefined && proof.expiresAt <= proof.issuedAt) return { ok: false, reason: 'expires before issued' }
   if (proof.label !== undefined && sanitiseDisplayName(proof.label) !== proof.label) return { ok: false, reason: 'label is not as signed' }
-  try {
-    const ok = schnorr.verify(
-      hexToBytes(proof.sig),
-      message(proof.agent, proof.principal, proof.issuedAt, proof.expiresAt, proof.label),
-      hexToBytes(proof.principal),
-    )
-    if (!ok) return { ok: false, reason: 'bad signature' }
-  } catch {
-    return { ok: false, reason: 'bad signature' }
-  }
+  if (!hasValidOwnershipSignature(proof)) return { ok: false, reason: 'bad signature' }
   return { ok: true, principal: proof.principal, ...(proof.label !== undefined ? { label: proof.label } : {}) }
 }
 

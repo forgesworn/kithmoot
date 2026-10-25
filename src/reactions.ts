@@ -1,5 +1,5 @@
 import type { ChatMessage } from './chat.js'
-import { isReactionEmoji } from './emoji-catalog.js'
+import { isReactionEmoji } from './reaction-emoji.js'
 import { compareMessages } from './message-order.js'
 
 // Keep the quick palette stable; the full picker uses the Unicode catalogue.
@@ -26,7 +26,41 @@ export function normaliseReaction(value: unknown): ChatReaction | null {
   return { messageId: r.messageId, participant: r.participant.toLowerCase(), emoji: r.emoji, active: r.active, revision: r.revision, ...(r.receipt ? { receipt: r.receipt } : {}) }
 }
 
+export interface ReactionIndex {
+  for(target: Pick<ChatMessage, 'id' | 'participant'>): Map<string, ChatMessage[]>
+}
+
 /** Input is verified chat from ONE conversation. A participant changes only their own vote. */
+export function createReactionIndex(messages: readonly ChatMessage[]): ReactionIndex {
+  const targets = new Map<string, Map<string, Map<string, ChatMessage>>>()
+  for (const m of messages) {
+    const r = m.reaction
+    if (!r) continue
+    let byMessage = targets.get(r.participant)
+    if (!byMessage) targets.set(r.participant, byMessage = new Map())
+    let latest = byMessage.get(r.messageId)
+    if (!latest) byMessage.set(r.messageId, latest = new Map())
+    const key = `${m.participant}:${r.emoji}`
+    const old = latest.get(key)
+    if (!old || r.revision > old.reaction!.revision ||
+        (r.revision === old.reaction!.revision && compareMessages(m, old) > 0)) latest.set(key, m)
+  }
+  return {
+    for(target) {
+      const result = new Map<string, ChatMessage[]>()
+      for (const emoji of REACTION_EMOJIS) result.set(emoji, [])
+      const latest = targets.get(target.participant)?.get(target.id)
+      if (!latest) return result
+      for (const m of latest.values()) {
+        const emoji = m.reaction!.emoji
+        if (!result.has(emoji)) result.set(emoji, [])
+        result.get(emoji)!.push(m)
+      }
+      return result
+    },
+  }
+}
+
 export function reactionsFor(messages: readonly ChatMessage[], target: Pick<ChatMessage, 'id' | 'participant'>): Map<string, ChatMessage[]> {
   const latest = new Map<string, ChatMessage>()
   for (const m of messages) {

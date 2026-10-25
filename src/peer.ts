@@ -119,6 +119,38 @@ export interface RTCPeerConnectionLike {
 }
 
 /**
+ * A screen share carries text, and text needs bits a camera-sized budget
+ * never gives it: under the default parameters Chromium smears exactly the
+ * small type a shared window is made of. The app marks share tracks
+ * `contentHint = 'detail'`; anything carrying that hint gets a bitrate sized
+ * to its own resolution, no resolution downscaling, and thirty frames a
+ * second - faces keep the encoder defaults. Werift senders have no
+ * `setParameters` and are skipped; a browser may refuse changes mid-negotiation,
+ * which is fine to ignore because the track hint alone already steers it.
+ */
+export function tuneShareSender(track: MediaStreamTrack, sender: unknown): void {
+  if (track.kind !== 'video' || track.contentHint !== 'detail') return
+  let pixels = 0
+  try {
+    const settings = track.getSettings()
+    pixels = (settings.width ?? 0) * (settings.height ?? 0)
+  } catch { /* a track that hides its size still gets the 1080p budget */ }
+  const maxBitrate = pixels > 3_686_400 ? 8_000_000
+    : pixels > 2_073_600 ? 6_500_000
+      : pixels > 921_600 ? 4_500_000
+        : 2_500_000
+  const setParameters = (sender as { setParameters?: (parameters: RTCRtpSendParameters) => Promise<void> }).setParameters
+  if (typeof setParameters !== 'function') return
+  try {
+    const getParameters = (sender as { getParameters?: () => RTCRtpSendParameters }).getParameters
+    const parameters: RTCRtpSendParameters = getParameters?.call(sender) ?? ({ encodings: [{}] } as RTCRtpSendParameters)
+    const encoding = { ...(parameters.encodings?.[0] ?? {}), maxBitrate, maxFramerate: 30, scaleResolutionDownBy: 1 }
+    parameters.encodings = [encoding]
+    void setParameters.call(sender, parameters).catch(() => {})
+  } catch { /* mid-negotiation: the content hint still applies */ }
+}
+
+/**
  * How a connection is being routed, worst case first in cost to everybody
  * else.
  *
@@ -655,6 +687,7 @@ export class Peer implements NegotiatingPeer {
         this.#pc.removeTrack?.(sender)
         throw new Error('media pipeline refused sender')
       }
+      if (sender !== undefined) tuneShareSender(track, sender)
       this.#addedTracks.add(track)
     }
 

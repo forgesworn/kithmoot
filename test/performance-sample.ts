@@ -37,5 +37,9 @@ export async function performanceSample() {
     const rect = video.getBoundingClientRect()
     return { index, width: video.videoWidth, height: video.videoHeight, time: video.currentTime, paused: video.paused, readyState: video.readyState, visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight, frames: frames?.totalVideoFrames ?? null, dropped: frames?.droppedVideoFrames ?? null }
   })
-  return { atMs: performance.now(), visibility: document.visibilityState, connections, videos }
+  const chatMutations = (window as unknown as { __perfChatMutations?: { records: number; added: number; removed: number } }).__perfChatMutations
+  const chatRenderPlans = (window as unknown as { __chatRenderPlans?: { append: number; full: number; reasons: Record<string, number> } }).__chatRenderPlans
+  return { atMs: performance.now(), visibility: document.visibilityState, connections, videos,
+    chatMutations: chatMutations ? { ...chatMutations } : { records: 0, added: 0, removed: 0 },
+    chatRenderPlans: chatRenderPlans ? { append: chatRenderPlans.append, full: chatRenderPlans.full, reasons: { ...chatRenderPlans.reasons } } : null }
 }

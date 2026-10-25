@@ -40,9 +40,14 @@ envelopes and canonical projection as the originating room. It can load the
 origin's existing encrypted assignment journal, then request a bounded recent
 replay and follow live updates. It receives neither a signer nor a device
 credential. `submit()` and `retry()` fail before any storage or publication.
-Its storage adapter exposes only `load()`: navigation cannot overwrite the
-origin journal, acknowledge an uncertain send or create a second editable task
-store. Live updates stay in memory until the observer closes.
+Its storage adapter exposes only `load()` and, when the origin has a v2 journal,
+`loadIncremental()`. The incremental loader returns the exact v1 base and its
+ordered deltas; the reader validates the complete image before exposing any of
+it. The adapter has no `save()` or `appendIncremental()`: navigation cannot
+overwrite the origin journal, acknowledge an uncertain send or create a second
+editable task store. `observeWorkspaceActivity` accepts this same read-only
+surface as its `journal` option. Live updates stay in memory until the observer
+closes and are never persisted.
 
 ```ts
 const reader = new AssignmentLog({
@@ -53,7 +58,10 @@ const reader = new AssignmentLog({
   transport: roomTransport,
   policy: roomPolicy,
   epoch: keptEpoch,
-  storage: { load: () => loadOriginAssignmentJournal() },
+  storage: {
+    load: () => originJournal.load(),
+    loadIncremental: () => originJournal.loadIncremental(),
+  },
   historyLimit: 128,
 })
 await reader.open()

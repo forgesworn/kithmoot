@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { nip44 } from 'nostr-tools'
+import { sha256 } from '@noble/hashes/sha2'
+import { bytesToHex } from '@noble/hashes/utils'
+import type { JournalHead, JournalSegment } from '../../src/journal-storage.js'
 import { validateOrdinaryJournalSnapshot as validate } from './ordinary-journal-snapshot.js'
 import { OrdinaryStateHold, ORDINARY_VALUE_BYTES } from './ordinary-state-codec.js'
 import { JOURNAL_MODES, JOURNAL_FAULTS, journalFixture, damageJournalFixture, upperContextJournal } from '../../test/ordinary-journal-fixture.js'
+
+const digest = (value: string): string => bytesToHex(sha256(new TextEncoder().encode(value)))
+const sideRef = (root: string, raw: string) => ({ key: `${root}.journal.v2.${digest(raw)}`, sha256: digest(raw) })
+function rewriteTip(records: Map<string, string>, root: string, change: (segment: JournalSegment) => JournalSegment): void {
+  const head = JSON.parse(records.get(root)!) as JournalHead
+  const segment = JSON.parse(records.get(head.tip!.key)!) as JournalSegment
+  const raw = JSON.stringify(change(segment)), tip = sideRef(root, raw)
+  records.set(tip.key, raw); records.set(root, JSON.stringify({ ...head, tip }))
+}
 
 describe('encrypted journal offline custody', () => {
   it.each(JOURNAL_MODES)('retains actual %s writer cut exactly without clock, decrypt or network', async mode => {
@@ -14,8 +26,8 @@ describe('encrypted journal offline custody', () => {
       expect(validate(records, true, { kind: 'browser' })).toEqual(result)
       expect(result).toEqual({ projects: mode.startsWith('project-') || mode === 'all' ? 1 : 0,
         assignments: mode.startsWith('assignment-') || mode === 'all' ? 1 : 0,
-        events: ['assignment-overlap', 'assignment-delivered', 'all'].includes(mode) ? 1 : 0,
-        pending: ['assignment-pending', 'assignment-overlap'].includes(mode) ? 1 : 0,
+        events: ['assignment-overlap', 'assignment-delivered', 'assignment-v2-overlap', 'assignment-v2-delivered', 'all'].includes(mode) ? 1 : 0,
+        pending: ['assignment-pending', 'assignment-overlap', 'assignment-v2-pending', 'assignment-v2-overlap'].includes(mode) ? 1 : 0,
         contexts: mode.startsWith('context-') || mode === 'all' ? 1 : 0,
         collections: mode === 'context-large' ? 25 : mode.startsWith('context-') && mode !== 'context-empty' || mode === 'all' ? 1 : 0 })
     } finally { clock.mockRestore() }
@@ -71,6 +83,55 @@ describe('encrypted journal offline custody', () => {
     expect(validate(fixture.records, false, { kind: 'browser' }).collections).toBe(1)
     value.collections[0].envelope = btoa(binary + 'x'); fixture.records.set(key, JSON.stringify(value))
     expect(() => validate(fixture.records, false, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+  })
+  it('retains a well-formed unreferenced v2 crash orphan without changing logical counts', async () => {
+    const fixture = await journalFixture('assignment-v2-delivered'), records = new Map(fixture.records)
+    const root = `kithmoot.assignments.v1.${fixture.account}.${fixture.room}`, head = JSON.parse(records.get(root)!) as JournalHead
+    const tip = JSON.parse(records.get(head.tip!.key)!) as JournalSegment
+    const raw = JSON.stringify({ ...tip, previous: head.tip, body: JSON.stringify({ v: 2, add: [], outbox: [] }) }), orphan = sideRef(root, raw)
+    records.set(orphan.key, raw)
+    expect(validate(records, false, { kind: 'browser' })).toEqual({ projects: 0, assignments: 1, events: 1, pending: 0, contexts: 0, collections: 0 })
+  })
+  it.each(['missing-base', 'missing-tip', 'bad-delta', 'unknown-delta', 'wrong-base', 'outbox-cap', 'event-cap', 'head-extra', 'unsupported-head', 'side-hash'])('holds v2 %s without rewriting any record', async fault => {
+    const fixture = await journalFixture('assignment-v2-delivered'), records = new Map(fixture.records)
+    const root = `kithmoot.assignments.v1.${fixture.account}.${fixture.room}`, head = JSON.parse(records.get(root)!) as JournalHead
+    const ciphertext = nip44.v2.encrypt('x'.repeat(32), new Uint8Array(32))
+    if (fault === 'missing-base') records.delete(head.base!.key)
+    if (fault === 'missing-tip') records.delete(head.tip!.key)
+    if (fault === 'bad-delta') rewriteTip(records, root, segment => ({ ...segment, body: JSON.stringify({ v: 2, add: ['invalid_ciphertext'] }) }))
+    if (fault === 'unknown-delta') rewriteTip(records, root, segment => ({ ...segment, body: JSON.stringify({ v: 2, add: [], unknown: true }) }))
+    if (fault === 'wrong-base') rewriteTip(records, root, segment => ({ ...segment, base: { ...segment.base, key: segment.base.key.replace(fixture.room, 'f'.repeat(64)) } }))
+    if (fault === 'outbox-cap') rewriteTip(records, root, segment => ({ ...segment, body: JSON.stringify({ v: 2, add: [], outbox: Array(101).fill(ciphertext) }) }))
+    if (fault === 'event-cap') rewriteTip(records, root, segment => ({ ...segment, body: JSON.stringify({ v: 2, add: Array(20001).fill(ciphertext) }) }))
+    if (fault === 'head-extra') records.set(root, JSON.stringify({ ...head, extra: true }))
+    if (fault === 'unsupported-head') records.set(root, JSON.stringify({ ...head, v: 3 }))
+    if (fault === 'side-hash') records.set(head.tip!.key, records.get(head.tip!.key)! + ' ')
+    const before = [...records]
+    for (const migrated of [false, true]) expect(() => validate(records, migrated, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+    expect([...records]).toEqual(before)
+  })
+  it('retains a well-formed unreferenced project v2 crash orphan without changing logical counts', async () => {
+    const fixture = await journalFixture('project-v2-delivered'), records = new Map(fixture.records)
+    const root = `kithmoot.shared-projects.v1.${fixture.account}`, head = JSON.parse(records.get(root)!) as JournalHead
+    const tip = JSON.parse(records.get(head.tip!.key)!) as JournalSegment
+    const body = nip44.v2.encrypt('x'.repeat(32), new Uint8Array(32))
+    const raw = JSON.stringify({ ...tip, previous: head.tip, body }), orphan = sideRef(root, raw)
+    records.set(orphan.key, raw)
+    expect(validate(records, false, { kind: 'browser' })).toEqual({ projects: 1, assignments: 0, events: 0, pending: 0, contexts: 0, collections: 0 })
+  })
+  it.each(['missing-base', 'missing-tip', 'bad-body', 'wrong-base', 'head-extra', 'unsupported-head', 'side-hash'])('holds project v2 %s without rewriting any record', async fault => {
+    const fixture = await journalFixture('project-v2-delivered'), records = new Map(fixture.records)
+    const root = `kithmoot.shared-projects.v1.${fixture.account}`, head = JSON.parse(records.get(root)!) as JournalHead
+    if (fault === 'missing-base') records.delete(head.base!.key)
+    if (fault === 'missing-tip') records.delete(head.tip!.key)
+    if (fault === 'bad-body') rewriteTip(records, root, segment => ({ ...segment, body: 'invalid_ciphertext' }))
+    if (fault === 'wrong-base') rewriteTip(records, root, segment => ({ ...segment, base: { ...segment.base, key: segment.base.key.replace(fixture.account, 'f'.repeat(64)) } }))
+    if (fault === 'head-extra') records.set(root, JSON.stringify({ ...head, extra: true }))
+    if (fault === 'unsupported-head') records.set(root, JSON.stringify({ ...head, v: 3 }))
+    if (fault === 'side-hash') records.set(head.tip!.key, records.get(head.tip!.key)! + ' ')
+    const before = [...records]
+    for (const migrated of [false, true]) expect(() => validate(records, migrated, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+    expect([...records]).toEqual(before)
   })
   it('leaves unrelated families for the required complete composite', () => {
     expect(validate(new Map([['kithmoot.device.private', 'opaque']]), false, { kind: 'browser' }).projects).toBe(0)

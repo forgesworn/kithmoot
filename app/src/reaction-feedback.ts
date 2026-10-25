@@ -5,7 +5,7 @@ export function showReactionFeedback(anchor: HTMLElement, emoji: string): void {
   const bounds = anchor.getBoundingClientRect()
   const sparkle = document.createElement('span')
   sparkle.className = 'reactionFeedback'
-  sparkle.append(emojiGlyph(emoji))
+  sparkle.append(emojiGlyph(emoji, 'feedback'))
   sparkle.setAttribute('aria-hidden', 'true')
   sparkle.popover = 'manual'
   sparkle.style.left = `${Math.max(8, Math.min(bounds.right - 40, innerWidth - 56))}px`

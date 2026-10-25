@@ -64,6 +64,25 @@ with `PERF_WORKLOADS=idle,chat,audio,video,share`. Chat sends one message per
 collection step, rotates the sender and waits for delivery to every client;
 reports contain delivery counts and latency, never message contents.
 
+`PERF_SEED_MESSAGES=500` seeds up to the retained 500-message window through a
+real `RoomAgent` before the browser clients rejoin. The seed writer uses distinct
+timestamps three seconds apart so the protocol's per-device rate limit accepts
+the history; this is not a real-time publication-rate measurement. The writer
+leaves before measurement starts. Reports contain the requested and actual seed
+counts, not the seeded text. Leave this option at its default zero for the original
+smoke workloads.
+
+The chat log's render planner (`app/src/chat-render-plan.ts`) appends validated
+suffix messages without rebuilding existing rows, and evicts leading rows when
+the retained 500-message window slides, falling back to a full rebuild for
+edits, reactions, replies, system lines or any statement that can change
+another row. The collector counts append vs full plans and the fallback reason
+per client (`chatRenderPlans` in each sample), so a report shows directly how
+often the incremental path ran. `PERF_DEBUG=1` additionally logs each media
+readiness poll (inbound/outbound stream counters, per-client camera pipeline
+diagnostics from `window.kithmootCameraDiagnostics`) and page errors, for
+diagnosing a failed collection run.
+
 Use `PERF_WORKLOAD=audio PERF_DOCKED=1` to measure a call while one client is
 on Home. Use `PERF_WORKLOAD=share PERF_DOCKED=1 PERF_POPOUT=1` to keep a live
 share popout open alongside that docked call. The collector measures the
@@ -71,20 +90,31 @@ popout as a separate renderer target, verifies both its share and owner-camera
 views are decoded, and checks that it has no duplicate audio elements. Primary
 and popout samples carry an anonymous device index and presentation label.
 
+Use `PERF_WORKLOAD=video PERF_HIDDEN=1` to measure the first client in a
+synthetic hidden tab while the other stays visible. Headless Chromium does not
+switch real page visibility, so the collector stubs `document.visibilityState`,
+suppresses frame callbacks and relies on the app's hidden-tab watchdog. The
+report records each sample's observed visibility state. This validates the
+hidden-camera scheduler path; it is not an OS-level, locked-device or
+whole-device battery measurement.
+
 Change `PERF_DEVICES` for the capacity matrix and `PERF_SECONDS` up to 2700 for
 a 45-minute synthetic soak. The private JSON is under the run's ignored
 `test-results/.../performance/baseline.json` directory. Reports always declare
 `qualified: false`, zero physical devices and unavailable battery/thermal data.
-This collector covers foreground workloads, a docked call and one share popout
-on one host. Background/locked operation, route forcing, network impairment,
-churn, multiple shares, gallery/speaker/pin comparisons and physical-device
-capture remain additional work. It performs no third-party analytics uploads.
+This collector covers foreground workloads, a docked call, one share popout and
+one hidden camera tab on one host. Locked operation, route forcing, network
+impairment, churn, multiple shares, gallery/speaker/pin comparisons and
+physical-device capture remain additional work. It performs no third-party
+analytics uploads.
 
 HTTP request/response/failure counts and encoded response bytes, plus WebSocket
 connection/frame counts and payload bytes, are cumulative from each monitored
 target's setup. URLs and frame bodies are discarded. RTP and candidate-pair
 counters remain separate from these signalling/file counters. Renderer task,
-script and layout durations are also cumulative per CDP target. Compare sample
+script and layout durations are also cumulative per CDP target. Chat DOM mutation
+records and direct added/removed node counts come from a local observer; they
+contain no message content and do not count descendants separately. Compare sample
 deltas over elapsed time; these counters are not whole-device CPU, total network
 use, or measurements of background service workers and forwarding hosts.
 

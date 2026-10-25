@@ -57,8 +57,8 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `kithmoot.box-discovery.v1.H.H` | `box-discovery.ts`: revision, retained signed cards/claims/status/conflict history | Preserve stale/replay history; authenticated fresh reads before discovery effects |
 | `kithmoot.uploads.v1.H`, `.blob-deletes.v1` | `blob-deletion.ts`: upload URL/hash pairs and signed deletion retry authorisation | Exact signed event/hash/URL correlation; retention before deletion/forget; no guessed target |
 | `kithmoot.context.v1.H` | `context-panel.ts`: signer-encrypted account context | Hide outer account key; owner CAS and authenticated signer decrypt before effects |
-| `kithmoot.assignments.v1.H.H` | `assignment-panel.ts` and `main.ts`: encrypted assignment journal | Strict primary journal binding and awaited retention; audit both read and write embeddings |
-| `kithmoot.shared-projects.v1.H` | `shared-projects.ts`: account project journal | Strict primary project journal binding; current async save wraps a synchronous store write |
+| `kithmoot.assignments.v1.H.H` and `.journal.v2.H` side records | `assignment-panel.ts` and `main.ts`: encrypted assignment base and hash-linked deltas | Strict primary journal/chain binding and awaited retention; audit both read and write embeddings and retain well-formed crash orphans |
+| `kithmoot.shared-projects.v1.H` and `.journal.v2.H` side records | `shared-projects.ts`: account project journal: an encrypted v1 whole-cache base plus NIP44-encrypted hash-linked deltas | Strict primary project journal/chain binding; awaited retention; no project, logo, request id or participant data visible as a side-record key |
 | `kithmoot.project.v1.A.H` | `room-projects.ts`: personal project label | Metadata snapshot checks exact physical scope/name; no membership authority |
 | `kithmoot.notification-scopes.v1.` + JSON `[A,kind,id]` | `notification-scopes.ts`: account/project/room alert settings | Metadata snapshot checks canonical tuple and `all`/`off`; no notification permission authority |
 | `kithmoot.pinned-rooms.v1` | `room-pins.ts`: sorted private room IDs | Metadata snapshot preserves exact sorted unique list, including real empty list |
@@ -124,7 +124,9 @@ allowlist is reviewed. A name containing `call` or `home` is insufficient.
 
 `ordinary-journal-snapshot.ts` classifies the existing browser-owned
 `shared-projects.v1.<account>`, `assignments.v1.<account>.<room>` and
-`context.v1.<account>` rows. It preserves every raw byte and original physical
+`context.v1.<account>` rows, plus assignment
+`assignments.v1.<account>.<room>.journal.v2.<sha256>` and project
+`shared-projects.v1.<account>.journal.v2.<sha256>` side records. It preserves every raw byte and original physical
 owner, refuses account wrappers and temporary tab relocation, and returns only
 frozen counts. The raw 8 MiB UTF-8 limit is checked before JSON parsing. Direct
 writer objects require their fixed fields and insertion order; a signer-returned
@@ -136,13 +138,40 @@ Projects bind the visible account, recognise the 131-byte NIP44 self-key carrier
 produced by encryption of the 64-character recovery key, and check V2 envelope
 framing. Their encrypted project, logo and request state remains opaque.
 Assignments retain up to 20,000 encrypted events and 100 pending entries in
-their original order, including the actual `(0,1)`, `(1,1)` and `(1,0)` writer
-cuts. A physically present fully empty journal has no established writer cut
-and holds. Its account and room binding is physical, not authenticated by this
+their original order. Legacy v1 roots and v2 pending, overlap and acknowledged
+cuts all have actual writer fixtures, including the `(0,1)`, `(1,1)` and `(1,0)`
+states. A physically present fully empty v1 journal has no established writer
+cut and holds.
+
+A v2 assignment root is a constant-sized `{v,base,tip}` head. Each reference
+contains the side key and SHA-256 of its exact raw value. The referenced base is
+the exact legacy v1 snapshot; a segment names that base and its previous segment
+and carries a canonical `{v,add,outbox?}` delta body. `add` contains individually
+NIP44-encrypted accepted events, while `outbox`, when present, is the complete
+bounded replacement. Custody validates head/segment grammar, content hashes,
+account/room-bound keys, the complete reachable chain and cumulative logical
+counts. Missing, corrupt, cyclic, over-depth or wrong-base reachable records
+hold intact. Well-formed unreferenced segments are retained as crash orphans
+but do not change logical counts.
+
+A v2 project root is the same constant-sized `{v,base,tip}` head over
+account-bound side records. The base is the exact legacy v1 whole-cache
+envelope; a segment carries one NIP44-encrypted delta (HKDF subkey domain
+`kithmoot/v2/project-journal-delta`) whose plaintext is a canonical
+`{v,remove?,put?}` body over the seven collections `events`, `pending`,
+`requests`, `logoEvents`, `logoPending`, `logoRequests` and `logoWaiting`.
+Keys inside a delta are logical ids only - event id, outer wrap id or request
+id - so no id or participant record becomes a visible storage key; deletes
+apply before puts and cumulative collection limits are enforced while
+replaying. Replay persists bounded batches durably before merging, and the
+whole-cache base is rewritten only when amortised compaction is due.
+
+The assignment account and room binding is physical, not authenticated by this
 offline validator. NIP44 checks support both the two-byte and extended six-byte
 encrypted-prefix length profiles written by pinned nostr-tools 2.25. They check
 canonical Base64, version and compatible total length, not the encrypted prefix,
-MAC, recipient or plaintext meaning.
+MAC, recipient or plaintext meaning. No assignment ciphertext is decrypted to
+establish those counts.
 
 Context allows the actual empty save and up to 32 collections. Each standard
 cache event has an uncached signature check, the exact cache domain, account and

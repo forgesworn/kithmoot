@@ -129,19 +129,22 @@ export default defineConfig({
       registerType: 'prompt',
       workbox: {
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        globPatterns: ['**/*.{js,wasm,css,html}', 'girnel/assets/*.svg'],
-        globIgnores: ['**/link-web/**', '**/vmls-wasm/**', 'notify-sw.js', 'ordinary-state-sw.js'],
-        // A click on a notification shown through the registration arrives
-        // in the worker, not the page. The handler is a plain script in
-        // app/public, imported into the generated worker rather than
-        // precached by it, so it is fetched with the worker itself.
-        importScripts: ['notify-sw.js', 'ordinary-state-sw.js'],
+        globPatterns: ['**/*.{js,wasm,css,html}', 'girnel/assets/*.svg', 'assets/600-*.webp'],
+        globIgnores: ['**/link-web/**', '**/vmls-wasm/**', 'notify-sw.js', 'ordinary-state-sw.js', 'original-artwork-sw.js'],
+        // Plain public scripts arrive with the worker rather than entering
+        // the precache. Original-artwork migration runs before activation.
+        importScripts: ['notify-sw.js', 'ordinary-state-sw.js', 'original-artwork-sw.js'],
+        runtimeCaching: [{
+          urlPattern: ({ url, sameOrigin }) => sameOrigin && /^\/j\/(?:chat-art|emoji)\/[^/]+\.(?:png|gif)$/.test(url.pathname),
+          handler: 'StaleWhileRevalidate',
+          options: { cacheName: 'kithmoot-original-artwork-v1' },
+        }],
       },
       // Serves a real manifest and service worker under `npm run demo` too,
       // not only after a production build - otherwise the manifest link in
       // index.html 404s in dev and the browser logs a spurious parse error.
       devOptions: { enabled: true, type: 'module' },
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'chat-art/*.png', 'chat-art/*.gif', 'emoji/*.png'],
+      includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'chat-art/*.webp', 'emoji/*.webp'],
       manifest: {
         name: 'KithMoot',
         short_name: 'KithMoot',

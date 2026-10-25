@@ -3644,7 +3644,8 @@ main:has(#admissionPreview:not([hidden])) #notify { display: none; }
 .emojiTabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: .7rem 0; }
 .emojiTabs button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .emojiGrid .familiarEmoji { width: 2rem; height: 2rem; }
-.familiarEmoji { display: inline-block; width: 1.5em; height: 1.5em; vertical-align: middle; background-position: center; background-size: contain; background-repeat: no-repeat; color: transparent; line-height: 1.5em; }
+.familiarEmoji { position: relative; display: inline-block; width: 1.5em; height: 1.5em; vertical-align: middle; color: transparent; line-height: 1.5em; }
+.familiarEmoji img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 /* Reactions sit under the bubble, a quiet pill each: 26px on a fine pointer,
    32px on touch, with the hit area carried past the pill. Nothing overlaps
    the bubble above or the log's edge below (#458). Mine is ringed, and
@@ -5016,7 +5017,8 @@ html[data-call-docked] #callToggle { display: none !important; }
 .mediaGrid img { width: 100%; height: 7rem; object-fit: contain; }
 .mediaGrid small { font-size: var(--fs-1); color: var(--muted); }
 
-.messagePerson { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .35rem; min-height: 28px; margin: 0; padding: 0 .2rem; border: 0; background: transparent; color: inherit; font: inherit; text-align: start; }
+.messagePerson { display: inline-flex; align-items: center; flex-wrap: nowrap; gap: .35rem; max-width: 100%; min-height: 28px; margin: 0; padding: 0 .2rem; border: 0; background: transparent; color: inherit; font: inherit; text-align: start; }
+.messagePerson :is(.name, .pubkey, .nip05, .idkind) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (any-pointer: coarse) { .messagePerson { min-height: 44px; } }
 .messagePerson:hover .name, .messagePerson:focus-visible .name { text-decoration: underline; }
 .participantCard { max-width: min(30rem, calc(100vw - 2rem)); }
