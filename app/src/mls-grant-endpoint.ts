@@ -2,6 +2,8 @@ import type { Event } from 'nostr-tools/pure'
 import { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import type { VaultContext } from './mls-vault.js'
 import { keeperInboxAuthRequest, keeperInboxDestination, keeperInboxPermissionCurrent, type KeeperInboxAuthPrompt, type KeeperInboxAuthRequest, type KeeperInboxAuthReply } from './mls-keeper-inbox-auth.js'
+import { publishKeeperInboxPermission } from './mls-keeper-permission-relay.js'
+import { readKeeperInboxPermission } from './mls-keeper-permissions.js'
 import { publishMlsKeeperInboxDeposit } from './mls-keeper-inbox-deposit-relay.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import { BrowserLink, type LinkOwnership, type PairedBox } from './browser-link.js'
@@ -266,6 +268,24 @@ export class BrowserMlsGrantEndpoint {
         if (!checked.ok || !live()) throw stale()
       }),
     }, url => new Socket(url)))
+    if (!live()) throw stale()
+  }
+  /** Install/revoke exact saved material as the selected keeper account. */
+  async publishKeeperInboxPermission(box: Readonly<PairedBox>, event: Event, operationCurrent: () => boolean): Promise<void> {
+    const binding = this.#bound(), status = event.tags.find(t => t[0] === 'status')?.[1]
+    if (status !== 'active' && status !== 'revoked') throw stale()
+    const terms = readKeeperInboxPermission(event, Math.floor(Date.now() / 1000), status)
+    if (terms.keeper !== binding.account || box.eventUrl !== keeperInboxDestination(terms.node)) throw stale()
+    const selected = await this.resumeKeeperInbox(binding.account, box, operationCurrent)
+    const live = () => { try { if (operationCurrent() !== true) return false; binding.check(); return this.#link.boxes().some(b => b.routeId === selected.routeId && b.eventUrl === selected.eventUrl) } catch { return false } }
+    const Socket = linkWebSocket({ openSocket: (url, route, listener) => this.openSocket(url, route, listener, live) }, selected)
+    const identity: ParticipantIdentity = { pubkey: binding.account, signEvent: template => this.#track(binding, async () => {
+      if (!live()) throw stale()
+      const signed = await binding.identity.signEvent(template)
+      if (!live()) throw stale()
+      return signed
+    }) }
+    await this.#track(binding, () => publishKeeperInboxPermission(terms.event, identity, live, url => new Socket(url)))
     if (!live()) throw stale()
   }
   carrier(record: MlsGrantRecord, identity: ParticipantIdentity): { publish: BrowserLinkRelay['publish']; close(): void } {

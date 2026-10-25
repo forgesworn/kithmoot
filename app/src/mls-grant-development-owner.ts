@@ -22,6 +22,7 @@ import { NostrMlsKeeperInboxTransport } from './mls-keeper-inbox-relay.js'
 import { NostrVmlsRevocationTransport } from './mls-revocation-relay.js'
 import { BrowserMlsRevocationOutbox } from './mls-revocation-outbox.js'
 import type { KeeperInboxAuthPrompt } from './mls-keeper-inbox-auth.js'
+import { BrowserMlsKeeperPermissions } from './mls-keeper-permissions.js'
 import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
 
 export interface MlsDevelopmentRoom { session: string; rendezvousKey: string }
@@ -41,6 +42,7 @@ interface Active {
 interface Services {
   links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: CoordinatedMlsVault
   rooms: BrowserMlsRoomOperations; ledger: BrowserMlsGrantLedger; inbox: BrowserMlsRevocationInbox
+  permissions: BrowserMlsKeeperPermissions
   outbox: BrowserMlsRevocationOutbox
   decisions: BrowserMlsKeeperDecisions; keeper: BrowserMlsKeeperRequestController; member: BrowserMlsMembershipController
 }
@@ -126,6 +128,7 @@ export class BrowserMlsGrantDevelopmentOwner {
     return this.#run(true, services => services.member.begin(selected), room)
   }
   memberAdvance(room: MlsDevelopmentRoom, operation: string) { return this.#run(true, services => services.member.advance(operation), room) }
+  currentMlsDevice() { return this.#run(true, (services, active) => services.vault.device(active.inbox.vault)) }
   revocationRecords() { return this.#run(true, services => services.outbox.records()) }
   /** Private sending is composed only here, beside its concrete saved-route
    * endpoint. Public account sending remains an explicit separate action. */
@@ -138,6 +141,22 @@ export class BrowserMlsGrantDevelopmentOwner {
       return services.outbox.sendPrivately(operation, { identity: active.revocation, endpoint: this.#endpoint, vault: services.vault,
         routeId: selected.routeId, permission: selected.permission, consent: selected.consent,
         current: () => selected.current() && active.current() }, revision)
+    })
+  }
+  keeperPermissions() { return this.#run(true, services => services.permissions.records()) }
+  prepareKeeperPermission(routeId: string, device: string, seconds: number, operationCurrent: () => boolean) {
+    return this.#run(true, (services, active) => services.permissions.prepare(routeId, device, seconds, active.identity, () => operationCurrent() === true && active.current()))
+  }
+  publishKeeperPermission(grant: string, revision: number, revoke: boolean, operationCurrent: () => boolean) {
+    return this.#run(true, (services, active) => services.permissions.publish(grant, revision, revoke, () => operationCurrent() === true && active.current()))
+  }
+  exportKeeperPermission(grant: string, revision: number) { return this.#run(true, services => services.permissions.exportInstalled(grant, revision)) }
+  sendRevocationPublic(operation: string, relays: readonly string[], revision?: number) {
+    const selectedRelays = relaySnapshot(relays)
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot encrypt keeper requests.')
+      const transport = new NostrVmlsRevocationTransport(selectedRelays, { socket: url => this.#socket(url) })
+      return revision === undefined ? services.outbox.send(operation, { identity: active.revocation, transport }) : services.outbox.retry(operation, revision, { identity: active.revocation, transport })
     })
   }
   keeperView() { return this.#run(true, services => services.inbox.view()) }
@@ -284,7 +303,8 @@ export class BrowserMlsGrantDevelopmentOwner {
     const keeper = new BrowserMlsKeeperRequestController(decisions, rooms, ledger, context)
     const member = new BrowserMlsMembershipController(rooms, ledger, () => this.#active?.room, () => this.#active?.selected?.session, () => this.#active?.account.persona)
     const outbox = new BrowserMlsRevocationOutbox(coordinator, context)
-    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox }
+    const permissions = new BrowserMlsKeeperPermissions(coordinator, this.#endpoint, context)
+    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox, permissions }
   }
   #socket(url: string): WebSocket {
     const active = this.#active, scope = this.#foreground.capture()

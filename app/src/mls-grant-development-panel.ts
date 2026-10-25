@@ -6,6 +6,10 @@ import { confirmAction } from './confirm-action.js'
 import type { MlsRemovalStatus } from './mls-room-operations.js'
 import type { MlsRevocationInboxView } from './mls-revocation-inbox.js'
 import type { MlsRevocationInboxPrompt } from './mls-revocation-inbox-store.js'
+import { mlsBoxNode } from './mls-grant-ledger.js'
+import { importKeeperInboxPermission, type KeeperInboxPermission, type KeeperPermissionRecord } from './mls-keeper-permissions.js'
+import type { MlsStandaloneRevocationView } from './mls-revocation-outbox.js'
+import type { PairedBox } from './browser-link.js'
 import { addReveal } from './reveal.js'
 
 const short = (value: string) => `${value.slice(0, 12)}…`
@@ -22,6 +26,11 @@ export class BrowserMlsGrantDevelopmentPanel {
   readonly #owner: BrowserMlsGrantDevelopmentOwner
   #epoch = 0
   #busy = false
+  #workingEpoch?: number
+  #savedRoutes: PairedBox[] = []
+  #outboxRows: MlsStandaloneRevocationView[] = []
+  #permissionRows: KeeperPermissionRecord[] = []
+  #senderPermission?: KeeperInboxPermission
   #rooms: (MlsDevelopmentRoom & { name: string })[] = []
   #memberPlan?: MlsRemovalPlan
   #keeperPlan?: MlsKeeperDecisionPlan
@@ -41,6 +50,29 @@ export class BrowserMlsGrantDevelopmentPanel {
         <button data-pair type="button">Pair grant connection</button><button data-routes type="button">Read saved grant routes</button>
         <label>Grant route <select data-route></select></label>
         <button data-records type="button">Read grant ledger</button><div data-record-list></div>
+      </fieldset>
+      <fieldset><legend>Send a retained revocation request</legend>
+        <button data-outbox type="button">Check retained send requests</button>
+        <label>Retained request <select data-send-request></select></label><p data-send-review></p>
+        <button data-my-device type="button">Read this account's transmitting device key</button><p data-my-device-key></p>
+        <label>Signed keeper inbox permission JSON <textarea data-send-permission maxlength="8192" rows="4" spellcheck="false"></textarea></label>
+        <button data-inspect-permission type="button">Inspect signed permission</button><p data-permission-review></p>
+        <p>The permission names the device sending this request, not the device being removed. The selected Bothy sees the keeper/transmitting-device link, grant, expiry and timing. Link relays see timing and volume. Requires a Bothy node that supports private keeper requests; node acceptance decides current keeper authority.</p>
+        <button data-send-private type="button">Send privately to selected Bothy</button><button data-retry-private type="button">Explicitly retry privately at current revision</button>
+        <p>Public sending is a separate explicit choice. It reads the keeper's DM directory using the directory relays below and discloses connection metadata to public relays. Private sending never falls back.</p>
+        <button data-send-public type="button">Send using public DM relays</button><button data-retry-public type="button">Explicitly retry publicly at current revision</button>
+        <button data-cancel-send type="button">Cancel current operation</button>
+      </fieldset>
+      <fieldset><legend>Keeper inbox deposit permissions</legend>
+        <p>Use the selected account as issuer. This does not infer storage-keeper authority from room membership; the selected Bothy validates it.</p>
+        <label>Transmitting MLS device key (64 lowercase hex) <input data-permission-device maxlength="64" spellcheck="false" autocomplete="off"></label>
+        <label>Lifetime in days (1–30) <input data-permission-days type="number" min="1" max="30" value="1"></label>
+        <button data-prepare-permission type="button">Prepare active and terminal revocation</button><button data-permissions type="button">Read saved permissions</button>
+        <label>Saved permission <select data-permission-choice></select></label><p data-saved-permission-review></p>
+        <button data-install-permission type="button">Install / retry exact active permission</button><button data-revoke-permission type="button">Revoke / retry exact terminal permission</button>
+        <button data-export-permission type="button">Export installed active JSON</button>
+        <label>Ordinary signed Event JSON to copy <textarea data-permission-export readonly rows="4" spellcheck="false"></textarea></label>
+        <p>Preparation stores both exact signed events before publication. Unknown installation or revocation is not acknowledgement. An expired record cannot establish revocation; a terminal revocation cannot be reactivated.</p>
       </fieldset>
       <fieldset><legend>Saved room membership</legend>
         <button data-rooms type="button">Check saved MLS rooms</button><label>Room <select data-room></select></label>
@@ -85,6 +117,29 @@ export class BrowserMlsGrantDevelopmentPanel {
     this.#select('route').onchange = () => { this.#input('private-auth').checked = false; this.#retireSelection() }
     this.#input('private-auth').onchange = () => { if (!this.#input('private-auth').checked) this.#retireSelection() }
     this.#input('auth').onchange = () => { if (!this.#input('auth').checked) this.#retireSelection() }
+    this.#button('outbox').onclick = () => { void this.#work(() => this.#refreshOutbox()) }
+    this.#select('send-request').onchange = () => { this.#retireSelection(); this.#renderSendReview() }
+    this.#input('send-permission').oninput = () => this.#retireSelection()
+    this.#button('inspect-permission').onclick = () => {
+      try {
+        const terms = importKeeperInboxPermission(this.#input('send-permission').value), request = this.#selectedRequest(), route = this.#savedRoutes.find(r => r.routeId === this.#select('route').value)
+        if (!request || !route || terms.keeper !== request.keeper || route.eventUrl !== terms.event.tags.find(t => t[0] === 'server')![1]) throw new Error('Select the retained request and the exact saved node named by this permission.')
+        this.#senderPermission = terms
+        this.#text('permission-review').textContent = `Keeper ${terms.keeper}; transmitting device ${terms.device}; node ${terms.node}; grant ${terms.grant}; expires ${new Date(terms.expiration * 1000).toISOString()}. Signature verified; current keeper authority is decided by the node.`
+      } catch (error) { this.#senderPermission = undefined; this.#status(error instanceof Error ? error.message : 'Invalid permission.') }
+    }
+    this.#button('my-device').onclick = () => { void this.#work(async () => { const result = this.#active(await this.#owner.currentMlsDevice()); if (!result.ok) throw new Error(`Transmitting device unavailable: ${result.refusal}`); this.#text('my-device-key').textContent = `Transmitting device: ${result.value.device}` }) }
+    for (const retry of [false, true]) {
+      this.#button(retry ? 'retry-private' : 'send-private').onclick = () => { void this.#sendPrivate(retry) }
+      this.#button(retry ? 'retry-public' : 'send-public').onclick = () => { void this.#sendPublic(retry) }
+    }
+    this.#button('cancel-send').onclick = () => { this.#retireSelection(); this.#status('Operation canceled. Check retained state before explicitly retrying an unconfirmed attempt.') }
+    this.#button('permissions').onclick = () => { void this.#work(() => this.#refreshPermissions()) }
+    this.#select('permission-choice').onchange = () => { this.#retireSelection(); this.#renderPermissionReview() }
+    for (const key of ['permission-device','permission-days']) this.#input(key).oninput = () => this.#retireSelection()
+    this.#button('prepare-permission').onclick = () => { void this.#preparePermission() }
+    for (const revoke of [false,true]) this.#button(revoke ? 'revoke-permission' : 'install-permission').onclick = () => { void this.#publishPermission(revoke) }
+    this.#button('export-permission').onclick = () => { const row = this.#selectedPermission(); if (!row) return; void this.#work(async () => { this.#input('permission-export').value = this.#active(this.#active(await this.#owner.exportKeeperPermission(row.grant, row.revision))) }) }
     this.#button('members').onclick = () => { void this.#members() }
     this.#button('member-confirm').onclick = () => {
       const plan = this.#memberPlan, room = this.#selectedRoom()
@@ -140,25 +195,27 @@ export class BrowserMlsGrantDevelopmentPanel {
   close(): void { void this.invalidate().catch(() => {}) }
   invalidate(): Promise<void> {
     if (this.dialog.open) this.dialog.close()
-    this.#epoch++; this.#rooms = []; this.#clearReviews()
+    this.#epoch++; this.#rooms = []; this.#savedRoutes = []; this.#outboxRows = []; this.#permissionRows = []; this.#senderPermission = undefined; this.#clearReviews()
     this.#text('account').textContent = ''; this.#status('')
     this.#input('code').value = ''; this.#input('auth').checked = false; this.#input('private-auth').checked = false
-    this.#select('room').replaceChildren(); this.#select('route').replaceChildren()
+    this.#select('room').replaceChildren(); this.#select('route').replaceChildren(); this.#select('send-request').replaceChildren(); this.#select('permission-choice').replaceChildren()
+    for (const key of ['send-permission','permission-export','permission-device']) this.#input(key).value = ''
+    for (const key of ['send-review','permission-review','saved-permission-review','my-device-key']) this.#text(key).textContent = ''
     for (const list of ['members-list','record-list','inbox-list']) this.#list(list, [])
     return this.#owner.pause()
   }
   async #work(work: () => Promise<void>): Promise<void> {
     if (this.#busy || !this.dialog.open) return
-    const epoch = this.#epoch; this.#busy = true; this.#clearReviews(); this.#status('Checking…')
+    const epoch = this.#epoch; this.#workingEpoch = epoch; this.#busy = true; this.#clearReviews(); this.#status('Checking…')
     try { await work() } catch (error) { if (epoch === this.#epoch && this.dialog.open) this.#status(error instanceof Error ? error.message : 'This workflow could not be confirmed.') }
-    finally { this.#busy = false }
+    finally { this.#busy = false; this.#workingEpoch = undefined }
   }
   #active<T>(result: { state: string; value?: T }): T {
-    if (!this.dialog.open || this.root.visibilityState !== 'visible' || result.state !== 'active') throw new Error(`Workflow ${result.state}. Reopen in the current foreground account before retrying.`)
+    if (this.#workingEpoch !== undefined && this.#workingEpoch !== this.#epoch || !this.dialog.open || this.root.visibilityState !== 'visible' || result.state !== 'active') throw new Error(`Workflow ${result.state}. Reopen in the current foreground account before retrying.`)
     return result.value!
   }
   async #routes(): Promise<void> { await this.#work(async () => {
-    const routes = this.#active(await this.#owner.routes())
+    const routes = this.#active(await this.#owner.routes()); this.#savedRoutes = routes
     this.#input('private-auth').checked = false
     this.#select('route').replaceChildren(...routes.map(route => this.#option(route.routeId, route.routeId)))
   }) }
@@ -214,6 +271,76 @@ export class BrowserMlsGrantDevelopmentPanel {
       list.append(row)
     }
   }
+  #selectedRequest() { return this.#outboxRows.find(r => r.operation === this.#select('send-request').value) }
+  #selectedPermission() { return this.#permissionRows.find(r => r.grant === this.#select('permission-choice').value) }
+  #selectionCurrent(epoch: number, route: string) {
+    const account = this.context(), persona = account?.persona, generation = account?.generation
+    return () => epoch === this.#epoch && this.dialog.open && this.root.visibilityState === 'visible' && this.#select('route').value === route &&
+      this.context()?.persona === persona && this.context()?.generation === generation
+  }
+  async #refreshOutbox() {
+    const selected = this.#select('send-request').value
+    this.#outboxRows = this.#active(this.#active(await this.#owner.revocationRecords()))
+    this.#select('send-request').replaceChildren(...this.#outboxRows.map(r => this.#option(r.operation, `${short(r.keeper)} / remove ${short(r.device)} / ${r.requestState}`)))
+    if (this.#outboxRows.some(r => r.operation === selected)) this.#select('send-request').value = selected
+    this.#renderSendReview()
+  }
+  #renderSendReview() {
+    const r = this.#selectedRequest()
+    this.#text('send-review').textContent = r ? `Keeper ${r.keeper}; device being removed ${r.device}; revision ${r.requestRevision}; ${r.requestState === 'unconfirmed' ? 'unconfirmed: no acknowledgement retained; explicit retry required' : r.requestState}. ${r.publicAttempted ? 'An earlier public attempt exists; this is not private-only history.' : 'No earlier public attempt is recorded here; this is not proof of no older traffic.'} ${r.privateDestination ? `Last private node ${r.privateDestination.node}.` : ''}` : 'No retained request selected.'
+  }
+  async #sendPrivate(retry: boolean) {
+    const request = this.#selectedRequest(), terms = this.#senderPermission, routeId = this.#select('route').value, epoch = this.#epoch
+    if (!request || !terms || !routeId || retry && request.requestRevision < 1) { this.#status('Inspect a permission for the selected retained request and saved route; retry requires its current revision.'); return }
+    const currentBase = this.#selectionCurrent(epoch, routeId), text = this.#input('send-permission').value
+    const current = () => currentBase() && this.#select('send-request').value === request.operation && this.#input('send-permission').value === text
+    await this.#work(async () => {
+      try {
+        this.#active(this.#active(await this.#owner.sendRevocationPrivately(request.operation, { routeId, permission: terms.event, current,
+          consent: async scope => await confirmAction({ title: 'Identify this transmitting device to the selected Bothy?',
+            message: `Principal ${scope.principal}; persona ${scope.persona}; transmitting device ${scope.device}; keeper ${scope.keeper}; node ${scope.box}; grant ${scope.grant}; destination ${scope.destination}; permission ${scope.permissionId}; operation deadline ${scope.deadline}. This identifies the sending device, not the device being removed. The node sees this link and timing; Link relays see timing and volume.`,
+            confirmLabel: retry ? `Retry private revision ${request.requestRevision}` : 'Identify and send privately', isCurrent: () => current() && scope.current() }) ? 'approve' : 'deny',
+        }, retry ? request.requestRevision : undefined)))
+        if (current()) { await this.#refreshOutbox(); this.#status('Private send state checked. Only a retained matching node ACK is shown as sent; no public fallback was used.') }
+      } catch (error) { if (current()) { await this.#refreshOutbox(); this.#status(`${error instanceof Error ? error.message : 'Private send failed.'} Check retained state; no public fallback was used.`) } }
+    })
+  }
+  async #sendPublic(retry: boolean) {
+    const request = this.#selectedRequest(), epoch = this.#epoch, route = this.#select('route').value, current = this.#selectionCurrent(epoch, route)
+    if (!request || retry && request.requestRevision < 1) return
+    const relays = this.#urls('directory')
+    if (!await confirmAction({ title: 'Use public DM relays for this request?', message: `This separate action reads a public DM directory for keeper ${request.keeper} and publishes an encrypted wrapper through its public relays. Those services observe connection address, timing and volume. Earlier public history remains recorded.`, confirmLabel: retry ? `Retry publicly at revision ${request.requestRevision}` : 'Send publicly', isCurrent: current })) return
+    await this.#work(async () => { this.#active(this.#active(await this.#owner.sendRevocationPublic(request.operation, relays, retry ? request.requestRevision : undefined))); if (current()) await this.#refreshOutbox() })
+  }
+  async #refreshPermissions() {
+    const selected = this.#select('permission-choice').value
+    this.#permissionRows = this.#active(this.#active(await this.#owner.keeperPermissions()))
+    this.#select('permission-choice').replaceChildren(...this.#permissionRows.map(r => this.#option(r.grant, `${short(r.grant)}: ${r.expiration <= Date.now()/1000 ? 'expired / outcome retained' : r.state} / revision ${r.revision}`)))
+    if (this.#permissionRows.some(r => r.grant === selected)) this.#select('permission-choice').value = selected
+    this.#renderPermissionReview()
+  }
+  #renderPermissionReview() {
+    const r = this.#selectedPermission()
+    this.#text('saved-permission-review').textContent = r ? `Issuer ${r.keeper}; transmitting device ${r.device}; node ${r.node}; grant ${r.grant}; expiry ${new Date(r.expiration*1000).toISOString()}; revision ${r.revision}; ${r.state === 'installing' || r.state === 'revoking' ? r.state + ': unknown, not node-acknowledged' : r.state}. ${r.expiration <= Date.now()/1000 ? 'Expired: no new installation or revocation claim is available.' : ''}` : ''
+    this.#button('export-permission').disabled = !r || r.state !== 'installed' || r.expiration <= Date.now()/1000
+  }
+  async #preparePermission() {
+    const route = this.#select('route').value, device = this.#input('permission-device').value.trim(), seconds = Number(this.#input('permission-days').value) * 86400
+    const current = this.#selectionCurrent(this.#epoch, route), selected = this.#savedRoutes.find(r => r.routeId === route)
+    if (!selected) { this.#status('Read and select a saved Bothy route first.'); return }
+    if (!route || !await confirmAction({ title: 'Prepare this keeper inbox permission?', message: `Issuer ${this.context()?.persona}; route ${route}; node ${mlsBoxNode(selected)}; destination ${selected.eventUrl}. This account will sign active and terminal revocation statements for transmitting device ${device} on the selected saved Bothy for ${seconds/86400} day(s). Both exact statements are saved before publication. This does not establish current keeper authority on the node.`, confirmLabel: 'Sign and retain both statements', isCurrent: current })) return
+    await this.#work(async () => { const prepared = this.#active(this.#active(await this.#owner.prepareKeeperPermission(route, device, seconds, current))); if (current()) { await this.#refreshPermissions(); this.#select('permission-choice').value = prepared.grant; this.#renderPermissionReview(); this.#status('Both exact statements retained. Nothing is installed until the selected node acknowledges installation.') } })
+  }
+  async #publishPermission(revoke: boolean) {
+    const r = this.#selectedPermission(), route = this.#select('route').value, current = this.#selectionCurrent(this.#epoch, route)
+    if (!r || r.box.routeId !== route) { this.#status('Select the saved route retained for this permission.'); return }
+    if (!await confirmAction({ title: revoke ? 'Publish terminal keeper permission revocation?' : 'Install this exact keeper permission?', message: `Issuer ${r.keeper}; transmitting device ${r.device}; node ${r.node}; grant ${r.grant}; revision ${r.revision}. The node receives this identity link, grant, expiry and timing. Link relays observe timing and volume. ${revoke ? 'Terminal intent is retained before publication and cannot reactivate this grant.' : 'Only the node can accept current keeper authority; no ACK means unknown.'}`, confirmLabel: revoke ? 'Revoke exact saved permission' : 'Install exact saved permission', danger: revoke, isCurrent: current })) return
+    this.#input('permission-export').value = ''
+    await this.#work(async () => {
+      try { this.#active(this.#active(await this.#owner.publishKeeperPermission(r.grant, r.revision, revoke, current))); if (current()) { await this.#refreshPermissions(); this.#status('Node acknowledgement retained for the exact saved statement.') } }
+      catch (error) { if (current()) { await this.#refreshPermissions(); this.#status(`${error instanceof Error ? error.message : 'Publication unconfirmed.'} Exact saved material remains available; no acknowledgement is assumed.`) } }
+    })
+  }
   #selectedRoom() { return this.#rooms.find(room => room.session === this.#select('room').value) }
   #removalReview(plan: MlsRemovalPlan) {
     return `Remove ${plan.members.length} leaf/leaves for ${plan.kind === 'person' ? 'this person' : 'this device'}. ` +
@@ -222,7 +349,7 @@ export class BrowserMlsGrantDevelopmentPanel {
       (plan.compromised ? ' A compromised device holds new sends and Adds until its Remove is witnessed.' : ' Final unused grants have a delivery grace period.') +
       ' The person credential requires a separate observed tombstone.'
   }
-  #retireSelection() { this.#epoch++; this.#clearReviews(); void this.#owner.pause().catch(() => {}) }
+  #retireSelection() { this.#epoch++; this.#senderPermission = undefined; this.#text('permission-review').textContent = ''; this.#input('permission-export').value = ''; this.#clearReviews(); void this.#owner.pause().catch(() => {}) }
   #clearReviews() { this.#memberPlan = undefined; this.#keeperPlan = undefined; for (const key of ['member-confirm','approve','dismiss']) this.#button(key).disabled = true; this.#text('member-review').textContent = ''; this.#text('keeper-review').textContent = '' }
   #text(key: string) { return this.dialog.querySelector<HTMLElement>(`[data-${key}]`)! }
   #input(key: string) { return this.#text(key) as HTMLInputElement }

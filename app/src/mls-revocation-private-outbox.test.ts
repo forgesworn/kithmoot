@@ -127,6 +127,17 @@ const noPublic = (f: Awaited<ReturnType<typeof fixture>>) => {
 }
 
 describe('concrete private standalone revocation sending', () => {
+  it('installs an exact account-issued permission through the actual dedicated Link endpoint', async () => {
+    const f = await fixture(), permission = await f.identity.signEvent({ kind: 24242, created_at: f.now(), content: '', tags: [
+      ['t','keeper-inbox-deposit'], ['server',f.box.eventUrl], ['device',f.permit.tags[2]![1]!], ['grant','fa'.repeat(16)], ['expiration',String(f.now()+3600)], ['status','active'],
+    ] })
+    f.identity.signEvent.mockClear()
+    await f.endpoint.publishKeeperInboxPermission(f.box, permission, () => true)
+    expect(f.sent.map(frame => frame[0])).toEqual(['AUTH','EVENT'])
+    expect(f.sent[0]![1]).toMatchObject({ kind: 22242, pubkey: f.identity.pubkey })
+    expect(f.sent[1]![1]).toEqual(JSON.parse(JSON.stringify(permission)))
+    expect(f.identity.signEvent).toHaveBeenCalledOnce(); noPublic(f)
+  })
   it('journals exact private intent before sealing or Link startup and ACKs only one private wrap after device AUTH', async () => {
     const f = await fixture(), originalEncrypt = f.identity.encrypt.getMockImplementation()!
     f.identity.encrypt.mockImplementation(async (...args) => {
