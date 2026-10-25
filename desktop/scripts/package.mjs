@@ -23,7 +23,7 @@ if (spawnSync('iconutil', ['-c', 'icns', iconset, '-o', icon]).status) throw new
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.4.1', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '103', icon, overwrite: true, asar: true,
+  appVersion: version, buildVersion: '104', icon, overwrite: true, asar: true,
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {

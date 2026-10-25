@@ -1,6 +1,16 @@
 import { claimSpryPairing, parseSpryPairingLink, parseSpryOffer, spryEndpoint, type SpryPairing, type SpryOffer } from '../../src/spry.js'
 
 const KEY = 'kithmoot.spry-pairing.v1'
+export function parseAccountSpryPairing(value: unknown): SpryPairing {
+  if (!value || typeof value !== 'object') throw new Error('Invalid Spry pairing')
+  const raw = value as Partial<SpryPairing>
+  if (raw.v !== 1 || typeof raw.id !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(raw.id) ||
+      typeof raw.secretKey !== 'string' || !/^[a-f0-9]{64}$/.test(raw.secretKey)) throw new Error('Invalid Spry pairing')
+  return { v: 1, endpoint: spryEndpoint(raw.endpoint), id: raw.id, secretKey: raw.secretKey }
+}
+export function saveSpryPairing(store: Pick<Storage, 'setItem'>, pair: SpryPairing, participant: string): void {
+  store.setItem(KEY, JSON.stringify({ ...parseAccountSpryPairing(pair), participant }))
+}
 export function loadSpryPairing(store: Pick<Storage, 'getItem'>, participant: string): SpryPairing | undefined {
   const text = store.getItem(KEY)
   if (!text) return undefined
@@ -41,6 +51,6 @@ export async function completeSpryPairing(hash: string, store: Pick<Storage, 'se
   const link = parseSpryPairingLink(hash)
   if (!await confirm(link.endpoint.startsWith('spry:') ? 'Your Spry node' : new URL(link.endpoint).hostname)) return false
   const pair = await claimSpryPairing(link, fetcher)
-  store.setItem(KEY, JSON.stringify({ ...pair, participant }))
+  saveSpryPairing(store, pair, participant)
   return true
 }

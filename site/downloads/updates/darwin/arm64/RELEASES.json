@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.103",
+  "currentRelease": "0.1.104",
   "releases": [
     {
-      "version": "0.1.103",
+      "version": "0.1.104",
       "updateTo": {
-        "version": "0.1.103",
-        "pub_date": "2026-10-24T10:43:28Z",
-        "notes": "A member can make a link from their own device when nobody else can let people in; New link keeps the room\u2019s owner key; passwords have an eye button.",
-        "name": "0.1.103",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.103/KithMoot-0.1.103-mac-arm64.zip",
-        "sha256": "adc870d851dfbfd5df63f46499f60847fae0eddf8f2ffaba5afbc372f4d60021",
-        "size": 170911420
+        "version": "0.1.104",
+        "pub_date": "2026-10-25T02:22:39Z",
+        "notes": "Pair Spry once while signed in with Nostr. Your other devices load the encrypted pairing automatically. Open pairing in the installed app, or scan a local Android QR code.",
+        "name": "0.1.104",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.104/KithMoot-0.1.104-mac-arm64.zip",
+        "sha256": "c86ca90e3897cb6f9262b7864af3abcf0bfffda66485bc38d75574182e4065aa",
+        "size": 170922391
       }
     }
   ]
