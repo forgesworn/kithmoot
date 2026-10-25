@@ -59,6 +59,7 @@ function install() {
         case 'check-witness': result = await need(account).check(); break
         case 'device': result = await need(account).vaultState(); break
         case 'pair-room': result = await need(rooms).pair(a.code, a.relays); break
+        case 'room-device-readiness': labProfile(); result = await need(rooms).deviceReadiness(); break
         case 'routes': result = await need(rooms).routes(); break
         case 'provision': result = await need(rooms).provisionBark(a.index); break
         case 'pair-grant': result = await need(grants).pair(a.code, a.relays); break

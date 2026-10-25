@@ -14,6 +14,7 @@ import { BrowserMlsRoomCreateCustody, type MlsRoomCreateDevice, type MlsRoomCrea
 import { BrowserMlsRoomOperations, type MlsRoomResult, type MlsRoomEffect } from './mls-room-operations.js'
 import { mlsRoomIds, readMlsRoom, type MlsRoomBinding } from './mls-room-store.js'
 import { BrowserMlsRoomLinkVault } from './mls-room-link-vault.js'
+import { nodeAuthenticationHeld, type MlsNodeAuthentication } from './mls-room-node-readiness.js'
 import { BrowserMlsBoxClient } from './mls-box-client.js'
 import { BrowserMlsRoomConsent } from './mls-room-consent.js'
 import { BrowserMlsRoomCeremonyClock } from './mls-room-ceremony-clock.js'
@@ -42,7 +43,7 @@ const stale = () => new Error('Reopen the development room workflow in the curre
 const hex = (value: string) => /^[0-9a-f]{64}(?![\s\S])/.test(value)
 const routeShape = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(value)
 export type MlsRoomCreateView = { state: 'saved'; session: string; generation: string } | { state: 'pending'; reason: string; session?: string } |
-  { state: 'held'; reason: string }
+  { state: 'held'; reason: string; nodeAuthentication?: MlsNodeAuthentication }
 export type MlsRoomManualView = { state: 'done'; session: string; generation: string; resolved: number; processed: number; held: number; leafHeld: number; stalled: boolean; limited: boolean } |
   { state: 'held' | 'pending'; reason: string }
 function wipe(value: unknown, seen = new Set<object>()): void {
@@ -103,6 +104,15 @@ export class BrowserMlsRoomDevelopmentOwner {
     return { persona: active.account.persona, provider, current: active.current }
   }
 
+  /** Enum-only development preflight through this owner's actual protected
+   * vault and witness channel. No credentials or service objects leave it. */
+  deviceReadiness() {
+    return this.#run(true, async (services, active) => {
+      const result = await services.vault.credential(services.vault.context(location.origin, active.account.persona))
+      return result.ok ? { deviceReady: true as const } : { deviceReady: false as const, refusal: result.refusal }
+    })
+  }
+
   create(routeId: string, name: string, lifetime: number, experimentalInvitation = false, experimentalAdminInvitation = false): Promise<MlsRoomForegroundResult<MlsRoomCreateView>> {
     if (!routeShape(routeId) || typeof name !== 'string' || !name.trim() || name.length > 120 ||
         !Number.isSafeInteger(lifetime) || lifetime < 3600 || lifetime > 30 * 86400) throw new Error('Choose a saved route, a room name and a lifetime between one hour and thirty days.')
@@ -128,7 +138,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         client = await this.#client(active, services, selected.routeId, context, consent)
         box = client.box
         const before = await client.capabilities(active.current)
-        if (before.state !== 'ok') return { state: 'held', reason: `The selected Bothy installation could not be authenticated (${before.state}). Enrol the MLS device and review its permissions in witness settings.` }
+        if (before.state !== 'ok') return nodeAuthenticationHeld(before)
         installation = before.value.installation
         if (!hex(installation) || !client.usesBinding(selected.routeId, box, context)) return { state: 'held', reason: 'The selected route binding changed.' }
         const now = clock.read()

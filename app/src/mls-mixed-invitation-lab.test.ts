@@ -84,3 +84,10 @@ test('pending native read clears applied role review and another profile refuses
   owner.invitation.mockResolvedValue(active('Invitation1'))
   await expect(lab.step('roles', { session })).rejects.toThrow(/differs/)
 })
+
+test('room readiness uses only the captured actual owner and returns its bounded refusal enum', async () => {
+  await setup()
+  owner.deviceReadiness = vi.fn().mockResolvedValue({ state: 'done', value: { deviceReady: false, refusal: 'witness-pending' } })
+  expect(await lab.step('room-device-readiness')).toEqual({ state: 'done', value: { deviceReady: false, refusal: 'witness-pending' } })
+  expect(owner.deviceReadiness).toHaveBeenCalledWith()
+})

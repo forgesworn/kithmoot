@@ -298,6 +298,7 @@ async function settings() {
   await page.locator('#settingsPane .infoRow').filter({has:page.locator('.infoRowTitle',{hasText:/^Connections$/})}).click()
 }
 async function openPanel(kind) {
+  await page.bringToFront()
   for(const id of ['#mlsWitnessSettings','#mlsRoomDevelopment','#mlsGrantDevelopment']) if(await page.locator(id).isVisible()) {
     const close=id==='#mlsWitnessSettings' ? page.locator('#mlsWitnessClose') : page.locator(id+' [data-close]'); await close.click()
   }
@@ -551,7 +552,7 @@ async function run(step,args) {
       provision:details.provision?{keyClasses:Object.keys(details.provision).sort().map(k=>['v','expectedPersona','targetDevice','index','expiresAt','nonce'].includes(k)?k:'other'),sha256:digest(JSON.stringify(stable(details.provision)))}:undefined})
   }return reviews }
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
-  if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics,diagnosticsOverflow}
+  if(step==='ui-state') return {visibility:await page.evaluate(()=>document.visibilityState),roomVisible:await page.locator('#mlsRoomDevelopment').isVisible(),startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics,diagnosticsOverflow}
   if(step==='observe-start') {
     if(args.adminRoles !== undefined && labProfile !== 'InvitationAdmins2') throw new Error('Admin policy observation requires the Admin2 lab')
     const selected = args.needles ?? []
