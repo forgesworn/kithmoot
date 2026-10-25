@@ -1,3 +1,4 @@
+import { retainAdminStorageRequest, adminStorageRequestRevision, adminStorageRequestTarget, withAdminStorageRequestGate } from './mls-admin-storage-request.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { localIdentity } from '../../src/identity.js'
@@ -111,7 +112,7 @@ async function fixture(credentialSeconds = 86400) {
   const publicTransport = { directory: vi.fn(async () => [await keeper.signEvent(dmRelayListTemplate(['wss://keeper.test/'], clock))]), publish: vi.fn(async () => {}) }
   return { outbox, restart, operation, options, identity, keeper, permit, permission, node, box, boxes, tx, vault, ctx, endpoint, start, engine, sent, listeners, reservations, nativeSocket, consent, publicTransport,
     now: () => clock, clock: (value: number) => { clock = value }, unpermit: () => { permitted = false }, hide: () => { live = false; controller.abort() },
-    swap: () => { generation++ }, replaceSigner: () => { activeIdentity = { ...identity } }, hold: () => { held = true }, refuseAuth: () => { auth = false }, refuseAck: () => { ack = false },
+    swap: () => { generation++ }, replaceSigner: () => { activeIdentity = { ...identity } }, hold: () => { held = true }, refuseAuth: () => { auth = false }, refuseAck: () => { ack = false }, acceptAck: () => { ack = true },
     stallAck: () => { stallAck = true }, stallAuth: () => { stallAuth = true },
     cleanupReservation: (work: () => void | Promise<void>) => { reservationCleanup = work },
     beforeConfirmation: (work: () => void | Promise<void>) => { beforeConfirmation = work },
@@ -127,6 +128,106 @@ const noPublic = (f: Awaited<ReturnType<typeof fixture>>) => {
 }
 
 describe('concrete private standalone revocation sending', () => {
+  it('keeps an Admin2 prepared request private after a failed selected-node route and refuses later public delivery before directory or crypto', async () => {
+    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
+      { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+    f.refuseAck()
+    await expect(f.outbox.sendPrivately(f.operation, f.options())).rejects.toThrow()
+    expect((await record(f)).attempt?.confirmed).toBe(false); noPublic(f)
+    f.identity.signEvent.mockClear(); f.identity.encrypt.mockClear()
+    const revision = (await record(f)).requestRevision
+    await expect(f.outbox.retry(f.operation, revision, { identity: f.identity, transport: f.publicTransport })).rejects.toThrow('No public fallback')
+    expect(f.publicTransport.directory).not.toHaveBeenCalled(); expect(f.publicTransport.publish).not.toHaveBeenCalled()
+    expect(f.identity.signEvent).not.toHaveBeenCalled(); expect(f.identity.encrypt).not.toHaveBeenCalled()
+  })
+  it('refuses substitution of an Admin2 prepared permission even when the replacement is valid for the same node and keeper', async () => {
+    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter,
+      { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false },
+      { leaf: '77'.repeat(32), expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit })
+    const replacement = f.permission({ expiration: f.now() + 3500 })
+    await expect(f.outbox.sendPrivately(f.operation, f.options({ permission: replacement }))).rejects.toThrow('exact retained private route')
+    expect((await record(f)).attempt).toBeUndefined(); expect(f.identity.encrypt).not.toHaveBeenCalled(); expect(f.start).not.toHaveBeenCalled(); noPublic(f)
+  })
+
+  it('explicitly replaces expired permission with fresh witnessed bindings, retains old attempt evidence and privately retries at the reviewed revision', async () => {
+    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 20_000, own: false, pending: false }
+    const initial = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, initial)
+    f.refuseAck(); await expect(f.outbox.sendPrivately(f.operation, f.options())).rejects.toThrow()
+    const reviewed = await adminStorageRequestRevision(f.tx, f.operation)
+    f.clock(f.now() + 3600); f.identity.encrypt.mockClear()
+    await expect(f.outbox.sendPrivately(f.operation, f.options(), reviewed.requestRevision)).rejects.toThrow('expired')
+    expect(f.identity.encrypt).not.toHaveBeenCalled()
+    const fresh = { ...initial, permission: f.permission(), rebind: reviewed }
+    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [target], fresh, f.now())).toEqual(target)
+    await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh))
+    const retained = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.history)
+    expect(retained.records[0].history).toMatchObject([{ binding: { permission: f.permit }, observation: { requestRevision: reviewed.requestRevision, attempt: { confirmed: false } } }])
+    expect(await adminStorageRequestRevision(f.tx, f.operation)).toEqual({ ...reviewed, bindingRevision: 1 })
+    await expect(retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh)).rejects.toThrow('revision changed')
+    f.acceptAck()
+    expect(await f.outbox.sendPrivately(f.operation, f.options({ permission: fresh.permission }), reviewed.requestRevision)).toMatchObject({ value: { requestState: 'sent', requestRevision: reviewed.requestRevision + 1 } })
+    const current = await adminStorageRequestRevision(f.tx, f.operation)
+    await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, { ...fresh, rebind: current }))
+    const completed = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.history)
+    expect(completed.records[0].history[1].observation.attempt.confirmed).toBe(true)
+    expect(await f.outbox.sendPrivately(f.operation, f.options({ permission: fresh.permission }), current.requestRevision)).toMatchObject({ value: { requestState: 'sent', requestRevision: current.requestRevision + 1 } })
+    noPublic(f)
+  })
+  it('allows a fresh explicit private revision after the previous wrapped request expires while preserving expired attempt evidence', async () => {
+    const f = await fixture(14 * 86400), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 10 * 86400, own: false, pending: false }
+    const initial = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, initial)
+    await f.outbox.sendPrivately(f.operation, f.options())
+    const previous = structuredClone(await record(f)); f.clock(previous.attempt!.expiration)
+    await f.outbox.records(); expect((await record(f)).attempt).toBeUndefined()
+    const expected = await adminStorageRequestRevision(f.tx, f.operation), fresh = { ...initial, permission: f.permission(), rebind: expected }
+    expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [target], fresh, f.now())).toEqual(target)
+    await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh))
+    const retained = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.attempts)
+    expect(retained.records[0].attempts).toContainEqual(previous)
+    expect(await f.outbox.sendPrivately(f.operation, f.options({ permission: fresh.permission }), expected.requestRevision)).toMatchObject({ value: { requestState: 'sent', requestRevision: expected.requestRevision + 1 } })
+    noPublic(f)
+  })
+  it('waits for an in-flight private send to settle before an exclusive destination rebind and rejects the now-stale request revision', async () => {
+    const f = await fixture(), transmitter = f.permit.tags.find(t => t[0] === 'device')![1]!
+    const target = { leafId: '77'.repeat(32), identity: f.identity.pubkey, device: '33'.repeat(32), homeBox: f.node, bindingExpiresAt: f.now() + 3600, own: false, pending: false }
+    const selected = { leaf: target.leafId, expectedStorageKeeper: f.keeper.pubkey, box: f.box, permission: f.permit }
+    await retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, selected)
+    const reviewed = await adminStorageRequestRevision(f.tx, f.operation)
+    const queues = new Map<string, { readers: number; exclusive: boolean; queue: { mode: string; work(): Promise<unknown>; resolve(value: unknown): void; reject(error: unknown): void }[] }>()
+    const drain = (key: string) => {
+      const q = queues.get(key)!
+      if (q.exclusive || !q.queue.length || q.queue[0].mode === 'exclusive' && q.readers) return
+      const next = q.queue.shift()!, exclusive = next.mode === 'exclusive'
+      if (exclusive) q.exclusive = true; else q.readers++
+      void next.work().then(next.resolve, next.reject).finally(() => { if (exclusive) q.exclusive = false; else q.readers--; drain(key) })
+      if (!exclusive) drain(key)
+    }
+    const original = navigator.locks.request.bind(navigator.locks)
+    vi.spyOn(navigator.locks, 'request').mockImplementation(((name: string, options: any, work: any) => {
+      if (!name.startsWith('kithmoot.admin-storage-request.')) return original(name, options, work)
+      if (!queues.has(name)) queues.set(name, { readers: 0, exclusive: false, queue: [] })
+      return new Promise((resolve, reject) => { queues.get(name)!.queue.push({ mode: options.mode, work, resolve, reject }); drain(name) })
+    }) as any)
+    let release!: () => void, entered!: () => void
+    const ready = new Promise<void>(resolve => { entered = resolve }), waiting = new Promise<void>(resolve => { release = resolve })
+    f.beforeStartReturns(async () => { entered(); await waiting })
+    const send = f.outbox.sendPrivately(f.operation, f.options()); await ready
+    let rebound = false
+    const replacement = withAdminStorageRequestGate(f.identity.pubkey, f.operation, async () => {
+      rebound = true
+      return retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, { ...selected, permission: f.permission({ expiration: f.now() + 3500 }), rebind: reviewed })
+    })
+    const refusal = expect(replacement).rejects.toThrow('revision changed')
+    await Promise.resolve(); expect(rebound).toBe(false)
+    release(); await send; await refusal; expect(rebound).toBe(true); noPublic(f)
+  })
   it('installs an exact account-issued permission through the actual dedicated Link endpoint', async () => {
     const f = await fixture(), permission = await f.identity.signEvent({ kind: 24242, created_at: f.now(), content: '', tags: [
       ['t','keeper-inbox-deposit'], ['server',f.box.eventUrl], ['device',f.permit.tags[2]![1]!], ['grant','fa'.repeat(16)], ['expiration',String(f.now()+3600)], ['status','active'],

@@ -1,4 +1,6 @@
-import { invitationPreviewEnabled } from './mls-invitation-engine.js'
+import { labStoragePreviewEnabled } from './mls-lab-storage-preview.js'
+import { adminInvitationPreviewEnabled } from './mls-admin-invitation-engine.js'
+import type { StorageGrantRecord, StorageGrantReview } from './mls-storage-grants.js'
 import { BrowserMlsGrantDevelopmentOwner, type MlsGrantDevelopmentContext, type MlsDevelopmentRoom } from './mls-grant-development-owner.js'
 import type { MlsRemovalPlan } from './mls-membership-controller.js'
 import { removalComponentCopy } from './mls-membership-controller.js'
@@ -33,6 +35,8 @@ export class BrowserMlsGrantDevelopmentPanel {
   #permissionRows: KeeperPermissionRecord[] = []
   #senderPermission?: KeeperInboxPermission
   #rooms: (MlsDevelopmentRoom & { name: string })[] = []
+  #storageRows: StorageGrantRecord[] = []
+  #storageReview?: StorageGrantReview
   #memberPlan?: MlsRemovalPlan
   #keeperPlan?: MlsKeeperDecisionPlan
   constructor(private readonly context: () => MlsGrantDevelopmentContext | undefined, private readonly root: Document = document) {
@@ -57,6 +61,20 @@ export class BrowserMlsGrantDevelopmentPanel {
         <label>Enrolled account public key <input data-bootstrap-persona maxlength="64" autocomplete="off" spellcheck="false"></label>
         <label>Enrolled MLS device public key <input data-bootstrap-device maxlength="64" autocomplete="off" spellcheck="false"></label>
         <button data-bootstrap-authorise type="button">Review node storage permission</button>
+        <button data-storage-records type="button">Read protected storage grants</button><div data-storage-list></div>
+      </fieldset>
+      <fieldset data-admin-storage hidden><legend>Admin2 private storage withdrawal</legend>
+        <p>Select a saved room and grant route. Enter the expected storage keeper independently from the signed inbox permission below. Preparation reads the actual current native roster; it accepts only another committed device belonging to this account on this node. This requests storage withdrawal only. MLS membership remains a separate current-admin action.</p>
+        <button data-storage-members type="button">Read actual device leaves</button><div data-storage-members-list></div>
+        <label>Target device leaf ID <input data-storage-leaf maxlength="64" autocomplete="off" spellcheck="false"></label>
+        <label>Expected storage keeper public key from trusted contact <input data-storage-keeper maxlength="64" autocomplete="off" spellcheck="false"></label>
+        <button data-storage-prepare-request type="button">Prepare witnessed storage request</button>
+        <button data-storage-rebind-request type="button">Review replacement private permission / route</button>
+        <p>A replacement rechecks the actual roster and current credential, retains previous destination and attempt evidence, and requires the reviewed binding and request revisions. Afterwards use the explicit private retry button; no automatic send or public fallback occurs.</p>
+        <p>Then inspect the signed permission and send the retained request privately below.</p>
+        <button data-storage-private-check type="button">Check storage requests on selected Bothy privately</button>
+        <button data-storage-inbox type="button">Read retained storage requests</button><div data-storage-inbox-list></div>
+        <p data-storage-review></p><button data-storage-approve type="button" disabled>Approve storage withdrawal only</button>
       </fieldset>
       <fieldset><legend>Send a retained revocation request</legend>
         <button data-outbox type="button">Check retained send requests</button>
@@ -101,11 +119,75 @@ export class BrowserMlsGrantDevelopmentPanel {
         <p data-keeper-review></p><button data-approve type="button" disabled>Approve reviewed request</button><button data-dismiss type="button" disabled>Dismiss reviewed request</button>
       </fieldset>`
     root.body.append(this.dialog)
-    this.#text('bootstrap').hidden = !invitationPreviewEnabled()
+    this.#text('bootstrap').hidden = !labStoragePreviewEnabled()
+    this.#text('admin-storage').hidden = !adminInvitationPreviewEnabled()
     this.#button('bootstrap-authorise').onclick = () => { void this.#work(async () => {
       const result = this.#active(await this.#owner.authoriseEnrolledDevice(this.#select('route').value, this.#input('bootstrap-persona').value.trim(), this.#input('bootstrap-device').value.trim()))
       this.#status(result.state === 'accepted' ? 'The selected node acknowledged this storage permission. This grants no MLS membership.' : 'Storage permission was denied.')
     }) }
+    this.#button('storage-records').onclick = () => { void this.#work(() => this.#refreshStorage()) }
+    for (const key of ['storage-leaf','storage-keeper']) this.#input(key).oninput = () => this.#retireSelection()
+    this.#button('storage-members').onclick = () => {
+      const room = this.#selectedRoom(); if (!room) { this.#status('Select the saved Admin2 room.'); return }
+      void this.#work(async () => {
+        const members = this.#active(this.#active(await this.#owner.adminStorageMembers(room)))
+        const list = this.#text('storage-members-list'); list.replaceChildren()
+        for (const member of members) {
+          const row = this.root.createElement('p'); row.textContent = `Person ${short(member.identity)}; device ${short(member.device)}; leaf ${member.leafId}${member.own ? ' (this device)' : ''}${member.pending ? ' (pending)' : ''}. `
+          if (!member.own && !member.pending && member.identity === this.context()?.persona) row.append(this.#action('Select storage withdrawal target', () => { this.#retireSelection(); this.#input('storage-leaf').value = member.leafId }))
+          list.append(row)
+        }
+      })
+    }
+    this.#button('storage-prepare-request').onclick = () => {
+      const room = this.#selectedRoom(), routeId = this.#select('route').value
+      if (!room || !routeId) { this.#status('Select the actual saved Admin2 room and paired grant route.'); return }
+      void this.#work(async () => {
+        const permission = importKeeperInboxPermission(this.#input('send-permission').value)
+        const prepared = this.#active(this.#active(await this.#owner.prepareAdminStorageRequest(room, { routeId, permission: permission.event,
+          leaf: this.#input('storage-leaf').value.trim(), expectedStorageKeeper: this.#input('storage-keeper').value.trim() })))
+        await this.#refreshOutbox(); this.#select('send-request').value = prepared.operation; this.#renderSendReview()
+        this.#status('Witnessed storage request retained. Inspect the permission and explicitly send privately. MLS membership is unchanged.')
+      })
+    }
+    this.#button('storage-rebind-request').onclick = () => {
+      const room = this.#selectedRoom(), request = this.#selectedRequest(), routeId = this.#select('route').value
+      const current = this.#selectionCurrent(this.#epoch, routeId)
+      if (!room || !request || !routeId) { this.#status('Select the actual Admin2 room, retained request and replacement saved route.'); return }
+      void this.#work(async () => {
+        const binding = this.#active(this.#active(await this.#owner.adminStorageBinding(request.operation)))
+        const permission = importKeeperInboxPermission(this.#input('send-permission').value)
+        const leaf = this.#input('storage-leaf').value.trim(), expectedStorageKeeper = this.#input('storage-keeper').value.trim()
+        if (!await confirmAction({ title: 'Replace this private storage destination?',
+          message: `Operation ${binding.operation}; binding revision ${binding.bindingRevision}; request revision ${binding.requestRevision}. New permission ${permission.event.id}; route ${routeId}; independently expected keeper ${expectedStorageKeeper}. Previous binding and attempt evidence will be retained. This does not send a request; use the explicit private retry afterwards.`,
+          confirmLabel: 'Recheck native roster and replace', isCurrent: current })) return
+        this.#active(this.#active(await this.#owner.prepareAdminStorageRequest(room, { routeId, leaf, expectedStorageKeeper, permission: permission.event, rebind: binding })))
+        await this.#refreshOutbox(); this.#status('Replacement private binding witnessed. Inspect the new permission and explicitly retry privately at the current request revision. Previous evidence remains retained.')
+      })
+    }
+    this.#button('storage-inbox').onclick = () => { void this.#work(async () => this.#renderStorageInbox(this.#active(this.#active(await this.#owner.storageKeeperView())))) }
+    this.#button('storage-private-check').onclick = () => {
+      const routeId = this.#select('route').value, currentBase = this.#selectionCurrent(this.#epoch, routeId)
+      if (!this.#input('private-auth').checked) { this.#status('Allow keeper identification to the selected Bothy before checking storage requests.'); return }
+      void this.#work(async () => {
+        const scan = this.#active(this.#active(await this.#owner.storageKeeperCheckPrivate({ routeId, authenticate: true,
+          current: () => currentBase() && this.#input('private-auth').checked })))
+        this.#renderStorageInbox(scan.view); this.#status('Private storage request page checked; older history remains unconfirmed. No public fallback was used.')
+      })
+    }
+    this.#button('storage-approve').onclick = () => {
+      const review = this.#storageReview, routeId = this.#select('route').value, current = this.#selectionCurrent(this.#epoch, routeId)
+      if (!review) return
+      void confirmAction({ title: 'Withdraw reviewed storage access only?', message: `Withdraw exact retained storage grants for person ${review.request.sender}, device ${review.request.device}. The node must acknowledge each exact terminal event. MLS membership will remain unchanged; a current MLS admin must separately approve any Remove.`, confirmLabel: 'Approve storage withdrawal', isCurrent: current }).then(ok => {
+        if (ok) void this.#work(async () => {
+          this.#active(this.#active(await this.#owner.storageKeeperApprove(review, current)))
+          this.#storageReview = undefined; this.#button('storage-approve').disabled = true
+          this.#active(this.#active(await this.#owner.storageKeeperAdvance(review.operation, current)))
+          this.#status('The selected node acknowledged storage withdrawal. MLS membership is unchanged.')
+          await this.#refreshStorage()
+        })
+      })
+    }
     if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureGrantOwner(this.#owner))
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('close').onclick = () => this.close()
@@ -126,7 +208,7 @@ export class BrowserMlsGrantDevelopmentPanel {
       this.#select('room').replaceChildren(...this.#rooms.map(room => this.#option(room.session, `${room.name} (${short(room.session)})`)))
       this.#clearReviews(); this.#list('members-list', [])
     }) }
-    this.#select('room').onchange = () => { this.#retireSelection(); this.#list('members-list', []) }
+    this.#select('room').onchange = () => { this.#retireSelection(); this.#list('members-list', []); this.#list('storage-members-list', []) }
     this.#select('route').onchange = () => { this.#input('private-auth').checked = false; this.#retireSelection() }
     this.#input('private-auth').onchange = () => { if (!this.#input('private-auth').checked) this.#retireSelection() }
     this.#input('auth').onchange = () => { if (!this.#input('auth').checked) this.#retireSelection() }
@@ -208,7 +290,7 @@ export class BrowserMlsGrantDevelopmentPanel {
   close(): void { void this.invalidate().catch(() => {}) }
   invalidate(): Promise<void> {
     if (this.dialog.open) this.dialog.close()
-    this.#epoch++; this.#rooms = []; this.#savedRoutes = []; this.#outboxRows = []; this.#permissionRows = []; this.#senderPermission = undefined; this.#clearReviews()
+    this.#epoch++; this.#storageRows = []; this.#storageReview = undefined; this.#rooms = []; this.#savedRoutes = []; this.#outboxRows = []; this.#permissionRows = []; this.#senderPermission = undefined; this.#clearReviews()
     this.#text('account').textContent = ''; this.#status('')
     this.#input('code').value = ''; this.#input('auth').checked = false; this.#input('private-auth').checked = false
     this.#select('room').replaceChildren(); this.#select('route').replaceChildren(); this.#select('send-request').replaceChildren(); this.#select('permission-choice').replaceChildren()
@@ -291,6 +373,43 @@ export class BrowserMlsGrantDevelopmentPanel {
     return () => epoch === this.#epoch && this.dialog.open && this.root.visibilityState === 'visible' && this.#select('route').value === route &&
       this.context()?.persona === persona && this.context()?.generation === generation
   }
+  async #refreshStorage() {
+    this.#storageRows = this.#active(this.#active(await this.#owner.storageRecords()))
+    const list = this.#text('storage-list'); list.replaceChildren()
+    for (const r of this.#storageRows) {
+      const g = r.grant, row = this.root.createElement('p')
+      row.textContent = `Storage ${r.revision === 0 ? 'prepared, unpublished' : g.state === 'installing' || g.state === 'revoking' ? g.state + ', acknowledgement unknown' : g.state}: person ${short(g.persona)}, device ${short(g.device)}, node ${short(g.node)}, revision ${r.revision}; expires ${new Date(g.expiration * 1000).toISOString()}. `
+      if (g.state !== 'revoked') {
+        for (const revoke of (g.state === 'revoking' ? [true] : [false, true])) row.append(this.#action(revoke ? 'Review exact storage withdrawal' : 'Retry exact installation', () => {
+          const current = this.#selectionCurrent(this.#epoch, this.#select('route').value)
+          void confirmAction({ title: revoke ? 'Withdraw this exact storage grant?' : 'Retry retained storage installation?',
+            message: `Node ${g.node}, persona ${g.persona}, device ${g.device}, grant ${g.grantId}. Uses the exact retained signed statement and saved route. This does not change MLS membership.`,
+            confirmLabel: revoke ? 'Withdraw storage only' : 'Retry exact active statement', isCurrent: current }).then(ok => {
+            if (ok) void this.#work(async () => { this.#active(this.#active(await this.#owner.publishStorageGrant(g.grantId, r.revision, revoke, current))); await this.#refreshStorage(); this.#status(revoke ? 'The selected node acknowledged storage withdrawal. MLS membership is unchanged.' : 'The selected node acknowledged the exact storage grant.') })
+          })
+        }))
+      }
+      if (r.approval && g.state !== 'revoked') row.append(this.#action('Retry approved storage withdrawal', () => {
+        const current = this.#selectionCurrent(this.#epoch, this.#select('route').value)
+        void this.#work(async () => { this.#active(this.#active(await this.#owner.storageKeeperAdvance(r.approval!.operation, current))); await this.#refreshStorage(); this.#status('The selected node acknowledged storage withdrawal. MLS membership is unchanged.') })
+      }))
+      list.append(row)
+    }
+  }
+  #renderStorageInbox(view: MlsRevocationInboxView) {
+    this.#storageReview = undefined; this.#button('storage-approve').disabled = true
+    const list = this.#text('storage-inbox-list'); list.replaceChildren()
+    for (const item of view.prompts) {
+      const row = this.root.createElement('p'); row.textContent = `Storage only: person ${short(item.prompt.request.sender)}, device ${short(item.prompt.request.device)}. `
+      row.append(this.#action('Review storage grants', () => { void this.#work(async () => {
+        const review = this.#active(this.#active(await this.#owner.storageKeeperReview(item.prompt.operation)))
+        this.#storageReview = review
+        this.#text('storage-review').textContent = review.records.map(r => `Node ${r.grant.node}; exact active ${r.grant.active.id}; terminal ${r.grant.revocation.id}; revision ${r.revision}.`).join(' ') + ' Approval withdraws storage access only. MLS membership remains unchanged.'
+        this.#button('storage-approve').disabled = false
+      }) }))
+      list.append(row)
+    }
+  }
   async #refreshOutbox() {
     const selected = this.#select('send-request').value
     this.#outboxRows = this.#active(this.#active(await this.#owner.revocationRecords()))
@@ -363,7 +482,8 @@ export class BrowserMlsGrantDevelopmentPanel {
       ' The person credential requires a separate observed tombstone.'
   }
   #retireSelection() { this.#epoch++; this.#senderPermission = undefined; this.#text('permission-review').textContent = ''; this.#input('permission-export').value = ''; this.#clearReviews(); void this.#owner.pause().catch(() => {}) }
-  #clearReviews() { this.#memberPlan = undefined; this.#keeperPlan = undefined; for (const key of ['member-confirm','approve','dismiss']) this.#button(key).disabled = true; this.#text('member-review').textContent = ''; this.#text('keeper-review').textContent = '' }
+  #clearReviews() {
+    this.#storageReview = undefined; this.#button('storage-approve').disabled = true; this.#memberPlan = undefined; this.#keeperPlan = undefined; for (const key of ['member-confirm','approve','dismiss']) this.#button(key).disabled = true; this.#text('member-review').textContent = ''; this.#text('keeper-review').textContent = ''; this.#text('storage-review').textContent = '' }
   #text(key: string) { return this.dialog.querySelector<HTMLElement>(`[data-${key}]`)! }
   #input(key: string) { return this.#text(key) as HTMLInputElement }
   #select(key: string) { return this.#text(key) as HTMLSelectElement }

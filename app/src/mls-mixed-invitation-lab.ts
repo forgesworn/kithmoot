@@ -1,3 +1,5 @@
+import { confirmAction } from './confirm-action.js'
+import type { StorageGrantReview } from './mls-storage-grants.js'
 import type { BrowserMlsAccount } from './mls-persona-account.js'
 import type { BrowserMlsRoomDevelopmentOwner } from './mls-room-development-owner.js'
 import type { BrowserMlsGrantDevelopmentOwner } from './mls-grant-development-owner.js'
@@ -15,6 +17,7 @@ function labProfile(): LabProfile {
   return admin ? 'InvitationAdmins2' : 'Invitation1'
 }
 const reviewedRoles = new Map<string, string>()
+const reviewedStorage = new Map<string, StorageGrantReview>()
 let account: BrowserMlsAccount | undefined, rooms: BrowserMlsRoomDevelopmentOwner | undefined, grants: BrowserMlsGrantDevelopmentOwner | undefined
 type OrdinaryPublicContext = Readonly<{ sessionAssigned: boolean; roomId: string | null; participant: string | null; device: string | null;
   arrivalRoomId: string | null; accountPubkey: string | null; accountMethod: string | null; signerMethod: string | null;
@@ -60,6 +63,27 @@ function install() {
         case 'provision': result = await need(rooms).provisionBark(a.index); break
         case 'pair-grant': result = await need(grants).pair(a.code, a.relays); break
         case 'grant-routes': result = await need(grants).routes(); break
+        case 'storage-records': result = await need(grants).storageRecords(); break
+        case 'storage-publish': result = await need(grants).publishStorageGrant(a.grant, a.revision, a.revoke, () => true); break
+        case 'storage-binding': result = await need(grants).adminStorageBinding(a.operation); break
+        case 'storage-request': result = await need(grants).prepareAdminStorageRequest({ session: a.session, rendezvousKey: a.rendezvousKey }, { routeId: a.routeId, leaf: a.leafId, expectedStorageKeeper: a.expectedStorageKeeper, permission: a.permission, ...(a.rebind ? { rebind: a.rebind } : {}) }); break
+        case 'storage-outbox': result = await need(grants).revocationRecords(); break
+        case 'storage-private-send': result = await need(grants).sendRevocationPrivately(a.operation, { routeId: a.routeId, permission: a.permission, current: () => true,
+          consent: async scope => await confirmAction({ title: 'Send this storage request privately?', message: `Identify transmitting device ${scope.device} to keeper ${scope.keeper} at node ${scope.box}. This requests storage withdrawal only; MLS membership remains unchanged.`, confirmLabel: 'Identify and send privately', isCurrent: scope.current }) ? 'approve' : 'deny' }, a.revision); break
+        case 'storage-private-check': result = await need(grants).storageKeeperCheckPrivate({ routeId: a.routeId, authenticate: a.authenticate === true, current: () => true }); break
+        case 'storage-inbox': result = await need(grants).storageKeeperView(); break
+        case 'storage-review':
+          reviewedStorage.delete(a.operation)
+          result = await need(grants).storageKeeperReview(a.operation)
+          if (result?.state === 'active' && result.value?.state === 'active') reviewedStorage.set(a.operation, structuredClone(result.value.value))
+          break
+        case 'storage-approve': {
+          const review = reviewedStorage.get(a.operation)
+          if (!review) throw new Error('Review the exact current storage request first.')
+          if (!await confirmAction({ title: 'Approve storage withdrawal only?', message: `Person ${review.request.sender}; device ${review.request.device}; ${review.records.length} exact retained storage grant(s). MLS membership remains unchanged.`, confirmLabel: 'Approve storage only' })) throw new Error('Storage approval denied.')
+          result = await need(grants).storageKeeperApprove(review, () => true); reviewedStorage.delete(a.operation); break
+        }
+        case 'storage-advance': result = await need(grants).storageKeeperAdvance(a.operation, () => true); break
         case 'authorise-device': result = await need(grants).authoriseEnrolledDevice(a.routeId, a.persona, a.device); break
         case 'create': {
           const admin = labProfile() === 'InvitationAdmins2'

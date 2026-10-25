@@ -1,6 +1,8 @@
+import { adminStorageRequestRevision } from './mls-admin-storage-request.js'
+import { storageInboxCoordinator } from './mls-storage-inbox.js'
+import { BrowserMlsStorageGrants, type StorageGrantReview } from './mls-storage-grants.js'
 import { labStoragePreviewEnabled } from './mls-lab-storage-preview.js'
-import { verifyEvent, type Event } from 'nostr-tools/pure'
-import { bytesToHex } from '@noble/hashes/utils.js'
+import type { Event } from 'nostr-tools/pure'
 import { confirmAction } from './confirm-action.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import type { VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
@@ -8,7 +10,7 @@ import { normaliseRelayConfig } from '../../src/relay-pool.js'
 import type { MlsAccountContext } from './mls-persona-account.js'
 import { BrowserMlsGrantForeground, type BrowserMlsGrantCustody, type MlsGrantForegroundResult } from './mls-grant-custody.js'
 import { BrowserMlsGrantEndpoint } from './mls-grant-endpoint.js'
-import { BrowserMlsGrantLedger, mlsBoxNode, mlsGrantScope } from './mls-grant-ledger.js'
+import { BrowserMlsGrantLedger, mlsBoxNode } from './mls-grant-ledger.js'
 import { BrowserMlsPersonaStore } from './mls-persona-store.js'
 import { BrowserPersonaLinks } from './mls-persona-link.js'
 import { BrowserPersonaCoordinator } from './mls-persona-coordinator.js'
@@ -46,6 +48,8 @@ interface Services {
   links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: CoordinatedMlsVault
   rooms: BrowserMlsRoomOperations; ledger: BrowserMlsGrantLedger; inbox: BrowserMlsRevocationInbox
   permissions: BrowserMlsKeeperPermissions
+  storageCoordinator: Pick<BrowserPersonaCoordinator, 'transact'>
+  storage: BrowserMlsStorageGrants; storageInbox: BrowserMlsRevocationInbox
   outbox: BrowserMlsRevocationOutbox
   decisions: BrowserMlsKeeperDecisions; keeper: BrowserMlsKeeperRequestController; member: BrowserMlsMembershipController
 }
@@ -87,29 +91,73 @@ export class BrowserMlsGrantDevelopmentOwner {
 
   /** Disposable lab bootstrap is node storage authority, never MLS admission.
    * The actual account signs; only the selected node's authenticated ACK can
-   * accept its keeper authority. No member-grant ledger state is invented. */
+   * accept its keeper authority. Exact active and terminal storage statements
+   * are protected before publication; no member-grant authority is invented. */
   authoriseEnrolledDevice(routeId: string, persona: string, device: string) {
     if (!labStoragePreviewEnabled() || !hex(persona) || !hex(device)) throw stale()
     return this.#run(true, async (_services, active) => {
       await this.#endpoint.resume(active.account.persona)
       const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(item => item.routeId === routeId)
       if (!box) throw stale()
-      const node = mlsBoxNode(box), scope = mlsGrantScope(device), now = Math.floor(Date.now() / 1000), expiration = now + 3600
+      const node = mlsBoxNode(box), expiration = Math.floor(Date.now() / 1000) + 3600
       const current = () => active.current() && document.visibilityState === 'visible' && Math.floor(Date.now() / 1000) < expiration
-      if (!await confirmAction({ title: 'Authorise enrolled device on this node?', confirmLabel: 'Authorise device', isCurrent: current,
-        message: `Disposable development lab storage permission. This creates no MLS membership.\nKeeper: ${active.account.persona}\nNode: ${node}\nPersona: ${persona}\nDevice: ${device}\nScope: ${scope}\nCeiling: 67108864 bytes\nExpiry: ${new Date(expiration * 1000).toISOString()}\nThe node must independently accept this account as its keeper.` })) return { state: 'denied' as const }
-      if (!current()) throw stale()
-      const template = { kind: 24242, created_at: now, content: '', tags: [
-        ['t', 'event-grant'], ['server', box.eventUrl], ['d', scope], ['p', persona], ['device', device],
-        ['grant', bytesToHex(crypto.getRandomValues(new Uint8Array(16)))], ['read', '1460'], ['expiration', String(expiration)],
-        ['vmls', '67108864'], ['status', 'active'],
-      ] }
-      const event = await active.identity.signEvent(structuredClone(template))
-      if (!current() || !verifyEvent(event) || event.pubkey !== active.account.persona || event.kind !== template.kind || event.content !== '' || event.created_at !== now || JSON.stringify(event.tags) !== JSON.stringify(template.tags)) throw stale()
-      await this.#endpoint.publishLabDeviceGrant(box, event, device, current)
-      if (!current()) throw stale()
-      return { state: 'accepted' as const, node, persona, device, eventId: event.id, expiration }
+      if (!await confirmAction({ title: 'Authorise enrolled device on this node?', confirmLabel: 'Prepare and authorise device', isCurrent: current,
+        message: `Development storage permission only; this creates no MLS membership. Both exact signed active and terminal statements are protected before network publication.\nKeeper: ${active.account.persona}\nNode: ${node}\nPersona: ${persona}\nDevice: ${device}\nExpiry: at most one hour. The node independently checks keeper authority.` })) return { state: 'denied' as const }
+      const prepared = await _services.storage.prepare(routeId, persona, device, active.identity, current)
+      if (prepared.state !== 'active') return prepared
+      const result = await _services.storage.publish(prepared.value.grant.grantId, prepared.value.revision, false, current)
+      if (result.state !== 'active') return result
+      const grant = result.value.record.grant
+      return { state: 'accepted' as const, node, persona, device, eventId: grant.active.id, expiration: grant.expiration }
+
     })
+  }
+  storageRecords() { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storage.records()) }
+  publishStorageGrant(grant: string, revision: number, revoke: boolean, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.storage.publish(grant, revision, revoke, () => current() && active.current()))
+  }
+  prepareAdminStorageRequest(room: MlsDevelopmentRoom, input: { routeId: string; leaf: string; expectedStorageKeeper: string; permission: Event; rebind?: { operation: string; bindingRevision: number; requestRevision: number } }) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    const selected = snapshot(input)
+    return this.#run(true, async (services, active) => {
+      await this.#endpoint.resume(active.account.persona)
+      const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(box => box.routeId === selected.routeId)
+      if (!box || !active.room || !active.selected) throw stale()
+      const current = () => active.current() && this.#endpoint.boxes().some(saved => saved.routeId === box.routeId && saved.eventUrl === box.eventUrl)
+      return services.rooms.prepareAdminStorageRevocation({ ...active.room, current }, active.selected.session,
+        { leaf: selected.leaf, expectedStorageKeeper: selected.expectedStorageKeeper, permission: selected.permission, box, ...(selected.rebind ? { rebind: selected.rebind } : {}) })
+    }, room)
+  }
+  adminStorageBinding(operation: string) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.coordinator.transact(active.account.persona, tx => adminStorageRequestRevision(tx, operation), active.current))
+  }
+  adminStorageMembers(room: MlsDevelopmentRoom) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => {
+      if (!active.room || !active.selected) throw stale()
+      return services.rooms.members(active.room, active.selected.session)
+    }, room)
+  }
+  storageKeeperView() { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storageInbox.view()) }
+  storageKeeperCheckPrivate(input: MlsKeeperPrivateInboxPermission) {
+    if (!labStoragePreviewEnabled() || input.authenticate !== true) throw stale()
+    const permission = { ...input, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot decrypt storage requests.')
+      return new BrowserMlsKeeperPrivateInboxFetch(services.storageCoordinator, services.storageInbox, this.#endpoint, () => this.#active?.inbox).check(active.revocation, permission)
+    })
+  }
+  storageKeeperReview(operation: string) { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storage.review(operation)) }
+  storageKeeperApprove(review: StorageGrantReview, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    const selected = snapshot(review)
+    return this.#run(true, (services, active) => services.storage.approve(selected, () => current() && active.current()))
+  }
+  storageKeeperAdvance(operation: string, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.storage.advance(operation, () => current() && active.current()))
   }
   records() { return this.#run(false, services => services.ledger.records()) }
   roomChoices() {
@@ -327,13 +375,16 @@ export class BrowserMlsGrantDevelopmentOwner {
     const admission = new BrowserMlsKeeperAdmission(coordinator, context, vault)
     const ledger = new BrowserMlsGrantLedger(() => this.#active?.current() ? this.#active.identity : undefined, this.#endpoint, custody,
       (record, identity) => this.#endpoint.carrier(record, identity), undefined, undefined, undefined, admission)
+    const storage = new BrowserMlsStorageGrants(coordinator, this.#endpoint, context)
+    const storageCoordinator = storageInboxCoordinator(coordinator)
+    const storageInbox = new BrowserMlsRevocationInbox(storageCoordinator, storage, context, undefined, { storage: tx => storage.authority(tx) })
     const inbox = new BrowserMlsRevocationInbox(coordinator, custody, context)
     const decisions = new BrowserMlsKeeperDecisions(coordinator, custody, context, undefined, ledger, undefined, ledger)
     const keeper = new BrowserMlsKeeperRequestController(decisions, rooms, ledger, context)
     const member = new BrowserMlsMembershipController(rooms, ledger, () => this.#active?.room, () => this.#active?.selected?.session, () => this.#active?.account.persona)
     const outbox = new BrowserMlsRevocationOutbox(coordinator, context)
     const permissions = new BrowserMlsKeeperPermissions(coordinator, this.#endpoint, context)
-    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox, permissions }
+    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox, permissions, storage, storageInbox, storageCoordinator }
   }
   #socket(url: string): WebSocket {
     const active = this.#active, scope = this.#foreground.capture()

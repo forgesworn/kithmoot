@@ -1,3 +1,4 @@
+import { retainAdminStorageAttempt } from './mls-admin-storage-request.js'
 import { VMLS_REVOCATION_REQUEST_SECONDS } from '../../src/vmls-revocation-request.js'
 import { readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
 import type { PersonaTransaction } from './mls-persona-coordinator.js'
@@ -22,7 +23,7 @@ export async function mlsStandaloneState(tx: PersonaTransaction, now: number): P
     // Earlier versions only sent publicly. Preserve that history after expiry
     // and explicit mode switches; a fresh private attempt records false.
     if (item.publicAttempted === undefined && item.requestRevision > 0) item.publicAttempted = true
-    if (item.attempt && item.attempt.expiration <= now) delete item.attempt
+    if (item.attempt && item.attempt.expiration <= now) { await retainAdminStorageAttempt(tx, item); delete item.attempt }
   }
   if (!previous || before !== JSON.stringify(state)) {
     journal.requests = []; journal.standalone = state; await saveMlsMembership(tx, journal)

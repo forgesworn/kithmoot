@@ -28,12 +28,13 @@ export class BrowserMlsRevocationInbox {
   #running = false
   constructor(private coordinator: Coordinator, private grants: Pick<BrowserMlsGrantStore, 'all'>,
     private context: () => MlsRevocationInboxContext | undefined,
-    private now: () => number = () => Math.floor(Date.now() / 1000)) {}
+    private now: () => number = () => Math.floor(Date.now() / 1000),
+    private authority: 'legacy-mls' | { storage(tx: PersonaTransaction): Promise<MlsGrantRecord[]> } = 'legacy-mls') {}
 
   async view(operationCurrent: () => boolean = () => true): Promise<CoordinationResult<MlsRevocationInboxView>> {
     const scope = this.#scope(), current = () => { try { return operationCurrent() && this.#current(scope) } catch { return false } }
     return this.coordinator.transact(scope.vault.persona, async tx => {
-      const state = await this.#state(tx, scope), ledger = await this.#ledger(), prompts: MlsKeeperRequestView[] = [], rosters: RosterCache = new Map()
+      const state = await this.#state(tx, scope), ledger = await this.#ledger(tx), prompts: MlsKeeperRequestView[] = [], rosters: RosterCache = new Map()
       for (const prompt of state.prompts) {
         if (prompt.state !== 'pending') continue
         const grants = await this.#authority(tx, prompt.request, ledger, rosters)
@@ -91,7 +92,7 @@ export class BrowserMlsRevocationInbox {
         const saved = await this.coordinator.transact(scope.vault.persona, async tx => {
           const state = await this.#state(tx, scope)
           if (request && request.keeper === scope.vault.persona && request.expiration > state.checkedAt) {
-            const ledger = await this.#ledger(), grants = await this.#authority(tx, request, ledger)
+            const ledger = await this.#ledger(tx), grants = await this.#authority(tx, request, ledger)
             if (grants.length) {
               const operation = mlsStandaloneRevocationOperation(request.sender, request.keeper, request.device)
               const existing = state.prompts.find(item => item.operation === operation)
@@ -122,16 +123,20 @@ export class BrowserMlsRevocationInbox {
   async #state(tx: PersonaTransaction, scope: MlsRevocationInboxContext): Promise<MlsRevocationInboxState> {
     return mlsRevocationInboxState(tx, scope.vault.persona, this.#time())
   }
-  async #ledger(): Promise<MlsGrantRecord[]> {
-    const records = structuredClone(await this.grants.all())
+  async #ledger(tx: PersonaTransaction): Promise<MlsGrantRecord[]> {
+    const records = structuredClone(await (this.authority === 'legacy-mls' ? this.grants.all() : this.authority.storage(tx)))
     if (!Array.isArray(records) || records.length > 256) throw new Error('The keeper grant ledger could not be verified.')
     records.forEach(validateMlsGrant)
-    if (new Set(records.map(record => `${record.node}/${record.device}`)).size !== records.length) throw new Error('The keeper grant ledger contains duplicate device authority.')
+    if (new Set(records.filter(record => this.authority === 'legacy-mls' || record.state !== 'revoked').map(record => `${record.node}/${record.device}`)).size !== records.filter(record => this.authority === 'legacy-mls' || record.state !== 'revoked').length) throw new Error('The keeper grant ledger contains duplicate device authority.')
     return records
   }
   async #authority(tx: PersonaTransaction, request: VmlsRevocationRequest, ledger: readonly MlsGrantRecord[], rosters: RosterCache = new Map()): Promise<MlsGrantRecord[]> {
     const grants = ledger.filter(record => record.issuer === request.keeper && record.persona === request.sender && record.device === request.device && record.state !== 'revoked')
     if (!grants.length) return []
+    if (this.authority !== 'legacy-mls') {
+      if (grants.some(grant => grant.rooms.length || grant.revokeAfter !== null)) throw new Error('Storage authority contains MLS room duties.')
+      return grants
+    }
     const ids = await mlsRoomIds(tx)
     if (grants.some(grant => grant.rooms.some(use => !ids.includes(use.session)))) throw new Error('A keeper room must be restored before reviewing this request.')
     // Ledger room uses can be empty or stale after a Remove. The signed

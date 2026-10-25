@@ -1,3 +1,4 @@
+import { checkAdminStorageDelivery, withAdminStorageRequestGate, retainAdminStorageAttempt } from './mls-admin-storage-request.js'
 import { sendVmlsRevocationRequest, wrapVmlsRevocationRequest, VMLS_REVOCATION_REQUEST_SECONDS,
   type VmlsRevocationIdentity, type VmlsRevocationTransport } from '../../src/vmls-revocation-request.js'
 import { InvalidPersonaRecord, type CoordinationResult, type BrowserPersonaCoordinator, type PersonaTransaction } from './mls-persona-coordinator.js'
@@ -153,7 +154,11 @@ export class BrowserMlsRevocationOutbox {
       () => { if (this.#sending.get(operation) === running) this.#sending.delete(operation) })
     return pending
   }
-  async #send(operation: string, delivery: Delivery, scope: MlsRevocationOutboxContext, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {
+  #send(operation: string, delivery: Delivery, scope: MlsRevocationOutboxContext, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {
+    const work = () => this.#sendLocked(operation, delivery, scope, revision)
+    return globalThis.navigator?.locks ? withAdminStorageRequestGate(scope.vault.persona, operation, work, 'shared') : work()
+  }
+  async #sendLocked(operation: string, delivery: Delivery, scope: MlsRevocationOutboxContext, revision?: number): Promise<CoordinationResult<MlsStandaloneRevocationView>> {
     if (!hex32.test(operation)) throw new Error('Invalid standalone revocation operation.')
     const identity = delivery.options.identity
     const signer: VmlsRevocationIdentity = { pubkey: identity.pubkey, signEvent: identity.signEvent.bind(identity), encrypt: identity.encrypt.bind(identity), decrypt: identity.decrypt.bind(identity) }
@@ -174,6 +179,8 @@ export class BrowserMlsRevocationOutbox {
       this.#assertRecord(record, operation, scope.vault.persona)
       if (!current()) throw new Error('The requesting account or private permission changed.')
       const destination = delivery.mode === 'private' ? delivery.destination : undefined
+      const storageOnly = await checkAdminStorageDelivery(tx, operation, scope.vault.persona, destination)
+      if (storageOnly && !globalThis.navigator?.locks) throw new Error('Admin2 storage requests require the cross-tab operation gate.')
       let credentialExpiresAt: number | undefined
       if (delivery.mode === 'private') {
         if (record.keeper !== destination!.keeper) throw new Error('The selected keeper does not match this retained request.')
@@ -192,6 +199,7 @@ export class BrowserMlsRevocationOutbox {
       record.publicAttempted = record.publicAttempted === true || delivery.mode === 'public'
       record.attempt = { revision: record.requestRevision, createdAt: state.checkedAt, expiration: state.checkedAt + VMLS_REVOCATION_REQUEST_SECONDS, confirmed: false,
         ...(destination ? { private: { ...destination } } : {}) }
+      await retainAdminStorageAttempt(tx, record)
       const journal = await readMlsMembership(tx); journal.standalone = state; await saveMlsMembership(tx, journal)
       return { record: structuredClone(record), publish: true, credentialExpiresAt }
     }, current)
@@ -236,6 +244,7 @@ export class BrowserMlsRevocationOutbox {
       if (!record.attempt || record.requestRevision !== attempt.revision || JSON.stringify(record.attempt) !== JSON.stringify(attempt)) throw new Error('The standalone request attempt changed after publication. Check its current state.')
       if (delivery.mode === 'private' && !alive()) throw new Error('The private request or original credential expired before confirmation.')
       record.attempt.confirmed = true
+      await retainAdminStorageAttempt(tx, record)
       const journal = await readMlsMembership(tx); journal.standalone = state; await saveMlsMembership(tx, journal)
       return view(record)
     }, delivery.mode === 'private' ? alive : current)

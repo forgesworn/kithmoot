@@ -1,3 +1,5 @@
+import { adminStorageRequestTarget, retainAdminStorageRequest, withAdminStorageRequestGate, type AdminStorageRequestSelection } from './mls-admin-storage-request.js'
+import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
 import type { Session as AdminSession, PendingAdminInvitation, VmlsAdminInvitationSignRequestV2, Capability as AdminCapability, AdminIntroduction, PendingAdminIntroduction, Platform as AdminPlatform } from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
 import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-admin-invitation-engine.js'
 import { ADMIN_INVITATION_SIGN_METHOD, readAdminInvitationContext, adminInvitationContextCommitment } from '../../src/vmls/admin-invitation.js'
@@ -1032,6 +1034,32 @@ export class BrowserMlsRoomOperations {
           catch (error) { if (error instanceof MlsRevocationOutboxFull) throw new MlsRoomRefused('revocation-outbox-full'); throw error }
         }))
     })
+  }
+
+  /** Explicit Admin2 storage request only. Uses the actual host and witness;
+   * no room keeper, role change or membership Remove is created. */
+  async prepareAdminStorageRevocation(context: MlsRoomContext, id: string, input: AdminStorageRequestSelection): Promise<MlsRoomResult<{ operation: string }>> {
+    context = { ...context, sessionId: id }
+    const selected = structuredClone(input)
+    const prepare = () => this.#using<{ operation: string }>(context, async scope => scope.host.step(scope.hostContext, id, session => {
+      if ((session as unknown as AdminSession).profile() !== 'InvitationAdmins2' || session.phase().type !== 'Active') throw new MlsRoomRefused('wrong-profile')
+      const target = adminStorageRequestTarget(scope.ctx.persona, scope.device, memberStatuses(session), selected, this.now())
+      return { snapshot: null, value: { operation: mlsStandaloneRevocationOperation(scope.ctx.persona, selected.expectedStorageKeeper, target.device) } }
+    }, this.#edits(scope.ctx, scope, id, room => {
+      if (room.profile !== 'InvitationAdmins2' || room.keeper !== undefined) throw new MlsRoomRefused('wrong-profile')
+    }, async (_room, session, _value, tx) => {
+      const target = adminStorageRequestTarget(scope.ctx.persona, scope.device, memberStatuses(session), selected, this.now())
+      await retainAdminStorageRequest(tx, scope.ctx.persona, scope.device, target, selected)
+      await rememberStandaloneRevocations(tx, scope.ctx.persona, selected.expectedStorageKeeper, id, [target], this.now())
+    })))
+    // Resolve only the lock key first. The locked transaction above reopens
+    // the actual native roster and validates every authority field again.
+    const observed = await this.members(context, id)
+    if (observed.state !== 'active') return observed
+    const target = observed.value.find(member => member.leafId === selected.leaf)
+    if (!target || !hex(target.device)) throw new MlsRoomRefused('not-current-member')
+    return withAdminStorageRequestGate(context.vault.persona,
+      mlsStandaloneRevocationOperation(context.vault.persona, selected.expectedStorageKeeper, target.device), prepare)
   }
 
   driveRemoval(context: MlsRoomContext, id: string, operation: string): Promise<MlsRoomResult<MlsRemovalEffect>> {
