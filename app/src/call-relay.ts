@@ -45,25 +45,35 @@ export function callRelayServers(relay: CallRelay): RTCIceServer[] {
   return [...stun.map(urls => ({ urls })), { urls: [...relay.urls], username: relay.username, credential: relay.credential }]
 }
 
+/** The configuration without plain TURN/TCP URIs, for the one known WebKit
+ * syntax incompatibility, or the original error when that is not the cause. */
+function withoutPlainTurnTcp(config: RTCConfiguration, error: unknown): RTCConfiguration {
+  if (!error || typeof error !== 'object' || !('name' in error) ||
+      !['SyntaxError', 'NotSupportedError'].includes(String(error.name))) throw error
+  const servers = config.iceServers ?? []
+  const original = servers.flatMap(server => [server.urls].flat())
+  const iceServers = servers.map(server => ({ ...server,
+    urls: [server.urls].flat().filter(url => !/^turn:[^?]+\?transport=tcp$/i.test(url.trim())),
+  }))
+    .filter(server => server.urls.length > 0)
+  if (iceServers.flatMap(server => server.urls).length === original.length) throw error
+  if (!iceServers.some(server => server.urls.some(url => url.startsWith('turn')))) {
+    throw new Error('This browser needs a turn: address over UDP or a turns: address for TLS. Plain TURN over TCP is unsupported.')
+  }
+  return { ...config, iceServers }
+}
+
 /** WebKit rejects plain TURN/TCP URIs. Keep the chosen UDP/TLS alternatives
  * without removing TCP from browsers which support it. No network is started
  * by the rejected constructor; retry only that known syntax incompatibility. */
 export function callRelayPeerConnection(config: RTCConfiguration,
   create: (config: RTCConfiguration) => RTCPeerConnection = config => new RTCPeerConnection(config),
 ): RTCPeerConnection {
-  try { return create(config) } catch (error) {
-    if (!error || typeof error !== 'object' || !('name' in error) ||
-        !['SyntaxError', 'NotSupportedError'].includes(String(error.name))) throw error
-    const servers = config.iceServers ?? []
-    const original = servers.flatMap(server => [server.urls].flat())
-    const iceServers = servers.map(server => ({ ...server,
-      urls: [server.urls].flat().filter(url => !/^turn:[^?]+\?transport=tcp$/i.test(url.trim())),
-    }))
-      .filter(server => server.urls.length > 0)
-    if (iceServers.flatMap(server => server.urls).length === original.length) throw error
-    if (!iceServers.some(server => server.urls.some(url => url.startsWith('turn')))) {
-      throw new Error('This browser needs a turn: address over UDP or a turns: address for TLS. Plain TURN over TCP is unsupported.')
-    }
-    return create({ ...config, iceServers })
-  }
+  try { return create(config) } catch (error) { return create(withoutPlainTurnTcp(config, error)) }
+}
+
+/** `setConfiguration` through the same WebKit filter, for a relay whose
+ *  login is renewed or replaced on a live connection. */
+export function callRelaySetConfiguration(pc: Pick<RTCPeerConnection, 'setConfiguration'>, config: RTCConfiguration): void {
+  try { pc.setConfiguration(config) } catch (error) { pc.setConfiguration(withoutPlainTurnTcp(config, error)) }
 }
