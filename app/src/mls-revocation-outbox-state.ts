@@ -18,7 +18,12 @@ export async function mlsStandaloneState(tx: PersonaTransaction, now: number): P
   // cannot disappear through expiry and become a trusted empty state.
   validateMlsStandaloneState(state)
   state.checkedAt = now
-  for (const item of state.observations) if (item.attempt && item.attempt.expiration <= now) delete item.attempt
+  for (const item of state.observations) {
+    // Earlier versions only sent publicly. Preserve that history after expiry
+    // and explicit mode switches; a fresh private attempt records false.
+    if (item.publicAttempted === undefined && item.requestRevision > 0) item.publicAttempted = true
+    if (item.attempt && item.attempt.expiration <= now) delete item.attempt
+  }
   if (!previous || before !== JSON.stringify(state)) {
     journal.requests = []; journal.standalone = state; await saveMlsMembership(tx, journal)
   }

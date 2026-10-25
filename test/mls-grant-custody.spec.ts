@@ -344,7 +344,7 @@ for (const operation of ['read','put'] as const) for (const predicate of [false,
   if (operation === 'read') expect(await page.evaluate('G.rawSummary()')).toEqual(before)
   else expect(await page.evaluate('G.inspect()')).toMatchObject({ value: { records: [{ state: 'active' }] } })
 })
-for (const name of ['records','roomChoices','routes','pair','install','memberView','memberPlan','memberBegin','memberAdvance','keeperView','keeperApprovals','keeperReceive','keeperCheck','keeperReview','keeperDecide','keeperApprove','keeperAdvance','keeperComplete']) test(`the concrete development ${name} workflow prepares before any nested component and remains held by an actual legacy connection`, async ({ context }) => {
+for (const name of ['records','roomChoices','routes','pair','install','memberView','memberPlan','memberBegin','memberAdvance','revocationRecords','sendRevocationPrivately','keeperView','keeperApprovals','keeperReceive','keeperCheck','keeperReview','keeperDecide','keeperApprove','keeperAdvance','keeperComplete']) test(`the concrete development ${name} workflow prepares before any nested component and remains held by an actual legacy connection`, async ({ context }) => {
   const page = await fixture(context)
   await page.evaluate('G.seed()')
   expect(await page.evaluate(name => (window as any).G.developmentWorkflow(name), name)).toEqual({ state: 'blocked' })

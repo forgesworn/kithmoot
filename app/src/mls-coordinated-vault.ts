@@ -28,6 +28,12 @@ import {
   type AdmissionProofEntry, type AdmissionProofPlan,
 } from './mls-admission-proof.js'
 
+import {
+  keeperInboxAuthRequest, keeperInboxAuthKey, keeperInboxDestination, keeperInboxPermissionLive,
+  keeperInboxPermissionExpiration, keeperInboxPermissionDevice, keeperInboxPermissionGrant,
+  type KeeperInboxAuthRequest, type KeeperInboxAuthReply, type KeeperInboxAuthPrompt,
+} from './mls-keeper-inbox-auth.js'
+
 export const BOX_METHOD = 'signBoxRequestV1/1'
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.typed-vault.v1'))
 const HEX = /^[0-9a-f]{64}(?![\s\S])/
@@ -78,6 +84,9 @@ export class CoordinatedMlsVault {
   #boxTimes = new Map<string, number>()
   #boxClockFloor = 0
   #admissionPrompts = new Set<string>()
+  #keeperPrompts = new Set<string>()
+  #keeperClockFloor = 0
+  #keeperMade = new WeakMap<object, { ctx: VaultContext; request: string; device: string; credential: string; validBefore: number; deadline: number; current: () => boolean }>()
   constructor(private readonly coordinator: BrowserPersonaCoordinator, options: CoordinatedVaultOptions = {}) {
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1000))
     this.#generation = options.generation ?? (() => 0)
@@ -164,6 +173,18 @@ export class CoordinatedMlsVault {
       if (r.device.device !== device || r.device.credentialId !== credentialId) return refuse('stale')
       if (homeBox && !r.policy.approved.some(s => sameScope(s, { principal: ctx.principal, persona: ctx.persona, device, homeBox, method: SIGN_METHOD }))) return refuse('unauthorised')
       return this.#current(ctx) ? ok(undefined) : refuse('stale')
+    })
+  }
+
+  /** Trusted private-outbox reservation: inspect public current device metadata
+   * under its existing persona transaction, without another lock or signer. */
+  async keeperInboxDevice(tx: PersonaReader, ctx: VaultContext, device: string): Promise<VaultResult<EnrolledDevice>> {
+    if (!this.#current(ctx)) return refuse('stale')
+    return this.#with(tx, ctx.persona, async r => {
+      const reason = this.#device(r)
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (r.device.device !== device) return refuse('unauthorised')
+      return this.#current(ctx) ? ok(this.#public(r.device)) : refuse('stale')
     })
   }
 
@@ -475,6 +496,88 @@ export class CoordinatedMlsVault {
       if (core[request.role === 'keeper-device' ? 7 : 5] !== r.operation) return refuse('replay')
       return ok(r)
     } catch { return refuse('malformed') }
+  }
+
+  /** One fresh, operation-specific consent. No persisted box/leaf approval
+   * authorises disclosure of the transmitting device to a keeper inbox. */
+  async signKeeperInboxAuthV1(ctx: VaultContext, input: unknown, consent: KeeperInboxAuthPrompt, operationCurrent: () => boolean): Promise<VaultResult<KeeperInboxAuthReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = keeperInboxAuthRequest(input)
+    if (!req || typeof consent !== 'function' || typeof operationCurrent !== 'function') return refuse('malformed')
+    const key = keeperInboxAuthKey(req)
+    const current = () => { try { return operationCurrent() === true && this.#current(ctx) } catch { return false } }
+    if (!current()) return refuse('stale')
+    if (this.#keeperPrompts.has(key) || this.#keeperPrompts.size >= 64) return refuse('busy')
+    this.#keeperPrompts.add(key)
+    try {
+      const first = await this.#look(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const refusal = this.#keeperDevice(req, r, current)
+        return refusal || !r ? refuse(refusal ?? 'unauthorised') : ok({ device: r.device.device, credential: r.device.credentialId })
+      }))
+      if (!first.ok) return first
+      if (!current()) return refuse('stale')
+      let decision: ConsentDecision
+      try { decision = await consent(Object.freeze({ purpose: 'keeper-inbox-deposit-auth' as const,
+        principal: ctx.principal, persona: ctx.persona, device: first.value.device, box: req.box,
+        keeper: req.keeper, permissionId: req.permission.id, deadline: req.expires_at, grant: keeperInboxPermissionGrant(req), destination: keeperInboxDestination(req.box), current })) }
+      catch { decision = 'deny' }
+      if (!current()) return refuse('stale')
+      if (decision !== 'approve') return refuse('denied')
+      let validBefore = 0
+      const answer = await this.#look(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const refusal = this.#keeperDevice(req, r, current)
+        if (refusal || !r) return refuse(refusal ?? 'unauthorised')
+        if (r.device.device !== first.value.device || r.device.credentialId !== first.value.credential) return refuse('stale')
+        validBefore = Math.min(r.device.credentialExpiresAt, keeperInboxPermissionExpiration(req))
+        const scalar = hexToBytes(r.device.scalar)
+        try {
+          const event = finalizeEvent({ kind: 22242, created_at: this.#now(), content: '',
+            tags: [['relay', keeperInboxDestination(req.box)], ['challenge', req.challenge]] }, scalar)
+          for (const tag of event.tags) Object.freeze(tag)
+          Object.freeze(event.tags); Object.freeze(event)
+          return ok(Object.freeze({ v: 1 as const, device: r.device.device, event }))
+        } finally { scalar.fill(0) }
+      }))
+      if (!answer.ok) return answer
+      if (!current()) return refuse('stale')
+      const now = this.#now()
+      if (!this.#live(validBefore, req.expires_at) || !keeperInboxPermissionLive(req, now)) return refuse('expired')
+      if (now < this.#keeperClockFloor) return refuse('busy')
+      this.#keeperMade.set(answer.value, { ctx, request: key, device: first.value.device, credential: first.value.credential,
+        validBefore, deadline: req.expires_at, current })
+      return answer
+    } finally { this.#keeperPrompts.delete(key) }
+  }
+  #keeperDevice(req: KeeperInboxAuthRequest, r: RecordV1 | undefined, current: () => boolean): VaultRefusal | undefined {
+    if (!current()) return 'stale'
+    const now = this.#now(), refusal = this.#device(r, now)
+    if (refusal || !r) return refusal ?? 'unauthorised'
+    if (!keeperInboxPermissionLive(req, now)) return 'expired'
+    if (now < this.#keeperClockFloor) return 'busy'
+    this.#keeperClockFloor = now
+    if (keeperInboxPermissionDevice(req) !== r.device.device) return 'unauthorised'
+    return undefined
+  }
+  /** Accept only the exact in-memory reply, with another confirmed credential
+   * check immediately before the caller transmits it over its private route. */
+  async acceptKeeperInboxAuthReply(input: KeeperInboxAuthRequest, reply: unknown): Promise<VaultResult<KeeperInboxAuthReply>> {
+    const req = keeperInboxAuthRequest(input)
+    if (!req) return refuse('malformed')
+    const made = typeof reply === 'object' && reply !== null ? this.#keeperMade.get(reply) : undefined
+    if (!made) return refuse('unauthorised')
+    if (!made.current()) return refuse('stale')
+    if (made.request !== keeperInboxAuthKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const checked = await this.#look(made.ctx, tx => this.#with(tx, made.ctx.persona, async r => {
+      const refusal = this.#keeperDevice(req, r, made.current)
+      if (refusal || !r) return refuse(refusal ?? 'unauthorised')
+      return r.device.device === made.device && r.device.credentialId === made.credential ? ok(undefined) : refuse('stale')
+    }))
+    if (!checked.ok) return checked
+    if (!made.current()) return refuse('stale')
+    if (!this.#live(made.validBefore, made.deadline) || !keeperInboxPermissionLive(req, this.#now())) return refuse('expired')
+    if (this.#now() < this.#keeperClockFloor) return refuse('busy')
+    return ok(reply as KeeperInboxAuthReply)
   }
 
   async signBoxRequestV1(ctx: VaultContext, input: unknown, consent: ConsentPrompt): Promise<VaultResult<BoxReply>> {

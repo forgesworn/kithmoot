@@ -20,6 +20,8 @@ import { BrowserMlsKeeperInboxFetch, type MlsKeeperInboxReadPermission, type Mls
 import { BrowserMlsKeeperPrivateInboxFetch, type MlsKeeperPrivateInboxPermission } from './mls-keeper-private-inbox-fetch.js'
 import { NostrMlsKeeperInboxTransport } from './mls-keeper-inbox-relay.js'
 import { NostrVmlsRevocationTransport } from './mls-revocation-relay.js'
+import { BrowserMlsRevocationOutbox } from './mls-revocation-outbox.js'
+import type { KeeperInboxAuthPrompt } from './mls-keeper-inbox-auth.js'
 import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
 
 export interface MlsDevelopmentRoom { session: string; rendezvousKey: string }
@@ -39,6 +41,7 @@ interface Active {
 interface Services {
   links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: CoordinatedMlsVault
   rooms: BrowserMlsRoomOperations; ledger: BrowserMlsGrantLedger; inbox: BrowserMlsRevocationInbox
+  outbox: BrowserMlsRevocationOutbox
   decisions: BrowserMlsKeeperDecisions; keeper: BrowserMlsKeeperRequestController; member: BrowserMlsMembershipController
 }
 const held = (): MlsGrantForegroundResult<never> => ({ state: 'interrupted' })
@@ -123,6 +126,20 @@ export class BrowserMlsGrantDevelopmentOwner {
     return this.#run(true, services => services.member.begin(selected), room)
   }
   memberAdvance(room: MlsDevelopmentRoom, operation: string) { return this.#run(true, services => services.member.advance(operation), room) }
+  revocationRecords() { return this.#run(true, services => services.outbox.records()) }
+  /** Private sending is composed only here, beside its concrete saved-route
+   * endpoint. Public account sending remains an explicit separate action. */
+  sendRevocationPrivately(operation: string, input: { routeId: string; permission: Event; consent: KeeperInboxAuthPrompt; current(): boolean }, revision?: number) {
+    if (!hex(operation) || !input || typeof input.routeId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(input.routeId) ||
+        typeof input.consent !== 'function' || typeof input.current !== 'function' || revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1)) throw new Error('Select a retained request, saved private route and current AUTH consent.')
+    const selected = { routeId: input.routeId, permission: snapshot(input.permission), consent: input.consent, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot encrypt keeper requests.')
+      return services.outbox.sendPrivately(operation, { identity: active.revocation, endpoint: this.#endpoint, vault: services.vault,
+        routeId: selected.routeId, permission: selected.permission, consent: selected.consent,
+        current: () => selected.current() && active.current() }, revision)
+    })
+  }
   keeperView() { return this.#run(true, services => services.inbox.view()) }
   keeperApprovals() { return this.#run(true, services => services.decisions.approvals(true)) }
   keeperReceive(wrappers: readonly Event[]) {
@@ -266,7 +283,8 @@ export class BrowserMlsGrantDevelopmentOwner {
     const decisions = new BrowserMlsKeeperDecisions(coordinator, custody, context, undefined, ledger, undefined, ledger)
     const keeper = new BrowserMlsKeeperRequestController(decisions, rooms, ledger, context)
     const member = new BrowserMlsMembershipController(rooms, ledger, () => this.#active?.room, () => this.#active?.selected?.session, () => this.#active?.account.persona)
-    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member }
+    const outbox = new BrowserMlsRevocationOutbox(coordinator, context)
+    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox }
   }
   #socket(url: string): WebSocket {
     const active = this.#active, scope = this.#foreground.capture()
