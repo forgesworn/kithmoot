@@ -48,9 +48,48 @@ page.on('pageerror', e => { failures++; diagnostics.push(clean(e)) })
 // CDP observes the built extension's actual worker socket, in addition to app
 // sockets. Payloads are immediately reduced to metadata and digests.
 const browserCdp = await context.browser().newBrowserCDPSession()
-const attached = await browserCdp.send('Target.attachToTarget', { targetId: (await browserCdp.send('Target.getTargets')).targetInfos.find(t => t.type === 'service_worker' && t.url.startsWith(`chrome-extension://${extension}/`)).targetId, flatten: false })
-browserCdp.on('Target.receivedMessageFromTarget', event => { if (event.sessionId !== attached.sessionId) return; try { const m=JSON.parse(event.message); if(m.method==='Network.webSocketFrameSent') frame(m.params.response.opcode===2?Buffer.from(m.params.response.payloadData,'base64'):m.params.response.payloadData,'bark-worker-websocket') } catch {} })
-await browserCdp.send('Target.sendMessageToTarget', { sessionId:attached.sessionId, message:JSON.stringify({id:1,method:'Network.enable'}) })
+const workerSessions = new Map(), workerTargets = new Set(), enabledWorkers = new Set()
+const workerCoverage = { attached: 0, enabled: 0, detached: 0, errors: 0 }
+let cdpCommand = 0
+async function attachWorker(target) {
+  if (target.type !== 'service_worker' || !target.url.startsWith(`chrome-extension://${extension}/`) || workerTargets.has(target.targetId)) return
+  workerTargets.add(target.targetId)
+  try {
+    const { sessionId } = await browserCdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: false })
+    const command = ++cdpCommand
+    workerSessions.set(sessionId, { target: target.targetId, command })
+    workerCoverage.attached++
+    await browserCdp.send('Target.sendMessageToTarget', { sessionId, message: JSON.stringify({ id: command, method: 'Network.enable' }) })
+  } catch { workerTargets.delete(target.targetId); workerCoverage.errors++ }
+}
+browserCdp.on('Target.receivedMessageFromTarget', event => {
+  const watched = workerSessions.get(event.sessionId)
+  if (!watched) return
+  try {
+    const m = JSON.parse(event.message)
+    if (m.id === watched.command) {
+      if (m.error) workerCoverage.errors++
+      else if (!enabledWorkers.has(watched.target)) { enabledWorkers.add(watched.target); workerCoverage.enabled++ }
+    }
+    if (m.method === 'Network.webSocketFrameSent') frame(m.params.response.opcode === 2 ? Buffer.from(m.params.response.payloadData, 'base64') : m.params.response.payloadData, 'bark-worker-websocket')
+  } catch { workerCoverage.errors++ }
+})
+browserCdp.on('Target.detachedFromTarget', event => {
+  const watched = workerSessions.get(event.sessionId)
+  if (!watched) return
+  workerSessions.delete(event.sessionId); workerTargets.delete(watched.target); enabledWorkers.delete(watched.target); workerCoverage.detached++
+})
+browserCdp.on('Target.targetDestroyed', event => {
+  if (!workerTargets.delete(event.targetId)) return
+  enabledWorkers.delete(event.targetId)
+  for (const [session, watched] of workerSessions) if (watched.target === event.targetId) workerSessions.delete(session)
+  workerCoverage.detached++
+})
+browserCdp.on('Target.targetCreated', event => { void attachWorker(event.targetInfo) })
+browserCdp.on('Target.targetInfoChanged', event => { void attachWorker(event.targetInfo) })
+await browserCdp.send('Target.setDiscoverTargets', { discover: true })
+for (const target of (await browserCdp.send('Target.getTargets')).targetInfos) await attachWorker(target)
+
 async function settings() {
   for (let i=0;i<30;i++) { if(await page.locator('#settingsPane').isVisible()) break; await page.locator('#openAppSettings').evaluate(e=>e.click()); await page.waitForTimeout(100) }
   if(await page.locator('#settingsPane').getAttribute('data-page') !== 'main') await page.locator('#settingsBack').click()
@@ -154,8 +193,8 @@ async function run(step,args) {
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
   if(step==='ui-state') return {startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message)}:null),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics}
   if(step==='observe-start') {observations=[];privateObservedFrames=[];observedBytes=0;observerOverflow=false;violations=0;needles=args.needles??[];observe=true;return {started:true}}
-  if(step==='observe-audit') { const checked=args.needles??[];let matches=0;for(const frame of privateObservedFrames)for(const needle of checked)if(wireMatches(frame,needle))matches++;return {alive:privateObservedFrames.length>0,observerOverflow,frames:privateObservedFrames.length,sourceCounts:observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),laterAuditCoverage:'websocket frames only; HTTP checks use needles active at request time',checkedNeedles:checked.length,matches,observationDigest:digest(JSON.stringify(observations))} }
-  if(step==='observe') return {blockedNetworkAttempts,observerOverflow,alive:observations.length>0,violations,pageErrors:failures,observations}
+  if(step==='observe-audit') { const checked=args.needles??[];let matches=0;for(const frame of privateObservedFrames)for(const needle of checked)if(wireMatches(frame,needle))matches++;return {workerCoverage,currentWorkerTargets:workerTargets.size,alive:privateObservedFrames.length>0,observerOverflow,frames:privateObservedFrames.length,sourceCounts:observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),laterAuditCoverage:'websocket frames only; HTTP checks use needles active at request time',checkedNeedles:checked.length,matches,observationDigest:digest(JSON.stringify(observations))} }
+  if(step==='observe') return {workerCoverage,currentWorkerTargets:workerTargets.size,blockedNetworkAttempts,observerOverflow,alive:observations.length>0,violations,pageErrors:failures,observations}
   if(step==='witness-enrol') {
     const state=await page.evaluate(()=>window.__mixedInvitationLab.step('account-state'))
     const e=state.enrolment;if(e.state!=='genesis')throw new Error('Actual account has no genesis')
