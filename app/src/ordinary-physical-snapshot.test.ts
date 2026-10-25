@@ -21,6 +21,7 @@ const cases: [string, 'browser' | 'tab', string][] = [
   [`kithmoot.mute-until.v1.visitor.${h}`, 'browser', 'metadata'], [`kithmoot.mute-until.v1.${h}.${j}`, 'browser', 'metadata'],
   ['kithmoot.notification-scopes.v1.["visitor","default",""]', 'browser', 'metadata'], [`kithmoot.notification-scopes.v1.${JSON.stringify([h, 'project', 'private.label'])}`, 'browser', 'metadata'],
   [`kithmoot.channel-checks.v1.${h}.${j}`, 'browser', 'channelChecks'], [`kithmoot.context.v1.${h}`, 'browser', 'journals'], [`kithmoot.shared-projects.v1.${h}`, 'browser', 'journals'], [`kithmoot.assignments.v1.${h}.${j}`, 'browser', 'journals'],
+  [`kithmoot.shared-projects.v1.${h}.journal.v2.${'c'.repeat(64)}`, 'browser', 'journals'], [`kithmoot.assignments.v1.${h}.${j}.journal.v2.${'c'.repeat(64)}`, 'browser', 'journals'],
   ...['box-discovery', 'history-recovery'].map(f => [`kithmoot.${f}.v1.${h}.${j}`, 'browser', 'private'] as [string, 'browser', string]),
   ...['uploads', 'room-logo', 'storage-grants'].map(f => [`kithmoot.${f}.v1.${h}`, 'browser', 'private'] as [string, 'browser', string]),
   ...['kithmoot.blob-deletes.v1', 'kithmoot.blob-delete-groups.v1', 'kithmoot.file-storage.v1', 'kithmoot.blossom-server'].map(n => [n, 'browser', 'private'] as [string, 'browser', string]),

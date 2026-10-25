@@ -69,7 +69,7 @@ export function uiFixture(mode: UiMode = 'browser-all') {
   }
   if (all || mode.startsWith('delay-')) expression({receiver:'localStorage',key:'SEND_DELAY_KEY',constants:['SEND_DELAY_KEY'],
     globals:{localStorage:storage,SEND_DELAYS:[0,5,10],delay:{value:mode==='delay-zero'?'0':mode==='delay-ten'?'10':'5'}}})
-  if (all || mode.startsWith('tone-')) expression({file:'app/src/emoji-picker.ts',within:'setPreferredSkinTone',receiver:'localStorage',key:'toneKey',constants:['toneKey'],
+  if (all || mode.startsWith('tone-')) expression({file:'app/src/emoji-preferences.ts',within:'setPreferredSkinTone',receiver:'localStorage',key:'toneKey',constants:['toneKey'],
     globals:{localStorage:storage,tone:mode==='tone-zero'?0:mode==='tone-five'?5:2}})
   if (all || mode.startsWith('recents-')) {
     if (mode==='recents-duplicate') records.set('kithmoot:emoji:recents','["😀","😀"]')

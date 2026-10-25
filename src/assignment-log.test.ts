@@ -1,21 +1,85 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { nip44 } from 'nostr-tools'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { bytesToHex, randomBytes } from '@noble/hashes/utils'
+import { sha256 } from '@noble/hashes/sha2'
 import { RoomAgent } from './agent.js'
 import { localIdentity } from './identity.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
-import { ASSIGNMENT_KIND } from './assignments.js'
+import { assignmentId, ASSIGNMENT_KIND, signAssignment } from './assignments.js'
+import { createJournalStorage, type JournalHead, type JournalSegment } from './journal-storage.js'
+import type { RelayTransport } from './relay-pool.js'
 import { deriveRoom } from './room.js'
-import { deriveChannel } from './chat.js'
+import { deriveChannel, encodeChatEvent } from './chat.js'
 
-function storage(): AssignmentStorage & { value?: string; fail: boolean } {
-  return { fail: false, async load() { return this.value }, async save(value) { if (this.fail) throw new Error('Disk full'); this.value = value } }
+interface TestStorage extends AssignmentStorage {
+  readonly value?: string
+  readonly values: Map<string, string>
+  readonly root: string
+  fail: boolean
+  commits: number
+  saves: number
+  appends: number
+  readonly cuts: Map<string, string>[]
+  failNextRoot(phase: 'before' | 'after'): void
+}
+function storage(seed?: string | Map<string, string>, root = 'assignments'): TestStorage {
+  const values = new Map(seed instanceof Map ? seed : undefined)
+  if (typeof seed === 'string') values.set(root, seed)
+  const result: TestStorage = {
+    root, values, fail: false, commits: 0, saves: 0, appends: 0, cuts: [],
+    get value() { return values.get(this.root) },
+    async load() { return this.value },
+    async save(value) {
+      result.saves++; result.commits++
+      if (result.fail) throw new Error('Disk full')
+      values.set(result.root, value); result.cuts.push(new Map(values))
+    },
+    failNextRoot() { result.fail = true },
+  }
+  return result
+}
+function incrementalStorage(seed?: string | Map<string, string>, root = 'assignments'): TestStorage {
+  const values = new Map(seed instanceof Map ? seed : undefined)
+  if (typeof seed === 'string') values.set(root, seed)
+  let fault: { phase: 'before' | 'after' } | undefined
+  const engine = createJournalStorage(root, {
+    get: async key => values.get(key),
+    async set(key, value) {
+      if (fault && key === root) {
+        const phase = fault.phase; fault = undefined
+        if (phase === 'before') throw new Error('Injected failure before head')
+        values.set(key, value); throw new Error('Injected failure after head')
+      }
+      values.set(key, value)
+    },
+    remove: async key => { values.delete(key) },
+  })
+  const result: TestStorage = {
+    root, values, fail: false, commits: 0, saves: 0, appends: 0, cuts: [],
+    get value() { return values.get(root) },
+    load: () => engine.load(),
+    async save(value) {
+      result.saves++; result.commits++
+      if (result.fail) throw new Error('Disk full')
+      await engine.save(value); result.cuts.push(new Map(values))
+    },
+    loadIncremental: () => engine.loadIncremental(),
+    async appendIncremental(delta) {
+      result.appends++; result.commits++
+      if (result.fail) throw new Error('Disk full')
+      await engine.appendIncremental(delta); result.cuts.push(new Map(values))
+    },
+    failNextRoot(phase) { fault = { phase } },
+  }
+  return result
 }
 const clients: RoomAgent[] = []
 const readers: AssignmentLog[] = []
 afterEach(() => { for (const r of readers.splice(0)) r.close(); for (const c of clients.splice(0)) c.leave() })
 
-async function fixture() {
+async function fixture(incremental = false) {
   const relay = new SimRelay({ replay: true })
   let loseAck = false
   const transport = () => {
@@ -24,16 +88,23 @@ async function fixture() {
     t.publish = async event => { await publish(event); if (loseAck && event.kind === 1460) throw new Error('Acknowledgement lost') }
     return t
   }
-  const identity = localIdentity(generateSecretKey())
-  const creator = await RoomAgent.create({ base: 'https://example.test/j/', name: 'Person', agent: false, identity, transport, announceJitterMs: 0 })
+  const identity = localIdentity(generateSecretKey()), creatorDevice = generateSecretKey(), workerDevice = generateSecretKey()
+  const creator = await RoomAgent.create({ base: 'https://example.test/j/', name: 'Person', agent: false, identity, deviceSk: creatorDevice, transport, announceJitterMs: 0 })
   clients.push(creator)
-  const worker = await RoomAgent.join({ link: creator.url, name: 'Worker', transport, announceJitterMs: 0 })
+  const worker = await RoomAgent.join({ link: creator.url, name: 'Worker', deviceSk: workerDevice, transport, announceJitterMs: 0 })
   clients.push(worker)
-  const aStore = storage(); const bStore = storage()
+  const aStore = incremental ? incrementalStorage() : storage(); const bStore = incremental ? incrementalStorage() : storage()
   const a = await creator.session.assignments(aStore)
   const b = await worker.session.assignments(bStore)
   await vi.waitFor(() => expect(a.snapshot().ready && b.snapshot().ready).toBe(true))
-  return { relay, creator, worker, a, b, aStore, bStore, transport, identity, setLostAck: (v: boolean) => { loseAck = v } }
+  return { relay, creator, worker, a, b, aStore, bStore, transport, identity, creatorDevice, workerDevice, setLostAck: (v: boolean) => { loseAck = v } }
+}
+
+function directLog(f: Awaited<ReturnType<typeof fixture>>, store: TestStorage, transport: RelayTransport = f.transport()): AssignmentLog {
+  const log = new AssignmentLog({ ...deriveRoom(f.creator.keeperState!.secret), transport, deviceSk: f.creatorDevice,
+    identity: f.identity, credential: () => f.creator.session.credential, storage: store })
+  readers.push(log)
+  return log
 }
 
 describe('durable encrypted assignment transport', () => {
@@ -52,8 +123,8 @@ describe('durable encrypted assignment transport', () => {
     expect(f.b.snapshot().assignments).toHaveLength(0)
   })
 
-  it('retains an unpublished reviewed request after storage drift and requires fresh review to retry it', async () => {
-    const f = await fixture()
+  it.each([false, true])('retains an unpublished reviewed request after storage drift and requires fresh review to retry it (incremental %s)', async incremental => {
+    const f = await fixture(incremental)
     let valid = true
     const save = f.aStore.save.bind(f.aStore)
     vi.spyOn(f.aStore, 'save').mockImplementation(async value => {await save(value); valid = false})
@@ -68,8 +139,8 @@ describe('durable encrypted assignment transport', () => {
     expect(f.a.snapshot().pendingSends).toBe(0)
   })
 
-  it('delivers the complete create, claim, result and review journey through authenticated room envelopes', async () => {
-    const f = await fixture()
+  it.each([false, true])('delivers the complete create, claim, result and review journey through authenticated room envelopes (incremental %s)', async incremental => {
+    const f = await fixture(incremental)
     const created = await f.a.submit(undefined, { op: 'create', objective: 'Private release check', criteria: 'Report exact build', owner: f.worker.participant }, 'create_request_001')
     await vi.waitFor(() => expect(f.b.snapshot().assignments).toHaveLength(1))
     await f.b.submit(created.id, { op: 'claim', executor: 'worker_installation_01', next: 'Read build manifest' }, 'claim_request_001')
@@ -80,12 +151,12 @@ describe('durable encrypted assignment transport', () => {
     expect(f.relay.published.some(e => e.kind === ASSIGNMENT_KIND)).toBe(false)
     for (const privateValue of [created.id, 'Private release check', 'Private artifact evidence', f.identity.pubkey]) {
       expect(JSON.stringify(f.relay.published)).not.toContain(privateValue)
-      expect(f.aStore.value).not.toContain(privateValue)
+      expect(JSON.stringify([...f.aStore.values.values()])).not.toContain(privateValue)
     }
   })
 
-  it('restarts with a lost acknowledgement and retries the identical signed operation', async () => {
-    const f = await fixture()
+  it.each([false, true])('restarts with a lost acknowledgement and retries the identical signed operation (incremental %s)', async incremental => {
+    const f = await fixture(incremental)
     const op = { op: 'create' as const, objective: 'Run once', criteria: 'No duplicates', owner: f.worker.participant }
     f.setLostAck(true)
     await expect(f.a.submit(undefined, op, 'retry_request_001')).rejects.toThrow('Acknowledgement lost')
@@ -110,8 +181,8 @@ describe('durable encrypted assignment transport', () => {
     await expect(a.submit(undefined, { ...op, objective: 'Different work' }, 'retry_request_001')).rejects.toThrow('different work')
   })
 
-  it('does not publish when durable storage fails', async () => {
-    const f = await fixture()
+  it.each([false, true])('does not publish when durable storage fails (incremental %s)', async incremental => {
+    const f = await fixture(incremental)
     const before = f.relay.published.length
     f.aStore.fail = true
     await expect(f.a.submit(undefined, { op: 'create', objective: 'Cannot save', criteria: 'No phantom work', owner: f.worker.participant }, 'failure_request_001')).rejects.toThrow('Disk full')
@@ -146,6 +217,230 @@ describe('durable encrypted assignment transport', () => {
     const created = await f.a.submit(undefined, { op: 'create', objective: 'Owned task', criteria: 'Named worker only', owner: f.worker.participant }, 'owned_request_001')
     await expect(f.a.submit(created.id, { op: 'claim', executor: 'impostor_installation', next: 'Steal' }, 'steal_request_001')).rejects.toThrow('not permitted')
     expect(f.a.snapshot().assignments[0]?.status).toBe('offered')
+  })
+})
+
+describe('incremental assignment journal', () => {
+  it('requires both incremental methods on writable logs but not on readers', () => {
+    const identity = localIdentity(generateSecretKey())
+    const base = { roomId: '0'.repeat(64), roomKey: new Uint8Array(32), transport: new SimTransport(new SimRelay()), deviceSk: generateSecretKey(), identity, credential: () => undefined }
+    const load = async () => undefined, save = async () => {}, loadIncremental = async () => ({ deltas: [] }), appendIncremental = async () => {}
+    expect(() => new AssignmentLog({ ...base, storage: { load, save, loadIncremental } })).toThrow('requires both')
+    expect(() => new AssignmentLog({ ...base, storage: { load, save, appendIncremental } })).toThrow('requires both')
+    expect(() => new AssignmentLog({ ...base, readOnly: true, participant: identity.pubkey, storage: { load, loadIncremental } })).not.toThrow()
+  })
+
+  it('loads v2 through a reader with no legacy load or write methods', async () => {
+    const f = await fixture(true)
+    const created = await f.a.submit(undefined, { op: 'create', objective: 'Read v2 without authority', criteria: 'No writes', owner: f.worker.participant }, 'v2_reader_request_001')
+    const image = await f.aStore.loadIncremental!()
+    expect(image.deltas.length).toBeGreaterThan(0)
+    const load = vi.fn(async () => { throw new Error('Legacy load must not be used') })
+    const loadIncremental = vi.fn(async () => image)
+    const storage = { load, loadIncremental }
+    const reader = new AssignmentLog({ ...deriveRoom(f.creator.keeperState!.secret), readOnly: true, participant: f.identity.pubkey,
+      transport: new SimTransport(new SimRelay({ replay: true })), storage })
+    readers.push(reader)
+    await reader.open()
+    await vi.waitFor(() => expect(reader.snapshot().ready).toBe(true))
+    expect(reader.snapshot().assignments[0]?.head).toBe(created.head)
+    expect(reader.snapshot().pendingSends).toBe(0)
+    expect(loadIncremental).toHaveBeenCalledOnce()
+    expect(load).not.toHaveBeenCalled()
+    expect('save' in storage).toBe(false)
+    expect('appendIncremental' in storage).toBe(false)
+  })
+
+  it('refuses a corrupt later delta without exposing its valid base or prefix', async () => {
+    const f = await fixture(true)
+    await f.a.submit(undefined, { op: 'create', objective: 'Atomic v2 loading', criteria: 'No partial prefix', owner: f.worker.participant }, 'v2_corrupt_request_001')
+    const damaged = incrementalStorage(new Map(f.aStore.values))
+    const head = JSON.parse(damaged.values.get(damaged.root)!) as JournalHead
+    const segment = JSON.parse(damaged.values.get(head.tip!.key)!) as JournalSegment
+    const raw = JSON.stringify({ ...segment, body: JSON.stringify({ v: 2, add: ['invalid_ciphertext'] }) })
+    const sha256Hex = bytesToHex(sha256(new TextEncoder().encode(raw))), key = `${damaged.root}.journal.v2.${sha256Hex}`
+    damaged.values.set(key, raw)
+    damaged.values.set(damaged.root, JSON.stringify({ ...head, tip: { key, sha256: sha256Hex } }))
+    const transport = new SimTransport(new SimRelay({ replay: true })), subscribe = vi.spyOn(transport, 'subscribe')
+    const reader = new AssignmentLog({ ...deriveRoom(f.creator.keeperState!.secret), readOnly: true, participant: f.identity.pubkey, transport,
+      storage: { load: async () => { throw new Error('Legacy load must not be used') }, loadIncremental: () => damaged.loadIncremental!() } })
+    readers.push(reader)
+    await expect(reader.open()).rejects.toThrow()
+    expect(reader.snapshot().assignments).toEqual([])
+    expect(reader.snapshot().pendingSends).toBe(0)
+    expect(reader.snapshot().ready).toBe(false)
+    expect(subscribe).not.toHaveBeenCalled()
+  })
+
+  it('migrates exact v1 bytes and preserves review-required exact retry', async () => {
+    const f = await fixture()
+    const operation = { op: 'create' as const, objective: 'Migrate reviewed pending work', criteria: 'Same signed outer', owner: f.worker.participant }
+    f.setLostAck(true)
+    await expect(f.a.submit(undefined, operation, 'v1_migration_request_01', null, () => true)).rejects.toThrow('Acknowledgement lost')
+    const raw = f.aStore.cuts[0]!.get(f.aStore.root)!
+    const channel = deriveChannel(f.creator.roomId, deriveRoom(f.creator.keeperState!.secret).roomKey, 'assignments').id
+    const original = f.relay.published.filter(event => event.kind === 1460 && event.tags.some(tag => tag[0] === 'd' && tag[1] === channel)).at(-1)!
+    const migrated = incrementalStorage(raw), relay = new SimRelay({ replay: true }), transport = new SimTransport(relay)
+    const log = directLog(f, migrated, transport)
+    await log.open()
+    await vi.waitFor(() => expect(log.snapshot().ready).toBe(true))
+    expect(log.snapshot().pendingSends).toBe(1)
+    expect(log.snapshot().assignments).toEqual([])
+    await expect(log.retry()).rejects.toThrow('Review this saved assignment')
+    expect(relay.published).toEqual([])
+    const sign = vi.spyOn(f.identity, 'signEvent')
+    await log.submit(undefined, operation, 'v1_migration_request_01', null, () => true)
+    expect(sign).not.toHaveBeenCalled()
+    expect(relay.published).toHaveLength(1)
+    expect(relay.published[0]!.id).toBe(original.id)
+    expect(log.snapshot().pendingSends).toBe(0)
+    const head = JSON.parse(migrated.values.get(migrated.root)!) as JournalHead
+    expect(migrated.values.get(head.base!.key)).toBe(raw)
+    transport.close()
+  })
+
+  it('restarts pending, overlap and acknowledged v2 cuts without relay history', async () => {
+    const f = await fixture(true)
+    const created = await f.a.submit(undefined, { op: 'create', objective: 'Recover every assignment cut', criteria: 'Exact retry', owner: f.worker.participant }, 'v2_cuts_request_001')
+    expect(f.aStore.cuts).toHaveLength(3)
+    const channel = deriveChannel(f.creator.roomId, deriveRoom(f.creator.keeperState!.secret).roomKey, 'assignments').id
+    const original = f.relay.published.filter(event => event.kind === 1460 && event.tags.some(tag => tag[0] === 'd' && tag[1] === channel)).at(-1)!
+    for (const [index, cut] of f.aStore.cuts.entries()) {
+      const store = incrementalStorage(new Map(cut)), relay = new SimRelay({ replay: true }), transport = new SimTransport(relay)
+      const log = directLog(f, store, transport)
+      await log.open()
+      await vi.waitFor(() => expect(log.snapshot().ready).toBe(true))
+      expect(log.snapshot().pendingSends).toBe(index < 2 ? 1 : 0)
+      expect(log.snapshot().assignments).toHaveLength(index === 0 ? 0 : 1)
+      if (index > 0) expect(log.snapshot().assignments[0]?.id).toBe(created.id)
+      await log.retry()
+      expect(log.snapshot().pendingSends).toBe(0)
+      expect(relay.published).toHaveLength(index < 2 ? 1 : 0)
+      if (index < 2) expect(relay.published[0]!.id).toBe(original.id)
+      else expect(store.commits).toBe(0)
+      log.close(); transport.close()
+    }
+  })
+
+  it('does not expose a live accepted event when its incremental save fails', async () => {
+    const f = await fixture(true)
+    f.bStore.fail = true
+    await f.a.submit(undefined, { op: 'create', objective: 'Durable before live exposure', criteria: 'No in-memory-only event', owner: f.worker.participant }, 'live_save_failure_001')
+    await vi.waitFor(() => expect(f.b.snapshot().error).toContain('Disk full'))
+    expect(f.b.snapshot().assignments).toEqual([])
+    expect(f.b.snapshot().ready).toBe(false)
+  })
+
+  it.each(['rekey', 'close'] as const)('prevents a queued replay commit after %s', async action => {
+    const f = await fixture()
+    await f.a.submit(undefined, { op: 'create', objective: 'Stale replay guard', criteria: 'No stale commit', owner: f.worker.participant }, 'stale_replay_guard_001')
+    f.a.close(); f.b.close()
+    const channel = deriveChannel(f.creator.roomId, deriveRoom(f.creator.keeperState!.secret).roomKey, 'assignments').id
+    const outer = f.relay.published.filter(event => event.kind === 1460 && event.tags.some(tag => tag[0] === 'd' && tag[1] === channel)).at(-1)!
+    let incoming!: Parameters<RelayTransport['subscribe']>[1]
+    const transport: RelayTransport = { publish: async () => {}, close() {}, subscribe: (_filters, event) => { incoming = event; return () => {} } }
+    const store = incrementalStorage(), log = directLog(f, store, transport)
+    await log.open()
+    incoming(outer)
+    if (action === 'rekey') log.rekey({ id: f.creator.roomId, key: generateSecretKey() })
+    else log.close()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(store.commits).toBe(0)
+    expect(log.snapshot().assignments).toEqual([])
+  })
+
+  it.each(['before', 'after'] as const)('rolls back or recovers an outbox commit failing %s the head', async phase => {
+    const f = await fixture(true)
+    const operation = { op: 'create' as const, objective: 'Outbox commit fault', criteria: 'No ambiguous duplicate', owner: f.worker.participant }
+    const sign = vi.spyOn(f.identity, 'signEvent'), before = f.relay.published.length
+    f.aStore.failNextRoot(phase)
+    await expect(f.a.submit(undefined, operation, 'outbox_fault_request_01')).rejects.toThrow('Injected failure')
+    expect(f.relay.published).toHaveLength(before)
+    expect(f.a.snapshot().assignments).toEqual([])
+    expect(f.a.snapshot().pendingSends).toBe(phase === 'after' ? 1 : 0)
+    if (phase === 'after') {
+      await f.a.retry()
+      expect(sign).toHaveBeenCalledTimes(1)
+    } else {
+      await f.a.submit(undefined, operation, 'outbox_fault_request_01')
+      expect(sign).toHaveBeenCalledTimes(2)
+    }
+    await vi.waitFor(() => expect(f.b.snapshot().assignments).toHaveLength(1))
+    expect(f.a.snapshot().pendingSends).toBe(0)
+  })
+
+  it.each(['before', 'after'] as const)('keeps insertion and outbox removal atomic when the ack commit fails %s the head', async phase => {
+    const f = await fixture(true)
+    f.a.close(); f.b.close()
+    const store = incrementalStorage(), transport = new SimTransport(f.relay), publish = transport.publish.bind(transport)
+    let holding = true, release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    transport.publish = async event => { await publish(event); if (holding) await gate }
+    const log = directLog(f, store, transport)
+    await log.open()
+    await vi.waitFor(() => expect(log.snapshot().ready).toBe(true))
+    const sign = vi.spyOn(f.identity, 'signEvent')
+    const sending = log.submit(undefined, { op: 'create', objective: 'Ack commit fault', criteria: 'Atomic insertion and removal', owner: f.worker.participant }, 'ack_fault_request_001')
+    await vi.waitFor(() => {
+      expect(store.cuts).toHaveLength(2)
+      expect(log.snapshot().assignments).toHaveLength(1)
+      expect(log.snapshot().pendingSends).toBe(1)
+    })
+    const rejected = expect(sending).rejects.toThrow('Injected failure')
+    store.failNextRoot(phase); holding = false; release()
+    await rejected
+    expect(log.snapshot().assignments).toHaveLength(1)
+    expect(log.snapshot().pendingSends).toBe(phase === 'before' ? 1 : 0)
+    const channel = deriveChannel(f.creator.roomId, deriveRoom(f.creator.keeperState!.secret).roomKey, 'assignments').id
+    const original = f.relay.published.filter(event => event.kind === 1460 && event.tags.some(tag => tag[0] === 'd' && tag[1] === channel)).at(-1)!
+    await log.retry()
+    expect(log.snapshot().pendingSends).toBe(0)
+    expect(sign).toHaveBeenCalledTimes(1)
+    const messages = f.relay.published.filter(event => event.kind === 1460 && event.tags.some(tag => tag[0] === 'd' && tag[1] === channel))
+    expect(messages).toHaveLength(phase === 'before' ? 2 : 1)
+    for (const message of messages) expect(message.id).toBe(original.id)
+    transport.close()
+  })
+
+  it.each([false, true])('batches replay, amortises compaction and never re-encrypts retained events (incremental %s)', { timeout: 30_000 }, async incremental => {
+    const f = await fixture()
+    f.a.close(); f.b.close()
+    const room = deriveRoom(f.creator.keeperState!.secret), credential = f.creator.session.credential!, now = Math.floor(Date.now() / 1000)
+    const outers = []
+    for (let i = 0; i < 320; i++) {
+      const request = `replay_request_${String(i).padStart(4, '0')}`
+      const inner = await signAssignment(f.identity, room.roomId, { v: 1, assignment: assignmentId(f.identity.pubkey, request), request,
+        previous: null, device: getPublicKey(f.creatorDevice), operation: { op: 'create', objective: `Replay ${i}`, criteria: 'Bounded durable batches', owner: f.worker.participant } }, now)
+      const outer = encodeChatEvent({ id: bytesToHex(randomBytes(16)), participant: f.identity.pubkey, device: getPublicKey(f.creatorDevice), credential,
+        text: 'Assignment create', sentAt: now, assignment: inner }, { ...room, deviceSk: f.creatorDevice, channel: 'assignments' })
+      outers.push(outer); f.relay.publish(outer)
+    }
+    const store = incremental ? incrementalStorage() : storage(), encrypt = vi.spyOn(nip44.v2, 'encrypt')
+    encrypt.mockClear()
+    const assignmentEncryptions = () => encrypt.mock.calls.filter(([plaintext]) => {
+      try { return (JSON.parse(plaintext) as { kind?: number }).kind === ASSIGNMENT_KIND } catch { return false }
+    }).length
+    const log = directLog(f, store)
+    await log.open()
+    await vi.waitFor(() => expect(log.snapshot().ready).toBe(true))
+    expect(log.snapshot().assignments).toHaveLength(320)
+    expect(store.commits).toBe(5)
+    expect(store.saves).toBe(incremental ? 2 : 5)
+    expect(store.appends).toBe(incremental ? 3 : 0)
+    expect(assignmentEncryptions()).toBe(320)
+    f.relay.publish(outers[0]!)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(store.commits).toBe(5)
+    expect(assignmentEncryptions()).toBe(320)
+    const relay = new SimRelay({ replay: true }), transport = new SimTransport(relay)
+    const restartedStore = incremental ? incrementalStorage(new Map(store.values)) : storage(new Map(store.values))
+    const restarted = directLog(f, restartedStore, transport)
+    await restarted.open()
+    await vi.waitFor(() => expect(restarted.snapshot().ready).toBe(true))
+    expect(restarted.snapshot().assignments).toHaveLength(320)
+    expect(restartedStore.commits).toBe(0)
+    expect(assignmentEncryptions()).toBe(320)
+    transport.close()
   })
 })
 

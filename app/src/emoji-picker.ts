@@ -3,16 +3,7 @@ import { emojiGlyph } from './custom-emoji.js'
 import { EMOJI_CATALOG } from '../../src/emoji-catalog.js'
 import { ORIGINAL_EMOJIS } from '../../src/original-art.js'
 import { FAMILIAR_ART, familiarArtwork, familiarLabel, withSkinTone } from '../../src/familiar-emoji.js'
-
-const toneKey = 'kithmoot:emoji:skinTone'
-export function preferredSkinTone(): number {
-  try { const value = Number(localStorage.getItem(toneKey)); return Number.isInteger(value) && value >= 0 && value <= 5 ? value : 0 } catch { return 0 }
-}
-export function preferredReaction(emoji: string): string { return withSkinTone(emoji, preferredSkinTone()) }
-export function setPreferredSkinTone(tone: number): void {
-  if (!Number.isInteger(tone) || tone < 0 || tone > 5) throw new RangeError('Unknown skin tone')
-  try { localStorage.setItem(toneKey, String(tone)) } catch { /* The current picker also works without storage. */ }
-}
+import { preferredSkinTone, setPreferredSkinTone } from './emoji-preferences.js'
 
 /** Inserts into the selection saved when opening, preserving the conversation's draft. */
 export class EmojiPicker {
@@ -42,7 +33,7 @@ export class EmojiPicker {
     for (const [index, label] of ['Yellow', 'Light', 'Medium-light', 'Medium', 'Medium-dark', 'Dark'].entries()) {
       const option = document.createElement('option'); option.value = String(index); option.textContent = label; this.#tone.append(option)
     }
-    this.#tone.onchange = () => { try { localStorage.setItem(toneKey, this.#tone.value) } catch { /* Preference also works without storage. */ } this.#render() }
+    this.#tone.onchange = () => { setPreferredSkinTone(Number(this.#tone.value)); this.#render() }
     toneLabel.append(this.#tone)
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close emoji picker'; close.onclick = () => dialog.close()
     const unlock = document.createElement('button'); unlock.type = 'button'; unlock.textContent = 'Unlock Nostr packs'
@@ -80,7 +71,7 @@ export class EmojiPicker {
       if (seen.has(emoji) || !`${emoji} ${words}`.toLocaleLowerCase().includes(query)) continue
       seen.add(emoji)
       const label = familiarLabel(emoji) ?? words
-      const button = document.createElement('button'); button.type = 'button'; button.append(emojiGlyph(emoji)); button.setAttribute('aria-label', `${emoji} ${label}`); button.title = label
+      const button = document.createElement('button'); button.type = 'button'; button.append(emojiGlyph(emoji, 'picker')); button.setAttribute('aria-label', `${emoji} ${label}`); button.title = label
       button.onclick = () => { this.#choose?.(emoji); this.#dialog.close() }; this.#grid.append(button)
       if (this.#grid.childElementCount >= 160) break
     }

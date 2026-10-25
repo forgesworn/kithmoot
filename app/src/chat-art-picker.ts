@@ -4,8 +4,9 @@ import { CULT_EMOJIS } from '../../src/custom-emoji.js'
 import { ORIGINAL_EMOJIS } from '../../src/original-art.js'
 import { FAMILIAR_ART, familiarArtwork, familiarLabel, withSkinTone } from '../../src/familiar-emoji.js'
 import { emojiGlyph } from './custom-emoji.js'
-import { preferredSkinTone, setPreferredSkinTone } from './emoji-picker.js'
+import { preferredSkinTone, setPreferredSkinTone } from './emoji-preferences.js'
 import { searchMediaCatalogue, type CatalogueImage } from './media-catalogue.js'
+import { setLocalImage } from './local-image.js'
 
 type Mode = 'emoji' | 'stickers' | 'gifs'
 type Collection = 'familiar' | 'recents' | 'forgesworn' | 'characters' | 'more'
@@ -253,7 +254,7 @@ export class ChatArtPicker {
     const end = Math.min(this.#shown + 240, this.#choices.length)
     for (const item of this.#choices.slice(this.#shown, end)) {
       const button = document.createElement('button'); button.type = 'button'; button.title = item.name; button.setAttribute('aria-label', `${item.emoji} ${familiarLabel(item.emoji) ?? item.name}`)
-      button.append(emojiGlyph(item.emoji)); button.onclick = () => {
+      button.append(emojiGlyph(item.emoji, 'picker')); button.onclick = () => {
         this.#remember(item.emoji); this.#onEmoji?.(item.emoji)
         if (this.#reaction) this.close()
         else { this.#status.textContent = `${item.name} added to your draft.`; if (matchMedia('(hover: none), (pointer: coarse)').matches) button.focus({ preventScroll: true }) }
@@ -266,7 +267,8 @@ export class ChatArtPicker {
   #mediaCard(item: CatalogueImage): HTMLElement {
     const card = document.createElement('div'); card.className = 'chatArtPickerMediaCard'
     const button = document.createElement('button'); button.type = 'button'; button.setAttribute('aria-label', `Add ${item.name}`); button.title = `Add ${item.name} to your draft`
-    const image = document.createElement('img'); image.src = matchMedia('(prefers-reduced-motion: reduce)').matches ? item.preview : item.url; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const image = setLocalImage(document.createElement('img'), { fallbackUrl: reducedMotion ? item.preview : item.url, displayUrl: reducedMotion ? item.displayPreview : item.displayUrl }); image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'
     const name = document.createElement('span'); name.textContent = item.name.replace(/\.(gif|png)$/i, '')
     button.setAttribute('aria-label', `Preview ${item.name}`); button.title = `Preview ${item.name}`
     button.append(image, name); button.onclick = () => this.#showPreview(item, button)
@@ -285,7 +287,8 @@ export class ChatArtPicker {
     this.#previewTrigger = trigger
     this.#scroll.inert = true; this.#scroll.setAttribute('aria-hidden', 'true')
     const back = document.createElement('button'); back.type = 'button'; back.textContent = 'Back to choices'; back.onclick = () => this.#hidePreview(true)
-    const image = document.createElement('img'); image.src = matchMedia('(prefers-reduced-motion: reduce)').matches ? item.preview : item.url; image.alt = item.name.replace(/\.(gif|png)$/i, ''); image.referrerPolicy = 'no-referrer'
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const image = setLocalImage(document.createElement('img'), { fallbackUrl: reducedMotion ? item.preview : item.url, displayUrl: reducedMotion ? item.displayPreview : item.displayUrl }); image.alt = item.name.replace(/\.(gif|png)$/i, ''); image.referrerPolicy = 'no-referrer'
     const add = document.createElement('button'); add.type = 'button'; add.textContent = 'Add to message'; add.setAttribute('aria-label', `Add ${item.name}`); add.onclick = () => { this.#hidePreview(); void this.#chooseMedia(item) }
     this.#preview.append(back, image, add); back.focus({ preventScroll: true })
   }

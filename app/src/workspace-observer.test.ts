@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { createDeviceCredential } from '../../src/credential.js'
+import type { AssignmentStorage } from '../../src/assignment-log.js'
 import { localIdentity } from '../../src/identity.js'
 import { deriveRoom } from '../../src/room.js'
 import { encodeChatEvent } from '../../src/chat.js'
@@ -10,7 +11,7 @@ import { observeWorkspaceActivity, workspaceAccountAdmission } from './workspace
 import { memoryDeviceStore, OWN_CREDENTIAL_PREFIX } from './device-store.js'
 
 const NOW = 1_800_000_000
-async function fixture(loadJournal: () => Promise<string | undefined> = async () => undefined) {
+async function fixture(journal: Pick<AssignmentStorage, 'load' | 'loadIncremental'> = { load: async () => undefined }) {
   const root = deriveRoom(generateSecretKey()), relay = new SimRelay({ replay: true })
   const transport = new SimTransport(relay), sender = new SimTransport(relay)
   const authoritySk = generateSecretKey(), deviceSk = generateSecretKey(), authorDevice = generateSecretKey()
@@ -19,7 +20,7 @@ async function fixture(loadJournal: () => Promise<string | undefined> = async ()
   const publish = vi.spyOn(transport, 'publish'), subscribe = vi.spyOn(transport, 'subscribe'), close = vi.spyOn(transport, 'close')
   const changed = vi.fn(), moved = vi.fn(), ended = vi.fn()
   const observation = observeWorkspaceActivity({ ...root, transport, participant: getPublicKey(generateSecretKey()), name: 'Ada',
-    authority: getPublicKey(authoritySk), deviceSk, loadJournal, isBlocked: () => false, valid: () => true,
+    authority: getPublicKey(authoritySk), deviceSk, journal, isBlocked: () => false, valid: () => true,
     now: () => NOW, changed, onEpoch: moved, onClosed: ended })
   const send = async (text: string, epoch?: ReturnType<typeof deriveEpoch>) => sender.publish(encodeChatEvent({ id: text, text,
     participant: identity.pubkey, device: getPublicKey(authorDevice), credential, sentAt: NOW }, { ...root, deviceSk: authorDevice, epoch }))
@@ -56,6 +57,17 @@ describe('workspace observer lifetime and authority', () => {
     expect(f.close).toHaveBeenCalledOnce()
     expect(f.observation.snapshot().messages).toEqual([])
   })
+  it('uses only the incremental read path for a v2 journal', async () => {
+    const load = vi.fn(async () => { throw new Error('Legacy load must not be used') })
+    const loadIncremental = vi.fn(async () => ({ base: undefined, deltas: [] }))
+    const f = await fixture({ load, loadIncremental })
+    try {
+      await vi.waitFor(() => expect(f.observation.snapshot().work.ready).toBe(true))
+      expect(loadIncremental).toHaveBeenCalledOnce()
+      expect(load).not.toHaveBeenCalled()
+      expect(f.publish).not.toHaveBeenCalled()
+    } finally { f.observation.close() }
+  })
   it('follows its own authorised rekey, then clears activity if a later rekey omits this device', async () => {
     const f = await fixture()
     try {
@@ -79,7 +91,7 @@ describe('workspace observer lifetime and authority', () => {
   it('cannot start a delayed assignment subscription after the view closes', async () => {
     let resolve!: (value: undefined) => void
     const loaded = new Promise<undefined>(done => { resolve = done })
-    const f = await fixture(() => loaded)
+    const f = await fixture({ load: () => loaded })
     const before = f.subscribe.mock.calls.length
     f.observation.close(); resolve(undefined)
     await new Promise(done => setTimeout(done, 0))

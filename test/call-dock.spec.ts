@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, open, switchToRoom, leaveToChats, join } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, switchToRoom, leaveToChats, join, SYNTHETIC_MIC } from './browser.js'
 
 /**
  * Nothing a person navigates to ends a call.
@@ -99,6 +99,68 @@ test('a call carries on while its member chats in another room, and comes back w
   } finally {
     await contextA.close()
     await contextB.close()
+  }
+})
+
+test('a docked call takes sound back using its own observed monitor claims', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
+  const contexts = await Promise.all([0, 1, 2].map(() => newDeviceContext(browser, baseURL!)))
+  const [laptopContext, phoneContext, guestContext] = contexts
+  const secret = generateRoomSecret()
+  const side = { roomId: deriveRoom(secret).roomId, name: 'Side room', link: encodeRoomLink(baseURL!, { secret, name: 'Side room', relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] }), openedAt: 1, readAt: 0 }
+  await laptopContext!.addInitScript(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), side)
+  // The call knows this later claim; the unrelated chat has never seen it.
+  // Taking sound with the chat's clock/roster cannot beat the paired phone.
+  await phoneContext!.addInitScript(() => {
+    const real = Date.now
+    Date.now = () => real() + 20_000
+  })
+  await guestContext!.addInitScript(SYNTHETIC_MIC)
+  try {
+    const laptop = await laptopContext!.newPage()
+    const phone = await phoneContext!.newPage()
+    const guest = await guestContext!.newPage()
+    const url = await createRoom(laptop, baseURL!)
+    await openCall(laptop)
+    const pairUrl = await offerPairing(laptop)
+    await Promise.all([open(phone, pairUrl, 'Ada'), laptop.getByRole('button', { name: 'Add device', exact: true }).click()])
+    await join(phone)
+    await expect(phone.locator('#roomArea')).toBeVisible()
+    await openCall(phone)
+    await phone.locator('#listenHere').click()
+    await expect(laptop.locator('#monitorIndicator')).toHaveText('Sound plays on your other device.')
+
+    await open(guest, url, 'Bo')
+    await join(guest)
+    await openCall(guest)
+    await guest.locator('#toggleMic').click()
+    await expect.poll(() => laptop.locator('#room audio').count()).toBeGreaterThan(0)
+    await expect.poll(() => phone.locator('#room audio').evaluateAll(elements => elements.some(element => !(element as HTMLAudioElement).muted))).toBe(true)
+    await expect.poll(() => laptop.locator('#room audio').evaluateAll(elements => elements.every(element => (element as HTMLAudioElement).muted))).toBe(true)
+
+    await switchToRoom(laptop, 'Side room')
+    await expect(laptop.locator('#roomTitle')).toHaveText('Side room')
+    await expect(laptop.locator('#callDock')).toBeVisible()
+    await expect(laptop.locator('#monitorIndicator')).toHaveText('Sound plays on your other device.')
+    // The dock hides the call's full toolbar. Exercise that same handler,
+    // as the docked-call controls in call-surface.spec.ts do.
+    await laptop.locator('#listenHere').evaluate(button => (button as HTMLButtonElement).click())
+    await expect(laptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await expect(phone.locator('#monitorIndicator')).toHaveText('Sound plays on your other device.')
+    await expect.poll(() => laptop.locator('#room audio').evaluateAll(elements => elements.some(element => !(element as HTMLAudioElement).muted))).toBe(true)
+    await expect.poll(() => phone.locator('#room audio').evaluateAll(elements => elements.every(element => (element as HTMLAudioElement).muted))).toBe(true)
+    await keepsHearing(laptop, 'Ada after taking sound on the docked call')
+
+    // Restating the unrelated chat must not undo the call-room handover.
+    await laptop.locator('#chatInput').fill('The call still plays here')
+    await laptop.locator('#chatInput').press('Enter')
+    await expect(laptop.locator('#chatLog')).toContainText('The call still plays here')
+    await expect(phone.locator('#monitorIndicator')).toHaveText('Sound plays on your other device.')
+    await expect(laptop.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await expect(laptop.locator('#roomTitle')).toHaveText('Side room')
+    await expect(laptop.locator('#callDock')).toBeVisible()
+  } finally {
+    await Promise.all(contexts.map(context => context.close()))
   }
 })
 

@@ -6,20 +6,21 @@ import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { AssignmentExecutionJournal } from './assignment-execution.js'
 import { openAssignmentStorage } from './assignment-storage.js'
+import type { JournalHead } from '../journal-storage.js'
 
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
 async function directory() { const d = await mkdtemp(join(tmpdir(), 'kithmoot-assignment-')); dirs.push(d); return d }
 
 describe('assignment execution durability', () => {
-  it('reopens a crashed writer cache without clearing its uncertain execution reservation', async () => {
+  it('reopens a crashed writer cache with deltas without clearing its uncertain execution reservation', async () => {
     const dir = await directory(); const path = join(dir, 'cache.json')
-    const source = new URL('./assignment-storage.ts', import.meta.url).href
+    const source = new URL('../../dist/src/node/assignment-storage.js', import.meta.url).href
     // Keep the writer in use: an empty timer lets GC reclaim the SQLite
     // guard while the fixture process is still alive. Collect before readiness
     // so this test verifies a live owner's lock, not collection timing.
     const child = spawn(process.execPath, ['--expose-gc', '--experimental-strip-types', '--input-type=module', '-e',
-      `import { openAssignmentStorage } from ${JSON.stringify(source)}; const store = await openAssignmentStorage(process.argv[1]); await store.save('encrypted retained state'); setInterval(() => void store.load(), 1000); setImmediate(() => { global.gc(); console.log('ready'); });`, path], { stdio: ['ignore', 'pipe', 'pipe'] })
+      `import { openAssignmentStorage } from ${JSON.stringify(source)}; const store = await openAssignmentStorage(process.argv[1]); await store.save('encrypted retained state'); await store.appendIncremental('encrypted delta'); setInterval(() => void store.loadIncremental().catch(() => {}), 1000); setImmediate(() => { global.gc(); console.log('ready'); });`, path], { stdio: ['ignore', 'pipe', 'pipe'] })
     try {
       await once(child.stdout!, 'data')
       await expect(openAssignmentStorage(path)).rejects.toThrow('locked')
@@ -29,7 +30,8 @@ describe('assignment execution durability', () => {
       const exited = once(child, 'exit'); child.kill('SIGKILL'); await exited
       const recovered = await openAssignmentStorage(path)
       try {
-        expect(await recovered.load()).toBe('encrypted retained state')
+        expect(await recovered.loadIncremental()).toEqual({ base: 'encrypted retained state', deltas: ['encrypted delta'] })
+        await expect(recovered.load()).rejects.toThrow('use loadIncremental')
         expect((await journal.inspect(id, 1)).process).toBe('missing')
         await expect(journal.reserve(id, 1)).rejects.toThrow('will not be restarted')
       } finally { await recovered.close() }
@@ -62,15 +64,49 @@ describe('assignment execution durability', () => {
     await expect(a.update(r, 'running')).rejects.toThrow('terminal')
     expect((await a.inspect(id, 1)).record?.resultRequest).toBe('result-request')
   })
-  it('owns its cache lock and preserves pre-existing data when a second writer is refused', async () => {
+  it('owns its cache lock and preserves a delta chain when a second writer is refused', async () => {
     const path = join(await directory(), 'cache.json')
     const first = await openAssignmentStorage(path)
     await first.save('encrypted bytes')
+    await first.appendIncremental('encrypted delta')
+    const committed = await readFile(path, 'utf8')
     await expect(openAssignmentStorage(path)).rejects.toThrow('locked')
-    expect(await readFile(path, 'utf8')).toBe('encrypted bytes')
+    expect(await readFile(path, 'utf8')).toBe(committed)
     await first.close()
     const next = await openAssignmentStorage(path)
-    expect(await next.load()).toBe('encrypted bytes')
+    expect(await next.loadIncremental()).toEqual({ base: 'encrypted bytes', deltas: ['encrypted delta'] })
     await next.close()
+  })
+  it('imports an exact legacy file and creates only private root and side files', async () => {
+    const path = join(await directory(), 'cache.json')
+    const legacy = '{"v":1,"events":["encrypted"],"outbox":[]}'
+    await writeFile(path, legacy, { mode: 0o600 })
+    const store = await openAssignmentStorage(path)
+    try {
+      await store.appendIncremental('encrypted delta')
+      expect(await store.loadIncremental()).toEqual({ base: legacy, deltas: ['encrypted delta'] })
+      const head = JSON.parse(await readFile(path, 'utf8')) as JournalHead
+      expect(head.v).toBe(2)
+      expect(await readFile(head.base!.key, 'utf8')).toBe(legacy)
+      for (const file of [path, `${path}.writers.sqlite`, head.base!.key, head.tip!.key]) {
+        expect((await stat(file)).mode & 0o777).toBe(0o600)
+      }
+    } finally { await store.close() }
+    const reopened = await openAssignmentStorage(path)
+    try { expect(await reopened.loadIncremental()).toEqual({ base: legacy, deltas: ['encrypted delta'] }) }
+    finally { await reopened.close() }
+  })
+  it('close waits for accepted writes before releasing the writer lock', async () => {
+    const path = join(await directory(), 'cache.json')
+    const store = await openAssignmentStorage(path)
+    const value = 'encrypted '.repeat(256 * 1024)
+    let finished = false
+    const writing = store.save(value).then(() => { finished = true })
+    await store.close()
+    expect(finished).toBe(true)
+    await writing
+    const next = await openAssignmentStorage(path)
+    try { expect(await next.load()).toBe(value) }
+    finally { await next.close() }
   })
 })

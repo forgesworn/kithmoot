@@ -7,11 +7,13 @@ import { localIdentity } from './identity.js'
 import { CONTROL_CHANNEL, decodeControl, type ControlMessage } from './control.js'
 import { assignmentHumanAction, assignmentId, validAssignmentOperation, type AssignmentOperation } from './assignments.js'
 import type { AssignmentLog } from './assignment-log.js'
+import { createJournalStorage } from './journal-storage.js'
 import type { RelayTransport } from './relay-pool.js'
 
 export interface DenWorkStore {
   get(key: string): Promise<string | undefined>
   set(key: string, value: string): Promise<void>
+  remove?(key: string): Promise<void>
 }
 interface SavedRoom { room: string; name: string; link: string }
 interface ConnectedRoom { saved: SavedRoom; member: RoomAgent; log: AssignmentLog; catalogues: Map<string, Extract<ControlMessage, { op: 'catalogue' }>> }
@@ -72,10 +74,12 @@ export class DenAssignmentClient {
         this.#saved = next
       })
       this.#saveTail = save.catch(() => {}); await save
-      const log = await member.session.assignments({
-        load: () => this.options.store.get(`room.${member.roomId}`),
-        save: value => this.options.store.set(`room.${member.roomId}`, value),
-      })
+      const root = `room.${member.roomId}`, store = this.options.store
+      const log = await member.session.assignments(createJournalStorage(root, {
+        get: key => store.get(key),
+        set: (key, value) => store.set(key, value),
+        ...(store.remove ? { remove: (key: string) => store.remove!(key) } : {}),
+      }))
       const room: ConnectedRoom = { saved, member, log, catalogues: new Map() }
       this.#rooms.set(member.roomId, room)
       log.onChange(() => this.options.changed())

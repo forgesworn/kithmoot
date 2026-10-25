@@ -24,11 +24,20 @@ characters, collapse whitespace again, trim, cap at 80 Unicode code points and
 trim again. An empty result falls back to `id`. Unknown object keys are omitted.
 
 Receivers resolve only a locally trusted catalogue entry matching all four of
-pack, id, kind and exact byte hash. They never follow a sender-provided URL or
-fetch an unknown catalogue. A missing catalogue, a newer version or a hash
-mismatch keeps a readable text fallback. Reduced motion uses a locally bundled
-still preview. Nostr membership controls which optional packs appear in the
-picker, rather than preventing recipients from reading shared artwork.
+pack, id, kind and exact byte hash. The SHA-256 and kind always identify the
+original GIF/PNG bytes. A WebP is only a preferred local display derivative:
+its URL, dimensions or hash never enters the wire reference, and the catalogue's
+original URL, preview, MIME type, byte count, SHA-256 and display name retain
+their original meanings. Preferred and fallback display URLs are both checked
+against the compiled catalogue before staging.
+
+Receivers never follow a sender-provided URL or fetch an unknown catalogue. A
+missing catalogue, a newer version or a hash mismatch keeps a readable text
+fallback. Reduced motion always uses a locally bundled static WebP preview;
+normal rendering can use an animated WebP, with the original GIF/PNG retained
+as the exact local fallback. Nostr membership controls which optional packs
+appear in the picker, rather than preventing recipients from reading shared
+artwork.
 
 Text remains required. With no typed caption, send `Sticker: Coffee` or
 `GIF: Coffee`; concatenate multiple captions with `; `. Matching clients may

@@ -49,7 +49,7 @@ add('metadata', `kithmoot\\.volume\\.v1\\.${H}|kithmoot\\.pinned-rooms\\.v1|kith
 add('metadata', `kithmoot\\.board-context\\.v1\\.${H}\\.[A-Za-z0-9_-]{1,160}`)
 add('channelChecks', `kithmoot\\.channel-checks\\.v1\\.${H}\\.${H}`)
 add('roomBoards', `kithmoot\\.room-boards\\.v1\\.${H}\\.${H}`)
-add('journals', `kithmoot\\.(?:shared-projects|context)\\.v1\\.${H}|kithmoot\\.assignments\\.v1\\.${H}\\.${H}`)
+add('journals', `kithmoot\\.shared-projects\\.v1\\.${H}(?:\\.journal\\.v2\\.${H})?|kithmoot\\.context\\.v1\\.${H}|kithmoot\\.assignments\\.v1\\.${H}\\.${H}(?:\\.journal\\.v2\\.${H})?`)
 add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}|kithmoot\\.(?:uploads|room-logo|storage-grants)\\.v1\\.${H}|kithmoot\\.(?:blob-deletes|blob-delete-groups|file-storage)\\.v1|kithmoot\\.blossom-server`)
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.facePrivacy'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])

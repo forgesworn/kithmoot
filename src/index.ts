@@ -594,6 +594,8 @@ export { ContextVault } from './context.js'
 export * from './assignments.js'
 export { AssignmentLog } from './assignment-log.js'
 export type { AssignmentStorage, AssignmentLogOptions, AssignmentReaderOptions, AssignmentLogSnapshot } from './assignment-log.js'
+export { createJournalStorage, shouldCompactJournal } from './journal-storage.js'
+export type { JournalImage, JournalStorage, IncrementalJournalStorage, JournalHead, JournalSegment, JournalRef, JournalKeyValueStore, JournalStorageOptions, JournalCompactionStats } from './journal-storage.js'
 export type { ContextScope, ContextRole, ContextIdentity, ContextGrant, ContextPolicy, ContextRecord, ContextPointer, ContextView, ContextVaultOptions, ContextRetrievalOptions, ContextRetrieval, ContextLink } from './context.js'
 
 export { encodeMemberPass, decodeMemberPass, encodeServicePolicy, decodeServicePolicy, deriveServiceKey, deriveServiceRoom, normaliseServiceAudience } from './service-admission.js'

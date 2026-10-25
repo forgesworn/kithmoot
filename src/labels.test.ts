@@ -38,6 +38,7 @@ import { OWNERSHIP_LABELS } from './ownership.js'
 import { PEER_ASSIST_LABELS } from './peer-assist.js'
 import { PAIRING_LABELS } from './pairing.js'
 import { PERSISTENT_INVITATION_LABELS } from './persistent-invitation.js'
+import { PROJECT_DIRECTORY_LABELS } from './project-directory.js'
 import { READ_POSITION_LABELS } from './read-position.js'
 import { ROOM_LABELS } from './room.js'
 import { ROOM_RELAYS_LABELS } from './room-relays.js'
@@ -103,6 +104,7 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/room-key',
   'kithmoot/v1/storage:',
   'kithmoot/v1/verify',
+  'kithmoot/v2/project-journal-delta',
   'kithmoot/vmls-member-grant/v1',
 ]
 
@@ -203,6 +205,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['ownership.ts', OWNERSHIP_LABELS],
   ['peer-assist.ts', PEER_ASSIST_LABELS],
   ['pairing.ts', PAIRING_LABELS],
+  ['project-directory.ts', PROJECT_DIRECTORY_LABELS],
   ['read-position.ts', READ_POSITION_LABELS],
   ['room-relays.ts', ROOM_RELAYS_LABELS],
   ['room-storage.ts', ROOM_STORAGE_LABELS],

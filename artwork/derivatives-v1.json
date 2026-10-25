@@ -1,0 +1,7638 @@
+{
+  "version": 1,
+  "generator": "scripts/build-artwork-derivatives.mjs",
+  "counts": {
+    "chatArtStatic": 28,
+    "chatArtAnimated": 4,
+    "emojiStatic": 163,
+    "thumbnails": 16,
+    "total": 211
+  },
+  "tools": {
+    "cwebp": {
+      "version": "1.6.0\nlibsharpyuv: 0.4.2"
+    },
+    "gif2webp": {
+      "version": "WebP Encoder version: 1.6.0\nWebP Mux version: 1.6.0\nlibsharpyuv: 0.4.2"
+    },
+    "ffprobe": {
+      "version": "ffprobe version 8.0.1 Copyright (c) 2007-2025 the FFmpeg developers",
+      "qualification": "generation only; routine checks parse PNG, GIF and RIFF/WebP directly"
+    }
+  },
+  "encoding": {
+    "static": "lossless RGBA-capable WebP; no metadata",
+    "animated": "gif2webp standard lossless compression; source frame timing and infinite looping preserved; no lossy, mixed or optional key-frame search mode",
+    "thumbnail": "one libwebp resizer pass from the 1024px source, then lossless WebP; no lossy chroma conversion"
+  },
+  "outputs": [
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/laugh.png",
+        "bytes": 202302,
+        "sha256": "a925cfc6ca719a278ac535313e41d77d11724f06a0647c3281343a640427bb18"
+      },
+      "output": {
+        "path": "app/public/chat-art/laugh.webp",
+        "bytes": 87140,
+        "sha256": "ee14aa3755511c089371338206726f900970c847896eb071317d36be51505f9b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/facepalm.png",
+        "bytes": 186838,
+        "sha256": "d7de0056e35eff759d81f1625e84a5138cd1ef6633ff6d78b61a973c0fd18a84"
+      },
+      "output": {
+        "path": "app/public/chat-art/facepalm.webp",
+        "bytes": 74716,
+        "sha256": "b261dccde3a4b8e2c3b6ea2f56d16520aa2f5e7a29cc39aff54bf32a2d0749df"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/mindblown.png",
+        "bytes": 218758,
+        "sha256": "09e445ff4fd58fb02c77d1e89c774fc07fd46eecc50cdd1aa16d268eb1e0fdc3"
+      },
+      "output": {
+        "path": "app/public/chat-art/mindblown.webp",
+        "bytes": 107962,
+        "sha256": "92f9bf78cbc33fbdc573f6ae45985a85520b9366748879e12a9b120ae73a6eb2"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/cool.png",
+        "bytes": 192505,
+        "sha256": "4a8d92d2b279e6d3d0a6abfee85b6748b7f9c019a4a25d17963fb8a02094cfe6"
+      },
+      "output": {
+        "path": "app/public/chat-art/cool.webp",
+        "bytes": 79826,
+        "sha256": "3459dc0685eb3f3da6dd108f5e315f172a4f7e5f7f8de61da5aeaf0b633f31f9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/shrug.png",
+        "bytes": 188096,
+        "sha256": "ecbde6b7b59fa7ef9b3da3b8d9d8670667ee2b9baaf5e06477638b774abf4124"
+      },
+      "output": {
+        "path": "app/public/chat-art/shrug.webp",
+        "bytes": 78770,
+        "sha256": "373997bce9c02524a776ccb8834aa8cb8431acb5da5f7971bb5db98985074d33"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/celebrate.png",
+        "bytes": 211548,
+        "sha256": "1af5ce78732f3a0c9e0b9e1e33002432579f6349f398d2b4575bc15516792e68"
+      },
+      "output": {
+        "path": "app/public/chat-art/celebrate.webp",
+        "bytes": 92094,
+        "sha256": "c35a6943d1604a0e479b8a12f1508c4d61c50a0a41c605518bb8460d39225e9f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/angry.png",
+        "bytes": 205830,
+        "sha256": "c1e0b2bb6f2f8dafbbfed1ff6905d53fc394a372f4e53509324214459eafa32f"
+      },
+      "output": {
+        "path": "app/public/chat-art/angry.webp",
+        "bytes": 90594,
+        "sha256": "d5585842301d290543b9469c9648fa55d71ee96871b392b811dcfbcb64bbec1a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/love.png",
+        "bytes": 197197,
+        "sha256": "82c69f1b7f5d2fc29802f5a9781622a8a260087200ad913a525fbfe1402f1541"
+      },
+      "output": {
+        "path": "app/public/chat-art/love.webp",
+        "bytes": 82300,
+        "sha256": "dbd70a6803913982f5722bf725628c3442dfec9d9e0c83bb05a616d2c8f30e10"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/cry.png",
+        "bytes": 206705,
+        "sha256": "f851975bcb2fd0abdd53f8204be98561b09265b13e0507feb0f02c9881e3da31"
+      },
+      "output": {
+        "path": "app/public/chat-art/cry.webp",
+        "bytes": 98258,
+        "sha256": "da67d0a8d17367dd0878ea405995767ef68042e0c61fbefe64a2df1144314a9c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/sideeye.png",
+        "bytes": 185589,
+        "sha256": "4bc95bcd8ce4eeb8fe50338277f747bae48fda16529b803f19227074bfc9f69b"
+      },
+      "output": {
+        "path": "app/public/chat-art/sideeye.webp",
+        "bytes": 75616,
+        "sha256": "2e48359f8216c0ff9b844187da849313c6b366a72da3f8d65de38d9461b1e28c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/popcorn.png",
+        "bytes": 198115,
+        "sha256": "39a5acc4e8bafbbdce2862033b3bdc3c33f65be48c2806fa2c2587e302ead4c2"
+      },
+      "output": {
+        "path": "app/public/chat-art/popcorn.webp",
+        "bytes": 82834,
+        "sha256": "e8fc8f23186611ccf0ae73da902dcebbad7c2cbd958cb975f4231cc595c636db"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/micdrop.png",
+        "bytes": 202293,
+        "sha256": "a0255288079b2205435f462d277875842ba8f2a8e0d197616818c839142c546d"
+      },
+      "output": {
+        "path": "app/public/chat-art/micdrop.webp",
+        "bytes": 91812,
+        "sha256": "999df4e2cf2baa6d31c5a5d7213b4ae6989751be6a94cb38bf16494b2d55935d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/thumbsup.png",
+        "bytes": 205917,
+        "sha256": "0bdef53915a911f151a53217d88359301f6405f3d2d01389b203e8cd678460ff"
+      },
+      "output": {
+        "path": "app/public/chat-art/thumbsup.webp",
+        "bytes": 95554,
+        "sha256": "5402d085421c9622a0b1b3af24984901290f4f7851ce59c1a7cf9dbed5967665"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/thumbsdown.png",
+        "bytes": 189380,
+        "sha256": "b28be8d27599f7971dcd12a193504f6ff8220830daa49ab3dc0768e506d33916"
+      },
+      "output": {
+        "path": "app/public/chat-art/thumbsdown.webp",
+        "bytes": 80192,
+        "sha256": "34d06c5d7888eb903fb66596b82a87ae4a476dc468759d068b77798f5c076e43"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/slowclap.png",
+        "bytes": 197716,
+        "sha256": "5e88bf8504de1deacb421a2e5b7a0d439635d84e0bcdd517842bccf3a0723c6c"
+      },
+      "output": {
+        "path": "app/public/chat-art/slowclap.webp",
+        "bytes": 88556,
+        "sha256": "471c29622b7b10a29333a3517e93816ba386b47a0cb87c09bd3c9549d20fe7da"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/eyeroll.png",
+        "bytes": 189826,
+        "sha256": "0fd217057d381e08357bb020c8063b52bf0e8dac7167cd3c52dc6ae578530931"
+      },
+      "output": {
+        "path": "app/public/chat-art/eyeroll.webp",
+        "bytes": 80020,
+        "sha256": "f5707be5d0717091a3616b2f6f2894f6337d951307b60fe62927974c73209898"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/waiting.png",
+        "bytes": 199975,
+        "sha256": "2cecbd5ad2294092c9cc89785528b2310025f239e102662409a272130201a610"
+      },
+      "output": {
+        "path": "app/public/chat-art/waiting.webp",
+        "bytes": 87466,
+        "sha256": "c10d1f8eb5a403f607940e582eec339285fc33a52303652472d5a5541a341af5"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/exhausted.png",
+        "bytes": 200755,
+        "sha256": "49193696fbd2a378371f48c649b70f2e4f4646eb836d87842323f4e9a94172f0"
+      },
+      "output": {
+        "path": "app/public/chat-art/exhausted.webp",
+        "bytes": 80556,
+        "sha256": "c53ef9933785372a8f8bbe4524e4c4fdd0a33da87dd17ad57422d4344daaae10"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/wtf.png",
+        "bytes": 205065,
+        "sha256": "152e053ca93f4992525cf6fe6a73c3a3576b86ba06d7c16f6e9608eb2301ebef"
+      },
+      "output": {
+        "path": "app/public/chat-art/wtf.webp",
+        "bytes": 91816,
+        "sha256": "4cedfda861a20dd0496ff70e85b6b1f85c0436e2bbe7784a8ba0bd056c7f263d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/melting.png",
+        "bytes": 192504,
+        "sha256": "e83309850cf3499de2191b3b1f12fc7d062ceb4b5327637c3ec8ea2faf93791e"
+      },
+      "output": {
+        "path": "app/public/chat-art/melting.webp",
+        "bytes": 84382,
+        "sha256": "43bd3803e29f82222272f9171c6e940b55b7f09c0f1aba5d6510b65a66d33102"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/plotting.png",
+        "bytes": 196182,
+        "sha256": "e96b173bf188fe8ad6c435fbe24c98156319ab2d825631da9f4e6569f546d512"
+      },
+      "output": {
+        "path": "app/public/chat-art/plotting.webp",
+        "bytes": 87862,
+        "sha256": "99318a626d8e5bddf26948eb765e88c688bb11233dde59a31a37d60d750fbd5e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/moon.png",
+        "bytes": 221611,
+        "sha256": "456f171f213383a98f5768291e746fc51c52d8cc70cf75958b77c9be1effcca6"
+      },
+      "output": {
+        "path": "app/public/chat-art/moon.webp",
+        "bytes": 108836,
+        "sha256": "edb51ce1948aba85629c1199eade986e3ef6236797b8101419fa3e4ff90c832c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/coffee.png",
+        "bytes": 202751,
+        "sha256": "fa77ef4cf74855a53992310c045ac7a983909a82b07a674c761e3b6d13390989"
+      },
+      "output": {
+        "path": "app/public/chat-art/coffee.webp",
+        "bytes": 94554,
+        "sha256": "6878565c48c8018dd1284b9a173cbc40d84f1b2c0bdcd18f855209153ce20173"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/coffee-animation.png",
+        "bytes": 226310,
+        "sha256": "3a8c5667927a3c47e9267285cb5a3d584c61918cef8df5328a7989987e1fe473"
+      },
+      "output": {
+        "path": "app/public/chat-art/coffee-animation.webp",
+        "bytes": 89188,
+        "sha256": "2d958fff62bfbfc88f9d1c3d220f306cf21814cbd5511a2ec947eab8b5be9803"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512
+    },
+    {
+      "category": "animated",
+      "source": {
+        "path": "app/public/chat-art/coffee.gif",
+        "bytes": 5924981,
+        "sha256": "1ec70ce57a315e6dd13e8d451543eb529786a792f218121c9bfd67db718a61f1"
+      },
+      "output": {
+        "path": "app/public/chat-art/coffee.animated.webp",
+        "bytes": 4084384,
+        "sha256": "09b451477ce680727f60d40ee5128ede7c31364025ecdd9543586c9b95dd9436"
+      },
+      "encoder": {
+        "name": "gif2webp",
+        "options": [
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "-mt",
+          "-metadata",
+          "none",
+          "-loop_compatibility",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512,
+      "animation": {
+        "frameCount": 144,
+        "durationMs": 6000,
+        "loopCount": 0,
+        "frameDurationsMs": [
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40
+        ],
+        "source": {
+          "frameCount": 144,
+          "durationMs": 6000,
+          "loopCount": 0,
+          "frameDurationsMs": [
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40
+          ]
+        },
+        "ffprobe": {
+          "source": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "gif",
+                "width": 512,
+                "height": 512,
+                "r_frame_rate": "24/1",
+                "avg_frame_rate": "25/1",
+                "duration": "6.000000",
+                "nb_read_frames": "144"
+              }
+            ],
+            "format": {
+              "duration": "6.000000",
+              "size": "5924981"
+            }
+          },
+          "output": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "webp",
+                "width": 0,
+                "height": 0,
+                "r_frame_rate": "25/1",
+                "avg_frame_rate": "25/1"
+              }
+            ],
+            "format": {
+              "size": "4084384"
+            }
+          }
+        }
+      }
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/handshake.png",
+        "bytes": 195638,
+        "sha256": "5e34b849c9d790fc48e8933bec22921c2dda67007d478315bf4d57748087d87c"
+      },
+      "output": {
+        "path": "app/public/chat-art/handshake.webp",
+        "bytes": 88448,
+        "sha256": "51a9909dd879ad00c95f4399707bce2e2bbf5b2daf787a4f2e3a92b3b7956fec"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/donkey-laugh.png",
+        "bytes": 181230,
+        "sha256": "26d4e0fe11522c3341a7f8514c43af3935868a85d72f5f66d37b0d2f308b0cec"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-laugh.webp",
+        "bytes": 56988,
+        "sha256": "ebd400d15cf0b4cd1dc23c0ce94c5ce703691bb49702edab54b603075c54dea1"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512
+    },
+    {
+      "category": "animated",
+      "source": {
+        "path": "app/public/chat-art/donkey-laugh.gif",
+        "bytes": 3431941,
+        "sha256": "0f4d7aed5da34d581e8ec3f1c0df9ef78e53eed049f9d49f96c90c836b3c920a"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-laugh.animated.webp",
+        "bytes": 2462218,
+        "sha256": "84d812b61b02a01d74a1f840e1243a9cf106891261b8cd301057efdaef8572b3"
+      },
+      "encoder": {
+        "name": "gif2webp",
+        "options": [
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "-mt",
+          "-metadata",
+          "none",
+          "-loop_compatibility",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512,
+      "animation": {
+        "frameCount": 120,
+        "durationMs": 5000,
+        "loopCount": 0,
+        "frameDurationsMs": [
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40
+        ],
+        "source": {
+          "frameCount": 120,
+          "durationMs": 5000,
+          "loopCount": 0,
+          "frameDurationsMs": [
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40
+          ]
+        },
+        "ffprobe": {
+          "source": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "gif",
+                "width": 512,
+                "height": 512,
+                "r_frame_rate": "24/1",
+                "avg_frame_rate": "25/1",
+                "duration": "5.000000",
+                "nb_read_frames": "120"
+              }
+            ],
+            "format": {
+              "duration": "5.000000",
+              "size": "3431941"
+            }
+          },
+          "output": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "webp",
+                "width": 0,
+                "height": 0,
+                "r_frame_rate": "25/1",
+                "avg_frame_rate": "25/1"
+              }
+            ],
+            "format": {
+              "size": "2462218"
+            }
+          }
+        }
+      }
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/donkey-facepalm.png",
+        "bytes": 169227,
+        "sha256": "d1682b22135db49d0c6ab70d37950230376aa833ac36046d89110b8287891add"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-facepalm.webp",
+        "bytes": 52628,
+        "sha256": "1bc5956c4b736e8b5723eab538fcdfaec172a9507139d338fe0eda989e4ea1cc"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512
+    },
+    {
+      "category": "animated",
+      "source": {
+        "path": "app/public/chat-art/donkey-facepalm.gif",
+        "bytes": 3216659,
+        "sha256": "93940fd71884d3abe93ffe9fac1ad767c2a622cf9437b9ff43d2a8e1173cb774"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-facepalm.animated.webp",
+        "bytes": 2286488,
+        "sha256": "6856f8b076b83610716044f74968b6aed7edbdfa5d7ec670fb82d447b698ff8c"
+      },
+      "encoder": {
+        "name": "gif2webp",
+        "options": [
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "-mt",
+          "-metadata",
+          "none",
+          "-loop_compatibility",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512,
+      "animation": {
+        "frameCount": 120,
+        "durationMs": 5000,
+        "loopCount": 0,
+        "frameDurationsMs": [
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40
+        ],
+        "source": {
+          "frameCount": 120,
+          "durationMs": 5000,
+          "loopCount": 0,
+          "frameDurationsMs": [
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40
+          ]
+        },
+        "ffprobe": {
+          "source": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "gif",
+                "width": 512,
+                "height": 512,
+                "r_frame_rate": "24/1",
+                "avg_frame_rate": "25/1",
+                "duration": "5.000000",
+                "nb_read_frames": "120"
+              }
+            ],
+            "format": {
+              "duration": "5.000000",
+              "size": "3216659"
+            }
+          },
+          "output": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "webp",
+                "width": 0,
+                "height": 0,
+                "r_frame_rate": "25/1",
+                "avg_frame_rate": "25/1"
+              }
+            ],
+            "format": {
+              "size": "2286488"
+            }
+          }
+        }
+      }
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/chat-art/donkey-bitcoin.png",
+        "bytes": 179945,
+        "sha256": "5e5ace7fd49d260dca46a54f5374a84f95530c462d48c205d15c603c862ce09c"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-bitcoin.webp",
+        "bytes": 57592,
+        "sha256": "33e6c46aaf49469736fbc53682d5af222834403e3d0fd3c31f7e10584736d4d9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512
+    },
+    {
+      "category": "animated",
+      "source": {
+        "path": "app/public/chat-art/donkey-bitcoin.gif",
+        "bytes": 3313210,
+        "sha256": "9299201cd31b10a520a18cd408c4a3f6cbe4858c5819ba5a8951884eb0796626"
+      },
+      "output": {
+        "path": "app/public/chat-art/donkey-bitcoin.animated.webp",
+        "bytes": 2361236,
+        "sha256": "15fad8b89e3724c31c7ad516007aad5648af142d63b4126415b7b130b8615a38"
+      },
+      "encoder": {
+        "name": "gif2webp",
+        "options": [
+          "-q",
+          "75",
+          "-m",
+          "4",
+          "-mt",
+          "-metadata",
+          "none",
+          "-loop_compatibility",
+          "-quiet"
+        ]
+      },
+      "width": 512,
+      "height": 512,
+      "animation": {
+        "frameCount": 120,
+        "durationMs": 5000,
+        "loopCount": 0,
+        "frameDurationsMs": [
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40,
+          40,
+          40,
+          50,
+          40,
+          40,
+          40
+        ],
+        "source": {
+          "frameCount": 120,
+          "durationMs": 5000,
+          "loopCount": 0,
+          "frameDurationsMs": [
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40,
+            40,
+            40,
+            50,
+            40,
+            40,
+            40
+          ]
+        },
+        "ffprobe": {
+          "source": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "gif",
+                "width": 512,
+                "height": 512,
+                "r_frame_rate": "24/1",
+                "avg_frame_rate": "25/1",
+                "duration": "5.000000",
+                "nb_read_frames": "120"
+              }
+            ],
+            "format": {
+              "duration": "5.000000",
+              "size": "3313210"
+            }
+          },
+          "output": {
+            "programs": [],
+            "stream_groups": [],
+            "streams": [
+              {
+                "codec_name": "webp",
+                "width": 0,
+                "height": 0,
+                "r_frame_rate": "25/1",
+                "avg_frame_rate": "25/1"
+              }
+            ],
+            "format": {
+              "size": "2361236"
+            }
+          }
+        }
+      }
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/happy.png",
+        "bytes": 45269,
+        "sha256": "1eac8b060493a9f76addfbc1c7b9d899a9b735356cb464512395fb0ae49d63bf"
+      },
+      "output": {
+        "path": "app/public/emoji/happy.webp",
+        "bytes": 25102,
+        "sha256": "f2cab3da8579368f8eb1de456a84563762c4466e26a7404490969167f03a027d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/tears-of-joy.png",
+        "bytes": 47391,
+        "sha256": "900da535d4031f01806222174aecc9d6828c15c436f194d63f3e15a20d5eb127"
+      },
+      "output": {
+        "path": "app/public/emoji/tears-of-joy.webp",
+        "bytes": 26316,
+        "sha256": "d1819a728b3cdd9e1da880bbb62efd4945096228437ff6cfaea749723bcf08d2"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/heart-eyes.png",
+        "bytes": 47900,
+        "sha256": "b05edc44134a5331c1322fcaf5c3f6d1fdf8dd7540869f73a870e763223dea61"
+      },
+      "output": {
+        "path": "app/public/emoji/heart-eyes.webp",
+        "bytes": 25918,
+        "sha256": "66095bb378d4d4ea99b5de1b5b9c5adcf8e96a3daaf15ba412766827943bfdfc"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cool.png",
+        "bytes": 46913,
+        "sha256": "6192b53be0f1197ea6bfdefe4e7751470d76189ec494835572c799526fe01376"
+      },
+      "output": {
+        "path": "app/public/emoji/cool.webp",
+        "bytes": 25844,
+        "sha256": "342da84029192f2119574310bb3e387828226325dfa2506bc9c24db2ebbc4671"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wink.png",
+        "bytes": 43982,
+        "sha256": "373e09b7d28933925aa58afebc72bca90b8bac3d982028e93705117b4c247aaf"
+      },
+      "output": {
+        "path": "app/public/emoji/wink.webp",
+        "bytes": 24470,
+        "sha256": "f270b5e46d08aafc0ddd3f7bd18626e1247129869059ae2b951ff515ae4db85a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/kiss.png",
+        "bytes": 45330,
+        "sha256": "e1145c8d8164016f3be6ac8aadb79dbf84bffaa00b0e9b6299c2546b6adcead1"
+      },
+      "output": {
+        "path": "app/public/emoji/kiss.webp",
+        "bytes": 24716,
+        "sha256": "a679de9b0d801fb82831c1888fffe221694d53b696bb1cab35346777fc9da1c6"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/sad.png",
+        "bytes": 46058,
+        "sha256": "abc32251d4b132584badf650cbbcc5b163d67d676997a12411c8a051ae7495f8"
+      },
+      "output": {
+        "path": "app/public/emoji/sad.webp",
+        "bytes": 25802,
+        "sha256": "14eda97f0bda90c366005de423442cb5f4898e6d7c394f50643c9039a1cf0abb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/crying.png",
+        "bytes": 46656,
+        "sha256": "a5a86f036dbf585d2526ec9dfe98b8b796dd192f00376fdc717e8a6673d5ba48"
+      },
+      "output": {
+        "path": "app/public/emoji/crying.webp",
+        "bytes": 26362,
+        "sha256": "a3a143841cc3befc17f2e6f0e07937f0fa0ebc4bbf43249a2f36be90171599cd"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/angry.png",
+        "bytes": 43367,
+        "sha256": "aff7bb7bed346325037b9e926a09ca670e6bc5dd119da9a57e480f85e41fa34e"
+      },
+      "output": {
+        "path": "app/public/emoji/angry.webp",
+        "bytes": 24368,
+        "sha256": "6ae89a63b12c7a2a8089cc5b52e5112eb9da3fdaa5ac28f280ab2296da88a2ef"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/surprised.png",
+        "bytes": 44257,
+        "sha256": "5f8423cb61142b39bad5758ed75e3a12240463b2f991957d15a7045ef4c25ff5"
+      },
+      "output": {
+        "path": "app/public/emoji/surprised.webp",
+        "bytes": 24580,
+        "sha256": "83abcc7ff54ba64a8562b047228dd26e20b6a37478d1ba1cabb912aa25a1158f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thinking.png",
+        "bytes": 44567,
+        "sha256": "8f054a1434cf609e218e4f07458a01b39f030d4275b732f631edf7ea6cb0cd69"
+      },
+      "output": {
+        "path": "app/public/emoji/thinking.webp",
+        "bytes": 25224,
+        "sha256": "76f34947b4fbd5ec364f2074f978421e1b0a6f3fe1f09926ed6b17a4bacf3819"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/unimpressed.png",
+        "bytes": 40137,
+        "sha256": "cb6550aba667f1982f433bb67c4c8caa7c9716f18f62a4183e99cdbcae9eaea7"
+      },
+      "output": {
+        "path": "app/public/emoji/unimpressed.webp",
+        "bytes": 21694,
+        "sha256": "26f311c3c1fb90ed42feb2be87f60e57fbdeb9b96a7b2e6e9326a889f119332e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/grin.png",
+        "bytes": 45441,
+        "sha256": "e549c9f0b0bf5037c4391b26c2c02563382e7cd2f4dcc6798a34b4489aa40bd7"
+      },
+      "output": {
+        "path": "app/public/emoji/grin.webp",
+        "bytes": 25294,
+        "sha256": "a1dbf6ccbd179081322a7422ec54baaccf6b635a4cb49ca4297e3733ba7388be"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/rolling-laughter.png",
+        "bytes": 49740,
+        "sha256": "1a077b8b131e1838225575dcfd9f08f56d81898d0f99248ccc08e4b72bb32a3b"
+      },
+      "output": {
+        "path": "app/public/emoji/rolling-laughter.webp",
+        "bytes": 28148,
+        "sha256": "8c820b9a487a7cf7a42d470dd0bf5c10c4751a0952e298f4026d5d6c3f8436ed"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/love.png",
+        "bytes": 47583,
+        "sha256": "58f739672b00e366a28e4456e87c974589cab7acd46aff82eab2567186da331b"
+      },
+      "output": {
+        "path": "app/public/emoji/love.webp",
+        "bytes": 28250,
+        "sha256": "a06ef023d6fdb7bfcf3f5316718091004bff0c79abaaf9ad048a93934085db69"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/shocked.png",
+        "bytes": 51407,
+        "sha256": "c0db83d133f6b724ede7d365243a95038f0e4b5b8332f88faedbfb4b8b3f9b91"
+      },
+      "output": {
+        "path": "app/public/emoji/shocked.webp",
+        "bytes": 29398,
+        "sha256": "94707ba3b02ac91eff6fa5a05e8a58b4be060d75a0728e05ca927d756581490d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/sleepy.png",
+        "bytes": 42086,
+        "sha256": "dbaae182b340337b52cf2777248bbb0a66bd32b8fef06499f9167ec276b650e8"
+      },
+      "output": {
+        "path": "app/public/emoji/sleepy.webp",
+        "bytes": 22968,
+        "sha256": "f3ceebd54404bd03aa625dbf5ec1e8b1796a8d00486ad7a985ce480c12acbe22"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/phew.png",
+        "bytes": 48715,
+        "sha256": "5cf4faeae316fd406ea7df4887156f5a1a182900fb87557803bc586adf796ea8"
+      },
+      "output": {
+        "path": "app/public/emoji/phew.webp",
+        "bytes": 27796,
+        "sha256": "167f2e5f06b51f7df15a81fa08415ddbe7036006369350fbc7c048aeae5d8f7c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/heart.png",
+        "bytes": 36825,
+        "sha256": "6742254e566fe3877d5383af9fcc313fd7617b9565de1e99b85197388642fa65"
+      },
+      "output": {
+        "path": "app/public/emoji/heart.webp",
+        "bytes": 17278,
+        "sha256": "90e466c1af73d31c3f650fd0e2749b4c9c75e52abc64001bb707fc96e710af32"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/broken-heart.png",
+        "bytes": 40663,
+        "sha256": "f94eee5e9ff803d9318d60f814615de5e93df17ba395a91cce960763e2f7b509"
+      },
+      "output": {
+        "path": "app/public/emoji/broken-heart.webp",
+        "bytes": 20626,
+        "sha256": "c5247c1815e462088ea7edefb0e6ea144ea326c1b1ce36324f18f9e864fced23"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fire.png",
+        "bytes": 39600,
+        "sha256": "f45d80d0a61a557f673b088052ea33a2af44af18a3c53109be9ed4037182b587"
+      },
+      "output": {
+        "path": "app/public/emoji/fire.webp",
+        "bytes": 19110,
+        "sha256": "b62fc2ca276825d78bff9e8dba8acb661cf7c30ad3af2053ee113ede037e8c8f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/celebrate.png",
+        "bytes": 57366,
+        "sha256": "754a08b1bf1e629e7b022fa4df7922a1dec365762a3ec461f349a30a4a93dceb"
+      },
+      "output": {
+        "path": "app/public/emoji/celebrate.webp",
+        "bytes": 25608,
+        "sha256": "441326eee711ebbdc29b04182c9be26e92ee7989dee3b788c7caa38438078d53"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/yes.png",
+        "bytes": 36618,
+        "sha256": "44637150f455e768ff999842e3a9f13e2ee05d437b643708149fc66ddff3735f"
+      },
+      "output": {
+        "path": "app/public/emoji/yes.webp",
+        "bytes": 12812,
+        "sha256": "8734d6202a128273c705b96f4064ea6266b1cfba4bf3a19acb80aefe7c14ef5f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/no.png",
+        "bytes": 45524,
+        "sha256": "222b7dff8721f5bbb76bd0c6fc8611cad5e5be9734148e46e4c957cf59369bd7"
+      },
+      "output": {
+        "path": "app/public/emoji/no.webp",
+        "bytes": 19682,
+        "sha256": "4c7d54b884eab19b5f585f6c118c49dc2eb9b4d912a6ac431d24dca10030a5bf"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up.png",
+        "bytes": 39103,
+        "sha256": "63892ef0b398132c3e234ac306711f423d0755ee0bb324796c80773d84c23fe3"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up.webp",
+        "bytes": 18518,
+        "sha256": "91273d47160db1c0abbbf432fa7fed92f66ec6948d1ae12149cadd5cc57e0c3e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down.png",
+        "bytes": 40197,
+        "sha256": "447aa859859cc6789764f1706dd860bf596cbd6fe1cb90226967ecd4dc888982"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down.webp",
+        "bytes": 19394,
+        "sha256": "572bf602ca7efdb49ef9ea2598f839c5320e179a913fb44d4fbd100032c37bf2"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave.png",
+        "bytes": 51320,
+        "sha256": "40c45efc24677761eb6250efc2a2cabc129c3a67c1331870604b560cfc1010c1"
+      },
+      "output": {
+        "path": "app/public/emoji/wave.webp",
+        "bytes": 24322,
+        "sha256": "654fe5dbbf54e5b22cc04225a941993daaa1aebcd52e6ffc5efc21a7bb071b28"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap.png",
+        "bytes": 49781,
+        "sha256": "6c83b2c2b32eb9f963000ddbaaa6199eda39f9dca94c2abc5481e7500040788a"
+      },
+      "output": {
+        "path": "app/public/emoji/clap.webp",
+        "bytes": 21192,
+        "sha256": "a5696c03d3e5c9ea3f483c31494dcaf8eaf919dbe4d122dceeb148a227611d49"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks.png",
+        "bytes": 41853,
+        "sha256": "ccef9be94d00a4a61e2d6d4c7b714d4d103f71eff562a1cbb9c4d843d1a94fe0"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks.webp",
+        "bytes": 18354,
+        "sha256": "f09ba8ea28bcb3fcd5b518b3e9952fa42dcd7e887dc8e42c77280afa64a764c4"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace.png",
+        "bytes": 34468,
+        "sha256": "ea89e66244fdb88b0625d71ef19ac030fbc8994ec11f849bdbf451810361a3c2"
+      },
+      "output": {
+        "path": "app/public/emoji/peace.webp",
+        "bytes": 17794,
+        "sha256": "c21fb94341388eb13ddf5ad1de2b15b4b293c1cd3f1e680bc5b918ae6553ce0d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/grinning.png",
+        "bytes": 47088,
+        "sha256": "751ec851c31415c6dfe352fedd353525a68c6407a12436d019c2a42273fb8cf2"
+      },
+      "output": {
+        "path": "app/public/emoji/grinning.webp",
+        "bytes": 25816,
+        "sha256": "b334cdff38539fcfd927deb500f33e2f9057766d174f149944f5270068e0707c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/slight-smile.png",
+        "bytes": 44154,
+        "sha256": "7794211d81cc8441ee58356974f0643990f301ceac36eed418fcc66880b2936e"
+      },
+      "output": {
+        "path": "app/public/emoji/slight-smile.webp",
+        "bytes": 23940,
+        "sha256": "8584535a7ad3315ba02885782efaa51f6f66e3078eaa6068d89d3a7926d0472f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/upside-down.png",
+        "bytes": 44687,
+        "sha256": "29ee3e9e1e966bb42bb5f72d7c28507d75ad2d27af7d846159b8f6972a459b57"
+      },
+      "output": {
+        "path": "app/public/emoji/upside-down.webp",
+        "bytes": 24414,
+        "sha256": "5c9d0de4e11991442beb186dfa70eafb3622c46eb468dae333db6e19c31aa2a0"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/blush.png",
+        "bytes": 45667,
+        "sha256": "60b605a01777a65859373e88dea93a91d6bec7a99437214489c9e6a3dcba078c"
+      },
+      "output": {
+        "path": "app/public/emoji/blush.webp",
+        "bytes": 24868,
+        "sha256": "24c2bcb1683375354f68175b78ec6057e77741ea5bed4db9164de52847f68315"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/innocent.png",
+        "bytes": 49897,
+        "sha256": "25133b24217aa04e1dd194239a9303956bd35cd5efe96517fbe0437f5a812f47"
+      },
+      "output": {
+        "path": "app/public/emoji/innocent.webp",
+        "bytes": 30416,
+        "sha256": "b4c7a2162bb089bf7aeec5b01e463d5dc0d11c15d3c0c97cee3b9a4888d0a096"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/party-face.png",
+        "bytes": 54918,
+        "sha256": "4761673de91d05cfb3bf37a5e481de4a3039dd33fcdf3c27f2320cfaf65d95f9"
+      },
+      "output": {
+        "path": "app/public/emoji/party-face.webp",
+        "bytes": 32258,
+        "sha256": "a2dc2eaf1227bda0b614e2d0e6f80fab0341e91b8d3dd374cccbcd2a428811e4"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/star-eyes.png",
+        "bytes": 51681,
+        "sha256": "3d2c61e7b58fd3e9be2d0a5ba5c9e2415a2f60e571236874f07354700dc86de8"
+      },
+      "output": {
+        "path": "app/public/emoji/star-eyes.webp",
+        "bytes": 28814,
+        "sha256": "85f6b81a4ef897ced2695c604cdc672938daadfed75e164b37361de7616ab7bb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/delicious.png",
+        "bytes": 47787,
+        "sha256": "ee5cbbe055b2129b9126efd4f22b4a2a021785b32c7bdefe17c694e5a9151b6f"
+      },
+      "output": {
+        "path": "app/public/emoji/delicious.webp",
+        "bytes": 25968,
+        "sha256": "4da85829fc6cf96f958f4bb03d35e1fe7bd9b058a85a77d73b08b8b5d29c2839"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/tongue.png",
+        "bytes": 45792,
+        "sha256": "78d766e29351ebdd5bbb38ee8bf246d6b7284ac5c8ecc267fcdff391050a7c66"
+      },
+      "output": {
+        "path": "app/public/emoji/tongue.webp",
+        "bytes": 24652,
+        "sha256": "a48984fe1785c01462a7b0c9ab6948302fea39062839d3daef2cf191280b0514"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wink-tongue.png",
+        "bytes": 48629,
+        "sha256": "3437386ce7b90b35cbebc195a8128961a7127487d37ac7b7c30bb05bcade6be6"
+      },
+      "output": {
+        "path": "app/public/emoji/wink-tongue.webp",
+        "bytes": 26146,
+        "sha256": "afb3c9f4a5e53a13046231ef2232b0b204985fefdcf2f3a0fc5c96fb63c7768b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/zany.png",
+        "bytes": 52696,
+        "sha256": "fe467a37bccd4d522bbb6ebebacf5936a4f5f66a5a39f166bf375af1c99c5283"
+      },
+      "output": {
+        "path": "app/public/emoji/zany.webp",
+        "bytes": 28562,
+        "sha256": "1ebf66bc8d7a057a96c4ae8614476d47ecaf40759903f933c8c06721f5c17a50"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/money-face.png",
+        "bytes": 50420,
+        "sha256": "b6f8d1123434f208cd01e788a1733427230ce0c8e27a4044f86d0eaa0e3e0b1e"
+      },
+      "output": {
+        "path": "app/public/emoji/money-face.webp",
+        "bytes": 27664,
+        "sha256": "c575120545c972f2e566d3605f90d0c189037376d09da116f208cf94604d14ac"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/zip-mouth.png",
+        "bytes": 48195,
+        "sha256": "8ff3ec60a73af2c785845dadc1b7953a39110637227f2bec2d2ec3d480d67789"
+      },
+      "output": {
+        "path": "app/public/emoji/zip-mouth.webp",
+        "bytes": 27692,
+        "sha256": "8991978e484fb0a7f932bf322348eae1d7be1e39dd6f0fb076ba28fa6d327d69"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/raised-eyebrow.png",
+        "bytes": 45516,
+        "sha256": "7677a732b4dbf703f2d96c371bf693fd0bbe205c4454941b6074ccb5feb8b4c3"
+      },
+      "output": {
+        "path": "app/public/emoji/raised-eyebrow.webp",
+        "bytes": 25348,
+        "sha256": "64bfcc7bf954128b12c2e4425d8057fec6a1b51dda5efdc9d1560e9dc948fb0b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/neutral.png",
+        "bytes": 42601,
+        "sha256": "e1ee63b931878529913ba57c8dbda8374eea02fd57f53018674643e707ae247e"
+      },
+      "output": {
+        "path": "app/public/emoji/neutral.webp",
+        "bytes": 22828,
+        "sha256": "c2879978c6d0ad39ce4e1cfd4c49791e9cb7c7c8b0c851fa65dae52a8687cd8d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/eye-roll.png",
+        "bytes": 47214,
+        "sha256": "d9ee13906f6754215a9978a2f174372641477e8dfd9ea8ec3256ee7086b7452a"
+      },
+      "output": {
+        "path": "app/public/emoji/eye-roll.webp",
+        "bytes": 25520,
+        "sha256": "472e4b80d15a441c7ecff1a088c5246e417291e2f1dca872439d5cf64f5ceea7"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/smirk.png",
+        "bytes": 46058,
+        "sha256": "468252170c26722d75ef1cc7535b2cf1e1089ec8c679cd4724c339440a700d6c"
+      },
+      "output": {
+        "path": "app/public/emoji/smirk.webp",
+        "bytes": 25392,
+        "sha256": "84b74bd043d29edadaa682b1b065cca589607d08ef611726dc9c73882ca4e3eb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/grimace.png",
+        "bytes": 45958,
+        "sha256": "a0c5b3f38c59a6e9a6ed4a393fc905ab371e5dd057318883668c6372b52d87d0"
+      },
+      "output": {
+        "path": "app/public/emoji/grimace.webp",
+        "bytes": 24996,
+        "sha256": "d0ee9981b213f4d974abf4191619759809c5c16d7df8a35ab47479b022e1cf74"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/pensive.png",
+        "bytes": 46040,
+        "sha256": "5b2830611d68d90ce1018a256b212e3a70d7e73cdaf890407d2c98109a943cad"
+      },
+      "output": {
+        "path": "app/public/emoji/pensive.webp",
+        "bytes": 24818,
+        "sha256": "79ab815fb03f88f6cd1ecfe7c49bc26387c226b225a6ef594973c759fc932329"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/pleading.png",
+        "bytes": 50456,
+        "sha256": "e7d3835879c1c5c6586ed3890ff57b1cbc1bedef3c97f14b80a0ee72989765f6"
+      },
+      "output": {
+        "path": "app/public/emoji/pleading.webp",
+        "bytes": 27628,
+        "sha256": "992e05b85be94c805e1bf830153f99a4995744f1a3cb09a498b4c60ec5bed395"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/huff.png",
+        "bytes": 51411,
+        "sha256": "983030b77b6e43b97aacdfe3e40383f4641c0ff1c3c5daceeb72fae93a7b711f"
+      },
+      "output": {
+        "path": "app/public/emoji/huff.webp",
+        "bytes": 29584,
+        "sha256": "68db3a06cde57a41099e4c052e49261a0914430fc7556843cd800318b2b8d758"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/furious.png",
+        "bytes": 46208,
+        "sha256": "24eca3b8dfc6e5997f9a27ba9b0b4d1ed2dc48694d085c35cf3ba56016c2bb4b"
+      },
+      "output": {
+        "path": "app/public/emoji/furious.webp",
+        "bytes": 24692,
+        "sha256": "0f860508d397866462e397cbee6418875a158c42c7dbf0637f53fa7d0455c165"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/mind-blown.png",
+        "bytes": 53432,
+        "sha256": "269118b9340577582110bfd9fcfc7568c3afdd6e67f3fa9a7c2b2bda8cb5d6ff"
+      },
+      "output": {
+        "path": "app/public/emoji/mind-blown.webp",
+        "bytes": 29540,
+        "sha256": "22084e0036a35116729b2df2d7a9467721c69d5914fbc83e64a4076d40e226a9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/hot-face.png",
+        "bytes": 50174,
+        "sha256": "1e2e54cad83d8b9572a9e5871da17f37d31366f94528b4df84ad793e27feb64a"
+      },
+      "output": {
+        "path": "app/public/emoji/hot-face.webp",
+        "bytes": 27094,
+        "sha256": "aae1967810b1e9e2e7b25aff929c285430f28433a5fb9812d2c62f86b56f396c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cold-face.png",
+        "bytes": 51908,
+        "sha256": "cf1845c2a6d35c097a0e4d388185b83c91010dd40f64e264b8d2833d2b1d9a5b"
+      },
+      "output": {
+        "path": "app/public/emoji/cold-face.webp",
+        "bytes": 30166,
+        "sha256": "7854d5ffa61e6b4530d15938199f267a6a2a4c6ff9f002d6c26a9e218c050199"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/nauseated.png",
+        "bytes": 48147,
+        "sha256": "cfc8666f5c42b23bde044c528f1cdc1c2db679bdb4f2c3a70ac96f04fae02360"
+      },
+      "output": {
+        "path": "app/public/emoji/nauseated.webp",
+        "bytes": 25744,
+        "sha256": "8ca2daaad3d3c291c229e7e9548803af58857df5a8ecf5a1cee4635494819bde"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/vomit.png",
+        "bytes": 51381,
+        "sha256": "d9e23399d427731da578f82cd8d69dfdbb67e3635289f5d4bf52ff26fe3c5a46"
+      },
+      "output": {
+        "path": "app/public/emoji/vomit.webp",
+        "bytes": 29080,
+        "sha256": "86a2147e63eaec26ff246bfa7483465f0707d67202d4d490a2a5c22761bb94e7"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fever.png",
+        "bytes": 51370,
+        "sha256": "00557f178548d97953fc2688d9aafba0325b71c2b4ba3a458c5d9f3eff9cc4be"
+      },
+      "output": {
+        "path": "app/public/emoji/fever.webp",
+        "bytes": 28434,
+        "sha256": "67b446b98c2b0944c2e41cefa09619e0f7056e531a105da45d3d608b5a901781"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/bandage.png",
+        "bytes": 48859,
+        "sha256": "0e1bc354fc60aa07ccb0a618213bc6317f500f06d3d2a31856ee3aec673b7ed1"
+      },
+      "output": {
+        "path": "app/public/emoji/bandage.webp",
+        "bytes": 27830,
+        "sha256": "ae6ea432e56492cf27863c4e3bcd22c073412765e83e06548c9d9658caaf5377"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/mask.png",
+        "bytes": 48388,
+        "sha256": "c24798454d415536a9dae1cf08ab1f12257258c6ca392a72ac75919c795c45df"
+      },
+      "output": {
+        "path": "app/public/emoji/mask.webp",
+        "bytes": 27898,
+        "sha256": "317f2afb308ced3385efa91e0d5e666b3b8f2694f516ffc32b86dd7a3baa0e70"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/dog.png",
+        "bytes": 40546,
+        "sha256": "f1590eb4e415906a3e25bb659c3ffd952d5eb07c3174eeccbe2a131d7d0af8e2"
+      },
+      "output": {
+        "path": "app/public/emoji/dog.webp",
+        "bytes": 21200,
+        "sha256": "32c8d67579d8adbfafaa705611bb1b120671bbeb78eeab7f6a58cef33a401d95"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cat.png",
+        "bytes": 46321,
+        "sha256": "1ae858206d43c84f2126ca07368681b6fcb1e7c16442c0d68fc868cf38105a1e"
+      },
+      "output": {
+        "path": "app/public/emoji/cat.webp",
+        "bytes": 25564,
+        "sha256": "8d893c2d5c90b2a2a3469f1e641a6efc83b9f3079b36cddf10b8989953f89f5c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/mouse.png",
+        "bytes": 45231,
+        "sha256": "b07cdf816ca06502ca5c0f2b6dbd87b741df948259fc6a2f43a67d1e4c1404cc"
+      },
+      "output": {
+        "path": "app/public/emoji/mouse.webp",
+        "bytes": 24090,
+        "sha256": "2a30fa479216a294701d18565ada22b34cf66d980d812a8a2e76a41cd1bc49d1"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/hamster.png",
+        "bytes": 50496,
+        "sha256": "2d05cb33b1ecef63a96ae72437238457606e295b7316264536c8691aa3c38a93"
+      },
+      "output": {
+        "path": "app/public/emoji/hamster.webp",
+        "bytes": 28730,
+        "sha256": "44772d3d73dba1554a5f3bb3095379343728f06b330f453356b513799d28c47a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/rabbit.png",
+        "bytes": 50550,
+        "sha256": "4502e5adc4ce130e8354d4fead6b8722b5d863411815bd128f4dc95cce5d5803"
+      },
+      "output": {
+        "path": "app/public/emoji/rabbit.webp",
+        "bytes": 25450,
+        "sha256": "900352b90f7ade1edbaac71441304a24df84538f7d0e64d0d40a60cfe0883cab"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fox.png",
+        "bytes": 47293,
+        "sha256": "5af9a7da47e739c5755361b0a510ebd7b7fb702b33ec4b6edc920af5ce99e67f"
+      },
+      "output": {
+        "path": "app/public/emoji/fox.webp",
+        "bytes": 25672,
+        "sha256": "49f8af2e6cd43229f74c26fba12c6794f5b9fab21f953021f29866171dec9bc9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/bear.png",
+        "bytes": 47604,
+        "sha256": "e21834268e4b17d42eb894f382cb1d1cea514ebcd5349f0e0f0d354c3055fac0"
+      },
+      "output": {
+        "path": "app/public/emoji/bear.webp",
+        "bytes": 26454,
+        "sha256": "f5dc1a2671c33b308173db1d89488c8f555042d107a31389482321f5cfd0513e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/panda.png",
+        "bytes": 49959,
+        "sha256": "d7694b6fddb4bb9425165585814f4265c0a3fefe599affdb77ac042d1c02ee36"
+      },
+      "output": {
+        "path": "app/public/emoji/panda.webp",
+        "bytes": 27454,
+        "sha256": "ce28755fe098e6ba17cd4f46181218a476be8d6668a19dfa5a4ee7699b240ace"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/koala.png",
+        "bytes": 39887,
+        "sha256": "934dd631f16dfc8071c4771aef6ded84fb862490172f5b9ca7a4ef224085c90e"
+      },
+      "output": {
+        "path": "app/public/emoji/koala.webp",
+        "bytes": 20966,
+        "sha256": "54955be52794ec815e940b4cb5fd49c91c29c4a7dd4d5a7ecb43838d7a5d9d97"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/tiger.png",
+        "bytes": 53742,
+        "sha256": "19ca795fe93f178415abc3bb33c92027a769b50a1d85b2f2b6055921790cff44"
+      },
+      "output": {
+        "path": "app/public/emoji/tiger.webp",
+        "bytes": 31842,
+        "sha256": "11aa9bcedfae2260e06e4d62cd501c17ea4665ae17e214bebe60bd1f263cec53"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/lion.png",
+        "bytes": 51770,
+        "sha256": "49c8d0ecd8f3641ec55d21f9c2ef1d4225995d3e62d7aac25de3b2279779ec76"
+      },
+      "output": {
+        "path": "app/public/emoji/lion.webp",
+        "bytes": 28430,
+        "sha256": "3600e168cc0d92a48e0b9167d041a5fd52732d6b470aeca878251d26da8b07ad"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cow.png",
+        "bytes": 44390,
+        "sha256": "4a748098260a67f19a6f734acefed02ce37ba7036aadca13a99b10796d04a1f6"
+      },
+      "output": {
+        "path": "app/public/emoji/cow.webp",
+        "bytes": 21992,
+        "sha256": "41ad18452bcf210e97a51313f49d886fed1b04dcb0cd7afe338aadbf026696a2"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/pig.png",
+        "bytes": 43601,
+        "sha256": "87a289db9c005efbc57bdc688509dbb0d0b676da3f97bda50db8ad3ab695fad9"
+      },
+      "output": {
+        "path": "app/public/emoji/pig.webp",
+        "bytes": 24166,
+        "sha256": "1b890ae3f312fcd82b6a332fb82b1e98a61758d90f5c2b6bf3182fa70f6c00f9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/frog.png",
+        "bytes": 44267,
+        "sha256": "66df2afe453abe6d1e2bac5929d2f09c51da167c8b5fc82db1fcedeb9add0e62"
+      },
+      "output": {
+        "path": "app/public/emoji/frog.webp",
+        "bytes": 25266,
+        "sha256": "a3492fff933febd65e8de1a90a0b15abd783b2f27b7421d6df4d8ecca9124a82"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/monkey.png",
+        "bytes": 41888,
+        "sha256": "fdda6b09bc42de4432e4d50efed7599d4e6f2c60dc69897411dbf264a974d35b"
+      },
+      "output": {
+        "path": "app/public/emoji/monkey.webp",
+        "bytes": 21002,
+        "sha256": "140ae5f91a97a5b88d30f66905144edf9c6b74b5c47d71c8985410f5d2314ed3"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/chicken.png",
+        "bytes": 46597,
+        "sha256": "915854befe284ceefcc80a8dd854a44e217f193ab910f71490434c6345896621"
+      },
+      "output": {
+        "path": "app/public/emoji/chicken.webp",
+        "bytes": 22678,
+        "sha256": "d3e731ebd3397e771325cdb00886a0d28ea3d6e3b34dcf50d4f94e4a56e2bb9c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/penguin.png",
+        "bytes": 43700,
+        "sha256": "c0febd6fddb0567a1e88c2a3ba6a4849151e9a955c321cd48c9f3d4feab6a61a"
+      },
+      "output": {
+        "path": "app/public/emoji/penguin.webp",
+        "bytes": 22884,
+        "sha256": "e1cc7047a6305cb36a7b07a78b5c909bc0181270f419515f74ff12189c03bd8e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/duck.png",
+        "bytes": 46299,
+        "sha256": "4fb0cb60569a0eade31730d01d491d3f4d96b094f525bf08b49af22117e6f83e"
+      },
+      "output": {
+        "path": "app/public/emoji/duck.webp",
+        "bytes": 24282,
+        "sha256": "3487f6248faa137d5e66f31b1a17f6cb7ac6b7b1021a664e1cbea32475c9da0f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/owl.png",
+        "bytes": 53569,
+        "sha256": "c883c43699827e9748608ebf93ff08a2414903f892fdf1f92c495e02eeebff89"
+      },
+      "output": {
+        "path": "app/public/emoji/owl.webp",
+        "bytes": 30292,
+        "sha256": "4341eea41a1e4cc570b51a622c1e52bebda7997ce6676fef2e1d6fc0d3245e06"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/butterfly.png",
+        "bytes": 52346,
+        "sha256": "8dc18060dc248a3ac4fe9123c83c0dc97978d19914808215ea94bf2939a6d324"
+      },
+      "output": {
+        "path": "app/public/emoji/butterfly.webp",
+        "bytes": 30654,
+        "sha256": "90fb7972356613a0b454e0406474208e7d63977996159cf41b4c6b477424f1a3"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/bee.png",
+        "bytes": 49712,
+        "sha256": "75321fa9dc95517e798eff114964b1fd5dd84eefdec3a3390feba96cbf1302f5"
+      },
+      "output": {
+        "path": "app/public/emoji/bee.webp",
+        "bytes": 26826,
+        "sha256": "0a32927d07711e557c8b4c49f3cb222a8902b3c0b44a257f0181cdd4bd80165b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/turtle.png",
+        "bytes": 42303,
+        "sha256": "6fbf82faefb2ccba772286e4c481efb289f31123798758b623a27d4f20cd8a83"
+      },
+      "output": {
+        "path": "app/public/emoji/turtle.webp",
+        "bytes": 23178,
+        "sha256": "aaafae7d43155e67df9a562a6a0e8370f0497a2498761fcde0ae6470c4a08163"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/octopus.png",
+        "bytes": 49663,
+        "sha256": "f0a7f0a41c465899c6919cfd74b17f4ed632e73cf84e29bdb7eefcd0af4cf83c"
+      },
+      "output": {
+        "path": "app/public/emoji/octopus.webp",
+        "bytes": 26474,
+        "sha256": "5dd19ffe1054cfe56d33dc470624998140af376913f22f92e7a49e0e041fc7c9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/whale.png",
+        "bytes": 47917,
+        "sha256": "d735d90790575d52750c08ab17a5b611434f1987aa4d8023870d868f150a01c1"
+      },
+      "output": {
+        "path": "app/public/emoji/whale.webp",
+        "bytes": 24050,
+        "sha256": "a97d67cc5be36d8c9389f0767a556feeb26b6ec28f525cb68754e8f4cc7e4ee7"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/sunflower.png",
+        "bytes": 50402,
+        "sha256": "ed403b3dad341dda5908931524f16ca44bf9abb1c530462d31a9ab63006ca825"
+      },
+      "output": {
+        "path": "app/public/emoji/sunflower.webp",
+        "bytes": 28744,
+        "sha256": "5d06495dc2a88d08444a1eb7db96da6fbee671e82a158f7d604d8f7100c8a0f8"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/rose.png",
+        "bytes": 48726,
+        "sha256": "48b07a60318ab04e87ced34ab6f02b0036c9766832f4bb018f92da489d43995c"
+      },
+      "output": {
+        "path": "app/public/emoji/rose.webp",
+        "bytes": 26082,
+        "sha256": "ff1f5ebf9d2722a00a0644403a498e3acbb83a9ff2293dfa7b0f2a7c0910e691"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/rainbow.png",
+        "bytes": 37905,
+        "sha256": "da45cf62776c1056127d0e88be4b5ed083b1bd46819d6e1c229cf4f16be114fe"
+      },
+      "output": {
+        "path": "app/public/emoji/rainbow.webp",
+        "bytes": 20914,
+        "sha256": "1e27ceb373bd8ab179a704cb8a7d533537271e4dc2dbb17d8245ef3433c1153c"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/sun.png",
+        "bytes": 44759,
+        "sha256": "ad42ffe497507329e93d9689173d23d23d0e6be41a3159db60f297b218c03ee7"
+      },
+      "output": {
+        "path": "app/public/emoji/sun.webp",
+        "bytes": 22286,
+        "sha256": "195c3a4d145890fbb9028f81b2eac6e57a4566ab6aee8576183c84f5589c9675"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/moon.png",
+        "bytes": 41631,
+        "sha256": "15082d37e80379f41c1d3fdacdf2a57b5229af13ccd8e5655dd2a27cfc873b94"
+      },
+      "output": {
+        "path": "app/public/emoji/moon.webp",
+        "bytes": 17934,
+        "sha256": "111b357c8ccc9243678e376564ce82d2754d8ed69c5034ec4e8e28658ef6ee82"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/star.png",
+        "bytes": 41870,
+        "sha256": "e6c0634211a82ba041bf6a54cba0f9a2895f1ea4076e0e4184adfaaa8b8163d6"
+      },
+      "output": {
+        "path": "app/public/emoji/star.webp",
+        "bytes": 19354,
+        "sha256": "d26d667605e8b25c1be32748aff7b278cc1497a642efd9d045a545b779016262"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/apple.png",
+        "bytes": 44500,
+        "sha256": "82c7be8d7d79d2a723b7b5b7e8e608f0b52970140244c9c8b8777a940cb650b6"
+      },
+      "output": {
+        "path": "app/public/emoji/apple.webp",
+        "bytes": 24656,
+        "sha256": "f8745e9a9ae17dbfcf8837a7017b16d043c5187b18b338c81727261f1bf4e4cc"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/banana.png",
+        "bytes": 45418,
+        "sha256": "3c65eb33e25150d7f3bd0aa9b2b5c73fc74e4a8225c6f1a3c53230a8c0476fd4"
+      },
+      "output": {
+        "path": "app/public/emoji/banana.webp",
+        "bytes": 23190,
+        "sha256": "31500d7318cda6034998f6cd404126186029d2cb09fed2aa65e36424c10c3915"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/strawberry.png",
+        "bytes": 51345,
+        "sha256": "69e2983e9c739e39636d6269ecf96794926fefb2987f67022c1568708a9ec399"
+      },
+      "output": {
+        "path": "app/public/emoji/strawberry.webp",
+        "bytes": 29442,
+        "sha256": "8b20b0afcf82f0fd4566412367fd390ed8be4fb779ec86573bc8ca2b9b8b5ba2"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/watermelon.png",
+        "bytes": 43272,
+        "sha256": "a4d3874a56df86729fd1cd72d38e2e27092af4e0a538950b0ce83985df592b4b"
+      },
+      "output": {
+        "path": "app/public/emoji/watermelon.webp",
+        "bytes": 21922,
+        "sha256": "8fff71cdaa24f257fe7128f96d7e9956c4ad4dc1dcb7284d2ce3c644c138ecd1"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/lemon.png",
+        "bytes": 43999,
+        "sha256": "d5ae3fa41f3b21bdb8c856e976e9d2a91a9f8c81a0140fc78c6fe65325814275"
+      },
+      "output": {
+        "path": "app/public/emoji/lemon.webp",
+        "bytes": 27008,
+        "sha256": "859c0f4e8e5d4d22420fe27f4fd865647a50f9c9ef8fd720d84153f4bad92afe"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/avocado.png",
+        "bytes": 48851,
+        "sha256": "24b022a4795a3b6b6364e62e32181301060e27a4784f956e38f16504dc729acf"
+      },
+      "output": {
+        "path": "app/public/emoji/avocado.webp",
+        "bytes": 25584,
+        "sha256": "c3e5a3b2e8f6cde63e517cbbc5a1df7c0194152811d03323c474233909be2012"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/pizza.png",
+        "bytes": 54169,
+        "sha256": "8a34ac96c8094f0d901fe6181d13e44ccc3b7ac15aa053165368e026abc5c6e0"
+      },
+      "output": {
+        "path": "app/public/emoji/pizza.webp",
+        "bytes": 26206,
+        "sha256": "2fb2b2ae6828b85b672c67b8a19012024ba15ecc4957b52027738d13f1b7aac5"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/burger.png",
+        "bytes": 54613,
+        "sha256": "e01e55fb20bf1261fa200b23f16a0655899f9264dd6f886bd7525ccde812b791"
+      },
+      "output": {
+        "path": "app/public/emoji/burger.webp",
+        "bytes": 33542,
+        "sha256": "7a9956523ffd804f685f633ec1568d8af6d5eed72f7bb2ad774e68449fc3239e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fries.png",
+        "bytes": 46029,
+        "sha256": "967fb7dff96c5b859aed07c458186c8deca9aa622f97ce10e74a80ed58affbd9"
+      },
+      "output": {
+        "path": "app/public/emoji/fries.webp",
+        "bytes": 28368,
+        "sha256": "b850962f7b523d22604156f25116d4bf4bd14439e5e361b124a3255da06ecf27"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/taco.png",
+        "bytes": 50276,
+        "sha256": "a83388e60388b47e420c1a314c58d1c281c4182d8d9ff37dd5c9e40d4a95385e"
+      },
+      "output": {
+        "path": "app/public/emoji/taco.webp",
+        "bytes": 30100,
+        "sha256": "766ccd7063f48bd81ac1e615cecd48610ba69a8c226e24bd92abd1e822f20c54"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/popcorn.png",
+        "bytes": 46098,
+        "sha256": "168ef0959b68d8214f5523d4359122811155d85045967d88992fb714d1a38584"
+      },
+      "output": {
+        "path": "app/public/emoji/popcorn.webp",
+        "bytes": 27270,
+        "sha256": "550fe7b9055ebcfa9caf188d532105a665c3027534d05cff89baa3fa14fd8f70"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cake.png",
+        "bytes": 52266,
+        "sha256": "f02a0037c80dbd71e03f52a1f3e4810ad4b3c6173c7ec74166d1056ad80c9d89"
+      },
+      "output": {
+        "path": "app/public/emoji/cake.webp",
+        "bytes": 30902,
+        "sha256": "3e6cd266e27700052d3707490520b3c00ed7f84063eb5cdb3b669b3a4f3e402f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/doughnut.png",
+        "bytes": 57921,
+        "sha256": "cb211d2ddaf39a7dd44fc0f8173d9173003fcec562f4d340fa6464d17d808aeb"
+      },
+      "output": {
+        "path": "app/public/emoji/doughnut.webp",
+        "bytes": 32946,
+        "sha256": "32fd818db9040d6be89ca0a5c4395feed95335da694e8e078001eb058b32023b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cookie.png",
+        "bytes": 58379,
+        "sha256": "51aaf8a0d204f58747028e99892910b462b2be561611212d97ed4b317b806199"
+      },
+      "output": {
+        "path": "app/public/emoji/cookie.webp",
+        "bytes": 32684,
+        "sha256": "50de5425bfb05b347d977eba12367838f4fd3517e42f953a349af55c532a6295"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/ice-cream.png",
+        "bytes": 32466,
+        "sha256": "4fb5ba30d18f619b0873d2f1da927b185e5988eee255e43f57353f118a7a8410"
+      },
+      "output": {
+        "path": "app/public/emoji/ice-cream.webp",
+        "bytes": 16310,
+        "sha256": "a47467141fe21565ccb7cd787ebf849222828cf2350efc74f5a19e544a0326f9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/coffee.png",
+        "bytes": 47218,
+        "sha256": "3e43d1ea64a6b5efb97f05503cacca8693e1674a15fcd8e367ed70ed0c5d4739"
+      },
+      "output": {
+        "path": "app/public/emoji/coffee.webp",
+        "bytes": 21646,
+        "sha256": "0beae84c36266e2454d25ad7fe8aa49b7d99475a4e63e735d0df7389073613e7"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/beer.png",
+        "bytes": 46580,
+        "sha256": "9a18623def2f60355b7c86d08c0dce1711a1f19f94b401464b0670683caa2973"
+      },
+      "output": {
+        "path": "app/public/emoji/beer.webp",
+        "bytes": 27058,
+        "sha256": "af1eb639ca3638331ce2ca9927e7a0447e540f4a5faa28fc3713d4857206b0a9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/cheers.png",
+        "bytes": 49655,
+        "sha256": "93058a33ab3fe13822701b925b4055c4bcb1489480f0382e77bf9b627f66a1e0"
+      },
+      "output": {
+        "path": "app/public/emoji/cheers.webp",
+        "bytes": 23038,
+        "sha256": "35bf3bfa28dcc867042e4d5d2c719effc22c753a82b32f1e722ef0af139b65be"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/gift.png",
+        "bytes": 48278,
+        "sha256": "56c8a80d47279a1e4e48d60f287871fb23761680a7b96c2b1c18b59d96dd7648"
+      },
+      "output": {
+        "path": "app/public/emoji/gift.webp",
+        "bytes": 29054,
+        "sha256": "6f1955ccc77260627ccf87d1d1cbbb5a88b74ae10c3e68062b2e205726b887f6"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/idea.png",
+        "bytes": 34021,
+        "sha256": "6e8949781e113606e3b584c810b24a645a477df97907f88a65cdb493c8a57cac"
+      },
+      "output": {
+        "path": "app/public/emoji/idea.webp",
+        "bytes": 16622,
+        "sha256": "f7fe42a18a0234da0cb035f127102ab2dca2c52259c3016783a14a9b1c4d2207"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/key.png",
+        "bytes": 45510,
+        "sha256": "54855c5e65d5b3231269ab016f12d677b21f678bc53b90e0e30099ef53a03e89"
+      },
+      "output": {
+        "path": "app/public/emoji/key.webp",
+        "bytes": 17936,
+        "sha256": "c7b4a8399915bbfc44df83e88a0017cb5980b768f328e86df9808ee2a551bfae"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/lock.png",
+        "bytes": 37192,
+        "sha256": "590334435ff1f6465d9269c059cebf165924c8bd98b6127a458cb7c5cbd94f87"
+      },
+      "output": {
+        "path": "app/public/emoji/lock.webp",
+        "bytes": 21020,
+        "sha256": "d26fc6d058737d9628029ea027a46fb70e5cd0b3ad6c85801bf3dc0a74d77af5"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/rocket.png",
+        "bytes": 51847,
+        "sha256": "d5a3bdd2d099f7042472e89529f7010832e5d669fced1381eb873284fd410cf0"
+      },
+      "output": {
+        "path": "app/public/emoji/rocket.webp",
+        "bytes": 26168,
+        "sha256": "455a1e6a386c0a0a92dbe541d0f2a589eb0b698b076669061d0883dc818e7014"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/laptop.png",
+        "bytes": 34038,
+        "sha256": "35ec9ac0a02b385854f8f91445da86a844f83541c4c4c161bb65f738629cbecb"
+      },
+      "output": {
+        "path": "app/public/emoji/laptop.webp",
+        "bytes": 20196,
+        "sha256": "78a765c35b46f65afb777921a390795cd222f63003b878b1a4f95fa588678d5d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/phone.png",
+        "bytes": 32374,
+        "sha256": "044c04e575dabf9a806aeacde2e4caec87aaf04259ce0e43ccd144baacc0f7b7"
+      },
+      "output": {
+        "path": "app/public/emoji/phone.webp",
+        "bytes": 21312,
+        "sha256": "a368af5b2580ed2f278ce4d4669a8d8a700d4be1012feefe32648f21a85c0504"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/camera.png",
+        "bytes": 45533,
+        "sha256": "c106e20615194dcf4ab1cb33a6712abe6e0fae5a047ba2afb4964bc4026c7e7a"
+      },
+      "output": {
+        "path": "app/public/emoji/camera.webp",
+        "bytes": 26686,
+        "sha256": "81010822874667c47d61925fc3629ce1159903bd3ccb0dbb764c6a9cc91cd258"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/gamepad.png",
+        "bytes": 35324,
+        "sha256": "6cfc678f957bc36475e792737655936a20fe2962bc8be2d28bb26908dc7a527d"
+      },
+      "output": {
+        "path": "app/public/emoji/gamepad.webp",
+        "bytes": 19534,
+        "sha256": "9f9c97260338c7c21c4fbf3da3e4a46e5799dcbfcacb6907781e26be160c6549"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/football.png",
+        "bytes": 52287,
+        "sha256": "f783e0fe12c34b89c9edaccc0d1ca30496498b2a95a952202d56810a7b04e24a"
+      },
+      "output": {
+        "path": "app/public/emoji/football.webp",
+        "bytes": 27092,
+        "sha256": "06ceef86e65e157b03d036103c1a70b70b167004b291a4d7950f09d9bc587e97"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/trophy.png",
+        "bytes": 50274,
+        "sha256": "b3d2f8e2effad8fd62f00e3dd649d306e98da08dcb727ec4f3264199bf98dff0"
+      },
+      "output": {
+        "path": "app/public/emoji/trophy.webp",
+        "bytes": 25800,
+        "sha256": "378d0fbdb457694488f98ebba7180966f038c811e09697aa3902520ced6d3577"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/poop.png",
+        "bytes": 48814,
+        "sha256": "c22b1e120a76b468f86a320f8cd6a3112c18fd5de9926463bc64bfedc93503ba"
+      },
+      "output": {
+        "path": "app/public/emoji/poop.webp",
+        "bytes": 24066,
+        "sha256": "2212fd90f20d7b06f1446f93bad921f8b2bba631254ae89cc93a2d8f313a3977"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/crypto-donkey.png",
+        "bytes": 42835,
+        "sha256": "01d6743d4f962057d0e9d4e545c6d11eb54c824fd1570ec47c381c10f80f4df2"
+      },
+      "output": {
+        "path": "app/public/emoji/crypto-donkey.webp",
+        "bytes": 22824,
+        "sha256": "fd3113e0b71733c86cbb305fdd3b397cab216ed14f623979101f0ccdbee065cb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up-tone1.png",
+        "bytes": 37495,
+        "sha256": "3ccd896840acd414994ffa21e9031bcd283a79f888da5f97d68c3fa704ea27ac"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up-tone1.webp",
+        "bytes": 17530,
+        "sha256": "e753041d24cb08a8e218737bd19a1e2ce2f933c8f0c18abc150e7b084e6392e8"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down-tone1.png",
+        "bytes": 41274,
+        "sha256": "7cd7b620ef4fde7e25a5eb66fe1017190ec8d6c249e54af13b896b472b988c5f"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down-tone1.webp",
+        "bytes": 20416,
+        "sha256": "bd1056130ad3b73a22450501f2e31d7cf9c4d0cdd4e03e54b2670701a63b5483"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave-tone1.png",
+        "bytes": 52367,
+        "sha256": "30b3f3ce69cd7fa4f2ed3885f82125e0519b1aad6a87c648e5efb915e3d159b0"
+      },
+      "output": {
+        "path": "app/public/emoji/wave-tone1.webp",
+        "bytes": 24962,
+        "sha256": "254f8270af027a5e1adbb7c3920bbbe59a4a19cbc9dca6649bd139c260ec147a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap-tone1.png",
+        "bytes": 49954,
+        "sha256": "f2ee6a66b64082607d08114c9101c9d8e859a789705e76427fabb7647021a063"
+      },
+      "output": {
+        "path": "app/public/emoji/clap-tone1.webp",
+        "bytes": 23608,
+        "sha256": "888583b06db1ebf47858d6c9b441cc76ea24a2ef3808cb0ef719fe3f4f25668f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks-tone1.png",
+        "bytes": 42906,
+        "sha256": "2b9f0ad6f58665622af22fa084a5dd420dd9895d13220aada5822fdc028a8356"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks-tone1.webp",
+        "bytes": 19154,
+        "sha256": "6c1a730d978a958904f0da8a43eda0ee6e4ec20f449b8122e1abdbda8c96a876"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace-tone1.png",
+        "bytes": 35296,
+        "sha256": "e69451198c0881f28173a3c02423bcfa3186f791a1f9d9dd73b753aac356b42a"
+      },
+      "output": {
+        "path": "app/public/emoji/peace-tone1.webp",
+        "bytes": 18310,
+        "sha256": "76a9cc638ddceaa9edb1dd5e1a82c1806ba4f1b6e88656209b0a57e296ae0f3b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up-tone2.png",
+        "bytes": 37193,
+        "sha256": "377e9781e56a8346883b18ded47e119bb33100221c550748d998759c6b986dbf"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up-tone2.webp",
+        "bytes": 17408,
+        "sha256": "aabb03d50695d4786fb4f41012b7d1b9528408e08e201081c859d3a7f6273fbd"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down-tone2.png",
+        "bytes": 41952,
+        "sha256": "95381fee8f7670501e78588123908372b8a9da783cded44b1137271b78e666cd"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down-tone2.webp",
+        "bytes": 20318,
+        "sha256": "bd0897f3b1f1709c7f8f7b0ee63f595d368633a220f10b7e87572393befa7359"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave-tone2.png",
+        "bytes": 52991,
+        "sha256": "212941d242577d1ca961ae8d04a49c653fed76d4e895c7aadc763bf3f85ff7ad"
+      },
+      "output": {
+        "path": "app/public/emoji/wave-tone2.webp",
+        "bytes": 25346,
+        "sha256": "fd809b9c73db597d75ce7e3b938a18fc4caaa723dbec63eb6c9fdd34f3239747"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap-tone2.png",
+        "bytes": 48837,
+        "sha256": "f3b0d0aa283e00107b5c30729306095de780e9530b0fdcf3f95cc9cc0e908fdc"
+      },
+      "output": {
+        "path": "app/public/emoji/clap-tone2.webp",
+        "bytes": 21724,
+        "sha256": "311c7c9c9cfc54db770ceb43162cf550b4825bbdeb461bfe9f9b9d32ff727058"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks-tone2.png",
+        "bytes": 43209,
+        "sha256": "7ab06b99a5355acbf0af34e9aa3e7b917b54a1820bf2be5792e386ade3e80341"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks-tone2.webp",
+        "bytes": 19338,
+        "sha256": "fe83b6aaea1bd03d8534412c3950597cc84a228be6371ac3f7217e1057868bb3"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace-tone2.png",
+        "bytes": 35172,
+        "sha256": "5b03cd838af6255e922a153a8e4a55e897199913aa98041a8a3a5ee4018befed"
+      },
+      "output": {
+        "path": "app/public/emoji/peace-tone2.webp",
+        "bytes": 17718,
+        "sha256": "d9900cbb5224934a59526a4d8786fc70391749d203b74b6fc9f8d3e6aa9814aa"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up-tone3.png",
+        "bytes": 36959,
+        "sha256": "0bb52220c183a6be9b672dba25a2b256fbcd9e04bfe36e3022f10159df1117bf"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up-tone3.webp",
+        "bytes": 17056,
+        "sha256": "88ecbaf037dce5a783fdad3f2ec1efa2b6696afed442f6f3c8045958806432be"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down-tone3.png",
+        "bytes": 41360,
+        "sha256": "1acb8472ad30d179b8f06149ac3017cd046089ced36b7372a6cacbe0aa2a8340"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down-tone3.webp",
+        "bytes": 20206,
+        "sha256": "76db0d50098671552e6c2100e48109150851afbf8141d6cf93bd89a7cf72f753"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave-tone3.png",
+        "bytes": 53287,
+        "sha256": "10b74d158acb00ff65e5512973cbd7c9c2dba7e452df248417ecafadcd6bac14"
+      },
+      "output": {
+        "path": "app/public/emoji/wave-tone3.webp",
+        "bytes": 25142,
+        "sha256": "93773c96997c839c6b5eba69241673796d5da974363e9a9cc4e5aefe68b7d23d"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap-tone3.png",
+        "bytes": 47942,
+        "sha256": "e6309c43b4aa00daf42e9a8104920ad08fc1771f1c60ee06d9110e45731de087"
+      },
+      "output": {
+        "path": "app/public/emoji/clap-tone3.webp",
+        "bytes": 20888,
+        "sha256": "2ab965e6b0ff6a9bea84ee674e61e202a21ff24e2b544299b9da374f3949a35e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks-tone3.png",
+        "bytes": 42806,
+        "sha256": "63748151dbf714e72d302cce376ddb7fa18ad847500e9b3bca404c0060634951"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks-tone3.webp",
+        "bytes": 19074,
+        "sha256": "a7c75be305e4149dfa5269ac14f33a3c0e7aaa297eda88439fa1431444aa382e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace-tone3.png",
+        "bytes": 34779,
+        "sha256": "6b62ac6d94dd9704c9439a0e039b5ed6f1e56c7453daef69fb2facd7db726440"
+      },
+      "output": {
+        "path": "app/public/emoji/peace-tone3.webp",
+        "bytes": 17286,
+        "sha256": "c176bd96c148af80b7a445a0cd20afd234c1a2ebe1b38bf55a4105b39aab8938"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up-tone4.png",
+        "bytes": 36016,
+        "sha256": "b9b240603f52cf2c124b4275844df3b112480d54e37761b897d0936b52be94a7"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up-tone4.webp",
+        "bytes": 16568,
+        "sha256": "e64c7791651416cca8de6c4ccd87ef489c95488b4e8c16cde3d88bc1090e27ad"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down-tone4.png",
+        "bytes": 40036,
+        "sha256": "e0ed15f9aa6816d26127e385e4110cb58e387e0634e237fd84bac0152bfde9dc"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down-tone4.webp",
+        "bytes": 19648,
+        "sha256": "0c411cc3ed4301e1f46d242669ab3daff4d74542483a376a253f479fb89521cc"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave-tone4.png",
+        "bytes": 52091,
+        "sha256": "6815d76a9924c6844a71b86516426aa4baa39cc3d2338680248ea6c48df980a7"
+      },
+      "output": {
+        "path": "app/public/emoji/wave-tone4.webp",
+        "bytes": 24610,
+        "sha256": "7dbc18e587298c4c19bf2414ef5a845f1c950ee7be0aa1c697689c9f4038da5a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap-tone4.png",
+        "bytes": 47850,
+        "sha256": "d967fbc47b556375d34bc15748252e92eff105789fe31b621f107e6438e6f775"
+      },
+      "output": {
+        "path": "app/public/emoji/clap-tone4.webp",
+        "bytes": 21162,
+        "sha256": "187aa2dff0eb814d841549ed2debf74f1c10dc96c1f619bc4a7c54367ff6ca01"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks-tone4.png",
+        "bytes": 41784,
+        "sha256": "b15de73b96bfe159e9c34b69632db3f794f13053bf4bb6fbc9ff7943cf8bf406"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks-tone4.webp",
+        "bytes": 18566,
+        "sha256": "feb93677da7663ae3aee58b5a181b5b1367bd33c55cf2d25101bf0f3c9e1fa7b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace-tone4.png",
+        "bytes": 33766,
+        "sha256": "3a3e8a2fba18f869228775b5377aa11843aca50bf883014786a9b9e8dc418f3f"
+      },
+      "output": {
+        "path": "app/public/emoji/peace-tone4.webp",
+        "bytes": 16806,
+        "sha256": "2e0475d1433f7365b87cdce2d8f127f584d15620f77f1376c9efac01fe409c26"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-up-tone5.png",
+        "bytes": 35404,
+        "sha256": "543f5c1af8250248b2e1f5beae86f11957718813810fa37fc8c95afe2f124c99"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-up-tone5.webp",
+        "bytes": 16236,
+        "sha256": "62b26a211eb5ff86564e79ad43101fc25b67627b80d7a64dae5f64a9cbcb7cdf"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thumbs-down-tone5.png",
+        "bytes": 39604,
+        "sha256": "f631f10c6081ddd211619768f08309a6f13493749967000a40cf2f1b505874a2"
+      },
+      "output": {
+        "path": "app/public/emoji/thumbs-down-tone5.webp",
+        "bytes": 19190,
+        "sha256": "cf6989a8827e3c24eedee488a7d9e7e8a85e8b9c9bcdf9f0d2a3024955cec4d3"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/wave-tone5.png",
+        "bytes": 51758,
+        "sha256": "7cf3cf63394abdf92a14f571f08f9240465a3bbf275ce91c5183b9f976c762a9"
+      },
+      "output": {
+        "path": "app/public/emoji/wave-tone5.webp",
+        "bytes": 24256,
+        "sha256": "118df4b64d93476af529b3c49a8f26939aa471ee7329364f4966dc0cbf641dae"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/clap-tone5.png",
+        "bytes": 50306,
+        "sha256": "c9ab31d9e39116c461048ea3dea2f1a40321a103416e93355fcaf1aca91feafa"
+      },
+      "output": {
+        "path": "app/public/emoji/clap-tone5.webp",
+        "bytes": 22302,
+        "sha256": "cf6c30909faa58456fc60ef78d0b4e0d2b93fcc5ea80e9ce53d27c2240ad2bd6"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/thanks-tone5.png",
+        "bytes": 40861,
+        "sha256": "db639215ca64f90798a2bbf6233394567c2faa1502dde2bce66b63c0239e51e2"
+      },
+      "output": {
+        "path": "app/public/emoji/thanks-tone5.webp",
+        "bytes": 18264,
+        "sha256": "e431515e5ef750406387320a0ab7e4e80ecf1738f8c0cd3bcabbd240efc410e3"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/peace-tone5.png",
+        "bytes": 33411,
+        "sha256": "33c1b4d165116fe9d86eec92de7bca7f6dc961d2f6eedda1ed8df3431117d8d0"
+      },
+      "output": {
+        "path": "app/public/emoji/peace-tone5.webp",
+        "bytes": 16650,
+        "sha256": "36421b405b53af66fedc2aab6b331b189f09c5773ff624bdbadd777c040c1d05"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/sacred-stone.png",
+        "bytes": 58506,
+        "sha256": "69ee04c0f038199fe51751a742422778deee710f7fd7f0cff49770adf7eaf683"
+      },
+      "output": {
+        "path": "app/public/emoji/sacred-stone.webp",
+        "bytes": 33172,
+        "sha256": "9c04f339bbedb5c151e5875107b4652022fd9f36508475de8e19e1b5caf9e5ec"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/jumping-spider.png",
+        "bytes": 56876,
+        "sha256": "80af0c42d692f3b32ec289bf41100d88fa1fb0dc63e3c1acf21f4f2f83aa7271"
+      },
+      "output": {
+        "path": "app/public/emoji/jumping-spider.webp",
+        "bytes": 30580,
+        "sha256": "16dbfdad883d701e0ef758637fb9a2de34fc2a55c586a8e40b379ee212a161fb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/bitcoin.png",
+        "bytes": 47254,
+        "sha256": "a7fdc723d02b40d799c3674462bdfbfcc13ab76851fd5e7a203b60fe99be66df"
+      },
+      "output": {
+        "path": "app/public/emoji/bitcoin.webp",
+        "bytes": 26876,
+        "sha256": "e7b99a1752fbaf473a7cd4c5db61b535aefe37ba9df769b375c3bc8cb00c3e1a"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-forgesworn.png",
+        "bytes": 22419,
+        "sha256": "158894a18d41387d8f879930bcf72b51c1297848b5b6359be3fa973e2f232bb7"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-forgesworn.webp",
+        "bytes": 14236,
+        "sha256": "6a06d0afe1bea77f3ae4367458b5e04f0ab8c5ca68280b2d484fe0ff988b7be0"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-kindred.png",
+        "bytes": 6307,
+        "sha256": "b27e9c9673b1a13bded828304309505785317f9ace8904456b2e19a6ca4feece"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-kindred.webp",
+        "bytes": 2566,
+        "sha256": "2199487c97fffe0d9a03bfd0aa84190dce99068be02ffcc8728f45bbb881ad55"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-kithmoot.png",
+        "bytes": 19438,
+        "sha256": "e9a5ab9ad870577b0b02ea3f204094d688cc00e712452f0659ee7e9ad6d71d58"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-kithmoot.webp",
+        "bytes": 12522,
+        "sha256": "d1aeea808fa8f718b4405ff8302f01b1a71c0fc1ed2c7e553239f815582a7b9b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-mysignet.png",
+        "bytes": 16954,
+        "sha256": "4ffb9b90c4276d4e1b6a1f9b320eb6f23be161757b0480c9bee2c805dc668036"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-mysignet.webp",
+        "bytes": 6326,
+        "sha256": "05068d4605691962172053c111bc0feef2581d29f2f64ebde8a72dd6cfe08206"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-vitark.png",
+        "bytes": 12279,
+        "sha256": "be6eaccf2538a28b43ad7c2342ae795540d8a96701e985355cd9affc653cd4ae"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-vitark.webp",
+        "bytes": 5530,
+        "sha256": "6bc27de28ec5cbe32367c5df2171663700cae1f20c38d44f9106ae74482608a9"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-vitark-den.png",
+        "bytes": 12924,
+        "sha256": "8da0f7e306d4311bdd814fd85564df09957665a41c3ccd19387991d9d01b404b"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-vitark-den.webp",
+        "bytes": 6690,
+        "sha256": "a6cee18969bdaccbdec3be46f4c9c6af19fd96b513a6171a66fa57a74420dd38"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-vitark-train.png",
+        "bytes": 14655,
+        "sha256": "ead5f5156879dfdd72e36d66f8d2c1d2e229ad64cf727213f1059e5c806ab79c"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-vitark-train.webp",
+        "bytes": 6754,
+        "sha256": "fa99a2f8b6644314b1869d6c75175ac66b5ebd849f292e34fe4fa177d66f1a90"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-vitark-still.png",
+        "bytes": 14407,
+        "sha256": "e00e2a3c1b6e9be5be722faa5f0df63fafc2b451ed4c8ccc111e330a864308eb"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-vitark-still.webp",
+        "bytes": 6556,
+        "sha256": "206ea19adc1472dd6248ca469c2727d656402f070be51b9c2ac94ef262336536"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "static",
+      "source": {
+        "path": "app/public/emoji/fs-vitark-record.png",
+        "bytes": 16227,
+        "sha256": "9e51b03a8270b5fc1b7f7c3bc0615e4bec046feaaa281a0a9eb6cc08dc455e45"
+      },
+      "output": {
+        "path": "app/public/emoji/fs-vitark-record.webp",
+        "bytes": 7348,
+        "sha256": "4d523d17629300e1ba44fd8ec6d0646690dea57c4462d7507dfa6c41d18155fb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-quiet"
+        ]
+      },
+      "width": 192,
+      "height": 192
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-cult-cutout.png",
+        "bytes": 1215502,
+        "sha256": "2c81cec4e52c0c41f106c5b152cf2959aeafb36b04b0bb72438d51ce3f2471b6"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-cult-cutout-64.webp",
+        "bytes": 5486,
+        "sha256": "755657f5569ebac10743744d50b9115f407730352799f77aeaa0ab665aa37fac"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "64",
+          "64",
+          "-quiet"
+        ]
+      },
+      "width": 64,
+      "height": 64
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-cult-cutout.png",
+        "bytes": 1215502,
+        "sha256": "2c81cec4e52c0c41f106c5b152cf2959aeafb36b04b0bb72438d51ce3f2471b6"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-cult-cutout-128.webp",
+        "bytes": 17024,
+        "sha256": "23f1f8c2990d5b60ab7e887869a18a51353ede608eabe49dcd86e69c016f78b6"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "128",
+          "128",
+          "-quiet"
+        ]
+      },
+      "width": 128,
+      "height": 128
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-cult-cutout.png",
+        "bytes": 1215502,
+        "sha256": "2c81cec4e52c0c41f106c5b152cf2959aeafb36b04b0bb72438d51ce3f2471b6"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-cult-cutout-256.webp",
+        "bytes": 53124,
+        "sha256": "358fd857e232d7365b48a4be431b5056778333468a880af0ae5d845587c4df41"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "256",
+          "256",
+          "-quiet"
+        ]
+      },
+      "width": 256,
+      "height": 256
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-cult-cutout.png",
+        "bytes": 1215502,
+        "sha256": "2c81cec4e52c0c41f106c5b152cf2959aeafb36b04b0bb72438d51ce3f2471b6"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-cult-cutout-384.webp",
+        "bytes": 102830,
+        "sha256": "c1cd903b686fe161e7ea74d7e12855f074cea8ce7bfc03aa11f2595eb56a0f54"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "384",
+          "384",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-facepalm.png",
+        "bytes": 1206998,
+        "sha256": "c2df9fb6853194daa1e269714c09e84e6838c440794ea102651add9c9f122e90"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-facepalm-64.webp",
+        "bytes": 5574,
+        "sha256": "fd3f40b9d282574ef89c805634a7d74a9555b1bc649dcad31e1db1401a5c0611"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "64",
+          "64",
+          "-quiet"
+        ]
+      },
+      "width": 64,
+      "height": 64
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-facepalm.png",
+        "bytes": 1206998,
+        "sha256": "c2df9fb6853194daa1e269714c09e84e6838c440794ea102651add9c9f122e90"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-facepalm-128.webp",
+        "bytes": 17732,
+        "sha256": "fff4beea4b0df0805a1371f6413b4a44b363f5c5df9cc2674657e1868368b478"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "128",
+          "128",
+          "-quiet"
+        ]
+      },
+      "width": 128,
+      "height": 128
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-facepalm.png",
+        "bytes": 1206998,
+        "sha256": "c2df9fb6853194daa1e269714c09e84e6838c440794ea102651add9c9f122e90"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-facepalm-256.webp",
+        "bytes": 55046,
+        "sha256": "d99e868f3591ca9e6cfd92f6813304fb9c95c16df70edc19d752428ac06f9ea5"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "256",
+          "256",
+          "-quiet"
+        ]
+      },
+      "width": 256,
+      "height": 256
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-facepalm.png",
+        "bytes": 1206998,
+        "sha256": "c2df9fb6853194daa1e269714c09e84e6838c440794ea102651add9c9f122e90"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-facepalm-384.webp",
+        "bytes": 105636,
+        "sha256": "de26b2e40a8fa203f7d12dd8b74560f266d5da83e5108335d234f5b52f84083f"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "384",
+          "384",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-moon.png",
+        "bytes": 1287258,
+        "sha256": "d613ed0a1c7942bb5356c3cf4f79435d017c942174de37277cfee753904b2316"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-moon-64.webp",
+        "bytes": 6038,
+        "sha256": "1d1a533c0784fa9dcba7b5b950d8e32794b08053f1d5e76ae9e0bd453b28bad6"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "64",
+          "64",
+          "-quiet"
+        ]
+      },
+      "width": 64,
+      "height": 64
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-moon.png",
+        "bytes": 1287258,
+        "sha256": "d613ed0a1c7942bb5356c3cf4f79435d017c942174de37277cfee753904b2316"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-moon-128.webp",
+        "bytes": 19248,
+        "sha256": "ef6417e5710cd629815d11bc9654771ffdb12848886266ef375b210ee32ec8fb"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "128",
+          "128",
+          "-quiet"
+        ]
+      },
+      "width": 128,
+      "height": 128
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-moon.png",
+        "bytes": 1287258,
+        "sha256": "d613ed0a1c7942bb5356c3cf4f79435d017c942174de37277cfee753904b2316"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-moon-256.webp",
+        "bytes": 59846,
+        "sha256": "166e5d13cba61509d26a16bec2d76b10834049485e391e6e6e7b54dd03a17e7e"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "256",
+          "256",
+          "-quiet"
+        ]
+      },
+      "width": 256,
+      "height": 256
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-moon.png",
+        "bytes": 1287258,
+        "sha256": "d613ed0a1c7942bb5356c3cf4f79435d017c942174de37277cfee753904b2316"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-moon-384.webp",
+        "bytes": 114778,
+        "sha256": "5202d92fbe845574e343de0994bb6734e90fbfd8f59f814adc32225378afb2a4"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "384",
+          "384",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-laser.png",
+        "bytes": 1250452,
+        "sha256": "08ee3e5f94d1e5fcf3ef578b36d42e91f9c3ba3b795c63cf8bebf17850c9696c"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-laser-64.webp",
+        "bytes": 5790,
+        "sha256": "35eff21fbe7680441c1876cbb7d4ff9c3c318a28c2034d1fc83457f437d5cb48"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "64",
+          "64",
+          "-quiet"
+        ]
+      },
+      "width": 64,
+      "height": 64
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-laser.png",
+        "bytes": 1250452,
+        "sha256": "08ee3e5f94d1e5fcf3ef578b36d42e91f9c3ba3b795c63cf8bebf17850c9696c"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-laser-128.webp",
+        "bytes": 19000,
+        "sha256": "47f483c6d5eb1e063d7d687a940542dfb857eb0c470169f2a4cf4eb4ff63db13"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "128",
+          "128",
+          "-quiet"
+        ]
+      },
+      "width": 128,
+      "height": 128
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-laser.png",
+        "bytes": 1250452,
+        "sha256": "08ee3e5f94d1e5fcf3ef578b36d42e91f9c3ba3b795c63cf8bebf17850c9696c"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-laser-256.webp",
+        "bytes": 59274,
+        "sha256": "504cf0f5639c2891a3dd63f478753409a59e96336c9cb1215dc3cb8cd603900b"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "256",
+          "256",
+          "-quiet"
+        ]
+      },
+      "width": 256,
+      "height": 256
+    },
+    {
+      "category": "thumbnail",
+      "source": {
+        "path": "app/src/assets/600-original/600-laser.png",
+        "bytes": 1250452,
+        "sha256": "08ee3e5f94d1e5fcf3ef578b36d42e91f9c3ba3b795c63cf8bebf17850c9696c"
+      },
+      "output": {
+        "path": "app/src/assets/600-original/600-laser-384.webp",
+        "bytes": 112794,
+        "sha256": "796c108f95f16ae19863d17ce88c39da4e154bd0d781cbd63c3dc7e1df726150"
+      },
+      "encoder": {
+        "name": "cwebp",
+        "options": [
+          "-lossless",
+          "-q",
+          "100",
+          "-m",
+          "6",
+          "-alpha_q",
+          "100",
+          "-metadata",
+          "none",
+          "-resize",
+          "384",
+          "384",
+          "-quiet"
+        ]
+      },
+      "width": 384,
+      "height": 384
+    }
+  ],
+  "totals": {
+    "static": {
+      "files": 191,
+      "sourceBytes": 12749895,
+      "derivativeBytes": 6155292
+    },
+    "animated": {
+      "files": 4,
+      "sourceBytes": 15886791,
+      "derivativeBytes": 11194326
+    },
+    "thumbnail": {
+      "files": 16,
+      "sourceBytes": 19840840,
+      "derivativeBytes": 759220
+    },
+    "overall": {
+      "files": 211,
+      "sourceBytes": 48477526,
+      "derivativeBytes": 18108838
+    }
+  }
+}
