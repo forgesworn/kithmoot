@@ -527,6 +527,10 @@ physical acceptance evidence before changing this repository.
    certificate and its five reviewed capabilities unchanged.
 3. Change the Android article in `site/index.html` to the production attributes
    and copy below. Keep the stable `/apk/kithmoot-latest.apk` link.
+4. Add `releaseNotes`: two or three concise, trimmed, single-line plain-text
+   notes of at most 140 characters each, in display order. The Android update
+   prompt supplies bullets; do not include bullet prefixes, markup or newlines.
+   Older apps ignore the field. Sign only after the final notes are in place.
 
 ```html
 <article id="android" class="platform" data-android-channel="production" data-android-version="0.6.0" data-android-version-code="23">
