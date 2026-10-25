@@ -192,6 +192,54 @@ async function ordinarySnapshot(args) {
   return {scenario,actor:'alice',...state}
 }
 
+let inlineSigninBusy=false
+async function signinInline() {
+  if(inlineSigninBusy)return {handling:true}
+  inlineSigninBusy=true
+  try {
+    if(new URL(page.url()).origin!==new URL(app).origin)throw new Error('Signet picker is outside exact local app origin')
+    const dialog=page.locator('#signet-login-dialog')
+    if(!await dialog.isVisible()||await dialog.locator('h2').textContent()!=='Sign in to KithMoot')throw new Error('Expected KithMoot Signet picker is not visible')
+    const extension=dialog.locator('button[data-choice="nip07"]')
+    if(!await extension.isVisible()){
+      const advanced=dialog.locator('button[data-action="advanced"]')
+      if(!await advanced.isVisible()||await advanced.textContent()!=='Advanced')throw new Error('Exact Signet Advanced control unavailable')
+      await advanced.click()
+    }
+    if(await extension.count()!==1||!await extension.isVisible()||!(await extension.textContent())?.includes('Browser extension'))throw new Error('Exact browser-extension Signet choice unavailable')
+    await extension.click()
+    return {selected:true,method:'nip07',originMatched:true}
+  } finally { inlineSigninBusy=false }
+}
+
+async function continueOrdinaryDoor(args) {
+  let lastJoin=0,lastNostr=0
+  const deadline=Date.now()+90_000
+  while(Date.now()<deadline){
+    if(await page.locator('#roomArea').isVisible())return {roomOpen:true}
+    if(await page.locator('#signet-login-dialog').isVisible()){await signinInline();continue}
+    if(context.pages().some(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){await page.waitForTimeout(200);continue}
+    const join=page.locator('#join')
+    if(await join.isVisible()&&await join.isEnabled()){
+      const label=(await join.textContent())?.trim()??''
+      if(label==='Join'&&await page.locator('#joinNostr').isVisible()&&Date.now()-lastNostr>5000){
+        lastNostr=Date.now();await page.locator('#joinNostr').click();continue
+      }
+      if(/^Continue (?:with your Nostr extension|with your Nostr account|as .+)$/.test(label)&&Date.now()-lastJoin>5000){
+        if(await page.locator('#displayName').isVisible()&&!await page.locator('#displayName').inputValue())await page.locator('#displayName').fill(boundedOrdinaryText(args.displayName,64,'joining display name'))
+        if(await page.locator('#joinMediaChoice').isVisible()){
+          await page.locator('#joinMic').uncheck()
+          await page.locator('#joinCamera').uncheck()
+        }
+        lastJoin=Date.now();await join.click();continue
+      }
+      if(label==='Join'&&!await page.locator('#joinNostr').isVisible())throw new Error('Ordinary door only offers visitor identity; refusing')
+    }
+    await page.waitForTimeout(200)
+  }
+  throw new Error('Actual signed-in ordinary room did not open after its UI door')
+}
+
 async function settings() {
   for (let i=0;i<30;i++) { if(await page.locator('#settingsPane').isVisible()) break; await page.locator('#openAppSettings').evaluate(e=>e.click()); await page.waitForTimeout(100) }
   if(await page.locator('#settingsPane').getAttribute('data-page') !== 'main') await page.locator('#settingsBack').click()
@@ -242,6 +290,7 @@ async function run(step,args) {
     await popup.close();return {paired:true,personaSha256:digest(cfg.rootPub),independentPublicPinMatched:true}
   }
   if(step==='signin') { await page.goto(app+'?signin=nostr'); if(await page.locator('#signOut').evaluateAll(es=>es.some(e=>!e.hidden)))return {signedIn:true,restored:true};await page.getByRole('button',{name:'Advanced',exact:true}).click();await page.getByRole('button',{name:/Browser extension/}).click();await page.locator('#homeSignIn').waitFor({state:'hidden',timeout:60000});return {signedIn:true} }
+  if(step==='signin-inline')return signinInline()
   if(step==='ordinary-create') {
     if(ordinaryScenario(args)!=='alice-created')throw new Error('Only Alice-created scenario creates a browser room')
     const name=boundedOrdinaryText(args.name,64,'synthetic room name')
@@ -255,7 +304,7 @@ async function run(step,args) {
     if(await page.locator('#newRoomYourNameRow').isVisible())await page.locator('#newRoomYourName').fill(boundedOrdinaryText(args.displayName,64,'creator display name'))
     if(await page.locator('#roomAsk').isChecked()||await page.locator('#roomEnds').inputValue()!=='0')throw new Error('Persistent group-room UI choice did not hold')
     await page.locator('#create').click()
-    await page.locator('#roomArea').waitFor({state:'visible',timeout:90000})
+    await continueOrdinaryDoor(args)
     const snapshot=await ordinarySnapshot(args)
     if(snapshot.roomTitleSha256!==args.expectedNameSha256)throw new Error('Created room title differs from expected synthetic name')
     return {created:true,persistentGroup:true,admissionAsk:false,endsNever:true,...snapshot}
@@ -273,16 +322,7 @@ async function run(step,args) {
   }
   if(step==='ordinary-join') {
     ordinaryScenario(args)
-    if(!await page.locator('#roomArea').isVisible()) {
-      await page.locator('#join').waitFor({state:'visible',timeout:60000})
-      if(await page.locator('#displayName').isVisible()&&!await page.locator('#displayName').inputValue())await page.locator('#displayName').fill(boundedOrdinaryText(args.displayName,64,'joining display name'))
-      if(await page.locator('#joinMediaChoice').isVisible()){
-        await page.locator('#joinMic').uncheck()
-        await page.locator('#joinCamera').uncheck()
-      }
-      await page.locator('#join').click()
-      await page.locator('#roomArea').waitFor({state:'visible',timeout:90000})
-    }
+    await continueOrdinaryDoor(args)
     const snapshot=await ordinarySnapshot(args)
     if(!snapshot.roomOpen)throw new Error('Actual room UI did not open')
     return {joined:true,...snapshot}
@@ -478,7 +518,7 @@ async function run(step,args) {
   }
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');
