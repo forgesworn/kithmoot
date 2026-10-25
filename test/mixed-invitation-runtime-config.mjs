@@ -10,3 +10,9 @@ export function readRuntimeConfig(status) {
   const linkUrl = websocket(status.linkUrl), relayUrl = websocket(status.signerRelay)
   return { linkUrl, relayUrl, publicRelay: relayUrl }
 }
+
+/** Two explicit disposable browser controllers; the listener stays loopback. */
+export function readControllerPort(value = '28446') {
+  if (value !== '28446' && value !== '28447') throw new Error('Choose disposable controller port 28446 or 28447')
+  return Number(value)
+}

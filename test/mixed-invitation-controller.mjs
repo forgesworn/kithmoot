@@ -1,4 +1,4 @@
-import { readRuntimeConfig } from './mixed-invitation-runtime-config.mjs'
+import { readRuntimeConfig, readControllerPort } from './mixed-invitation-runtime-config.mjs'
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
 import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
@@ -9,6 +9,7 @@ import { mkdir, readdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 
+const controllerPort = readControllerPort(process.env.MIXED_INVITATION_CONTROLLER_PORT)
 const labProfile = process.env.MIXED_INVITATION_LAB_PROFILE ?? 'Invitation1'
 if (!['Invitation1', 'InvitationAdmins2'].includes(labProfile)) throw new Error('Explicit supported invitation lab profile required')
 const app = process.env.MIXED_INVITATION_APP_URL ?? 'http://localhost:28445/j/'
@@ -632,6 +633,6 @@ const server=createServer(async(req,res)=>{
     res.end(JSON.stringify({queued:true,step}))
   }catch{res.writeHead(400).end(JSON.stringify({ok:false,error:'Browser controller refused command'}))}
 })
-server.listen(28446,'127.0.0.1',()=>console.log('Mixed browser private controller ready on loopback port 28446'))
+server.listen(controllerPort,'127.0.0.1',()=>console.log(`Mixed browser private controller ready on loopback port ${controllerPort}`))
 async function close(){server.close();await context.close();process.exit(0)}
 process.on('SIGTERM',()=>void close());process.on('SIGINT',()=>void close())
