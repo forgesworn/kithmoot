@@ -1,3 +1,4 @@
+import { accountNetworkState, chooseAccountNetwork } from './mixed-invitation-account-network.mjs'
 import { readRuntimeConfig, readControllerPort } from './mixed-invitation-runtime-config.mjs'
 import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
@@ -320,6 +321,8 @@ async function requireLabProfile() {
 }
 async function run(step,args) {
   if(step === 'lab-profile') return requireLabProfile()
+  if(step === 'account-network-state') return accountNetworkState(page)
+  if(step === 'account-network-choose') return chooseAccountNetwork(page, args.mode)
   if(step==='configure-ownstack') {
     await settings();await page.locator('#defaultRelaySettings').click()
     while(await page.locator('#relayList button[aria-label^="Remove "]').count())await page.locator('#relayList button[aria-label^="Remove "]').first().click()
@@ -594,7 +597,7 @@ async function run(step,args) {
   await requireLabProfile()
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile','box-trace-read'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile','box-trace-read','account-network-state'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');
