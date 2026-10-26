@@ -109,6 +109,9 @@ test('a bare word that only echoes an announced name does not light up, and a re
   await device(context)
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
 
+  // This case deliberately enables public profiles to test the shown-name correction.
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
+
   // Bob announces "Buzz" joining the room, but his kind-0 profile - seeded
   // straight onto the room's own relay, as the door would find it - calls
   // him Bob. That mismatch is the whole bug: the announced name should

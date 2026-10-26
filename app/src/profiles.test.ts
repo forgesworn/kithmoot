@@ -1,10 +1,31 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { ProfileBook } from './profiles.js'
+import { profilePreference } from './relay-settings.js'
 import type { NostrRelayPool } from '../../src/index.js'
 
 const books: ProfileBook[] = []
 afterEach(() => { books.forEach(book => book.close()); books.length = 0; vi.unstubAllGlobals() })
+
+it('keeps participant keys off profile Nostr relays until the app has an explicit opt-in', () => {
+  const subscribe = vi.fn(() => () => {})
+  const transport = vi.fn(() => ({ subscribe, close() {} }) as unknown as NostrRelayPool)
+  const book = new ProfileBook({ relays: () => ['wss://room.example/'],
+    publicRelays: () => ['wss://profiles.example/'], transport, onChange: vi.fn() })
+  books.push(book)
+  book.setEnabled(profilePreference({ getItem: () => null }))
+  const participant = getPublicKey(generateSecretKey())
+  book.want([participant], 'room')
+  book.want([participant], 'public')
+  expect(transport).not.toHaveBeenCalled()
+  expect(subscribe).not.toHaveBeenCalled()
+  book.setEnabled(profilePreference({ getItem: () => 'true' }))
+  book.want([participant], 'public')
+  expect(transport).toHaveBeenCalledWith(['wss://profiles.example/'], 'public')
+  expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining([
+    expect.objectContaining({ kinds: [0], authors: [participant] }),
+  ]), expect.any(Function))
+})
 
 function fixture() {
   const secret = generateSecretKey()

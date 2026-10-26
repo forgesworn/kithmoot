@@ -85,6 +85,7 @@ async function seed(context: BrowserContext, participant: Uint8Array, rooms: { i
   await context.addInitScript(({ key, rooms }) => {
     if (localStorage.getItem('test.profile-lookups-seeded')) return
     localStorage.setItem('test.profile-lookups-seeded', '1')
+    localStorage.setItem('kithmoot.profiles.enabled', 'true')
     localStorage.setItem('kithmoot.participant', key)
     for (const room of rooms) {
       localStorage.setItem('kithmoot.room.' + room.id, JSON.stringify({ link: room.link, name: room.name, openedAt: Math.floor(Date.now() / 1000), readAt: 0 }))
@@ -188,6 +189,7 @@ test('going home on a docked call closes the room’s lookups, so its people are
   test.setTimeout(180_000)
   const roomRelay = new URL('/__test-relay', baseURL); roomRelay.protocol = 'wss:'
   const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 1000 } })
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   const sent = await record(context, roomRelay.href)
   const bo = localIdentity(generateSecretKey())
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [roomRelay.href], iceUrls: [] })

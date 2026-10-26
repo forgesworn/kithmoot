@@ -334,7 +334,7 @@ test('incoming chat preserves the reading position and offers a way to the lates
   } finally { await a.close(); await b.close() }
 })
 
-test('public profiles start enabled and an opt-out survives a new visit', async ({ browser, baseURL }) => {
+test('public profiles need opt-in, and both choices survive a new visit', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)
   const queries: string[][] = []
@@ -358,21 +358,29 @@ test('public profiles start enabled and an opt-out survives a new visit', async 
     await join(await other.newPage(), link, 'Somebody else')
     const page = await context.newPage()
     await join(page, link, 'Private reader')
-    await page.locator('#chatInput').fill('No public lookup needed')
+    await page.locator('#chatInput').fill('No public lookup without permission')
     await page.locator('#chatInput').press('Enter')
-    await expect(page.locator('#chatLog')).toContainText('No public lookup needed')
+    await expect(page.locator('#chatLog')).toContainText('No public lookup without permission')
+    await openProfileSettings(page)
+    await expect(page.locator('#lookupProfiles')).not.toBeChecked()
+    expect(queries).toHaveLength(0)
+    await page.locator('#lookupProfiles').check()
     await expect.poll(() => queries.length).toBeGreaterThan(0)
+    const enabledCount = queries.length
+    await page.reload()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).toBeChecked()
+    await expect.poll(() => queries.length).toBeGreaterThan(enabledCount)
     await page.locator('#lookupProfiles').uncheck()
-    const count = queries.length
+    const offCount = queries.length
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
-    expect(queries).toHaveLength(count)
+    expect(queries).toHaveLength(offCount)
     await page.locator('#lookupProfiles').check()
-    await expect.poll(() => queries.length).toBeGreaterThan(count)
+    await expect.poll(() => queries.length).toBeGreaterThan(offCount)
   } finally { await context.close(); await other.close() }
 })
 

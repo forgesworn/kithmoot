@@ -681,6 +681,7 @@ export class RoomSession {
   #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
   #listeners = new Set<(views: ParticipantView[]) => void>()
+  #pendingRosterNotification = false
   #descriptorListeners = new Set<(descriptor: RoomDescriptor) => void>()
   #peerDescriptorListeners = new Set<() => void>()
   #peerDescriptors = new Map<string, { descriptor: RoomDescriptor; id: string }>()
@@ -1522,6 +1523,17 @@ export class RoomSession {
    *  end. */
   #ended(): boolean {
     return this.#opts.endsAt !== undefined && this.#now() >= this.#opts.endsAt
+  }
+
+  /** An admitted device must stop when its own room grant ends too. */
+  #ensureLocalAccess(now: number): boolean {
+    if (!this.#self || !this.#opts.policy ||
+      evaluateAccess(this.#opts.policy, this.participant, this.#opts.proof, now, this.roomId).admitted) return true
+    // Nothing further may be published on this grant, including a farewell
+    // or call bell. Leave through the ordinary teardown without either.
+    this.#self = undefined
+    void this.leave()
+    return false
   }
 
   /** The conference room's end, in unix seconds, or undefined for a room
@@ -2734,6 +2746,7 @@ export class RoomSession {
     execution: ProtocolExecution | undefined): Promise<void> {
     const prepare = () => {
     this.#opts.protocol?.check('roster-preparation')
+    if (!this.#ensureLocalAccess(this.#now())) return
     const self = this.#self
     if (!self || this.#left) return
 
@@ -2815,11 +2828,12 @@ export class RoomSession {
    * the presence window, and one whose credential has expired since it was
    * ingested - a credential is checked at ingest, and ingest was hours ago.
    *
-   * Our own entry is never swept: we know perfectly well that we are here,
-   * and evicting ourselves between heartbeats would make the room flicker.
+   * Our own presence is never swept: we know that we are here. Its access
+   * grant is checked separately, before considering remote entries.
    */
   #evictLapsed(): boolean {
     const now = this.#now()
+    if (!this.#ensureLocalAccess(now)) return false
     const cutoff = now - (this.#opts.timing?.presenceTtlSeconds ?? PRESENCE_TTL_SECONDS)
     let changed = false
 
@@ -2846,7 +2860,12 @@ export class RoomSession {
         lapsed = false
       }
       const credentialExpired = !verifyDeviceCredential(entry.credential, { roomId: this.roomId, now }).ok
-      if (!lapsed && !credentialExpired) continue
+      // Presence and a working media connection cannot extend the room's
+      // admission grant. Recheck it when time passes, not only when another
+      // heartbeat arrives: that heartbeat is refused once its proof expires.
+      const accessExpired = this.#opts.policy !== undefined &&
+        !evaluateAccess(this.#opts.policy, entry.participant, entry.proof, now, this.roomId).admitted
+      if (!lapsed && !credentialExpired && !accessExpired) continue
       this.#entries.delete(key)
       this.#seenAt.delete(key)
       // Forgetting a departed device is what lets a genuine rejoin be
@@ -2871,6 +2890,18 @@ export class RoomSession {
       if (leftAt < cutoff) this.#departed.delete(key)
     }
 
+    // A getter can discover expiry before the sweep. Its caller receives a
+    // fresh snapshot, but Mesh must hear about the eviction as well. Queue
+    // the notification to avoid re-entering the getter; a synchronous
+    // notification from the sweep or another update fulfils it first.
+    if (changed && !this.#pendingRosterNotification) {
+      this.#pendingRosterNotification = true
+      queueMicrotask(() => {
+        if (!this.#pendingRosterNotification) return
+        this.#pendingRosterNotification = false
+        if (!this.#left && !this.#closed) this.#notify()
+      })
+    }
     return changed
   }
 
@@ -3348,6 +3379,7 @@ export class RoomSession {
    *  that, so listeners are guarded here too. */
   #notify(): void {
     const views = this.participants()
+    this.#pendingRosterNotification = false
     for (const listener of this.#listeners) {
       try {
         listener(views)
@@ -3380,8 +3412,8 @@ export class RoomSession {
 
   participants(): ParticipantView[] {
     // Swept on read as well as on a timer, so a caller reading the roster
-    // never sees a device that lapsed since the last sweep. No notification
-    // from here: the caller is reading the fresh answer already.
+    // never sees a device that lapsed since the last sweep. Eviction queues
+    // a notification so media peers receive the same fresh answer too.
     this.#evictLapsed()
     const fresh = [...this.#entries.values()].filter(entry => !this.#blocked(entry.participant))
     const present = new Set(fresh.map((entry) => entry.participant))

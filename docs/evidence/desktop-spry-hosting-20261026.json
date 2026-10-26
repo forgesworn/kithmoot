@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 2,
+  "date": "2026-10-26",
+  "scope": "Development-only desktop native hosting controls and parent-lifetime supervision; local acceptance only",
+  "source": {
+    "kithmootBase": "28786a0c42568b46f842e1dee249e57132ec2f86",
+    "branch": "feat/desktop-spry-hosting-20261026",
+    "changesCommitted": false,
+    "fileSha256": {
+      "desktop/main.mjs": "31c9ef0054546008b4724afeef284f47140ff4e25d9bfcb3838c59715a7488e2",
+      "desktop/app-menu.mjs": "6e2a2c28e2c65d952efdaf0ede0bf47c619f3d716d1bbe4913875cdfb7bda6e3",
+      "desktop/spry-hosting.mjs": "d9f5cc63968505d0c8d9aab7468a7b1b82fbf28cb706d5bddce7603bbc08f3c8",
+      "desktop/spry-hosting-controls.mjs": "244d31e155443184ae54a5ff6391a4579604fbd346e47e28f5a9655508c920a9",
+      "desktop/test/app-menu.test.mjs": "91d45494f1535e376a4d9d75e6b90747d945c18845be7e2a55ab3b0a72b421d2",
+      "desktop/test/spry-hosting.test.mjs": "cefade0a4784abd7681b3932ee5ddb4ae78bd7262b4c5aecf9f2cb1971df4741",
+      "desktop/test/spry-hosting-controls.test.mjs": "22d5a1ab76ff3604273962bb34d3b29d3b7f12598196f59d2bce6a90d9928250",
+      "desktop/test/spry-hosting-native.test.mjs": "f7c8b07c2300f36b73739c8486d74cabc78def3766fe9b43b64fffa72d37d5ff",
+      "desktop/test/spry-hosting-electron.mjs": "ac480a01b3a264bf050bfdcc078b56f2b0e269e2d43da6024da9b1ae2172d23b",
+      "desktop/README.md": "b2140f31d36440077435a645406464c423562e667d62c799881351ecc53293c7",
+      "docs/2026-10-26-desktop-spry-hosting.md": "f812160b315a4767a4e95b04e0ce78435cdf33d55ef99bb1150ca6afdaac4d66",
+      "docs/legal/call-transport-position.md": "5b0bce413d50ccf1ab20d6aae4a27caa7c13655c9fe35c8d221205e02bc9bd58"
+    },
+    "spryBase": "f2c56e56395cac41b634bd2096777a413b74fbbd",
+    "nativeBuild": "cargo build --locked --all-features --bin spry-turn",
+    "nativeExecutableSha256": "c51bd76bb852f3fd6aeb622a715919413b7b8172b6ab060a78b212c2f2463052",
+    "nativeBuildKind": "development, all features; local Python TLS interop only, no desktop TLS/media route qualification",
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "spryFileSha256": {
+      "src/main.rs": "c9cd444612245f5211e5a34f2152ce41cabe5958a7337a5eae2ee33f80aab0f3",
+      "tests/parent_lifetime.rs": "bf9c54b7b869e554476cc0a0a6b64ec5dfd1f561ecda2d22206f5ab237e76bdf",
+      "GOALS.md": "85f0fb6b5648c232e9b78f11a1be91a8a19a2c8d8ba53eb05f3114e98071672f"
+    },
+    "electron": "44.4.1"
+  },
+  "checks": [
+    {
+      "command": "KITHMOOT_TEST_SPRY_BINARY=<reviewed-native-binary> node --test desktop/test/*.test.mjs",
+      "result": "passed",
+      "tests": 159,
+      "passed": 159,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "ELECTRON_EXECUTABLE=<reviewed-electron> KITHMOOT_TEST_SPRY_BINARY=<reviewed-native-binary> node desktop/test/spry-hosting-electron.mjs",
+      "result": "passed",
+      "fixture": "Actual source main/menu/preload entry points with a synthetic offline page and injected native dialog answers; disposable app/profile. Existing Playwright installation selected through KITHMOOT_TEST_PLAYWRIGHT."
+    },
+    {
+      "command": "python3 tests/interop.py --binary target/debug/spry-turn --tls",
+      "repository": "spry-turn",
+      "result": "passed",
+      "tests": 35
+    },
+    {
+      "command": "cargo test --locked --all-features -p spry-turn",
+      "repository": "spry-turn",
+      "result": "passed",
+      "coreTests": 20,
+      "nativeLifecycleTests": 5
+    },
+    {
+      "check": "Native all-target/all-feature clippy with warnings denied, rustfmt, portable/runtime-only/turn feature checks",
+      "repository": "spry-turn",
+      "result": "passed; native implementation agent"
+    },
+    {
+      "command": "npm run check:docs",
+      "repository": "spry-turn",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "repository": "both isolated worktrees",
+      "result": "passed"
+    },
+    {
+      "command": "gitleaks stdin --redact --no-banner",
+      "scope": "Changed source, tests and documentation",
+      "result": "passed; no leaks found"
+    }
+  ],
+  "nativeEvidence": [
+    "Loopback UDP and TCP STUN binding through the supervised native executable",
+    "Anonymous TURN allocation refused with error 401",
+    "Supervisor-minted credentials authenticate a real UDP TURN allocation",
+    "Authenticated allocation response integrity verified independently using Node crypto",
+    "Allocation UDP socket and listener UDP/TCP sockets can be rebound after Stop",
+    "Restart changes secret; previous-run login cannot allocate against the restarted native server",
+    "Native serve opts into a separate blocking stdin lifetime watcher; default stdin closure does not change standalone lifetime",
+    "Supervisor holds native stdin pipe open and closes it on Stop; broken pipe fails closed without exposing raw errors",
+    "Forced Node supervisor SIGKILL during incoming STUN traffic releases UDP/TCP listener and authenticated allocation UDP ports within three seconds"
+  ],
+  "review": {
+    "sourceMapping": "gpt-6.1-sol, low effort",
+    "containedImplementation": "gpt-6.1-sol, medium effort",
+    "privacyAndLegalGapReview": "gpt-6.1-sol, medium effort",
+    "finalJudgement": "Host source review and real native-process acceptance",
+    "legalNote": "GB online-services verified 2026-09-28, transport updates 2026-10-23, discovery updates 2026-10-25, due 2027-03-28 or earlier relevant watch change; unresolved applications remain [U]",
+    "nativeImplementationAndReview": "gpt-6.1-sol, medium effort; root reviewed and exercised native executable",
+    "protonMappingReview": "gpt-6.1-sol, low effort; official Proton support guides checked 26 October 2026",
+    "legalCoverGapCheck": "gpt-6.1-sol, medium effort; actual development facts and unresolved legal readings preserved"
+  },
+  "boundaries": {
+    "developmentNativeControls": true,
+    "productionIntegration": false,
+    "hostingRendererIpc": false,
+    "developmentHostingUi": true,
+    "packagedNativeBinary": false,
+    "localParentCrashSupervision": true,
+    "syntheticElectronLifecycle": true,
+    "fullWebBundleAcceptance": false,
+    "installedAppAcceptance": false,
+    "actualOsSleepWakeQualified": false,
+    "packagedUpdateInstallQualified": false,
+    "nostrAccessOrAdvertising": false,
+    "protonReachabilityOrKillSwitchQualified": false,
+    "independentNetworkMediaCall": false,
+    "performanceQualification": false,
+    "publicServerStarted": false,
+    "ownerArchipelagoNodeChanged": false,
+    "publishedOrDeployed": false
+  },
+  "cleanup": "Task-owned native target and extracted cached Electron test runtime removed after evidence recording. Generated native processes and disposable Electron apps/profiles stopped and removed, including failed-run scratch. Existing dependencies/cache and unrelated worktrees preserved. Uncommitted source worktrees retained.",
+  "electronEvidence": [
+    "Off on launch, no listener before explicit native action, Cancel selected by default",
+    "Native Start, Running (local bind), independent Stop and listener release",
+    "Pending consent invalidated by synthetic suspend, resume does not restart hosting",
+    "Synthetic suspend stops an active native relay",
+    "Existing trusted update IPC stops hosting before refusing the disabled development updater; no packaged update installation tested",
+    "Actual renderer crash stops native hosting",
+    "Call close cancellation and a new trusted call notification arriving during asynchronous Stop preserve the window",
+    "Actual before-unload cancellation aborts quit and leaves the app usable",
+    "Close releases hosting; macOS reopen remains Off; normal quit while hosting releases listener",
+    "Unconfigured development launch hides hosting menu entries",
+    "Sandbox preload exposes no hosting or credential method"
+  ],
+  "nextGate": "Establish supported Proton listener/allocation mappings and an explicit port-set/translation adapter if needed, then independently qualify route loss/reconnect and media performance before sharing access or advertising."
+}

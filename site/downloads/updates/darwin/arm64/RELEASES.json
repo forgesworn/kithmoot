@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.104",
+  "currentRelease": "0.1.107",
   "releases": [
     {
-      "version": "0.1.104",
+      "version": "0.1.107",
       "updateTo": {
-        "version": "0.1.104",
-        "pub_date": "2026-10-25T02:22:39Z",
-        "notes": "Pair Spry once while signed in with Nostr. Your other devices load the encrypted pairing automatically. Open pairing in the installed app, or scan a local Android QR code.",
-        "name": "0.1.104",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.104/KithMoot-0.1.104-mac-arm64.zip",
-        "sha256": "c86ca90e3897cb6f9262b7864af3abcf0bfffda66485bc38d75574182e4065aa",
-        "size": 170922391
+        "version": "0.1.107",
+        "pub_date": "2026-10-26T13:34:30Z",
+        "notes": "Public profile lookups now start switched off. Calls recheck room admission and discard stale setup messages. Native Spry hosting remains a developer preview; packaged desktop apps do not yet include a hosting switch.",
+        "name": "0.1.107",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.107/KithMoot-0.1.107-mac-arm64.zip",
+        "sha256": "62978fdc9fc600652bfb1972f6bd93f1ebc017e55099b932d663ed97d76b8374",
+        "size": 189812403
       }
     }
   ]

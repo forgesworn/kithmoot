@@ -457,6 +457,30 @@ describe('Mesh', () => {
     mesh.close()
   })
 
+  it('expires an early offer by its signed time rather than its queue arrival', async () => {
+    const session = new FakeSession(), factory = createFakeFactory(), relay = new SimRelay()
+    const { local, remote } = politePair()
+    let clock = Math.floor(Date.now() / 1000)
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub,
+      deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID, now: () => clock })
+    try {
+      const offer = wrapSignal({ type: 'offer', roomId: ROOM_ID, sdp: 'their-aged-offer' },
+        { senderSk: remote.sk, recipientPubkey: local.pub })
+      clock = offer.created_at + SIGNAL_MAX_AGE_SECONDS - 1
+      relay.publish(offer)
+      await settle()
+      expect(factory.instances).toHaveLength(0)
+
+      // Only 19 seconds in the queue, but the signed offer is 38 seconds
+      // old. Admission now must not revive that obsolete negotiation.
+      clock += SIGNAL_MAX_AGE_SECONDS - 1
+      session.setViews([view(device().pub, [remote.pub])])
+      await settle()
+      expect(factory.instances).toHaveLength(1)
+      expect(factory.instances[0]!.calls.map(call => call.method)).not.toContain('setRemoteDescription')
+    } finally { mesh.close() }
+  })
+
   it('BUG (I5): a replayed signal is acted on once, however many times a relay delivers it', async () => {
     // Publishing to every relay means hearing the same wrap from every relay,
     // and a relay that means harm can send it again an hour later. Re-applying
