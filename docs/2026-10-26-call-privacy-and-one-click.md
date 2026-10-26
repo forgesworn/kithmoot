@@ -121,17 +121,20 @@ gates are recorded in the
 
 ## Product requirements
 
-1. Keep audio/video on direct/native media transport; never encode it as Nostr
-   events. Use Nostr relays for bounded announcements and encrypted control.
+1. Keep direct WebRTC calling as the normal path when the person's IP privacy
+   choice permits it. A TURN media relay is not a prerequisite for every call.
+   Never encode audio/video as Nostr events. Use Nostr relays for bounded
+   announcements and encrypted control.
 2. Joining/calling must not enable STUN/TURN hosting. Hosting begins Off and has
    its own explicit action; public access and public announcements are further
    choices. The owner-configured JSON preview is engineering scaffolding.
 3. After enable, handle route checks, limits, credentials, renewal and cleanup
    automatically. Explain a blocked hosting route in plain language rather than
    asking the person to diagnose addresses or construct port mappings.
-4. Prefer the person's own paired Spry and explicitly approved independent TURN
-   media operators. Show/pin the operator transport key and hostname. Never treat
-   speed, a signed advert or successful forwarding as proof of trustworthiness.
+4. When a TURN media relay is needed or explicitly chosen, prefer the person's
+   own paired Spry and explicitly approved independent TURN media operators.
+   Show/pin the operator transport key and hostname. Never treat speed, a signed
+   advert or successful forwarding as proof of trustworthiness.
 5. Preserve the chosen IP privacy mode. Failure may stop the call; it must not
    broaden the approved operator set or reveal a direct address silently.
 6. Explain separately that media is encrypted and that connection metadata is
@@ -140,6 +143,25 @@ gates are recorded in the
 7. Review reducing Nostr room/activity correlation as separate protocol work,
    with compatibility, admission, replay and performance tests. Do not rewrite
    roster envelopes or remove signature checks casually.
+
+### Next bounded desktop experiment: direct calls through Proton
+
+Electron 44.4.1 supports
+[`webContents.setWebRTCUDPPortRange({ min, max })`](https://github.com/electron/electron/blob/v44.4.1/docs/api/web-contents.md),
+including a single local UDP port. After this release, evaluate whether that
+lets a desktop call use Proton's existing forwarded port directly. This does
+not start a STUN server or TURN media relay. Ordinary direct calls must keep
+working without this experiment or port forwarding.
+
+The API limits local socket binding; it does not establish the public candidate
+address, NAT translation or reachability. Proton's
+[assigned port can change on reconnect](https://protonvpn.com/support/port-forwarding).
+Prove matching local, forwarded and ICE candidate endpoints, a selected direct
+pair and two-way audio/video from another network. Repeat with several peer
+connections and rooms, port rotation and VPN loss; audio/video sharing a BUNDLE
+transport does not prove separate peer connections can share one port. Retain
+the chosen IP privacy policy and optional TURN media fallback. Do not enable a
+fixed-port policy globally or claim this route is qualified from the API alone.
 
 No UI redesign, Nostr media transport, new default operator, deployment or owner
 Archipelago node change is implemented by this note. The
