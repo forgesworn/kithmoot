@@ -1,16 +1,21 @@
+import { admin2ProductSelected } from './mls-invitation-profile.js'
+import { verifyAdmin2CandidateFile } from './mls-admin2-candidate-assets.js'
 import type * as Binding from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
-/** An independent development-only Admin2 asset pin. No legacy fallback. */
-export const adminInvitationPreviewEnabled = () => import.meta.env?.DEV === true && import.meta.env?.VITE_BROWSER_MLS_ADMIN_INVITATION_PREVIEW === 'true'
+/** Explicit product candidate or independent development input. No legacy fallback. */
+export const adminInvitationPreviewEnabled = () => admin2ProductSelected() || import.meta.env?.DEV === true && import.meta.env?.VITE_BROWSER_MLS_ADMIN_INVITATION_PREVIEW === 'true'
 // Exact reviewed local qualification build; production assets retain their own pin.
 export const ADMIN_INVITATION_ASSET_PIN = { sourceCommit: '5b3eb5fe28255b5c0cc09d959a3010a3d48f9562', js: '2c07c8c3f0a883440ee9a3c4c2a300bdb20b5e8c9e6d3ff0b65c7b904786c099', wasm: '8c593171bafa5d205e570f58ab1171894b70e5f05d5361b95254228702621560' } as const
 let binding: Promise<typeof Binding> | undefined
 export function loadAdminInvitationEngine(): Promise<typeof Binding> {
   if (!adminInvitationPreviewEnabled() || import.meta.env?.VITE_BROWSER_MLS_INVITATION_PREVIEW === 'true') return Promise.reject(new Error('Choose only the explicit Admin2 development preview.'))
   return binding ??= (async () => {
-    const base = `${import.meta.env.BASE_URL}vmls-wasm-admin-invitation/`
+    const product = admin2ProductSelected()
+    const base = `${import.meta.env.BASE_URL}${product ? 'vmls-wasm-admin2-candidate' : 'vmls-wasm-admin-invitation'}/`
     const response = await fetch(`${base}manifest.json`, { cache: 'no-store' })
     if (!response.ok) throw new Error('Missing Admin2 development manifest.')
-    const m = await response.json(), pin = ADMIN_INVITATION_ASSET_PIN
+    const manifestBytes = await response.arrayBuffer()
+    if (product) await verifyAdmin2CandidateFile('manifest.json', manifestBytes)
+    const m = JSON.parse(new TextDecoder().decode(manifestBytes)), pin = ADMIN_INVITATION_ASSET_PIN
     if (!/^[0-9a-f]{40}$/.test(pin.sourceCommit) || !/^[0-9a-f]{64}$/.test(pin.js) || !/^[0-9a-f]{64}$/.test(pin.wasm) ||
         m.sourceCommit !== pin.sourceCommit || m.target !== 'web' || m.files?.['vmls_wasm.js'] !== pin.js || m.files?.['vmls_wasm_bg.wasm'] !== pin.wasm ||
         m.qualificationOnly !== true || m.experimental !== true || m.snapshotVersion !== 5 || m.profile !== 'Vennel/invitation-admins/2' || m.policy !== 'designated-leaf-admins/1') throw new Error('Missing exact Admin2 artifact provenance.')
@@ -19,6 +24,7 @@ export function loadAdminInvitationEngine(): Promise<typeof Binding> {
       const response = await fetch(`${base}${file}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('Missing Admin2 asset.')
       const bytes = await response.arrayBuffer()
+      if (product) await verifyAdmin2CandidateFile(file as 'vmls_wasm.js' | 'vmls_wasm_bg.wasm', bytes)
       const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('')
       if (hash !== m.files[file]) throw new Error('Admin2 engine bytes differ from the pinned manifest.')
       verified.set(file, bytes)

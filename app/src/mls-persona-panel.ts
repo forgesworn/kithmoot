@@ -1,3 +1,4 @@
+import { admin2ProductSelected } from './mls-invitation-profile.js'
 import { BrowserMlsAccount, type MlsAccountContext, type MlsAccountView } from './mls-persona-account.js'
 import type { ConsentScope, ConsentPrompt, VaultResult, SignLeafBindingRequest } from './mls-vault.js'
 import type { BoxRequest } from './mls-coordinated-vault.js'
@@ -76,6 +77,12 @@ export class BrowserMlsPanel {
         </fieldset>
       </details>`
     root.body.append(this.dialog)
+    if (admin2ProductSelected()) {
+      this.dialog.querySelector('h2')!.textContent = 'Private groups · device and restore protection'
+      this.dialog.querySelector('.note')!.textContent = 'Prepare protected local device custody and a private witness before using Private invitations. This candidate retains manual enrolment and one exact paired home box. Device replacement does not inherit group membership or admin roles; state loss requires fresh rejoin.'
+      ;(this.dialog.querySelector('#mlsWitnessDeviceMigrate') as HTMLButtonElement).hidden = true
+      this.dialog.querySelector('#mlsWitnessDeviceChoice p')!.textContent = 'Create this browser’s protected device explicitly. Existing local ciphertext is retained. A replacement device needs a fresh invitation and its own named admin role.'
+    }
     addReveal(this.dialog.querySelector<HTMLInputElement>('#mlsWitnessCode')!, 'witness pairing code')
     this.account.listen(() => { void this.invalidate().catch(() => undefined) })
     this.button('Close').onclick = () => { void this.invalidate().catch(() => undefined) }

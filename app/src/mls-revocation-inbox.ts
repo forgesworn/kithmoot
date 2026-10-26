@@ -1,3 +1,4 @@
+import { admin2ProductSelected, roomProfileAllowed } from './mls-invitation-profile.js'
 import type { Event } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { unwrapVmlsRevocationRequest, VMLS_REVOCATION_GIFT_WRAP_KIND, type VmlsRevocationIdentity, type VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
@@ -159,6 +160,7 @@ export class BrowserMlsRevocationInbox {
       try {
         const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(room.binding.device), hexToBytes(room.binding.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+        if (admin2ProductSelected() || !roomProfileAllowed(room)) throw new Error('Legacy keeper snapshot access is held for this profile.')
         session = wasm.Session.open(platform, hexToBytes(id), saved.plaintext, saved.generation)
         if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper room does not match witnessed snapshot')
         const members = session.members() as { member: { device: Uint8Array; identity: Uint8Array } }[]

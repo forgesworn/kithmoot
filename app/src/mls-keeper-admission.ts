@@ -1,3 +1,4 @@
+import { admin2ProductSelected, roomProfileAllowed } from './mls-invitation-profile.js'
 import { readMlsMembership } from './mls-membership-store.js'
 import { InvalidPersonaRecord, BrowserPersonaCoordinator, type PersonaReader } from './mls-persona-coordinator.js'
 import type { MlsRevocationInboxContext } from './mls-revocation-inbox.js'
@@ -57,6 +58,7 @@ export class BrowserMlsKeeperAdmission {
       try {
         const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(savedRoom.binding.device), hexToBytes(expected.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+        if (admin2ProductSelected() || !roomProfileAllowed(savedRoom)) throw new Error('Legacy keeper snapshot access is held for this profile.')
         session = wasm.Session.open(platform, hexToBytes(expected.session), saved.plaintext, saved.generation)
         const installation = session.installation()
         if (bytesToHex(session.id()) !== expected.session || session.generation() !== saved.generation || savedRoom.generation !== String(saved.generation) ||

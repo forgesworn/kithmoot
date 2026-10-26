@@ -1,3 +1,4 @@
+import { admin2ProductSelected } from './mls-invitation-profile.js'
 import { adminInvitationPreviewEnabled } from './mls-admin-invitation-engine.js'
 import { BrowserMlsRoomDevelopmentOwner, type MlsRoomDevelopmentContext } from './mls-room-development-owner.js'
 import type { MlsRoomForegroundResult } from './mls-room-foreground.js'
@@ -71,12 +72,22 @@ export class BrowserMlsRoomDevelopmentPanel {
       <p>Run explicit manual rounds for Commit, Welcome, Update and message delivery. No automatic round starts here.</p></fieldset>`
     root.body.append(this.dialog)
     this.#text('invitation-toggle').hidden = !invitationPreviewEnabled() || adminInvitationPreviewEnabled()
-    this.#text('admin-invitation-toggle').hidden = !adminInvitationPreviewEnabled()
+    this.#text('admin-invitation-toggle').hidden = admin2ProductSelected() || !adminInvitationPreviewEnabled()
     for (const name of ['admin-explanation', 'admin-role-controls', 'promote-admin', 'demote-admin']) this.#text(name).hidden = !adminInvitationPreviewEnabled()
     this.#text('invitation-controls').hidden = !(invitationPreviewEnabled() || adminInvitationPreviewEnabled())
     if (adminInvitationPreviewEnabled()) {
       this.#text('invitation-controls').querySelector('legend')!.textContent = 'Private invitations with designated admin devices (Admin2)'
       this.#text('invitation-controls').querySelectorAll('p')[1].textContent = 'After recording, a separately authorised keeper may register the package, and a current admin device may invite the member. Node keeper rights do not grant an admin role.'
+    }
+    if (admin2ProductSelected()) {
+      this.#text('create-admin-invitation').setAttribute('disabled', '')
+      this.#input('create-admin-invitation').checked = true
+      this.dialog.querySelector('h2')!.textContent = 'Private groups'
+      this.#button('create').textContent = 'Create private group (named device admins)'
+      this.#text('invite-room').parentElement!.firstChild!.textContent = 'Saved private group '
+      this.dialog.querySelector('.note')!.textContent = 'Admin2 product candidate. Uses exact qualification-only native assets; this is not a supported public release. Private invitations use named device admins. Explicit preparation, private pairing and manual delivery are required.'
+      this.#text('invitation-controls').querySelector('legend')!.textContent = 'Private invitations (named device admins)'
+      this.#text('invitation-controls').querySelector('p')!.textContent = 'Use an authenticated private conversation with the intended person. Paste, QR scanning and node authentication alone do not authenticate the inviter. Keep these private bytes out of links, public tags, directories and relays. Package registration requires separate node permission. This candidate uses one exact paired home box. Local state loss, import or clone requires fresh rejoin; only a trusted local restart can resume.'
     }
     addReveal(this.dialog.querySelector<HTMLInputElement>('[data-code]')!, 'pairing code')
     this.#button('bark-provision-button').onclick = () => { void this.#work(async epoch => {
@@ -200,7 +211,7 @@ export class BrowserMlsRoomDevelopmentPanel {
     this.#input('code').value = ''; this.#input('relays').value = ''
     this.#input('create-name').value = ''; this.#input('create-days').value = '7'
     this.#input('create-invitation').checked = false
-    this.#input('create-admin-invitation').checked = false
+    this.#input('create-admin-invitation').checked = admin2ProductSelected()
     this.#reviewedRoles = undefined
     for (const name of ['target-persona', 'target-device', 'target-rz', 'target-home', 'expected-inviter', 'join-name', 'message', 'remove-leaf', 'admin-leaf']) this.#input(name).value = ''
     for (const name of ['private-invitation', 'private-response', 'private-registration', 'registration-receipt']) (this.#text(name) as HTMLTextAreaElement).value = ''

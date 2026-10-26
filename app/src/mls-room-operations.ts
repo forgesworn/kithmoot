@@ -2,6 +2,7 @@ import { withAdminStorageEvidenceGate } from './mls-admin-storage-evidence-gate.
 import { storageOutboxTransaction } from './mls-storage-inbox.js'
 import { adminStorageRequestTarget, isolateLegacyStorageRequests, retainAdminStorageRequest, withAdminStorageRequestGate, type AdminStorageRequestSelection } from './mls-admin-storage-request.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
+import { admin2ProductSelected, roomProfileAllowed, selectedRoomCreateOptions } from './mls-invitation-profile.js'
 import type { Session as AdminSession, PendingAdminInvitation, VmlsAdminInvitationSignRequestV2, Capability as AdminCapability, AdminIntroduction, PendingAdminIntroduction, Platform as AdminPlatform } from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
 import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-admin-invitation-engine.js'
 import { ADMIN_INVITATION_SIGN_METHOD, readAdminInvitationContext, adminInvitationContextCommitment } from '../../src/vmls/admin-invitation.js'
@@ -581,6 +582,7 @@ export class BrowserMlsRoomOperations {
    * Only an active result releases Introduction bytes. Retry an uncertain
    * adoption by discovering/reopening its saved session, never by rejoining. */
   async join(context: MlsRoomContext, options: MlsJoinOptions, source: RendezvousVault, consent: ConsentPrompt): Promise<MlsRoomResult<MlsRoomEffect>> {
+    if (admin2ProductSelected()) return { state: 'refused', reason: 'wrong-profile' }
     options = { ...options, rendezvous: { ...options.rendezvous } }
     const ctx = Object.freeze({ ...context.vault }), rz = context.rendezvousKey, epoch = this.#epoch, valid = context.current.bind(context)
     const current = () => epoch === this.#epoch && valid() && this.vault.current(ctx)
@@ -710,8 +712,7 @@ export class BrowserMlsRoomOperations {
       platform = new wasm.Platform(hexToBytes(identity.device.device), hexToBytes(rz), { fill: (n: number) => crypto.getRandomValues(new Uint8Array(n)) })
       const host = new BrowserMlsSessionHost<Session>(this.coordinator, async (id, plaintext, mark, tx) => {
         const room = await readMlsRoom(tx, bytesToHex(id))
-        if (room.profile === 'InvitationAdmins2' && !adminInvitationPreviewEnabled()) throw new MlsRoomRefused('experimental-disabled')
-        if (room.invitation && room.profile !== 'InvitationAdmins2' && !invitationPreviewEnabled()) throw new MlsRoomRefused('experimental-disabled')
+        if (!roomProfileAllowed(room)) throw new MlsRoomRefused('experimental-disabled')
         return room.profile === 'InvitationAdmins2' ? (wasm.Session as any).openAdminInvitationSession(platform!, id, plaintext, mark, invitationRestart(tx, room))
           : room.invitation ? (wasm.Session as any).openInvitationSession(platform!, id, plaintext, mark, invitationRestart(tx, room))
           : wasm.Session.open(platform!, id, plaintext, mark)
@@ -737,7 +738,7 @@ export class BrowserMlsRoomOperations {
   /** Caller supplies a box identity and installation from authenticated
    * capabilities. This API does not claim those transport checks itself. */
   create(context: MlsRoomContext, options: { name: string; homeBox: string; installation: string; expiresAt: number; experimentalInvitation?: boolean; experimentalAdminInvitation?: boolean }, consent: ConsentPrompt): Promise<MlsRoomResult<MlsRoomEffect>> {
-    options = { ...options }
+    try { options = selectedRoomCreateOptions(options) } catch { return Promise.resolve({ state: 'refused', reason: 'experimental-disabled' }) }
     context = { ...context, experimentalInvitation: (options.experimentalInvitation === true || options.experimentalAdminInvitation === true) }
     return this.#using<MlsRoomEffect>(context, async scope => {
       const { host, wasm, platform, device, credentialId, ctx, current, hostContext, rz } = scope

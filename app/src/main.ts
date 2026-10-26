@@ -1,3 +1,5 @@
+import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
+import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
 import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
 import { accountSyncServices } from './account-sync.js'
@@ -848,21 +850,15 @@ const publicRelayRoutes = new WeakMap<RoomSession, { start(): Promise<void>; end
 /** Said in place of the generic notice once a discovered relay is lost. */
 let callRelayLostNotice: string | undefined
 const browserLink = new BrowserLink(startBrowserLink)
-// Remains unavailable in production until browser integration and review pass.
-const browserMlsPreview = import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_PREVIEW === 'true'
+// Default-off source candidate; native provenance remains qualification-only.
+const browserMlsPreview = browserMlsEnabled()
 let browserMlsPanel: BrowserMlsPanel | undefined
 let browserMlsGrantPanel: BrowserMlsGrantDevelopmentPanel | undefined
 let browserMlsRoomPanel: BrowserMlsRoomDevelopmentPanel | undefined
 async function pauseBrowserMls(): Promise<void> {
-  if (import.meta.env.DEV) {
-    const grants = browserMlsGrantPanel?.invalidate(), witness = browserMlsPanel?.invalidate(), rooms = browserMlsRoomPanel?.invalidate()
-    const results = await Promise.allSettled([grants, witness, rooms])
-    const failure = results.find(result => result.status === 'rejected')
-    if (failure?.status === 'rejected') throw failure.reason
-    return
-  }
-  await browserMlsPanel?.invalidate()
+  await invalidateBrowserMlsOwners([browserMlsGrantPanel, browserMlsPanel, browserMlsRoomPanel])
 }
+
 let roomUsesBothy = false
 /** A room that keeps its files on its group's own computers: the list its
  *  authority signed, held across visits. Read through `roomStorageRecord()`;
@@ -1560,7 +1556,7 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     const generation=identityGeneration,previous=nostrSession
     await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) void pauseBrowserMls().catch(() => undefined)
     nostrSession = account
     if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
     browserRoomRoutes.resume()
@@ -1689,7 +1685,7 @@ async function signInWithNostr(): Promise<void> {
     let account: SignetSession | null
     try {
       await boardsPanel?.reset()
-      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
       account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
         // 'nsec' is the dangerous route, kept behind Advanced by the picker:
         // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
@@ -1741,7 +1737,7 @@ async function signInWithNostr(): Promise<void> {
 async function signOutOfNostr(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     participantCard.close()
     packGrant = undefined
     browserRoomRoutes.pause()
@@ -1813,7 +1809,7 @@ function setForgetBrowserStatus(message: string): void {
 async function forgetThisBrowser(): Promise<void> {
   $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
-    if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
       setForgetBrowserStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
@@ -1825,7 +1821,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     if (browserMlsPreview) {
       const { BrowserMlsAccount } = await import('./mls-persona-account.js')
       if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setForgetBrowserStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
-      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     }
     if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setForgetBrowserStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
     if (callIsLive() || onCall()) { setForgetBrowserStatus('Leave the call before forgetting this browser.'); return }
@@ -4402,7 +4398,7 @@ async function roomFromLocation(): Promise<boolean> {
   // A returning account restores its live signer asynchronously. Do not
   // issue an unproved guest request while that matching signer is arriving.
   if (parsedLink.invitation && !parsedLink.invitation.persistent && identityRestoring && expectedAccount) await identityReady
-  if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+  if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
@@ -13672,7 +13668,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   let retrying = false
 
   try {
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
     requireOpeningNetwork(roomUsesBothy)
     if (!roomUsesBothy) accountNetwork.requireNostr()
@@ -15694,7 +15690,7 @@ function tearDownCallMedia(): void {
 async function closeRoomSession(options: { backgroundFarewell?: boolean; preservePrivate?: boolean } = {}): Promise<void> {
   const pendingRoom = currentRoomId()
   if (pendingRoom) pendingSends.release(pendingRoom)
-  if (!options.preservePrivate && (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel))) await pauseBrowserMls()
+  if (!options.preservePrivate && (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   chatScroll.suspend()
   const generation=++roomGeneration
   const old = session,transport=sessionTransport
@@ -17739,7 +17735,7 @@ $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() =>
 window.addEventListener('pagehide', () => { void browserLinkPanel.stop(); void pauseBrowserMls().catch(() => undefined) })
 if (browserMlsPreview) {
   const rooms = document.createElement('button')
-  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.className = 'infoRow'; rooms.textContent = 'MLS room connection (preview)'
+  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.className = 'infoRow'; rooms.textContent = admin2ProductSelected() ? 'Private groups · Private invitations (named device admins)' : 'MLS room connection (preview)'
   rooms.setAttribute('aria-haspopup', 'dialog'); rooms.setAttribute('aria-controls', 'mlsRoomDevelopment')
   $('mlsWitnessSettingsOpen').after(rooms)
   rooms.onclick = () => closeAppSettingsFor(() => {
@@ -17762,6 +17758,7 @@ if (browserMlsPreview) {
       browserMlsRoomPanel.open()
     }).catch(() => setStatus('MLS room connection could not be opened.'))
   })
+  if (import.meta.env.DEV && !admin2ProductSelected()) {
   const grants = document.createElement('button')
   grants.id = 'mlsGrantDevelopmentOpen'; grants.type = 'button'; grants.className = 'infoRow'; grants.textContent = 'MLS grant workflows (preview)'
   grants.setAttribute('aria-haspopup', 'dialog'); grants.setAttribute('aria-controls', 'mlsGrantDevelopment')
@@ -17783,7 +17780,9 @@ if (browserMlsPreview) {
       browserMlsGrantPanel.open()
     }).catch(() => setStatus('MLS grant workflows could not be opened.'))
   })
+  }
   $('mlsWitnessSettingsOpen').hidden = false
+  if (admin2ProductSelected()) $('mlsWitnessSettingsOpen').querySelector('.infoRowTitle')!.textContent = 'Private groups · device and restore protection'
   $('mlsWitnessSettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => {
     const account = nostrSession, generation = identityGeneration
     void Promise.all([import('./mls-persona-panel.js'), import('./mls-revocation-relay.js')]).then(async ([{ BrowserMlsPanel }, { NostrVmlsRevocationTransport }]) => {
@@ -17795,7 +17794,7 @@ if (browserMlsPreview) {
         return { persona: account.pubkey, identity, revocationIdentity: crypt ? { ...identity, ...crypt } : undefined,
           generation: `${identityGeneration}:${roomGeneration}`,
           mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal' }
-      }, undefined, document, () => new NostrVmlsRevocationTransport(relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)))
+      }, undefined, document, () => new NostrVmlsRevocationTransport(accountNetwork.nostr ? relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url) : []))
       await browserMlsPanel.open()
     }).catch(() => setStatus('MLS witness settings could not be opened.'))
   }))
