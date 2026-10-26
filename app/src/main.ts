@@ -1,3 +1,4 @@
+import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
 import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
 import { accountSyncServices } from './account-sync.js'
 import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
@@ -18413,20 +18414,12 @@ function renderPublicRelays(): void {
   $('publicRelaysForget').hidden = !publicCallRelays.lastGood && !publicCallRelays.selected
 }
 /** One discovery query when the picker opens or is asked to look again. */
-async function findPublicRelays(force = false): Promise<void> {
-  if (!requireNostrFeature()) return
-  if (!publicCallRelays.enabled || publicRelaysOutranked()) { renderPublicRelays(); return }
-  if (!force && Date.now() - publicCallRelays.searchedAt < 60_000) { renderPublicRelays(); return }
-  const generation = publicRelayGeneration
-  $('publicRelaysStatus').textContent = 'Asking your Nostr relays for public call relays…'
-  try {
-    const found = await publicCallRelays.discover()
-    if (generation !== publicRelayGeneration) return
-    $('publicRelaysStatus').textContent = found.length ? `${found.length} public call relay${found.length === 1 ? '' : 's'} found. Select one to use it.` : 'No public call relays were found on your Nostr relays.'
-  } catch {
-    if (generation === publicRelayGeneration) $('publicRelaysStatus').textContent = 'Your Nostr relays could not be asked. Try again later.'
-  }
-  renderPublicRelays()
+function findPublicRelays(trigger: PublicRelayDiscoveryTrigger = 'automatic'): Promise<void> {
+  return findPublicCallRelays({ network: accountNetwork, relays: publicCallRelays,
+    outranked: publicRelaysOutranked, generation: () => publicRelayGeneration,
+    requireNostr: requireNostrFeature,
+    view: { status: message => { $('publicRelaysStatus').textContent = message }, render: renderPublicRelays },
+  }, trigger)
 }
 $('publicRelaysOn').addEventListener('change', () => {
   cancelPublicRelayCheck()
@@ -18434,9 +18427,9 @@ $('publicRelaysOn').addEventListener('change', () => {
   publicCallRelays.setEnabled(on)
   $('publicRelaysStatus').textContent = on ? '' : 'Turned off. Everything it kept on this device has been cleared.'
   renderPublicRelays()
-  if (on) void findPublicRelays(true)
+  if (on) void findPublicRelays('manual')
 })
-$('publicRelaysFind').addEventListener('click', () => { cancelPublicRelayCheck(); void findPublicRelays(true) })
+$('publicRelaysFind').addEventListener('click', () => { cancelPublicRelayCheck(); void findPublicRelays('manual') })
 $('publicRelaysForget').addEventListener('click', () => {
   cancelPublicRelayCheck()
   publicCallRelays.forgetChoice()
