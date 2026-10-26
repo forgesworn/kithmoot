@@ -30,7 +30,7 @@ export interface SlotState { state: 'empty' | 'filled' | 'expired' | 'void'; att
 export interface FetchRecord { mailbox: Uint8Array; receipt: Uint8Array; envelope: Uint8Array }
 export interface AckItem { mailbox: Uint8Array; receipt: Uint8Array }
 export type BoxTracePhase = 'request-start' | 'sign-start' | 'consent-start' | 'consent-end' | 'sign-complete' | 'sign-refused' | 'accept-refused' | 'transport-start' | 'transport-end' | 'transport-refused' | 'node-refused' | 'parse-start' | 'parse-end' | 'timeout' | 'inactive' | 'caller-return' | 'caller-finally' | 'work-settled' | 'invalidate' | 'settled-start' | 'settled-end'
-export interface BoxTraceEvent { request: number; phase: BoxTracePhase; elapsedMs: number; result?: BoxAnswer<never>['state'] | VaultRefusal | 'node-authentication' | 'node-replay' | 'node-authority' | 'node-expired' | 'node-other' }
+export interface BoxTraceEvent { request: number; phase: BoxTracePhase; elapsedMs: number; status?: number | 'malformed'; result?: BoxAnswer<never>['state'] | VaultRefusal | 'node-authentication' | 'node-replay' | 'node-authority' | 'node-expired' | 'node-other' }
 export type BoxTraceObserver = (event: BoxTraceEvent) => void
 type Signer = Pick<CoordinatedMlsVault, 'signBoxRequestV1' | 'acceptBoxReply' | 'current'>
 type Json = Record<string, unknown>
@@ -219,7 +219,7 @@ export class BrowserMlsBoxClient {
     if (this.#occupied >= 32) return { state: 'not-signed', reason: 'busy' }
     const body = input.slice(), epoch = this.#epoch
     const started = performance.now(), sequence = ++this.#traceSequence
-    const trace = (phase: BoxTracePhase, result?: BoxTraceEvent['result']) => { try { this.observer?.({ request: sequence, phase, elapsedMs: Math.max(0, Math.round(performance.now() - started)), ...(result ? { result } : {}) }) } catch {} }
+    const trace = (phase: BoxTracePhase, result?: BoxTraceEvent['result'], status?: BoxTraceEvent['status']) => { try { this.observer?.({ request: sequence, phase, elapsedMs: Math.max(0, Math.round(performance.now() - started)), ...(result ? { result } : {}), ...(status !== undefined ? { status } : {}) }) } catch {} }
     trace('request-start')
     const request = Object.freeze({ v: 1 as const, box: this.box, method, path, payload: bytesToHex(sha256(body)) })
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined, wake!: () => void
@@ -249,7 +249,10 @@ export class BrowserMlsBoxClient {
         trace('transport-start')
         try { response = await this.transport.request({ routeId: this.#routeId, method, path, authorization: accepted.value.authorization, body }) }
         catch { trace('transport-refused'); return { state: 'unavailable' } }
-        trace('transport-end')
+        // Record only a bounded status before currentness suppresses late replies.
+        let traceStatus: BoxTraceEvent['status'] = 'malformed'
+        try { const value = response.status; if (Number.isInteger(value) && value >= 200 && value <= 599) traceStatus = value } catch { /* Diagnostics cannot change reply handling. */ }
+        trace('transport-end', undefined, traceStatus)
         if (!active()) { trace('inactive'); return { state: 'unavailable' } }
         if (!Number.isInteger(response.status) || response.status < 200 || response.status > 599 || !(response.body instanceof Uint8Array) || response.body.length > limit) return { state: 'malformed' }
         // Copy before the asynchronous capabilities parser can yield to callers.

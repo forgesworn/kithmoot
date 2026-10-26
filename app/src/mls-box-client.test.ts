@@ -300,9 +300,11 @@ describe('strict browser MLS box client', () => {
 })
 
 
-it('safe phase tracing distinguishes the caller timeout from a still-running transport and settlement', async () => {
+it.each([200, 403, 599, 199, 600, NaN])('safe phase tracing retains late status %s without parsing after caller timeout', async status => {
   vi.useFakeTimers()
-  const events: BoxTraceEvent[] = [], f = setup(200, capabilities, 1000, event => events.push(event))
+  const events: BoxTraceEvent[] = [], f = setup(status, capabilities, 1000, event => events.push(event))
+  const readBody = vi.fn(() => { throw new Error('Late body must remain unread') })
+  Object.defineProperty(f.response, 'body', { get: readBody })
   let release!: () => void
   f.transport.request.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return f.response })
   const task = f.client.capabilities()
@@ -321,7 +323,12 @@ it('safe phase tracing distinguishes the caller timeout from a still-running tra
   const phases = events.map(e => e.phase)
   expect(phases.indexOf('caller-return')).toBeLessThan(phases.indexOf('work-settled'))
   expect(phases.at(-1)).toBe('settled-end')
-  expect(events.every(e => Object.keys(e).every(k => ['request','phase','elapsedMs','result'].includes(k)))).toBe(true)
+  expect(events).toContainEqual({ request: 1, phase: 'transport-end', elapsedMs: expect.any(Number), status: status >= 200 && status <= 599 ? status : 'malformed' })
+  expect(phases).not.toContain('parse-start')
+  expect(phases).not.toContain('node-refused')
+  expect(readBody).not.toHaveBeenCalled()
+  expect(JSON.stringify(events)).not.toContain(installation)
+  expect(events.every(e => Object.keys(e).every(k => ['request','phase','elapsedMs','result','status'].includes(k)))).toBe(true)
   expect(events.every(e => Number.isInteger(e.elapsedMs) && e.elapsedMs >= 0)).toBe(true)
 })
 it('a diagnostic observer cannot alter actual authentication or parsing', async () => {
