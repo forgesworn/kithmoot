@@ -7930,7 +7930,7 @@ function renderEmptyRoom(): void {
   const me = meParticipant || currentParticipant()
   const alone = !(session?.participants() ?? []).some(view => view.participant !== me)
   const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
-    && (session?.chat.messages().length ?? 0) === 0
+    && conversationMessages(undefined).length === 0
   if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
   if (show) clearEmptyRoomIntro()
 }
