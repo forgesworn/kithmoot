@@ -6,6 +6,32 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.114 native startup fix, 26 October 2026
+
+Version **0.6.114**, code **137**, fixes the WebRTC native-load crash when
+opening a room in 0.6.113. Release shrinking remains enabled, with the JNI
+Zero helper classes retained and a native-startup smoke in both release
+signing-lineage CI jobs. Android source:
+`82c24c9116c1fe71ec7e7a8285bc76bf49fd11d2` (kithmoot-android #336).
+
+The production-signed APK is 64,847,330 bytes, SHA-256
+`9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319`.
+Independent verification checked all 797 unchanged ZIP payload entries,
+version and SDKs, the existing production certificate, V3-only signatures
+and the reviewed signing lineage. Signing-host checks passed 586 protocol,
+2,753 debug app and 2,742 release app tests, both lint variants, both builds
+and the dependency/telemetry guard. The exact versioned release also passed
+native startup on an ARM64 API 35 emulator.
+
+The preceding private patched 0.6.113 passed three fresh-process native-load
+checks on the physical Pixel 10 Pro XL, retained its UID and 14 watched rooms,
+and was confirmed working by the owner. That is specific evidence for the
+startup fix; broader real-call, routing and transport acceptance remains
+separate. Hosted CI, merges and public readbacks are recorded in the final
+publication receipt; the [candidate receipt](evidence/android-0.6.114-candidate-20261026.json)
+retains the pre-publication evidence. Desktop 0.1.104 and the website/PWA implementation are
+unchanged by this Android publication.
+
 ## Combined Android 0.6.113 candidate
 
 Version **0.6.113**, code **136**, combines the performance changes with

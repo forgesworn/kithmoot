@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-26T11:58:22.057029+00:00",
+  "versionName": "0.6.114",
+  "versionCode": 137,
+  "androidSource": "82c24c9116c1fe71ec7e7a8285bc76bf49fd11d2",
+  "androidPullRequest": "https://github.com/forgesworn/kithmoot-android/pull/336",
+  "apk": {
+    "filename": "kithmoot-0.6.114-production.apk",
+    "bytes": 64847330,
+    "sha256": "9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "lineage": {
+      "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "previousCapabilities": {
+        "installedData": true,
+        "sharedUid": false,
+        "permission": true,
+        "rollback": false,
+        "auth": false
+      }
+    },
+    "zipPayloadEntries": 797,
+    "zipPayloadMatchesUnsigned": true,
+    "independentSignatureAndLineageVerification": true
+  },
+  "signingHostTests": {
+    "protocol": {
+      "tests": 586,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appDebug": {
+      "tests": 2753,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appRelease": {
+      "tests": 2742,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": {
+    "debug": "passed",
+    "release": "passed"
+  },
+  "dependencyTelemetryGuard": "passed",
+  "nativeStartup": {
+    "versionedRelease": "ARM64 API 35 emulator passed",
+    "priorPrivatePatched113": "three fresh-process checks on physical Pixel 10 Pro XL passed; owner confirmed works"
+  },
+  "publiclyShipped": false,
+  "hostedCi": "pending",
+  "physicalAcceptanceScope": "Owner confirmed the private patched 0.6.113 startup fix. This receipt does not establish broader call/routing/transport acceptance for 0.6.114."
+}
