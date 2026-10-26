@@ -1,4 +1,4 @@
-import type { VmlsCurrentAdminRolesV1 } from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
+import type { VmlsCurrentAdminRolesV1 } from '../admin2-native/vmls_wasm.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import { MlsRoomRefused } from './mls-room-store.js'
 export interface MlsAdminRoles { version: 1; profile: 'InvitationAdmins2'; policy: 'designated-leaf-admins/1'; epoch: string; adminSetCommitment: string; adminLeafIds: string[]; ownLeafId: string; ownIsAdmin: boolean }

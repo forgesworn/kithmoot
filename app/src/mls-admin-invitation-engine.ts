@@ -1,6 +1,6 @@
 import { admin2ProductSelected } from './mls-invitation-profile.js'
 import { verifyAdmin2CandidateFile } from './mls-admin2-candidate-assets.js'
-import type * as Binding from '../public/vmls-wasm-admin-invitation/vmls_wasm.js'
+import type * as Binding from '../admin2-native/vmls_wasm.js'
 /** Explicit product candidate or independent development input. No legacy fallback. */
 export const adminInvitationPreviewEnabled = () => admin2ProductSelected() || import.meta.env?.DEV === true && import.meta.env?.VITE_BROWSER_MLS_ADMIN_INVITATION_PREVIEW === 'true'
 // Exact reviewed local qualification build; production assets retain their own pin.

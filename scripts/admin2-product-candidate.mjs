@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 export const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-export const candidateDirectory = resolve(repositoryRoot, '.local/admin2-product-candidate')
+export const candidateDirectory = resolve(repositoryRoot, 'app/admin2-native')
 export const candidatePin = JSON.parse(readFileSync(resolve(repositoryRoot, 'app/src/mls-admin2-candidate-pin.json'), 'utf8'))
 /** A consumer candidate accepts exact qualification bytes without relabelling them. */
 export function verifyCandidateDirectory(directory = candidateDirectory) {

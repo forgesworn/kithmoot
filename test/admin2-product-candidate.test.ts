@@ -13,7 +13,7 @@ function copied() {
   return directory
 }
 function buffer(bytes: Uint8Array): ArrayBuffer { return Uint8Array.from(bytes).buffer }
-test('exact local candidate verifies without relabelling native qualification provenance', async () => {
+test('exact tracked candidate verifies without relabelling native qualification provenance', async () => {
   const files = verifyCandidateDirectory()
   const manifest = JSON.parse(files.get('manifest.json').toString())
   expect(manifest.qualificationOnly).toBe(true); expect(manifest.experimental).toBe(true)
