@@ -34,6 +34,7 @@ export class AssignmentPanel {
   #dialog: HTMLDialogElement
   #cards: HTMLElement
   #status: HTMLElement
+  #runError?: string
   #busy = false
   #epoch = 0
   #owner: HTMLSelectElement
@@ -296,7 +297,7 @@ export class AssignmentPanel {
     this.#remember()
     this.#roomKey = undefined
     ++this.#epoch; this.#off?.(); this.#off = undefined; this.#log = undefined; this.#release?.(); this.#release = undefined
-    this.#busy = false; this.#dialog.close(); this.#cards.replaceChildren()
+    this.#busy = false; this.#runError = undefined; this.#dialog.close(); this.#cards.replaceChildren()
     const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
     form.reset(); form.closest('details')!.open = false
     for (const input of form.querySelectorAll('[aria-invalid]')) input.removeAttribute('aria-invalid')
@@ -347,10 +348,16 @@ export class AssignmentPanel {
   async #run(action: (log: AssignmentLog) => Promise<unknown>): Promise<void> {
     if (this.#busy) return
     const epoch = this.#epoch
+    this.#runError = undefined
     this.#busy = true; this.#render()
     this.changed()
     try { await action(this.#require()); if (epoch === this.#epoch) this.#status.textContent = 'Update saved and acknowledged by a relay.' }
-    catch (e) { if (epoch === this.#epoch) this.#status.textContent = e instanceof Error ? e.message : 'Update failed' }
+    catch (e) {
+      if (epoch === this.#epoch) {
+        this.#runError = e instanceof Error ? e.message : 'Update failed'
+        this.#status.textContent = this.#runError
+      }
+    }
     finally { if (epoch === this.#epoch) { this.#busy = false; this.#render(false); this.changed() } }
   }
   #render(updateStatus = true): void {
@@ -364,7 +371,7 @@ export class AssignmentPanel {
     this.root.getElementById('assignmentAll')!.setAttribute('aria-pressed', String(!this.#decisionsOnly))
     this.root.getElementById('assignmentDecisions')!.setAttribute('aria-pressed', String(this.#decisionsOnly))
     this.root.getElementById('assignmentDecisions')!.textContent = `Needs you (${decisions.length})`
-    if (updateStatus) this.#status.textContent = snapshot.error ?? (snapshot.pendingHistory ? 'Some assignment history is missing. Restore it before acting.' : !snapshot.ready ? 'Loading assignment history…' : snapshot.pendingSends ? 'An update is awaiting delivery. Retry the saved update.' : '')
+    if (updateStatus) this.#status.textContent = this.#runError ?? snapshot.error ?? (snapshot.pendingHistory ? 'Some assignment history is missing. Restore it before acting.' : !snapshot.ready ? 'Loading assignment history…' : snapshot.pendingSends ? 'An update is awaiting delivery. Retry the saved update.' : '')
     const focused = this.root.activeElement
     const key = focused instanceof HTMLElement && this.#cards.contains(focused) ? focused.dataset.workField : undefined
     const selection = focused instanceof HTMLTextAreaElement ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] as const : undefined
