@@ -1,3 +1,4 @@
+import { accountNetworkDefault } from './src/account-network.js'
 import { createReadStream, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -118,7 +119,7 @@ export default defineConfig({
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
   },
-  plugins: [girnelAssets(), pinnedWasmPreview(),
+  plugins: [{ name: 'validate-account-network-default', configResolved(config) { accountNetworkDefault(config.env.VITE_ACCOUNT_NETWORK_DEFAULT) } }, girnelAssets(), pinnedWasmPreview(),
     audioWorklet(),
     // getUserMedia and getDisplayMedia both require a secure context. A
     // phone reaching the laptop over its LAN IP is not one without this -
