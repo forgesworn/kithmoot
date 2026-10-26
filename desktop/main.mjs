@@ -6,8 +6,10 @@ import { createPackageUpdater, packageVersionFile, readPackageVersion } from './
 import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
+import { createSpryHosting } from './spry-hosting.mjs'
+import { createHostingControls, createHostingQuitGuard } from './spry-hosting-controls.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
-import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, Notification, clipboard, nativeTheme } from 'electron'
+import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { restoreBounds, readWindowState } from './window-state.mjs'
@@ -47,6 +49,23 @@ const notices = new DesktopNotices({
   open: roomId => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); win.webContents.send('desktop:open-room', roomId) } },
 })
 let win
+let suspended = false
+const hosting = createHostingControls({
+  enabled: !app.isPackaged,
+  configPath: !app.isPackaged ? process.env.KITHMOOT_DESKTOP_SPRY_CONFIG : undefined,
+  createHost: createSpryHosting,
+  showDialog: options => win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
+  changed: () => { if (app.isReady()) applyAppMenu() },
+})
+async function hostingStopFailure() {
+  await dialog.showMessageBox({ type: 'error', message: 'The local relay has not stopped', detail: 'KithMoot will remain open because native process exit has not been confirmed. Try Stop again before closing.', buttons: ['OK'] })
+}
+const hostingQuit = createHostingQuitGuard({ stop: options => hosting.stop(options), quit: () => app.quit(), failed: hostingStopFailure })
+function cancelHostingQuit() {
+  if (!hosting.state().available) return
+  hostingQuit.cancel()
+  if (!suspended) void hosting.resume()
+}
 const updateNotify = state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) }
 const updateLog = error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error')
 // Installed from the Debian package, apt upgrades this copy in place; the
@@ -88,6 +107,7 @@ const marksOverlay = redaction ? new MarksOverlay(() => redaction.capture) : und
 if (testProfile) globalThis.kithmootTest = { redaction, shareArea, marksOverlay }
 let configureDisplayCapture
 let callActive = false
+let callGeneration = 0
 let powerBlock
 let localNetworkAllowed = false
 const networkPermissions = new Set(['local-network', 'loopback-network', 'local-network-access'])
@@ -180,6 +200,10 @@ function showAbout() {
 function applyAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildAppMenuTemplate({
     platform: process.platform, appName: app.name, state: roomMenuState, run: runMenuCommand,
+    ...(hosting.state().available ? {
+      hostingState: hosting.state(), hostingControls: () => { if (win && !win.isDestroyed() && !hostingQuit.quitting) void hosting.present() },
+      hostingStop: () => { void hosting.stop().then(stopped => { if (!stopped) void hostingStopFailure() }) },
+    } : {}),
     about: showAbout, reportAbuse: () => void external('https://kithmoot.forgesworn.dev/report/'),
   })))
 }
@@ -373,25 +397,51 @@ async function createWindow() {
   win.webContents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault() })
   win.webContents.on('will-attach-webview', event => event.preventDefault())
   attachContextMenu(win.webContents)
+  let hostingCloseReady = false
+  let hostingClosePending = false
+  let closeGeneration = 0
+  let confirmedCall
   win.webContents.on('will-prevent-unload', event => {
     const leave = invitationRevert
       ? confirmClose('Open the invitation with unsent work?', 'Your current draft or unfinished work may be lost.', 'Open invitation')
       : confirmClose('Close with unsent work?', 'Your current draft or unfinished work may be lost.')
+    if (!leave) { closeGeneration++; confirmedCall = undefined; cancelHostingQuit() }
     if (leave) event.preventDefault()
     else if (invitationRevert) void win.webContents.loadURL(invitationRevert).catch(() => {})
     invitationRevert = undefined
   })
   win.webContents.on('did-finish-load', () => { invitationRevert = undefined; if (titleBarStyle) sendWindowState(win.isFullScreen()) })
   win.on('close', event => {
-    if (callActive) {
-      if (!confirmClose('Leave the call and close KithMoot?', 'The call on this device will end. Your other devices and everyone else stay connected.')) { event.preventDefault(); return }
+    if (callActive && (!hosting.state().available || confirmedCall !== callGeneration)) {
+      if (!confirmClose('Leave the call and close KithMoot?', 'The call on this device will end. Your other devices and everyone else stay connected.')) { event.preventDefault(); closeGeneration++; confirmedCall = undefined; cancelHostingQuit(); return }
+      confirmedCall = callGeneration
+    }
+    if (hosting.state().available && !hostingCloseReady) {
+      event.preventDefault()
+      if (hostingClosePending) return
+      hostingClosePending = true
+      const closingWindow = win
+      const closeToken = closeGeneration
+      void hosting.stop({ block: true }).then(async stopped => {
+        hostingClosePending = false
+        if (closeToken !== closeGeneration) return
+        if (!stopped) { cancelHostingQuit(); await hostingStopFailure(); return }
+        if (!closingWindow.isDestroyed()) {
+          // The page still owns its unsaved-work guard on this second close.
+          hostingCloseReady = true
+          if (!hostingQuit.quitting && !suspended) await hosting.resume()
+          if (closeToken === closeGeneration && !closingWindow.isDestroyed()) closingWindow.close()
+          hostingCloseReady = false
+        }
+      })
+      return
     }
     try { writeFileSync(windowStateFile, JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() })) } catch { /* the next launch opens at the default size */ }
   })
   win.on('focus', applyUnreadBadge)
   win.on('show', applyUnreadBadge)
   win.on('closed', () => { releaseCall(); notices.clear(); unreadCount = 0; applyUnreadBadge(); win = undefined })
-  win.webContents.on('render-process-gone', () => releaseCall())
+  win.webContents.on('render-process-gone', () => { releaseCall(); void hosting.stop() })
   const start = pendingInvitation ?? HOME
   pendingInvitation = undefined
   await win.loadURL(start)
@@ -425,7 +475,17 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       : [])
     ipcMain.handle('desktop:screen-access', event => !trusted(event.sender) ? 'unknown' : process.platform === 'darwin' && !testProfile ? systemPreferences.getMediaAccessStatus('screen') : 'granted')
     ipcMain.handle('desktop:update-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? updates.state() : { phase: 'disabled' })
-    ipcMain.handle('desktop:update-install', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame && !callActive ? updates.install() : false)
+    ipcMain.handle('desktop:update-install', async event => {
+      if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || callActive) return false
+      if (!await hosting.stop({ block: true })) { await hostingStopFailure(); return false }
+      if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || callActive || suspended || hostingQuit.quitting) {
+        if (!suspended && !hostingQuit.quitting) await hosting.resume()
+        return false
+      }
+      const installed = await updates.install()
+      if (!installed && !suspended && !hostingQuit.quitting) await hosting.resume()
+      return installed
+    })
     ipcMain.handle('desktop:redaction-begin', event => {
       if (!trusted(event.sender) || !redaction) return null
       redaction.begin()
@@ -455,6 +515,7 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     })
     ipcMain.on('desktop:call-state', (event, active) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || typeof active !== 'boolean') return
+      if (active && !callActive) callGeneration++
       callActive = active
       if (active && powerBlock === undefined) powerBlock = powerSaveBlocker.start('prevent-app-suspension')
       if (!active) releaseCall()
@@ -471,6 +532,8 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       roomMenuState = next
       applyAppMenu()
     })
+    powerMonitor.on('suspend', () => { suspended = true; void hosting.stop({ block: true }) })
+    powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume() })
     applyAppMenu()
     // The share pop-out is a window of ours the app writes into, so it never
     // navigates anywhere. Every other window inherits the same rules as the
@@ -493,6 +556,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     await createWindow()
     updates.start()
     app.on('activate', () => { if (!win) void createWindow() })
-  }).catch(error => { console.error('Desktop startup failed:', error.message); app.exit(1) })
-  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+  }).catch(async error => { console.error('Desktop startup failed:', error.message); await hosting.stop({ block: true }); app.exit(1) })
+  app.on('before-quit', event => {
+    if (!hosting.state().available || hostingQuit.confirmed) return
+    event.preventDefault()
+    void hostingQuit.request()
+  })
+  app.on('window-all-closed', () => { if (hostingQuit.quitting || process.platform !== 'darwin') app.quit() })
 }

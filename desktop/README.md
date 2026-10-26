@@ -28,6 +28,17 @@ provider completion remain separate acceptance gates.
 
 ## Build and run
 
+The [optional Spry hosting preview](../docs/2026-10-26-desktop-spry-hosting.md)
+has development-only native Start/Stop controls behind an explicit owner
+configuration. It is Off on every launch. No native executable is bundled;
+packaged builds expose no hosting controls. Proton/public routing remains
+unqualified.
+
+The separate [mapping diagnostic](../docs/2026-10-26-proton-mapping-diagnostic.md)
+validates an owner plan without network traffic by default. Its explicit live
+mode observes a small NAT-PMP mapping set and one renewal cycle; it does not
+start hosting or establish Proton reachability.
+
 Use Node 24 from the repository root. Root dependencies must already be installed.
 
 ```sh

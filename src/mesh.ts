@@ -584,7 +584,7 @@ export class Mesh {
   readonly #volunteers = new Map<string, AssistOffer>()
   /** Signals that arrived for a device this mesh has no peer for yet, by
    *  sending device, oldest first. See `#holdSignal`. */
-  readonly #pendingSignals = new Map<string, { body: SignalBody; at: number }[]>()
+  readonly #pendingSignals = new Map<string, { body: SignalBody; createdAt: number }[]>()
   /** One timer per endpoint, bounding how long a rung gets. */
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** One timer per exhausted device, after which its ladder is retried. */
@@ -2156,7 +2156,7 @@ export class Mesh {
       // negotiating with, so it neither answers nor keeps the signal to
       // answer later - see `standDown`. Held, it would be drained into a
       // fresh connection as a description of one that is already gone.
-      if (!this.#quiet) this.#holdSignal(unwrapped.from, unwrapped.body, now)
+      if (!this.#quiet) this.#holdSignal(unwrapped.from, unwrapped.body, unwrapped.createdAt)
       return
     }
     // A rejection here is a description the connection would not take, which
@@ -2235,9 +2235,9 @@ export class Mesh {
    * decides who this device peers with, and nothing here opens a connection
    * to anybody it does not already want one with.
    */
-  #holdSignal(device: string, body: SignalBody, now: number): void {
+  #holdSignal(device: string, body: SignalBody, createdAt: number): void {
     const held = this.#pendingSignals.get(device) ?? []
-    held.push({ body, at: now })
+    held.push({ body, createdAt })
     // Bounded twice, because both are unbounded otherwise: a device that
     // never joins would hold its signals for ever, and any sender can name
     // a device that does not exist.
@@ -2257,10 +2257,10 @@ export class Mesh {
     const held = this.#pendingSignals.get(device)
     if (!held) return
     this.#pendingSignals.delete(device)
-    const cutoff = this.#now() - SIGNAL_MAX_AGE_SECONDS
+    const now = this.#now()
     let offered = false
-    for (const { body, at } of held) {
-      if (at < cutoff) {
+    for (const { body, createdAt } of held) {
+      if (Math.abs(now - createdAt) > SIGNAL_MAX_AGE_SECONDS) {
         this.#diagnose({ kind: 'signal-dropped-as-stale', device, detail: body.type })
         continue
       }

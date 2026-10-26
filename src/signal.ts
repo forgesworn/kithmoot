@@ -287,11 +287,13 @@ export function validSignalExtensions(body: SignalBody): boolean {
 /**
  * Unwrap and verify a signal. Returns null for anything that does not check
  * out, and never throws - this runs inside a subscription handler.
+ * `createdAt` is the authenticated inner time, for queues that must preserve
+ * the same freshness limit after initial admission.
  */
 export function unwrapSignalEvent(
   wrap: Event,
   opts: UnwrapOptions,
-): { id: string; from: string; body: SignalBody } | null {
+): { id: string; from: string; createdAt: number; body: SignalBody } | null {
   try {
     if (wrap.kind !== KINDS.SIGNAL_WRAP || typeof wrap.content !== 'string' || wrap.content.length > MAX_SIGNAL_WRAP_LENGTH) return null
     if (!Array.isArray(wrap.tags) || wrap.tags.length > 16 || wrap.tags.some(t => !Array.isArray(t) || t.length > 8 || t.some(v => typeof v !== 'string' || v.length > 2048))) return null
@@ -337,7 +339,7 @@ export function unwrapSignalEvent(
     // `from` is a device pubkey entering the system off the wire - the
     // `Mesh` peer map it gets looked up in is keyed by the same normalised
     // form roster decode produces, so this must match. See `normaliseHex`.
-    return { id: inner.id, from: normaliseHex(inner.pubkey), body }
+    return { id: inner.id, from: normaliseHex(inner.pubkey), createdAt: inner.created_at, body }
   } catch {
     return null
   }

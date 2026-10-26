@@ -37,8 +37,8 @@ import { normalizeURL } from 'nostr-tools/utils'
  * room id and the timing of its roster events, and - because of this file
  * and nothing else - can also learn which participant keys are in it.
  *
- * The app enables lookups by default, with a persistent switch in profile
- * settings (Settings, Privacy). Disabling closes subscriptions and removes
+ * The app requires an explicit saved opt-in for lookups, with a persistent
+ * switch in profile settings (Settings, Privacy). Disabling closes subscriptions and removes
  * cached profiles and external pictures.
  *
  * NIP-05 checks are the exception to every other lookup this book makes:

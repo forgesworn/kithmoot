@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "scope": "Standalone operator-run NAT-PMP diagnostic; offline protocol, CLI and lifecycle acceptance only",
+  "source": {
+    "kithmootBase": "28786a0c42568b46f842e1dee249e57132ec2f86",
+    "branch": "feat/desktop-spry-hosting-20261026",
+    "changesCommitted": false,
+    "fileSha256": {
+      "desktop/spry-natpmp.mjs": "ae3de0e739c65d91276cadafc9377aacd3aac8d58287d8110bcacd74a6d44fa4",
+      "desktop/spry-mapping-diagnostic.mjs": "dedc755856bd66e61ac24733730d23a8f26f425044d26c9a56d980c38c090c5f",
+      "desktop/spry-mapping-check.mjs": "fe2a771a17cc1488c8e395537708f00d366835ee2852c42744b8608ab904dc5d",
+      "desktop/test/spry-natpmp.test.mjs": "ade2ee31829f94bb1103f7c050ad2f320c9fa7fe2636b6ae540953b057e505c0",
+      "desktop/test/spry-mapping-diagnostic.test.mjs": "878e7a0bb99ebf2264d126c56dea4420f00991a4a6665110ee6aad0ae8ff007c",
+      "desktop/test/spry-mapping-wire.test.mjs": "7a2ef219e96154bd63b9ec5aa3f89d63b33d3f887a9376f86b29b3c08fbed0ac",
+      "docs/2026-10-26-proton-mapping-diagnostic.md": "209875dbaeb023c3e6e4385c406763a1247b3d81bf4704c7374eac84f6e5156b",
+      "docs/2026-10-26-desktop-spry-hosting.md": "3a7008c1fa26d0fa2b2192a62619cc3c06ba1fdb4ba27648b774260caa42cdbb",
+      "desktop/README.md": "48b402f6789cd6eaa055a038f6c024d906cdcdfb407732fd7d56d5833f74964e"
+    },
+    "spryFileSha256": {
+      "GOALS.md": "d7e5893d49ac2fd946b8304d9fc40704fff4b8b9d03b3ebce169f64a743c4b8b",
+      "llms.txt": "25a2b35d46c18f2f7a341d4c7fc77be3145707a23576f6a924eba0adc5ffdfbd",
+      "llms-full.txt": "882106e314855aaf52197ec0ca6e1ec4e51d1aafecebc8c93ca786c8c60a1f87"
+    },
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "command": "node --test desktop/test/spry-natpmp.test.mjs desktop/test/spry-mapping-diagnostic.test.mjs desktop/test/spry-mapping-wire.test.mjs",
+      "result": "passed",
+      "tests": 59,
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "node --test desktop/test/*.test.mjs",
+      "result": "passed",
+      "tests": 218,
+      "passed": 216,
+      "failed": 0,
+      "skipped": 2,
+      "skippedReason": "Two existing actual-native checks require KITHMOOT_TEST_SPRY_BINARY; prior task-owned native binary was removed after its earlier acceptance. No native rebuild or Electron rerun for standalone diagnostic additions."
+    },
+    {
+      "check": "node --check for all three new diagnostic modules; CLI --help",
+      "result": "passed"
+    },
+    {
+      "command": "npm run docs:generate; npm run check:docs",
+      "repository": "spry-turn",
+      "result": "passed",
+      "sourceGuides": 22,
+      "repositoryLinks": 334
+    },
+    {
+      "command": "git diff --check",
+      "repository": "both isolated worktrees",
+      "result": "passed"
+    },
+    {
+      "command": "gitleaks stdin --redact --no-banner",
+      "scope": "All new diagnostic source/tests and changed docs/generated context",
+      "result": "passed; no leaks found"
+    }
+  ],
+  "evidence": [
+    "Actual loopback UDP datagrams with independent fixture encoding validate address queries, UDP/TCP mapping tuples, assigned external-port-zero requests and returned translated noncontiguous allocations",
+    "Per-tuple renewal requests suggest the actual assigned port; the 45-second interval is simulated using a monotonic fixture clock",
+    "Partial refusal retains bounded result code and failed tuple; no subsequent renewal or deletion is sent",
+    "Cancellation, timeout and socket errors close control sockets; connected UDP ignores wrong source port, with injected receive checks for wrong IP/family",
+    "Exact reply sizes, version/opcode, internal-port echo, nonzero actual port/lease and bounded errors; adversarial parser inputs refused",
+    "Collision, mismatched listener pair, lease expiry/late wake/late response, short/long grant, changed port/IP and implausible gateway epoch stop observations",
+    "CLI default creates no datagram sockets; strict bounded regular-file config, FIFO refusal, atomic new private 0600 report, endpoint-free public summary"
+  ],
+  "behaviour": {
+    "defaultNetworkRequests": 0,
+    "liveRequestsRequireRunFlag": true,
+    "explicitPinnedSourceAndGateway": true,
+    "gatewayPort": 5351,
+    "allocationMappingCount": {
+      "minimum": 2,
+      "maximum": 4
+    },
+    "requestedLeaseSeconds": 60,
+    "renewalCycles": 1,
+    "initialSuggestedExternalPort": 0,
+    "internalPortZeroSupported": false,
+    "deletionRequests": false,
+    "backgroundLeaseManager": false,
+    "publicConsoleContainsEndpoints": false,
+    "privateReportContainsIdentifyingTuples": true
+  },
+  "review": {
+    "research": "gpt-6.1-sol, high effort; primary provider and protocol sources",
+    "wireImplementation": "gpt-6.1-sol, high effort; bounded module and offline socket tests",
+    "independentAcceptance": "gpt-6.1-sol, high effort; separate diagnostic/CLI acceptance tests",
+    "root": "Orchestration/CLI, independent wire fixture, source review and final checks",
+    "findingsResolved": [
+      "Allow standard external-port-zero suggestions while refusing internal zero",
+      "Retain bounded numeric refusal result and exact attempted tuple in private evidence"
+    ]
+  },
+  "primarySources": [
+    "https://protonvpn.com/support/port-forwarding",
+    "https://protonvpn.com/support/port-forwarding-manual-setup",
+    "https://www.rfc-editor.org/rfc/rfc6886.html#section-3.3",
+    "https://www.rfc-editor.org/rfc/rfc6886.html#section-3.4"
+  ],
+  "earlierEvidence": {
+    "path": "docs/evidence/desktop-spry-hosting-20261026.json",
+    "sha256": "9c5f0a8f41b1a8ce7e8fcb3d43685a298fbd722509bb505ed3412573ce356d29",
+    "scope": "Earlier native/Electron acceptance of the preceding revision; not rerun by this receipt"
+  },
+  "boundaries": {
+    "liveProtonRequestsMade": false,
+    "providerSupportedQuotaEstablished": false,
+    "mappingOwnershipEstablished": false,
+    "independentLeaseSemanticsProven": false,
+    "externalReachabilityQualified": false,
+    "vpnConfinementOrKillSwitchQualified": false,
+    "physicalSleepWakeQualified": false,
+    "nativePortSetOrTranslationAdapterImplemented": false,
+    "hostingControlsUseDiagnostic": false,
+    "independentNetworkMediaCall": false,
+    "performanceQualification": false,
+    "publicServerStarted": false,
+    "nostrAnnouncementsOrAccessChanged": false,
+    "ownerArchipelagoNodeChanged": false,
+    "vpnFirewallRouterSettingsChanged": false,
+    "publishedOrDeployed": false,
+    "legalProviderClassificationResolved": false
+  },
+  "cleanup": "No diagnostic/test Node processes or generated spry-mapping-test scratch directories remained at final inspection. Loopback sockets and temporary FIFO/config/report fixtures cleaned by test hooks. No packages, native targets or Electron runtime created. Uncommitted source worktrees retained; unrelated work preserved.",
+  "nextGate": "Owner-operated explicit-port Proton experiment without competing forwarding managers; establish supported mappings and several lease cycles, then implement required endpoint-set/translation adapter and qualify bidirectional TURN, VPN loss/reconnect and sustained media from an independent network."
+}

@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "scope": "Roster reader-first privacy codec, call admission expiry/freshness, and explicit public-profile opt-in",
+  "source": {
+    "kithmootBase": "28786a0c42568b46f842e1dee249e57132ec2f86",
+    "branch": "feat/desktop-spry-hosting-20261026",
+    "changesCommitted": false,
+    "kithmootFileSha256": {
+      "src/roster.ts": "89675d3894c65cfa7902dea9f8b8f097e942bc22c2fb4b3450666a1d4ec570e8",
+      "src/roster-privacy.test.ts": "d78e3a1e7944dae400a03a555b250916e827e8ec868395bec2d22aa08a6ee1ca",
+      "src/session.ts": "3390cdddf3f9ec7a31a1fc2c36bf39de6341e05c2cf2371b2253a1d6840790be",
+      "src/session-call-admission.test.ts": "f1e8d9b386d7f720d9ed0a9214a2144f1b45f471f4717051c46c89c291612350",
+      "src/session-roster-privacy.test.ts": "827a4a5d9f49f1f8d32acc35b28a1b99ea21a1a5ad09bbf4e748a6cf825cd154",
+      "src/mesh.ts": "1788d220778ff8aef8259ee39706582405754703ffa1d368fec044865155388b",
+      "src/mesh.test.ts": "42b18b5d1027dbd301dff308735bfb0859522e61c2986c55f75db8ce671ecb3a",
+      "src/signal.ts": "cc7540d0ed7be1ffdc5709931e90f693eede7111c30c185c0a08f3f8fb069ee7",
+      "src/index.ts": "06d0d6f57b1349c2bf57e7158149bf767b901c07b08643913aac1f3098fe8f9c",
+      "app/src/relay-settings.ts": "c9e170293023cf40e2a7e46372617703b8ae141cf278d70d2bfb83f9143ce254",
+      "app/src/relay-settings.test.ts": "750feeb0516ca4a25c2f9f1ad0cdd8e0cb389bf42bcb2f89c3d801a446ca7462",
+      "app/src/profiles.ts": "6035c178ab822c104958bca8b258985bcbe1428ed5f267afa752ca9ad3557031",
+      "app/src/profiles.test.ts": "228026930d042c819f89adb0523e32fc01424d9fc35b900e58259251778991c1",
+      "site/privacy/index.html": "4fafa45c771a49e420beecbfea1f1d6102b92b0997be0e3bdcb4a9b2f7dbc9dc",
+      "vectors/generate-roster-envelope-2.mjs": "e6bba135cbb58a81c39f3550ae3cfc6799745c56cfc7d087970ec6632b99d70d",
+      "vectors/roster-envelope-2.json": "27eb7b73c8913d6cb45ae7f155cb3ae7ff33b3e00e0726e778a67a35ff313b13",
+      "vectors/roster-envelope-2.test.ts": "bc04748940d99d66a33422d79ad4e0b3012d3cd68a24f865f472c8925a89627b",
+      "docs/protocol/roster-envelope-2.md": "86e533d56910287c97dc9a4a61d888c6d97a12a434ab3b1d347f0480df1b30ea",
+      "docs/legal/call-transport-position.md": "8a2e9dd1ad4d18af99a964b48d0fbd181c79e832cd55b4cff319d0a5ff48be80",
+      "docs/2026-10-26-call-privacy-and-one-click.md": "cc16b2e6e47b7c8cabe4afe711ed555c97b582e5ea8b5e1e43a2504cfe304209"
+    },
+    "spryDocumentationSha256": {
+      "GOALS.md": "e99ab6eef8774fd2d32238397db9e0ea6a0e43bebd44f1eafa762a918a180108",
+      "llms.txt": "5e86463ba1d8988bdeaf9d7170229092dd13dc05a01f814fccb5a48b011663d6",
+      "llms-full.txt": "473e055511f0fa4dffd0445dd2b8211b5a22db10246b2b29e94068aaf53c552d"
+    },
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "implemented": [
+    "Public profiles/pictures require literal savedtrue; unset, malformed or unreadable storageOff; existing explicit choices preserved before app profile/follow queries",
+    "Remote proof expiry evicts connected media peers; read-before-sweep eviction queues coalesced media reconciliation",
+    "Local admission expiry detected on sweep/read/roster preparation suppresses publication and tears down session media",
+    "Pending signals retain authenticated inner createdAt and use signed symmetric20-second freshness on drain",
+    "Bounded dual roster reader and opt-in envelope2 codec, freshouterkey, encrypted rawbody/device BIP340 signature bound to room/epoch/outer/time; defaultwriterunchanged",
+    "Independent synthetic root/epoch conformance vectors and real RoomSession/fake-media admission checks",
+    "Public privacy-page and legal source updated for current group correlation, profile queries and staged codec limitations"
+  ],
+  "regressionStages": [
+    {
+      "stage": "Remote expiry and queued signed age before fixes",
+      "result": "2 expected failures;51 skipped",
+      "evidence": "implementation agent"
+    },
+    {
+      "stage": "Read-before-sweep notification before fix",
+      "result": "1 expected failure",
+      "evidence": "implementation agent"
+    },
+    {
+      "stage": "Local expiry before guard",
+      "result": "3 expected failures",
+      "evidence": "root broad run; expired peer remained open"
+    },
+    {
+      "stage": "Final focused admission",
+      "result": "7 passed;51 skipped",
+      "evidence": "implementation agent"
+    },
+    {
+      "stage": "Focused roster codec",
+      "result": "51 passed, including39existing",
+      "evidence": "codec agent"
+    }
+  ],
+  "checks": [
+    {
+      "check": "Related unit/integration and vector run",
+      "result": "qualified pass",
+      "files": 25,
+      "passed": 701,
+      "failed": 0,
+      "skipped": 1,
+      "durationSeconds": 104.16,
+      "command": "node node_modules/vitest/vitest.mjs run --config .codex-roster-vitest.config.mts --configLoader runner src/session*.test.ts src/mesh.test.ts src/signal.test.ts src/roster.test.ts src/roster-privacy.test.ts vectors/roster-envelope-2.test.ts vectors/verify.test.ts app/src/profiles.test.ts app/src/relay-settings.test.ts app/src/profile-lookups.test.ts app/src/follow-list.test.ts --reporter=dot -t <negative-annotation-pattern>",
+      "negativePattern": "^(?!.*sends annotations between our devices).*",
+      "configuration": {
+        "base": "vitest.config.ts",
+        "cacheDir": "./.codex-roster-cache",
+        "test": {
+          "cache": false,
+          "maxWorkers": 1,
+          "fileParallelism": false
+        }
+      },
+      "skippedTest": "Mesh > sends annotations between our devices alongside their media connection"
+    },
+    {
+      "command": "npm run typecheck",
+      "result": "passed",
+      "includes": [
+        "context-package builds",
+        "library noEmit",
+        "app noEmit"
+      ]
+    },
+    {
+      "check": "Earlier library-only typecheck",
+      "result": "passed"
+    },
+    {
+      "check": "Signal flood current-source isolated check",
+      "result": "passed",
+      "passed": 1,
+      "skipped": 51,
+      "durationSeconds": 15.15,
+      "testSeconds": 10.01
+    },
+    {
+      "command": "npm run docs:generate; npm run check:docs",
+      "repository": "spry-turn",
+      "result": "passed",
+      "guides": 23,
+      "repositoryLinks": 348
+    },
+    {
+      "check": "Privacy HTML parsing/disclosures; vector generator syntax; diff whitespace",
+      "result": "passed"
+    },
+    {
+      "command": "gitleaks stdin --redact --no-banner",
+      "result": "passed for scoped change scan; no leaks found",
+      "scope": "Full new/other touched files; changed hunks for relay-settings.ts",
+      "fullFileBaselineFindings": "Full relay-settings.ts scan flags2identical pre-existing local-storage identifiers STORAGE_KEY/CIRCLE_KEY under generic-api-key in both base and candidate; inspected and verified as storage namespace strings. No ignore added."
+    }
+  ],
+  "baselineInvestigation": {
+    "baseCommit": "28786a0c42568b46f842e1dee249e57132ec2f86",
+    "method": "Clean archived src/test/config/package; same dependency installation, one worker, unchanged deadlines",
+    "pattern": "sends annotations between our devices|one device cannot flood",
+    "failed": 1,
+    "passed": 1,
+    "skipped": 49,
+    "durationSeconds": 44.76,
+    "annotation": "Exceeds existing20-second deadline in clean baseline and candidate; remains unresolved",
+    "flood": "Earlier candidate broad/combined runs timed out at15seconds; clean baseline and later candidate isolated/final related runs pass with unchanged deadline",
+    "unqualifiedWholeSuitePass": false
+  },
+  "review": {
+    "codec": "gpt-6.1-sol high",
+    "admission": "gpt-6.1-sol high",
+    "independentSecurity": "gpt-6.1-sol high; no blocking findings after local-expiry follow-up",
+    "legalCover": "gpt-6.1-sol medium; narrow factual gap check",
+    "root": "Independent vectors, profile opt-in, clean baseline comparison, broad checks and evidence"
+  },
+  "legalNote": {
+    "overallVerified": "2026-09-28",
+    "transportTelecomPrimary": "2026-10-23",
+    "discoveryPrimary": "2026-10-25",
+    "reviewDue": "2027-03-28 or relevant watch change",
+    "unresolvedClassificationsPreserved": true
+  },
+  "boundaries": {
+    "audioVideoOverNostr": false,
+    "defaultRosterWriterChanged": false,
+    "writerActivation": false,
+    "androidReaderUpdated": false,
+    "groupUnlinkabilityEstablished": false,
+    "signallingRecipientMetadataHidden": false,
+    "historicalMetadataErased": false,
+    "profileOptInCandidateImplemented": true,
+    "savedChoicesPreserved": true,
+    "admissionFixesCandidateImplemented": true,
+    "physicalOrIndependentNetworkMediaTested": false,
+    "productionAppBundleBuilt": false,
+    "installedReleaseAccepted": false,
+    "publicPrivacyPagePublished": false,
+    "livePublicNostrTrafficSent": false,
+    "protonSettingsChanged": false,
+    "ownerArchipelagoNodeChanged": false,
+    "publisherNostrOrTurnServiceAdded": false,
+    "publishedOrDeployed": false,
+    "oneClickProductionHostingReady": false
+  },
+  "cleanup": "Completed: task-created dependency symlink, temporary Vitest config, package dist outputs and clean baseline archive removed after acceptance/source evidence recording. No task test processes remain. Existing dependency installation, caches and unrelated work preserved. Source worktrees remain uncommitted.",
+  "nextGates": [
+    "Resolve pre-existing annotation stress deadline",
+    "Qualify cross-client readers and fail-closed activation before enabling roster envelope2 writer",
+    "Complete desktop one-click hosting/control integration",
+    "Actual network/VPN/media/privacy/performance and installed release acceptance"
+  ]
+}
