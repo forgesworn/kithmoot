@@ -1,5 +1,5 @@
 import { RoomSession } from '../../src/session.js'
-import { retireAccountNetworkRooms } from './account-network-rooms.js'
+import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -275,6 +275,21 @@ describe('installation account network and production account composition', () =
     expect(h.network.mode).toBe('nostr')
   })
 
+
+
+  it('does not adopt an old ordinary opening after delayed route selection and a missed private round trip', async () => {
+    const h = harness('nostr'), otherTab = new AccountNetwork(h.settings)
+    const check = accountNetworkRoomOpening(h.network), make = vi.fn(() => h.connections.pool(`room:${room.roomId}`))
+    let select!: (privateRoute: boolean) => void
+    const route = new Promise<boolean>(resolve => { select = resolve })
+    const opening = (async () => { const privateRoute = await route; check(privateRoute); if (!privateRoute) return make() })()
+      .then(() => undefined, error => error as Error)
+    otherTab.choose('private-invitations'); otherTab.choose('nostr')
+    select(false)
+    expect(await opening).toMatchObject({ message: NOSTR_MODE_REQUIRED })
+    expect(make).not.toHaveBeenCalled()
+    expect(() => check(true)).not.toThrow()
+  })
 
   it('revokes a real pending room credential before a late signature can inherit a new public delegate', async () => {
     const h = harness('nostr'), otherTab = new AccountNetwork(h.settings), changes = new Set<() => void>()

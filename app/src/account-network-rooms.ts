@@ -1,3 +1,4 @@
+import { NOSTR_MODE_REQUIRED, type AccountNetwork } from './account-network.js'
 import type { RoomSession } from '../../src/session.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
 
@@ -21,4 +22,12 @@ export function retireAccountNetworkRooms(rooms: readonly {
     try { leaving.push(room.session.leave()) } catch (error) { leaving.push(Promise.reject(error)) }
   }
   return Promise.allSettled(leaving)
+}
+
+/** Capture ordinary opening intent before route selection, signer restore or
+ * ICE work can await. A later Nostr enable cannot adopt an older opening.
+ * The actual paired/private route decision is exempt from public permission. */
+export function accountNetworkRoomOpening(network: AccountNetwork): (privateRoute: boolean) => void {
+  const current = network.current()
+  return privateRoute => { if (!privateRoute && !current()) throw new Error(NOSTR_MODE_REQUIRED) }
 }

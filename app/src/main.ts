@@ -1,4 +1,4 @@
-import { retireAccountNetworkRooms } from './account-network-rooms.js'
+import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
 import { accountSyncServices } from './account-sync.js'
 import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
 import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
@@ -13649,6 +13649,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
+  const requireOpeningNetwork = accountNetworkRoomOpening(accountNetwork)
   if (!retry && (joining || session || loginBusy)) return
   closeAccountMessageViews()
   if (!retry) applyHideIpDefault()
@@ -13672,6 +13673,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   try {
     if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
+    requireOpeningNetwork(roomUsesBothy)
     if (!roomUsesBothy) accountNetwork.requireNostr()
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
@@ -13831,6 +13833,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       await browserLink.resume(nostrSession.pubkey)
       browserRoomRoutes.changed()
     }
+    requireOpeningNetwork(roomUsesBothy)
     const pool = configuredPool(relays)
     sessionTransport = pool
     const poolCreatedAt = Date.now()
