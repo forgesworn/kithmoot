@@ -46,6 +46,7 @@ test('private chat rows show the peer picture before opening and respect the pro
   await context.addInitScript(({ key, rooms }) => {
     if (localStorage.getItem('test.avatar-seeded')) return
     localStorage.setItem('test.avatar-seeded', '1')
+    localStorage.setItem('kithmoot.profiles.enabled', 'true')
     localStorage.setItem('kithmoot.participant', key)
     for (const room of rooms) localStorage.setItem('kithmoot.room.' + room.id, JSON.stringify(room.value))
   }, { key: Array.from(selfKey, x => x.toString(16).padStart(2, '0')).join(''), rooms: [

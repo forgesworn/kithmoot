@@ -37,6 +37,7 @@ test('a returning visitor can choose their Nostr profile at the door and the cle
   const secret = generateSecretKey()
   const pubkey = getPublicKey(secret)
   const context = await device(browser, baseURL!, secret)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Account choice', relays: [relay.href], iceUrls: [] })
   const clerk = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Tally' })
@@ -858,6 +859,7 @@ test('shared projects keep three scopes separate and carry a reviewed invitation
 test('granted contacts pair with explicit fields and a confirmed code, persist and disappear on revocation', async ({ browser, baseURL }) => {
   const secret = generateSecretKey(), account = getPublicKey(secret)
   const context = await device(browser, baseURL!, secret)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   const peerSecret = generateSecretKey(), peer = getPublicKey(peerSecret)
   const peerContext = await device(browser, baseURL!, peerSecret)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
