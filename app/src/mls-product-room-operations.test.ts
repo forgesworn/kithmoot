@@ -4,7 +4,7 @@ vi.mock('./mls-engine.js', () => ({ loadMlsEngine: async () => ({ Platform: clas
   prepareCreateAdminInvitationProfile: mocks.admin, prepareCreateInvitationProfile: mocks.legacy, prepareCreate: mocks.full,
   openAdminInvitationSession: mocks.openAdmin, openInvitationSession: mocks.openLegacy, open: mocks.openFull,
 } }) }))
-vi.mock('./mls-room-store.js', () => ({ readMlsRoom: async () => mocks.room }))
+vi.mock('./mls-room-store.js', async original => ({ ...await original<typeof import('./mls-room-store.js')>(), readMlsRoom: async () => mocks.room }))
 vi.mock('./mls-admin-storage-evidence-gate.js', () => ({ withAdminStorageEvidenceGate: (_p: string, _s: string, work: () => unknown) => work() }))
 vi.mock('./mls-invitation-continuity.js', () => ({ invitationRestart: () => 'TrustedLocalRestart', invitationAnchor: () => 'anchor' }))
 vi.mock('./mls-session-host.js', async original => {
