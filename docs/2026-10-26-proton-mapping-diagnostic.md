@@ -160,3 +160,13 @@ automatic setup and does not need to diagnose network addresses manually;
 engineering commands above are diagnostic tooling, not the intended product UI.
 The [privacy and one-click requirements](2026-10-26-call-privacy-and-one-click.md)
 keep Nostr relays, STUN servers and TURN media relays distinct.
+
+After port forwarding was enabled, a fresh address-only preflight received a
+valid NAT-PMP reply on the inspected VPN route. No mapping requests were sent,
+and no application listener or public announcement was started. This supersedes
+the earlier connection-refused observation, but does not qualify the required
+listener and allocation ports. The Proton app is already managing its forwarded
+port; coexistence with another mapping manager must be established before
+requesting additional mappings. Direct WebRTC calls remain the normal path when
+the person's privacy settings allow them. TURN media relay hosting is an
+optional route for networks that need it, separate from Nostr room setup.
