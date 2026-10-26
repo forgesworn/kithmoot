@@ -1,5 +1,6 @@
+import { retireAccountNetworkRooms } from './account-network-rooms.js'
 import { accountSyncServices } from './account-sync.js'
-import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, ACCOUNT_NETWORK_REVISION_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
+import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
 import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
 import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
@@ -14073,7 +14074,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         // The room's Spry offer outranks a discovered relay.
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
         applyCallServers(withDeviceStun(servers, deviceStun), false)
-      }, fetch, deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
+      }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
       spryRooms.set(s, relay)
     }
     // A relay the person chose from public adverts, for a call only. It
@@ -22442,7 +22443,7 @@ function renderAccountNetwork(): void {
   ;($('lookupProfiles') as HTMLInputElement).disabled = privateMode
   ;($('verifyAddresses') as HTMLInputElement).disabled = privateMode
   $('accountNetworkStatus').textContent = privateMode
-    ? PRIVATE_SYNC_PAUSED + ' Contacts, public profiles and ordinary relay rooms are paused. Your signer and private Link/Bothy/VMLS connections remain available.'
+    ? PRIVATE_SYNC_PAUSED + ' Contacts, public profiles and ordinary relay rooms are paused. Your signer, private groups and paired nodes remain available.'
     : 'Nostr enabled. Public relays can observe account and contact keys, timing and use of KithMoot. Saved profile and sync preferences apply.'
   ;($('choosePrivateInvitations') as HTMLButtonElement).disabled = privateMode && accountNetwork.persisted
   ;($('enableNostrNetwork') as HTMLButtonElement).disabled = !privateMode
@@ -22461,6 +22462,24 @@ function requireNostrFeature(): boolean {
 }
 function reconcileAccountNetwork(): void {
   const enabled = accountNetwork.nostr
+  // Revoke old ordinary room ownership before any await or route refresh.
+  // A late credential/signature cannot inherit a new public delegate.
+  if (session && !roomUsesBothy) captureDraft()
+  void retireAccountNetworkRooms([
+    ...(session ? [{ session, transport: sessionTransport, privateRoute: roomUsesBothy }] : []),
+    ...(dockedCall ? [{ session: dockedCall.session, transport: dockedCall.transport, privateRoute: dockedCall.ui.roomUsesBothy }] : []),
+  ])
+  const roomHold = enabled ? 'Account network changed. Reopen this room to reconnect. Drafts and pending changes are kept.' : PRIVATE_SYNC_PAUSED
+  admissionController?.abort()
+  cancelPublicRelayCheck()
+  if (joining && !session && !roomUsesBothy) {
+    ++roomGeneration; joining = false; disarmStopOpening()
+    sessionTransport?.close(); sessionTransport = undefined
+    setStatus(roomHold)
+  }
+  if (dockedCall && !dockedCall.ui.roomUsesBothy) spryRooms.get(dockedCall.session)?.close()
+  if (dockedCall && !dockedCall.ui.roomUsesBothy) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
+  if (session && !roomUsesBothy) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
   // Invalidate ordinary views before any asynchronous teardown can complete.
   nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close()
   stopSpryAccountSync()
@@ -22479,18 +22498,6 @@ function reconcileAccountNetwork(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (!enabled) {
     participantCard.close()
-    cancelPublicRelayCheck()
-    admissionController?.abort()
-    if (joining && !session && !roomUsesBothy) {
-      ++roomGeneration; joining = false; disarmStopOpening()
-      sessionTransport?.close(); sessionTransport = undefined
-      setStatus(PRIVATE_SYNC_PAUSED)
-    }
-    if (dockedCall && !dockedCall.ui.roomUsesBothy) void endDockedCall('user', PRIVATE_SYNC_PAUSED).catch(error => setStatus(describeError(error)))
-    if (session && !roomUsesBothy) {
-      captureDraft()
-      void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(PRIVATE_SYNC_PAUSED)).catch(error => setStatus(describeError(error)))
-    }
     // Remove retained avatar elements immediately, including views currently
     // closed. Repainting below supplies local initials rather than remote URLs.
     for (const image of document.querySelectorAll<HTMLImageElement>('img.avatar, .joinAvatar img, .personAvatar img, .contactAvatar img, .invitationAvatar img, .roomAvatar img')) { image.removeAttribute('src'); image.remove() }
@@ -22505,7 +22512,7 @@ function reconcileAccountNetwork(): void {
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
 }
 accountNetwork.listen(reconcileAccountNetwork)
-window.addEventListener('storage', event => { if (event.key === ACCOUNT_NETWORK_KEY || event.key === ACCOUNT_NETWORK_REVISION_KEY || event.key === null) accountNetwork.refresh() })
+window.addEventListener('storage', event => { if (event.key === ACCOUNT_NETWORK_KEY || event.key === null) accountNetwork.refresh() })
 for (const id of ['homeAccountNetwork', 'accountNetworkOpen', 'profileAccountNetwork']) $(id).addEventListener('click', showAccountNetwork)
 $('accountNetworkClose').addEventListener('click', () => ($('accountNetworkDialog') as HTMLDialogElement).close())
 for (const [id, mode] of [['choosePrivateInvitations', 'private-invitations'], ['enableNostrNetwork', 'nostr']] as const) $(id).addEventListener('click', () => {

@@ -1,9 +1,11 @@
 # Account network
 
-KithMoot has a device installation account-network choice, stored under
-`kithmoot.account-network.v1`: `private-invitations` or `nostr`. Each explicit
-choice also updates `kithmoot.account-network-revision.v1`, so another tab cannot
-miss a private-to-Nostr round trip and retain its old publication ownership. This is product
+KithMoot has a device installation account-network choice, stored atomically
+under `kithmoot.account-network.v1` as `{v: 1, mode, revision}`. The mode is
+`private-invitations` or `nostr`; each explicit choice uses a fresh CSPRNG UUID
+revision. Another tab cannot miss a private-to-Nostr round trip and retain old
+publication ownership. Legacy string enum values are accepted for reading;
+new choices always write the complete atomic record. This is product
 policy, independent of MLS preview/development flags and account/sign-in method.
 
 An existing saved choice wins. Without a saved choice the distribution uses
@@ -19,7 +21,7 @@ Account network is available before sign-in, on the home/door account controls
 and in profile privacy settings. Only its explicit Enable Nostr action enables
 public account networking. A URL, restored signer or ordinary feature does not
 change the choice. The UI explains what public relays can observe and which
-services are paused. If saving a private choice fails, this tab stops public
+services are paused. If saving either choice fails, this tab stops public
 services and holds privately; it reports the unsaved choice and offers a retry.
 It does not claim that another tab or future launch has persisted that choice.
 
@@ -40,7 +42,10 @@ socket carrier. Policy generations, current storage reads, old-service closure,
 HTTP abort and callback guards prevent retained publishers, late signer results,
 reconnects and old responses from resuming after a transition. Storage events are
 wakeups; their payload is never trusted as current policy. Active ordinary rooms
-and calls close on a private transition, preserving drafts and pending data.
+and calls are synchronously revoked on every policy revision, including a missed
+private-to-Nostr round trip. Their outer transport closes before leave begins;
+late credential signatures cannot inherit the new public permission. Reopening
+creates a fresh ordinary session, preserving drafts and pending data.
 Enabling Nostr creates fresh services and resumes pending account sync.
 
 `app/src/account-network.test.ts` exercises the production `accountSyncServices`

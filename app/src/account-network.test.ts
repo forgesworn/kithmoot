@@ -1,3 +1,5 @@
+import { RoomSession } from '../../src/session.js'
+import { retireAccountNetworkRooms } from './account-network-rooms.js'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -35,7 +37,7 @@ beforeEach(() => { resetFakeRelays(); useWebSocketImplementation(FakeWebSocket a
 afterEach(() => { for (const close of cleanups.splice(0)) close(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 function harness(mode: 'nostr' | 'private-invitations' = 'private-invitations') {
   const settings = storage(), network = new AccountNetwork(settings, mode), relay = fakeRelay(url)
-  const connections = new RelayConnections(settings, [url], () => false, { intervalMs: 0 })
+  const connections = new RelayConnections(settings, [url], () => false, { intervalMs: 60_000 })
   connections.accountNetwork(network)
   const { account, secret } = actor(), store = memoryDeviceStore(), statuses: string[] = [], adopted: unknown[] = []
   const restore = () => {
@@ -55,6 +57,8 @@ describe('installation account network and production account composition', () =
     expect(first.mode).toBe('private-invitations')
     first.choose('nostr')
     expect(new AccountNetwork(saved, 'private-invitations').mode).toBe('nostr')
+    saved.setItem(ACCOUNT_NETWORK_KEY, JSON.stringify({ v: 1, mode: 'nostr', revision: 'broken' }))
+    expect(new AccountNetwork(saved).mode).toBe('private-invitations')
     saved.setItem(ACCOUNT_NETWORK_KEY, 'corrupt')
     expect(new AccountNetwork(saved).mode).toBe('private-invitations')
     expect(new AccountNetwork({ getItem: () => { throw Error('locked') }, setItem: () => {} }).mode).toBe('private-invitations')
@@ -90,6 +94,33 @@ describe('installation account network and production account composition', () =
     await expect(pool.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
   })
 
+
+  it('holds privately when enabling Nostr cannot be persisted, including an already public tab', () => {
+    for (const mode of ['private-invitations', 'nostr'] as const) {
+      const saved = storage(), network = new AccountNetwork({ getItem: saved.getItem, setItem: () => { throw Error('quota') } }, mode)
+      const close = vi.fn()
+      if (network.nostr) network.publicTransport(() => ({ publish: async (_event: Event) => {}, subscribe: () => () => {}, close }))
+      expect(() => network.choose('nostr')).toThrow('could not be saved')
+      expect(network.mode).toBe('private-invitations'); expect(network.persisted).toBe(false)
+      if (mode === 'nostr') expect(close).toHaveBeenCalledOnce()
+      saved.setItem(ACCOUNT_NETWORK_KEY, 'nostr'); network.refresh()
+      expect(network.mode).toBe('private-invitations')
+    }
+  })
+
+  it('reads the authoritative atomic record when a stale storage wakeup arrives', () => {
+    const saved = storage(), network = new AccountNetwork(saved), otherTab = new AccountNetwork(saved)
+    otherTab.choose('nostr')
+    const stalePublicRecord = saved.getItem(ACCOUNT_NETWORK_KEY)
+    otherTab.choose('private-invitations')
+    // A queued event may still carry stalePublicRecord. The handler calls
+    // refresh with no payload, so that earlier public value cannot enable I/O.
+    expect(JSON.parse(stalePublicRecord!).mode).toBe('nostr')
+    network.refresh()
+    expect(network.mode).toBe('private-invitations')
+    expect(() => network.requireNostr()).toThrow(NOSTR_MODE_REQUIRED)
+  })
+
   it('cold restore, reconnect and local pending changes make no public account I/O or optional signer requests', async () => {
     const h = harness(), first = h.restore()
     first.bookmarks.save(room)
@@ -123,7 +154,7 @@ describe('installation account network and production account composition', () =
     expect(filters.filter(filter => filter.kinds?.includes(30078) && filter.authors?.includes(h.account.pubkey)).length).toBeGreaterThanOrEqual(3)
     expect(h.account.signer.nip44!.encrypt).toHaveBeenCalled()
     expect(h.account.signer.signEvent).toHaveBeenCalled()
-    expect(h.settings.getItem(ACCOUNT_NETWORK_KEY)).toBe('nostr')
+    expect(JSON.parse(h.settings.getItem(ACCOUNT_NETWORK_KEY)!).mode).toBe('nostr')
     h.network.choose('private-invitations')
     await vi.waitFor(() => expect(h.relay.connections).toBe(0))
     const attempts = h.relay.attempts
@@ -213,6 +244,76 @@ describe('installation account network and production account composition', () =
     expect(preference).toBe(true)
     expect(() => h.network.fetch('https://example.test/avatar.png')).toThrow(NOSTR_MODE_REQUIRED)
     await vi.waitFor(() => expect(h.relay.connections).toBe(0))
+  })
+
+
+  it('rebinds a live ordinary room to a fresh public delegate after a skipped cross-tab private round trip', async () => {
+    const h = harness('nostr'), otherTab = new AccountNetwork(h.settings), changes = new Set<() => void>()
+    const delegates: ReturnType<RelayConnections['pool']>[] = []
+    const roomPool = new BrowserRoomPool({ room: room.roomId, account: () => h.account.pubkey, store: { all: async () => [] },
+      barrier: { publicLease: async () => async () => {}, listen: listener => { changes.add(listener); return () => { changes.delete(listener) } } },
+      publicPool: () => { const delegate = h.connections.pool(`room:${room.roomId}`); delegates.push(delegate); return delegate },
+      privatePool: async () => { throw Error('No private room route selected') },
+    })
+    const unlisten = h.network.listen(() => { for (const changed of changes) changed() })
+    cleanups.push(() => { unlisten(); roomPool.close() })
+    roomPool.subscribe([{ kinds: [42] }], () => {})
+    await vi.waitFor(() => expect(h.relay.requestedFilters().length).toBe(1))
+    const old = delegates[0]
+    otherTab.choose('private-invitations'); otherTab.choose('nostr')
+    h.network.refresh()
+    await vi.waitFor(() => expect(h.relay.requestedFilters().length).toBe(2))
+    expect(old.closed).toBe(true)
+    expect(roomPool.closed).toBe(false)
+    expect(delegates).toHaveLength(2)
+    const late = finalizeEvent({ kind: 42, content: 'old delegate', tags: [], created_at: 1 }, h.secret)
+    await expect(old.publish(late)).rejects.toThrow(NOSTR_MODE_REQUIRED)
+    const fresh = finalizeEvent({ kind: 42, content: 'fresh delegate', tags: [], created_at: 2 }, h.secret)
+    await roomPool.publish(fresh)
+    expect(h.relay.stored.some(event => event.id === fresh.id)).toBe(true)
+    expect(h.relay.stored.some(event => event.id === late.id)).toBe(false)
+    expect(h.network.mode).toBe('nostr')
+  })
+
+
+  it('revokes a real pending room credential before a late signature can inherit a new public delegate', async () => {
+    const h = harness('nostr'), otherTab = new AccountNetwork(h.settings), changes = new Set<() => void>()
+    const makePool = () => new BrowserRoomPool({ room: room.roomId, account: () => h.account.pubkey, store: { all: async () => [] },
+      barrier: { publicLease: async () => async () => {}, listen: listener => { changes.add(listener); return () => { changes.delete(listener) } } },
+      publicPool: () => h.connections.pool(`room:${room.roomId}`), privatePool: async () => { throw Error('No private route') },
+    })
+    const outer = makePool(), sign = h.account.signer.signEvent.bind(h.account.signer)
+    let release!: () => void
+    const identity = { pubkey: h.account.pubkey, signEvent: vi.fn(async (template: Parameters<typeof sign>[0]) => {
+      await new Promise<void>(resolve => { release = resolve }); return sign(template)
+    }) }
+    const old = new RoomSession({ transport: outer, secret: roomSecret, identity, deviceSk: generateSecretKey(), announceJitterMs: 0,
+      timing: { heartbeatIntervalMs: 1_000_000_000, sweepIntervalMs: 1_000_000_000 } })
+    const privateSession = { leave: vi.fn(async () => {}) }, privateTransport = { close: vi.fn() }
+    const unlisten = h.network.listen(() => {
+      void retireAccountNetworkRooms([{ session: old, transport: outer, privateRoute: false },
+        { session: privateSession, transport: privateTransport, privateRoute: true }])
+      for (const changed of changes) changed()
+    })
+    cleanups.push(() => { unlisten(); release?.(); outer.close(); void old.leave() })
+    const joining = old.join([], {}).then(() => undefined, error => error as Error)
+    await vi.waitFor(() => expect(identity.signEvent).toHaveBeenCalledOnce())
+    otherTab.choose('private-invitations'); otherTab.choose('nostr')
+    h.network.refresh()
+    expect(outer.closed).toBe(true)
+    expect(privateSession.leave).not.toHaveBeenCalled(); expect(privateTransport.close).not.toHaveBeenCalled()
+    release()
+    expect(await joining).toMatchObject({ message: expect.stringContaining('cancelled') })
+    expect(old.credential).toBeUndefined()
+    expect(h.relay.stored).toEqual([])
+    // Explicit reopen constructs a new session under the latest policy.
+    const reopenedPool = makePool(), reopened = new RoomSession({ transport: reopenedPool, secret: roomSecret,
+      identity: { pubkey: h.account.pubkey, signEvent: sign }, deviceSk: generateSecretKey(), announceJitterMs: 0,
+      timing: { heartbeatIntervalMs: 1_000_000_000, sweepIntervalMs: 1_000_000_000 } })
+    cleanups.push(() => { reopenedPool.close(); void reopened.leave() })
+    await reopened.join([], {})
+    expect(reopened.credential).toBeDefined()
+    expect(h.relay.stored.length).toBeGreaterThan(0)
   })
 
   it('leaves the selected private room transport available without allocating a public delegate', async () => {

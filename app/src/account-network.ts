@@ -4,7 +4,6 @@ import type { RelayTransport } from '../../src/relay-pool.js'
 
 export type AccountNetworkMode = 'private-invitations' | 'nostr'
 export const ACCOUNT_NETWORK_KEY = 'kithmoot.account-network.v1'
-export const ACCOUNT_NETWORK_REVISION_KEY = 'kithmoot.account-network-revision.v1'
 export const NOSTR_MODE_REQUIRED = 'This feature uses public Nostr relays and exposes account or contact keys. Open Account network and choose Enable Nostr to use it. Local data and pending sync are kept.'
 export const PRIVATE_SYNC_PAUSED = 'Private invitations: public account sync is paused. Local rooms and pending changes are kept. Enable Nostr in Account network to sync them.'
 const valid = (value: unknown): value is AccountNetworkMode => value === 'private-invitations' || value === 'nostr'
@@ -28,22 +27,28 @@ export class AccountNetwork {
   #abort = new AbortController()
   #listeners = new Set<() => void>()
   constructor(private store: Store, private distributionDefault: AccountNetworkMode = 'nostr') {
-    this.#mode = this.#read()
-    this.#revision = this.#readRevision()
+    const saved = this.#read()
+    this.#mode = saved.mode; this.#revision = saved.revision
   }
-  #read(): AccountNetworkMode {
-    if (this.#holdPrivate) return 'private-invitations'
+  #read(): { mode: AccountNetworkMode; revision: string } {
+    if (this.#holdPrivate) return { mode: 'private-invitations', revision: this.#revision }
     try {
-      const value = this.store.getItem(ACCOUNT_NETWORK_KEY)
-      // Corrupt or inaccessible policy never authorises public account traffic.
-      return value === null ? this.distributionDefault : valid(value) ? value : 'private-invitations'
-    } catch { return 'private-invitations' }
-  }
-  #readRevision(): string {
-    try { return this.store.getItem(ACCOUNT_NETWORK_REVISION_KEY) ?? '' } catch { return '' }
+      const raw = this.store.getItem(ACCOUNT_NETWORK_KEY)
+      if (raw === null) return { mode: this.distributionDefault, revision: '' }
+      // Explicit old enum values are a read-only compatibility shape. New
+      // choices write one atomic mode/revision record, never separate keys.
+      if (valid(raw)) return { mode: raw, revision: `legacy:${raw}` }
+      const value: unknown = JSON.parse(raw)
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const record = value as { v?: unknown; mode?: unknown; revision?: unknown }
+        if (record.v === 1 && valid(record.mode) && typeof record.revision === 'string' &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(record.revision)) return { mode: record.mode, revision: record.revision }
+      }
+      return { mode: 'private-invitations', revision: 'invalid' }
+    } catch { return { mode: 'private-invitations', revision: 'unavailable' } }
   }
   refresh(): void {
-    const mode = this.#read(), revision = this.#readRevision()
+    const { mode, revision } = this.#read()
     if (mode === this.#mode && revision === this.#revision) return
     this.#mode = mode; this.#revision = revision; ++this.#generation
     this.#abort.abort(); this.#abort = new AbortController()
@@ -58,21 +63,23 @@ export class AccountNetwork {
   /** Only an explicit UI choice calls this; restore, URLs and features do not. */
   choose(mode: AccountNetworkMode): void {
     if (!valid(mode)) throw new Error('Invalid account network mode')
-    // A failed storage write must not leave existing public services running
-    // after the person chose private mode. Hold privately until a successful
-    // explicit choice; storage wakeups cannot silently undo that local hold.
-    if (mode === 'private-invitations') { this.#holdPrivate = true; this.refresh() }
-    const revision = crypto.randomUUID()
-    try {
-      this.store.setItem(ACCOUNT_NETWORK_KEY, mode)
-      this.store.setItem(ACCOUNT_NETWORK_REVISION_KEY, revision)
-    }
-    catch { throw new Error('Account network choice could not be saved. Private mode remains held in this tab; retry saving before closing it.') }
-    this.#holdPrivate = false
-    this.#revision = revision
+    // Hold privately before persistence, even for an enable attempt. Any
+    // failed choice must cancel existing public work and remain private.
+    this.#holdPrivate = true
     this.refresh()
-    if (this.#mode !== mode) throw new Error('Account network choice could not be saved. Try again.')
+    try {
+      const revision = crypto.randomUUID()
+      this.store.setItem(ACCOUNT_NETWORK_KEY, JSON.stringify({ v: 1, mode, revision }))
+      this.#holdPrivate = false
+      this.refresh()
+      if (this.#mode !== mode || this.#revision !== revision) throw new Error('Choice superseded')
+    } catch {
+      this.#holdPrivate = true
+      this.refresh()
+      throw new Error('Account network choice could not be saved. Private mode remains held in this tab; retry saving before closing it.')
+    }
   }
+
   listen(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener) } }
   current(): () => boolean {
     const generation = this.generation
