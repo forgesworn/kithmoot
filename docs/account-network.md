@@ -1,7 +1,9 @@
 # Account network
 
 KithMoot has a device installation account-network choice, stored under
-`kithmoot.account-network.v1`: `private-invitations` or `nostr`. This is product
+`kithmoot.account-network.v1`: `private-invitations` or `nostr`. Each explicit
+choice also updates `kithmoot.account-network-revision.v1`, so another tab cannot
+miss a private-to-Nostr round trip and retain its old publication ownership. This is product
 policy, independent of MLS preview/development flags and account/sign-in method.
 
 An existing saved choice wins. Without a saved choice the distribution uses

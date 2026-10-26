@@ -1,5 +1,5 @@
 import { accountSyncServices } from './account-sync.js'
-import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
+import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, ACCOUNT_NETWORK_REVISION_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
 import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
 import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
@@ -3277,7 +3277,8 @@ $('verifyAddresses').addEventListener('change', () => {
  * nothing else - no participant pubkey is ever in its filter - so it inherits
  * the relay correlation `profiles.ts` documents without adding to it.
  */
-const donations = new DonationLedger({
+let donations = accountDonationLedger()
+function accountDonationLedger(): DonationLedger { return new DonationLedger({
   address: DONATION_ADDRESS,
   recipient: DONATION_RECIPIENT,
   relays: () => relays,
@@ -3286,7 +3287,7 @@ const donations = new DonationLedger({
   onChange: () => {
     repaint()
   },
-})
+}) }
 
 /** Twelve hex characters is enough to read aloud and to tell two ROOM ids
  *  apart at a glance. Room ids are not keys and are never shown as npubs. */
@@ -22465,10 +22466,15 @@ function reconcileAccountNetwork(): void {
   stopSpryAccountSync()
   bookmarks?.close(); bookmarks = undefined
   readSync?.close(); readSync = undefined
+  // A durable revision may change while the final mode stays Nostr. Drop
+  // every old service-owned handle before creating this generation's pools.
+  profiles.setEnabled(false)
   profiles.setEnabled(enabled && profilesEnabled)
   profiles.setNip05Automatic(enabled && nip05Verify)
-  follows.setEnabled(enabled && profilesEnabled)
+  follows.setEnabled(false)
   follows.close()
+  follows.setEnabled(enabled && profilesEnabled)
+  donations.close(); donations = accountDonationLedger()
   projectInboxes.clear()
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (!enabled) {
@@ -22499,7 +22505,7 @@ function reconcileAccountNetwork(): void {
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
 }
 accountNetwork.listen(reconcileAccountNetwork)
-window.addEventListener('storage', event => { if (event.key === ACCOUNT_NETWORK_KEY || event.key === null) accountNetwork.refresh() })
+window.addEventListener('storage', event => { if (event.key === ACCOUNT_NETWORK_KEY || event.key === ACCOUNT_NETWORK_REVISION_KEY || event.key === null) accountNetwork.refresh() })
 for (const id of ['homeAccountNetwork', 'accountNetworkOpen', 'profileAccountNetwork']) $(id).addEventListener('click', showAccountNetwork)
 $('accountNetworkClose').addEventListener('click', () => ($('accountNetworkDialog') as HTMLDialogElement).close())
 for (const [id, mode] of [['choosePrivateInvitations', 'private-invitations'], ['enableNostrNetwork', 'nostr']] as const) $(id).addEventListener('click', () => {

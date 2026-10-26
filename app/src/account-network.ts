@@ -4,6 +4,7 @@ import type { RelayTransport } from '../../src/relay-pool.js'
 
 export type AccountNetworkMode = 'private-invitations' | 'nostr'
 export const ACCOUNT_NETWORK_KEY = 'kithmoot.account-network.v1'
+export const ACCOUNT_NETWORK_REVISION_KEY = 'kithmoot.account-network-revision.v1'
 export const NOSTR_MODE_REQUIRED = 'This feature uses public Nostr relays and exposes account or contact keys. Open Account network and choose Enable Nostr to use it. Local data and pending sync are kept.'
 export const PRIVATE_SYNC_PAUSED = 'Private invitations: public account sync is paused. Local rooms and pending changes are kept. Enable Nostr in Account network to sync them.'
 const valid = (value: unknown): value is AccountNetworkMode => value === 'private-invitations' || value === 'nostr'
@@ -22,11 +23,13 @@ type Store = Pick<Storage, 'getItem' | 'setItem'>
 export class AccountNetwork {
   #holdPrivate = false
   #mode: AccountNetworkMode
+  #revision: string
   #generation = 0
   #abort = new AbortController()
   #listeners = new Set<() => void>()
   constructor(private store: Store, private distributionDefault: AccountNetworkMode = 'nostr') {
     this.#mode = this.#read()
+    this.#revision = this.#readRevision()
   }
   #read(): AccountNetworkMode {
     if (this.#holdPrivate) return 'private-invitations'
@@ -36,10 +39,13 @@ export class AccountNetwork {
       return value === null ? this.distributionDefault : valid(value) ? value : 'private-invitations'
     } catch { return 'private-invitations' }
   }
+  #readRevision(): string {
+    try { return this.store.getItem(ACCOUNT_NETWORK_REVISION_KEY) ?? '' } catch { return '' }
+  }
   refresh(): void {
-    const mode = this.#read()
-    if (mode === this.#mode) return
-    this.#mode = mode; ++this.#generation
+    const mode = this.#read(), revision = this.#readRevision()
+    if (mode === this.#mode && revision === this.#revision) return
+    this.#mode = mode; this.#revision = revision; ++this.#generation
     this.#abort.abort(); this.#abort = new AbortController()
     let failure: unknown
     for (const listener of [...this.#listeners]) { try { listener() } catch (error) { failure ??= error } }
@@ -56,9 +62,14 @@ export class AccountNetwork {
     // after the person chose private mode. Hold privately until a successful
     // explicit choice; storage wakeups cannot silently undo that local hold.
     if (mode === 'private-invitations') { this.#holdPrivate = true; this.refresh() }
-    try { this.store.setItem(ACCOUNT_NETWORK_KEY, mode) }
+    const revision = crypto.randomUUID()
+    try {
+      this.store.setItem(ACCOUNT_NETWORK_KEY, mode)
+      this.store.setItem(ACCOUNT_NETWORK_REVISION_KEY, revision)
+    }
     catch { throw new Error('Account network choice could not be saved. Private mode remains held in this tab; retry saving before closing it.') }
     this.#holdPrivate = false
+    this.#revision = revision
     this.refresh()
     if (this.#mode !== mode) throw new Error('Account network choice could not be saved. Try again.')
   }
@@ -85,7 +96,8 @@ export class AccountNetwork {
     const current = this.current()
     if (!current()) throw new Error(NOSTR_MODE_REQUIRED)
     const transport = make()
-    if (!current()) { transport.close(); throw new Error(NOSTR_MODE_REQUIRED) }
+    try { if (!current()) throw new Error(NOSTR_MODE_REQUIRED) }
+    catch (error) { transport.close(); throw error }
     let closed = false
     const live = () => !closed && current()
     const requireLive = () => { if (!live()) throw new Error(NOSTR_MODE_REQUIRED) }

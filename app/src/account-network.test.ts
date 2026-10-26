@@ -63,7 +63,7 @@ describe('installation account network and production account composition', () =
 
   it('refuses allocation when authoritative storage changes during lease acquisition', () => {
     let reads = 0
-    const network = new AccountNetwork({ getItem: () => ++reads <= 2 ? 'nostr' : 'private-invitations', setItem: () => {} })
+    const network = new AccountNetwork({ getItem: key => key === ACCOUNT_NETWORK_KEY ? ++reads <= 2 ? 'nostr' : 'private-invitations' : null, setItem: () => {} })
     const make = vi.fn(() => ({ publish: async (_event: Event) => {}, subscribe: () => () => {}, close: vi.fn() }))
     expect(() => network.publicTransport(make)).toThrow(NOSTR_MODE_REQUIRED)
     expect(make).not.toHaveBeenCalled()
@@ -167,6 +167,19 @@ describe('installation account network and production account composition', () =
     h.network.choose('nostr')
     await expect(pool.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
     expect(() => pool.subscribe([{ kinds: [0] }], () => {})).toThrow(NOSTR_MODE_REQUIRED)
+  })
+
+
+  it('invalidates retained work after a different tab privately pauses and re-enables before this tab wakes', async () => {
+    const saved = storage(), network = new AccountNetwork(saved), otherTab = new AccountNetwork(saved), close = vi.fn()
+    const pool = network.publicTransport(() => ({ publish: async (_event: Event) => {}, publishGuarded: async (_event: Event) => {}, subscribe: () => () => {}, close }))
+    otherTab.choose('private-invitations'); otherTab.choose('nostr')
+    // This tab missed both events; final mode alone is unchanged. The durable
+    // revision still invalidates its earlier callbacks/publication ownership.
+    const event = finalizeEvent({ kind: 1, content: '', tags: [], created_at: 1 }, generateSecretKey())
+    await expect(pool.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
+    expect(close).toHaveBeenCalledOnce()
+    expect(network.mode).toBe('nostr')
   })
 
   it('guards old callback adoption even if Nostr is enabled again before the callback arrives', () => {
