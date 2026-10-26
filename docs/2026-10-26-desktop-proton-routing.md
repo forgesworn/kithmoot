@@ -56,7 +56,10 @@ admission, joining the call and enabling synthetic camera/microphone input.
 Both ends received moving video and decoded audio with the expected opposite
 test tone. The selected pairs were direct, actual peer configurations contained
 Cloudflare STUN and no TURN, and the peer's selected public address matched a
-contemporaneous tunnel-bound STUN request. Raw route and identity evidence stays
+contemporaneous tunnel-bound STUN request. The selected local UDP port matched
+an owned Electron socket; passive socket counters showed traffic in both
+directions on the pinned Proton tunnel interface throughout the bounded run.
+Raw route and identity evidence stays
 in the private task artefacts. This establishes a bounded development call;
 the release acceptance matrix below remains necessary.
 
