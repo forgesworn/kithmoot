@@ -356,7 +356,9 @@ test('an upgrade migrates cached originals without network before old precache c
     await page.goto(release.base)
     await expect(page.locator('#updateNotice')).toBeVisible()
     await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
-    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.state)).toBe('activated')
+    // WebKit can expose the new controlling worker as `activating` even after
+    // reload. Verify which script controls the page, then the migrated bytes.
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller?.scriptURL)).toBe(new URL('sw.js', release.base).href)
     expect(originalRequests()).toEqual([])
     const cacheState = () => page.evaluate(async scope => {
       const old = await caches.open(`workbox-precache-v2-${scope}`)

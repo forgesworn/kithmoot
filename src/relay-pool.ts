@@ -23,9 +23,9 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
 
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
-  publish(event: Event): Promise<void>
+  publish(event: Event, options?: { allRelays?: boolean }): Promise<void>
   /** Optional guarded carrier; a sensitive decision must fail closed if absent. */
-  publishGuarded?(event: Event, current: () => boolean): Promise<void>
+  publishGuarded?(event: Event, current: () => boolean, options?: { allRelays?: boolean }): Promise<void>
   /** `via` is the relay URL that delivered the event, when the transport
    *  knows it. A consumer works out a message's lane from it and from
    *  nothing on the wire; see `lane.ts`. */
@@ -488,9 +488,10 @@ export class NostrRelayPool implements RelayTransport {
 
   /** A short-lived carrier for an authority-sensitive decision. Every socket
    * write and retry checks the caller and parent generation. Close after the
-   * first acknowledgement, so slower relays cannot keep publishing afterwards.
-   * Ordinary chat keeps its existing fan-out and connection reuse. */
-  async publishGuarded(event: Event, allowed: () => boolean): Promise<void> {
+   * first acknowledgement by default, so slower relays cannot keep publishing
+   * afterwards. A room-relay handover explicitly waits for each configured
+   * write relay to acknowledge while the same guard remains current. */
+  async publishGuarded(event: Event, allowed: () => boolean, options: { allRelays?: boolean } = {}): Promise<void> {
     const generation = this.#generation
     const current = () => {
       try { return !this.#closed && !this.#paused && generation === this.#generation && allowed() }
@@ -509,7 +510,16 @@ export class NostrRelayPool implements RelayTransport {
     this.#publishing++
     try {
       await carrier.publish(event)
+      // A room-relay control op has to reach the relays existing members
+      // already read. Keep this one guarded carrier until every write has
+      // answered (or its bounded retry window ends); ordinary decisions
+      // still close at the first acknowledgement.
+      if (options.allRelays) await carrier.settled()
       if (!current()) throw new Error('Publication is no longer authorised.')
+      if (options.allRelays) {
+        const missing = carrier.health().filter(relay => relay.write && !relay.lastPublishedAt)
+        if (missing.length) throw new Error(`Room relay handover was not acknowledged by ${missing.map(relay => relay.url).join(', ')}`)
+      }
       // The guarded carrier owns the socket, but the held pool owns the
       // visible relay health. Transfer only its observed OK receipts.
       for (const receipt of carrier.health()) if (receipt.lastPublishedAt) {

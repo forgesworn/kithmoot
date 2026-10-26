@@ -114,10 +114,12 @@ export class AccountNetwork {
       get(target, property) {
         if (property === 'close') return close
         if (property === 'closed') return closed || Reflect.get(target, property, target) === true
-        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowed: () => boolean = () => true) => {
+        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowedOrOptions: (() => boolean) | { allRelays?: boolean } = () => true, options?: { allRelays?: boolean }) => {
           requireLive()
           if (!target.publishGuarded) throw new Error('A guarded public Nostr transport is required.')
-          await target.publishGuarded(event, () => live() && allowed())
+          const allowed = typeof allowedOrOptions === 'function' ? allowedOrOptions : () => true
+          const publishOptions = typeof allowedOrOptions === 'function' ? options : allowedOrOptions
+          await target.publishGuarded(event, () => live() && allowed(), publishOptions)
           requireLive()
         }
         if (property === 'subscribe') return (filters: Filter[], receive: (event: Event, via?: string) => void, eose?: () => void) => {

@@ -8536,7 +8536,7 @@ function ingestRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, se
 }
 
 async function postRoomRelays(s: RoomSession, record: RoomRelayRecord): Promise<void> {
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'relays', ...record }))
+  await s.channel(CONTROL_CHANNEL).prepare(encodeControl({ op: 'relays', ...record })).publish({ allRelays: true })
   roomRelaysSeenAt = nowSeconds()
 }
 

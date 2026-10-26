@@ -882,7 +882,7 @@ export interface ChatLogOptions {
 export interface PreparedSend {
   message: ChatMessage
   event: Event
-  publish: () => Promise<void>
+  publish: (options?: { allRelays?: boolean }) => Promise<void>
 }
 
 /** Why a prepared message was not published: its conversation closed or
@@ -1341,14 +1341,14 @@ export class ChatLog {
       expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
-    return { message: msg, event, publish: () => protocolTask(execution, 'chat-publication', async owned => {
+    return { message: msg, event, publish: (options?: { allRelays?: boolean }) => protocolTask(execution, 'chat-publication', async owned => {
       const start = () => {
       owned?.check('chat-publication')
       if (this.#closed || this.#epoch !== epoch) {
         throw new Error(CONVERSATION_MOVED)
       }
       if (owned && this.#credential?.id !== credential.id) throw new Error('conversation changed its credential since this message was prepared')
-      const pending = this.#opts.transport.publish(event)
+      const pending = options ? this.#opts.transport.publish(event, options) : this.#opts.transport.publish(event)
       owned?.retain(pending)
       void pending.catch(() => {})
       return { pending }

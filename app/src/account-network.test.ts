@@ -8,6 +8,7 @@ import type { SignetSession, SignetSigner } from 'signet-login'
 import { AccountNetwork, ACCOUNT_NETWORK_KEY, accountNetworkDefault, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
 import { accountSyncServices } from './account-sync.js'
 import { RelayConnections } from './relay-settings.js'
+import type { RelayTransport } from '../../src/relay-pool.js'
 import { encodeJoinUrl, deriveRoom } from '../../src/room.js'
 import { memoryDeviceStore } from './device-store.js'
 import { knownRooms } from './rooms-store.js'
@@ -228,6 +229,17 @@ describe('installation account network and production account composition', () =
     await expect(pool.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
     expect(close).toHaveBeenCalledOnce()
     expect(network.mode).toBe('nostr')
+  })
+
+  it('carries a room handover all-relay requirement through the current public guard', async () => {
+    const network = new AccountNetwork(storage()), guarded = vi.fn(async (_event: Event, current: () => boolean, _options?: { allRelays?: boolean }) => { expect(current()).toBe(true) })
+    const pool = network.publicTransport<RelayTransport>(() => ({ publish: async (_event: Event) => {}, publishGuarded: guarded, subscribe: () => () => {}, close: vi.fn() }))
+    const event = finalizeEvent({ kind: 1, content: 'room relay change', tags: [], created_at: 1 }, generateSecretKey())
+    await pool.publish(event, { allRelays: true })
+    expect(guarded).toHaveBeenCalledWith(event, expect.any(Function), { allRelays: true })
+    network.choose('private-invitations')
+    await expect(pool.publish(event, { allRelays: true })).rejects.toThrow(NOSTR_MODE_REQUIRED)
+    expect(guarded).toHaveBeenCalledTimes(1)
   })
 
   it('guards old callback adoption even if Nostr is enabled again before the callback arrives', () => {
