@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import type { SignetSession, SignetSigner } from 'signet-login'
@@ -64,7 +64,7 @@ describe('installation account network and production account composition', () =
   it('refuses allocation when authoritative storage changes during lease acquisition', () => {
     let reads = 0
     const network = new AccountNetwork({ getItem: () => ++reads <= 2 ? 'nostr' : 'private-invitations', setItem: () => {} })
-    const make = vi.fn(() => ({ publish: async () => {}, subscribe: () => () => {}, close: vi.fn() }))
+    const make = vi.fn(() => ({ publish: async (_event: Event) => {}, subscribe: () => () => {}, close: vi.fn() }))
     expect(() => network.publicTransport(make)).toThrow(NOSTR_MODE_REQUIRED)
     expect(make).not.toHaveBeenCalled()
   })
@@ -73,14 +73,14 @@ describe('installation account network and production account composition', () =
     const saved = storage(), network = new AccountNetwork(saved), close = vi.fn()
     expect(() => network.publicTransport(() => {
       saved.setItem(ACCOUNT_NETWORK_KEY, 'private-invitations')
-      return { publish: async () => {}, subscribe: () => () => {}, close }
+      return { publish: async (_event: Event) => {}, subscribe: () => () => {}, close }
     })).toThrow(NOSTR_MODE_REQUIRED)
     expect(close).toHaveBeenCalledOnce()
   })
 
   it('holds privately and cancels existing services when saving private mode fails', async () => {
     const saved = storage(), network = new AccountNetwork({ getItem: saved.getItem, setItem: () => { throw Error('quota') } })
-    const close = vi.fn(), pool = network.publicTransport(() => ({ publish: async () => {}, publishGuarded: async () => {}, subscribe: () => () => {}, close }))
+    const close = vi.fn(), pool = network.publicTransport(() => ({ publish: async (_event: Event) => {}, publishGuarded: async (_event: Event) => {}, subscribe: () => () => {}, close }))
     expect(() => network.choose('private-invitations')).toThrow('could not be saved')
     expect(network.mode).toBe('private-invitations'); expect(network.persisted).toBe(false)
     expect(close).toHaveBeenCalledOnce()
@@ -171,14 +171,14 @@ describe('installation account network and production account composition', () =
 
   it('guards old callback adoption even if Nostr is enabled again before the callback arrives', () => {
     const settings = storage(), network = new AccountNetwork(settings), receive = vi.fn(), eose = vi.fn()
-    let late!: () => void, done!: () => void
+    let late!: (event: Event) => void, done!: () => void
     const pool = network.publicTransport(() => ({
-      publish: async () => {}, publishGuarded: async () => {}, close: vi.fn(),
-      subscribe: (_filters: unknown, callback: () => void, completed?: () => void) => { late = callback; done = completed!; return () => {} },
+      publish: async (_event: Event) => {}, publishGuarded: async (_event: Event) => {}, close: vi.fn(),
+      subscribe: (_filters: unknown, callback: (event: Event) => void, completed?: () => void) => { late = callback; done = completed!; return () => {} },
     }))
     pool.subscribe([], receive, eose)
     network.choose('private-invitations'); network.choose('nostr')
-    late(); done()
+    late(finalizeEvent({ kind: 1, content: '', tags: [], created_at: 1 }, generateSecretKey())); done()
     expect(receive).not.toHaveBeenCalled(); expect(eose).not.toHaveBeenCalled()
   })
 
