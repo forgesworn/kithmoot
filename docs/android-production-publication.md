@@ -28,13 +28,45 @@ The exact candidate updated the authorised Pixel in place and passed 21 camera,
 model, reef, privacy and native-startup checks in its GrapheneOS main profile
 without Play services or Store. Its UID and original installation date were
 retained. The 20-second camera test establishes liveness; real-person visual
-quality and normal-call performance are separate gates. Initial timings were
-collected while the phone was asleep and locked, so do not establish foreground
-call performance. Hosted CI, merges and public readbacks remain pending in the
+quality and normal-call performance are separate gates. An unlocked foreground comparison measured 6.17 fps raw and 6.50 fps with
+effects in the current scene, with 101 ms mean synthetic-frame composition.
+Sustained-call and owner visual acceptance remain separate. All 17 Android CI
+jobs passed and PR #339 is merged. Public readbacks remain pending in the
 [candidate receipt](evidence/android-0.6.116-candidate-20261026.json).
 
 This publication updates four Android metadata files and the APK. Preserve the
 current desktop release and PWA byte-for-byte when deploying those files.
+
+## Android 0.6.115 decoder and WebRTC, published 26 October 2026
+
+Version **0.6.115**, code **138**, isolates attachment image decoding. Merged
+Android source `0408eb9517a1646655a07b2eb8a62d9190073aeb` combines feature PR
+#338 and release PR #340. Hosted CI run `40363023286` rerun succeeded in all 17
+jobs. Website PR #587 merged as `af0c0fd734ff9ab198a66aa7b026b21785516747`;
+its 46 required jobs and separate adapter passed.
+
+The production APK is `kithmoot-0.6.115-production.apk`, 65,191,394 bytes,
+SHA-256 `e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b`.
+Its certificate is `135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9`;
+the previous certificate and lineage capabilities are unchanged. Independent
+verification checked all 794 unchanged ZIP payload entries, V3-only signing and
+the retained lineage.
+
+Signing-host checks passed 2,889 appDebug tests and 594 protocol tests with zero
+failures. Debug and release lint and the production build passed. Android 15
+emulator checks passed for static images, GIFs and Compose, and for decoder and
+WebRTC behaviour in the minified release. Website typecheck, 7,980 unit tests
+and the production build also passed.
+
+GitHub, both website hosts and Zapstore serve the same verified APK. Stable and
+versioned website downloads match, metadata matches the merged source, public
+browser smoke passed on both hosts, and Zapstore signatures, source commit,
+certificate proof and complete download were independently read back. Deployment
+`20261026T220556Z` and the [publication receipt](evidence/android-0.6.115-publication-20261026.json)
+record these results; the [candidate evidence](evidence/android-0.6.115-candidate-20261026.json)
+retains the pre-publication checks. Physical GrapheneOS media, memory,
+process-death, active-call, accessibility and external-viewer acceptance remains
+separate. No physical device or Zapstore client acceptance is claimed.
 
 ## Android 0.6.114 native startup fix, 26 October 2026
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAt": "2026-10-26T18:09:38.005555+00:00",
+  "recordedAt": "2026-10-26T23:00:37.537305+00:00",
   "status": "production-signed candidate; publication pending",
   "versionName": "0.6.116",
   "versionCode": 139,
@@ -60,15 +60,31 @@
     "rawFramesPublished": false,
     "normalCallPerformanceAccepted": false,
     "realPersonCutoutAccepted": false,
-    "note": "Camera pipeline liveness and model semantics passed. Initial timing run was asleep and locked; an unlocked foreground comparison and owner visual review remain pending."
+    "note": "Model semantics and camera liveness passed. Foreground raw/effect measurements are bounded to the current scene; sustained-call and owner visual acceptance remain separate.",
+    "foregroundComparison": {
+      "unlockedForeground": true,
+      "raw": {
+        "frames": 37,
+        "seconds": 6.000155785,
+        "fps": 6.166506558462632
+      },
+      "seaAndFish": {
+        "frames": 39,
+        "seconds": 6.000408885,
+        "fps": 6.499557071434475
+      },
+      "syntheticComposeMeanMs": 100.69097655,
+      "inferenceMeanMs": 44.675641950000006
+    }
   },
   "hostedCI": {
     "run": 40370981421,
-    "status": "pending"
+    "status": "all 17 Android jobs passed"
   },
   "publication": {
     "github": false,
     "website": false,
     "zapstore": false
-  }
+  },
+  "androidMergedCommit": "a48833f7ffb3089a1649805c0a0e016233101046"
 }

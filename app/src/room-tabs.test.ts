@@ -37,4 +37,25 @@ describe('other tabs in the same room', () => {
     tab(ROOM, () => new Promise(resolve => setTimeout(resolve, 400)))
     expect(await me.tabs.leaveOthers(ROOM, 50, 100)).toBe(false)
   })
+
+  it('does not acknowledge a deferred departure until it finishes', async () => {
+    const me = tab(ROOM)
+    let started!: () => void
+    let release!: () => void
+    const starting = new Promise<void>(resolve => { started = resolve })
+    const finishing = new Promise<void>(resolve => { release = resolve })
+    const second = tab(ROOM, async () => { started(); await finishing })
+    let acknowledged = false
+    const leaving = me.tabs.leaveOthers(ROOM, 10, 500).then(result => {
+      acknowledged = true
+      return result
+    })
+    await starting
+    await Promise.resolve()
+    expect(acknowledged).toBe(false)
+    expect(second.current()).toBe(ROOM)
+    release()
+    expect(await leaving).toBe(true)
+    expect(second.current()).toBeUndefined()
+  })
 })

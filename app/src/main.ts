@@ -2811,6 +2811,13 @@ function renderKeepChoice(): void {
  *  its link alive would turn a chance expiry into a standing way back in. */
 const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
 let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
+const groupInvitationWrites = new Set<Promise<void>>()
+
+function trackGroupInvitationWrite(write: Promise<void>): void {
+  const caught = write.catch(() => { /* Retried next round. */ })
+  groupInvitationWrites.add(caught)
+  void caught.finally(() => { groupInvitationWrites.delete(caught) })
+}
 
 function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, endsAt?: number, destruct = false): void {
   const refresh = (): void => {
@@ -2823,11 +2830,11 @@ function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array
       return
     }
     const roomRelays = signedRoomRelays(deriveRoom(secret).roomId)
-    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, destruct, roomRelays }).catch(() => { /* Retried next round. */ })
+    trackGroupInvitationWrite(publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, destruct, roomRelays }))
     // The link that opened the room may name relays the room has since left,
     // and a copy of that link is still out there looking on them.
     const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
-    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, destruct, roomRelays }).catch(() => { /* Retried next round. */ })
+    if (extra.length) trackGroupInvitationWrite(publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, destruct, roomRelays }))
   }
   if (conferenceEnded(endsAt, nowSeconds())) return
   refresh()
@@ -7923,7 +7930,7 @@ function renderEmptyRoom(): void {
   const me = meParticipant || currentParticipant()
   const alone = !(session?.participants() ?? []).some(view => view.participant !== me)
   const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
-    && (session?.chat.messages().length ?? 0) === 0
+    && conversationMessages(undefined).length === 0
   if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
   if (show) clearEmptyRoomIntro()
 }
@@ -9253,19 +9260,19 @@ function scheduleConferenceEnd(s: RoomSession): void {
       return
     }
     if (owner) void endDockedCall('user', conferenceEndedMessage(endsAt))
-    else { stopInvitationHost(); leaveWithNotice(conferenceEndedMessage(endsAt)) }
+    else { stopInvitationHost(); void leaveWithNotice(conferenceEndedMessage(endsAt)) }
   }, wait)
   if (dock) dock.conferenceEndTimer = timer
   else conferenceEndTimer = timer
 }
 
-function leaveWithNotice(message: string): void {
+function leaveWithNotice(message: string): Promise<void> {
   try {
     sessionStorage.setItem(NOTICE_STORAGE_KEY, message)
   } catch {
     // Storage may be unavailable. The room is still left.
   }
-  leaveRoom()
+  return leaveRoom()
 }
 
 /** An admin asked this device to stop sending. Honoured, and said so. */
@@ -13900,7 +13907,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
-            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
             if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
@@ -13961,7 +13968,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
-            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
             if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
@@ -19364,7 +19371,7 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
     void closingRekeyDestructs(s.roomId, sessionAuthority, s.epochKeys(), [...relays]).catch(() => false).then(destructs => {
       // A join that was refused may have given up on the session meanwhile:
       // the room is still tidied away if it self-destructs.
-      if (!destructs) { if (session === s) leaveWithNotice('This room was ended by the person who started it.'); return }
+      if (!destructs) { if (session === s) void leaveWithNotice('This room was ended by the person who started it.'); return }
       destructSecrets.set(roomId, secret)
       markRoomDestruct(roomId)
       void runDueDestructs()
@@ -19372,10 +19379,10 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
     return
   }
   if (endingRoom) {
-    leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
+    void leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
     return
   }
-  leaveWithNotice(keeperParticipant === undefined
+  void leaveWithNotice(keeperParticipant === undefined
     ? 'This room was ended by the person who started it.'
     : `This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
 }
@@ -20424,14 +20431,15 @@ async function selfDestructNow(): Promise<void> {
 }
 
 /** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's
- *  own link, whose keys are about to go. The read position goes quiet before
- *  this tab says it left, or its delayed record would land on a relay after
- *  the other tab had deleted what it found. */
+ *  own link, whose keys are about to go. Read positions and invitation writes
+ *  go quiet before this tab says it left, or delayed records would land on a
+ *  relay after the other tab had deleted what it found. */
 async function leaveForTidyUp(): Promise<void> {
   const roomId = currentRoomId()
   history.replaceState(null, '', joinLinkBase())
   if (roomId) await stopReadPositions(roomId)
-  leaveWithNotice(roomIsDestruct(roomId) ? SELF_DESTRUCTED_MESSAGE : 'You tidied this room up in another tab, so this tab left it.')
+  await leaveWithNotice(roomIsDestruct(roomId) ? SELF_DESTRUCTED_MESSAGE : 'You tidied this room up in another tab, so this tab left it.')
+  await Promise.allSettled([...groupInvitationWrites])
 }
 
 // A tab frozen while another tidied the room up could not answer. When it
