@@ -1,3 +1,4 @@
+import { openPrivateSignerPicker } from './mixed-invitation-signer-ui.mjs'
 import { accountNetworkState, chooseAccountNetwork } from './mixed-invitation-account-network.mjs'
 import { readRuntimeConfig, readControllerPort } from './mixed-invitation-runtime-config.mjs'
 import { npubEncode } from 'nostr-tools/nip19'
@@ -321,6 +322,7 @@ async function requireLabProfile() {
 }
 async function run(step,args) {
   if(step === 'lab-profile') return requireLabProfile()
+  if(step === 'connect-signer') return { ...await openPrivateSignerPicker(page), ...await signinInline() }
   if(step === 'account-network-state') return accountNetworkState(page)
   if(step === 'account-network-choose') return chooseAccountNetwork(page, args.mode)
   if(step==='configure-ownstack') {
