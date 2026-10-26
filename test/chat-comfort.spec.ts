@@ -17,6 +17,7 @@ async function artworkSearch(page: Page, name: string) {
 test('timestamps, avatars, direct search, emoji insertion and encrypted reaction toggles work together', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
