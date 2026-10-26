@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "sourceCommit": "7ee4f13ac08ac44cb81b0d867af14e62497a6a6a",
+  "integratedMain": "aff5ca1e56e2b7ee88d16c2241a57aa00a4b345a",
+  "checks": [
+    {
+      "name": "Canonical library and app typecheck",
+      "command": "npm run typecheck",
+      "result": "passed"
+    },
+    {
+      "name": "Focused privacy, admission and account-network integration",
+      "result": "passed",
+      "files": 9,
+      "tests": 109,
+      "durationSeconds": 73.66,
+      "testFiles": [
+        "src/session-call-admission.test.ts",
+        "src/session-roster-privacy.test.ts",
+        "src/roster-privacy.test.ts",
+        "vectors/roster-envelope-2.test.ts",
+        "app/src/profiles.test.ts",
+        "app/src/relay-settings.test.ts",
+        "app/src/profile-lookups.test.ts",
+        "app/src/follow-list.test.ts",
+        "app/src/account-network.test.ts"
+      ],
+      "configuration": {
+        "base": "vitest.config.ts",
+        "cache": false,
+        "maxWorkers": 1,
+        "fileParallelism": false,
+        "timeoutOverrides": false
+      }
+    },
+    {
+      "name": "Integration source review",
+      "result": "no blocking findings",
+      "scope": "Profile opt-in and account-network interactions; unchanged admission/signalling source; direct-first and explicit relay-only selection",
+      "kind": "agent source review; no additional runtime qualification"
+    },
+    {
+      "name": "Broader local stress attempt",
+      "result": "interrupted after timing failures; not a passing run",
+      "observations": [
+        "Mesh annotation exchange: previously also failed on clean base locally",
+        "Mesh signal flood: prior isolated pass; current local timing failure",
+        "Session retention renewal: local five-second test deadline exceeded"
+      ],
+      "assertionsOrTimeoutsChanged": false
+    }
+  ],
+  "mergeGate": "Full hosted CI at the final PR revision remains required",
+  "limits": {
+    "packagedHostingSwitch": false,
+    "protonRouteQualified": false,
+    "externalMediaQualified": false,
+    "physicalDeviceAcceptance": false,
+    "archipelagoUiApprovalGranted": false
+  },
+  "protonAddressPreflight": {
+    "result": "valid NAT-PMP address reply after enabling forwarding",
+    "mappingRequests": 0,
+    "publicAnnouncement": false,
+    "identifyingEndpointDetailsIncluded": false
+  }
+}
