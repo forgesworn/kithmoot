@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-26T18:09:38.005555+00:00",
+  "status": "production-signed candidate; publication pending",
+  "versionName": "0.6.116",
+  "versionCode": 139,
+  "androidSourceCommit": "4e0de49472578432f811fea2b4f0dfc0a0934328",
+  "androidPullRequest": "https://github.com/forgesworn/kithmoot-android/pull/339",
+  "artifact": {
+    "bytes": 70865408,
+    "sha256": "0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015",
+    "payloadEntries": 811,
+    "zipPayloadsMatchUnsigned": true
+  },
+  "signing": {
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "keysStayedOnM4": true
+  },
+  "localVerification": {
+    "protocol:test": {
+      "tests": 594,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 91
+    },
+    "app:testDebugUnitTest": {
+      "tests": 2891,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 335
+    },
+    "app:testReleaseUnitTest": {
+      "tests": 2880,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suites": 334
+    },
+    "lintDebug": {
+      "errors": 0,
+      "reportSha256": "993dc9139712514264347282cea4d1a2c58134337d4bcb07c606c2096ce63d4f"
+    },
+    "lintRelease": {
+      "errors": 0,
+      "reportSha256": "90324e07b74af7ab85ac4f3c9e2c170acd4acdfeefd06c7a924139527099185e"
+    },
+    "sourceCommit": "4e0de49472578432f811fea2b4f0dfc0a0934328",
+    "buildLog": "build-m4-116.log"
+  },
+  "physicalGrapheneOS": {
+    "build": "2026100200",
+    "targetProfileHasNoPlayServices": true,
+    "targetProfileHasNoPlayStore": true,
+    "cameraTestsPassed": 21,
+    "uidAndInstallHistoryRetained": true,
+    "testPackageRemoved": true,
+    "rawFramesPublished": false,
+    "normalCallPerformanceAccepted": false,
+    "realPersonCutoutAccepted": false,
+    "note": "Camera pipeline liveness and model semantics passed. Initial timing run was asleep and locked; an unlocked foreground comparison and owner visual review remain pending."
+  },
+  "hostedCI": {
+    "run": 40370981421,
+    "status": "pending"
+  },
+  "publication": {
+    "github": false,
+    "website": false,
+    "zapstore": false
+  }
+}

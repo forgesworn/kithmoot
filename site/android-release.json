@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.114",
-  "versionCode": 137,
+  "versionName": "0.6.116",
+  "versionCode": 139,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 64847330,
-  "apkSha256": "9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319",
+  "apkBytes": 70865408,
+  "apkSha256": "0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.114-production.apk",
+  "downloadFilename": "kithmoot-0.6.116-production.apk",
   "releaseNotes": [
-    "Fixes a crash when opening a room and starting calls.",
+    "Background cut-outs are back, with sea scenes and animated fish behind you.",
+    "Effects run on your phone without camera usage reporting or Google Play services.",
     "Update over your existing installation to keep your account and rooms."
   ]
 }
