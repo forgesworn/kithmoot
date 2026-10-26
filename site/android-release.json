@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.113",
-  "versionCode": 136,
+  "versionName": "0.6.114",
+  "versionCode": 137,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 64822754,
-  "apkSha256": "03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb",
+  "apkBytes": 64847330,
+  "apkSha256": "9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.113-production.apk",
+  "downloadFilename": "kithmoot-0.6.114-production.apk",
   "releaseNotes": [
-    "Choose loudspeaker on or off during a call, with headsets taking priority.",
-    "Open chats at unread messages, see your Nostr picture and use larger account-menu actions.",
-    "Optionally find public call relays in Connections; your own relay and Spry still come first."
+    "Fixes a crash when opening a room and starting calls.",
+    "Update over your existing installation to keep your account and rooms."
   ]
 }
