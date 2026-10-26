@@ -63,6 +63,9 @@ class DocumentFixture extends EventTarget {
   element(id: string) { const element = this.getElementById(id); if (!element) throw new Error(`Missing actual panel template ID: ${id}`); return element }
   hide() { this.visibilityState = 'hidden'; this.dispatchEvent(new Event('visibilitychange')) }
 }
+// Let Link-only shutdown and every queued promise reaction finish while the
+// signer remains held; one microtask alone could miss false quiescence.
+const nextTurn = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 async function until(check: () => boolean) {
   for (let turn = 0; turn < 300; turn++) { if (check()) return; await Promise.resolve() }
   throw new Error('Actual panel operation did not reach the expected fixture state')
@@ -121,7 +124,7 @@ test.each([false, true])('actual production panel hides during %s replacement en
   expect(root.element('mlsWitnessAccount').textContent).toBe('')
   let stopped = false
   const stopping = invalidation.mock.results[0]!.value.then(() => { stopped = true })
-  await Promise.resolve(); expect(stopped).toBe(false); f.expectUnchanged()
+  await nextTurn(); expect(stopped).toBe(false); f.expectUnchanged()
   // Returning to foreground cannot revive the cancelled generation.
   root.visibilityState = 'visible'
   hold.release(); await stopping
@@ -139,7 +142,7 @@ test.each([false, true])('actual account pause joins credential tail and scalar 
   const pauses = [f.account.pause(), f.account.pause()]
   let stopped = false
   const stopping = Promise.all(pauses).then(() => { stopped = true })
-  await Promise.resolve(); expect(stopped).toBe(false); f.expectUnchanged()
+  await nextTurn(); expect(stopped).toBe(false); f.expectUnchanged()
   expect(f.scalars[0]!.some(byte => byte !== 0)).toBe(true)
   hold.release()
   expect(await operation).toEqual({ ok: false, refusal: 'stale' })
@@ -154,7 +157,7 @@ test('actual signout invalidation cannot claim quiescence while the witness cred
   f.signout()
   let signedOut = false
   const stopping = invalidateBrowserMlsOwners([f.panel]).then(() => { signedOut = true })
-  await Promise.resolve(); expect(signedOut).toBe(false)
+  await nextTurn(); expect(signedOut).toBe(false)
   hold.release(); await stopping
   expect(await operation).toEqual({ ok: false, refusal: 'stale' }); f.expectUnchanged()
   expect(f.scalars[0]!.every(byte => byte === 0)).toBe(true)
