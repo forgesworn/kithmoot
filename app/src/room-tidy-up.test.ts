@@ -238,6 +238,42 @@ describe('leave and tidy up', () => {
     expect(report.steps.find(s => s.id === 'files')?.files?.refused).toBe(1)
   })
 
+  it('retries invitation history after a transient routing change before deleting it', async () => {
+    const { r, deps } = setup()
+    const read = deps.read
+    let aborted = 0
+    deps.read = async (relay, filter) => {
+      if (filter.kinds?.includes(1463) && aborted < ROOM_RELAYS.length) {
+        aborted++
+        return { terminal: 'unavailable', events: [], detail: 'room routing changed' }
+      }
+      return read(relay, filter)
+    }
+    const report = await runTidyUp(deps)
+    expect(aborted).toBe(ROOM_RELAYS.length)
+    expect(report.refused).toBeUndefined()
+    expect(report.steps.find(s => s.id === 'invitations')).toMatchObject({ found: 1, unread: [] })
+    expect(r.published.some(p => kindsOf(p.event).includes(1463))).toBe(true)
+    expect(report.remaining).toEqual([])
+  })
+
+  it('refuses before deletion when invitation history stays unreadable', async () => {
+    const { r, deps, order } = setup()
+    let reads = 0
+    deps.read = async (_relay, filter) => {
+      if (filter.kinds?.includes(1463)) reads++
+      return { terminal: 'unavailable', events: [], detail: 'room routing changed' }
+    }
+    const report = await runTidyUp(deps)
+    expect(reads).toBe(ROOM_RELAYS.length * 3)
+    expect(report.refused).toMatch(/nothing was deleted/)
+    expect(report.steps.map(s => s.id)).toEqual(['invitations'])
+    expect(report.steps[0]!.unread).toEqual(ROOM_RELAYS)
+    expect(report.remaining).toEqual([])
+    expect(r.published).toEqual([])
+    expect(order).toEqual([])
+  })
+
   it('deletes in order while the keys exist, names addressable records by e and a, and finds nothing of theirs afterwards', async () => {
     const { r, deps, order, inviterSk, deviceSk, accountSk, otherSk } = setup()
     const report = await runTidyUp(deps)

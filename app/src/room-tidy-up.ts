@@ -272,7 +272,12 @@ export async function runTidyUp(deps: TidyUpDeps): Promise<TidyUpReport> {
 
   if (deps.inviter) {
     const filter: Filter = { kinds: [KINDS.GROUP_INVITATION], authors: [inviterPub!], '#d': [deps.inviter.invitationId] }
-    const found = await gather(deps, deps.roomRelays, filter)
+    let found = await gather(deps, deps.roomRelays, filter)
+    for (let retry = 1; found.unread.length > 0 && retry < 3; retry++) found = await gather(deps, deps.roomRelays, filter)
+    if (found.unread.length > 0) {
+      record({ id: 'invitations', found: found.events.length, answers: [], unread: found.unread })
+      return { steps, remaining: [], refused: 'The room’s invitation history could not be read completely, so nothing was deleted. Check the room’s connections and try again.' }
+    }
     const answers = await requestDeletion(deps, deps.roomRelays, found.events, secretSigner(deps.inviter.sk))
     record({ id: 'invitations', found: found.events.length, answers, unread: found.unread })
 

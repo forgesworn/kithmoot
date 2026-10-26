@@ -6,6 +6,30 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.115 decoder and WebRTC candidate, 26 October 2026
+
+Version **0.6.115**, code **138**, is a publication candidate, not a claim of
+completed public shipment. Merged Android source
+`0408eb9517a1646655a07b2eb8a62d9190073aeb` combines feature PR #338 and release
+PR #340. Hosted CI run `40363023286` rerun succeeded in all 17 jobs.
+
+The production APK candidate is `kithmoot-0.6.115-production.apk`, 65,191,394
+bytes, SHA-256
+`e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b`. Its
+certificate is
+`135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9`; the
+previous certificate and lineage capabilities are unchanged from the current
+`site/android-release.json` lineage. Independent verification checked all 794
+unchanged ZIP payload entries, V3-only signing and the retained lineage.
+
+Signing-host checks passed 2,889 appDebug tests and 594 protocol tests with zero
+failures. Debug and release lint and the production build passed. Android 15
+emulator checks passed for static images, GIFs and Compose, and for decoder and
+WebRTC behaviour in the minified release. Physical GrapheneOS acceptance remains
+outstanding; these emulator results do not establish physical-device acceptance.
+Public readbacks remain pending. See the
+[candidate evidence](evidence/android-0.6.115-candidate-20261026.json).
+
 ## Android 0.6.114 native startup fix, 26 October 2026
 
 Version **0.6.114**, code **137**, fixes the WebRTC native-load crash when

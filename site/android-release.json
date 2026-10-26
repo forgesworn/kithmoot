@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.114",
-  "versionCode": 137,
+  "versionName": "0.6.115",
+  "versionCode": 138,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 64847330,
-  "apkSha256": "9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319",
+  "apkBytes": 65191394,
+  "apkSha256": "e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.114-production.apk",
+  "downloadFilename": "kithmoot-0.6.115-production.apk",
   "releaseNotes": [
-    "Fixes a crash when opening a room and starting calls.",
+    "Improves static image, GIF and Compose artwork decoding.",
+    "Keeps media decoding and WebRTC working in minified production builds.",
     "Update over your existing installation to keep your account and rooms."
   ]
 }

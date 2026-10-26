@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-26T18:27:21Z",
+  "versionName": "0.6.115",
+  "versionCode": 138,
+  "androidSource": "0408eb9517a1646655a07b2eb8a62d9190073aeb",
+  "androidFeaturePullRequest": "https://github.com/forgesworn/kithmoot-android/pull/338",
+  "androidReleasePullRequest": "https://github.com/forgesworn/kithmoot-android/pull/340",
+  "androidCi": "https://github.com/forgesworn/kithmoot-android/actions/runs/40363023286",
+  "apk": {
+    "filename": "kithmoot-0.6.115-production.apk",
+    "bytes": 65191394,
+    "sha256": "e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "lineage": {
+      "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "previousCapabilities": {
+        "installedData": true,
+        "sharedUid": false,
+        "permission": true,
+        "rollback": false,
+        "auth": false
+      }
+    },
+    "zipPayloadEntries": 794,
+    "zipPayloadMatchesUnsigned": true,
+    "independentSignatureAndLineageVerification": true
+  },
+  "signingHostTests": {
+    "protocol": {
+      "tests": 594,
+      "failures": 0
+    },
+    "appDebug": {
+      "tests": 2889,
+      "failures": 0
+    }
+  },
+  "lint": {
+    "debug": "passed",
+    "release": "passed"
+  },
+  "productionBuild": "passed",
+  "runtimeValidation": {
+    "android15Emulator": {
+      "staticImages": "passed",
+      "gifs": "passed",
+      "compose": "passed",
+      "minifiedReleaseDecoder": "passed",
+      "minifiedReleaseWebRtc": "passed"
+    }
+  },
+  "publiclyShipped": false,
+  "publicReadbacks": "pending",
+  "hostedCi": "success",
+  "hostedCiRerun": true,
+  "hostedCiJobs": {
+    "total": 17,
+    "successful": 17
+  },
+  "physicalAndroidAcceptance": false,
+  "physicalDeviceTouched": false,
+  "physicalAcceptanceScope": "Physical GrapheneOS acceptance remains outstanding; Android 15 emulator checks do not establish physical-device acceptance.",
+  "pendingPhysicalChecks": [
+    "Physical GrapheneOS acceptance"
+  ]
+}
