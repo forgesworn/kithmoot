@@ -323,6 +323,8 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
       chat.setAttribute('aria-expanded', String(chatOpen))
       chat.removeAttribute('aria-pressed')
       paintChatFace('chat')
+      chatWord.textContent = chatOpen ? 'Chat' : 'Open chat'
+      chat.title = chatOpen ? 'Hide chat' : 'Open chat'
     } else if (mode === 'swap') {
       // On the conversation, the button is the way back to the stage.
       const showing = room.dataset.mobileView === 'chat'
@@ -346,7 +348,8 @@ export function installCallFocus(storage: Storage = localStorage): CallFocus {
     agentBadge.hidden = agents === 0
     agentBadge.textContent = agents > 99 ? '99+' : String(agents)
     const parts = [people > 0 ? `${people} unread` : undefined, agents > 0 ? `${agents} from agents` : undefined].filter((p) => p !== undefined)
-    const label = chatFace === 'call' ? 'Call' : parts.length === 0 ? 'Chat' : `Chat, ${parts.join(', ')}`
+    const name = chatFace === 'call' ? 'Call' : chatMode() === 'panel' && !chatOpen ? 'Open chat' : 'Chat'
+    const label = chatFace === 'call' ? name : parts.length === 0 ? name : `${name}, ${parts.join(', ')}`
     if (chat.getAttribute('aria-label') !== label) chat.setAttribute('aria-label', label)
   }
 

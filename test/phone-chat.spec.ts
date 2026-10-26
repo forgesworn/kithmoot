@@ -202,9 +202,15 @@ test('phone Call and Chat each use the screen, with settings in a sheet', async 
       expect(stage.height).toBeGreaterThan(viewport.height * .45)
       // The bar: a picture with its word under it on each, Share only where
       // it fits (a phone's menu has Share screen), and Record in More.
-      for (const id of ['toggleMic', 'toggleCamera', 'callChatToggle', 'callExtras', 'leaveCall', ...(viewport.width >= 600 ? ['toggleScreen'] : [])]) {
+      const controlIds = ['toggleMic', 'toggleCamera', 'callChatToggle', 'callExtras', 'leaveCall', ...(viewport.width >= 600 ? ['toggleScreen'] : [])]
+      for (const id of controlIds) {
         await expect(page.locator(`#${id}`)).toBeInViewport({ ratio: 1 })
         expect((await page.locator(`#${id}`).innerText()).trim().length, `#${id} says its word under its picture`).toBeGreaterThan(0)
+      }
+      expect(await page.locator('#toggleMic').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'the microphone action is not clipped').toBe(true)
+      if (viewport.width < 600) {
+        const rows = new Set(await Promise.all(controlIds.map(async id => Math.round((await page.locator(`#${id}`).boundingBox())!.y))))
+        expect(rows.size, 'the phone call actions stay on one row').toBe(1)
       }
       await expect(page.locator('#recordToggle')).toBeEnabled()
       await expect(page.locator('#recordingAuthorityHint')).toBeHidden()

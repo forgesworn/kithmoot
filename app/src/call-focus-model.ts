@@ -20,7 +20,7 @@ export const CALL_FIRST_MIN_WIDTH = 900
 export const CALL_FIRST_MIN_HEIGHT = 541
 /** At this width and wider the chat panel starts open, unless this device
  *  has said otherwise. */
-export const CHAT_OPEN_MIN_WIDTH = 1280
+export const CHAT_OPEN_MIN_WIDTH = CALL_FIRST_MIN_WIDTH
 
 export interface CallFirstInput {
   width: number
