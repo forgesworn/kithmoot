@@ -47,11 +47,11 @@ function memory(initial: Record<string, string> = {}) {
 }
 
 describe('the chat panel, remembered', () => {
-  test('open by default from 1280px, closed below', () => {
+  test('open by default wherever the call-first layout fits, closed below', () => {
     expect(chatPanelOpen(undefined, CHAT_OPEN_MIN_WIDTH)).toBe(true)
     expect(chatPanelOpen(undefined, 1440)).toBe(true)
     expect(chatPanelOpen(undefined, CHAT_OPEN_MIN_WIDTH - 1)).toBe(false)
-    expect(chatPanelOpen(undefined, 1000)).toBe(false)
+    expect(chatPanelOpen(undefined, 1000)).toBe(true)
   })
 
   test("this device's own answer wins at any width", () => {
