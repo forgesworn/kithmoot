@@ -73,6 +73,49 @@ describe('authority-sensitive relay publication', () => {
     expect(slow.connections).toBe(0); expect(pool.publishing).toBe(false)
   })
 
+  it('confirms the same guarded room handover on both old and newly added relays', async () => {
+    const existing = fakeRelay('wss://existing-room.test'), added = fakeRelay(url)
+    pool.setRelays([existing.url, added.url])
+    const reply = event(), sent = pool.publishGuarded(reply, () => true, { allRelays: true })
+    await vi.advanceTimersByTimeAsync(1); await sent
+    expect(existing.stored.map(e => e.id)).toEqual([reply.id])
+    expect(added.stored.map(e => e.id)).toEqual([reply.id])
+    expect(existing.connections).toBe(0)
+    expect(added.connections).toBe(0)
+    expect(pool.publishing).toBe(false)
+  })
+
+  it('requires an acknowledgement from an existing room relay before reporting a handover', async () => {
+    const existing = fakeRelay('wss://existing-room.test'), added = fakeRelay(url)
+    existing.stallConnections = true
+    pool.setRelays([existing.url, added.url])
+    const sent = pool.publishGuarded(event(), () => true, { allRelays: true })
+    const rejected = expect(sent).rejects.toThrow('Room relay handover was not acknowledged by ' + existing.url)
+    await vi.advanceTimersByTimeAsync(21_000)
+    await rejected
+    expect(added.stored).toHaveLength(1)
+    expect(existing.stored).toHaveLength(0)
+    expect(existing.stalled.size).toBe(0)
+    expect(pool.publishing).toBe(false)
+  })
+
+  it('withdraws a pending room handover before an old route can publish later', async () => {
+    const existing = fakeRelay('wss://existing-room.test'), added = fakeRelay(url)
+    existing.stallConnections = true
+    pool.setRelays([existing.url, added.url])
+    let allowed = true
+    const sent = pool.publishGuarded(event(), () => allowed, { allRelays: true })
+    const rejected = expect(sent).rejects.toThrow('no longer authorised')
+    await vi.advanceTimersByTimeAsync(1)
+    expect(added.stored).toHaveLength(1)
+    allowed = false
+    await vi.advanceTimersByTimeAsync(100)
+    await rejected
+    expect(existing.stored).toHaveLength(0)
+    expect(existing.stalled.size).toBe(0)
+    expect(pool.publishing).toBe(false)
+  })
+
   class ChallengedSocket extends FakeWebSocket {
     constructor(address: string) {
       super(address)

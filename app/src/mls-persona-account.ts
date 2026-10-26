@@ -31,7 +31,7 @@ export class BrowserMlsAccount {
   #epochKey = ''
   #epochNumber = 0
   #epoch(): number {
-    const c = this.context(), key = JSON.stringify([this.#generation, c?.persona, c?.generation, c?.mode])
+    const c = this.context(), key = JSON.stringify([this.#generation, c?.persona, c?.generation, c?.mode, globalThis.document?.visibilityState])
     if (key !== this.#epochKey) { this.#epochKey = key; this.#epochNumber++ }
     return this.#epochNumber
   }
@@ -39,6 +39,7 @@ export class BrowserMlsAccount {
     return this.#vault ??= new CoordinatedMlsVault(s.coordinator, { generation: () => this.#epoch() })
   }
   #stopping: Promise<void> = Promise.resolve()
+  #jobs = new Set<Promise<MlsAccountView>>()
   #resumeNeeded = false
   #notifications?: BroadcastChannel
   #listeners = new Set<() => void>()
@@ -173,24 +174,41 @@ export class BrowserMlsAccount {
     const result = await this.#vaultRun((vault, ctx, _c, current) => vault.signBoxRequestV1(ctx, request, async scope => current() ? consent(scope) : 'deny'), true)
     return result.ok ? this.#vault!.acceptBoxReply(request, result.value) : result
   }
-  /** Invalidate immediately; wait for late starts and shutdown before an
-   * explicit next operation may resume. A shutdown failure stays fail-closed. */
+  /** Fence synchronously, then join the actual captured operations as well as
+   * Link shutdown. A signer cannot be cancelled by pretending its tail ended. */
   pause(): Promise<void> {
     this.#generation++; this.#vault?.bump()
     if (this.#services) {
       this.#services.coordinator.invalidate()
       this.#resumeNeeded = true
-      this.#stopping = Promise.all([this.#stopping, this.#services.links.pause()]).then(() => undefined)
     }
+    const previous = this.#stopping
+    const jobs = Promise.allSettled([...this.#jobs])
+    let shutdown: Promise<void>
+    try { shutdown = this.#services?.links.pause() ?? Promise.resolve() }
+    catch (error) { shutdown = Promise.reject(error) }
+    this.#stopping = Promise.allSettled([previous, shutdown, jobs]).then(results => {
+      // Failed/cancelled operations are reported to their callers; shutdown
+      // failure remains fail-closed even after all actual jobs have settled.
+      const failure = results.find(result => result.status === 'rejected')
+      if (failure?.status === 'rejected') throw failure.reason
+    })
+    void this.#stopping.catch(() => {})
     return this.#stopping
   }
-  async #run(work: (services: Services, context: MlsAccountContext, current: () => boolean) => Promise<MlsAccountView>, network = false, changed = false): Promise<MlsAccountView> {
+  #run(work: (services: Services, context: MlsAccountContext, current: () => boolean) => Promise<MlsAccountView>, network = false, changed = false): Promise<MlsAccountView> {
+    const job = this.#runOwned(work, network, changed)
+    this.#jobs.add(job)
+    void job.then(() => this.#jobs.delete(job), () => this.#jobs.delete(job))
+    return job
+  }
+  async #runOwned(work: (services: Services, context: MlsAccountContext, current: () => boolean) => Promise<MlsAccountView>, network: boolean, changed: boolean): Promise<MlsAccountView> {
     const context = this.context(), generation = this.#generation
     if (!context) throw new Error('Sign in before opening MLS witness settings.')
     if (network && context.mode !== 'normal') throw new Error('Witness connections are held in quiet and Tor-only modes. Leave that mode before connecting.')
     const current = () => {
       const now = this.context()
-      return generation === this.#generation && now?.persona === context.persona && now.generation === context.generation && now.mode === context.mode
+      return globalThis.document?.visibilityState === 'visible' && generation === this.#generation && now?.persona === context.persona && now.generation === context.generation && now.mode === context.mode
     }
     await this.#stopping
     if (!current()) return { enrolment: { state: 'stale' } }

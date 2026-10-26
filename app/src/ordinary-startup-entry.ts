@@ -40,7 +40,8 @@ async function start(): Promise<void> {
     document.documentElement.dataset.ordinaryStartup = 'ready'
     const notice = document.getElementById('ordinaryStartupNotice')
     if (notice) notice.hidden = true
-  } catch {
+  } catch (error) {
+    if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') Object.defineProperty(window, '__mixedStartupFailure', { configurable: true, value: error instanceof Error ? { name: error.name, message: error.message } : { name: 'Unknown' } })
     held()
   } finally {
     // If an import began, close joins the irreversible document lease; it

@@ -1,3 +1,4 @@
+import type { AccountNetwork } from './account-network.js'
 import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, READ_EVIDENCE_RANK, type ReadEvidence, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
@@ -49,6 +50,11 @@ export interface FixedRoomRelays { c: string[]; signed: boolean }
  * list: see `setRoomRelays`.
  */
 export class RelayConnections {
+  #accountNetwork?: AccountNetwork
+  accountNetwork(policy: AccountNetwork): void {
+    if (this.#pools.size) throw new Error('Account policy must precede public pools.')
+    this.#accountNetwork = policy
+  }
   #roomRouter?: (room: string, make: () => NostrRelayPool) => ManagedRelayPool
   routeRooms(router: (room: string, make: () => NostrRelayPool) => ManagedRelayPool): void {
     if (this.#pools.size) throw new Error('Room routing must be installed before opening pools.')
@@ -272,6 +278,10 @@ export class RelayConnections {
     return this.#publicPool(scope, hints)
   }
   #publicPool(scope: string, hints: RelayHints): NostrRelayPool {
+    if (this.#accountNetwork) return this.#accountNetwork.publicTransport(() => this.#unrestrictedPublicPool(scope, hints))
+    return this.#unrestrictedPublicPool(scope, hints)
+  }
+  #unrestrictedPublicPool(scope: string, hints: RelayHints): NostrRelayPool {
     this.#prune()
     const key = poolKey(scope, hints)
     let pool = this.#shared.get(key)
@@ -356,8 +366,9 @@ export class RelayConnections {
       const readEvidence = matches.map(health => health.readEvidence).filter((value): value is ReadEvidence => value !== undefined)
         .sort((a, b) => READ_EVIDENCE_RANK[a] - READ_EVIDENCE_RANK[b])[0]
       const unreturned = [...new Set(matches.flatMap(health => health.unreturned ?? []))]
-      return { ...lastWrite, ...relay, lastError: failed, ...(readEvidence ? { readEvidence } : {}), unreturned: unreturned.length ? unreturned : undefined,
-        authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
+      const withdrawn = this.#authentication.get(scope)?.get(relay.url) === null
+      return { ...lastWrite, ...relay, lastError: failed ?? (withdrawn ? 'Relay authentication permission withdrawn' : undefined), ...(readEvidence ? { readEvidence } : {}), unreturned: unreturned.length ? unreturned : undefined,
+        authentication: withdrawn ? 'withdrawn' : matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
     })

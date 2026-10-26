@@ -515,7 +515,6 @@ export class MlsVault {
     if (!stored) return refuse('unauthorised')
     try {
       if (stored.receipt.identity !== ctx.persona) return refuse('unauthorised')
-      if (stored.receipt.expiresAt <= now) return refuse('expired')
       const own = stored.receipt.rendezvousPubkey
       if (own === req.peer_rz) return refuse('malformed')
       const shared = stored.withScalar(scalar => {

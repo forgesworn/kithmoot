@@ -31,13 +31,13 @@ describe('typed rendezvous custody', () => {
   it('checks the actual scalar against the receipt', async () => {
     await expect(fixture({}, new Uint8Array(32).fill(5)).run(async c => c.derive(req))).rejects.toThrow('stale-rendezvous')
   })
-  for (const mode of ['child', 'account', 'expiry', 'deadline'] as const) it(`rejects an answer after ${mode}`, async () => {
+  for (const mode of ['child', 'account', 'bad-clock', 'deadline'] as const) it(`rejects an answer after ${mode}`, async () => {
     const f = fixture()
     await f.run(async c => {
       const a = c.derive(req)
       if (mode === 'child') f.invalidate()
       if (mode === 'account') f.account()
-      if (mode === 'expiry') f.clock(1300)
+      if (mode === 'bad-clock') f.clock(NaN)
       if (mode === 'deadline') f.clock(1201)
       expect(() => c.accept(req, a)).toThrow(mode === 'deadline' ? 'expired' : 'stale-rendezvous')
     })
@@ -59,8 +59,12 @@ describe('typed rendezvous custody', () => {
   for (const changed of [{ peer_rz: receipt.rendezvousPubkey }, { peer_rz: 'ff'.repeat(32) }, { expires_at: 999 }, { expires_at: 1601 }, { expires_at: NaN }, { extra: true }]) it(`refuses malformed request ${JSON.stringify(changed)}`, async () => {
     await expect(fixture().run(async c => c.derive({ ...req, ...changed }))).rejects.toThrow('malformed')
   })
-  it('checks expiry again after awaiting the child source', async () => {
-    const f = fixture(); f.afterRead(() => f.clock(1300))
-    await expect(f.run(async c => c.derive(req))).rejects.toThrow('stale-rendezvous')
+  it('uses the retained child after the handoff deadline with a fresh bounded request', async () => {
+    const f = fixture(); f.afterRead(() => f.clock(1301))
+    await f.run(async c => {
+      const fresh = { ...req, expires_at: 1400 }
+      expect(c.current()).toBe(true); expect(c.releaseCurrent()).toBe(true)
+      c.accept(fresh, c.derive(fresh)).fill(0)
+    })
   })
 })

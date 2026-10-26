@@ -1,3 +1,5 @@
+import { AccountNetwork } from './account-network.js'
+import { findPublicCallRelays, PUBLIC_RELAY_DISCOVERY_PAUSED } from './public-call-relay-discovery.js'
 import { describe, expect, it, vi } from 'vitest'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { FakeWebSocket } from '../../test/fake-socket.js'
@@ -364,5 +366,61 @@ describe('a call on a discovered relay', () => {
     const call = new PublicRelayCall(env.relays, { ...harness.hooks, superseded })
     expect(await call.start()).toBe(false)
     expect(env.fetched).toEqual([])
+  })
+})
+
+
+describe('Connections discovery action composition', () => {
+  function view() { return { status: vi.fn<(message: string) => void>(), render: vi.fn() } }
+
+  it.each([false, true])('opens Connections privately without a mode prompt or public lookup when discovery enabled is %s', async enabled => {
+    const h = setup([advert(keyA, 'relay.example.org')]), network = new AccountNetwork(h.store, 'private-invitations')
+    if (enabled) h.relays.setEnabled(true)
+    const display = view(), requireNostr = vi.fn(() => false), outranked = vi.fn(() => false)
+    await findPublicCallRelays({ network, relays: h.relays, outranked, generation: () => 0, requireNostr, view: display })
+    expect(display.status).toHaveBeenCalledWith(PUBLIC_RELAY_DISCOVERY_PAUSED)
+    expect(display.render).toHaveBeenCalledOnce()
+    expect(requireNostr).not.toHaveBeenCalled()
+    expect(outranked).not.toHaveBeenCalled()
+    expect(h.searches).toEqual([]); expect(h.fetched).toEqual([])
+    expect(h.relays.enabled).toBe(enabled)
+    expect(network.mode).toBe('private-invitations')
+  })
+
+  it('lets an explicit Find/On action explain the required mode while keeping public lookup suppressed', async () => {
+    const h = setup([advert(keyA, 'relay.example.org')]), network = new AccountNetwork(h.store, 'private-invitations')
+    h.relays.setEnabled(true)
+    const display = view(), requireNostr = vi.fn(() => false)
+    await findPublicCallRelays({ network, relays: h.relays, outranked: () => false, generation: () => 0, requireNostr, view: display }, 'manual')
+    expect(requireNostr).toHaveBeenCalledOnce()
+    expect(display.status).toHaveBeenCalledWith(PUBLIC_RELAY_DISCOVERY_PAUSED)
+    expect(h.searches).toEqual([]); expect(h.fetched).toEqual([])
+    expect(network.mode).toBe('private-invitations')
+  })
+
+  it.each([[false, false], [true, true]])('keeps ordinary automatic discovery silent when enabled=%s and outranked=%s', async (enabled, outranked) => {
+    const h = setup([advert(keyA, 'relay.example.org')]), network = new AccountNetwork(h.store)
+    if (enabled) h.relays.setEnabled(true)
+    const display = view(), requireNostr = vi.fn(() => true)
+    await findPublicCallRelays({ network, relays: h.relays, outranked: () => outranked, generation: () => 0, requireNostr, view: display })
+    expect(display.render).toHaveBeenCalledOnce()
+    expect(requireNostr).not.toHaveBeenCalled()
+    expect(h.searches).toEqual([]); expect(h.fetched).toEqual([])
+  })
+
+  it('retains ordinary discovery, automatic freshness and an explicit manual refresh', async () => {
+    const h = setup([advert(keyA, 'relay.example.org')]), network = new AccountNetwork(h.store)
+    h.relays.setEnabled(true)
+    const display = view(), requireNostr = vi.fn(() => true)
+    const options = { network, relays: h.relays, outranked: () => false, generation: () => 0, requireNostr, view: display }
+    await findPublicCallRelays(options)
+    expect(h.searches).toHaveLength(1)
+    expect(display.status).toHaveBeenCalledWith('1 public call relay found. Select one to use it.')
+    await findPublicCallRelays(options)
+    expect(h.searches).toHaveLength(1)
+    await findPublicCallRelays(options, 'manual')
+    expect(h.searches).toHaveLength(2)
+    expect(requireNostr).not.toHaveBeenCalled()
+    expect(h.fetched).toEqual([])
   })
 })

@@ -21,6 +21,22 @@ import { joinWithMedia, leaveToChats, newDeviceContext, openProfileSettings, TES
  * talks to elsewhere.
  */
 
+test('saved public profile opt-out survives actual app startup and reload', async ({ page, context, baseURL }) => {
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'false'))
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto(baseURL!)
+  await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+  await expect(page.locator('#ordinaryStartupNotice')).toBeHidden()
+  await openProfileSettings(page)
+  await expect(page.locator('#lookupProfiles')).not.toBeChecked()
+  await page.locator('#profileSettingsClose').click()
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+  await expect(page.locator('#ordinaryStartupNotice')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
 const PUBLIC_PROFILE_HOSTS = ['purplepag.es', 'relay.damus.io', 'relay.primal.net']
 
 type Frame = { url: string; frame: unknown[] }

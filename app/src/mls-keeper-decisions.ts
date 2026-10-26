@@ -1,3 +1,4 @@
+import { admin2ProductSelected, roomProfileAllowed } from './mls-invitation-profile.js'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
 import { InvalidPersonaRecord, type BrowserPersonaCoordinator, type CoordinationResult, type PersonaTransaction } from './mls-persona-coordinator.js'
@@ -312,6 +313,7 @@ export class BrowserMlsKeeperDecisions {
       try {
         const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(room.binding.device), hexToBytes(room.binding.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+        if (admin2ProductSelected() || !roomProfileAllowed(room)) throw new Error('Legacy keeper snapshot access is held for this profile.')
         session = wasm.Session.open(platform, hexToBytes(id), saved.plaintext, saved.generation)
         if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper decision snapshot does not match its room')
         const members: MlsMemberStatus[] = (session.members() as any[]).map(info => ({ leafId: bytesToHex(info.member.leafId), identity: bytesToHex(info.member.identity),

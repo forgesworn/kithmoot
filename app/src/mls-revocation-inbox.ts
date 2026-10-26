@@ -1,3 +1,4 @@
+import { admin2ProductSelected, roomProfileAllowed } from './mls-invitation-profile.js'
 import type { Event } from 'nostr-tools/pure'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js'
 import { unwrapVmlsRevocationRequest, VMLS_REVOCATION_GIFT_WRAP_KIND, type VmlsRevocationIdentity, type VmlsRevocationRequest } from '../../src/vmls-revocation-request.js'
@@ -28,12 +29,13 @@ export class BrowserMlsRevocationInbox {
   #running = false
   constructor(private coordinator: Coordinator, private grants: Pick<BrowserMlsGrantStore, 'all'>,
     private context: () => MlsRevocationInboxContext | undefined,
-    private now: () => number = () => Math.floor(Date.now() / 1000)) {}
+    private now: () => number = () => Math.floor(Date.now() / 1000),
+    private authority: 'legacy-mls' | { storage(tx: PersonaTransaction): Promise<MlsGrantRecord[]> } = 'legacy-mls') {}
 
-  async view(): Promise<CoordinationResult<MlsRevocationInboxView>> {
-    const scope = this.#scope(), current = () => this.#current(scope)
+  async view(operationCurrent: () => boolean = () => true): Promise<CoordinationResult<MlsRevocationInboxView>> {
+    const scope = this.#scope(), current = () => { try { return operationCurrent() && this.#current(scope) } catch { return false } }
     return this.coordinator.transact(scope.vault.persona, async tx => {
-      const state = await this.#state(tx, scope), ledger = await this.#ledger(), prompts: MlsKeeperRequestView[] = [], rosters: RosterCache = new Map()
+      const state = await this.#state(tx, scope), ledger = await this.#ledger(tx), prompts: MlsKeeperRequestView[] = [], rosters: RosterCache = new Map()
       for (const prompt of state.prompts) {
         if (prompt.state !== 'pending') continue
         const grants = await this.#authority(tx, prompt.request, ledger, rosters)
@@ -45,11 +47,20 @@ export class BrowserMlsRevocationInbox {
     }, current)
   }
 
-  async receive(wrappers: readonly Event[], identity: VmlsRevocationIdentity): Promise<CoordinationResult<MlsRevocationInboxView>> {
+  async receive(wrappers: readonly Event[], identity: VmlsRevocationIdentity, operationCurrent: () => boolean = () => true): Promise<CoordinationResult<MlsRevocationInboxView>> {
     if (this.#running) throw new Error('A foreground request check is already running.')
     if (!Array.isArray(wrappers) || wrappers.length > MAX_MLS_REVOCATION_CANDIDATES) throw new Error('Too many revocation request candidates.')
-    const scope = this.#scope(), current = () => this.#current(scope)
+    const scope = this.#scope(), current = () => { try { return operationCurrent() && this.#current(scope) } catch { return false } }
     if (identity.pubkey !== scope.vault.persona) throw new Error('Sign in as the receiving keeper.')
+    // The operation permission joins the account/foreground guard at every
+    // signer boundary and witnessed transaction, not only after the page read.
+    const decrypt = identity.decrypt.bind(identity)
+    const guarded: VmlsRevocationIdentity = { ...identity, decrypt: async (peer, ciphertext) => {
+      if (!current()) throw new Error('The keeper intake permission changed.')
+      const plaintext = await decrypt(peer, ciphertext)
+      if (!current()) throw new Error('The keeper intake permission changed.')
+      return plaintext
+    } }
     this.#running = true
     let decryptions = 0
     try {
@@ -77,12 +88,12 @@ export class BrowserMlsRevocationInbox {
         if (before.state !== 'active') return before
         if (!before.value) continue
         decryptions++
-        const request = await unwrapVmlsRevocationRequest(wrapper, identity, this.#time(), current)
+        const request = await unwrapVmlsRevocationRequest(wrapper, guarded, this.#time(), current)
         if (!current()) return { state: 'pending', reason: 'stale', refused: false }
         const saved = await this.coordinator.transact(scope.vault.persona, async tx => {
           const state = await this.#state(tx, scope)
           if (request && request.keeper === scope.vault.persona && request.expiration > state.checkedAt) {
-            const ledger = await this.#ledger(), grants = await this.#authority(tx, request, ledger)
+            const ledger = await this.#ledger(tx), grants = await this.#authority(tx, request, ledger)
             if (grants.length) {
               const operation = mlsStandaloneRevocationOperation(request.sender, request.keeper, request.device)
               const existing = state.prompts.find(item => item.operation === operation)
@@ -106,23 +117,27 @@ export class BrowserMlsRevocationInbox {
         if (saved.state !== 'active') return saved
       }
       if (!current()) return { state: 'pending', reason: 'stale', refused: false }
-      return await this.view()
+      return await this.view(operationCurrent)
     } finally { this.#running = false }
   }
 
   async #state(tx: PersonaTransaction, scope: MlsRevocationInboxContext): Promise<MlsRevocationInboxState> {
     return mlsRevocationInboxState(tx, scope.vault.persona, this.#time())
   }
-  async #ledger(): Promise<MlsGrantRecord[]> {
-    const records = structuredClone(await this.grants.all())
+  async #ledger(tx: PersonaTransaction): Promise<MlsGrantRecord[]> {
+    const records = structuredClone(await (this.authority === 'legacy-mls' ? this.grants.all() : this.authority.storage(tx)))
     if (!Array.isArray(records) || records.length > 256) throw new Error('The keeper grant ledger could not be verified.')
     records.forEach(validateMlsGrant)
-    if (new Set(records.map(record => `${record.node}/${record.device}`)).size !== records.length) throw new Error('The keeper grant ledger contains duplicate device authority.')
+    if (new Set(records.filter(record => this.authority === 'legacy-mls' || record.state !== 'revoked').map(record => `${record.node}/${record.device}`)).size !== records.filter(record => this.authority === 'legacy-mls' || record.state !== 'revoked').length) throw new Error('The keeper grant ledger contains duplicate device authority.')
     return records
   }
   async #authority(tx: PersonaTransaction, request: VmlsRevocationRequest, ledger: readonly MlsGrantRecord[], rosters: RosterCache = new Map()): Promise<MlsGrantRecord[]> {
     const grants = ledger.filter(record => record.issuer === request.keeper && record.persona === request.sender && record.device === request.device && record.state !== 'revoked')
     if (!grants.length) return []
+    if (this.authority !== 'legacy-mls') {
+      if (grants.some(grant => grant.rooms.length || grant.revokeAfter !== null)) throw new Error('Storage authority contains MLS room duties.')
+      return grants
+    }
     const ids = await mlsRoomIds(tx)
     if (grants.some(grant => grant.rooms.some(use => !ids.includes(use.session)))) throw new Error('A keeper room must be restored before reviewing this request.')
     // Ledger room uses can be empty or stale after a Remove. The signed
@@ -145,6 +160,7 @@ export class BrowserMlsRevocationInbox {
       try {
         const wasm = await loadMlsEngine()
         platform = new wasm.Platform(hexToBytes(room.binding.device), hexToBytes(room.binding.rendezvousKey), { fill: n => crypto.getRandomValues(new Uint8Array(n)) })
+        if (admin2ProductSelected() || !roomProfileAllowed(room)) throw new Error('Legacy keeper snapshot access is held for this profile.')
         session = wasm.Session.open(platform, hexToBytes(id), saved.plaintext, saved.generation)
         if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation || room.generation !== String(saved.generation)) throw new InvalidPersonaRecord('Keeper room does not match witnessed snapshot')
         const members = session.members() as { member: { device: Uint8Array; identity: Uint8Array } }[]

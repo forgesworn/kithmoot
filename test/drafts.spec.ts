@@ -328,11 +328,13 @@ test('stopping an upload permits another attempt without adding the late result'
 
 test('stopping during a stalled relay announcement releases the draft and ignores the late acknowledgement', async ({ browser, baseURL }) => {
   let release: (() => void) | undefined
+  // The guarded publisher uses a fresh socket per event. Hold only the first
+  // file event's ACK across sockets so the next upload can complete.
+  let firstFileId: string | undefined
   const blobOrigin = new URL(baseURL!).origin
   const { page, context } = await setup(browser, baseURL!, async (context, relay) => {
     await context.routeWebSocket(relay, ws => {
       const upstream = ws.connectToServer()
-      let firstFileId: string | undefined
       ws.onMessage(raw => {
         const frame = JSON.parse(String(raw))
         if (frame[0] === 'EVENT' && frame[1].kind === 1063) firstFileId ??= frame[1].id

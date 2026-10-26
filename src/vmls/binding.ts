@@ -48,7 +48,7 @@ const ALLOWED_CONTROLS = new Set([0x08, 0x09, 0x0a, 0x0c, 0x0d])
 const WIDTHS: Record<number, number> = { 24: 1, 25: 2, 26: 4, 27: 8 }
 const MINIMUMS: Record<number, bigint> = { 1: 24n, 2: 0x100n, 4: 0x10000n, 8: 0x100000000n }
 
-class Reader {
+export class Reader {
   at = 0
   constructor(private readonly input: Uint8Array) {}
   take(n: number): Uint8Array {

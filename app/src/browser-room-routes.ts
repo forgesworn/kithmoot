@@ -1,3 +1,4 @@
+import type { AccountNetwork } from './account-network.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
@@ -15,13 +16,18 @@ export class BrowserRoomRoutes {
   #pools = new Set<BrowserRoomPool>()
   #enabled = true
   constructor(private identity: () => ParticipantIdentity | undefined, private link: BrowserLink,
-    private closePublicSession: (room: string) => Promise<void>) {
+    private closePublicSession: (room: string) => Promise<void>, accountNetwork?: AccountNetwork) {
     guardPublicRoomOperations(async stop => {
+      accountNetwork?.requireNostr()
+      const current = accountNetwork?.current()
       let invalidated = false
-      const unlisten = this.barrier.listen(() => { invalidated = true; stop() })
+      const networkOff = accountNetwork?.listen(() => { if (!current?.()) { invalidated = true; stop() } })
+      const barrierOff = this.barrier.listen(() => { invalidated = true; stop() })
+      const unlisten = () => { networkOff?.(); barrierOff() }
       const release = await this.barrier.publicLease(PUBLIC_ROOM_OPERATIONS)
       try {
-        if (invalidated || (await this.store.all()).some(c => c.phase !== 'retired')) throw new Error('Public history recovery and cleanup are held while Bothy room permissions are selected. Withdraw the room selection first.')
+        const entries = await this.store.all()
+        if (invalidated || current && !current() || entries.some(c => c.phase !== 'retired')) throw new Error('Public history recovery and cleanup are held while Bothy room permissions are selected. Withdraw the room selection first.')
         return async () => { unlisten(); await release() }
       } catch (error) { unlisten(); await release(); throw error }
     })
