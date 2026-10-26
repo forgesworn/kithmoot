@@ -9,6 +9,7 @@ import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE
 import { createSpryHosting } from './spry-hosting.mjs'
 import { createHostingControls, createHostingQuitGuard } from './spry-hosting-controls.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
+import { applyPrototypeRouting } from './prototype-routing.mjs'
 import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -210,6 +211,11 @@ function applyAppMenu() {
 
 const DESKTOP_PARTITION = 'persist:kithmoot-desktop-v1'
 
+async function desktopStartupFailed(error) {
+  console.error('Desktop startup failed:', error.message)
+  try { await hosting.stop({ block: true }) } finally { app.exit(1) }
+}
+
 async function createWindow() {
   const ses = session.fromPartition(DESKTOP_PARTITION)
   if (!ses.__kithmootConfigured) {
@@ -325,6 +331,15 @@ async function createWindow() {
       backgroundThrottling: false, spellcheck: usesSystemSpellchecker(),
     },
   })
+  // Before any navigation or peer connection, including a recreated window.
+  // A requested prototype must never continue with an unconfirmed policy.
+  try {
+    applyPrototypeRouting(win.webContents, { packaged: app.isPackaged, requested: process.env.KITHMOOT_DESKTOP_PROTON_ROUTING })
+  } catch (error) {
+    win.destroy()
+    win = undefined
+    throw error
+  }
   if (savedWindow?.maximized === true) win.maximize()
   // The page drops the title-bar band in full screen, where the lights hide.
   const sendWindowState = fullScreen => {
@@ -555,8 +570,8 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     if (app.isPackaged && !testProfile) app.setAsDefaultProtocolClient('kithmoot')
     await createWindow()
     updates.start()
-    app.on('activate', () => { if (!win) void createWindow() })
-  }).catch(async error => { console.error('Desktop startup failed:', error.message); await hosting.stop({ block: true }); app.exit(1) })
+    app.on('activate', () => { if (!win) void createWindow().catch(desktopStartupFailed) })
+  }).catch(desktopStartupFailed)
   app.on('before-quit', event => {
     if (!hosting.state().available || hostingQuit.confirmed) return
     event.preventDefault()
