@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-26T22:11:49Z",
+  "versionName": "0.6.115",
+  "versionCode": 138,
+  "androidSource": "0408eb9517a1646655a07b2eb8a62d9190073aeb",
+  "websiteSource": "af0c0fd734ff9ab198a66aa7b026b21785516747",
+  "androidPullRequests": [338, 340],
+  "websitePullRequest": 587,
+  "apk": {
+    "filename": "kithmoot-0.6.115-production.apk",
+    "bytes": 65191394,
+    "sha256": "e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": { "v1": false, "v2": false, "v3": true },
+    "zipPayloadEntries": 794,
+    "zipPayloadMatchesUnsigned": true,
+    "independentSignatureAndLineageVerification": true
+  },
+  "verification": {
+    "androidCiRun": 40363023286,
+    "androidCiJobsPassed": 17,
+    "websiteCiRun": 40402817652,
+    "websiteCiJobsPassed": 46,
+    "websiteOptionalDiagnosticSkipped": 1,
+    "websiteAdapterRun": 40402817666,
+    "signingHostAppTests": 2889,
+    "signingHostProtocolTests": 594,
+    "websiteLocalTestsPassed": 7980,
+    "websiteLocalTestsSkipped": 3,
+    "typecheck": "passed",
+    "productionBuilds": "passed",
+    "publicBrowserSmoke": "four tests passed on each website host"
+  },
+  "publication": {
+    "githubRelease": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.115",
+    "websiteDeployment": "20261026T220556Z",
+    "websiteMetadataMatchesMergedSourceOnBothHosts": true,
+    "stableAndVersionedApkHashesVerifiedOnBothHosts": true,
+    "githubApkDownloadHashVerified": true,
+    "zapstore": {
+      "releaseEventId": "28438d8ec23f62930aab9f9dcb8ff6b59e5d2fb8b4b8860e0a4269abd3dc797e",
+      "assetEventId": "35a7dabff59847b8fd11cc60519534853f02290d1ee9792794f8e11b20954551",
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "nostrSignaturesVerified": true,
+      "certificateProofVerifiedAndUnrevoked": true,
+      "sourceCommitVerified": true,
+      "publicApkDownloadVerified": true
+    },
+    "publiclyShipped": true
+  },
+  "physicalAcceptance": {
+    "completed": false,
+    "deviceTouched": false,
+    "scope": "Physical GrapheneOS media, memory, process-death, active-call, accessibility and external-viewer checks remain separate. Zapstore client indexing and physical upgrade/readback are not claimed."
+  }
+}
