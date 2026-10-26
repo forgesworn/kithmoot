@@ -1,0 +1,9 @@
+{
+  "sourceCommit": "5b3eb5fe28255b5c0cc09d959a3010a3d48f9562",
+  "manifest": "a8cbad14a5bc848178470be80504828785b0cd6185f4bea27ee1ff6bb4e12922",
+  "files": {
+    "vmls_wasm.js": "2c07c8c3f0a883440ee9a3c4c2a300bdb20b5e8c9e6d3ff0b65c7b904786c099",
+    "vmls_wasm_bg.wasm": "8c593171bafa5d205e570f58ab1171894b70e5f05d5361b95254228702621560",
+    "vmls_wasm.d.ts": "d0fc76ab83dc12cb69c92ed86a69af318411212a5ca8bb49b8ae09a205de7307"
+  }
+}

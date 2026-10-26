@@ -271,7 +271,7 @@ describe('rendezvousEcdhV1', () => {
   const ownRz = getPublicKey(rzSecret)
   const peerSecret = secp256k1.utils.randomSecretKey()
   const peerRz = getPublicKey(peerSecret)
-  const child = (identity: string) => async () => new StoredRendezvousChild({ identity, device: 'b'.repeat(64), rendezvousPubkey: ownRz, index: 1, expiresAt: NOW + 3600 }, rzSecret)
+  const child = (identity: string, expiresAt = NOW + 3600) => async () => new StoredRendezvousChild({ identity, device: 'b'.repeat(64), rendezvousPubkey: ownRz, index: 1, expiresAt }, rzSecret)
   const ecdh = (over: Partial<{ peer: string; deadline: number }> = {}) => ({ v: 1 as const, operation: bytesToHex(randomBytes(32)), peer_rz: over.peer ?? peerRz, expires_at: over.deadline ?? NOW + 300 })
 
   it('computes the shared x-coordinate with the provisioned child', async () => {
@@ -281,6 +281,13 @@ describe('rendezvousEcdhV1', () => {
     const expected = bytesToHex(secp256k1.getSharedSecret(peerSecret, hexToBytes('02' + ownRz)).slice(1))
     expect(result.value).toEqual({ v: 1, operation: req.operation, peer_rz: peerRz, own_rz: ownRz, shared_x: expected })
     expect(vault.acceptEcdhReply(req, result.value).ok).toBe(true)
+  })
+
+  it('uses an accepted child after its handoff deadline and still bounds the ECDH request', async () => {
+    clock = NOW + 601
+    const req = ecdh({ deadline: clock + 300 })
+    expect((await vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey, NOW + 600))).ok).toBe(true)
+    expect(await vault.rendezvousEcdhV1(ctx, ecdh({ deadline: clock - 1 }), child(alice.pubkey, NOW + 600))).toEqual({ ok: false, refusal: 'expired' })
   })
 
   it('E04: only a reply this vault made is accepted, so no substituted value gets through', async () => {

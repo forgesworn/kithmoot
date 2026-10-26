@@ -44,7 +44,7 @@ export class BrowserMlsSessionHost<S extends HostedMlsSession> {
   #epoch = 0
   #pending = new Set<() => void>()
   constructor(private readonly coordinator: BrowserPersonaCoordinator,
-    private readonly open: (id: Uint8Array, plaintext: Uint8Array, highWater: bigint) => S) {}
+    private readonly open: (id: Uint8Array, plaintext: Uint8Array, highWater: bigint, tx: PersonaTransaction) => S | Promise<S>) {}
 
   /** Account, room or privacy transitions suppress even an already promoted
    * operation's late result. No idle engine or plaintext survives a call. */
@@ -57,7 +57,7 @@ export class BrowserMlsSessionHost<S extends HostedMlsSession> {
       if (!saved) return undefined
       let session: S | undefined
       try {
-        session = this.open(hexToBytes(id), saved.plaintext, saved.generation)
+        session = await this.open(hexToBytes(id), saved.plaintext, saved.generation, tx)
         if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation) throw new Error('MLS session does not match witnessed generation')
         return { session, previous: saved.generation, call: () => call(session!) }
       } catch (error) { session?.free(); throw error }
@@ -116,7 +116,7 @@ export class BrowserMlsSessionHost<S extends HostedMlsSession> {
         if (!saved) return false
         try {
           digest = bytesToHex(sha256(saved.plaintext)); generation = saved.generation
-          owned = this.open(hexToBytes(id), saved.plaintext, generation)
+          owned = await this.open(hexToBytes(id), saved.plaintext, generation, tx)
           if (bytesToHex(owned.id()) !== id || owned.generation() !== generation) throw new Error('MLS pending predecessor mismatch')
           await edits.before?.(tx, owned)
           if (!live()) throw new StaleMlsOperation()
@@ -204,7 +204,7 @@ export class BrowserMlsSessionHost<S extends HostedMlsSession> {
         const saved = await tx.readSession(id)
         if (!saved) return false
         try {
-          session = this.open(hexToBytes(id), saved.plaintext, saved.generation)
+          session = await this.open(hexToBytes(id), saved.plaintext, saved.generation, tx)
           if (bytesToHex(session.id()) !== id || session.generation() !== saved.generation) throw new Error('MLS session does not match witnessed generation')
           const provisional = await call(session, witness, tx)
           try { value = structuredClone(provisional) } finally { wipe(provisional) }

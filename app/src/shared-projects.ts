@@ -51,6 +51,7 @@ export class SharedProjectsPanel {
   readonly editor: HTMLDialogElement
   constructor(readonly root: Document, readonly options: {
     store: DeviceStore
+    requireNetwork?: () => boolean
     rooms: () => KnownRoom[]
     people: () => Person[]
     changed: () => void
@@ -70,6 +71,7 @@ export class SharedProjectsPanel {
     this.el('sharedProjectsClose').addEventListener('click', () => this.dialog.close())
     this.el('sharedProjectsSignIn').addEventListener('click', () => { this.dialog.close(); this.options.signIn() })
     this.el('sharedProjectsRetry').addEventListener('click', () => {
+      if (this.options.requireNetwork?.() === false) return
       if (this.#directory && !this.#directory.snapshot().error) void this.#directory.retry()
       else if (this.#identity && this.#transport) void this.attach(this.#identity, this.#transport)
     })
@@ -153,6 +155,7 @@ export class SharedProjectsPanel {
     this.#status = message; this.render()
   }
   open(from?: HTMLElement, room?: KnownRoom): void {
+    if (this.options.requireNetwork?.() === false) return
     this.#return = from
     this.#roomToAdd = room
     this.render()
@@ -278,6 +281,7 @@ export class SharedProjectsPanel {
     })
   }
   edit(project?: SharedProject, room?: KnownRoom): void {
+    if (this.options.requireNetwork?.() === false) return
     if (!this.#identity || project && !this.#directory?.snapshot().ready) return
     this.#editing = project; this.#request = undefined
     const initial = project?.definition

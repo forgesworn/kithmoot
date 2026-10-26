@@ -231,6 +231,14 @@ describe('session-only relay identity permission', () => {
       expect(restored.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
     } finally { first.close(); other.close(); account.close() }
   })
+  it('retains the local withdrawal status after its last pool closes', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const pool = connections.pool(room)
+    connections.authenticate(room, defaults[0]!, identity)
+    connections.clearAuthentication()
+    pool.close()
+    expect(connections.health(room)[0]).toMatchObject({ state: 'idle', authentication: 'withdrawn', lastError: 'Relay authentication permission withdrawn' })
+  })
   it('withdraws permission from existing and future pools when the account changes', () => {
     const connections = new RelayConnections(storage(), defaults)
     const first = connections.pool(room)

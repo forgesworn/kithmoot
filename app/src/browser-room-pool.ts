@@ -127,12 +127,12 @@ export class BrowserRoomPool implements ManagedRelayPool {
     else void this.#open().catch(() => {})
     return () => { this.#reads.delete(read); read.stop?.() }
   }
-  async publish(event: Event): Promise<void> {
+  async publish(event: Event, options?: { allRelays?: boolean }): Promise<void> {
     const generation = this.#generation
     await this.#open()
     if (generation !== this.#generation || this.#closed || !this.#delegate) throw new Error('Room route changed before publication. Retry from the current room.')
     if (this.#consent && (this.#consent.account !== this.opts.account() || this.#consent.expires <= this.#now())) throw new Error('Bothy room permission is unavailable.')
-    const write = this.#delegate.publish(event)
+    const write = options ? this.#delegate.publish(event, options) : this.#delegate.publish(event)
     this.#writes.add(write)
     try { await write } finally { this.#writes.delete(write) }
   }

@@ -871,7 +871,7 @@ export async function startCreationCustody(mode: 'cancel' | 'expiry' | 'foregrou
     if (!consentEntered) throw new Error('Creation ended before the actual consent callback: ' + JSON.stringify(result))
   })])
   if (mode === 'cancel') creationRooms.invalidate()
-  if (mode === 'expiry') { clock = rzReceipt.expiresAt; creationRooms.invalidate() }
+  if (mode === 'expiry') { clock += 86400; creationRooms.invalidate() }
   if (mode === 'foreground') { creationForeground.invalidate(); creationRooms.invalidate() }
 }
 export function creationCustodyStatus() {
@@ -1031,7 +1031,7 @@ export async function joinReleaseFault(mode: 'child' | 'account' | 'expiry' | 'd
     const result = await lock(work)
     if (mode === 'child') storage.invalidate()
     if (mode === 'account') generation++
-    if (mode === 'expiry') clock += 601
+    if (mode === 'expiry') clock += 86400
     if (mode === 'deadline') clock += 2
     if (mode === 'cleanup' || mode === 'revision') {
       captured = result

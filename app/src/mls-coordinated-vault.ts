@@ -1,3 +1,4 @@
+import { ADMIN_INVITATION_SIGN_METHOD, adminInvitationDigest, readAdminInvitationSignBody, type AdminInvitationContext } from '../../src/vmls/admin-invitation.js'
 /** Typed browser vault under the persona's restore witness (P3-03c).
  * Production remains disabled. Secret records are opened only inside a
  * coordinator transaction; prompts and identity signing happen outside it.
@@ -9,6 +10,8 @@ import { base32 } from '@scure/base'
 import { finalizeEvent } from 'nostr-tools/pure'
 import { createDeviceCredential } from '../../src/credential.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
+import { readMlsRoom } from './mls-room-store.js'
+import { INVITATION_SIGN_METHOD, invitationDigest, readInvitationSignBody, type InvitationContext } from '../../src/vmls/invitation.js'
 import { bindingDigest, checkUnsignedBinding, readUnsignedBinding, verifyPersonCredential } from '../../src/vmls/binding.js'
 import { BrowserPersonaCoordinator, InvalidPersonaRecord, type PersonaReader, type PersonaTransaction, type CoordinationResult } from './mls-persona-coordinator.js'
 import { PersonaStorageError } from './mls-persona-store.js'
@@ -28,6 +31,12 @@ import {
   type AdmissionProofEntry, type AdmissionProofPlan,
 } from './mls-admission-proof.js'
 
+import {
+  keeperInboxAuthRequest, keeperInboxAuthKey, keeperInboxDestination, keeperInboxPermissionLive,
+  keeperInboxPermissionExpiration, keeperInboxPermissionDevice, keeperInboxPermissionGrant,
+  type KeeperInboxAuthRequest, type KeeperInboxAuthReply, type KeeperInboxAuthPrompt,
+} from './mls-keeper-inbox-auth.js'
+
 export const BOX_METHOD = 'signBoxRequestV1/1'
 const RECORD = bytesToHex(new TextEncoder().encode('kithmoot.typed-vault.v1'))
 const HEX = /^[0-9a-f]{64}(?![\s\S])/
@@ -38,6 +47,35 @@ const typedScope = (s: ConsentScope) => scopeShape(s) && HEX.test(s.persona) && 
 const leafKey = (r: SignLeafBindingRequest) => JSON.stringify([r.v, r.operation, r.body, r.digest, r.expires_at])
 const boxKey = (r: BoxRequest) => JSON.stringify([r.v, r.box, r.method, r.path, r.payload])
 
+export interface InvitationSignRequest {
+  v: 1; method: typeof INVITATION_SIGN_METHOD; session: string; operation: string
+  body: string; digest: string; expires_at: number
+}
+export interface InvitationSignReply extends SignLeafBindingReply { readonly method: typeof INVITATION_SIGN_METHOD }
+export interface InvitationConsent { method: typeof INVITATION_SIGN_METHOD; principal: string; persona: string; device: string; homeBox: string; context: InvitationContext; purpose?: 'accept' }
+export type InvitationConsentPrompt = (scope: InvitationConsent) => Promise<ConsentDecision>
+interface InvitationJournal { request: string; operation: string; generation: number; revision: string; validBefore: number; deadline: number; state: 'pending' | 'denied' | 'signed'; signature?: string }
+const invitationKey = (r: InvitationSignRequest) => JSON.stringify([r.v, r.method, r.session, r.operation, r.body, r.digest, r.expires_at])
+function invitationShape(input: unknown): InvitationSignRequest | undefined {
+  if (!input || typeof input !== 'object' || Object.keys(input).sort().join(',') !== 'body,digest,expires_at,method,operation,session,v') return
+  const r = input as InvitationSignRequest
+  return r.v === 1 && r.method === INVITATION_SIGN_METHOD && [r.session, r.operation, r.digest].every(v => typeof v === 'string' && HEX.test(v)) &&
+    typeof r.body === 'string' && r.body.length <= 16384 && Number.isSafeInteger(r.expires_at) && r.expires_at >= 0 ? { ...r } : undefined
+}
+export interface AdminInvitationSignRequest {
+  v: 1; method: typeof ADMIN_INVITATION_SIGN_METHOD; session: string; operation: string
+  body: string; digest: string; expires_at: number
+}
+export interface AdminInvitationSignReply extends SignLeafBindingReply { readonly method: typeof ADMIN_INVITATION_SIGN_METHOD }
+export interface AdminInvitationConsent { method: typeof ADMIN_INVITATION_SIGN_METHOD; principal: string; persona: string; device: string; homeBox: string; context: AdminInvitationContext; purpose?: 'accept' }
+export type AdminInvitationConsentPrompt = (scope: AdminInvitationConsent) => Promise<ConsentDecision>
+const adminInvitationKey = (r: AdminInvitationSignRequest) => JSON.stringify([r.v, r.method, r.session, r.operation, r.body, r.digest, r.expires_at])
+function adminInvitationShape(input: unknown): AdminInvitationSignRequest | undefined {
+  if (!input || typeof input !== 'object' || Object.keys(input).sort().join(',') !== 'body,digest,expires_at,method,operation,session,v') return
+  const r = input as AdminInvitationSignRequest
+  return r.v === 1 && r.method === ADMIN_INVITATION_SIGN_METHOD && [r.session, r.operation, r.digest].every(v => typeof v === 'string' && HEX.test(v)) &&
+    typeof r.body === 'string' && r.body.length <= 16384 && Number.isSafeInteger(r.expires_at) && r.expires_at >= 0 ? { ...r } : undefined
+}
 interface RecordV1 {
   version: 1
   persona: string
@@ -45,6 +83,7 @@ interface RecordV1 {
   device: DeviceRecord
   policy: PolicyRecord
   journal: JournalEntry[]
+  invitationJournal?: InvitationJournal[]
   retired: string[]
   /** Retained permanently: a migration retry cannot overwrite newer work. */
   migrated: boolean
@@ -77,7 +116,11 @@ export class CoordinatedMlsVault {
   // In-memory only. Do not evict live entries: eviction could repeat an id.
   #boxTimes = new Map<string, number>()
   #boxClockFloor = 0
+  #invitationMade = new WeakMap<object, { ctx: VaultContext; request: string; validBefore: number; deadline: number }>()
   #admissionPrompts = new Set<string>()
+  #keeperPrompts = new Set<string>()
+  #keeperClockFloor = 0
+  #keeperMade = new WeakMap<object, { ctx: VaultContext; request: string; device: string; credential: string; validBefore: number; deadline: number; current: () => boolean }>()
   constructor(private readonly coordinator: BrowserPersonaCoordinator, options: CoordinatedVaultOptions = {}) {
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1000))
     this.#generation = options.generation ?? (() => 0)
@@ -164,6 +207,18 @@ export class CoordinatedMlsVault {
       if (r.device.device !== device || r.device.credentialId !== credentialId) return refuse('stale')
       if (homeBox && !r.policy.approved.some(s => sameScope(s, { principal: ctx.principal, persona: ctx.persona, device, homeBox, method: SIGN_METHOD }))) return refuse('unauthorised')
       return this.#current(ctx) ? ok(undefined) : refuse('stale')
+    })
+  }
+
+  /** Trusted private-outbox reservation: inspect public current device metadata
+   * under its existing persona transaction, without another lock or signer. */
+  async keeperInboxDevice(tx: PersonaReader, ctx: VaultContext, device: string): Promise<VaultResult<EnrolledDevice>> {
+    if (!this.#current(ctx)) return refuse('stale')
+    return this.#with(tx, ctx.persona, async r => {
+      const reason = this.#device(r)
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (r.device.device !== device) return refuse('unauthorised')
+      return this.#current(ctx) ? ok(this.#public(r.device)) : refuse('stale')
     })
   }
 
@@ -363,6 +418,202 @@ export class CoordinatedMlsVault {
     return this.#live(made.validBefore, made.deadline) ? ok(undefined) : refuse('expired')
   }
 
+  /** A distinct device-key purpose. Independently reads the complete canonical
+   * body and original credential; a protected saved room supplies inviter facts.
+   * Reserve before fresh consent. An interrupted prompt stays held, never silently
+   * prompts again. Exact signed retries return the same durable signature. */
+  async signInvitationV1(ctx: VaultContext, input: unknown, consent: InvitationConsentPrompt): Promise<VaultResult<InvitationSignReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = invitationShape(input), body = req && base64Decode(req.body)
+    if (!req || !body) return refuse('malformed')
+    const key = invitationKey(req)
+    const inspect = async (tx: PersonaReader, r: RecordV1 | undefined): Promise<VaultResult<{ prompt: InvitationConsent; validBefore: number }>> => {
+      const reason = this.#device(r), now = this.#now()
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (req.expires_at < now) return refuse('expired')
+      if (req.expires_at > now + MAX_OPERATION_SECONDS || bytesToHex(invitationDigest(body)) !== req.digest) return refuse('malformed')
+      try {
+        const parsed = readInvitationSignBody(body, now, ctx.persona, new Set(r.policy.revoked))
+        const c = parsed.context, room = await readMlsRoom(tx, req.session), b = room.binding
+        if (parsed.credential.id !== r.device.credentialId || parsed.credential.device !== r.device.device ||
+            c.inviterDevice !== b.device || c.inviterRz !== b.rendezvousKey || c.groupHome !== b.homeBox ||
+            c.groupInstallation !== b.installation || room.profile === 'InvitationAdmins2' || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
+        return ok({ prompt: { method: INVITATION_SIGN_METHOD, principal: ctx.principal, persona: ctx.persona, device: r.device.device, homeBox: b.homeBox, context: c },
+          validBefore: Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt) })
+      } catch { return refuse('malformed') }
+    }
+    let retry = false
+    const first = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const journal = r.invitationJournal ??= [], old = journal.find(e => e.operation === req.operation)
+      if (old) {
+        if (old.request !== key) return refuse('replay')
+        if (old.generation !== ctx.generation || old.revision !== ctx.revision) return refuse('stale')
+        if (old.state === 'pending') return refuse('busy')
+        if (old.state === 'denied') return refuse('denied')
+        retry = true; return checked
+      }
+      if (journal.length >= 64) return refuse('busy')
+      journal.push({ request: key, operation: req.operation, generation: ctx.generation, revision: ctx.revision,
+        validBefore: checked.value.validBefore, deadline: req.expires_at, state: 'pending' })
+      await saveRecord(tx, r)
+      return checked
+    }))
+    if (!first.ok) return first
+    let decision: ConsentDecision = 'deny'
+    if (!retry) { try { decision = await consent(structuredClone(first.value.prompt)) } catch { /* durable denial */ } }
+    const answer = await this.#run<InvitationSignReply>(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const entry = r.invitationJournal?.find(e => e.operation === req.operation)
+      if (!entry || entry.request !== key || entry.generation !== ctx.generation || entry.revision !== ctx.revision) return refuse('stale')
+      if (entry.state === 'denied') return refuse('denied')
+      if (entry.state === 'pending') {
+        entry.state = decision === 'approve' ? 'signed' : 'denied'
+        if (entry.state === 'signed') {
+          const scalar = hexToBytes(r.device.scalar)
+          try { entry.signature = bytesToHex(schnorr.sign(hexToBytes(req.digest), scalar, crypto.getRandomValues(new Uint8Array(32)))) }
+          finally { scalar.fill(0) }
+        }
+        await saveRecord(tx, r)
+      }
+      return entry.state === 'signed' && entry.signature ? ok(Object.freeze({ v: 1 as const, method: INVITATION_SIGN_METHOD,
+        operation: req.operation, digest: req.digest, device: r.device.device, signature: entry.signature })) : refuse('denied')
+    }))
+    if (answer.ok) {
+      if (!this.#live(first.value.validBefore, req.expires_at)) return refuse('expired')
+      this.#invitationMade.set(answer.value, { ctx, request: key, validBefore: first.value.validBefore, deadline: req.expires_at })
+    }
+    return answer
+  }
+  /** Revalidate under the host's already-owned protected transaction after
+   * every async boundary. No recursive coordinator or caller freshness flag. */
+  async checkInvitationReply(tx: PersonaReader, ctx: VaultContext, req: InvitationSignRequest, reply: unknown): Promise<VaultResult<InvitationSignReply>> {
+    const provenance = this.acceptInvitationReply(req, reply)
+    if (!provenance.ok) return provenance
+    const body = base64Decode(req.body)
+    if (!body || !this.#current(ctx)) return refuse('stale')
+    try {
+      return await this.#with(tx, ctx.persona, async r => {
+        const reason = this.#device(r)
+        if (reason || !r) return refuse(reason ?? 'unauthorised')
+        const parsed = readInvitationSignBody(body, this.#now(), ctx.persona, new Set(r.policy.revoked))
+        const room = await readMlsRoom(tx, req.session), c = parsed.context, b = room.binding
+        if (bytesToHex(invitationDigest(body)) !== req.digest || parsed.credential.id !== r.device.credentialId || c.inviterDevice !== r.device.device ||
+            c.inviterDevice !== b.device || parsed.credential.id !== b.credentialId || c.inviterRz !== b.rendezvousKey ||
+            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.profile === 'InvitationAdmins2' || room.invitation?.groupId !== c.groupId ||
+            !this.#live(Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt), req.expires_at)) return refuse('stale')
+        return this.acceptInvitationReply(req, reply)
+      })
+    } catch { return refuse('malformed') } finally { body.fill(0) }
+  }
+  acceptInvitationReply(input: InvitationSignRequest, reply: unknown): VaultResult<InvitationSignReply> {
+    const req = invitationShape(input)
+    const made = reply && typeof reply === 'object' ? this.#invitationMade.get(reply) : undefined
+    if (!req || !made) return refuse('unauthorised')
+    if (!this.#current(made.ctx)) return refuse('stale')
+    if (made.request !== invitationKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const value = reply as InvitationSignReply
+    try { return value.method === INVITATION_SIGN_METHOD && schnorr.verify(hexToBytes(value.signature), hexToBytes(req.digest), hexToBytes(value.device)) ? ok(value) : refuse('unauthorised') }
+    catch { return refuse('unauthorised') }
+  }
+
+  async signAdminInvitationV2(ctx: VaultContext, input: unknown, consent: AdminInvitationConsentPrompt): Promise<VaultResult<AdminInvitationSignReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = adminInvitationShape(input), body = req && base64Decode(req.body)
+    if (!req || !body) return refuse('malformed')
+    const key = adminInvitationKey(req)
+    const inspect = async (tx: PersonaReader, r: RecordV1 | undefined): Promise<VaultResult<{ prompt: AdminInvitationConsent; validBefore: number }>> => {
+      const reason = this.#device(r), now = this.#now()
+      if (reason || !r) return refuse(reason ?? 'unauthorised')
+      if (req.expires_at < now) return refuse('expired')
+      if (req.expires_at > now + MAX_OPERATION_SECONDS || bytesToHex(adminInvitationDigest(body)) !== req.digest) return refuse('malformed')
+      try {
+        const parsed = readAdminInvitationSignBody(body, now, ctx.persona, new Set(r.policy.revoked))
+        const c = parsed.context, room = await readMlsRoom(tx, req.session), b = room.binding
+        if (parsed.credential.id !== r.device.credentialId || parsed.credential.device !== r.device.device ||
+            c.inviterDevice !== b.device || c.inviterRz !== b.rendezvousKey || c.groupHome !== b.homeBox ||
+            c.groupInstallation !== b.installation || room.profile !== 'InvitationAdmins2' || room.invitation?.adminSetCommitment !== c.adminSetCommitment || room.invitation?.groupId !== c.groupId || b.credentialId !== r.device.credentialId) return refuse('unauthorised')
+        return ok({ prompt: { method: ADMIN_INVITATION_SIGN_METHOD, principal: ctx.principal, persona: ctx.persona, device: r.device.device, homeBox: b.homeBox, context: c },
+          validBefore: Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt) })
+      } catch { return refuse('malformed') }
+    }
+    let retry = false
+    const first = await this.#run(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const journal = r.invitationJournal ??= [], old = journal.find(e => e.operation === req.operation)
+      if (old) {
+        if (old.request !== key) return refuse('replay')
+        if (old.generation !== ctx.generation || old.revision !== ctx.revision) return refuse('stale')
+        if (old.state === 'pending') return refuse('busy')
+        if (old.state === 'denied') return refuse('denied')
+        retry = true; return checked
+      }
+      if (journal.length >= 64) return refuse('busy')
+      journal.push({ request: key, operation: req.operation, generation: ctx.generation, revision: ctx.revision,
+        validBefore: checked.value.validBefore, deadline: req.expires_at, state: 'pending' })
+      await saveRecord(tx, r)
+      return checked
+    }))
+    if (!first.ok) return first
+    let decision: ConsentDecision = 'deny'
+    if (!retry) { try { decision = await consent(structuredClone(first.value.prompt)) } catch { /* durable denial */ } }
+    const answer = await this.#run<AdminInvitationSignReply>(ctx, tx => this.#with(tx, ctx.persona, async r => {
+      const checked = await inspect(tx, r); if (!checked.ok) return checked; if (!r) return refuse('unauthorised')
+      const entry = r.invitationJournal?.find(e => e.operation === req.operation)
+      if (!entry || entry.request !== key || entry.generation !== ctx.generation || entry.revision !== ctx.revision) return refuse('stale')
+      if (entry.state === 'denied') return refuse('denied')
+      if (entry.state === 'pending') {
+        entry.state = decision === 'approve' ? 'signed' : 'denied'
+        if (entry.state === 'signed') {
+          const scalar = hexToBytes(r.device.scalar)
+          try { entry.signature = bytesToHex(schnorr.sign(hexToBytes(req.digest), scalar, crypto.getRandomValues(new Uint8Array(32)))) }
+          finally { scalar.fill(0) }
+        }
+        await saveRecord(tx, r)
+      }
+      return entry.state === 'signed' && entry.signature ? ok(Object.freeze({ v: 1 as const, method: ADMIN_INVITATION_SIGN_METHOD,
+        operation: req.operation, digest: req.digest, device: r.device.device, signature: entry.signature })) : refuse('denied')
+    }))
+    if (answer.ok) {
+      if (!this.#live(first.value.validBefore, req.expires_at)) return refuse('expired')
+      this.#invitationMade.set(answer.value, { ctx, request: key, validBefore: first.value.validBefore, deadline: req.expires_at })
+    }
+    return answer
+  }
+  /** Revalidate under the host's already-owned protected transaction after
+   * every async boundary. No recursive coordinator or caller freshness flag. */
+  async checkAdminInvitationReply(tx: PersonaReader, ctx: VaultContext, req: AdminInvitationSignRequest, reply: unknown): Promise<VaultResult<AdminInvitationSignReply>> {
+    const provenance = this.acceptAdminInvitationReply(req, reply)
+    if (!provenance.ok) return provenance
+    const body = base64Decode(req.body)
+    if (!body || !this.#current(ctx)) return refuse('stale')
+    try {
+      return await this.#with(tx, ctx.persona, async r => {
+        const reason = this.#device(r)
+        if (reason || !r) return refuse(reason ?? 'unauthorised')
+        const parsed = readAdminInvitationSignBody(body, this.#now(), ctx.persona, new Set(r.policy.revoked))
+        const room = await readMlsRoom(tx, req.session), c = parsed.context, b = room.binding
+        if (bytesToHex(adminInvitationDigest(body)) !== req.digest || parsed.credential.id !== r.device.credentialId || c.inviterDevice !== r.device.device ||
+            c.inviterDevice !== b.device || parsed.credential.id !== b.credentialId || c.inviterRz !== b.rendezvousKey ||
+            c.groupHome !== b.homeBox || c.groupInstallation !== b.installation || room.profile !== 'InvitationAdmins2' || room.invitation?.adminSetCommitment !== c.adminSetCommitment || room.invitation?.groupId !== c.groupId ||
+            !this.#live(Math.min(parsed.binding.expiresAt, parsed.credential.expiresAt, c.expiresAt), req.expires_at)) return refuse('stale')
+        return this.acceptAdminInvitationReply(req, reply)
+      })
+    } catch { return refuse('malformed') } finally { body.fill(0) }
+  }
+  acceptAdminInvitationReply(input: AdminInvitationSignRequest, reply: unknown): VaultResult<AdminInvitationSignReply> {
+    const req = adminInvitationShape(input)
+    const made = reply && typeof reply === 'object' ? this.#invitationMade.get(reply) : undefined
+    if (!req || !made) return refuse('unauthorised')
+    if (!this.#current(made.ctx)) return refuse('stale')
+    if (made.request !== adminInvitationKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const value = reply as AdminInvitationSignReply
+    try { return value.method === ADMIN_INVITATION_SIGN_METHOD && schnorr.verify(hexToBytes(value.signature), hexToBytes(req.digest), hexToBytes(value.device)) ? ok(value) : refuse('unauthorised') }
+    catch { return refuse('unauthorised') }
+  }
+
   /** Purpose-specific proof only; the caller's private owner still holds
    * actual child custody and verifies current keeper role before using it.
    * Reserve once under the witness before prompting; never reuse broad scope
@@ -477,6 +728,88 @@ export class CoordinatedMlsVault {
     } catch { return refuse('malformed') }
   }
 
+  /** One fresh, operation-specific consent. No persisted box/leaf approval
+   * authorises disclosure of the transmitting device to a keeper inbox. */
+  async signKeeperInboxAuthV1(ctx: VaultContext, input: unknown, consent: KeeperInboxAuthPrompt, operationCurrent: () => boolean): Promise<VaultResult<KeeperInboxAuthReply>> {
+    ctx = Object.freeze({ ...ctx })
+    const req = keeperInboxAuthRequest(input)
+    if (!req || typeof consent !== 'function' || typeof operationCurrent !== 'function') return refuse('malformed')
+    const key = keeperInboxAuthKey(req)
+    const current = () => { try { return operationCurrent() === true && this.#current(ctx) } catch { return false } }
+    if (!current()) return refuse('stale')
+    if (this.#keeperPrompts.has(key) || this.#keeperPrompts.size >= 64) return refuse('busy')
+    this.#keeperPrompts.add(key)
+    try {
+      const first = await this.#look(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const refusal = this.#keeperDevice(req, r, current)
+        return refusal || !r ? refuse(refusal ?? 'unauthorised') : ok({ device: r.device.device, credential: r.device.credentialId })
+      }))
+      if (!first.ok) return first
+      if (!current()) return refuse('stale')
+      let decision: ConsentDecision
+      try { decision = await consent(Object.freeze({ purpose: 'keeper-inbox-deposit-auth' as const,
+        principal: ctx.principal, persona: ctx.persona, device: first.value.device, box: req.box,
+        keeper: req.keeper, permissionId: req.permission.id, deadline: req.expires_at, grant: keeperInboxPermissionGrant(req), destination: keeperInboxDestination(req.box), current })) }
+      catch { decision = 'deny' }
+      if (!current()) return refuse('stale')
+      if (decision !== 'approve') return refuse('denied')
+      let validBefore = 0
+      const answer = await this.#look(ctx, tx => this.#with(tx, ctx.persona, async r => {
+        const refusal = this.#keeperDevice(req, r, current)
+        if (refusal || !r) return refuse(refusal ?? 'unauthorised')
+        if (r.device.device !== first.value.device || r.device.credentialId !== first.value.credential) return refuse('stale')
+        validBefore = Math.min(r.device.credentialExpiresAt, keeperInboxPermissionExpiration(req))
+        const scalar = hexToBytes(r.device.scalar)
+        try {
+          const event = finalizeEvent({ kind: 22242, created_at: this.#now(), content: '',
+            tags: [['relay', keeperInboxDestination(req.box)], ['challenge', req.challenge]] }, scalar)
+          for (const tag of event.tags) Object.freeze(tag)
+          Object.freeze(event.tags); Object.freeze(event)
+          return ok(Object.freeze({ v: 1 as const, device: r.device.device, event }))
+        } finally { scalar.fill(0) }
+      }))
+      if (!answer.ok) return answer
+      if (!current()) return refuse('stale')
+      const now = this.#now()
+      if (!this.#live(validBefore, req.expires_at) || !keeperInboxPermissionLive(req, now)) return refuse('expired')
+      if (now < this.#keeperClockFloor) return refuse('busy')
+      this.#keeperMade.set(answer.value, { ctx, request: key, device: first.value.device, credential: first.value.credential,
+        validBefore, deadline: req.expires_at, current })
+      return answer
+    } finally { this.#keeperPrompts.delete(key) }
+  }
+  #keeperDevice(req: KeeperInboxAuthRequest, r: RecordV1 | undefined, current: () => boolean): VaultRefusal | undefined {
+    if (!current()) return 'stale'
+    const now = this.#now(), refusal = this.#device(r, now)
+    if (refusal || !r) return refusal ?? 'unauthorised'
+    if (!keeperInboxPermissionLive(req, now)) return 'expired'
+    if (now < this.#keeperClockFloor) return 'busy'
+    this.#keeperClockFloor = now
+    if (keeperInboxPermissionDevice(req) !== r.device.device) return 'unauthorised'
+    return undefined
+  }
+  /** Accept only the exact in-memory reply, with another confirmed credential
+   * check immediately before the caller transmits it over its private route. */
+  async acceptKeeperInboxAuthReply(input: KeeperInboxAuthRequest, reply: unknown): Promise<VaultResult<KeeperInboxAuthReply>> {
+    const req = keeperInboxAuthRequest(input)
+    if (!req) return refuse('malformed')
+    const made = typeof reply === 'object' && reply !== null ? this.#keeperMade.get(reply) : undefined
+    if (!made) return refuse('unauthorised')
+    if (!made.current()) return refuse('stale')
+    if (made.request !== keeperInboxAuthKey(req)) return refuse('replay')
+    if (!this.#live(made.validBefore, made.deadline)) return refuse('expired')
+    const checked = await this.#look(made.ctx, tx => this.#with(tx, made.ctx.persona, async r => {
+      const refusal = this.#keeperDevice(req, r, made.current)
+      if (refusal || !r) return refuse(refusal ?? 'unauthorised')
+      return r.device.device === made.device && r.device.credentialId === made.credential ? ok(undefined) : refuse('stale')
+    }))
+    if (!checked.ok) return checked
+    if (!made.current()) return refuse('stale')
+    if (!this.#live(made.validBefore, made.deadline) || !keeperInboxPermissionLive(req, this.#now())) return refuse('expired')
+    if (this.#now() < this.#keeperClockFloor) return refuse('busy')
+    return ok(reply as KeeperInboxAuthReply)
+  }
+
   async signBoxRequestV1(ctx: VaultContext, input: unknown, consent: ConsentPrompt): Promise<VaultResult<BoxReply>> {
     const req = boxRequest(input)
     if (!req) return refuse('malformed')
@@ -571,6 +904,16 @@ function validateRecord(r: RecordV1, persona: string, installation: string): voi
   if (!r.policy || !Array.isArray(r.policy.approved) || !Array.isArray(r.policy.revoked) || !Array.isArray(r.retired) || !Array.isArray(r.journal)) invalid()
   if (r.policy.approved.length > 1024 || r.policy.revoked.length > 4096 || r.retired.length > 1024 || r.journal.length > MAX_JOURNAL_RECORDS) invalid()
   if (r.policy.approved.some(s => !typedScope(s) || s.persona !== persona) || r.policy.revoked.some(x => !HEX.test(x)) || r.retired.some(x => !HEX.test(x)) || r.retired.includes(d.device)) invalid()
+  if (r.invitationJournal !== undefined) {
+    if (!Array.isArray(r.invitationJournal) || r.invitationJournal.length > 64) invalid()
+    const operations = new Set<string>()
+    for (const e of r.invitationJournal) {
+      if (!e || !HEX.test(e.operation) || operations.has(e.operation) || typeof e.request !== 'string' || e.request.length > 18000 || !Number.isSafeInteger(e.generation) || e.generation < 0 || typeof e.revision !== 'string' ||
+          !Number.isSafeInteger(e.validBefore) || !Number.isSafeInteger(e.deadline) || !['pending', 'denied', 'signed'].includes(e.state) ||
+          (e.state === 'signed' ? typeof e.signature !== 'string' || !/^[0-9a-f]{128}$/.test(e.signature) : e.signature !== undefined)) invalid()
+      operations.add(e.operation)
+    }
+  }
   const ids = new Set<string>()
   for (const e of r.journal) {
     if (!e || !Number.isSafeInteger(e.generation) || e.generation < 0 || (e.revision !== undefined && typeof e.revision !== 'string') || typeof e.principal !== 'string' || !e.principal || !HEX.test(e.handle) || !HEX.test(e.operation) || !HEX.test(e.bodyHash) || !HEX.test(e.digest) || !Number.isSafeInteger(e.deadline) || e.deadline < 0 || !e.outcome) invalid()

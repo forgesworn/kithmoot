@@ -7,7 +7,7 @@ import { concatBytes, hexToBytes } from '@noble/hashes/utils.js'
 import { pairingFixture } from './mls-pairing-fixture.js'
 const origin = 'https://browser-mls-panel.kithmoot.test'
 let bundle: string
-test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-panel.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'P', define: { 'import.meta.env.BASE_URL': '"/"' } })).outputFiles[0].text })
+test.beforeAll(async () => { bundle = (await build({ entryPoints: ['test/mls-persona-panel.browser-entry.ts'], bundle: true, write: false, format: 'iife', globalName: 'P', define: { 'import.meta.env.BASE_URL': '"/"', 'import.meta.env.DEV': 'false', 'import.meta.env.VITE_MIXED_INVITATION_LAB': '"false"' } })).outputFiles[0].text })
 async function fixture(context: BrowserContext) {
   const key = new Uint8Array(32).fill(91), pairing = pairingFixture(key)
   const witness = { seq: 0n, advances: 0, reads: 0, enrolled: false, offline: false, digest: new Uint8Array(32) }
@@ -91,11 +91,12 @@ test('account changes clear commands and capabilities before a late pairing repl
   const f = await fixture(context); await f.open(); await f.prepare(); await f.page.evaluate('P.holdPair()')
   await f.page.locator('#mlsWitnessRelays').fill(f.pairing.route.relayUrls.join(' ')); await f.page.locator('#mlsWitnessCode').fill(f.pairing.uri)
   await f.button('Pair').click(); await expect.poll(() => f.page.evaluate('P.seen().events.includes("pair")')).toBe(true)
-  await f.page.evaluate('P.change({ persona: "22".repeat(32), generation: "1", mode: "normal" })')
+  await f.page.evaluate('P.beginChange({ persona: "22".repeat(32), generation: "1", mode: "normal" })')
   await expect(f.page.locator('#mlsWitnessSettings')).not.toBeVisible()
   expect(await f.page.locator('#mlsWitnessCode').inputValue()).toBe('')
   expect(await f.page.locator('#mlsWitnessCommand').inputValue()).toBe('')
   await f.page.evaluate('P.releasePair()')
+  await f.page.evaluate('P.settleChange()')
   await expect.poll(async () => { await f.open(); return f.button('Prepare').isEnabled() }).toBe(true)
   await expect(f.page.locator('#mlsWitnessAccount')).toHaveText('22'.repeat(32))
   await f.page.evaluate('P.change({ persona: "21".repeat(32), generation: "2", mode: "normal" })'); await f.open()
@@ -328,9 +329,9 @@ test('account change during directory lookup clears retained identifiers and pre
     button.click(); button.click()
   })
   await expect.poll(() => f.page.evaluate('P.revocationSeen().length')).toBe(1)
-  await f.page.evaluate('P.change({ persona: "22".repeat(32), generation: "changed", mode: "normal" })')
+  await f.page.evaluate('P.beginChange({ persona: "22".repeat(32), generation: "changed", mode: "normal" })')
   expect(await f.page.locator('#mlsWitnessRevocations').textContent()).toBe('')
-  await f.page.evaluate('P.finishDirectory()'); await f.open()
+  await f.page.evaluate('P.finishDirectory()'); await f.page.evaluate('P.settleChange()'); await f.open()
   await expect(f.button('Prepare')).toBeEnabled()
   expect((await f.page.evaluate('P.revocationSeen()') as string[])).toHaveLength(1)
 })

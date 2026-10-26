@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ed25519 } from '@noble/curves/ed25519.js'
+import { invitationRegistrationRequest } from './mls-invitation-package.js'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js'
-import { BrowserMlsBoxClient, MAX_MLS_ENVELOPE } from './mls-box-client.js'
+import { BrowserMlsBoxClient, MAX_MLS_ENVELOPE, type BoxTraceEvent, type BoxTraceObserver } from './mls-box-client.js'
 import { base64Encode } from './mls-vault.js'
 import { pairingFixture } from '../../test/mls-pairing-fixture.js'
 import type { LinkRequest, LinkResponse, LinkRoute } from './browser-link-types.js'
@@ -18,7 +20,7 @@ const ctx = { principal: 'test', persona: '42'.repeat(32), generation: 0, revisi
 const wire = (value: unknown) => enc.encode(JSON.stringify(value))
 const body = (code: string, extra = {}) => ({ v: 1, code, server_time: 123, ...extra })
 const capabilities = { v: 1, security_contract: 1, slot_receipts: 1, fork_evidence: 1, restore_fence: 1, installation }
-function setup(status = 200, payload: unknown = capabilities, timeout = 1000) {
+function setup(status = 200, payload: unknown = capabilities, timeout = 1000, observer?: BoxTraceObserver) {
   const p = pairingFixture(), r = p.route
   const route: LinkRoute = { routeId: r.routeId, card: hexToBytes(r.card), pairedRouteSecret: hexToBytes(r.pairedRouteSecret), cardSerial: BigInt(r.cardSerial), cardVerifiedAt: BigInt(r.cardVerifiedAt) }
   const made = new WeakMap<object, BoxRequest>(), calls: LinkRequest[] = [], signed: BoxRequest[] = []
@@ -30,7 +32,7 @@ function setup(status = 200, payload: unknown = capabilities, timeout = 1000) {
     acceptBoxReply: vi.fn((req: BoxRequest, reply: unknown) => made.get(reply as object) === req ? { ok: true as const, value: reply as BoxReply } : { ok: false as const, refusal: 'unauthorised' as const }),
   }
   const transport = { request: vi.fn(async (req: LinkRequest) => { calls.push(req); return response }) }
-  const client = new BrowserMlsBoxClient(transport, route, p.witness, vault, ctx, async () => 'approve', () => live, timeout)
+  const client = new BrowserMlsBoxClient(transport, route, p.witness, vault, ctx, async () => 'approve', () => live, timeout, observer)
   return { client, calls, signed, response, vault, transport, route, box: p.witness, stale: () => { live = false } }
 }
 function receipt(box: string, slot = id, attempt = 3, digest = hash) {
@@ -43,6 +45,23 @@ function receipt(box: string, slot = id, attempt = 3, digest = hash) {
 afterEach(() => vi.useRealTimers())
 
 describe('strict browser MLS box client', () => {
+  it('opts into an independent keeper registration receipt and holds an unsigned old-node reply', async () => {
+    const f = setup(201, body('registered'))
+    const request = invitationRegistrationRequest({ node: f.box, installation, packageId: bytesToHex(id), welcomeMailbox: bytesToHex(other), expiresAt: 200 })
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    expect(JSON.parse(new TextDecoder().decode(f.calls[0].body)).registration_receipt).toBe(true)
+    const signed = concatBytes(request, ed25519.sign(sha256(concatBytes(enc.encode('Vennel/invitation/1 package registration\0'), request)), new Uint8Array(32).fill(91)))
+    f.response.body = wire(body('registered', { registrationReceipt: bytesToHex(signed) }))
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toMatchObject({ state: 'ok', value: { registrationReceipt: signed, fresh: true } })
+    f.response.body = wire({ ...body('registered', { registrationReceipt: bytesToHex(signed) }), server_time: 200 })
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    signed[200] ^= 1
+    f.response.body = wire(body('registered', { registrationReceipt: bytesToHex(signed) }))
+    expect(await f.client.registerInvitationPackageSettled(request, 123)).toEqual({ state: 'malformed' })
+    f.response.body = wire(body('registered'))
+    expect((await f.client.registerPackage(id, other, 200, 123)).state).toBe('ok')
+    expect(JSON.parse(new TextDecoder().decode(f.calls.at(-1)!.body))).not.toHaveProperty('registration_receipt')
+  })
   it('does no constructor I/O and pins the requested identity to the verified paired card', () => {
     const f = setup(); expect(f.calls).toEqual([]); expect(f.signed).toEqual([])
     expect(() => new BrowserMlsBoxClient(f.transport, f.route, '00'.repeat(32), f.vault, ctx, async () => 'approve', () => true)).toThrow('differ')
@@ -278,4 +297,48 @@ describe('strict browser MLS box client', () => {
     if (at === 'before') expect(f.signed).toHaveLength(0)
   })
 
+})
+
+
+it.each([200, 403, 599, 199, 600, NaN])('safe phase tracing retains late status %s without parsing after caller timeout', async status => {
+  vi.useFakeTimers()
+  const events: BoxTraceEvent[] = [], f = setup(status, capabilities, 1000, event => events.push(event))
+  const readBody = vi.fn(() => { throw new Error('Late body must remain unread') })
+  Object.defineProperty(f.response, 'body', { get: readBody })
+  let release!: () => void
+  f.transport.request.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return f.response })
+  const task = f.client.capabilities()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(events.map(e => e.phase)).toContain('transport-start')
+  await vi.advanceTimersByTimeAsync(1001)
+  expect(await task).toEqual({ state: 'unavailable' })
+  expect(events.map(e => e.phase)).toContain('timeout')
+  expect(events.map(e => e.phase)).not.toContain('work-settled')
+  f.client.invalidate()
+  let drained = false
+  const settlement = f.client.settled().then(() => { drained = true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(drained).toBe(false)
+  release(); await settlement
+  const phases = events.map(e => e.phase)
+  expect(phases.indexOf('caller-return')).toBeLessThan(phases.indexOf('work-settled'))
+  expect(phases.at(-1)).toBe('settled-end')
+  expect(events).toContainEqual({ request: 1, phase: 'transport-end', elapsedMs: expect.any(Number), status: status >= 200 && status <= 599 ? status : 'malformed' })
+  expect(phases).not.toContain('parse-start')
+  expect(phases).not.toContain('node-refused')
+  expect(readBody).not.toHaveBeenCalled()
+  expect(JSON.stringify(events)).not.toContain(installation)
+  expect(events.every(e => Object.keys(e).every(k => ['request','phase','elapsedMs','result','status'].includes(k)))).toBe(true)
+  expect(events.every(e => Number.isInteger(e.elapsedMs) && e.elapsedMs >= 0)).toBe(true)
+})
+it('a diagnostic observer cannot alter actual authentication or parsing', async () => {
+  const f = setup(200, capabilities, 1000, () => { throw new Error('diagnostic-only') })
+  expect(await f.client.capabilities()).toMatchObject({ state: 'ok', value: { installation } })
+})
+
+it('safe trace classifies a validated node permission refusal without retaining response data', async () => {
+  const events: BoxTraceEvent[] = [], f = setup(403, body('authority'), 1000, event => events.push(event))
+  expect(await f.client.capabilities()).toMatchObject({ state: 'refused', status: 403, code: 'authority' })
+  expect(events).toContainEqual({ request: 1, phase: 'node-refused', elapsedMs: expect.any(Number), result: 'node-authority' })
+  expect(JSON.stringify(events)).not.toContain('server_time')
 })

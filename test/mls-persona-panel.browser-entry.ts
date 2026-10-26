@@ -71,6 +71,9 @@ export function start(route: PersonaWitnessRoute) {
 export async function open() { await panel.open() }
 export function seen() { return { events, writers } }
 export async function change(next: MlsAccountContext | undefined) { context = next; await panel.invalidate() }
+let pendingChange: Promise<void> | undefined
+export function beginChange(next: MlsAccountContext | undefined) { pendingChange = change(next) }
+export async function settleChange() { await pendingChange; pendingChange = undefined }
 export async function canForget() { return account.canForgetBrowser() }
 export async function inspect() { return account.state() }
 export async function replacePreparation() {

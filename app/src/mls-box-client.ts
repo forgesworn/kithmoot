@@ -4,6 +4,7 @@ import type { LinkEngine, LinkRequest, LinkRoute } from './browser-link-types.js
 import type { CoordinatedMlsVault } from './mls-coordinated-vault.js'
 import { base64Decode, base64Encode, type ConsentPrompt, type VaultContext, type VaultRefusal } from './mls-vault.js'
 import { pairedWitnessIdentity } from './mls-writer-identity.js'
+import { readInvitationRegistrationRequest, verifyInvitationRegistrationReceipt } from './mls-invitation-package.js'
 import { loadMlsEngine } from './mls-engine.js'
 
 const HEX = /^[0-9a-f]{64}(?![\s\S])/
@@ -28,6 +29,9 @@ export interface SlotDeposited { outcome: 'won' | 'duplicate' | 'taken'; attempt
 export interface SlotState { state: 'empty' | 'filled' | 'expired' | 'void'; attempt?: number; receipt?: Uint8Array; signedReceipt?: Uint8Array; envelope?: Uint8Array }
 export interface FetchRecord { mailbox: Uint8Array; receipt: Uint8Array; envelope: Uint8Array }
 export interface AckItem { mailbox: Uint8Array; receipt: Uint8Array }
+export type BoxTracePhase = 'request-start' | 'sign-start' | 'consent-start' | 'consent-end' | 'sign-complete' | 'sign-refused' | 'accept-refused' | 'transport-start' | 'transport-end' | 'transport-refused' | 'node-refused' | 'parse-start' | 'parse-end' | 'timeout' | 'inactive' | 'caller-return' | 'caller-finally' | 'work-settled' | 'invalidate' | 'settled-start' | 'settled-end'
+export interface BoxTraceEvent { request: number; phase: BoxTracePhase; elapsedMs: number; status?: number | 'malformed'; result?: BoxAnswer<never>['state'] | VaultRefusal | 'node-authentication' | 'node-replay' | 'node-authority' | 'node-expired' | 'node-other' }
+export type BoxTraceObserver = (event: BoxTraceEvent) => void
 type Signer = Pick<CoordinatedMlsVault, 'signBoxRequestV1' | 'acceptBoxReply' | 'current'>
 type Json = Record<string, unknown>
 
@@ -44,10 +48,13 @@ export class BrowserMlsBoxClient {
   #epoch = 0
   #pending = new Set<() => void>()
   #occupied = 0
+  #traceSequence = 0
+  readonly #traceStarted = performance.now()
+  #observe(phase: BoxTracePhase) { try { this.observer?.({ request: 0, phase, elapsedMs: Math.max(0, Math.round(performance.now() - this.#traceStarted)) }) } catch {} }
   #running = new Set<Promise<unknown>>()
   constructor(private readonly transport: Pick<LinkEngine, 'request'>, route: LinkRoute, expectedBox: string,
     private readonly vault: Signer, context: VaultContext, private readonly consent: ConsentPrompt,
-    private readonly current: () => boolean, private readonly timeoutMs = 20_000) {
+    private readonly current: () => boolean, private readonly timeoutMs = 20_000, private readonly observer?: BoxTraceObserver) {
     if (!HEX.test(expectedBox) || !/^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(route.routeId) ||
       !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new Error('Invalid MLS box route.')
     const actual = pairedWitnessIdentity({ routeId: route.routeId, card: bytesToHex(route.card), cardSerial: String(route.cardSerial),
@@ -59,14 +66,16 @@ export class BrowserMlsBoxClient {
   /** Suppress pending work and wake bounded callers. Settlement-preserving
    * callers still await the running work. A dispatched request may have
    * committed; its outbox must survive for fresh-authentication reconciliation. */
-  invalidate(): void { this.#epoch++; for (const cancel of this.#pending) cancel() }
+  invalidate(): void { this.#observe('invalidate'); this.#epoch++; for (const cancel of this.#pending) cancel() }
 
   /** Actual signer, transport and parser settlement, including work whose
    * bounded caller already returned. Owners invalidate first, then join this
    * before releasing their endpoint or round lock. This does not undo remote
    * effects and is not safe to await from inside one of this client's calls. */
   async settled(): Promise<void> {
+    this.#observe('settled-start')
     while (this.#running.size) await Promise.allSettled([...this.#running])
+    this.#observe('settled-end')
   }
 
   /** Current account/privacy scope, also used by the owner of a round. */
@@ -179,6 +188,20 @@ export class BrowserMlsBoxClient {
       return parsed(a, { fresh: a.code === 'registered' })
     }, () => true, settle)
   }
+  /** Independent keeper action. This grants no MLS admission and requires a
+   * node-signed receipt; an older node's unsigned success remains held. */
+  registerInvitationPackageSettled(request: Uint8Array, serverTime: number): Promise<BoxAnswer<{ fresh: boolean; registrationReceipt: Uint8Array }>> {
+    const expected = readInvitationRegistrationRequest(request, serverTime)
+    if (expected.node !== this.box) throw new Error('The private registration request names another paired node.')
+    const ciphertext = sha256(concatBytes(encoder.encode('VMLS/1 package'), hexToBytes(expected.packageId), hexToBytes(expected.welcomeMailbox)))
+    return this.#request('PUT', `/vmls/v1/packages/${expected.packageId}`, json({ v: 1, welcome_mailbox: expected.welcomeMailbox, expires_at: expected.expiresAt, ciphertext: base64Encode(ciphertext), registration_receipt: true }), MAX_JSON, (status, raw) => {
+      const a = answer(raw, ['registrationReceipt'])
+      if (!a || !((status === 201 && a.code === 'registered') || (status === 200 && a.code === 'unchanged')) || typeof a.registrationReceipt !== 'string' || !/^[0-9a-f]{402}$/.test(a.registrationReceipt)) return
+      const receipt = hexToBytes(a.registrationReceipt)
+      try { verifyInvitationRegistrationReceipt(receipt, expected, Math.max(serverTime, a.server_time)) } catch { receipt.fill(0); return }
+      return parsed(a, { fresh: a.code === 'registered', registrationReceipt: receipt })
+    }, () => true, true)
+  }
   withdrawPackage(packageId: Uint8Array): Promise<BoxAnswer<void>> {
     return this.#request('DELETE', `/vmls/v1/packages/${idOf(packageId)}`, new Uint8Array(), MAX_JSON, (status, raw) => {
       const a = answer(raw, [])
@@ -195,6 +218,9 @@ export class BrowserMlsBoxClient {
     parse: (status: number, raw: Uint8Array) => { value: T; serverTime: number | null } | undefined | Promise<{ value: T; serverTime: number | null } | undefined>, requestCurrent: () => boolean = () => true, settle = false): Promise<BoxAnswer<T>> {
     if (this.#occupied >= 32) return { state: 'not-signed', reason: 'busy' }
     const body = input.slice(), epoch = this.#epoch
+    const started = performance.now(), sequence = ++this.#traceSequence
+    const trace = (phase: BoxTracePhase, result?: BoxTraceEvent['result'], status?: BoxTraceEvent['status']) => { try { this.observer?.({ request: sequence, phase, elapsedMs: Math.max(0, Math.round(performance.now() - started)), ...(result ? { result } : {}), ...(status !== undefined ? { status } : {}) }) } catch {} }
+    trace('request-start')
     const request = Object.freeze({ v: 1 as const, box: this.box, method, path, payload: bytesToHex(sha256(body)) })
     let cancelled = false, timer: ReturnType<typeof setTimeout> | undefined, wake!: () => void
     const active = () => !cancelled && epoch === this.#epoch && requestCurrent() && this.current() && this.vault.current(this.#context)
@@ -202,35 +228,47 @@ export class BrowserMlsBoxClient {
     this.#pending.add(wake)
     this.#occupied++
     try {
-      timer = setTimeout(wake, this.timeoutMs)
+      timer = setTimeout(() => { trace('timeout'); wake() }, this.timeoutMs)
       const work = async (): Promise<BoxAnswer<T>> => {
-        if (!active()) return { state: 'unavailable' }
+        if (!active()) { trace('inactive'); return { state: 'unavailable' } }
+        trace('sign-start')
         const signed = await this.vault.signBoxRequestV1(this.#context, request, async scope => {
           if (!active()) return 'deny'
+          trace('consent-start')
           const decision = await this.consent(scope)
+          trace('consent-end')
           return active() ? decision : 'deny'
         })
-        if (!active()) return { state: 'unavailable' }
-        if (!signed.ok) return { state: 'not-signed', reason: signed.refusal }
+        trace('sign-complete', signed.ok ? 'ok' : signed.refusal)
+        if (!active()) { trace('inactive'); return { state: 'unavailable' } }
+        if (!signed.ok) { trace('sign-refused', signed.refusal); return { state: 'not-signed', reason: signed.refusal } }
         const accepted = this.vault.acceptBoxReply(request, signed.value)
-        if (!accepted.ok) return { state: 'not-signed', reason: accepted.refusal }
-        if (!active()) return { state: 'unavailable' }
+        if (!accepted.ok) { trace('accept-refused', accepted.refusal); return { state: 'not-signed', reason: accepted.refusal } }
+        if (!active()) { trace('inactive'); return { state: 'unavailable' } }
         let response
+        trace('transport-start')
         try { response = await this.transport.request({ routeId: this.#routeId, method, path, authorization: accepted.value.authorization, body }) }
-        catch { return { state: 'unavailable' } }
-        if (!active()) return { state: 'unavailable' }
+        catch { trace('transport-refused'); return { state: 'unavailable' } }
+        // Record only a bounded status before currentness suppresses late replies.
+        let traceStatus: BoxTraceEvent['status'] = 'malformed'
+        try { const value = response.status; if (Number.isInteger(value) && value >= 200 && value <= 599) traceStatus = value } catch { /* Diagnostics cannot change reply handling. */ }
+        trace('transport-end', undefined, traceStatus)
+        if (!active()) { trace('inactive'); return { state: 'unavailable' } }
         if (!Number.isInteger(response.status) || response.status < 200 || response.status > 599 || !(response.body instanceof Uint8Array) || response.body.length > limit) return { state: 'malformed' }
         // Copy before the asynchronous capabilities parser can yield to callers.
         const raw = response.body.slice(), status = response.status
         if (status < 300 || status === 409) {
+          trace('parse-start')
           const result = await parse(status, raw)
-          if (!active()) return { state: 'unavailable' }
+          trace('parse-end')
+          if (!active()) { trace('inactive'); return { state: 'unavailable' } }
           if (result) return { state: 'ok', ...result }
           if (status !== 409) return { state: 'malformed' }
         }
-        if (!raw.length) return { state: 'refused', status, code: null, serverTime: null }
+        if (!raw.length) { trace('node-refused', 'node-other'); return { state: 'refused', status, code: null, serverTime: null } }
         const refused = raw.length <= MAX_JSON ? answer(raw, []) : undefined
         if (!refused || !Object.hasOwn(REFUSALS, refused.code) || REFUSALS[refused.code] !== status) return { state: 'malformed' }
+        trace('node-refused', refused.code === 'authentication' ? 'node-authentication' : refused.code === 'replay' ? 'node-replay' : refused.code === 'authority' ? 'node-authority' : refused.code === 'expired' ? 'node-expired' : 'node-other')
         return { state: 'refused', status, code: refused.code, serverTime: refused.server_time }
       }
       // An abandoned prompt/request can still be running. Keep its capacity
@@ -238,11 +276,14 @@ export class BrowserMlsBoxClient {
       // Register ownership before invoking a signer, including synchronous
       // callbacks. Timeout only wakes the caller; it cannot retire this work.
       const running = Promise.resolve().then(work).finally(() => {
+        trace('work-settled')
         this.#occupied--; this.#running.delete(running)
       })
       this.#running.add(running)
-      return settle ? await running : await Promise.race([running, waiting])
-    } finally { cancelled = true; clearTimeout(timer); this.#pending.delete(wake) }
+      const outcome = settle ? await running : await Promise.race([running, waiting])
+      trace('caller-return', outcome.state)
+      return outcome
+    } finally { trace('caller-finally'); cancelled = true; clearTimeout(timer); this.#pending.delete(wake) }
   }
 }
 

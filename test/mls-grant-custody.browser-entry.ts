@@ -428,6 +428,11 @@ export function developmentWorkflow(name: string) {
   if (name === 'memberPlan') return development.memberPlan(room, 'device', '55'.repeat(32), true)
   if (name === 'memberBegin') return development.memberBegin(room, developmentPlan())
   if (name === 'memberAdvance') return development.memberAdvance(room, '66'.repeat(32))
+  if (name === 'revocationRecords') return development.revocationRecords()
+  if (name === 'sendRevocationPrivately') return development.sendRevocationPrivately('66'.repeat(32), {
+    routeId: 'no-route', permission: finalizeEvent({ kind: 24242, created_at: 1, content: '', tags: [] }, secret),
+    consent: async () => 'approve', current: () => true,
+  })
   if (name === 'keeperView') return development.keeperView()
   if (name === 'keeperApprovals') return development.keeperApprovals()
   if (name === 'keeperReceive') return development.keeperReceive([])
