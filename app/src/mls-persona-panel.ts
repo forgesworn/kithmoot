@@ -85,6 +85,9 @@ export class BrowserMlsPanel {
     }
     addReveal(this.dialog.querySelector<HTMLInputElement>('#mlsWitnessCode')!, 'witness pairing code')
     this.account.listen(() => { void this.invalidate().catch(() => undefined) })
+    root.addEventListener('visibilitychange', () => {
+      if (root.visibilityState !== 'visible') void this.invalidate().catch(() => undefined)
+    })
     this.button('Close').onclick = () => { void this.invalidate().catch(() => undefined) }
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); void this.invalidate().catch(() => undefined) })
     // close is queued by the browser. An old close event must not reset a
@@ -144,11 +147,12 @@ export class BrowserMlsPanel {
     this.#reset()
   }
   async open(): Promise<void> {
+    if (this.root.visibilityState !== 'visible') return
     const generation = ++this.#generation
     this.#reset(); if (!this.dialog.open) this.dialog.showModal()
     if (this.#busy) this.message('Waiting for the previous operation to finish…')
     await this.#idle
-    if (!this.dialog.open || generation !== this.#generation) return
+    if (this.root.visibilityState !== 'visible' || !this.dialog.open || generation !== this.#generation) return
     this.el('Account').textContent = this.context()?.persona ?? 'Not signed in'
     await this.#run(() => this.account.state())
   }
@@ -163,13 +167,13 @@ export class BrowserMlsPanel {
     await this.account.pause()
   }
   async #run(work: (current: () => boolean) => Promise<MlsAccountView | undefined>): Promise<void> {
-    if (this.#busy || !this.dialog.open) return
+    if (this.root.visibilityState !== 'visible' || this.#busy || !this.dialog.open) return
     const generation = this.#generation, context = this.context()
     let idle!: () => void
     this.#idle = new Promise<void>(resolve => { idle = resolve })
     const current = () => {
       const now = this.context()
-      return this.dialog.open && generation === this.#generation && now?.persona === context?.persona && now?.generation === context?.generation && now?.mode === context?.mode
+      return this.root.visibilityState === 'visible' && this.dialog.open && generation === this.#generation && now?.persona === context?.persona && now?.generation === context?.generation && now?.mode === context?.mode
     }
     this.#busy = true; this.#controls(); this.message('Working…')
     try {
@@ -326,7 +330,7 @@ export class BrowserMlsPanel {
   }
   readonly consent: ConsentPrompt = async scope => {
     const context = this.context(), generation = this.#generation
-    const current = () => this.dialog.open && generation === this.#generation && this.context()?.persona === context?.persona && this.context()?.generation === context?.generation && this.context()?.mode === 'normal'
+    const current = () => this.root.visibilityState === 'visible' && this.dialog.open && generation === this.#generation && this.context()?.persona === context?.persona && this.context()?.generation === context?.generation && this.context()?.mode === 'normal'
     return await this.#confirm('Allow MLS signing?', this.#scopeText(scope), current) ? 'approve' : 'deny'
   }
   /** The future room adapter uses the same scoped prompt; no arbitrary event
