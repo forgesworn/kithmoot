@@ -181,6 +181,22 @@ describe('installation account network and production account composition', () =
     expect(h.statuses.some(status => status.includes('accepted by a relay'))).toBe(false)
   })
 
+  it('attributes a guarded relay OK only to the current public pool', async () => {
+    const h = harness('nostr'), first = h.connections.pool('default')
+    cleanups.push(() => first.close())
+    const event = finalizeEvent({ kind: 30078, content: 'encrypted', tags: [], created_at: 1 }, h.secret)
+    await first.publish(event)
+    expect(h.relay.stored.some(stored => stored.id === event.id)).toBe(true)
+    expect(h.connections.health('default')[0]?.lastPublishedAt).toBeGreaterThan(0)
+    h.network.choose('private-invitations')
+    expect(h.connections.health('default')[0]?.lastPublishedAt).toBeUndefined()
+    h.network.choose('nostr')
+    const next = h.connections.pool('default')
+    cleanups.push(() => next.close())
+    expect(h.connections.health('default')[0]?.lastPublishedAt).toBeUndefined()
+    await expect(first.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
+  })
+
   it('cancels a stalled socket publication and prevents retained handles from restarting after cross-tab changes', async () => {
     const h = harness('nostr'), pool = h.connections.pool('default')
     cleanups.push(() => pool.close())
@@ -194,6 +210,7 @@ describe('installation account network and production account composition', () =
     expect(await publishing).toBe('cancelled')
     expect(h.relay.stalled.size).toBe(0)
     expect(h.relay.stored).toEqual([])
+    expect(h.connections.health('default')[0]?.lastPublishedAt).toBeUndefined()
     expect(() => pool.reconnect()).toThrow(NOSTR_MODE_REQUIRED)
     h.network.choose('nostr')
     await expect(pool.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)

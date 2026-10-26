@@ -366,8 +366,9 @@ export class RelayConnections {
       const readEvidence = matches.map(health => health.readEvidence).filter((value): value is ReadEvidence => value !== undefined)
         .sort((a, b) => READ_EVIDENCE_RANK[a] - READ_EVIDENCE_RANK[b])[0]
       const unreturned = [...new Set(matches.flatMap(health => health.unreturned ?? []))]
-      return { ...lastWrite, ...relay, lastError: failed, ...(readEvidence ? { readEvidence } : {}), unreturned: unreturned.length ? unreturned : undefined,
-        authentication: matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
+      const withdrawn = this.#authentication.get(scope)?.get(relay.url) === null
+      return { ...lastWrite, ...relay, lastError: failed ?? (withdrawn ? 'Relay authentication permission withdrawn' : undefined), ...(readEvidence ? { readEvidence } : {}), unreturned: unreturned.length ? unreturned : undefined,
+        authentication: withdrawn ? 'withdrawn' : matches.find(health => health.authentication === 'authenticated')?.authentication ?? matches.find(health => health.authentication)?.authentication,
         state: connected ? 'connected' : matches.some(health => health.state === 'connecting') ? 'connecting'
           : matches.some(health => health.state === 'disconnected') ? 'disconnected' : 'idle' }
     })

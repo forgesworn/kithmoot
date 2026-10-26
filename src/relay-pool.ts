@@ -510,6 +510,12 @@ export class NostrRelayPool implements RelayTransport {
     try {
       await carrier.publish(event)
       if (!current()) throw new Error('Publication is no longer authorised.')
+      // The guarded carrier owns the socket, but the held pool owns the
+      // visible relay health. Transfer only its observed OK receipts.
+      for (const receipt of carrier.health()) if (receipt.lastPublishedAt) {
+        this.#mark(receipt.url, { lastPublishedAt: receipt.lastPublishedAt, publishLatencyMs: receipt.publishLatencyMs, lastError: undefined })
+        this.#scheduleReadBack(receipt.url, event, generation)
+      }
     } finally {
       clearInterval(timer)
       carrier.close()

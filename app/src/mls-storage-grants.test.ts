@@ -6,7 +6,7 @@ import { BrowserMlsGrantLedger, planMlsGrant, type MlsGrantRecord } from './mls-
 import { BrowserMlsKeeperAdmission } from './mls-keeper-admission.js'
 import { storageInboxCoordinator, storageInboxTransaction } from './mls-storage-inbox.js'
 import { BrowserMlsKeeperPrivateInboxFetch } from './mls-keeper-private-inbox-fetch.js'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { base32nopad } from '@scure/base'
 import { generateSecretKey, type Event } from 'nostr-tools/pure'
 import { localIdentity } from '../../src/identity.js'
@@ -21,6 +21,21 @@ import { readMlsMembership } from './mls-membership-store.js'
 
 const native = vi.hoisted(() => ({ load: vi.fn(() => { throw new Error('Legacy/native membership sentinel') }) }))
 vi.mock('./mls-engine.js', () => ({ loadMlsEngine: native.load }))
+// Node has no origin-wide Web Locks. Preserve real per-device settlement order
+// for the storage/legacy authority race tests without bypassing the gate.
+beforeEach(() => {
+  const tails = new Map<string, Promise<void>>()
+  vi.stubGlobal('navigator', { locks: { request: async <T>(name: string, optionsOrWork: unknown, maybeWork?: () => Promise<T>): Promise<T> => {
+    const work = typeof optionsOrWork === 'function' ? optionsOrWork as () => Promise<T> : maybeWork!
+    const prior = tails.get(name) ?? Promise.resolve()
+    let release!: () => void
+    const settled = new Promise<void>(resolve => { release = resolve })
+    tails.set(name, prior.then(() => settled))
+    await prior
+    try { return await work() } finally { release() }
+  } } })
+})
+afterEach(() => vi.unstubAllGlobals())
 class MemoryTransaction implements PersonaTransaction {
   installation = '66'.repeat(32)
   constructor(readonly vault = new Map<string, Uint8Array>()) {}
