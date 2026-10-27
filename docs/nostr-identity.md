@@ -2,8 +2,10 @@
 
 Choose **Sign in with Nostr** before joining if you want to use your existing
 Nostr account. Your signer keeps your private key. KithMoot uses its public
-key to identify your messages, and loads the profile published by that key
-when profile lookups are enabled.
+key to identify your messages. While Nostr account networking is enabled,
+it loads your own signed kind-0 profile separately from the optional
+directory lookups for other people. Disabling those directory lookups
+keeps your account name; private invitations pauses account lookups too.
 
 Entering a display name without signing in creates a visitor identity in
 this browser. Typing your usual name does not connect it to your Nostr
@@ -35,16 +37,22 @@ An operator should check the agent host's rejected-message records if the
 correct key still gets no answer. Grant access to a public key after checking
 who holds it; a matching display name or profile picture is insufficient.
 
-Profile pictures and names come from signed kind-0 metadata on the room's
-relays. An absent profile can mean those relays do not have it. Nostr addresses
+Profile pictures and names come from signed kind-0 metadata. Your own account
+is looked up on the public profile relays, without disclosing it to the open
+room's relays. Other room members are looked up on the room's and public
+profile relays when you enable directory lookups. Missing reads are retried
+twice so a temporary connection failure does not leave a permanent unnamed
+participant for that visit. An absent profile can still mean those relays do
+not have it. Nostr addresses
 (NIP-05) are displayed only when their domain maps the address to that same
 public key. This identifies the key; it does not grant agent permissions.
 Network or browser restrictions can prevent an address from being checked.
 
-**Room details → Profile pictures** controls these lookups. They send public
+**Room details → Profile pictures** controls lookups for other people. They send public
 keys to the room's relays, load pictures from their hosts and check Nostr
 addresses with their domains. Turning them off removes loaded profiles and
-stops further lookups.
+stops further directory lookups. Your own signed-in account profile remains
+separate; private invitations stops both paths.
 
 A paired device can use the identity delegated to it. If you sign in with a
 different Nostr account, KithMoot uses the selected account instead of reusing

@@ -37,9 +37,11 @@ import { normalizeURL } from 'nostr-tools/utils'
  * room id and the timing of its roster events, and - because of this file
  * and nothing else - can also learn which participant keys are in it.
  *
- * The app requires an explicit saved opt-in for lookups, with a persistent
- * switch in profile settings (Settings, Privacy). Disabling closes subscriptions and removes
- * cached profiles and external pictures.
+ * Directory lookups require the saved profile preference (Settings,
+ * Privacy). Disabling closes those subscriptions and removes other people's
+ * cached profiles and external pictures. AccountProfileBook owns a separate
+ * book for the selected account's own metadata while Nostr networking is
+ * enabled; private invitations closes both paths.
  *
  * NIP-05 checks are the exception to every other lookup this book makes:
  * verifying `name@domain` fetches `https://domain/.well-known/nostr.json`,
@@ -65,7 +67,8 @@ export interface Profile {
 }
 
 /** How long a lookup has to produce an answer before "no profile" is the answer. */
-const LOOKUP_TIMEOUT_MS = 5_000
+const LOOKUP_TIMEOUT_MS = 15_000
+const LOOKUP_RETRY_MS = [1_000, 5_000]
 
 /** Only these schemes are ever put in an `<img src>`. */
 const PICTURE_SCHEMES = ['http://', 'https://']
@@ -111,6 +114,7 @@ export class ProfileBook {
   /** Pubkeys we have asked about, whether or not an answer came back, by
    *  the scope they were asked in. */
   readonly #asked: Record<LookupScope, Set<string>> = { room: new Set(), public: new Set() }
+  readonly #timers: Record<LookupScope, Set<ReturnType<typeof setTimeout>>> = { room: new Set(), public: new Set() }
   readonly #found = new Map<string, { profile: Profile; createdAt: number; nip05Claim?: string }>()
   #checks = new Set<AbortController>()
   #closed = false
@@ -154,6 +158,8 @@ export class ProfileBook {
   }
 
   #closeScope(scope: LookupScope): void {
+    for (const timer of this.#timers[scope]) clearTimeout(timer)
+    this.#timers[scope].clear()
     for (const unsub of this.#unsubs[scope]) unsub()
     this.#unsubs[scope].clear()
     this.#pools[scope]?.close()
@@ -196,6 +202,25 @@ export class ProfileBook {
     const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.room.has(p) && (scope === 'room' || !this.#asked.public.has(p)))
     if (fresh.length === 0) return
     for (const pubkey of fresh) this.#asked[scope].add(pubkey)
+    this.#lookup(fresh, scope, 0)
+  }
+
+  #later(scope: LookupScope, delay: number, work: () => void): void {
+    const timer = setTimeout(() => {
+      this.#timers[scope].delete(timer)
+      work()
+    }, delay)
+    this.#timers[scope].add(timer)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+  }
+
+  #lookup(pubkeys: string[], scope: LookupScope, attempt: number): void {
+    if (this.#closed || !this.#enabled) return
+    const retry = () => {
+      const missing = pubkeys.filter(key => !this.#found.has(key))
+      const delay = LOOKUP_RETRY_MS[attempt]
+      if (missing.length && delay !== undefined) this.#later(scope, delay, () => this.#lookup(missing, scope, attempt + 1))
+    }
 
     // Lazily, so a browser that never opens a room never opens a socket.
     // And guarded: a profile is decoration, and a relay that cannot be
@@ -206,21 +231,21 @@ export class ProfileBook {
     try {
       const urls = uniqueRelays(scope === 'room' ? this.#opts.relays() : this.#opts.publicRelays())
       const pool = this.#pools[scope] ??= this.#opts.transport?.(urls, scope) ?? new NostrRelayPool(urls)
-      unsub = pool.subscribe([{ kinds: [0], authors: fresh }], (event) => this.#ingest(event))
+      unsub = pool.subscribe([{ kinds: [0], authors: pubkeys }], (event) => this.#ingest(event))
     } catch {
+      retry()
       return
     }
     this.#unsubs[scope].add(unsub)
 
-    // A profile that never arrives was not found on these relays. It may
-    // exist elsewhere. Close the lookup rather than leaving it open for
-    // the life of the room. Nothing re-renders: a tile that never gained a
-    // name or a chip already looks exactly right.
-    const timer = setTimeout(() => {
+    // Close each bounded read, then retry only missing profiles. A cold
+    // connection or unavailable relay must not leave the account nameless
+    // for the rest of the visit. Successful profiles are not queried again.
+    this.#later(scope, LOOKUP_TIMEOUT_MS, () => {
       this.#unsubs[scope].delete(unsub)
       unsub()
-    }, LOOKUP_TIMEOUT_MS)
-    ;(timer as unknown as { unref?: () => void }).unref?.()
+      retry()
+    })
   }
 
   get(pubkey: string): Profile | undefined {
