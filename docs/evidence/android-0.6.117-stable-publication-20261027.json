@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "verifiedAtUtc": "2026-10-27T08:35:48.730545+00:00",
+  "versionName": "0.6.117",
+  "versionCode": 140,
+  "androidSourceCommit": "c72c69e3d182919662c185d2399130ab7e932ee4",
+  "downloadFilename": "kithmoot-0.6.117-production.apk",
+  "apkBytes": 70873600,
+  "apkSha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signingLineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "qualification": {
+    "androidExactSource": {
+      "run": 40433938974,
+      "executedPassingJobs": 17
+    },
+    "androidMergedMain": {
+      "run": 40439512488,
+      "source": "b72f7ea9c3c5cf60ddc21849f593ebee21415912",
+      "executedPassingJobs": 17
+    },
+    "website": {
+      "run": 40466126260,
+      "qualifiedSource": "122ea3339ead73da50fc597dbd8e7da2c87aae37",
+      "mergedSource": "ac21dcd74053629efa0e18489ecda47d5bf35033",
+      "qualifiedAndMergedTree": "e4418d5003b1d3d2595891b8c7eff7dca3f2ffe8",
+      "executedPassingJobs": 46,
+      "optionalDiagnosticSkipped": true
+    }
+  },
+  "github": {
+    "url": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.117",
+    "stable": true,
+    "latestTag": "v0.6.117",
+    "publicDownloadVerified": true
+  },
+  "website": {
+    "publicationSource": "ac21dcd74053629efa0e18489ecda47d5bf35033",
+    "deploymentMode": "android-metadata-only",
+    "changedFiles": [
+      "android-release.json",
+      "android-release.json.sig",
+      "downloads/index.html",
+      "index.html"
+    ],
+    "preservedFiles": 630,
+    "preservedPwaFiles": 595,
+    "desktopVersion": "0.1.107",
+    "desktopPreservedByteForByte": true,
+    "pwaPreservedByteForByte": true,
+    "signedManifestsVerified": true,
+    "results": [
+      {
+        "origin": "https://kithmoot.app",
+        "files": [
+          {
+            "path": "/android-release.json",
+            "finalUrl": "https://kithmoot.app/android-release.json",
+            "bytes": 1104,
+            "sha256": "c2d9dd652faaafbc3a9ad212465ba5e8c04b928f677fdb429db92c01fc3c24b8"
+          },
+          {
+            "path": "/android-release.json.sig",
+            "finalUrl": "https://kithmoot.app/android-release.json.sig",
+            "bytes": 89,
+            "sha256": "114dd1238066c8187a07f128b9b0a7591b74a1a8aa1ff5d5c64d18ad5b85b3ec"
+          },
+          {
+            "path": "/downloads/release.json",
+            "finalUrl": "https://kithmoot.app/downloads/release.json",
+            "bytes": 1311,
+            "sha256": "77e337ccb0dab579b157b8561e2178efcc683784557b64a8801768c8d2d60bc0"
+          },
+          {
+            "path": "/downloads/release.json.sig",
+            "finalUrl": "https://kithmoot.app/downloads/release.json.sig",
+            "bytes": 89,
+            "sha256": "824b68fe61b01c20ef190217d36197593c32e11766a6d871e92d83e982898b26"
+          },
+          {
+            "path": "/",
+            "finalUrl": "https://kithmoot.app/",
+            "bytes": 27684,
+            "sha256": "4ccf4da67da97c23e82830cd735e773003c3636486cad00af18e1802092e11d1"
+          },
+          {
+            "path": "/downloads/",
+            "finalUrl": "https://kithmoot.app/downloads/",
+            "bytes": 72500,
+            "sha256": "d07112a214bbb174ee7fbf276f864227155eb60090a0093d6fab30151152401e"
+          },
+          {
+            "path": "/privacy/",
+            "finalUrl": "https://kithmoot.app/privacy/",
+            "bytes": 25290,
+            "sha256": "4fafa45c771a49e420beecbfea1f1d6102b92b0997be0e3bdcb4a9b2f7dbc9dc"
+          },
+          {
+            "path": "/j/",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/",
+            "bytes": 153864,
+            "sha256": "02082ee7d5dc1e80d46c918f674ae6e2e18dcfae9fc63b63c10d135f62536006"
+          },
+          {
+            "path": "/j/sw.js",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+            "bytes": 26510,
+            "sha256": "c56dd82d32dc948ef4ccc450fffba8902baf817a7a15121bb9a113be08b55a43"
+          },
+          {
+            "path": "/j/manifest.webmanifest",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+            "bytes": 433,
+            "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f"
+          },
+          {
+            "path": "/j/assets/index-rjo6QLi7.js",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-rjo6QLi7.js",
+            "bytes": 5199,
+            "sha256": "5a9e01cf70a84a74992f8378c4ca0af84ab5c2c247b6ef54ec23e4df3fe76da4"
+          },
+          {
+            "path": "/j/assets/index-D1zs2baA.css",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-D1zs2baA.css",
+            "bytes": 114806,
+            "sha256": "9db4537f8e6b5907112164191f6bccd125443f2b3328aa683c06cf97f69cfe0d"
+          }
+        ],
+        "apks": [
+          {
+            "path": "/apk/kithmoot-0.6.117-production.apk",
+            "finalUrl": "https://kithmoot.app/apk/kithmoot-0.6.117-production.apk",
+            "bytes": 70873600,
+            "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+            "cache": {
+              "status": "MISS",
+              "age": null,
+              "control": "public, max-age=604800"
+            }
+          },
+          {
+            "path": "/apk/kithmoot-latest.apk?download=1",
+            "finalUrl": "https://kithmoot.app/apk/kithmoot-latest.apk?download=1",
+            "bytes": 70873600,
+            "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+            "cache": {
+              "status": "BYPASS",
+              "age": null,
+              "control": "no-cache, no-store, must-revalidate"
+            }
+          }
+        ]
+      },
+      {
+        "origin": "https://kithmoot.forgesworn.dev",
+        "files": [
+          {
+            "path": "/android-release.json",
+            "finalUrl": "https://kithmoot.forgesworn.dev/android-release.json",
+            "bytes": 1104,
+            "sha256": "c2d9dd652faaafbc3a9ad212465ba5e8c04b928f677fdb429db92c01fc3c24b8"
+          },
+          {
+            "path": "/android-release.json.sig",
+            "finalUrl": "https://kithmoot.forgesworn.dev/android-release.json.sig",
+            "bytes": 89,
+            "sha256": "114dd1238066c8187a07f128b9b0a7591b74a1a8aa1ff5d5c64d18ad5b85b3ec"
+          },
+          {
+            "path": "/downloads/release.json",
+            "finalUrl": "https://kithmoot.forgesworn.dev/downloads/release.json",
+            "bytes": 1311,
+            "sha256": "77e337ccb0dab579b157b8561e2178efcc683784557b64a8801768c8d2d60bc0"
+          },
+          {
+            "path": "/downloads/release.json.sig",
+            "finalUrl": "https://kithmoot.forgesworn.dev/downloads/release.json.sig",
+            "bytes": 89,
+            "sha256": "824b68fe61b01c20ef190217d36197593c32e11766a6d871e92d83e982898b26"
+          },
+          {
+            "path": "/",
+            "finalUrl": "https://kithmoot.app/",
+            "bytes": 27684,
+            "sha256": "4ccf4da67da97c23e82830cd735e773003c3636486cad00af18e1802092e11d1"
+          },
+          {
+            "path": "/downloads/",
+            "finalUrl": "https://kithmoot.app/downloads/",
+            "bytes": 72500,
+            "sha256": "d07112a214bbb174ee7fbf276f864227155eb60090a0093d6fab30151152401e"
+          },
+          {
+            "path": "/privacy/",
+            "finalUrl": "https://kithmoot.app/privacy/",
+            "bytes": 25290,
+            "sha256": "4fafa45c771a49e420beecbfea1f1d6102b92b0997be0e3bdcb4a9b2f7dbc9dc"
+          },
+          {
+            "path": "/j/",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/",
+            "bytes": 153864,
+            "sha256": "02082ee7d5dc1e80d46c918f674ae6e2e18dcfae9fc63b63c10d135f62536006"
+          },
+          {
+            "path": "/j/sw.js",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+            "bytes": 26510,
+            "sha256": "c56dd82d32dc948ef4ccc450fffba8902baf817a7a15121bb9a113be08b55a43"
+          },
+          {
+            "path": "/j/manifest.webmanifest",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/manifest.webmanifest",
+            "bytes": 433,
+            "sha256": "a5535fd6e64bb10d48eea8698ff547350005446744e4999038d2bedeb623631f"
+          },
+          {
+            "path": "/j/assets/index-rjo6QLi7.js",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-rjo6QLi7.js",
+            "bytes": 5199,
+            "sha256": "5a9e01cf70a84a74992f8378c4ca0af84ab5c2c247b6ef54ec23e4df3fe76da4"
+          },
+          {
+            "path": "/j/assets/index-D1zs2baA.css",
+            "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-D1zs2baA.css",
+            "bytes": 114806,
+            "sha256": "9db4537f8e6b5907112164191f6bccd125443f2b3328aa683c06cf97f69cfe0d"
+          }
+        ],
+        "apks": [
+          {
+            "path": "/apk/kithmoot-0.6.117-production.apk",
+            "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.117-production.apk",
+            "bytes": 70873600,
+            "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+            "cache": {
+              "status": null,
+              "age": null,
+              "control": "public, max-age=604800"
+            }
+          },
+          {
+            "path": "/apk/kithmoot-latest.apk?download=1",
+            "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk?download=1",
+            "bytes": 70873600,
+            "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+            "cache": {
+              "status": null,
+              "age": null,
+              "control": "no-cache, no-store, must-revalidate"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "browser": {
+    "engine": "Chromium",
+    "freshContextsPassed": 4,
+    "results": [
+      {
+        "origin": "https://kithmoot.app",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "freshContext": true,
+        "androidVersion": "0.6.117",
+        "versionCode": 140,
+        "downloadLinkVerified": true,
+        "releaseNotesVisible": true,
+        "pwaShellVisible": true,
+        "newRoomActionVisible": true,
+        "pageErrors": []
+      },
+      {
+        "origin": "https://kithmoot.app",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "freshContext": true,
+        "androidVersion": "0.6.117",
+        "versionCode": 140,
+        "downloadLinkVerified": true,
+        "releaseNotesVisible": true,
+        "pwaShellVisible": true,
+        "newRoomActionVisible": true,
+        "pageErrors": []
+      },
+      {
+        "origin": "https://kithmoot.forgesworn.dev",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "freshContext": true,
+        "androidVersion": "0.6.117",
+        "versionCode": 140,
+        "downloadLinkVerified": true,
+        "releaseNotesVisible": true,
+        "pwaShellVisible": true,
+        "newRoomActionVisible": true,
+        "pageErrors": []
+      },
+      {
+        "origin": "https://kithmoot.forgesworn.dev",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "freshContext": true,
+        "androidVersion": "0.6.117",
+        "versionCode": 140,
+        "downloadLinkVerified": true,
+        "releaseNotesVisible": true,
+        "pwaShellVisible": true,
+        "newRoomActionVisible": true,
+        "pageErrors": []
+      }
+    ],
+    "downloadCardsVisuallyReviewedWidths": [
+      390,
+      1440
+    ]
+  },
+  "zapstore": {
+    "relay": "wss://relay.zapstore.dev",
+    "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+    "applicationEventId": "2eac56f4a1d993840a50b2c5b3326b52f4af5993c1f1f43fa7a0eac5ea0fcd34",
+    "releaseEventId": "e99ea133d906b352bcc4a8ee14a86dc24eac7c5bbaa3e0ca5a89ad73559956e2",
+    "assetEventId": "d535641fad29a2178c2289735ee6a2ac6eefe8c246da81ed9d580c14ad025b61",
+    "eoseReceived": true,
+    "nostrSignaturesVerified": true,
+    "releaseReferencesVerifiedAsset": true,
+    "apk": {
+      "url": "https://cdn.zapstore.dev/a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+      "bytes": 70873600,
+      "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+      "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+      "publicDownloadVerified": true,
+      "downloads": [
+        {
+          "url": "https://cdn.zapstore.dev/a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+          "bytes": 70873600,
+          "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+          "publicDownloadVerified": true
+        },
+        {
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.117/kithmoot-0.6.117-production.apk",
+          "bytes": 70873600,
+          "sha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+          "publicDownloadVerified": true
+        }
+      ]
+    },
+    "certificateProofEventId": "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
+    "certificateSignatureVerified": true,
+    "certificateProofExpiresAt": "2027-10-24T20:40:51.000Z",
+    "applicationReferenceVerified": true,
+    "signingAncestorVerified": true,
+    "sourceCommitVerified": true,
+    "published": true
+  },
+  "acceptance": {
+    "realSenderDeliveryConfirmed": false,
+    "physicalGrapheneOSForThisRelease": false,
+    "zapstoreClientAcceptanceObserved": false,
+    "earlierFailedMessagesRecovered": false
+  }
+}
