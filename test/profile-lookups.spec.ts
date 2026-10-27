@@ -7,7 +7,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { dmPolicy } from '../src/dm.js'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCreator, openProfileSettings, TEST_RELAY_WS } from './browser.js'
+import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCreator, openRoomDetails, openProfileSettings, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Public-profile lookups, as a relay meets them. A lookup is a plaintext
@@ -65,19 +65,23 @@ test('the signed-in account keeps its own kind-0 name with directory lookups off
     await expect(page.locator('#accountProfile')).toContainText('TheCryptoDonkey')
     await openNewRoomForm(page)
     await page.locator('#roomName').fill('Own account name')
-    await nameCreator(page, 'TheCryptoDonkey')
+    await nameCreator(page, 'Typed fallback')
     await page.locator('#create').click()
     await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomDetails(page)
     await expect(page.locator('#sendingIdentity')).toBeVisible()
     await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
     await page.screenshot({ path: test.info().outputPath('own-account-name-phone.png'), fullPage: true })
+    await page.locator('#roomSheetClose').click()
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await openRoomDetails(page)
     await expect(page.locator('#sendingIdentity')).toBeVisible()
     await expect(page.locator('#accountProfile')).toContainText('TheCryptoDonkey')
     await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
     await page.setViewportSize({ width: 1440, height: 1000 })
     await page.screenshot({ path: test.info().outputPath('own-account-name-desktop.png'), fullPage: true })
+    await page.locator('#roomSheetClose').click()
     await openProfileSettings(page)
     await expect(page.locator('#lookupProfiles')).not.toBeChecked()
     expect(authors.length).toBeGreaterThan(0)
