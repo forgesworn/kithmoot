@@ -50,6 +50,12 @@
     port = event.ports[0]
     port.addEventListener('message', command => {
       const data = command.data
+      if (data?.type === 'kithmoot:attachment-preview:dispose') {
+        release()
+        port?.close()
+        port = undefined
+        return
+      }
       if (data?.type === 'kithmoot:attachment-preview:actual-size' && typeof data.actual === 'boolean') {
         document.body.classList.toggle('actualSize', data.actual)
       }
