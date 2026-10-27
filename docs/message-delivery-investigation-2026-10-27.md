@@ -42,8 +42,10 @@ window.
 ## Acceptance boundaries
 
 These changes do not establish what happened to the tester's particular
-messages. No production release or physical phone-to-desktop acceptance has
-been performed by this task. An expired-credential message cannot be made
+messages. The initial diagnosis did not perform a production release or physical
+phone-to-desktop acceptance. Subsequent release qualification is recorded in
+`docs/evidence/android-0.6.120-candidate-20261027.json` and
+`docs/evidence/desktop-0.1.108-candidate-20261027.json`. An expired-credential message cannot be made
 valid by relaxing reader checks. Recovering a dropped valid message still
 requires a relay or device to retain its original event.
 
