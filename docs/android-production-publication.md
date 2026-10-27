@@ -6,6 +6,34 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.117 account authentication, 27 October 2026
+
+Version **0.6.117**, code **140**, adds explicit account authentication for
+foreground room relays. Settings → Connections → Nostr relays offers **Use
+signed-in account**, with the exact relay URL and account npub confirmed.
+Permission clears on sign-out, account-session replacement, app process exit
+or relay removal/disable. Anonymous rooms, discovery and background listeners
+acquire no new identity permission. The relay must also admit device-signed
+messages after account authentication. Earlier refused sends need a retry.
+
+The immutable APK uses source `c72c69e3d182919662c185d2399130ab7e932ee4`,
+with all 17 jobs passing in Android CI `40433938974`. Android PR #342 is merged.
+Later camera-startup changes in PR #343 are outside this binary. The production
+APK is 70,873,600 bytes, SHA-256
+`a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785`.
+The retained production certificate and preview lineage are unchanged.
+
+Protocol (594), debug app (2,898) and release app (2,887) unit tests, both lints,
+and the minified release build passed. Consent tests passed in light and dark
+at 130% text; all ten picker, chat/share and consent tests passed together.
+The exact signed APK upgraded over 0.6.116 on an emulator, retained UID,
+installation history and synthetic app data, then launched. Real sender
+Android/Linux delivery and physical GrapheneOS acceptance remain pending.
+See [candidate evidence](evidence/android-0.6.117-candidate-20261027.json).
+
+Publish only the four Android metadata files and this exact APK over the
+current live release, preserving desktop and PWA assets byte-for-byte.
+
 ## Android 0.6.116 camera backgrounds, 26 October 2026
 
 Version **0.6.116**, code **139**, restores on-device person cut-outs over sea
