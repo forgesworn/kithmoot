@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.107",
+  "currentRelease": "0.1.108",
   "releases": [
     {
-      "version": "0.1.107",
+      "version": "0.1.108",
       "updateTo": {
-        "version": "0.1.107",
-        "pub_date": "2026-10-26T13:34:30Z",
-        "notes": "Public profile lookups now start switched off. Calls recheck room admission and discard stale setup messages. Native Spry hosting remains a developer preview; packaged desktop apps do not yet include a hosting switch.",
-        "name": "0.1.107",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.107/KithMoot-0.1.107-mac-arm64.zip",
-        "sha256": "62978fdc9fc600652bfb1972f6bd93f1ebc017e55099b932d663ed97d76b8374",
-        "size": 189812403
+        "version": "0.1.108",
+        "pub_date": "2026-10-27T10:07:51Z",
+        "notes": "Keeps your draft and asks you to rejoin if this device\u2019s room credential has expired. Includes Electron 44 TLS security updates.",
+        "name": "0.1.108",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.108/KithMoot-0.1.108-mac-arm64.zip",
+        "sha256": "441f8c8fc2aaadff15ec60497360361a80aeccfa653d46b7d131f65a846531c3",
+        "size": 190112773
       }
     }
   ]

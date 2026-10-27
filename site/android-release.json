@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.118",
-  "versionCode": 141,
+  "versionName": "0.6.120",
+  "versionCode": 143,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70873600,
-  "apkSha256": "e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6",
+  "apkBytes": 70885888,
+  "apkSha256": "17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.118-production.apk",
+  "downloadFilename": "kithmoot-0.6.120-production.apk",
   "releaseNotes": [
-    "Background effects stop retrying after a startup failure, while your chosen backdrop stays covered.",
-    "Allow a room relay to authenticate your signed-in account after you confirm its URL and npub.",
-    "Sea scenes and animated fish run on your phone without camera usage reporting or Google Play services."
+    "Fixes dropped messages while catching up on a burst of stored chat.",
+    "Retries the original history window without duplicating messages already received.",
+    "Includes isolated recording playback and the existing camera startup and relay authentication fixes."
   ]
 }

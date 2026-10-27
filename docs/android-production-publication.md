@@ -6,6 +6,29 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.120 message replay, 27 October 2026
+
+Version **0.6.120**, code **143**, fixes receive-buffer overflow that could
+lose a burst of retained chat and suppress the missing events on relay replay.
+Recovery preserves the original history window, avoids duplicates and uses a
+bounded retry budget. An exhausted read does not establish complete history.
+Signature, credential, epoch and membership checks remain in force.
+
+Android source `e3dd94a3c1addbe5695b318a8425d51d1b9c5bf5` (PR #347). The production-signed APK is
+70,885,888 bytes, SHA-256 `17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5`. All 811 ZIP
+payload entries match the unsigned release. The existing certificate and
+preview lineage are unchanged. The signing host passed 594 protocol, 2,901
+debug app and 2,890 release app tests, both lints and the dependency/model guard.
+The exact signed 0.6.118-to-0.6.120 emulator upgrade retained UID, first-install
+time and encrypted synthetic data; 17 seed, retention, native-startup and
+isolated image/recording checks passed. This is emulator evidence, not physical
+GrapheneOS or real phone-to-desktop acceptance. See the
+[candidate receipt](evidence/android-0.6.120-candidate-20261027.json).
+
+Publication is pending hosted CI and public readback. This release accompanies
+the web/desktop credential-expiry check and desktop 0.1.108; recovery of the
+tester's particular missing events has not been established.
+
 ## Android 0.6.118 camera startup and relay controls, 27 October 2026
 
 Version **0.6.118**, code **141**, combines the merged camera startup guard

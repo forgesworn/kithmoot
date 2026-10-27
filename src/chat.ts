@@ -1252,6 +1252,12 @@ export class ChatLog {
     const credential = this.#credential
     const deviceSk = this.#opts.deviceSk
     if (!credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
+    // A relay can accept ciphertext that every reader will reject. Refuse
+    // before handing a prepared send to the outbox, so the draft stays put
+    // when a sleeping device or an unavailable signer missed renewal.
+    const sentAt = this.#sentAt()
+    const access = verifyDeviceCredential(credential, { roomId: this.#opts.roomId, now: sentAt.sentAt })
+    if (!access.ok) throw new Error('Your device credential is no longer valid. Rejoin the room before sending.')
     if (text.length === 0) throw new Error('chat message is empty')
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
@@ -1319,7 +1325,7 @@ export class ChatLog {
           : {}),
       text,
       ...(reaction ? { reaction } : {}),
-      ...this.#sentAt(),
+      ...sentAt,
       ...(attachments ? { attachments } : {}),
       ...(artwork ? { artwork } : {}),
       ...(roomLogo !== undefined ? { roomLogo } : {}),
