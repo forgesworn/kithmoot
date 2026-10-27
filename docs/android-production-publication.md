@@ -1001,3 +1001,15 @@ and all builds passed; the exact signed APK passed an API 35 emulator upgrade
 over 0.6.118 and 17 native/storage/playback checks. This Google APIs emulator
 does not establish physical GrapheneOS acceptance. Hosted qualification and
 publication are pending. See [candidate evidence](evidence/android-0.6.121-candidate-20261027.json).
+
+### Desktop 0.1.109 and Android 0.6.121 publication — 27 October 2026
+
+Both releases are merged and independently verified. The [publication receipt](evidence/profile-name-recovery-publication-20261027.json) records the exact source trees, hosted qualification, signed packages, GitHub tag sources, full downloads from both website hosts, browser checks, signed APT metadata and current Zapstore release with certificate proof.
+
+Android 0.6.121 (code 144) comes from `e515017426513bcc1ffc3d7e419af8258cc68d09`; desktop 0.1.109 comes from `663077eed4d49691fc5684204a7c940ce6ee2022`, whose runtime files match the packaged build source. Both merged trees match their qualified source trees exactly. The fixes resolve the signed-in account profile independently of optional peer-directory lookups, retry missing metadata within bounded limits, and update room/chat names when the own profile arrives.
+
+Zapstore advertises the fully verified KithMoot website and GitHub APK URLs. Its CDN accepted the upload but returned 404 during publication, so that unavailable URL is not advertised. The unchanged publication verifier passed every advertised download, current release/asset reference and signature check.
+
+All 47 required web/desktop checks and all 17 Android checks passed. The first media-adapter attempt failed on silent generated fixture audio; the unchanged-source second attempt passed. Duplicate post-merge runs were cancelled only after full source-tree equality was verified; cancellation is not counted as a pass.
+
+The exact signed Android APK upgraded over 0.6.118 in an API 35 emulator with UID, first installation time and encrypted test state retained. This is separate from physical GrapheneOS/Linux acceptance, the owner's name check and the sender's delivery trial, which remain pending. Earlier missing messages are not claimed recovered.

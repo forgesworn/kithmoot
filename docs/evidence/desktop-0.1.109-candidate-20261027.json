@@ -72,7 +72,7 @@
   ],
   "physicalDesktopAcceptance": false,
   "schemaVersion": 1,
-  "candidate": true,
+  "candidate": false,
   "runtimeSourceCommit": "7a1e6dca01b6df2d622b303c05009320e30fd5c2",
   "localWebTests": {
     "passed": 7985,
@@ -88,6 +88,7 @@
   "macNotarisation": "Accepted",
   "macStapleAndGatekeeper": "passed",
   "archivePayloadVerification": "passed",
-  "publication": "pending",
-  "hostedQualification": "pending"
+  "publication": "published-and-independently-verified",
+  "hostedQualification": "passed",
+  "publicationReceipt": "profile-name-recovery-publication-20261027.json"
 }

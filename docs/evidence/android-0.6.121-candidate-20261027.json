@@ -37,11 +37,12 @@
   "telemetryGuardPassed": true,
   "physicalGrapheneOsAcceptance": false,
   "schemaVersion": 1,
-  "candidate": true,
+  "candidate": false,
   "productionUpgrade": "118 to 121 passed with UID, first installation time and encrypted synthetic marker retained",
   "emulatorTests": 17,
   "emulatorApi": 35,
   "emulatorImage": "google_apis",
-  "publication": "pending",
-  "hostedQualification": "pending"
+  "publication": "published-and-independently-verified",
+  "hostedQualification": "passed",
+  "publicationReceipt": "profile-name-recovery-publication-20261027.json"
 }
