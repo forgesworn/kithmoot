@@ -1,32 +1,32 @@
 {
-  "verifiedAt": "2026-10-27T19:54:42Z",
+  "verifiedAt": "2026-10-27T20:25:03Z",
   "version": "0.1.110",
   "electronVersion": "44.9.3",
   "canonicalBundles": [
     {
       "platform": "mac-arm64",
-      "asarSha256": "757b5da2f709036c1f7f8e3616f0dc0d53950f5fe77cee32ad4221bd0bc62d8d",
+      "asarSha256": "cda2f2a42be00a2c232a37b5b875cd9a4f8bc6650be74d1377bde05a03c086ee",
       "webFilesVerified": 594,
       "nativeFilesVerified": 32,
       "packageVersion": "0.1.110"
     },
     {
       "platform": "linux-x64",
-      "asarSha256": "757b5da2f709036c1f7f8e3616f0dc0d53950f5fe77cee32ad4221bd0bc62d8d",
+      "asarSha256": "cda2f2a42be00a2c232a37b5b875cd9a4f8bc6650be74d1377bde05a03c086ee",
       "webFilesVerified": 594,
       "nativeFilesVerified": 32,
       "packageVersion": "0.1.110"
     },
     {
       "platform": "linux-arm64",
-      "asarSha256": "757b5da2f709036c1f7f8e3616f0dc0d53950f5fe77cee32ad4221bd0bc62d8d",
+      "asarSha256": "cda2f2a42be00a2c232a37b5b875cd9a4f8bc6650be74d1377bde05a03c086ee",
       "webFilesVerified": 594,
       "nativeFilesVerified": 32,
       "packageVersion": "0.1.110"
     },
     {
       "platform": "windows-x64",
-      "asarSha256": "757b5da2f709036c1f7f8e3616f0dc0d53950f5fe77cee32ad4221bd0bc62d8d",
+      "asarSha256": "cda2f2a42be00a2c232a37b5b875cd9a4f8bc6650be74d1377bde05a03c086ee",
       "webFilesVerified": 594,
       "nativeFilesVerified": 32,
       "packageVersion": "0.1.110"
@@ -36,44 +36,44 @@
     {
       "filename": "KithMoot-0.1.110-mac-arm64.zip",
       "version": "0.1.110",
-      "bytes": 190120748,
-      "sha256": "7d4bdc2a095d8d75c7cfbfe2b83d65b970a5bdde6c8c8abf83ffaf6db465c2e4"
+      "bytes": 190120899,
+      "sha256": "28c83f74a043db41c4f35ae56df7b63d8452606382245b86df54c63c6cdee87a"
     },
     {
       "filename": "KithMoot-0.1.110-linux-arm64.tar.gz",
       "version": "0.1.110",
-      "bytes": 184294286,
-      "sha256": "070b836ffb52ea6fdaeed1a0286ca9e723665b0da1e5c88bdda1fd4bedb6bd55"
+      "bytes": 184294606,
+      "sha256": "a29477b2af5ee86875767ad83eb6d3a55d5a325a402f8d492deb8390c783d261"
     },
     {
       "filename": "KithMoot-0.1.110-linux-x64.tar.gz",
       "version": "0.1.110",
-      "bytes": 183289392,
-      "sha256": "227b5b59bcc4d332703ab5e16b78b12d91401b1ce13421f3ebb016864ba2f2d1"
+      "bytes": 183290193,
+      "sha256": "1d3e25ff3363fc282ad49da013e9923e7c1de6ec768d43f85be9d5daa85f003c"
     },
     {
       "filename": "KithMoot-0.1.110-windows-x64.zip",
       "version": "0.1.110",
-      "bytes": 218561358,
-      "sha256": "83f334db7d6eef2084df6d3f56e1cb35f19563dda509a8a487a822703547ddc2"
+      "bytes": 218561333,
+      "sha256": "c21de346377ff26704e83c0935e42208d1217bc2d18ebf4f217aad0e1818b2db"
     },
     {
       "filename": "kithmoot_0.1.110_amd64.deb",
       "version": "0.1.110",
-      "bytes": 148279576,
-      "sha256": "0f213111963d791f68877edd8af4fd1db543e06a1251e1acda0f726bd4c255e5"
+      "bytes": 148292444,
+      "sha256": "84bd4df617e54c48ae419be22f23d5a55052e595bd2fde06b305166456b3b494"
     },
     {
       "filename": "kithmoot_0.1.110_arm64.deb",
       "version": "0.1.110",
-      "bytes": 142968004,
-      "sha256": "2d5ca0e0dc8c5897bf93e2ca03f20a7fc374ee337baf821977e97bb5def41a48"
+      "bytes": 142955888,
+      "sha256": "763fd038d92aba5504be280bde6bd2b2869e7d0a72964066c8fd645a4ce7b0b6"
     }
   ],
   "physicalDesktopAcceptance": false,
   "schemaVersion": 1,
   "candidate": true,
-  "runtimeSourceCommit": "bbf704e057174d9f9f8dc0ee1e9b6d4a297abcdc",
+  "runtimeSourceCommit": "5af4b59d760a68f28f64560e37e282ef499619d0",
   "localDesktopTests": {
     "passed": 262,
     "skipped": 2,
