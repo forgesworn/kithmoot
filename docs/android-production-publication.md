@@ -6,6 +6,35 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.118 camera startup and relay controls, 27 October 2026
+
+Version **0.6.118**, code **141**, combines the merged camera startup guard
+and explicit room-relay account authentication. A failed background model load
+retains the selected synthetic backdrop and fish until the camera/effect session
+resets, avoiding repeated failed native graph construction on every frame.
+The bundled model and reviewed SDK pins, local no-op reporting transport,
+production certificate and preview signing lineage are retained.
+
+**Use signed-in account** is available for an explicitly confirmed room relay.
+Permission is limited to foreground rooms for the current account session;
+sign-out, account replacement, process exit and relay removal/disable clear it.
+The targeted 0.6.117 release remains available separately.
+
+Android source `dfbe6ed89121b91f86754a60df41171c596f8cd2` (PR #345).
+The production APK is 70,873,600 bytes, SHA-256
+`e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6`.
+All 811 ZIP payload entries match the unsigned release. The signing host passed
+594 protocol, 2,898 debug app and 2,887 release app tests, both lints, all builds
+and the dependency/model guard. The [candidate receipt](evidence/android-0.6.118-candidate-20261027.json)
+records these exact build facts; the final
+[publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.118/android-0.6.118-publication-20261027.json)
+records hosted CI, emulator upgrade, public downloads and store readback.
+
+Deploy only the four Android publication files and the immutable APK over the
+current live tree. Preserve the live PWA and desktop release byte-for-byte.
+Physical GrapheneOS visual, thermal, battery, acoustic and real-peer acceptance
+remain separate from signed release, emulator and publication evidence.
+
 ## Android 0.6.117 account authentication, published 27 October 2026
 
 Version **0.6.117**, code **140**, adds explicit account authentication for
