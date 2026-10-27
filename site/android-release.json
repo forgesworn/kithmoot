@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.116",
-  "versionCode": 139,
+  "versionName": "0.6.118",
+  "versionCode": 141,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70865408,
-  "apkSha256": "0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015",
+  "apkBytes": 70873600,
+  "apkSha256": "e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.116-production.apk",
+  "downloadFilename": "kithmoot-0.6.118-production.apk",
   "releaseNotes": [
-    "Background cut-outs are back, with sea scenes and animated fish behind you.",
-    "Effects run on your phone without camera usage reporting or Google Play services.",
-    "Update over your existing installation to keep your account and rooms."
+    "Background effects stop retrying after a startup failure, while your chosen backdrop stays covered.",
+    "Allow a room relay to authenticate your signed-in account after you confirm its URL and npub.",
+    "Sea scenes and animated fish run on your phone without camera usage reporting or Google Play services."
   ]
 }
