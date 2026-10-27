@@ -72,8 +72,10 @@
   ],
   "physicalDesktopAcceptance": false,
   "schemaVersion": 1,
-  "candidate": true,
-  "runtimeSourceCommit": "65901d58",
+  "candidate": false,
+  "runtimeSourceCommit": "65901d5812e07ea5a53343c2fdd9ceb30cc89718",
+  "publicationSourceCommit": "a9fb91ceb180ab674d5ba4e6920695266bf8ae14",
+  "publicationMergeCommit": "c95cb0bb68ec507c2f1e18fc954cdaf47db6d06c",
   "localDesktopTests": {
     "passed": 262,
     "skipped": 2,
@@ -84,6 +86,10 @@
   "macNotarisation": "Accepted",
   "macStapleAndGatekeeper": "passed",
   "archivePayloadVerification": "passed",
-  "publication": "candidate-only",
-  "hostedQualification": "pending"
+  "publication": "published-and-independently-verified",
+  "hostedQualification": "passed",
+  "githubRelease": "https://github.com/forgesworn/kithmoot/releases/tag/v0.1.110",
+  "websiteDownloads": "https://kithmoot.app/apk/desktop/0.1.110/",
+  "aptSignatureVerified": true,
+  "updateManifestsVerified": true
 }
