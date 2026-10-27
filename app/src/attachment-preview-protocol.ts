@@ -13,6 +13,7 @@ export interface AttachmentPreviewActualSize {
 
 export const ATTACHMENT_PREVIEW_INIT = 'kithmoot:attachment-preview:init' as const
 export const ATTACHMENT_PREVIEW_ACTUAL_SIZE = 'kithmoot:attachment-preview:actual-size' as const
+export const ATTACHMENT_PREVIEW_DISPOSE = 'kithmoot:attachment-preview:dispose' as const
 
 export function previewAcceptsBlob(kind: AttachmentPreviewKind, blob: Blob): boolean {
   const mime = blob.type.split(';')[0]!.trim().toLowerCase()

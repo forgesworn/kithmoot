@@ -1,5 +1,6 @@
 import {
   ATTACHMENT_PREVIEW_ACTUAL_SIZE,
+  ATTACHMENT_PREVIEW_DISPOSE,
   ATTACHMENT_PREVIEW_INIT,
   previewAcceptsBlob,
   type AttachmentPreviewActualSize,
@@ -54,6 +55,7 @@ export function createAttachmentPreview(
     },
     destroy(): void {
       element.removeEventListener('load', initialise)
+      channel.port1.postMessage({ type: ATTACHMENT_PREVIEW_DISPOSE })
       channel.port1.close()
       if (!transferred) channel.port2.close()
       element.remove()
