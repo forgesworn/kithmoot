@@ -16,8 +16,15 @@ export interface AttachmentPreview {
   destroy(): void
 }
 
+const previews = new Map<string, Set<AttachmentPreview>>()
+
+export function destroyAttachmentPreviews(url: string): void {
+  for (const preview of previews.get(url) ?? []) preview.destroy()
+  previews.delete(url)
+}
+
 export function createAttachmentPreview(
-  file: { blob: Blob; name: string },
+  file: { url: string; blob: Blob; name: string },
   kind: AttachmentPreviewKind,
 ): AttachmentPreview {
   if (!previewAcceptsBlob(kind, file.blob)) throw new TypeError(`The verified Blob is not ${kind} media.`)
@@ -32,6 +39,7 @@ export function createAttachmentPreview(
   let loaded = false
   let transferred = false
   let actual = false
+  let destroyed = false
   const initialise = (): void => {
     if (loaded) return
     loaded = true
@@ -47,13 +55,16 @@ export function createAttachmentPreview(
   element.addEventListener('load', initialise, { once: true })
   element.src = `${import.meta.env.BASE_URL}attachment-frame.html`
 
-  return {
+  const preview: AttachmentPreview = {
     element,
     setActualSize(next: boolean): void {
       actual = next
       if (loaded) sendActualSize()
     },
     destroy(): void {
+      if (destroyed) return
+      destroyed = true
+      previews.get(file.url)?.delete(preview)
       element.removeEventListener('load', initialise)
       channel.port1.postMessage({ type: ATTACHMENT_PREVIEW_DISPOSE })
       channel.port1.close()
@@ -61,4 +72,6 @@ export function createAttachmentPreview(
       element.remove()
     },
   }
+  previews.set(file.url, (previews.get(file.url) ?? new Set()).add(preview))
+  return preview
 }

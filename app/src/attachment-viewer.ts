@@ -37,7 +37,7 @@ export class AttachmentViewer {
     const kind = untrusted ? attachmentKind(blob) : undefined
     let preview: AttachmentPreview | undefined
     if (untrusted) {
-      preview = createAttachmentPreview({ blob, name: file.name }, kind!)
+      preview = createAttachmentPreview({ url: file.url, blob, name: file.name }, kind!)
       this.#preview = preview
       surface.classList.add('sandboxed')
       surface.append(preview.element)
