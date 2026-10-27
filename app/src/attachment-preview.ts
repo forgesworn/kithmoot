@@ -2,6 +2,7 @@ import {
   ATTACHMENT_PREVIEW_ACTUAL_SIZE,
   ATTACHMENT_PREVIEW_DISPOSE,
   ATTACHMENT_PREVIEW_INIT,
+  ATTACHMENT_PREVIEW_URL,
   previewAcceptsBlob,
   type AttachmentPreviewActualSize,
   type AttachmentPreviewInit,
@@ -40,6 +41,12 @@ export function createAttachmentPreview(
   let transferred = false
   let actual = false
   let destroyed = false
+  let objectUrl: string | undefined
+  channel.port1.addEventListener('message', event => {
+    const data = event.data as { type?: string; url?: unknown } | null
+    if (data?.type === ATTACHMENT_PREVIEW_URL && typeof data.url === 'string') objectUrl = data.url
+  })
+  channel.port1.start()
   const initialise = (): void => {
     if (loaded) return
     loaded = true
@@ -66,6 +73,8 @@ export function createAttachmentPreview(
       destroyed = true
       previews.get(file.url)?.delete(preview)
       element.removeEventListener('load', initialise)
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      objectUrl = undefined
       channel.port1.postMessage({ type: ATTACHMENT_PREVIEW_DISPOSE })
       channel.port1.close()
       if (!transferred) channel.port2.close()
