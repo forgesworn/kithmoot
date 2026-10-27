@@ -40,6 +40,11 @@ declare global {
       setRoomMenuState?(state: Record<string, unknown>): void
       /** A chosen application menu item, by its name. Absent before desktop 0.1.92. */
       onMenuCommand?(listener: (command: string) => void): () => void
+      /** Open verified media in a separate, non-persistent native renderer. */
+      beginAttachment?(metadata: { name: string; type: string; kind: 'image' | 'audio' | 'video'; size: number }): Promise<string | null>
+      writeAttachment?(id: string, chunk: Uint8Array | ArrayBuffer, finish: boolean): Promise<boolean>
+      closeAttachment?(id: string): Promise<void>
+      closeAttachments?(): Promise<void>
     }
   }
 }

@@ -4,6 +4,30 @@ const areaSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-share-are
 const shareAreaMode = ['frame', 'preview'].includes(areaSwitch) ? areaSwitch : null
 // Set only on the main window when the main process applied an inset title bar.
 const titleBarSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-title-bar='))?.split('=')[1]
+const attachmentWrites = new Map()
+function writeAttachment(id, chunk, finish) {
+  const previous = attachmentWrites.get(id) ?? Promise.resolve()
+  const next = previous.catch(() => false)
+    .then(() => ipcRenderer.invoke('desktop:attachment-write', id, chunk, finish))
+    .catch(() => false)
+  attachmentWrites.set(id, next)
+  next.then(() => { if (attachmentWrites.get(id) === next) attachmentWrites.delete(id) })
+  return next
+}
+function closeAttachment(id) {
+  const previous = attachmentWrites.get(id) ?? Promise.resolve()
+  attachmentWrites.delete(id)
+  return previous.catch(() => false)
+    .then(() => { ipcRenderer.send('desktop:attachment-close', id) })
+    .catch(() => {})
+}
+function closeAttachments() {
+  const previous = [...attachmentWrites.values()]
+  attachmentWrites.clear()
+  return Promise.allSettled(previous)
+    .then(() => { ipcRenderer.send('desktop:attachment-close-all') })
+    .catch(() => {})
+}
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   titleBar: titleBarSwitch === 'inset' ? 'inset' : null,
   onWindowState(listener) {
@@ -67,4 +91,8 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
     ipcRenderer.on('desktop:update-state', handler)
     return () => ipcRenderer.removeListener('desktop:update-state', handler)
   },
+  beginAttachment(metadata) { return ipcRenderer.invoke('desktop:attachment-begin', metadata).catch(() => null) },
+  writeAttachment,
+  closeAttachment,
+  closeAttachments,
 }))

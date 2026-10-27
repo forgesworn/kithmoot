@@ -92,7 +92,8 @@ import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHa
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
-import { paintAttachmentCard, openingErrorText, type OpenedAttachment } from './attachment-card.js'
+import { NativeAttachmentViewer, nativeAttachmentSupport } from './native-attachment-viewer.js'
+import { paintAttachmentCard, openingErrorText, type OpenedAttachment, type OpenedFile } from './attachment-card.js'
 import { assessAttachment, cleanFileName, familyLabel, SNIFF_BYTES } from '../../src/attachment-safety.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
 import { FloatingSharePreview, floatingPreviewSupported } from './floating-share-preview.js'
@@ -10618,11 +10619,13 @@ function renderInvites(): void {
 
 
 /** What has been fetched and opened, per log, per message, per attachment.
- *  An object URL is revoked when its message leaves the log and never
- *  before, so a re-render costs nothing and never fetches twice. */
+ *  An object URL is revoked when its attachment is retracted, edited away or
+ *  leaves the log, and never before, so a re-render never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
+const liveAttachmentKeys = new Map<string, Set<string>>()
 const attachmentViewer = new AttachmentViewer()
-window.addEventListener('pagehide', () => attachmentViewer.close())
+const nativeAttachmentViewer = new NativeAttachmentViewer()
+window.addEventListener('pagehide', () => { attachmentViewer.close(); nativeAttachmentViewer.close() })
 
 function attachmentKey(logId: string, messageId: string, index: number): string {
   return `${logId}/${messageId}/${index}`
@@ -10634,14 +10637,35 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Drop what was opened for messages no longer in this log. */
-function pruneOpenedAttachments(logId: string, messages: ChatMessage[]): void {
+function openAttachmentViewer(file: OpenedFile, trigger: HTMLElement): void {
+  attachmentViewer.close()
+  nativeAttachmentViewer.close()
+  const native = nativeAttachmentSupport() && ['image', 'audio', 'video'].includes(file.decision.preview)
+  if (native) nativeAttachmentViewer.open(file, trigger)
+  else attachmentViewer.open(file, trigger)
+}
+
+function disposeOpenedAttachment(key: string): void {
+  const opened = openedAttachments.get(key)
+  if (!opened) return
+  if ('url' in opened) {
+    attachmentViewer.closeUrl(opened.url)
+    nativeAttachmentViewer.closeUrl(opened.url)
+    URL.revokeObjectURL(opened.url)
+  }
+  openedAttachments.delete(key)
+}
+
+/** Drop what was opened for attachments no longer visible in this log. */
+function pruneOpenedAttachments(logId: string, conversation: { byKey: Map<string, ResolvedMessage> }): void {
   const live = new Set<string>()
-  for (const m of messages) (m.attachments ?? []).forEach((_, i) => live.add(attachmentKey(logId, m.id, i)))
-  for (const [key, opened] of openedAttachments) {
-    if (!key.startsWith(`${logId}/`) || live.has(key)) continue
-    if ('url' in opened) { attachmentViewer.closeUrl(opened.url); URL.revokeObjectURL(opened.url) }
-    openedAttachments.delete(key)
+  for (const resolved of conversation.byKey.values()) {
+    if (resolved.retracted) continue
+    ;(resolved.shown.attachments ?? []).forEach((_, i) => live.add(attachmentKey(logId, resolved.original.id, i)))
+  }
+  liveAttachmentKeys.set(logId, live)
+  for (const key of openedAttachments.keys()) {
+    if (key.startsWith(`${logId}/`) && !live.has(key)) disposeOpenedAttachment(key)
   }
 }
 
@@ -10692,8 +10716,9 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       closedMeta,
       opened: openedAttachments.get(key),
       desktop: import.meta.env.VITE_DESKTOP === 'true',
+      nativeMedia: nativeAttachmentSupport(),
       formatBytes,
-      openViewer: (file, trigger) => attachmentViewer.open(file, trigger),
+      openViewer: openAttachmentViewer,
       copyText: copyMessageText,
       redraw: next => render(next),
       show: button => { void openAttachment(button) },
@@ -10738,18 +10763,19 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       // Text goes through textContent, never as a document. Nothing is read
       // as text unless the decision allows a text preview.
       const text = decision.preview === 'text' ? await file.source.text() : undefined
-      if (generation !== roomGeneration) return
-      // Re-wrapped as the type the bytes are, so the browser decodes what is
-      // there and not what the sender said; anything else is opaque.
-      const url = URL.createObjectURL(new Blob([file.source], { type: decision.mime }))
+      if (generation !== roomGeneration || !liveAttachmentKeys.get(logId)?.has(key)) return
+      // Re-wrapped as the type the bytes are, so only Save uses the parent's
+      // origin; an isolated renderer receives the Blob for every preview.
+      const blob = new Blob([file.source], { type: decision.mime })
+      const url = URL.createObjectURL(blob)
       openedAttachments.set(key, {
-        url, name: decision.name, type: decision.mime, size: file.size, decision,
+        url, blob, name: decision.name, type: decision.mime, size: file.size, decision,
         ...(text !== undefined ? { text } : {}),
       })
       opened = true
     } catch (err) {
       // The reason and nothing else: an error here never carries the key.
-      if (generation !== roomGeneration) return
+      if (generation !== roomGeneration || !liveAttachmentKeys.get(logId)?.has(key)) return
       const why = openingErrorText(err, host)
       openedAttachments.set(key, { error: why })
       setStatus(why)
@@ -11014,6 +11040,8 @@ function restoreConversation(): void {
 }
 
 function selectChannel(name: string | undefined): void {
+  attachmentViewer.close()
+  nativeAttachmentViewer.close()
   messageActions.close(false)
   chatScroll.remember()
   captureDraft()
@@ -11913,7 +11941,6 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   const openReaction = log.querySelector<HTMLElement>('.reactionDetails:popover-open')?.id
   let restoreReaction: (() => void) | undefined
   const unread = unreadMessageIds(currentChannel)
-  pruneOpenedAttachments(logId, messages)
   wantProfiles(messages.flatMap((m) => (m.speaker ? [m.participant, m.speaker] : [m.participant])), 'room')
 
   const namesOfMine = myNames()
@@ -11934,6 +11961,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   // replies in time order with a quote of the message they answer. See
   // `resolveConversation` and docs/messages.md.
   const conversation = resolveConversation(messages)
+  pruneOpenedAttachments(logId, conversation)
   const requestStatuses = readAgentRequestStatuses(messages)
   const agentNames = new Map<string, string>()
   for (const message of messages) if (message.name) agentNames.set(message.participant, message.name)
@@ -15750,9 +15778,11 @@ function resetRoomState(): void {
   admissionController = undefined
   guestAdmissionPreview?.close()
   guestAdmissionPreview = undefined
-  for (const opened of openedAttachments.values()) if ('url' in opened) URL.revokeObjectURL(opened.url)
+  for (const key of openedAttachments.keys()) disposeOpenedAttachment(key)
   attachmentViewer.close()
+  nativeAttachmentViewer.close()
   openedAttachments.clear()
+  liveAttachmentKeys.clear()
   catalogues.clear()
   controlSeen.clear()
   admins.clear()

@@ -1,4 +1,5 @@
 import type { AttachmentDecision } from '../../src/attachment-safety.js'
+import { createAttachmentPreview } from './attachment-preview.js'
 import { icon } from './icons.js'
 
 /**
@@ -11,8 +12,10 @@ import { icon } from './icons.js'
 
 /** A file that has been fetched, decrypted and assessed. */
 export interface OpenedFile {
-  /** An object URL over the bytes, re-wrapped as the type the bytes are. */
+  /** An object URL over the verified bytes, retained for the Save action. */
   url: string
+  /** The verified bytes, re-wrapped as the type the bytes are. */
+  blob: Blob
   /** The cleaned envelope name: the only name used once a file is open. */
   name: string
   type: string
@@ -37,6 +40,8 @@ export interface CardView {
   opened?: OpenedAttachment
   /** The desktop app cannot open a blob: window, so a PDF is Save only there. */
   desktop: boolean
+  /** Native desktop opens image, audio and video through its own viewer. */
+  nativeMedia?: boolean
   formatBytes(n: number): string
   show(button: HTMLButtonElement): void
   /** Draw the card again after a change of state the card owns. */
@@ -143,31 +148,26 @@ export function paintAttachmentCard(card: HTMLElement, v: CardView): void {
   const name = opened.name
   const meta = `${d.family} · ${v.formatBytes(opened.size)}`
 
-  // The picture, the player or the page text sit above the name row, full width.
-  if (d.preview === 'image') {
-    const img = el('img')
-    img.src = opened.url
-    img.alt = name
-    const expand = el('button', 'attachmentImage')
+  // Untrusted media is decoded only inside its opaque-origin frame. Native
+  // desktop uses an Open action instead of creating a web media frame.
+  if (!v.nativeMedia && d.preview === 'image') {
+    const preview = createAttachmentPreview(opened, 'image')
+    const expand = el('button', 'attachmentImageExpand')
     expand.type = 'button'
     expand.setAttribute('aria-label', `Expand ${name}`)
     expand.dataset.focusKey = key
-    expand.append(img)
     expand.onclick = () => v.openViewer(opened, expand)
+    const surface = el('div', 'attachmentImage')
+    surface.append(preview.element, expand)
     const frame = el('div', 'attPreview')
-    frame.append(expand)
+    frame.append(surface)
     body.append(frame)
     card.classList.add('hasMedia')
-  } else if (d.preview === 'video' || d.preview === 'audio') {
-    const player = document.createElement(d.preview)
-    player.controls = true
-    player.preload = 'metadata'
-    if (player instanceof HTMLVideoElement) player.playsInline = true
-    player.src = opened.url
-    player.setAttribute('aria-label', name)
-    player.dataset.focusKey = key
+  } else if (!v.nativeMedia && (d.preview === 'video' || d.preview === 'audio')) {
+    const preview = createAttachmentPreview(opened, d.preview)
+    preview.element.dataset.focusKey = key
     const frame = el('div', 'attPreview')
-    frame.append(player)
+    frame.append(preview.element)
     body.append(frame)
     card.classList.add('hasMedia')
   }
@@ -184,16 +184,14 @@ export function paintAttachmentCard(card: HTMLElement, v: CardView): void {
     return a
   }
 
+  const nativeMedia = v.nativeMedia && (d.preview === 'image' || d.preview === 'video' || d.preview === 'audio')
+  if (nativeMedia || (d.preview === 'pdf' && !v.desktop)) {
+    const open = button('Open', name, () => v.openViewer(opened, open))
+    first(open)
+    actions.append(open)
+  }
+
   if (d.save === 'quiet') {
-    if (d.preview === 'pdf' && !v.desktop) {
-      const open = el('a', 'actBtn')
-      open.href = opened.url
-      open.target = '_blank'
-      open.rel = 'noopener noreferrer'
-      named(open, 'Open', name)
-      first(open)
-      actions.append(open)
-    }
     const s = save('Save')
     first(s)
     actions.append(s)

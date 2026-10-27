@@ -117,6 +117,12 @@ export default defineConfig({
     // deploying the app want app/dist, not the library's.
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(here, 'index.html'),
+        'attachment-frame': resolve(here, 'attachment-frame.html'),
+      },
+    },
   },
   plugins: [girnelAssets(), pinnedWasmPreview(),
     audioWorklet(),
