@@ -5,12 +5,12 @@
       "version": "0.1.110",
       "updateTo": {
         "version": "0.1.110",
-        "pub_date": "2026-10-27T20:25:03Z",
+        "pub_date": "2026-10-27T21:23:34Z",
         "notes": "Opens image, audio and video attachments in a dedicated sandboxed renderer with no Node access, application storage or external network access, and closes viewers on retraction.",
         "name": "0.1.110",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.110/KithMoot-0.1.110-mac-arm64.zip",
-        "sha256": "28c83f74a043db41c4f35ae56df7b63d8452606382245b86df54c63c6cdee87a",
-        "size": 190120899
+        "sha256": "322b2cc3a808b0886b229d75475ad4cc431a3f172fc953ca49e2f35fe3531e6c",
+        "size": 190120998
       }
     }
   ]
