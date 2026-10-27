@@ -1,5 +1,5 @@
 import type { AttachmentDecision } from '../../src/attachment-safety.js'
-import { createAttachmentPreview } from './attachment-preview.js'
+import { createAttachmentPreview, destroyAttachmentPreviews } from './attachment-preview.js'
 import { icon } from './icons.js'
 
 /**
@@ -109,6 +109,7 @@ function sayBox(kind: 'warn' | 'block', message: string, id: string): HTMLElemen
 
 /** Paint a card from its view. Replaces whatever the card held. */
 export function paintAttachmentCard(card: HTMLElement, v: CardView): void {
+  if (v.opened && 'url' in v.opened) destroyAttachmentPreviews(v.opened.url)
   card.replaceChildren()
   card.classList.remove('hasMedia')
   const opened = v.opened

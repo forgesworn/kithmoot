@@ -99,6 +99,7 @@ import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
 import { AttachmentViewer } from './attachment-viewer.js'
 import { NativeAttachmentViewer, nativeAttachmentSupport } from './native-attachment-viewer.js'
+import { destroyAttachmentPreviews } from './attachment-preview.js'
 import { paintAttachmentCard, openingErrorText, type OpenedAttachment, type OpenedFile } from './attachment-card.js'
 import { assessAttachment, cleanFileName, familyLabel, SNIFF_BYTES } from '../../src/attachment-safety.js'
 import { ShareViewer, type ShareSource } from './share-viewer.js'
@@ -10714,6 +10715,7 @@ function disposeOpenedAttachment(key: string): void {
   if ('url' in opened) {
     attachmentViewer.closeUrl(opened.url)
     nativeAttachmentViewer.closeUrl(opened.url)
+    destroyAttachmentPreviews(opened.url)
     URL.revokeObjectURL(opened.url)
   }
   openedAttachments.delete(key)
