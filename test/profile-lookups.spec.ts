@@ -7,7 +7,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { dmPolicy } from '../src/dm.js'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCreator, openRoomDetails, openProfileSettings, TEST_RELAY_WS } from './browser.js'
+import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCreator, openRoomInfoPage, openProfileSettings, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Public-profile lookups, as a relay meets them. A lookup is a plaintext
@@ -68,14 +68,14 @@ test('the signed-in account keeps its own kind-0 name with directory lookups off
     await nameCreator(page, 'Typed fallback')
     await page.locator('#create').click()
     await expect(page.locator('#roomArea')).toBeVisible()
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toBeVisible()
     await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
     await page.screenshot({ path: test.info().outputPath('own-account-name-phone.png'), fullPage: true })
     await page.locator('#roomSheetClose').click()
     await page.reload()
     await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
-    await openRoomDetails(page)
+    await openRoomInfoPage(page, 'How you appear')
     await expect(page.locator('#sendingIdentity')).toBeVisible()
     await expect(page.locator('#accountProfile')).toContainText('TheCryptoDonkey')
     await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
