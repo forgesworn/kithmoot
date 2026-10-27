@@ -75,6 +75,7 @@ test('opening an older conversation keeps its message time and position until a 
     const names = rows.locator('.roomName')
     const olderRow = rows.filter({ has: page.locator('.roomName', { hasText: 'Older conversation' }) })
     await expect(names).toHaveText(['Newer conversation', 'Older conversation'])
+    await expect(olderRow.locator('.roomTime')).not.toHaveText('')
     const originalTime = await olderRow.locator('.roomTime').textContent()
     expect(originalTime).toBeTruthy()
     await page.clock.setFixedTime(now + 130_000)

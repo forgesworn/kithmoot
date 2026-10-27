@@ -634,6 +634,26 @@ describe('ChatLog', () => {
     expect(seen).toEqual([1])
   })
 
+  it('refuses an expired sending credential before a relay can acknowledge an unreadable message', async () => {
+    const relay = new SimRelay({ replay: true })
+    const { roomId, roomKey, deviceSk, credential, identity } = await fixture()
+    let clock = NOW
+    const sender = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, credential, deviceSk, now: () => clock })
+    try {
+      await sender.send('Before expiry')
+      clock = NOW + 3601
+      await expect(sender.send('After expiry')).rejects.toThrow(/credential/i)
+      expect(() => sender.prepare('Keep this draft')).toThrow(/credential/i)
+      expect(relay.published).toHaveLength(1)
+      sender.setCredential(await createDeviceCredential({ identity, devicePubkey: getPublicKey(deviceSk), roomId,
+        expiresAt: NOW + 7200, now: () => clock }))
+      await sender.send('After renewal')
+      const desktop = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey, now: () => clock })
+      try { expect(desktop.messages().map(message => message.text)).toEqual(['Before expiry', 'After renewal']) }
+      finally { desktop.close() }
+    } finally { sender.close() }
+  })
+
   it('bounds one device to thirty messages per minute', async () => {
     const relay = new SimRelay()
     const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(7))

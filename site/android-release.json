@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.117",
-  "versionCode": 140,
+  "versionName": "0.6.120",
+  "versionCode": 143,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70873600,
-  "apkSha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+  "apkBytes": 70885888,
+  "apkSha256": "17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.117-production.apk",
+  "downloadFilename": "kithmoot-0.6.120-production.apk",
   "releaseNotes": [
-    "Choose Use signed-in account for a room relay that requires account authentication.",
-    "Relay identity permission lasts for the current account session and clears when the app restarts.",
-    "Update over your existing installation to keep your account and rooms."
+    "Fixes dropped messages while catching up on a burst of stored chat.",
+    "Retries the original history window without duplicating messages already received.",
+    "Includes isolated recording playback and the existing camera startup and relay authentication fixes."
   ]
 }

@@ -9,7 +9,7 @@ const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'ut
 for (const arch of ['x64', 'arm64']) {
   const [directory] = await packager({
     dir: root, out: resolve(root, 'out'), name: 'KithMoot', executableName: 'kithmoot',
-    platform: 'linux', arch, electronVersion: '44.4.1', appVersion: version,
+    platform: 'linux', arch, electronVersion: '44.9.3', appVersion: version,
     overwrite: true, asar: true,
     ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   })

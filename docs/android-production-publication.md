@@ -6,6 +6,58 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.120 message replay, 27 October 2026
+
+Version **0.6.120**, code **143**, fixes receive-buffer overflow that could
+lose a burst of retained chat and suppress the missing events on relay replay.
+Recovery preserves the original history window, avoids duplicates and uses a
+bounded retry budget. An exhausted read does not establish complete history.
+Signature, credential, epoch and membership checks remain in force.
+
+Android source `e3dd94a3c1addbe5695b318a8425d51d1b9c5bf5` (PR #347). The production-signed APK is
+70,885,888 bytes, SHA-256 `17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5`. All 811 ZIP
+payload entries match the unsigned release. The existing certificate and
+preview lineage are unchanged. The signing host passed 594 protocol, 2,901
+debug app and 2,890 release app tests, both lints and the dependency/model guard.
+The exact signed 0.6.118-to-0.6.120 emulator upgrade retained UID, first-install
+time and encrypted synthetic data; 17 seed, retention, native-startup and
+isolated image/recording checks passed. This is emulator evidence, not physical
+GrapheneOS or real phone-to-desktop acceptance. See the
+[candidate receipt](evidence/android-0.6.120-candidate-20261027.json).
+
+Publication is pending hosted CI and public readback. This release accompanies
+the web/desktop credential-expiry check and desktop 0.1.108; recovery of the
+tester's particular missing events has not been established.
+
+## Android 0.6.118 camera startup and relay controls, 27 October 2026
+
+Version **0.6.118**, code **141**, combines the merged camera startup guard
+and explicit room-relay account authentication. A failed background model load
+retains the selected synthetic backdrop and fish until the camera/effect session
+resets, avoiding repeated failed native graph construction on every frame.
+The bundled model and reviewed SDK pins, local no-op reporting transport,
+production certificate and preview signing lineage are retained.
+
+**Use signed-in account** is available for an explicitly confirmed room relay.
+Permission is limited to foreground rooms for the current account session;
+sign-out, account replacement, process exit and relay removal/disable clear it.
+The targeted 0.6.117 release remains available separately.
+
+Android source `dfbe6ed89121b91f86754a60df41171c596f8cd2` (PR #345).
+The production APK is 70,873,600 bytes, SHA-256
+`e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6`.
+All 811 ZIP payload entries match the unsigned release. The signing host passed
+594 protocol, 2,898 debug app and 2,887 release app tests, both lints, all builds
+and the dependency/model guard. The [candidate receipt](evidence/android-0.6.118-candidate-20261027.json)
+records these exact build facts; the final
+[publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.118/android-0.6.118-publication-20261027.json)
+records hosted CI, emulator upgrade, public downloads and store readback.
+
+Deploy only the four Android publication files and the immutable APK over the
+current live tree. Preserve the live PWA and desktop release byte-for-byte.
+Physical GrapheneOS visual, thermal, battery, acoustic and real-peer acceptance
+remain separate from signed release, emulator and publication evidence.
+
 ## Android 0.6.117 account authentication, published 27 October 2026
 
 Version **0.6.117**, code **140**, adds explicit account authentication for
