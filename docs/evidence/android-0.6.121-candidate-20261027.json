@@ -1,0 +1,47 @@
+{
+  "signedAt": "2026-10-27T10:42:05.572754+00:00",
+  "sourceCommit": "e515017426513bcc1ffc3d7e419af8258cc68d09",
+  "versionName": "0.6.121",
+  "versionCode": 144,
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "keysStayedOnM4": true,
+  "apkFilename": "kithmoot-0.6.121-production.apk",
+  "apkSha256": "6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6",
+  "apkBytes": 70889984,
+  "tests": {
+    "protocol:test": {
+      "tests": 594,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app:testDebugUnitTest": {
+      "tests": 2906,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app:testReleaseUnitTest": {
+      "tests": 2895,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sourceFilesVerified": 1924,
+  "zipPayloadsMatchUnsigned": true,
+  "payloadEntries": 811,
+  "lintDebugPassed": true,
+  "lintReleasePassed": true,
+  "telemetryGuardPassed": true,
+  "physicalGrapheneOsAcceptance": false,
+  "schemaVersion": 1,
+  "candidate": true,
+  "productionUpgrade": "118 to 121 passed with UID, first installation time and encrypted synthetic marker retained",
+  "emulatorTests": 17,
+  "emulatorApi": 35,
+  "emulatorImage": "google_apis",
+  "publication": "pending",
+  "hostedQualification": "pending"
+}
