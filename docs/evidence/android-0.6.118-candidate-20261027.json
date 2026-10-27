@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-27T07:28:35.741533+00:00",
+  "scope": "signed build candidate; publication evidence is a separate final receipt",
+  "publiclyShipped": false,
+  "versionName": "0.6.118",
+  "versionCode": 141,
+  "androidSource": "dfbe6ed89121b91f86754a60df41171c596f8cd2",
+  "apk": {
+    "filename": "kithmoot-0.6.118-production.apk",
+    "sha256": "e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6",
+    "bytes": 70873600,
+    "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "lineage": {
+      "previousCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "previousCapabilities": {
+        "installedData": true,
+        "sharedUid": false,
+        "permission": true,
+        "rollback": false,
+        "auth": false
+      }
+    },
+    "lineageFileSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "zipPayloadsMatchUnsigned": true,
+    "payloadEntries": 811
+  },
+  "localBuild": {
+    "tests": {
+      "protocol:test": {
+        "tests": 594,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app:testDebugUnitTest": {
+        "tests": 2898,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app:testReleaseUnitTest": {
+        "tests": 2887,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "lintDebugPassed": true,
+    "lintReleasePassed": true,
+    "telemetryGuardPassed": true,
+    "minifiedRelease": true,
+    "keysStayedOnM4": true
+  },
+  "requiredQualification": {
+    "androidCiJobs": 17,
+    "matchingSignedUpgradeAndEmulatorChecks": true,
+    "websiteCi": true,
+    "independentGithubBothWebsitesAndZapstoreReadback": true
+  },
+  "physicalAndroidAcceptance": false
+}

@@ -6,6 +6,200 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.120 message replay, 27 October 2026
+
+Version **0.6.120**, code **143**, fixes receive-buffer overflow that could
+lose a burst of retained chat and suppress the missing events on relay replay.
+Recovery preserves the original history window, avoids duplicates and uses a
+bounded retry budget. An exhausted read does not establish complete history.
+Signature, credential, epoch and membership checks remain in force.
+
+Android source `e3dd94a3c1addbe5695b318a8425d51d1b9c5bf5` (PR #347). The production-signed APK is
+70,885,888 bytes, SHA-256 `17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5`. All 811 ZIP
+payload entries match the unsigned release. The existing certificate and
+preview lineage are unchanged. The signing host passed 594 protocol, 2,901
+debug app and 2,890 release app tests, both lints and the dependency/model guard.
+The exact signed 0.6.118-to-0.6.120 emulator upgrade retained UID, first-install
+time and encrypted synthetic data; 17 seed, retention, native-startup and
+isolated image/recording checks passed. This is emulator evidence, not physical
+GrapheneOS or real phone-to-desktop acceptance. See the
+[candidate receipt](evidence/android-0.6.120-candidate-20261027.json).
+
+Publication is pending hosted CI and public readback. This release accompanies
+the web/desktop credential-expiry check and desktop 0.1.108; recovery of the
+tester's particular missing events has not been established.
+
+## Android 0.6.118 camera startup and relay controls, 27 October 2026
+
+Version **0.6.118**, code **141**, combines the merged camera startup guard
+and explicit room-relay account authentication. A failed background model load
+retains the selected synthetic backdrop and fish until the camera/effect session
+resets, avoiding repeated failed native graph construction on every frame.
+The bundled model and reviewed SDK pins, local no-op reporting transport,
+production certificate and preview signing lineage are retained.
+
+**Use signed-in account** is available for an explicitly confirmed room relay.
+Permission is limited to foreground rooms for the current account session;
+sign-out, account replacement, process exit and relay removal/disable clear it.
+The targeted 0.6.117 release remains available separately.
+
+Android source `dfbe6ed89121b91f86754a60df41171c596f8cd2` (PR #345).
+The production APK is 70,873,600 bytes, SHA-256
+`e2655477a853a7afc581599823eb94775fede0383209229bd499ea38eaf13fc6`.
+All 811 ZIP payload entries match the unsigned release. The signing host passed
+594 protocol, 2,898 debug app and 2,887 release app tests, both lints, all builds
+and the dependency/model guard. The [candidate receipt](evidence/android-0.6.118-candidate-20261027.json)
+records these exact build facts; the final
+[publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.118/android-0.6.118-publication-20261027.json)
+records hosted CI, emulator upgrade, public downloads and store readback.
+
+Deploy only the four Android publication files and the immutable APK over the
+current live tree. Preserve the live PWA and desktop release byte-for-byte.
+Physical GrapheneOS visual, thermal, battery, acoustic and real-peer acceptance
+remain separate from signed release, emulator and publication evidence.
+
+## Android 0.6.117 account authentication, published 27 October 2026
+
+Version **0.6.117**, code **140**, adds explicit account authentication for
+foreground room relays. Settings → Connections → Nostr relays offers **Use
+signed-in account**, with the exact relay URL and account npub confirmed.
+Permission clears on sign-out, account-session replacement, app process exit
+or relay removal/disable. Anonymous rooms, discovery and background listeners
+acquire no new identity permission. The relay must also admit device-signed
+messages after account authentication. Earlier refused sends need a retry.
+
+The immutable APK uses source `c72c69e3d182919662c185d2399130ab7e932ee4`,
+with all 17 jobs passing in Android CI `40433938974`. Android PR #342 is merged.
+Later camera-startup changes in PR #343 are outside this binary. The production
+APK is 70,873,600 bytes, SHA-256
+`a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785`.
+The retained production certificate and preview lineage are unchanged.
+
+Protocol (594), debug app (2,898) and release app (2,887) unit tests, both lints,
+and the minified release build passed. Consent tests passed in light and dark
+at 130% text; all ten picker, chat/share and consent tests passed together.
+The exact signed APK upgraded over 0.6.116 on an emulator, retained UID,
+installation history and synthetic app data, then launched. Real sender
+Android/Linux delivery and physical GrapheneOS acceptance remain pending.
+See [candidate evidence](evidence/android-0.6.117-candidate-20261027.json).
+
+GitHub stable/latest, both website hosts, the signed in-app update feed and
+Zapstore now serve the exact verified APK. Website PR #590 merged as
+`ac21dcd74053629efa0e18489ecda47d5bf35033`; all 46 required website jobs passed.
+The qualified and merged website trees match. The later combined Android main
+run also passed all 17 jobs. Superseded failures are retained separately and
+are not counted as passing checks.
+
+The deployment changed four Android publication files and the stable APK link,
+preserving all 630 other website files, including all 595 PWA files and desktop
+0.1.107, byte-for-byte. Both hosts passed ordinary complete versioned/stable
+APK downloads and detached-manifest signature checks. Four fresh Chromium
+contexts passed at phone and desktop widths, with the download cards visually
+reviewed at 390px and 1440px.
+
+Zapstore's release and APK asset, Nostr signatures, application reference,
+version code, source commit, signing ancestor and unexpired certificate proof
+were independently returned and verified. Both advertised CDN and immutable
+GitHub downloads matched the APK. The publishing helper stalled; the prepared
+metadata was signed through the same existing paired publisher. Upload/event
+acknowledgements initially preceded CDN availability, so publication was accepted
+only after full downloads and catalogue readback passed. The blob API's canonical
+URL and its hash-only alias were checked; the advertised hash-only alias matches
+the existing publication verifier's exact URL allowlist.
+
+The [stable publication receipt](evidence/android-0.6.117-stable-publication-20261027.json)
+records these gates. The same receipt is attached to the GitHub release and was
+read back byte-for-byte. Sender delivery, physical GrapheneOS and Zapstore-client
+acceptance remain explicitly unobserved.
+
+## Android 0.6.116 camera backgrounds, 26 October 2026
+
+Version **0.6.116**, code **139**, restores on-device person cut-outs over sea
+scenes and animated fish, following the owner's explicit change of camera
+policy. Google Play services and a Google account are not required. The pinned
+Google model is bundled, and both camera and QR dependencies exclude Google's
+reporting transport. The local logger transport discards events. Failed or
+invalid masks retain the complete synthetic backdrop; they never publish the
+raw camera frame. This includes the isolated attachment decoder from 0.6.115.
+
+Android source `4e0de49472578432f811fea2b4f0dfc0a0934328` (PR #339).
+The production-signed candidate is 70,865,408 bytes, SHA-256
+`0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015`.
+All 811 ZIP payload entries match the unsigned input, with the existing
+production certificate and signing lineage. Signing-host checks passed 594
+protocol, 2,891 debug app and 2,880 release app tests, both lint variants,
+both builds and the dependency/model guard.
+
+The exact candidate updated the authorised Pixel in place and passed 21 camera,
+model, reef, privacy and native-startup checks in its GrapheneOS main profile
+without Play services or Store. Its UID and original installation date were
+retained. The 20-second camera test establishes liveness; real-person visual
+quality and normal-call performance are separate gates. An unlocked foreground comparison measured 6.17 fps raw and 6.50 fps with
+effects in the current scene, with 101 ms mean synthetic-frame composition.
+Sustained-call and owner visual acceptance remain separate. All 17 Android CI
+jobs passed and PR #339 is merged. Public readbacks remain pending in the
+[candidate receipt](evidence/android-0.6.116-candidate-20261026.json).
+
+This publication updates four Android metadata files and the APK. Preserve the
+current desktop release and PWA byte-for-byte when deploying those files.
+
+## Android 0.6.115 decoder and WebRTC, published 26 October 2026
+
+Version **0.6.115**, code **138**, isolates attachment image decoding. Merged
+Android source `0408eb9517a1646655a07b2eb8a62d9190073aeb` combines feature PR
+#338 and release PR #340. Hosted CI run `40363023286` rerun succeeded in all 17
+jobs. Website PR #587 merged as `af0c0fd734ff9ab198a66aa7b026b21785516747`;
+its 46 required jobs and separate adapter passed.
+
+The production APK is `kithmoot-0.6.115-production.apk`, 65,191,394 bytes,
+SHA-256 `e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b`.
+Its certificate is `135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9`;
+the previous certificate and lineage capabilities are unchanged. Independent
+verification checked all 794 unchanged ZIP payload entries, V3-only signing and
+the retained lineage.
+
+Signing-host checks passed 2,889 appDebug tests and 594 protocol tests with zero
+failures. Debug and release lint and the production build passed. Android 15
+emulator checks passed for static images, GIFs and Compose, and for decoder and
+WebRTC behaviour in the minified release. Website typecheck, 7,980 unit tests
+and the production build also passed.
+
+GitHub, both website hosts and Zapstore serve the same verified APK. Stable and
+versioned website downloads match, metadata matches the merged source, public
+browser smoke passed on both hosts, and Zapstore signatures, source commit,
+certificate proof and complete download were independently read back. Deployment
+`20261026T220556Z` and the [publication receipt](evidence/android-0.6.115-publication-20261026.json)
+record these results; the [candidate evidence](evidence/android-0.6.115-candidate-20261026.json)
+retains the pre-publication checks. Physical GrapheneOS media, memory,
+process-death, active-call, accessibility and external-viewer acceptance remains
+separate. No physical device or Zapstore client acceptance is claimed.
+
+## Android 0.6.114 native startup fix, 26 October 2026
+
+Version **0.6.114**, code **137**, fixes the WebRTC native-load crash when
+opening a room in 0.6.113. Release shrinking remains enabled, with the JNI
+Zero helper classes retained and a native-startup smoke in both release
+signing-lineage CI jobs. Android source:
+`82c24c9116c1fe71ec7e7a8285bc76bf49fd11d2` (kithmoot-android #336).
+
+The production-signed APK is 64,847,330 bytes, SHA-256
+`9376c0b2f01bd037c54db0d3c1b8e59072b7e40285de0624ac4d7b540c9cb319`.
+Independent verification checked all 797 unchanged ZIP payload entries,
+version and SDKs, the existing production certificate, V3-only signatures
+and the reviewed signing lineage. Signing-host checks passed 586 protocol,
+2,753 debug app and 2,742 release app tests, both lint variants, both builds
+and the dependency/telemetry guard. The exact versioned release also passed
+native startup on an ARM64 API 35 emulator.
+
+The preceding private patched 0.6.113 passed three fresh-process native-load
+checks on the physical Pixel 10 Pro XL, retained its UID and 14 watched rooms,
+and was confirmed working by the owner. That is specific evidence for the
+startup fix; broader real-call, routing and transport acceptance remains
+separate. Hosted CI, merges and public readbacks are recorded in the final
+publication receipt; the [candidate receipt](evidence/android-0.6.114-candidate-20261026.json)
+retains the pre-publication evidence. Desktop 0.1.104 and the website/PWA implementation are
+unchanged by this Android publication.
+
 ## Combined Android 0.6.113 candidate
 
 Version **0.6.113**, code **136**, combines the performance changes with
@@ -793,3 +987,29 @@ permission guidance and draft logo feature are separate changes and are not
 included in this publication. Physical Android and Zapstore-client installation
 acceptance remain open. The [publication receipt](evidence/android-0.6.80-website-publication-2026-10-11.json)
 records the exact source and these boundaries.
+
+
+## Android 0.6.121 own-profile recovery candidate, 27 October 2026
+
+Production-signed 0.6.121 (code 144) carries the own-account profile recovery
+and 0.6.120 message replay fix. Exact source
+`e515017426513bcc1ffc3d7e419af8258cc68d09`; 70,889,984 bytes; SHA-256
+`6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6`.
+The existing production certificate and preview-to-production lineage are
+retained. Full protocol, debug/release unit tests, both lints, telemetry guard
+and all builds passed; the exact signed APK passed an API 35 emulator upgrade
+over 0.6.118 and 17 native/storage/playback checks. This Google APIs emulator
+does not establish physical GrapheneOS acceptance. Hosted qualification and
+publication are pending. See [candidate evidence](evidence/android-0.6.121-candidate-20261027.json).
+
+### Desktop 0.1.109 and Android 0.6.121 publication — 27 October 2026
+
+Both releases are merged and independently verified. The [publication receipt](evidence/profile-name-recovery-publication-20261027.json) records the exact source trees, hosted qualification, signed packages, GitHub tag sources, full downloads from both website hosts, browser checks, signed APT metadata and current Zapstore release with certificate proof.
+
+Android 0.6.121 (code 144) comes from `e515017426513bcc1ffc3d7e419af8258cc68d09`; desktop 0.1.109 comes from `663077eed4d49691fc5684204a7c940ce6ee2022`, whose runtime files match the packaged build source. Both merged trees match their qualified source trees exactly. The fixes resolve the signed-in account profile independently of optional peer-directory lookups, retry missing metadata within bounded limits, and update room/chat names when the own profile arrives.
+
+Zapstore advertises the fully verified KithMoot website and GitHub APK URLs. Its CDN accepted the upload but returned 404 during publication, so that unavailable URL is not advertised. The unchanged publication verifier passed every advertised download, current release/asset reference and signature check.
+
+All 47 required web/desktop checks and all 17 Android checks passed. The first media-adapter attempt failed on silent generated fixture audio; the unchanged-source second attempt passed. Duplicate post-merge runs were cancelled only after full source-tree equality was verified; cancellation is not counted as a pass.
+
+The exact signed Android APK upgraded over 0.6.118 in an API 35 emulator with UID, first installation time and encrypted test state retained. This is separate from physical GrapheneOS/Linux acceptance, the owner's name check and the sender's delivery trial, which remain pending. Earlier missing messages are not claimed recovered.

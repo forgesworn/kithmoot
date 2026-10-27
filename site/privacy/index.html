@@ -95,7 +95,7 @@
 
 <h2>7. Who else receives data</h2>
 <ul>
-<li><strong>Public Nostr relays</strong>, including the independent relays the app suggests by default and any a room's creator adds, receive the ciphertext, device keys and timing any room necessarily produces to function.</li>
+<li><strong>Public Nostr relays</strong>, including the independent relays the app suggests by default and any a room's creator adds, receive encrypted messages and connection metadata. The current roster format exposes device pseudonyms and a shared room or epoch tag, so an operator can group those devices' activity. Encrypted call-setup events still expose the recipient device tag, timing and sizes. Roster names and account credentials, and the call-setup contents, remain encrypted; public-profile lookups are described separately below. Encryption does not hide every relationship or activity pattern. Ephemeral events and expiration do not guarantee that an operator or observer deletes its copies.</li>
 <li><strong>Our hosting provider</strong>, which hosts the public app, website and update files.</li>
 </ul>
 <p>The app also makes your device contact the following. Each learns your device's IP address and the time, as any web request does.</p>
@@ -110,7 +110,7 @@
 <li><strong>The domain in a Nostr address, if you turn checking on.</strong> If a person's profile names a Nostr address (name@domain) and you have ticked "Verify Nostr addresses", the app asks that domain to confirm it. The domain learns the name asked about and the address the question came from, and can infer that somebody is looking at that person. No cookies or referrer are sent.</li>
 <li><strong>The host of a profile picture.</strong> A picture in a person's profile is loaded from whatever host that person chose. The host learns the address it was fetched from and when, and so that somebody is looking at that person. No referrer is sent. The picture's owner may run that host.</li>
 </ul>
-<p>Profile lookups and pictures are <strong>on by default</strong>. Turn them off under Settings, Privacy, "Show public profile pictures and names", by clearing "Show public profile pictures, names and Nostr addresses". The choice is saved on your device. Turning it off stops further lookups and removes loaded profiles and pictures; it cannot recall a request already sent. Checking Nostr addresses is <strong>off by default</strong>, under "Verify Nostr addresses" in the same place.</p>
+<p>In the web app, lookups and pictures for other people are <strong>off until you explicitly enable them</strong>; an existing saved choice is honoured. Older installed releases may still enable them by default. Use Settings, Privacy, "Show public profile pictures and names", and the "Show other people’s public profile pictures, names and Nostr addresses" switch to choose. The choice is saved on your device. Turning it off stops further directory lookups and removes other people’s loaded profiles and pictures; it cannot recall a request already sent. While Nostr account networking is enabled, the signed-in account’s own profile is read separately from the public profile relays, and its picture may be loaded from the account’s chosen host. Private invitations pauses these account lookups too. Checking Nostr addresses is <strong>off by default</strong>, under "Verify Nostr addresses" in the same place.</p>
 <p>The desktop app also makes your device contact:</p>
 <ul>
 <li><strong>Our site, for updates</strong>, as section 4.2 describes.</li>

@@ -11,7 +11,9 @@ let navigationServer: Server, navigationOrigin = ''
 const navigationHides: boolean[] = []
 test.beforeAll(async () => {
   entry = (await build({ entryPoints: ['app/src/ordinary-startup-entry.ts'], bundle: true, write: false,
-    format: 'esm', platform: 'browser', target: 'es2022', plugins: [{ name: 'observe-deferred-legacy-modules', setup(builder) {
+    format: 'esm', platform: 'browser', target: 'es2022',
+    define: { 'import.meta.env.DEV': 'false', 'import.meta.env.VITE_MIXED_INVITATION_LAB': '"false"' },
+    plugins: [{ name: 'observe-deferred-legacy-modules', setup(builder) {
       builder.onResolve({ filter: /^\.\/(text-size|call-folds|main)\.js$/ }, input => {
         if (!input.importer.endsWith('/app/src/ordinary-startup-entry.ts')) return undefined
         return { path: '/normal/' + input.path.slice(2), external: true }

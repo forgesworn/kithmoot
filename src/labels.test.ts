@@ -43,6 +43,7 @@ import { READ_POSITION_LABELS } from './read-position.js'
 import { ROOM_LABELS } from './room.js'
 import { ROOM_RELAYS_LABELS } from './room-relays.js'
 import { ROOM_STORAGE_LABELS } from './room-storage.js'
+import { ROSTER_ENVELOPE_2 } from './roster.js'
 import { VERIFICATION_LABELS } from './verification.js'
 import { VMLS_REVOCATION_LABELS } from './vmls-revocation-request.js'
 
@@ -102,6 +103,7 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/relays:',
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',
+  'kithmoot/v1/roster-envelope-2',
   'kithmoot/v1/storage:',
   'kithmoot/v1/verify',
   'kithmoot/v2/project-journal-delta',
@@ -209,6 +211,8 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['read-position.ts', READ_POSITION_LABELS],
   ['room-relays.ts', ROOM_RELAYS_LABELS],
   ['room-storage.ts', ROOM_STORAGE_LABELS],
+  // Roster exports its single versioned marker directly.
+  ['roster.ts', [ROSTER_ENVELOPE_2]],
   ['verification.ts', VERIFICATION_LABELS],
   ['vmls-revocation-request.ts', VMLS_REVOCATION_LABELS],
 ]

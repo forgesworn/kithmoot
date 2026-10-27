@@ -1,3 +1,9 @@
+import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
+import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
+import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
+import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
+import { accountSyncServices } from './account-sync.js'
+import { AccountNetwork, accountNetworkDefault, ACCOUNT_NETWORK_KEY, NOSTR_MODE_REQUIRED, PRIVATE_SYNC_PAUSED } from './account-network.js'
 import { AdmissionPreview, AdmissionPreviewCancelled } from './admission-preview.js'
 import { admissionRequestTransport } from './admission-request-transport.js'
 import { prepareInvitationRefusal, type InvitationRefusalAttempt } from './invitation-refusal.js'
@@ -377,11 +383,13 @@ import {
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type LookupScope, type Profile } from './profiles.js'
+import { AccountProfileBook } from './account-profile.js'
 import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-lookups.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
+import { captureBarkRendezvous, barkRendezvousFor } from './mls-bark-rendezvous.js'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
 import type { ContextPanel } from './context-panel.js'
 import type { AssignmentPanel, BoardSummary } from './assignment-panel.js'
@@ -423,6 +431,8 @@ for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey',
  * left in history. They live in memory only until the code has been looked up.
  */
 // Consume a one-use pairing code before room parsing, history, referrers or invitations can see it.
+// Resolve the product policy before signer restore or auxiliary construction.
+const accountNetwork = new AccountNetwork({ getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) }, accountNetworkDefault(import.meta.env.VITE_ACCOUNT_NETWORK_DEFAULT))
 const spryPairingHash = location.hash.startsWith('#spry=') ? location.hash : undefined
 let spryPairingInFlight = false
 if (spryPairingHash) history.replaceState(null, '', location.pathname + location.search)
@@ -818,9 +828,11 @@ const relayStorage = {
 // grant no message-relay ownership; explicit keeper-confirmed marks remain.
 let boxDiscovery: BoxDiscovery | undefined
 const relayConnections = new RelayConnections(relayStorage, DEFAULT_RELAYS, url => boxDiscovery?.circleRelays().has(url) ?? false)
+relayConnections.accountNetwork(accountNetwork)
 /** Finding public call relays: off until the person turns it on. See
  *  app/src/public-call-relays.ts and docs/2026-10-25-public-relay-discovery.md. */
 const publicCallRelays = new PublicCallRelays({
+  fetch: (input, init) => accountNetwork.fetch(input, init),
   store: {
     getItem: key => { try { return localStorage.getItem(key) } catch { return null } },
     setItem: (key, value) => localStorage.setItem(key, value),
@@ -840,21 +852,15 @@ const publicRelayRoutes = new WeakMap<RoomSession, { start(): Promise<void>; end
 /** Said in place of the generic notice once a discovered relay is lost. */
 let callRelayLostNotice: string | undefined
 const browserLink = new BrowserLink(startBrowserLink)
-// Remains unavailable in production until browser integration and review pass.
-const browserMlsPreview = import.meta.env.DEV && import.meta.env.VITE_BROWSER_MLS_PREVIEW === 'true'
+// Default-off source candidate; native provenance remains qualification-only.
+const browserMlsPreview = browserMlsEnabled()
 let browserMlsPanel: BrowserMlsPanel | undefined
 let browserMlsGrantPanel: BrowserMlsGrantDevelopmentPanel | undefined
 let browserMlsRoomPanel: BrowserMlsRoomDevelopmentPanel | undefined
 async function pauseBrowserMls(): Promise<void> {
-  if (import.meta.env.DEV) {
-    const grants = browserMlsGrantPanel?.invalidate(), witness = browserMlsPanel?.invalidate(), rooms = browserMlsRoomPanel?.invalidate()
-    const results = await Promise.allSettled([grants, witness, rooms])
-    const failure = results.find(result => result.status === 'rejected')
-    if (failure?.status === 'rejected') throw failure.reason
-    return
-  }
-  await browserMlsPanel?.invalidate()
+  await invalidateBrowserMlsOwners([browserMlsGrantPanel, browserMlsPanel, browserMlsRoomPanel])
 }
+
 let roomUsesBothy = false
 /** A room that keeps its files on its group's own computers: the list its
  *  authority signed, held across visits. Read through `roomStorageRecord()`;
@@ -871,7 +877,7 @@ const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, brow
     await closeRoomSession({ backgroundFarewell: true })
     setStatus('This room’s public connections were closed for a Bothy transition. Reopen it after activation finishes.')
   }
-})
+}, accountNetwork)
 const privateFileVault = new PrivateFileVault()
 let forgettingBrowser = false
 const privateFiles = new BrowserBothyFiles({
@@ -1349,10 +1355,10 @@ let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
 function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); privateFileUploadsPanel.close() }
 function reconcileAccountMessageViews(): void {
-  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = !legacyMessagesPanel?.available
-  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = !nostrMessagePanel?.available
-  ;($('nostrInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
-  ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = !nostrInboxPanel?.available
+  ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !legacyMessagesPanel?.available
+  ;($('nostrMessageEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrMessagePanel?.available
+  ;($('nostrInboxEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrInboxPanel?.available
+  ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrInboxPanel?.available
   $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
   nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
 }
@@ -1391,8 +1397,12 @@ function storeName(name: string): void {
  */
 function joiningName(): string | undefined {
   if (nostrSession) {
-    const profile = profiles.get(nostrSession.pubkey)
+    const profile = accountProfiles.get(nostrSession.pubkey)
     if (profile?.name) return profile.name
+    const name = sanitiseDisplayName(nostrSession.displayName)
+    if (name) return name
+    const remembered = lastKnownProfileNames.get(nostrSession.pubkey)
+    if (remembered) return remembered
   }
   return typedName || undefined
 }
@@ -1552,8 +1562,9 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     const generation=identityGeneration,previous=nostrSession
     await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) void pauseBrowserMls().catch(() => undefined)
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) void pauseBrowserMls().catch(() => undefined)
     nostrSession = account
+    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
@@ -1680,7 +1691,7 @@ async function signInWithNostr(): Promise<void> {
     let account: SignetSession | null
     try {
       await boardsPanel?.reset()
-      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
       account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS),
         // 'nsec' is the dangerous route, kept behind Advanced by the picker:
         // a pasted nsec, or a NIP-49 ncryptsec plus its password, held in
@@ -1716,6 +1727,7 @@ async function signInWithNostr(): Promise<void> {
     if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
     relayConnections.clearAuthentication()
     nostrSession = account
+    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
@@ -1731,7 +1743,7 @@ async function signInWithNostr(): Promise<void> {
 async function signOutOfNostr(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     participantCard.close()
     packGrant = undefined
     browserRoomRoutes.pause()
@@ -1744,10 +1756,10 @@ async function signOutOfNostr(): Promise<void> {
     // A signed-out account must not leave its device-specific rendezvous child
     // behind. Do this before changing the visible account state: a storage
     // failure keeps the account connected rather than pretending the clear won.
-    // Only a live bunker can create a rendezvous child. Do not initialise the
-    // encrypted IndexedDB vault for ordinary extension/remote sign-ins merely
-    // because they are signing out.
-    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    // Clear a child only for a captured provision-capable account. Avoid
+    // initialising the encrypted vault for ordinary extension/remote sign-ins
+    // merely because they are signing out.
+    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
     admissionController?.abort()
     clearImportedHistorySearch()
@@ -1803,7 +1815,7 @@ function setForgetBrowserStatus(message: string): void {
 async function forgetThisBrowser(): Promise<void> {
   $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
-    if (import.meta.env.DEV && browserMlsRoomPanel) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
       setForgetBrowserStatus('Retained MLS room connection data prevents forgetting this browser. Its local authority remains; no remote withdrawal has been confirmed.')
@@ -1815,7 +1827,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     if (browserMlsPreview) {
       const { BrowserMlsAccount } = await import('./mls-persona-account.js')
       if (!await new BrowserMlsAccount(() => undefined).canForgetBrowser()) { setForgetBrowserStatus('Clear MLS keys and complete retirement for every account before forgetting this browser.'); return }
-      if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     }
     if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired')) { setForgetBrowserStatus('Withdraw saved Bothy room permissions before forgetting this browser.'); return }
     if (callIsLive() || onCall()) { setForgetBrowserStatus('Leave the call before forgetting this browser.'); return }
@@ -1841,7 +1853,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     closeContextPanel()
     await browserLinkPanel.link.forget()
     // As above, avoid creating a vault on a browser that never held one.
-    if (nostrSession && rendezvousBunker(nostrSession)) await rendezvousVault().clear(nostrSession.pubkey)
+    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
     admissionController?.abort()
     clearImportedHistorySearch()
@@ -1889,9 +1901,11 @@ async function forgetThisBrowserContents(): Promise<void> {
   })
 }
 
+let accountSyncOwner: ReturnType<typeof accountSyncServices> | undefined
 let bookmarks: RoomBookmarks | undefined
 let spryAccountSync: SpryAccountSync | undefined
 function stopSpryAccountSync(): void {
+  accountSyncOwner?.close(); accountSyncOwner = undefined
   spryAccountSync?.close(); spryAccountSync = undefined
   $('spryAccountSyncStatus').textContent = ''
 }
@@ -1968,15 +1982,54 @@ function groupAdmissions(): BookmarkAdmissions {
 
 function startRoomBookmarks(account: SignetSession): void {
   stopSpryAccountSync()
-  if (account.signer.nip44) {
-    spryAccountSync = new SpryAccountSync(deviceStore, account.signer, relayConnections.pool('default'), pair => {
-      if (nostrSession !== account) return
+  bookmarks?.close(); readSync?.close()
+  const sync = accountSyncServices({ network: accountNetwork, account, store: deviceStore,
+    pool: () => relayConnections.pool('default'), current: () => nostrSession === account,
+    admissions: groupAdmissions(),
+    spry: pair => {
       if (pair) saveSpryPairing(localStorage, pair, account.pubkey)
       else if (loadSpryPairing(localStorage, account.pubkey)) removeSpryPairing(localStorage)
       for (const active of [session, dockedCall?.session]) if (active?.participant === account.pubkey) spryRooms.get(active)?.setPairing(pair ?? undefined)
       renderCallRelay()
-    }, message => { if (nostrSession === account) $('spryAccountSyncStatus').textContent = message }, () => nostrSession === account)
-    spryAccountSync.start()
+    },
+    spryStatus: message => { $('spryAccountSyncStatus').textContent = message },
+    changed: () => {
+      if (roomsListShown || window.kithmootDesktop) {
+        const rooms = knownRooms(roomStore()), ids = new Set(rooms.map(room => room.roomId))
+        for (const roomId of roomWatches.keys()) if (!ids.has(roomId)) stopWatching(roomId)
+        for (const room of rooms) watchKnownRoom(room)
+        if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
+        renderRooms()
+      }
+      renderWorkspace(); renderContactInbox()
+    },
+    status: message => {
+      $('roomSyncStatus').textContent = message
+      renderHomeSyncStatus()
+      if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
+        const details = $('roomSyncStatus').closest('details')
+        if (details) details.open = true
+        if (!roomsListShown) setStatus(message)
+      }
+    },
+    read: (roomId, positions) => {
+      const at = positions['']?.at
+      if (at === undefined) return
+      markRead(roomStore(), roomId, at)
+      if (roomsListShown || window.kithmootDesktop) renderRooms()
+    },
+  })
+  accountSyncOwner = sync
+  bookmarks = sync.bookmarks; spryAccountSync = sync.spry; readSync = sync.read
+  refreshAccountRooms()
+  sync.start()
+  if (!accountNetwork.nostr) {
+    closeContactInbox()
+    contactInboxMessage = PRIVATE_SYNC_PAUSED
+    renderContactInbox()
+    void sharedProjects.unavailable(PRIVATE_SYNC_PAUSED)
+    $('spryAccountSyncStatus').textContent = PRIVATE_SYNC_PAUSED
+    return
   }
   void startContactInbox(account)
   const crypt = account.signer.nip44
@@ -1984,38 +2037,6 @@ function startRoomBookmarks(account: SignetSession): void {
     encrypt: (peer, text) => crypt.encrypt(peer, text), decrypt: (peer, text) => crypt.decrypt(peer, text),
   }, relayConnections.pool('default'))
   else void sharedProjects.unavailable('Your signer does not support encrypted shared projects. Connect a Nostr signer with NIP-44 support to use them.')
-  bookmarks?.close()
-  bookmarks = new RoomBookmarks(deviceStore, account.signer, relayConnections.pool('default'), () => {
-    if (roomsListShown || window.kithmootDesktop) {
-      const rooms = knownRooms(roomStore())
-      const ids = new Set(rooms.map(room => room.roomId))
-      for (const roomId of roomWatches.keys()) if (!ids.has(roomId)) stopWatching(roomId)
-      for (const room of rooms) watchKnownRoom(room)
-      if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
-      renderRooms()
-    }
-    renderWorkspace()
-    renderContactInbox()
-  }, message => {
-    $('roomSyncStatus').textContent = message
-    renderHomeSyncStatus()
-    if (message.includes('not confirmed') || message.includes('not synced') || message.includes('browser only')) {
-      const details = $('roomSyncStatus').closest('details')
-      if (details) details.open = true
-      if (!roomsListShown) setStatus(message)
-    }
-  }, groupAdmissions())
-  refreshAccountRooms()
-  bookmarks.start()
-  readSync?.close()
-  readSync = account.signer.nip44
-    ? new ReadPositionSync(account.signer, signerSelfCrypt({ pubkey: account.signer.pubkey, nip44: account.signer.nip44 }), relayConnections.pool('default'), (roomId, positions) => {
-        const at = positions['']?.at
-        if (at === undefined) return
-        markRead(roomStore(), roomId, at)
-        if (roomsListShown || window.kithmootDesktop) renderRooms()
-      })
-    : undefined
   // The room this page is in, and every room the list is watching, from
   // wherever this identity had read to on another device.
   const current = currentRoomId()
@@ -2796,6 +2817,13 @@ function renderKeepChoice(): void {
  *  its link alive would turn a chance expiry into a standing way back in. */
 const GROUP_INVITATION_REFRESH_MS = 6 * 60 * 60 * 1000
 let groupInvitationRefresh: ReturnType<typeof setInterval> | undefined
+const groupInvitationWrites = new Set<Promise<void>>()
+
+function trackGroupInvitationWrite(write: Promise<void>): void {
+  const caught = write.catch(() => { /* Retried next round. */ })
+  groupInvitationWrites.add(caught)
+  void caught.finally(() => { groupInvitationWrites.delete(caught) })
+}
 
 function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array, inviterSk: Uint8Array, endsAt?: number, destruct = false): void {
   const refresh = (): void => {
@@ -2808,11 +2836,11 @@ function keepGroupInvitationAlive(invitation: RoomInvitation, secret: Uint8Array
       return
     }
     const roomRelays = signedRoomRelays(deriveRoom(secret).roomId)
-    void publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, destruct, roomRelays }).catch(() => { /* Retried next round. */ })
+    trackGroupInvitationWrite(publishGroupInvitation(invitation, secret, inviterSk, relays, { endsAt, destruct, roomRelays }))
     // The link that opened the room may name relays the room has since left,
     // and a copy of that link is still out there looking on them.
     const extra = linkOnlyRelays(relays, invitationLinkRelays, url => relayConnections.isCircle(url))
-    if (extra.length) void publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, destruct, roomRelays }).catch(() => { /* Retried next round. */ })
+    if (extra.length) trackGroupInvitationWrite(publishGroupInvitation(invitation, secret, inviterSk, extra, { scope: `link:${deriveInvitationId(invitation)}`, endsAt, destruct, roomRelays }))
   }
   if (conferenceEnded(endsAt, nowSeconds())) return
   refresh()
@@ -3141,6 +3169,20 @@ let myDeviceId = ''
  */
 const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://relay.primal.net']
 
+// Signing in selects whose own metadata to read. The directory preference
+// controls other people's profiles, and cannot erase the account's own name.
+const accountProfiles = new AccountProfileBook({
+  relays: () => [],
+  publicRelays: () => PROFILE_RELAYS,
+  transport: urls => relayConnections.pool('account-profile', urls),
+  onChange: () => {
+    renderIdentity()
+    if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+    renderRooms()
+    renderPeople()
+  },
+})
+
 const profiles = new ProfileBook({
   // For the people in the room on screen: its relays as well as the public
   // ones. `wantProfiles` asks here only while a room is open.
@@ -3167,7 +3209,7 @@ const profiles = new ProfileBook({
 })
 
 let profilesEnabled = profilePreference(relayStorage)
-profiles.setEnabled(profilesEnabled)
+profiles.setEnabled(accountNetwork.nostr && profilesEnabled)
 
 /** A key this browser generated for a name-only visit. It has no public
  *  profile, and asking for one tells relays the participant key that a
@@ -3201,7 +3243,10 @@ function isOwnAccount(pubkey: string): boolean {
  * real account, not one made here, and is asked about like the account.
  */
 function wantProfiles(pubkeys: string[], scope: LookupScope): void {
-  const routed = routeLookups(pubkeys, scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
+  const own = nostrSession?.pubkey ?? expectedAccount
+  accountProfiles.select(own, accountNetwork.nostr)
+  if (!accountNetwork.nostr) return
+  const routed = routeLookups(pubkeys.filter(pubkey => pubkey !== own), scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
   if (routed.room.length) profiles.want(routed.room, 'room')
   if (routed.public.length) profiles.want(routed.public, 'public')
 }
@@ -3215,7 +3260,8 @@ function renderLookupHosts(): void {
 }
 renderLookupHosts()
 let nip05Verify = nip05VerifyPreference(relayStorage)
-profiles.setNip05Automatic(nip05Verify)
+profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 
 /** People (app/src/people.ts), mounted once the shell's containers exist. */
 let people: PeopleView | undefined
@@ -3224,16 +3270,19 @@ let people: PeopleView | undefined
 const follows = new FollowBook({
   relays: () => PROFILE_RELAYS,
   transport: urls => relayConnections.pool('follows', urls),
-  onChange: () => { renderPeople(); renderInvitations() },
+  // Disabling saved public lookups happens before the later invitation
+  // views are initialised. Keep privacy effective now and repaint after
+  // this synchronous application composition has finished.
+  onChange: () => queueMicrotask(() => { renderPeople(); renderInvitations() }),
 })
-follows.setEnabled(profilesEnabled)
+follows.setEnabled(accountNetwork.nostr && profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('lookupProfiles').addEventListener('change', () => {
   const enabled = ($('lookupProfiles') as HTMLInputElement).checked
   profilesEnabled = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
-  profiles.setEnabled(enabled)
-  follows.setEnabled(enabled)
+  profiles.setEnabled(accountNetwork.nostr && enabled)
+  follows.setEnabled(accountNetwork.nostr && enabled)
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -3245,7 +3294,8 @@ $('lookupProfiles').addEventListener('change', () => {
 $('verifyAddresses').addEventListener('change', () => {
   nip05Verify = ($('verifyAddresses') as HTMLInputElement).checked
   try { localStorage.setItem('kithmoot.nip05.verify', String(nip05Verify)) } catch { /* The switch still applies to this visit. */ }
-  profiles.setNip05Automatic(nip05Verify)
+  profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+  accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 })
 
 /**
@@ -3256,16 +3306,17 @@ $('verifyAddresses').addEventListener('change', () => {
  * nothing else - no participant pubkey is ever in its filter - so it inherits
  * the relay correlation `profiles.ts` documents without adding to it.
  */
-const donations = new DonationLedger({
+let donations = accountDonationLedger()
+function accountDonationLedger(): DonationLedger { return new DonationLedger({
   address: DONATION_ADDRESS,
   recipient: DONATION_RECIPIENT,
   relays: () => relays,
   transport: (urls) => configuredPool(urls),
-  fetch: (...args) => fetch(...args),
+  fetch: (...args) => accountNetwork.fetch(...args),
   onChange: () => {
     repaint()
   },
-})
+}) }
 
 /** Twelve hex characters is enough to read aloud and to tell two ROOM ids
  *  apart at a glance. Room ids are not keys and are never shown as npubs. */
@@ -3362,7 +3413,7 @@ interface Shown {
 
 /** Resolve everything a tile or a chat line needs to show one person. */
 function shownAs(pubkey: string, asserted?: string): Shown {
-  const profile: Profile | undefined = profiles.get(pubkey)
+  const profile: Profile | undefined = accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
   // Only a published identity is asked about, so a per-device key is never
   // even looked up: there is nothing to attribute a payment to. Cheap on
   // every render by design - it does nothing for a total that is still
@@ -3373,7 +3424,7 @@ function shownAs(pubkey: string, asserted?: string): Shown {
     profileName: profile?.name,
     rememberedName: lastKnownProfileNames.get(pubkey),
     assertedName: asserted,
-    profilesEnabled,
+    profilesEnabled: isOwnAccount(pubkey) || accountNetwork.nostr && profilesEnabled,
   })
   noteName(pubkey, name)
   return {
@@ -3406,7 +3457,7 @@ function pictureOf(shown: Shown, withFallback = false, nameless = ''): HTMLEleme
   fallback.setAttribute('aria-hidden', 'true')
   // A person with no name is drawn as "Somebody", so that is the initial too, never the key's.
   fallback.textContent = [...(shown.name?.trim() || nameless || shown.short)][0]?.toLocaleUpperCase() ?? '?'
-  if (shown.picture === undefined) return withFallback ? fallback : undefined
+  if (!accountNetwork.nostr || shown.picture === undefined) return withFallback ? fallback : undefined
   const avatar = document.createElement('img')
   avatar.className = 'avatar'
   avatar.src = shown.picture
@@ -3569,7 +3620,7 @@ function closeContactInbox(): void {
  *  that cannot be read refuses everyone (`contactIsBlocked`). Incoming
  *  invitations are filtered by blocks alone, as before. */
 function mayMessageContact(peer: string): boolean {
-  if (!nostrSession?.signer.nip44 || !nostrSession.signer.capabilities.canSignEvents || peer === nostrSession.pubkey) return false
+  if (!accountNetwork.nostr || !nostrSession?.signer.nip44 || !nostrSession.signer.capabilities.canSignEvents || peer === nostrSession.pubkey) return false
   if (contactIsBlocked(peer)) return false
   const view = grantedContactView
   const granted = !!view && (view.status === 'ready' || view.status === 'stale') && view.contacts.some(contact => contact.pubkey === peer)
@@ -3656,6 +3707,7 @@ function renderContactInbox(): void {
   try { renderRooms() } catch { /* Not drawn yet. */ }
 }
 async function messageContact(peer: string, name?: string): Promise<void> {
+  if (!requireNostrFeature()) return
   if (startingContactMessage || !mayMessageContact(peer)) return
   const account = nostrSession!, inbox = contactInbox, generation = contactInboxGeneration
   const current = () => nostrSession === account && generation === contactInboxGeneration && mayMessageContact(peer)
@@ -3779,7 +3831,8 @@ function renderBlockedList(): void {
   }))
 }
 function renderIdentity(): void {
-  grantedContactsPanel ??= new GrantedContactsPanel({ account: () => nostrSession,
+  grantedContactsPanel ??= new GrantedContactsPanel({ account: () => accountNetwork.nostr ? nostrSession : undefined,
+    unavailable: () => accountNetwork.nostr ? undefined : NOSTR_MODE_REQUIRED,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
     store: deviceStore, qr: renderQr,
     changed: view => { grantedContactView = view; nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile(); session?.refreshContactPolicy(); boxDiscovery?.reconcile(); renderContacts(); renderApprovals(); renderContactInbox(); renderPeople() },
@@ -3801,12 +3854,12 @@ function renderIdentity(): void {
   $('legacyMessagesEntry').hidden = nostrSession === undefined
   reconcileAccountMessageViews()
   $('rendezvousProvision').hidden = !rendezvousBunker(nostrSession)
-  $('retryRoomSync').hidden = nostrSession === undefined
+  $('retryRoomSync').hidden = nostrSession === undefined || !accountNetwork.nostr
   $('accountHeading').textContent = nostrSession ? 'Your Nostr account' : 'Keep your rooms with you'
-  $('accountLead').textContent = nostrSession
+  $('accountLead').textContent = !accountNetwork.nostr ? PRIVATE_SYNC_PAUSED : nostrSession
     ? (nostrSession.signer.nip44 ? 'Your rooms are saved to this account, encrypted by your signer.' : 'This sign-in cannot encrypt, so your rooms are saved on this device only.')
     : 'You go into rooms with just a name. Sign in with Nostr to keep your rooms on every device where you sign in.'
-  $('accountHelp').textContent = nostrSession
+  $('accountHelp').textContent = !accountNetwork.nostr ? 'Your signer keeps the root key. Private invitations and your own Link/Bothy connections remain available; public contacts, room sync and discovery are paused.' : nostrSession
     ? 'Relays can see your public key and that you use KithMoot.'
     : 'Sign in to find your rooms across devices. Your signer keeps your key and encrypts your room bookmarks. Visiting someone else? Open their invitation link; no sign-in is needed.'
   const accountProfile = $('accountProfile')
@@ -3896,7 +3949,7 @@ function doorAvatar(pubkey: string): HTMLElement {
   el.className = 'joinAvatar'
   el.setAttribute('aria-hidden', 'true')
   el.dataset.initial = [...(shown.name?.trim() ?? '')][0]?.toLocaleUpperCase() ?? ''
-  if (shown.picture) {
+  if (accountNetwork.nostr && shown.picture) {
     const image = document.createElement('img')
     image.alt = ''
     image.referrerPolicy = 'no-referrer'
@@ -4187,6 +4240,7 @@ function migrationNonce(): string {
 }
 
 async function recoverRecentHistoryToBox(): Promise<void> {
+  if (!requireNostrFeature()) return
   if (historyRecoveryBusy) return
   const account = nostrSession, generation = identityGeneration
   const crypt = account?.signer.nip44
@@ -4375,7 +4429,7 @@ async function roomFromLocation(): Promise<boolean> {
   // A returning account restores its live signer asynchronously. Do not
   // issue an unproved guest request while that matching signer is arriving.
   if (parsedLink.invitation && !parsedLink.invitation.persistent && identityRestoring && expectedAccount) await identityReady
-  if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+  if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
@@ -4659,7 +4713,7 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
  *  missing or failing credential endpoint (the open mint is being retired)
  *  returns plain STUN within a short bound and never throws. */
 function resolveIceServers(urls: string[], relay?: CallRelay): Promise<RTCIceServer[]> {
-  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location, relay })
+  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location, relay, fetch: (input, init) => accountNetwork.fetch(input, init) })
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
@@ -5015,6 +5069,7 @@ async function toggleAssist(): Promise<void> {
 let startedHere = false
 
 async function startNewRoom(): Promise<void> {
+  if (!requireNostrFeature()) return
   return withLegacyMessagesClosed(async () => {
     // "People ask, and somebody lets them in" is a temporary-style room: the
     // link makes a person ask, and a device in the room answers - after
@@ -7899,7 +7954,7 @@ function renderEmptyRoom(): void {
   const me = meParticipant || currentParticipant()
   const alone = !(session?.participants() ?? []).some(view => view.participant !== me)
   const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
-    && (session?.chat.messages().length ?? 0) === 0
+    && conversationMessages(undefined).length === 0
   if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
   if (show) clearEmptyRoomIntro()
 }
@@ -8197,6 +8252,8 @@ const DM_RELAY_POOL_LINGER_MS = 30_000
 /** Kind 10050 lists for these authors from these relays, as many as arrive
  *  before every relay has finished or the wait is up. */
 async function lookUpDmRelayLists(authors: string[], urls: string[], kinds: number[] = [KIND_DM_RELAYS]): Promise<NostrEvent[]> {
+  accountNetwork.requireNostr()
+  const networkCurrent = accountNetwork.current()
   const pool = relayConnections.pool('profiles', distinctRelays(urls))
   const found: NostrEvent[] = []
   let stop = (): void => {}
@@ -8210,6 +8267,7 @@ async function lookUpDmRelayLists(authors: string[], urls: string[], kinds: numb
     stop()
     setTimeout(() => pool.close(), DM_RELAY_POOL_LINGER_MS)
   }
+  if (!networkCurrent()) throw new Error(NOSTR_MODE_REQUIRED)
   return found
 }
 
@@ -8227,11 +8285,14 @@ const PROJECT_INBOX_TTL_MS = 10 * 60 * 1000
  * not; relays the owner already wrote it to are skipped.
  */
 async function projectInboxTargets(recipient: string): Promise<string[]> {
+  accountNetwork.requireNostr()
+  const networkCurrent = accountNetwork.current()
   let inbox = projectInboxes.get(recipient)
   if (!inbox || Date.now() - inbox.at > PROJECT_INBOX_TTL_MS) {
     const own = relayConnections.configuration('default').map(relay => relay.url)
     const lists = await lookUpDmRelayLists([recipient], [...new Set([...own, ...RELAYS, ...PROFILE_RELAYS])], [KIND_DM_RELAYS, KIND_RELAY_LIST])
     inbox = { relays: inboxRelays(lists, recipient), at: Date.now() }
+    if (!networkCurrent()) throw new Error(NOSTR_MODE_REQUIRED)
     projectInboxes.set(recipient, inbox)
   }
   const own = new Set(relayConnections.configuration('default').map(relay => relay.url))
@@ -8254,6 +8315,7 @@ async function deliverProjectWrap(wrap: NostrEvent, recipient: string): Promise<
  * conversation goes where the starter chose, topped up from this room.
  */
 async function relaysForConversationWith(me: string, peer: string): Promise<string[]> {
+  accountNetwork.requireNostr()
   if (!nostrSession) return relays
   const authors = profilesEnabled ? [me, peer] : [me]
   let lists: NostrEvent[] = []
@@ -8269,6 +8331,7 @@ async function relaysForConversationWith(me: string, peer: string): Promise<stri
 
 let startingDm = false
 async function startDirectMessage(peer: string, peerName: string | undefined, quiet: boolean): Promise<void> {
+  if (!requireNostrFeature()) return
   const s = session
   const me = meParticipant
   if (!s || !me || startingDm || contactIsBlocked(peer)) return
@@ -8504,7 +8567,7 @@ function ingestRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, se
 }
 
 async function postRoomRelays(s: RoomSession, record: RoomRelayRecord): Promise<void> {
-  await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'relays', ...record }))
+  await s.channel(CONTROL_CHANNEL).prepare(encodeControl({ op: 'relays', ...record })).publish({ allRelays: true })
   roomRelaysSeenAt = nowSeconds()
 }
 
@@ -9221,19 +9284,19 @@ function scheduleConferenceEnd(s: RoomSession): void {
       return
     }
     if (owner) void endDockedCall('user', conferenceEndedMessage(endsAt))
-    else { stopInvitationHost(); leaveWithNotice(conferenceEndedMessage(endsAt)) }
+    else { stopInvitationHost(); void leaveWithNotice(conferenceEndedMessage(endsAt)) }
   }, wait)
   if (dock) dock.conferenceEndTimer = timer
   else conferenceEndTimer = timer
 }
 
-function leaveWithNotice(message: string): void {
+function leaveWithNotice(message: string): Promise<void> {
   try {
     sessionStorage.setItem(NOTICE_STORAGE_KEY, message)
   } catch {
     // Storage may be unavailable. The room is still left.
   }
-  leaveRoom()
+  return leaveRoom()
 }
 
 /** An admin asked this device to stop sending. Honoured, and said so. */
@@ -13641,6 +13704,7 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
+  const requireOpeningNetwork = accountNetworkRoomOpening(accountNetwork)
   if (!retry && (joining || session || loginBusy)) return
   closeAccountMessageViews()
   if (!retry) applyHideIpDefault()
@@ -13662,8 +13726,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   let retrying = false
 
   try {
-    if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
+    requireOpeningNetwork(roomUsesBothy)
+    if (!roomUsesBothy) accountNetwork.requireNostr()
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
@@ -13822,6 +13888,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       await browserLink.resume(nostrSession.pubkey)
       browserRoomRoutes.changed()
     }
+    requireOpeningNetwork(roomUsesBothy)
     const pool = configuredPool(relays)
     sessionTransport = pool
     const poolCreatedAt = Date.now()
@@ -13891,7 +13958,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
-            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
             if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
@@ -13952,7 +14019,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
-            else if (created && session === created) leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
+            else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
           onClosed: (notice) => {
             if (created && dockedCall?.session === created) dockedRoomClosed(created.roomId, notice)
@@ -14065,7 +14132,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         // The room's Spry offer outranks a discovered relay.
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
         applyCallServers(withDeviceStun(servers, deviceStun), false)
-      }, fetch, deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
+      }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
       spryRooms.set(s, relay)
     }
     // A relay the person chose from public adverts, for a call only. It
@@ -14492,6 +14559,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
 }
 
 function watchKnownRoom(room: KnownRoom): void {
+  if (!accountNetwork.nostr) return
   // The room on screen, or at its door, is not watched a second time.
   if (room.roomId === currentRoomId()) return
   if (roomWatches.has(room.roomId) || room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) return
@@ -15677,10 +15745,10 @@ function tearDownCallMedia(): void {
 }
 
 /** Stop the room completely before any other room can own the controls. */
-async function closeRoomSession(options: { backgroundFarewell?: boolean } = {}): Promise<void> {
+async function closeRoomSession(options: { backgroundFarewell?: boolean; preservePrivate?: boolean } = {}): Promise<void> {
   const pendingRoom = currentRoomId()
   if (pendingRoom) pendingSends.release(pendingRoom)
-  if (browserMlsPanel || import.meta.env.DEV && (browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
+  if (!options.preservePrivate && (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
   chatScroll.suspend()
   const generation=++roomGeneration
   const old = session,transport=sessionTransport
@@ -16958,6 +17026,7 @@ inviteDialog.addEventListener('click', event => {
 })
 
 const sharedProjects = new SharedProjectsPanel(document, {
+  requireNetwork: requireNostrFeature,
   store: deviceStore,
   rooms: navigationRooms,
   people: () => (session?.participants() ?? []).map(p => ({ pubkey: p.participant, label: personLabel(p.participant), agent: p.agent === true })),
@@ -16986,6 +17055,7 @@ $('contactsSignIn').addEventListener('click', () => {
   void signInWithNostr().catch(error => setStatus(describeError(error)))
 })
 $('contactInboxRetry').addEventListener('click', () => {
+  if (!requireNostrFeature()) return
   contactInboxMessage = ''
   if (contactInbox?.snapshot().ready) void contactInbox.retry()
   else if (nostrSession) void startContactInbox(nostrSession)
@@ -17725,7 +17795,7 @@ $('bothySettingsOpen').addEventListener('click', () => closeAppSettingsFor(() =>
 window.addEventListener('pagehide', () => { void browserLinkPanel.stop(); void pauseBrowserMls().catch(() => undefined) })
 if (browserMlsPreview) {
   const rooms = document.createElement('button')
-  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.className = 'infoRow'; rooms.textContent = 'MLS room connection (preview)'
+  rooms.id = 'mlsRoomDevelopmentOpen'; rooms.type = 'button'; rooms.className = 'infoRow'; rooms.textContent = admin2ProductSelected() ? 'Private groups · Private invitations (named device admins)' : 'MLS room connection (preview)'
   rooms.setAttribute('aria-haspopup', 'dialog'); rooms.setAttribute('aria-controls', 'mlsRoomDevelopment')
   $('mlsWitnessSettingsOpen').after(rooms)
   rooms.onclick = () => closeAppSettingsFor(() => {
@@ -17738,6 +17808,7 @@ if (browserMlsPreview) {
         const signer = current.signer, crypt = signer.nip44, bunker = rendezvousBunker(current)
         return { persona: current.pubkey, identity: { pubkey: current.pubkey, signEvent: signer.signEvent.bind(signer) },
           authority: { owner: signer, signEvent: signer.signEvent,
+            ...(barkRendezvousFor(signer) ? { barkRendezvous: barkRendezvousFor(signer) } : {}),
             ...(bunker ? { rendezvous: { owner: bunker, deviceKey: bunker.clientSecretKey,
               provisionOwner: bunker.nip46, provision: bunker.nip46.provisionRendezvous } } : {}),
             ...(crypt ? { crypt: { owner: crypt, encrypt: crypt.encrypt, decrypt: crypt.decrypt } } : {}) },
@@ -17747,6 +17818,7 @@ if (browserMlsPreview) {
       browserMlsRoomPanel.open()
     }).catch(() => setStatus('MLS room connection could not be opened.'))
   })
+  if (import.meta.env.DEV && !admin2ProductSelected()) {
   const grants = document.createElement('button')
   grants.id = 'mlsGrantDevelopmentOpen'; grants.type = 'button'; grants.className = 'infoRow'; grants.textContent = 'MLS grant workflows (preview)'
   grants.setAttribute('aria-haspopup', 'dialog'); grants.setAttribute('aria-controls', 'mlsGrantDevelopment')
@@ -17768,7 +17840,9 @@ if (browserMlsPreview) {
       browserMlsGrantPanel.open()
     }).catch(() => setStatus('MLS grant workflows could not be opened.'))
   })
+  }
   $('mlsWitnessSettingsOpen').hidden = false
+  if (admin2ProductSelected()) $('mlsWitnessSettingsOpen').querySelector('.infoRowTitle')!.textContent = 'Private groups · device and restore protection'
   $('mlsWitnessSettingsOpen').addEventListener('click', () => closeAppSettingsFor(() => {
     const account = nostrSession, generation = identityGeneration
     void Promise.all([import('./mls-persona-panel.js'), import('./mls-revocation-relay.js')]).then(async ([{ BrowserMlsPanel }, { NostrVmlsRevocationTransport }]) => {
@@ -17780,7 +17854,7 @@ if (browserMlsPreview) {
         return { persona: account.pubkey, identity, revocationIdentity: crypt ? { ...identity, ...crypt } : undefined,
           generation: `${identityGeneration}:${roomGeneration}`,
           mode: isQuietPolicy(roomPolicy) || !!dockedCall?.quiet ? 'quiet' : 'normal' }
-      }, undefined, document, () => new NostrVmlsRevocationTransport(relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url)))
+      }, undefined, document, () => new NostrVmlsRevocationTransport(accountNetwork.nostr ? relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url) : []))
       await browserMlsPanel.open()
     }).catch(() => setStatus('MLS witness settings could not be opened.'))
   }))
@@ -17842,6 +17916,7 @@ function dmRelayListHome(listed: string[] = []): string[] {
 }
 
 async function openDmRelaySettings(): Promise<void> {
+  if (!requireNostrFeature()) return
   const dialog = $('dmRelaySettings') as HTMLDialogElement
   const field = $('dmRelayList') as HTMLTextAreaElement
   const status = $('dmRelayStatus')
@@ -17864,6 +17939,7 @@ async function openDmRelaySettings(): Promise<void> {
 }
 
 async function saveDmRelaySettings(): Promise<void> {
+  if (!requireNostrFeature()) return
   const field = $('dmRelayList') as HTMLTextAreaElement
   const status = $('dmRelayStatus')
   const account = nostrSession
@@ -18002,7 +18078,7 @@ const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 /** Public compatibility views belong to the ordinary Account page. A pane
  * or destination change invalidates them just like an account/room transition. */
 function canCheckAccountMessages(): boolean {
-  return !!nostrSession && legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
+  return accountNetwork.nostr && !!nostrSession && legacyMessageLifetime.idle && roomsListShown && !session && !joining && !dockedCall && !switchingRoom && !loginBusy
 }
 function accountMessageViewEligible(): boolean {
   return currentDestination() === 'settings' && settingsPage === 'account' && canCheckAccountMessages()
@@ -18101,6 +18177,7 @@ nostrInboxPanel = new NostrMessageInboxPanel(document, {
   },
 })
 for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEventListener('click', event => {
+  if (!requireNostrFeature()) return
   if (!event.isTrusted || !canCheckAccountMessages()) return
   ;($('contactsDialog') as HTMLDialogElement).close()
   openDestination('settings'); showSettingsPage('account')
@@ -18108,16 +18185,19 @@ for (const id of ['contactInboxCheck', 'nostrAccountInboxEntry']) $(id).addEvent
   nostrInboxPanel?.show($('nostrAccountInboxEntry'), 'account')
 })
 $('nostrInboxEntry').addEventListener('click', event => {
+  if (!requireNostrFeature()) return
   if (!event.isTrusted || !nostrInboxPanel?.available) return
   legacyMessagesPanel?.close(); nostrMessagePanel?.close()
   nostrInboxPanel.show($('nostrInboxEntry'))
 })
 $('nostrMessageEntry').addEventListener('click', event => {
+  if (!requireNostrFeature()) return
   if (!event.isTrusted || !nostrMessagePanel?.available) return
   nostrInboxPanel?.close(); legacyMessagesPanel?.close()
   nostrMessagePanel.show($('nostrMessageEntry'))
 })
 $('legacyMessagesEntry').addEventListener('click', event => {
+  if (!requireNostrFeature()) return
   if (!event.isTrusted || !legacyMessagesPanel?.available) return
   nostrInboxPanel?.close(); nostrMessagePanel?.close()
   legacyMessagesPanel.show($('legacyMessagesEntry'))
@@ -18240,6 +18320,7 @@ $('spryPairingInput').addEventListener('keydown', event => {
 })
 
 $('spryAccountSync').addEventListener('click', async () => {
+  if (!requireNostrFeature()) return
   const sync = spryAccountSync
   if (!sync) return
   const button = $('spryAccountSync') as HTMLButtonElement
@@ -18392,19 +18473,12 @@ function renderPublicRelays(): void {
   $('publicRelaysForget').hidden = !publicCallRelays.lastGood && !publicCallRelays.selected
 }
 /** One discovery query when the picker opens or is asked to look again. */
-async function findPublicRelays(force = false): Promise<void> {
-  if (!publicCallRelays.enabled || publicRelaysOutranked()) { renderPublicRelays(); return }
-  if (!force && Date.now() - publicCallRelays.searchedAt < 60_000) { renderPublicRelays(); return }
-  const generation = publicRelayGeneration
-  $('publicRelaysStatus').textContent = 'Asking your Nostr relays for public call relays…'
-  try {
-    const found = await publicCallRelays.discover()
-    if (generation !== publicRelayGeneration) return
-    $('publicRelaysStatus').textContent = found.length ? `${found.length} public call relay${found.length === 1 ? '' : 's'} found. Select one to use it.` : 'No public call relays were found on your Nostr relays.'
-  } catch {
-    if (generation === publicRelayGeneration) $('publicRelaysStatus').textContent = 'Your Nostr relays could not be asked. Try again later.'
-  }
-  renderPublicRelays()
+function findPublicRelays(trigger: PublicRelayDiscoveryTrigger = 'automatic'): Promise<void> {
+  return findPublicCallRelays({ network: accountNetwork, relays: publicCallRelays,
+    outranked: publicRelaysOutranked, generation: () => publicRelayGeneration,
+    requireNostr: requireNostrFeature,
+    view: { status: message => { $('publicRelaysStatus').textContent = message }, render: renderPublicRelays },
+  }, trigger)
 }
 $('publicRelaysOn').addEventListener('change', () => {
   cancelPublicRelayCheck()
@@ -18412,9 +18486,9 @@ $('publicRelaysOn').addEventListener('change', () => {
   publicCallRelays.setEnabled(on)
   $('publicRelaysStatus').textContent = on ? '' : 'Turned off. Everything it kept on this device has been cleared.'
   renderPublicRelays()
-  if (on) void findPublicRelays(true)
+  if (on) void findPublicRelays('manual')
 })
-$('publicRelaysFind').addEventListener('click', () => { cancelPublicRelayCheck(); void findPublicRelays(true) })
+$('publicRelaysFind').addEventListener('click', () => { cancelPublicRelayCheck(); void findPublicRelays('manual') })
 $('publicRelaysForget').addEventListener('click', () => {
   cancelPublicRelayCheck()
   publicCallRelays.forgetChoice()
@@ -18422,6 +18496,7 @@ $('publicRelaysForget').addEventListener('click', () => {
   renderPublicRelays()
 })
 $('publicRelaysCheck').addEventListener('click', async () => {
+  if (!requireNostrFeature()) return
   cancelPublicRelayCheck()
   const key = publicCallRelays.selected ?? publicCallRelays.lastGood?.key
   if (!key || publicRelaysOutranked()) return
@@ -18596,7 +18671,7 @@ $('signIn').addEventListener('click', () => {
 $('signOut').addEventListener('click', () => {
   signOutOfNostr().catch((err) => setStatus(describeError(err)))
 })
-$('retryRoomSync').addEventListener('click', () => { void bookmarks?.retry() })
+$('retryRoomSync').addEventListener('click', () => { if (requireNostrFeature()) void bookmarks?.retry() })
 $('recoverRecentHistory').addEventListener('click', () => { void recoverRecentHistoryToBox() })
 $('searchImportedHistory').addEventListener('click', () => { void searchImportedHistory() })
 $('importBrowserRooms').addEventListener('click', () => {
@@ -19349,7 +19424,7 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
     void closingRekeyDestructs(s.roomId, sessionAuthority, s.epochKeys(), [...relays]).catch(() => false).then(destructs => {
       // A join that was refused may have given up on the session meanwhile:
       // the room is still tidied away if it self-destructs.
-      if (!destructs) { if (session === s) leaveWithNotice('This room was ended by the person who started it.'); return }
+      if (!destructs) { if (session === s) void leaveWithNotice('This room was ended by the person who started it.'); return }
       destructSecrets.set(roomId, secret)
       markRoomDestruct(roomId)
       void runDueDestructs()
@@ -19357,10 +19432,10 @@ function roomWasClosed(notice: { by?: string; destruct?: true; refused?: true })
     return
   }
   if (endingRoom) {
-    leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
+    void leaveWithNotice('You ended this room for everyone. Its invite link no longer works.')
     return
   }
-  leaveWithNotice(keeperParticipant === undefined
+  void leaveWithNotice(keeperParticipant === undefined
     ? 'This room was ended by the person who started it.'
     : `This room was closed${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
 }
@@ -20409,14 +20484,15 @@ async function selfDestructNow(): Promise<void> {
 }
 
 /** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's
- *  own link, whose keys are about to go. The read position goes quiet before
- *  this tab says it left, or its delayed record would land on a relay after
- *  the other tab had deleted what it found. */
+ *  own link, whose keys are about to go. Read positions and invitation writes
+ *  go quiet before this tab says it left, or delayed records would land on a
+ *  relay after the other tab had deleted what it found. */
 async function leaveForTidyUp(): Promise<void> {
   const roomId = currentRoomId()
   history.replaceState(null, '', joinLinkBase())
   if (roomId) await stopReadPositions(roomId)
-  leaveWithNotice(roomIsDestruct(roomId) ? SELF_DESTRUCTED_MESSAGE : 'You tidied this room up in another tab, so this tab left it.')
+  await leaveWithNotice(roomIsDestruct(roomId) ? SELF_DESTRUCTED_MESSAGE : 'You tidied this room up in another tab, so this tab left it.')
+  await Promise.allSettled([...groupInvitationWrites])
 }
 
 // A tab frozen while another tidied the room up could not answer. When it
@@ -22413,6 +22489,96 @@ function showArrivalFailure(err: unknown): void {
 }
 
 
+// Account-network controls live at the door as well as in Settings, before
+// sign-in. A URL or an ordinary feature can explain the required mode but
+// can never enable it. Cross-tab wakeups read authoritative storage.
+function renderAccountNetwork(): void {
+  const privateMode = !accountNetwork.nostr
+  $('signIn').textContent = privateMode ? 'Connect your signer' : 'Sign in with Nostr'
+  $('homeSignIn').textContent = privateMode ? 'Connect your signer' : 'Already on Nostr? Sign in'
+  ;($('lookupProfiles') as HTMLInputElement).disabled = privateMode
+  ;($('verifyAddresses') as HTMLInputElement).disabled = privateMode
+  $('accountNetworkStatus').textContent = privateMode
+    ? PRIVATE_SYNC_PAUSED + ' Contacts, public profiles and ordinary relay rooms are paused. Your signer, private groups and paired nodes remain available.'
+    : 'Nostr enabled. Public relays can observe account and contact keys, timing and use of KithMoot. Saved profile and sync preferences apply.'
+  ;($('choosePrivateInvitations') as HTMLButtonElement).disabled = privateMode && accountNetwork.persisted
+  ;($('enableNostrNetwork') as HTMLButtonElement).disabled = !privateMode
+  for (const id of ['homeAccountNetwork', 'accountNetworkOpen', 'profileAccountNetwork']) $(id).textContent = privateMode ? 'Account network: private invitations' : 'Account network: Nostr'
+}
+function showAccountNetwork(): void {
+  renderAccountNetwork()
+  const dialog = $('accountNetworkDialog') as HTMLDialogElement
+  if (!dialog.open) dialog.showModal()
+}
+function requireNostrFeature(): boolean {
+  if (accountNetwork.nostr) return true
+  setStatus(NOSTR_MODE_REQUIRED)
+  showAccountNetwork()
+  return false
+}
+function reconcileAccountNetwork(): void {
+  const enabled = accountNetwork.nostr
+  // Revoke old ordinary room ownership before any await or route refresh.
+  // A late credential/signature cannot inherit a new public delegate.
+  if (session && !roomUsesBothy) captureDraft()
+  void retireAccountNetworkRooms([
+    ...(session ? [{ session, transport: sessionTransport, privateRoute: roomUsesBothy }] : []),
+    ...(dockedCall ? [{ session: dockedCall.session, transport: dockedCall.transport, privateRoute: dockedCall.ui.roomUsesBothy }] : []),
+  ])
+  const roomHold = enabled ? 'Account network changed. Reopen this room to reconnect. Drafts and pending changes are kept.' : PRIVATE_SYNC_PAUSED
+  admissionController?.abort()
+  cancelPublicRelayCheck()
+  if (joining && !session && !roomUsesBothy) {
+    ++roomGeneration; joining = false; disarmStopOpening()
+    sessionTransport?.close(); sessionTransport = undefined
+    setStatus(roomHold)
+  }
+  if (dockedCall && !dockedCall.ui.roomUsesBothy) spryRooms.get(dockedCall.session)?.close()
+  if (dockedCall && !dockedCall.ui.roomUsesBothy) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
+  if (session && !roomUsesBothy) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
+  // Invalidate ordinary views before any asynchronous teardown can complete.
+  nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close()
+  stopSpryAccountSync()
+  bookmarks?.close(); bookmarks = undefined
+  readSync?.close(); readSync = undefined
+  // A durable revision may change while the final mode stays Nostr. Drop
+  // every old service-owned handle before creating this generation's pools.
+  profiles.setEnabled(false)
+  accountProfiles.select(undefined, false)
+  profiles.setEnabled(enabled && profilesEnabled)
+  profiles.setNip05Automatic(enabled && nip05Verify)
+  accountProfiles.setNip05Automatic(enabled && nip05Verify)
+  follows.setEnabled(false)
+  follows.close()
+  follows.setEnabled(enabled && profilesEnabled)
+  donations.close(); donations = accountDonationLedger()
+  projectInboxes.clear()
+  for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
+  if (!enabled) {
+    participantCard.close()
+    // Remove retained avatar elements immediately, including views currently
+    // closed. Repainting below supplies local initials rather than remote URLs.
+    for (const image of document.querySelectorAll<HTMLImageElement>('img.avatar, .joinAvatar img, .personAvatar img, .contactAvatar img, .invitationAvatar img, .roomAvatar img')) { image.removeAttribute('src'); image.remove() }
+  }
+  if (nostrSession) startRoomBookmarks(nostrSession)
+  else void sharedProjects.unavailable(enabled ? 'Sign in to sync your shared projects.' : PRIVATE_SYNC_PAUSED)
+  grantedContactsPanel?.reconcile()
+  boxDiscovery?.reconcile()
+  browserRoomRoutes.changed()
+  renderAccountNetwork()
+  renderIdentity()
+  if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+}
+accountNetwork.listen(reconcileAccountNetwork)
+window.addEventListener('storage', event => { if (event.key === ACCOUNT_NETWORK_KEY || event.key === null) accountNetwork.refresh() })
+for (const id of ['homeAccountNetwork', 'accountNetworkOpen', 'profileAccountNetwork']) $(id).addEventListener('click', showAccountNetwork)
+$('accountNetworkClose').addEventListener('click', () => ($('accountNetworkDialog') as HTMLDialogElement).close())
+for (const [id, mode] of [['choosePrivateInvitations', 'private-invitations'], ['enableNostrNetwork', 'nostr']] as const) $(id).addEventListener('click', () => {
+  try { accountNetwork.choose(mode); renderAccountNetwork() }
+  catch (error) { renderAccountNetwork(); $('accountNetworkStatus').textContent += ' ' + describeError(error) }
+})
+renderAccountNetwork()
+
 // Rewrite what is in storage with what a reader would actually see, so a
 // name that arrived there by some other route does not sit in raw form.
 storeName(typedName)
@@ -22450,7 +22616,7 @@ const identityReady = restoreSessionWithExtensionGrace()
   .then(async (session) => {
     if (identityGeneration !== 0) return
     if (!session?.signer.capabilities.canSignEvents) {
-      if (!location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
+      if (accountNetwork.nostr && !location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
         history.replaceState(null, '', joinLinkBase())
         // This is an explicit sign-in, not a failed background restore.
         // Keep its error visible instead of swallowing it below.
@@ -22557,10 +22723,24 @@ if (known) wantProfiles([known], 'public')
 
 // Restore only explicit discovery preferences after all screen state exists.
 boxDiscovery = new BoxDiscovery({
-  allowed: contact => !contactIsBlocked(contact),
+  allowed: contact => accountNetwork.nostr && !contactIsBlocked(contact),
   store: deviceStore,
-  transport: unavailable => new BoxRelayReader(relayConnections.configuration('default'), unavailable),
+  transport: unavailable => accountNetwork.publicTransport(() => new BoxRelayReader(relayConnections.configuration('default'), unavailable)),
   changed: () => { renderContacts(); renderLaneNote(); renderHistoryRecovery() },
 })
 boxDiscovery.reconcile()
 document.addEventListener('visibilitychange', () => { if (!document.hidden) boxDiscovery?.tick() })
+// Disposable mixed-client lab: disclose only live public binding values. The
+// signer, room secret, credential, device key and seal secret stay in their
+// existing owners; production builds do not install this hook.
+if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') {
+  void import('./mls-mixed-invitation-lab.js').then(({ captureOrdinaryPublicContext }) => captureOrdinaryPublicContext(() => {
+    const active = session, account = nostrSession, arrivalRoomId = currentRoomId() ?? null
+    return Object.freeze({ sessionAssigned: !!active, roomId: active?.roomId ?? null, participant: active?.participant ?? null,
+      device: active?.device ?? null, arrivalRoomId, accountPubkey: account?.pubkey ?? null,
+      accountMethod: account?.method ?? null, signerMethod: account?.signer.method ?? null,
+      canSignEvents: account?.signer.capabilities.canSignEvents ?? false, roomGeneration, identityGeneration, joining,
+      sessionMatchesArrivalRoom: !!active && active.roomId === arrivalRoomId,
+      accountMatchesParticipant: !!active && !!account && active.participant === account.pubkey })
+  }))
+}

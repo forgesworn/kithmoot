@@ -1,0 +1,45 @@
+{
+  "versionName": "0.6.117",
+  "versionCode": 140,
+  "qualifiedSourceCommit": "c72c69e3d182919662c185d2399130ab7e932ee4",
+  "apkBytes": 70873600,
+  "apkSha256": "a7886674de84d9ef3d35776119fb7845afded5b9b028751a20f828c67fe3b785",
+  "allUnsignedZipEntriesPreserved": 811,
+  "tests": {
+    "protocol": {
+      "tests": 594,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2898,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "appRelease": {
+      "tests": 2887,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "uiTestsLight": 3,
+  "uiTestsDark130Percent": 3,
+  "physicalGrapheneOSTested": false,
+  "realFriendDeliveryTested": false,
+  "recoveryHarnessTests": 16,
+  "recordingHarnessTests": 8,
+  "productionApkUnchangedAfterInstrumentationFix": true,
+  "pickerChatAndConsentUiTests": 10,
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signingLineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "previewCertificateAncestorSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+  "upgradeTestSourceCommit": "89f6bffad135a81cd76f6389535c9d141c2688ba",
+  "upgradeTestUsedIdenticalSignedApk": true,
+  "ciRunUrl": "https://github.com/forgesworn/kithmoot-android/actions/runs/40433938974",
+  "executedPassingCiJobs": 17,
+  "githubRelease": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.117",
+  "fullChannelPublicationPending": true
+}

@@ -882,7 +882,7 @@ export interface ChatLogOptions {
 export interface PreparedSend {
   message: ChatMessage
   event: Event
-  publish: () => Promise<void>
+  publish: (options?: { allRelays?: boolean }) => Promise<void>
 }
 
 /** Why a prepared message was not published: its conversation closed or
@@ -1252,6 +1252,12 @@ export class ChatLog {
     const credential = this.#credential
     const deviceSk = this.#opts.deviceSk
     if (!credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
+    // A relay can accept ciphertext that every reader will reject. Refuse
+    // before handing a prepared send to the outbox, so the draft stays put
+    // when a sleeping device or an unavailable signer missed renewal.
+    const sentAt = this.#sentAt()
+    const access = verifyDeviceCredential(credential, { roomId: this.#opts.roomId, now: sentAt.sentAt })
+    if (!access.ok) throw new Error('Your device credential is no longer valid. Rejoin the room before sending.')
     if (text.length === 0) throw new Error('chat message is empty')
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)
@@ -1319,7 +1325,7 @@ export class ChatLog {
           : {}),
       text,
       ...(reaction ? { reaction } : {}),
-      ...this.#sentAt(),
+      ...sentAt,
       ...(attachments ? { attachments } : {}),
       ...(artwork ? { artwork } : {}),
       ...(roomLogo !== undefined ? { roomLogo } : {}),
@@ -1341,14 +1347,14 @@ export class ChatLog {
       expiresAt: this.#opts.expiresAt,
     })
     const epoch = this.#epoch
-    return { message: msg, event, publish: () => protocolTask(execution, 'chat-publication', async owned => {
+    return { message: msg, event, publish: (options?: { allRelays?: boolean }) => protocolTask(execution, 'chat-publication', async owned => {
       const start = () => {
       owned?.check('chat-publication')
       if (this.#closed || this.#epoch !== epoch) {
         throw new Error(CONVERSATION_MOVED)
       }
       if (owned && this.#credential?.id !== credential.id) throw new Error('conversation changed its credential since this message was prepared')
-      const pending = this.#opts.transport.publish(event)
+      const pending = options ? this.#opts.transport.publish(event, options) : this.#opts.transport.publish(event)
       owned?.retain(pending)
       void pending.catch(() => {})
       return { pending }

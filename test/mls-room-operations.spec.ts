@@ -1163,6 +1163,12 @@ test('a joined session completes UpdateFirst, Update and witnessed Remove in ord
   expect(finalRoster.value).toHaveLength(1)
   expect(finalRoster.value[0]).toMatchObject({ own: true, pending: false })
 })
+test('typed join uses the protected child after its handoff deadline and a fresh runtime', async ({ context }) => {
+  const { page } = await enrolled(context, false)
+  await run(page, '(async () => { await M.provisionJoin(); M.advance(601); M.restartJoin() })()')
+  expect(await run(page, 'M.typedJoin()')).toMatchObject({ state: 'active' })
+  expect(await run(page, 'M.recoverJoin()')).toMatchObject({ state: 'active', value: { phase: { type: 'PendingJoin' } } })
+})
 for (const mode of ['deny', 'clear', 'replace', 'account', 'invalidate', 'expiry', 'revoke', 'device']) test(`typed join refuses stale authorisation after ${mode}`, async ({ context }) => {
   const { page } = await enrolled(context, false)
   await run(page, 'M.provisionJoin()')

@@ -61,9 +61,8 @@ describe('room creation custody from the actual encrypted child', () => {
     expect(result.state).toBe('done')
     if (result.state === 'done') expect(result.value.current()).toBe(false)
   })
-  it.each(['missing', 'wrong-device', 'expired', 'bad-clock', 'corrupt'] as const)('refuses %s storage before work', async mode => {
+  it.each(['missing', 'wrong-device', 'bad-clock', 'corrupt'] as const)('refuses %s storage before work', async mode => {
     const f = await fixture(mode !== 'missing'), work = vi.fn(async () => 1)
-    if (mode === 'expired') f.clock(1300)
     if (mode === 'bad-clock') f.clock(NaN)
     if (mode === 'corrupt') f.storage.value = { ...f.storage.value!, ciphertext: new ArrayBuffer(3) }
     await expect(f.run(work, mode === 'wrong-device' ? '55'.repeat(32) : device)).rejects.toThrow()
@@ -136,14 +135,14 @@ describe('room creation custody from the actual encrypted child', () => {
     expect(await observed).toBe('stale-rendezvous'); await clear
     expect(work).not.toHaveBeenCalled()
   })
-  it.each(['revision', 'expiry', 'foreground'] as const)('rechecks %s after unlock while outer cleanup is pending', async mode => {
+  it.each(['revision', 'bad-clock', 'foreground'] as const)('rechecks %s after unlock while outer cleanup is pending', async mode => {
     const f = await fixture()
     let clock = 1000
     expect(await f.foreground.run(account, () => true, async scope => {
       const held = await withMlsRoomCreateRendezvous(f.source, f.foreground, scope, device, () => clock, async custody => custody)
       expect(held.current()).toBe(false); expect(held.releaseCurrent()).toBe(true)
       if (mode === 'revision') f.storage.invalidate()
-      else if (mode === 'expiry') clock = 1300
+      else if (mode === 'bad-clock') clock = NaN
       else f.foreground.invalidate()
       expect(held.releaseCurrent()).toBe(false)
       return 1

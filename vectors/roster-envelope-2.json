@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "purpose": "Public synthetic test data. Contains no real endpoint, identity or production secret.",
+  "writerActivation": "disabled in RoomSession and production apps; reader-first compatibility evidence only",
+  "cases": [
+    {
+      "name": "root-with-raw-body-whitespace",
+      "decode": {
+        "roomId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "roomKey": "1111111111111111111111111111111111111111111111111111111111111111",
+        "now": 1800000000
+      },
+      "digest": "e3bae3a9eff8a4c74f4d75dd6826fc8a863092ab8db77defbe1f5f7dbe082460",
+      "body": "{\n \"participant\": \"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\n \"device\": \"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\n \"credential\": {\n  \"kind\": 20460,\n  \"created_at\": 1800000000,\n  \"pubkey\": \"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\n  \"tags\": [\n   [\n    \"d\",\n    \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\"\n   ],\n   [\n    \"device\",\n    \"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\"\n   ],\n   [\n    \"expiration\",\n    \"1800003600\"\n   ]\n  ],\n  \"content\": \"\",\n  \"id\": \"f63e0d152a290036a29916135b8dd0774dd1041257df5869748a8b464bda9cea\",\n  \"sig\": \"7650edb279b0179dda41d0a852dd58c81e410dacaf1e0bf4b2dbbcf07315bd85c676807a5b3c4801775dbafb8811aaa89e8ab5e3c062343da09445f0fa8b8c12\"\n },\n \"tracks\": [\n  {\n   \"trackId\": \"synthetic-camera\",\n   \"role\": \"camera\"\n  }\n ],\n \"claims\": {\n  \"mic\": 1800000000\n },\n \"updatedAt\": 1800000000,\n \"sid\": \"01234567\",\n \"call\": {\n  \"id\": \"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\n  \"since\": 1799999990\n }\n}",
+      "signature": "3a493b5330b82f31d585950e75308ce7117b14325a18356af50a8616275b7d23c18de16e998ef9b500368850fd0d023615d853155f37dbde362a3aefdbaaca80",
+      "event": {
+        "kind": 20461,
+        "created_at": 1800000000,
+        "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+        "tags": [
+          [
+            "d",
+            "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+          ],
+          [
+            "expiration",
+            "1800000600"
+          ]
+        ],
+        "content": "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",
+        "id": "d4fa989902d6989ab2c6e5ef0fafda98507c71f8629fc52a4fe4c924ace59f5e",
+        "sig": "cb83231fc834f739ecad81e7347d1c6cea79d1d5c49a8b7cb5dbaf4fe1d3b7d6056b5e56c170c73213a25ee34783ddf66f59fe2a95ed29d5e434a2e01e93f7ca"
+      },
+      "expected": {
+        "participant": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "device": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "credential": {
+          "kind": 20460,
+          "created_at": 1800000000,
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "tags": [
+            [
+              "d",
+              "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+            ],
+            [
+              "device",
+              "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+            ],
+            [
+              "expiration",
+              "1800003600"
+            ]
+          ],
+          "content": "",
+          "id": "f63e0d152a290036a29916135b8dd0774dd1041257df5869748a8b464bda9cea",
+          "sig": "7650edb279b0179dda41d0a852dd58c81e410dacaf1e0bf4b2dbbcf07315bd85c676807a5b3c4801775dbafb8811aaa89e8ab5e3c062343da09445f0fa8b8c12"
+        },
+        "tracks": [
+          {
+            "trackId": "synthetic-camera",
+            "role": "camera"
+          }
+        ],
+        "claims": {
+          "mic": 1800000000
+        },
+        "updatedAt": 1800000000,
+        "sid": "01234567",
+        "call": {
+          "id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+          "since": 1799999990
+        }
+      }
+    },
+    {
+      "name": "epoch-with-raw-body-whitespace",
+      "decode": {
+        "roomId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "roomKey": "1111111111111111111111111111111111111111111111111111111111111111",
+        "now": 1800000000,
+        "epoch": {
+          "id": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+          "key": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "digest": "0f2f3a098de1d692e6d5b65aa1a250dd3e56ee08d1d320d778a230a83a9149ef",
+      "body": "{\n \"participant\": \"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\n \"device\": \"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\",\n \"credential\": {\n  \"kind\": 20460,\n  \"created_at\": 1800000000,\n  \"pubkey\": \"1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f\",\n  \"tags\": [\n   [\n    \"d\",\n    \"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\"\n   ],\n   [\n    \"device\",\n    \"4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766\"\n   ],\n   [\n    \"expiration\",\n    \"1800003600\"\n   ]\n  ],\n  \"content\": \"\",\n  \"id\": \"f63e0d152a290036a29916135b8dd0774dd1041257df5869748a8b464bda9cea\",\n  \"sig\": \"7650edb279b0179dda41d0a852dd58c81e410dacaf1e0bf4b2dbbcf07315bd85c676807a5b3c4801775dbafb8811aaa89e8ab5e3c062343da09445f0fa8b8c12\"\n },\n \"tracks\": [\n  {\n   \"trackId\": \"synthetic-camera\",\n   \"role\": \"camera\"\n  }\n ],\n \"claims\": {\n  \"mic\": 1800000000\n },\n \"updatedAt\": 1800000000,\n \"sid\": \"01234567\",\n \"call\": {\n  \"id\": \"b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1\",\n  \"since\": 1799999990\n }\n}",
+      "signature": "a3d0198c1fe3b2c97325ffda83a58295d65b4671a3a67dd94e1e96182030879d6c2c67587339deaf4126d4dd8317bc2caaa068631f0bbed8d80f840096ae4433",
+      "event": {
+        "kind": 20461,
+        "created_at": 1800000000,
+        "pubkey": "462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+        "tags": [
+          [
+            "d",
+            "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"
+          ],
+          [
+            "expiration",
+            "1800000600"
+          ]
+        ],
+        "content": "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",
+        "id": "58aac0a0ffc9ba59e30c3455a62493e9c3788269e58fe7bf7a9ad5b16672fb25",
+        "sig": "908870616216f4e0761098a78251283db13502d7403a034e0d8765e90281c883b31513a29bdba1dba04d971c8750d37adcae8fdecfa4d4b88c20d88a15fe8e72"
+      },
+      "expected": {
+        "participant": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "device": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "credential": {
+          "kind": 20460,
+          "created_at": 1800000000,
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "tags": [
+            [
+              "d",
+              "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+            ],
+            [
+              "device",
+              "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+            ],
+            [
+              "expiration",
+              "1800003600"
+            ]
+          ],
+          "content": "",
+          "id": "f63e0d152a290036a29916135b8dd0774dd1041257df5869748a8b464bda9cea",
+          "sig": "7650edb279b0179dda41d0a852dd58c81e410dacaf1e0bf4b2dbbcf07315bd85c676807a5b3c4801775dbafb8811aaa89e8ab5e3c062343da09445f0fa8b8c12"
+        },
+        "tracks": [
+          {
+            "trackId": "synthetic-camera",
+            "role": "camera"
+          }
+        ],
+        "claims": {
+          "mic": 1800000000
+        },
+        "updatedAt": 1800000000,
+        "sid": "01234567",
+        "call": {
+          "id": "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1",
+          "since": 1799999990
+        }
+      }
+    }
+  ]
+}

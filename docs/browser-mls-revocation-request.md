@@ -125,3 +125,73 @@ keeper inbox, dedicated endpoint lifecycle, operator prompt, or MLS/grant
 revocation. Those remain open P3-08 work, and these modules must not be wired
 into production before their gate evidence and the production security review
 are complete.
+
+## Private keeper inbox checks (development only)
+
+The grant workflow panel has an explicit **Check selected Bothy privately**
+action. Select a saved route on the dedicated grant connection and allow keeper
+identification to that Bothy for this check. The concrete endpoint opens the
+pinned Link event socket; successful keeper NIP-42 authentication precedes its
+finite kind-1059 recipient query. Pairing does not itself grant event authority.
+A refused, expired or unavailable keeper session produces an incomplete check.
+
+This path performs no public DM directory lookup, public recipient query,
+public AUTH or publication, and has no public fallback. The old public action
+remains explicitly labelled and separately selected. Link bootstrap/carriers can
+still expose connection metadata; the Bothy receives the authenticated keeper,
+recipient filter, ciphertext, timing and volume. This is not anonymity or a claim
+that all network traffic avoids public infrastructure.
+
+The witnessed inbox retains distinct private cursors bound to keeper, saved
+route id and pinned event URL. Public and private scans share the page budget.
+Only a verified, processed retained page with a strictly older signed boundary advances its cursor. Existing
+wrapper, recipient, seal, request, decryption-budget and membership checks remain.
+A late account, signer, permission or route invalidation cannot authorise a read.
+
+This change only reads requests already stored at that Bothy. Member-to-keeper
+private sending is still unresolved: Bothy's non-keeper event sessions enforce
+ordinary guest-event scopes, and a VMLS device grant does not automatically
+authorise an ephemeral-author gift wrap. Neither public delivery nor a generic
+callback is substituted when that private sender authority is missing.
+Production MLS remains disabled; this does not close admission or continuity.
+
+Using this development action writes the optional `privateScan` field in the
+witnessed membership journal. Older development builds with the previous strict
+schema may refuse that record; no downgrade or journal-reset migration is added.
+
+Operation permission remains live throughout intake, including both decryption
+layers, retained-grant lookup and witnessed prompt/cursor transactions. Signed,
+query-matching unsupported outer shapes remain pagination boundaries without
+using a signer. Forged events cannot supply a boundary. Timestamp pagination
+retains the oldest signed second inclusively. NIP-01 EOSE, even with fewer than
+64 events, does not prove that a server item/byte cap exhausted that second.
+If the signed boundary cannot move backwards, or a page has no signed matching
+boundary, the check remains incomplete at its existing cursor. It never
+subtracts a second or repeatedly resets the cursor to the head. This can hold
+older-history progress even after a short or empty page; safe continuation needs
+a separately specified stronger Bothy paging API and is not claimed here.
+
+Normal public and private **Check** actions use a fresh window ending at the
+witnessed current time. A saved empty or held boundary therefore no longer excludes later
+wraps solely because their timestamp is newer than that boundary. Separate **Check older requests** actions resume the
+saved retained inclusive boundary. The selected mode is captured at the click,
+alongside route and identification permission. Both modes share the same
+witnessed one-page and decryption budgets.
+
+Fresh probes create an initial retained boundary if none exists, but never
+move an existing backfill cursor, even after successful intake. Retained checks
+can move only to a strictly older signed boundary; an ambiguous or expired
+backfill window holds without becoming a new head. No mode claims that retained
+history is complete. Safe progress through a blocked timestamp still requires
+a stronger paging API; this patch adds no such protocol.
+
+Connection opening, authentication and stored-page receipt have separate bounded
+budgets: at most 30 seconds for the socket to open, 75 seconds for a required
+NIP-42 challenge/signature/matching OK, then a fresh five seconds for the
+stored-page query. Private queries start only after successful keeper AUTH.
+Public checks without required authentication keep their finite page budget; an
+unsolicited AUTH challenge does not extend it. An explicitly consented
+auth-required public retry gets its own bounded AUTH phase and fresh page budget.
+Consent withdrawal or phase expiry discards late signer replies and opens no
+public fallback. These budgets allow supported signer waits; they do not resolve
+the historic Cambium SDK stall or establish hardware/network acceptance.

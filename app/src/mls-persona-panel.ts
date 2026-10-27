@@ -1,3 +1,4 @@
+import { admin2ProductSelected } from './mls-invitation-profile.js'
 import { BrowserMlsAccount, type MlsAccountContext, type MlsAccountView } from './mls-persona-account.js'
 import type { ConsentScope, ConsentPrompt, VaultResult, SignLeafBindingRequest } from './mls-vault.js'
 import type { BoxRequest } from './mls-coordinated-vault.js'
@@ -17,6 +18,7 @@ export class BrowserMlsPanel {
   constructor(private readonly context: () => MlsAccountContext | undefined,
     private readonly account = new BrowserMlsAccount(context), private readonly root: Document = document,
     private readonly revocationTransport?: () => VmlsRevocationTransport) {
+    if (import.meta.env.DEV && import.meta.env.VITE_MIXED_INVITATION_LAB === 'true') void import('./mls-mixed-invitation-lab.js').then(m => m.captureAccountOwner(this.account))
     this.dialog = root.createElement('dialog')
     this.dialog.id = 'mlsWitnessSettings'; this.dialog.className = 'profileSettings'
     this.dialog.setAttribute('aria-labelledby', 'mlsWitnessTitle')
@@ -75,8 +77,17 @@ export class BrowserMlsPanel {
         </fieldset>
       </details>`
     root.body.append(this.dialog)
+    if (admin2ProductSelected()) {
+      this.dialog.querySelector('h2')!.textContent = 'Private groups · device and restore protection'
+      this.dialog.querySelector('.note')!.textContent = 'Prepare protected local device custody and a private witness before using Private invitations. This candidate retains manual enrolment and one exact paired home box. Device replacement does not inherit group membership or admin roles; state loss requires fresh rejoin.'
+      ;(this.dialog.querySelector('#mlsWitnessDeviceMigrate') as HTMLButtonElement).hidden = true
+      this.dialog.querySelector('#mlsWitnessDeviceChoice p')!.textContent = 'Create this browser’s protected device explicitly. Existing local ciphertext is retained. A replacement device needs a fresh invitation and its own named admin role.'
+    }
     addReveal(this.dialog.querySelector<HTMLInputElement>('#mlsWitnessCode')!, 'witness pairing code')
     this.account.listen(() => { void this.invalidate().catch(() => undefined) })
+    root.addEventListener('visibilitychange', () => {
+      if (root.visibilityState !== 'visible') void this.invalidate().catch(() => undefined)
+    })
     this.button('Close').onclick = () => { void this.invalidate().catch(() => undefined) }
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); void this.invalidate().catch(() => undefined) })
     // close is queued by the browser. An old close event must not reset a
@@ -136,11 +147,12 @@ export class BrowserMlsPanel {
     this.#reset()
   }
   async open(): Promise<void> {
+    if (this.root.visibilityState !== 'visible') return
     const generation = ++this.#generation
     this.#reset(); if (!this.dialog.open) this.dialog.showModal()
     if (this.#busy) this.message('Waiting for the previous operation to finish…')
     await this.#idle
-    if (!this.dialog.open || generation !== this.#generation) return
+    if (this.root.visibilityState !== 'visible' || !this.dialog.open || generation !== this.#generation) return
     this.el('Account').textContent = this.context()?.persona ?? 'Not signed in'
     await this.#run(() => this.account.state())
   }
@@ -155,13 +167,13 @@ export class BrowserMlsPanel {
     await this.account.pause()
   }
   async #run(work: (current: () => boolean) => Promise<MlsAccountView | undefined>): Promise<void> {
-    if (this.#busy || !this.dialog.open) return
+    if (this.root.visibilityState !== 'visible' || this.#busy || !this.dialog.open) return
     const generation = this.#generation, context = this.context()
     let idle!: () => void
     this.#idle = new Promise<void>(resolve => { idle = resolve })
     const current = () => {
       const now = this.context()
-      return this.dialog.open && generation === this.#generation && now?.persona === context?.persona && now?.generation === context?.generation && now?.mode === context?.mode
+      return this.root.visibilityState === 'visible' && this.dialog.open && generation === this.#generation && now?.persona === context?.persona && now?.generation === context?.generation && now?.mode === context?.mode
     }
     this.#busy = true; this.#controls(); this.message('Working…')
     try {
@@ -318,7 +330,7 @@ export class BrowserMlsPanel {
   }
   readonly consent: ConsentPrompt = async scope => {
     const context = this.context(), generation = this.#generation
-    const current = () => this.dialog.open && generation === this.#generation && this.context()?.persona === context?.persona && this.context()?.generation === context?.generation && this.context()?.mode === 'normal'
+    const current = () => this.root.visibilityState === 'visible' && this.dialog.open && generation === this.#generation && this.context()?.persona === context?.persona && this.context()?.generation === context?.generation && this.context()?.mode === 'normal'
     return await this.#confirm('Allow MLS signing?', this.#scopeText(scope), current) ? 'approve' : 'deny'
   }
   /** The future room adapter uses the same scoped prompt; no arbitrary event

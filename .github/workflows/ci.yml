@@ -582,3 +582,32 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  admin2-candidate-distributions:
+    name: Default and guarded Admin2 distributions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Verify exact tracked native provenance and types
+        run: |
+          node --input-type=module -e "import { verifyCandidateDirectory } from './scripts/admin2-product-candidate.mjs'; verifyCandidateDirectory()"
+          npm run typecheck
+      - name: Build and check default distribution
+        run: |
+          npm run build
+          node scripts/check-admin2-product-distribution.mjs default
+      - name: Build and check selected Admin2 distribution
+        env:
+          VITE_MLS_INVITATION_PROFILE: admin2
+          VITE_ACCOUNT_NETWORK_DEFAULT: private-invitations
+        run: |
+          npm run build
+          node scripts/check-admin2-product-distribution.mjs admin2

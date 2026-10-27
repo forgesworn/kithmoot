@@ -76,13 +76,18 @@ describe('device relay preferences', () => {
     expect(() => connections.save(room, [{ url: 'wss://other.test', read: true, write: true }])).toThrow('storage full')
     expect(connections.configuration(room)[0]!.url).toBe('wss://default.test/')
   })
-  it('starts profiles enabled and honours a saved opt-out', () => {
+  it('requires a saved profile opt-in and honours deliberate choices', () => {
     const saved = storage()
-    expect(profilePreference(saved)).toBe(true)
+    expect(profilePreference(saved)).toBe(false)
     saved.setItem('kithmoot.profiles.enabled', 'false')
     expect(profilePreference(saved)).toBe(false)
     saved.setItem('kithmoot.profiles.enabled', 'true')
     expect(profilePreference(saved)).toBe(true)
+    for (const value of ['', 'TRUE', '1', 'null', '{}']) {
+      saved.setItem('kithmoot.profiles.enabled', value)
+      expect(profilePreference(saved)).toBe(false)
+    }
+    expect(profilePreference({ getItem() { throw new Error('storage unavailable') } })).toBe(false)
   })
 })
 
@@ -225,6 +230,14 @@ describe('session-only relay identity permission', () => {
       const restored = new RelayConnections(saved, defaults)
       expect(restored.authenticationIdentity(room, 'wss://default.test/')).toBeUndefined()
     } finally { first.close(); other.close(); account.close() }
+  })
+  it('retains the local withdrawal status after its last pool closes', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const pool = connections.pool(room)
+    connections.authenticate(room, defaults[0]!, identity)
+    connections.clearAuthentication()
+    pool.close()
+    expect(connections.health(room)[0]).toMatchObject({ state: 'idle', authentication: 'withdrawn', lastError: 'Relay authentication permission withdrawn' })
   })
   it('withdraws permission from existing and future pools when the account changes', () => {
     const connections = new RelayConnections(storage(), defaults)

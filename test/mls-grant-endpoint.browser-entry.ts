@@ -177,7 +177,7 @@ export function retiredScope() {
     return Promise.all(['resume','pair','request','socket','carrier'].map(method => duringStop(method as any)))
   })
 }
-export function transition(kind: 'initial-routes' | 'unchanged' | 'multiple' | 'one' | 'changed-seed' | 'corrupt') {
+export function transition(kind: 'initial-routes' | 'unchanged' | 'multiple' | 'one' | 'changed-seed' | 'corrupt' | 'drop-route' | 'rebind-route') {
   return foreground.run(() => true, new AbortController().signal, async () => {
     try {
       await endpoint.resume(identity.pubkey, ['wss://fixture.invalid/link'])
@@ -196,6 +196,13 @@ export function transition(kind: 'initial-routes' | 'unchanged' | 'multiple' | '
               else store.put({ key: 'active', version: 1, nonce: new Uint8Array(12).buffer, ciphertext: new Uint8Array(16).buffer })
             })
           } finally { db.close() }
+        }
+        if (kind === 'drop-route' || kind === 'rebind-route') {
+          state.routes.push(route(1)); await vault.write(state)
+          if (kind === 'drop-route') state.routes = []
+          else { state.routes[0].card.fill(33, 5, 37); state.routes.push(route(2)) }
+          await vault.write(state)
+          return null
         }
         if (kind !== 'unchanged') state.routes.push(route(1))
         if (kind === 'multiple') state.routes.push(route(2))

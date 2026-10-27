@@ -1,0 +1,32 @@
+{
+  "sourceCommit": "a10ba7198974fc2a4c10d529425aef71e82fe012",
+  "files": {
+    "mls-revocation-outbox-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-revocation-outbox.ts",
+      "originalSha256": "4d255cde805f59f1cdace1a68694c2367af362c9b4dd1ebdcf02690ffe28f4b1",
+      "fixtureSha256": "b65925e191e38e22c488c6cf681da5352d2f7bbf7600c6cfbd17911198275814",
+      "transformation": "Only outbox-state relative import redirected to the frozen state fixture; all other source bytes unchanged."
+    },
+    "mls-revocation-outbox-state-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-revocation-outbox-state.ts",
+      "originalSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
+      "fixtureSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
+      "transformation": "Verbatim original source."
+    },
+    "mls-grant-custody-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-grant-custody.ts",
+      "originalFileSha256": "c4fc3ff4b6fb29fcf5227f93a32bd265f8ba2839d31f35ee5d2a8fb082a0f953",
+      "exactFunctionSha256": "37847dd37e80121861295d9ccee404b537ae85882b5d86c0f0835f23cea45dc8",
+      "fixtureSha256": "3c97379f991c870652369f8aacf645b2ee7906992fbceb12231b2fec1efc4644",
+      "transformation": "Verbatim old envelope decoder function with its identical primitive predicates. Grant-record validator imported from current source; legacy record schema is unchanged. The old class #read invokes this decoder before any write or ready mark."
+    }
+  },
+  "unchangedDataContractDependencies": {
+    "mls-membership-store.ts": "75a12cdab90ca36eaed6bf77f903fce4870bacbd89d60d247989f373927ccda2",
+    "mls-revocation-outbox-store.ts": "6b48ba8a298052ff764e9e4f83a45651772725068d6fb774e09f5fe7bf272144",
+    "mls-revocation-binding.ts": "7519d89fa4cd4ba2a035593a2c137206fcd7d82dd44f85c19173bb0369cbf475",
+    "mls-keeper-inbox-auth.ts": "8bd452baa8a29d2915eb868549fb0174c0882cd7b6ee0f9565bd8f1a4eca4a46",
+    "../../src/vmls-revocation-request.ts": "3e043ca73e30c9d0918728369acca3e6daf1ed1c657a281a8717c4f9bd979e82"
+  },
+  "legacyRecordDecoderSha256": "937f6117c0335fb2c6519b5034dd1767270b93cbd67c0dd43973c0ffb8a207c8"
+}

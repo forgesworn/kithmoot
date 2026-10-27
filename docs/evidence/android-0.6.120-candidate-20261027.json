@@ -1,0 +1,92 @@
+{
+  "signedAt": "2026-10-27T10:01:15.588294+00:00",
+  "sourceCommit": "e3dd94a3c1addbe5695b318a8425d51d1b9c5bf5",
+  "versionName": "0.6.120",
+  "versionCode": 143,
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "keysStayedOnM4": true,
+  "apkFilename": "kithmoot-0.6.120-production.apk",
+  "apkSha256": "17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5",
+  "apkBytes": 70885888,
+  "tests": {
+    "protocol:test": {
+      "tests": 594,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app:testDebugUnitTest": {
+      "tests": 2901,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app:testReleaseUnitTest": {
+      "tests": 2890,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "sourceFilesVerified": 1922,
+  "zipPayloadsMatchUnsigned": true,
+  "payloadEntries": 811,
+  "lintDebugPassed": true,
+  "lintReleasePassed": true,
+  "telemetryGuardPassed": true,
+  "minifiedRelease": true,
+  "physicalAndroidAcceptance": false,
+  "emulatorUpgrade": {
+    "verifiedAt": "2026-10-27T10:08:44.624532+00:00",
+    "apkSha256": "17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5",
+    "before": {
+      "uid": "10207",
+      "firstInstallTime": "2026-10-27 10:05:48",
+      "versionCode": "141"
+    },
+    "after": {
+      "uid": "10207",
+      "firstInstallTime": "2026-10-27 10:05:48",
+      "versionCode": "143"
+    },
+    "uidRetained": true,
+    "firstInstallTimeRetained": true,
+    "tests": [
+      {
+        "class": "dev.forgesworn.kithmoot.storage.SigningLineageSeedTest",
+        "tests": 1,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.storage.SigningLineageVerifyTest",
+        "tests": 2,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest",
+        "tests": 1,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.attachment.IsolatedAttachmentDecoderTest",
+        "tests": 6,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.IsolatedRecordingPlayerTest",
+        "tests": 3,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest",
+        "tests": 4,
+        "passed": true
+      }
+    ],
+    "physicalAndroidAcceptance": false,
+    "emulatorApi": 35
+  },
+  "hostedCiPending": true,
+  "publicationPending": true
+}

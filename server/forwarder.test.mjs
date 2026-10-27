@@ -390,10 +390,11 @@ describe('joining a room as a forwarder', () => {
   it('says plainly at startup what it can and cannot read', async () => {
     const { logs } = standUpForwarder()
     const said = logs.join('\n')
-    expect(said).toMatch(/cannot decrypt the roster/i)
-    // True until media encryption through a forwarder is switched on; this
-    // line changes back with that work, not before.
-    expect(said).toMatch(/can read the media it relays today/i)
+    expect(said).toMatch(/cannot decrypt roster content/i)
+    expect(said).toMatch(/traffic patterns can still reveal metadata/i)
+    expect(said).toMatch(/not a TURN media relay: it terminates WebRTC transport\s+encryption/i)
+    expect(said).toMatch(/browser clients require additional encoded-frame\s+encryption/i)
+    expect(said).toMatch(/without that protection can expose playable media/i)
   })
 
   it('announces an 8-character prefix of the room id it serves - never the full id, and never a key', async () => {

@@ -4138,6 +4138,7 @@ button.primary:hover:not(:disabled) {
 
 /* "You" in Room details, where the identity chip now lives. */
 #roomSheet #sendingIdentity { max-width: none; font-size: var(--fs-2); margin: .25rem 0; }
+#roomSheet #sendingIdentity .sendingName { display: inline; }
 #roomSheet #sendingIdentity[hidden] { display: none; }
 
 /* The file picker as a button, not a bare browser control. */

@@ -72,10 +72,13 @@ export function sanitiseRoomMenuState(value) {
  *   run: (command: string) => void,
  *   about: () => void,
  *   reportAbuse: () => void,
+ *   hostingState?: { available: boolean, status: string },
+ *   hostingControls?: () => void,
+ *   hostingStop?: () => void,
  * }} options
  * @returns {Electron.MenuItemConstructorOptions[]}
  */
-export function buildAppMenuTemplate({ platform, appName, state, run, about, reportAbuse }) {
+export function buildAppMenuTemplate({ platform, appName, state, run, about, reportAbuse, hostingState, hostingControls, hostingStop }) {
   const mac = platform === 'darwin'
   // Access keys are a Windows habit; elsewhere an ampersand would show.
   const name = (text, key) => platform === 'win32' ? text.replace(key, `&${key}`) : text
@@ -108,6 +111,8 @@ export function buildAppMenuTemplate({ platform, appName, state, run, about, rep
         item('New room', 'new-room', { accelerator: 'CmdOrCtrl+N' }),
         item('Open an invite link…', 'open-link'),
         item('Join with a code…', 'join-code'),
+        ...(hostingState?.available === true && hostingControls ? [{ label: `Local call relay: ${!hostingState?.available ? 'Unavailable' : ({ off: 'Off', starting: 'Starting', running: 'Running (local bind)', stopping: 'Stopping', failed: 'Failed' }[hostingState.status] ?? 'Off')}…`, click: hostingControls }] : []),
+        ...(hostingState?.available === true && hostingStop ? [{ label: 'Stop local call relay', enabled: hostingState?.available === true && hostingState.status !== 'off', click: hostingStop }] : []),
         ...(mac ? [] : [{ type: 'separator' }, settings('Ctrl+,')]),
         { type: 'separator' },
         { role: 'close', label: 'Close window' },

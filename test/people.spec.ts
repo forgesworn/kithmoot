@@ -6,6 +6,13 @@ import { parseRoomLink } from '../src/link.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings } from './browser.js'
 
+/** These Following journeys start with a deliberate public-profile opt-in. */
+async function accountWithProfiles(...args: Parameters<typeof accountDevice>) {
+  const context = await accountDevice(...args)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
+  return context
+}
+
 /** A key as the app shortens it when there is no name. */
 const shortNpub = (pubkey: string): string => { const npub = npubEncode(pubkey); return `${npub.slice(0, 10)}…${npub.slice(-4)}` }
 
@@ -49,7 +56,7 @@ test('People lists the people you follow, and Message starts a private chat with
   const aKey = generateSecretKey(), bKey = generateSecretKey(), cKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey), c = getPublicKey(cKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey, cKey] }, [b, c, a], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -101,7 +108,7 @@ test('an invitation from somebody you follow carries their name, before People h
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     // Bob follows Alice, whose profile names her.
@@ -126,7 +133,7 @@ test('Decline clears an invitation on this device and opens nothing', async ({ b
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -159,7 +166,7 @@ test('Decline and block clears an invitation, lists the sender under Privacy, an
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -205,7 +212,7 @@ test('a person blocked from People leaves it, their invitations are dropped, and
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     // Each follows the other, so each is in the other's People.
     await seed(publisher, baseURL!, { account: bKey, peers: [aKey] }, [a], new Map([[a, 'Alice on Nostr']]))
@@ -252,7 +259,7 @@ test('Invite from People opens the private chat and sends the room there, sealed
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -326,7 +333,7 @@ test('Check words together from People compares words in the private chat and ma
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey), bc = await accountDevice(browser, baseURL!, bKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey), bc = await accountWithProfiles(browser, baseURL!, bKey)
   try {
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
@@ -375,7 +382,7 @@ test('Voice from People opens the private chat and starts a call in it', async (
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const b = getPublicKey(bKey)
   const publisher = new NostrRelayPool([TEST_RELAY_WS])
-  const ac = await accountDevice(browser, baseURL!, aKey)
+  const ac = await accountWithProfiles(browser, baseURL!, aKey)
   try {
     await ac.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
     await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Bob on Nostr']]))

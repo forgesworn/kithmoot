@@ -123,6 +123,7 @@ export class RoomBookmarks {
     private changed: () => void,
     private status: (message: string) => void,
     private admissions?: BookmarkAdmissions,
+    private networkEnabled: () => boolean = () => true,
   ) {
     this.rooms = accountRoomStore(store, signer.pubkey)
     this.#prefix = `kithmoot.bookmarks.${signer.pubkey}.`
@@ -136,6 +137,7 @@ export class RoomBookmarks {
   }
 
   start(): void {
+    if (!this.networkEnabled()) return
     if (!this.signer.nip44) {
       this.status('Rooms are saved for this account in this browser only: this signer does not support NIP-44 encryption.')
       return
@@ -261,7 +263,7 @@ export class RoomBookmarks {
         const record = this.#records.get(roomId)
         return record && !record.room && record.d === pending.d ? record.d : undefined
       }
-      if (!this.signer.nip44) return undefined
+      if (!this.networkEnabled() || !this.signer.nip44) return undefined
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     return undefined
@@ -376,7 +378,7 @@ export class RoomBookmarks {
   }
 
   async retry(): Promise<void> {
-    if (this.#closed || this.#busy) return
+    if (this.#closed || this.#busy || !this.networkEnabled()) return
     if (!this.#pending.size) {
       // An explicit retry is the person saying the signer has changed, or
       // asking for rooms another device cannot see to be sent again.

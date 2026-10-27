@@ -4,6 +4,7 @@ import { connect as connectTls } from 'node:tls'
 import { createRoom, join, open, joinWithMedia, newDeviceContext, turnOnMedia, chooseCallMore, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
 import { automaticCallState, observeAutomaticCallErrors } from './automatic-call-state.js'
+import { rethrowStartupFailure, type StartupIssue } from './automatic-call-startup-diagnostic.js'
 import { syntheticSource } from './browser-protected-share-fixture.js'
 
 const issuer = `https://localhost:${process.env.E2E_AUTOMATIC_TURN_PORT ?? 7794}`
@@ -20,6 +21,7 @@ test('issuer requests omit cookies and room information while fresh guests recei
   const contexts = await Promise.all([0, 1].map(() => newDeviceContext(browser, baseURL!)))
   const replies: { username: string; credential: string }[] = []
   const denied: string[] = []
+  let failed = false
   try {
     for (const context of contexts) {
       await context.route('**/*', route => {
@@ -42,20 +44,19 @@ test('issuer requests omit cookies and room information while fresh guests recei
       })
     }
     const pages = await Promise.all(contexts.map(context => context.newPage()))
-    const startupErrors: string[] = []
-    pages[0].on('pageerror', error => startupErrors.push(error.message))
-    pages[0].on('requestfailed', req => startupErrors.push(JSON.stringify({ kind: req.resourceType(), path: new URL(req.url()).pathname, error: req.failure()?.errorText })))
+    const startupIssues: StartupIssue[] = []
+    const note = (issue: StartupIssue) => { if (startupIssues.length < 12) startupIssues.push(issue) }
+    pages[0].on('pageerror', error => note({ kind: 'page-error', category: /dynamically imported|module script/i.test(error.message) ? 'module-load'
+      : error.name === 'TypeError' ? 'type' : error.name === 'ReferenceError' ? 'reference' : 'script' }))
+    pages[0].on('requestfailed', req => note({ kind: 'request-failed', resource: req.resourceType(),
+      category: /ABORT|interrupted/i.test(req.failure()?.errorText ?? '') ? 'aborted'
+        : /CERT/i.test(req.failure()?.errorText ?? '') ? 'certificate' : /CONNECTION|REFUSED/i.test(req.failure()?.errorText ?? '') ? 'connection' : 'other' }))
     pages[0].on('response', response => {
-      if (response.status() >= 400) startupErrors.push(JSON.stringify({ kind: response.request().resourceType(), path: new URL(response.url()).pathname, status: response.status() }))
+      if (response.status() >= 400) note({ kind: 'http-error', resource: response.request().resourceType(), status: response.status() })
     })
     let link: string
     try { link = await createRoom(pages[0], baseURL!) }
-    catch (error) {
-      // This is the fresh pre-call page only: omit URLs, storage, request
-      // bodies, cookies and credentials from the bounded failure evidence.
-      console.log('Automatic-call startup diagnostic', JSON.stringify({ errors: startupErrors.slice(0, 12), page: await pages[0].evaluate(() => ({ title: document.title, ready: document.readyState, startup: document.documentElement.dataset.ordinaryStartup, text: document.body.innerText.slice(0, 2000) })) }))
-      throw error
-    }
+    catch (error) { return await rethrowStartupFailure(error, pages[0], startupIssues) }
     await turnOnMedia(pages[0])
     await open(pages[1], link, 'Rowan'); await join(pages[1])
     await expect(pages[1].locator('#roomArea')).toBeVisible()
@@ -97,7 +98,14 @@ test('issuer requests omit cookies and room information while fresh guests recei
       issuerRequestBoundary: stats, externalRequests: denied,
       separateNetworks: false, publicPkiQualified: false, commercialProviderQualified: false,
     }, null, 2) })
-  } finally { idle.destroy(); await Promise.all(contexts.map(context => context.close())) }
+  } catch (error) {
+    failed = true; throw error
+  } finally {
+    idle.destroy()
+    const closed = await Promise.allSettled(contexts.map(context => context.close()))
+    // Preserve an existing assertion/navigation failure if teardown also fails.
+    if (!failed) { const rejected = closed.find(result => result.status === 'rejected'); if (rejected?.status === 'rejected') throw rejected.reason }
+  }
 })
 
 async function sample(page: Page) {

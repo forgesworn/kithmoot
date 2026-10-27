@@ -307,7 +307,7 @@ describe('expiring transport attempts and durable observations', () => {
     const result = await f.restart().records() as any
     expect(result.value).toHaveLength(64); expect(result.value.every((item: any) => item.requestState === 'none' && item.requestRevision === 1)).toBe(true)
     expect([...f.tx.vault.values()][0]!.length).toBeLessThan(bytesBefore)
-    expect((await readMlsMembership(f.tx)).standalone!.observations).toEqual(before.map(({ attempt: _attempt, ...item }) => item))
+    expect((await readMlsMembership(f.tx)).standalone!.observations).toEqual(before.map(({ attempt: _attempt, ...item }) => ({ ...item, publicAttempted: true })))
     await expect(f.observe({ device: 'ff'.repeat(32) })).rejects.toBeInstanceOf(MlsRevocationOutboxFull)
     expect((await readMlsMembership(f.tx)).standalone!.observations).toHaveLength(64)
   })

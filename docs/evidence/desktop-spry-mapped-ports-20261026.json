@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-26",
+  "scope": "Native explicit TURN media allocation mappings, bounded diagnostics, live address-only preflight and source-based privacy audit",
+  "changesCommitted": false,
+  "source": {
+    "kithmootBase": "28786a0c42568b46f842e1dee249e57132ec2f86",
+    "spryBase": "f2c56e56395cac41b634bd2096777a413b74fbbd",
+    "kithmootFileSha256": {
+      "desktop/spry-natpmp.mjs": "80d6f03600c5b270d25294b90ec3fa487befda5580a0868df74984b31249421e",
+      "desktop/spry-mapping-diagnostic.mjs": "cc341095af5f7ca34e79cc129d711e0500d84a25eab8de8678b1a6524c256622",
+      "desktop/test/spry-natpmp.test.mjs": "cc658c25c028a722790f6f63264317574ed6d01f0d0d988850874c4f210eb86d",
+      "server/forwarder.mjs": "3bac53e7e468a89a62dbd0327caa2fe85c0353cd10f02c19946453ca7e65868b",
+      "docs/2026-10-26-call-privacy-and-one-click.md": "453dba0dd00ccdf10e3e9affa864d3f6ef084c4ea994ab474e6cb8bee5d994e7",
+      "docs/2026-10-26-desktop-spry-hosting.md": "249f9d02fd3a5acc5f6a5c4075b04a5d0abed6ad52cbb82876a9c8ffda884e59",
+      "docs/2026-10-26-proton-mapping-diagnostic.md": "24027a519c1b4464b3a2e9637d0cfc5e6fcccc50c5dfbf9fdad72b4261773d9e"
+    },
+    "spryFileSha256": {
+      "src/main.rs": "b132a15d0454181d73595e778c5597510e371b909cc532934691316e637a285d",
+      "src/turn.rs": "fc9bfd09e2eee36bc61db73259345e119d3143f65d7aab4fe0c093ae8954a694",
+      "tests/interop.py": "149008704cd4c4ee4c5a322f4928062850807457d92c2037964f1e80afdfe767",
+      "tests/parent_lifetime.rs": "bf9c54b7b869e554476cc0a0a6b64ec5dfd1f561ecda2d22206f5ab237e76bdf",
+      "docs/mapped-ports.md": "e16a95f3a78d2fa7e718a614620ded4e70735ae37509a87275a41d6f48ddd38a",
+      "GOALS.md": "b351ad329f17fe7f3c41094e65429e8499a23b3c047c8fb3e226f71a9d920d6a",
+      "docs/README.md": "7c49178fa959ccea55ca69e39c797d51623b466365ffc2bf95f91d7b6c2de42a",
+      "scripts/docs.mjs": "edc074981ca184d5606731a6ec4bb6ef626877d26a5aa48ef7d7feaba8b40c2a",
+      "llms.txt": "5e86463ba1d8988bdeaf9d7170229092dd13dc05a01f814fccb5a48b011663d6",
+      "llms-full.txt": "458489129b81cf2016e97b35349cc2e320f34ca374d1c01a18c787b42b8aa11e"
+    },
+    "nativeReleaseSha256": "784b9d50a255bbdf49e0c5329341a6500627d22adf712a142673d89e41f73af2",
+    "nativePortableSha256": "986e2cebf2980397a9558346ab17da2db1717bc68429a708d33e4bb460d5ed31",
+    "node": "v24.21.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "command": "KITHMOOT_TEST_SPRY_BINARY=<task-owned-portable-binary> node --test desktop/test/*.test.mjs",
+      "result": "passed",
+      "tests": 255,
+      "passed": 255,
+      "failed": 0,
+      "skipped": 0,
+      "evidence": "root executed; includes two actual native authentication/socket/crash checks"
+    },
+    {
+      "command": "node --test desktop/test/spry-natpmp.test.mjs",
+      "result": "passed",
+      "tests": 71,
+      "evidence": "implementation agent; also included in root full desktop run"
+    },
+    {
+      "command": "cargo test --locked --workspace --all-features",
+      "repository": "spry-turn",
+      "result": "passed",
+      "tests": 81,
+      "nativeLibraryTests": 25,
+      "evidence": "native implementation agent"
+    },
+    {
+      "check": "Minimal native library tests: no defaults, turn, runtime+turn",
+      "repository": "spry-turn",
+      "result": "passed",
+      "tests": [
+        1,
+        6,
+        20
+      ],
+      "evidence": "native implementation agent"
+    },
+    {
+      "command": "python3 tests/interop.py --binary target/release/spry-turn --tls",
+      "repository": "spry-turn",
+      "result": "passed",
+      "tests": 40,
+      "durationSeconds": 13.867,
+      "evidence": "native implementation agent"
+    },
+    {
+      "command": "python3 tests/interop.py --binary target/debug/spry-turn --tls",
+      "repository": "spry-turn",
+      "result": "passed",
+      "tests": 40,
+      "durationSeconds": 17.001,
+      "evidence": "native implementation agent; portable TLS binary"
+    },
+    {
+      "check": "Native fmt, all-feature/all-target clippy with denied warnings, runtime-only and portable TLS builds",
+      "result": "passed",
+      "evidence": "native implementation agent"
+    },
+    {
+      "command": "npm run docs:generate; npm run check:docs",
+      "repository": "spry-turn",
+      "result": "passed",
+      "guides": 23,
+      "repositoryLinks": 348,
+      "evidence": "root executed"
+    },
+    {
+      "check": "Node syntax checks for changed modules and server forwarder; both repository diff checks",
+      "result": "passed",
+      "evidence": "root executed"
+    },
+    {
+      "command": "gitleaks stdin --redact --no-banner",
+      "scope": "Changed implementation, tests, docs and generated context",
+      "result": "passed; no leaks found",
+      "evidence": "root executed"
+    }
+  ],
+  "preflight": {
+    "actualVpnRouteInspected": true,
+    "protonAppAndWireGuardExtensionPresent": true,
+    "explicitSourceAndGatewayUsed": true,
+    "addressOnlyRequests": 2,
+    "result": "connection refused",
+    "originalClientCode": "ERR_SOCKET",
+    "observedOsCode": "ECONNREFUSED",
+    "newBoundedClassification": "ERR_CONNECTION_REFUSED",
+    "mappingRequests": 0,
+    "mappedPortsOpened": 0,
+    "vpnSettingChanged": false,
+    "p2pOrForwardingSettingEstablished": false,
+    "providerSupportInferredFromFailure": false,
+    "note": "Second raw UDP address query diagnosed the OS code; no credentials, gateway/source IPs, public IP or machine interface names are retained here."
+  },
+  "implemented": [
+    "Explicit immutable local/public UDP allocation maps, max1024 unique pairs; range/bridge combination and local listener collision refused",
+    "Separate bound/public endpoints, only listed local ports used; occupied skip and authenticated508 exhaustion",
+    "Exact live own-address endpoint authority, release/reuse and stale SEND/ChannelData denial",
+    "Translated mapping requires explicit distinct advertised IP; loopback endpoints require opt-in; identity sets remain valid",
+    "Bounded socket failure classification for connection refusal/source loss/route loss without endpoint errors or fallback",
+    "Corrected stale server-forwarder startup wording to distinguish encoded-frame encryption requirements and visible metadata",
+    "Recorded no-audio/video-over-Nostr constraint, one-click product requirements and actual room/activity metadata exposure"
+  ],
+  "review": {
+    "nativeImplementation": "gpt-6.1-sol, high effort",
+    "independentNativeReview": "gpt-6.1-sol, high effort",
+    "privacyAudit": "gpt-6.1-sol, high effort; source inspection only",
+    "errorClassification": "gpt-6.1-sol, high effort",
+    "fixedFindings": [
+      "Translated same-IP map could authorise an unowned local UDP service",
+      "Mapped own-address branch bypassed loopback peer opt-in"
+    ],
+    "finalNativeReview": "Both findings addressed; no new critical/high findings in reviewed scope"
+  },
+  "privacyAudit": {
+    "mediaOverNostrAllowed": false,
+    "normalWebrtcTurnOperatorReceivesMediaKeys": false,
+    "nostrMetadataHidden": false,
+    "rosterDeviceAndRoomEpochCorrelationPresent": true,
+    "turnConnectionMetadataVisible": true,
+    "hostileForwarderMediaTestRunThisTurn": false,
+    "sourceFiles": [
+      "src/signal.ts",
+      "src/roster.ts",
+      "src/mesh.ts",
+      "src/peer.ts",
+      "src/media-crypto.ts",
+      "app/src/forwarder-media.ts",
+      "app/src/public-call-relays.ts",
+      "src/public-call-relays.ts",
+      "app/src/relay-only.ts",
+      "src/ice-defaults.ts"
+    ]
+  },
+  "boundaries": {
+    "desktopMapsOrRenewsVpnPorts": false,
+    "desktopMappedListenerAdvertisement": false,
+    "desktopNostrCredentialAdapter": false,
+    "oneClickProductionHostingReady": false,
+    "nativeBinaryBundled": false,
+    "publicNostrAdvertsChanged": false,
+    "protonInboundQualified": false,
+    "independentNetworkMediaQualified": false,
+    "vpnKillSwitchQualified": false,
+    "physicalSleepWakeQualified": false,
+    "mappedHairpinQualified": false,
+    "performanceQualified": false,
+    "ownerArchipelagoNodeChanged": false,
+    "newUiImplementedThisTurn": false,
+    "publishedOrDeployed": false,
+    "legalClassificationResolved": false
+  },
+  "cleanup": "Completed: task-owned native target removed after source/binary hashes and acceptance evidence were recorded. No task native/diagnostic processes or mapping fixture directories remained. No packages, Electron runtime or public media/Nostr services created. Source worktrees remain uncommitted; unrelated work preserved.",
+  "nextWork": "Integrate existing encrypted Nostr control with native hosting and room ICE without transporting media over Nostr; enforce chosen operator/IP-privacy policy; separately reduce roster correlation and qualify actual VPN/public routes."
+}

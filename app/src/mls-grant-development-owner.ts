@@ -1,4 +1,10 @@
+import { adminInvitationPreviewEnabled } from './mls-admin-invitation-engine.js'
+import { adminStorageRequestRevision, adminStorageRequestSource } from './mls-admin-storage-request.js'
+import { storageInboxCoordinator, storageOutboxCoordinator } from './mls-storage-inbox.js'
+import { BrowserMlsStorageGrants, type StorageGrantReview } from './mls-storage-grants.js'
+import { labStoragePreviewEnabled } from './mls-lab-storage-preview.js'
 import type { Event } from 'nostr-tools/pure'
+import { confirmAction } from './confirm-action.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
 import type { VmlsRevocationIdentity } from '../../src/vmls-revocation-request.js'
 import { normaliseRelayConfig } from '../../src/relay-pool.js'
@@ -16,9 +22,13 @@ import { BrowserMlsRevocationInbox, type MlsRevocationInboxContext } from './mls
 import { BrowserMlsKeeperDecisions, type MlsKeeperDecisionPlan } from './mls-keeper-decisions.js'
 import { BrowserMlsKeeperRequestController } from './mls-keeper-request-controller.js'
 import { BrowserMlsMembershipController, type MlsRemovalPlan } from './mls-membership-controller.js'
-import { BrowserMlsKeeperInboxFetch, type MlsKeeperInboxReadPermission } from './mls-keeper-inbox-fetch.js'
+import { BrowserMlsKeeperInboxFetch, type MlsKeeperInboxReadPermission, type MlsKeeperInboxScanMode } from './mls-keeper-inbox-fetch.js'
+import { BrowserMlsKeeperPrivateInboxFetch, type MlsKeeperPrivateInboxPermission } from './mls-keeper-private-inbox-fetch.js'
 import { NostrMlsKeeperInboxTransport } from './mls-keeper-inbox-relay.js'
 import { NostrVmlsRevocationTransport } from './mls-revocation-relay.js'
+import { BrowserMlsRevocationOutbox } from './mls-revocation-outbox.js'
+import type { KeeperInboxAuthPrompt } from './mls-keeper-inbox-auth.js'
+import { BrowserMlsKeeperPermissions } from './mls-keeper-permissions.js'
 import { mlsRoomIds, readMlsRoom } from './mls-room-store.js'
 
 export interface MlsDevelopmentRoom { session: string; rendezvousKey: string }
@@ -38,6 +48,11 @@ interface Active {
 interface Services {
   links: BrowserPersonaLinks; coordinator: BrowserPersonaCoordinator; vault: CoordinatedMlsVault
   rooms: BrowserMlsRoomOperations; ledger: BrowserMlsGrantLedger; inbox: BrowserMlsRevocationInbox
+  permissions: BrowserMlsKeeperPermissions
+  storageCoordinator: Pick<BrowserPersonaCoordinator, 'transact'>; storageSendCoordinator: Pick<BrowserPersonaCoordinator, 'transact'>
+  storage: BrowserMlsStorageGrants; storageInbox: BrowserMlsRevocationInbox
+  storageOutbox: BrowserMlsRevocationOutbox
+  outbox: BrowserMlsRevocationOutbox
   decisions: BrowserMlsKeeperDecisions; keeper: BrowserMlsKeeperRequestController; member: BrowserMlsMembershipController
 }
 const held = (): MlsGrantForegroundResult<never> => ({ state: 'interrupted' })
@@ -76,6 +91,76 @@ export class BrowserMlsGrantDevelopmentOwner {
   #sockets = new Map<WebSocket, Promise<void>>()
   constructor(private readonly context: () => MlsGrantDevelopmentContext | undefined) {}
 
+  /** Disposable lab bootstrap is node storage authority, never MLS admission.
+   * The actual account signs; only the selected node's authenticated ACK can
+   * accept its keeper authority. Exact active and terminal storage statements
+   * are protected before publication; no member-grant authority is invented. */
+  authoriseEnrolledDevice(routeId: string, persona: string, device: string) {
+    if (!labStoragePreviewEnabled() || !hex(persona) || !hex(device)) throw stale()
+    return this.#run(true, async (_services, active) => {
+      await this.#endpoint.resume(active.account.persona)
+      const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(item => item.routeId === routeId)
+      if (!box) throw stale()
+      const node = mlsBoxNode(box), expiration = Math.floor(Date.now() / 1000) + 3600
+      const current = () => active.current() && document.visibilityState === 'visible' && Math.floor(Date.now() / 1000) < expiration
+      if (!await confirmAction({ title: 'Authorise enrolled device on this node?', confirmLabel: 'Prepare and authorise device', isCurrent: current,
+        message: `Development storage permission only; this creates no MLS membership. Both exact signed active and terminal statements are protected before network publication.\nKeeper: ${active.account.persona}\nNode: ${node}\nPersona: ${persona}\nDevice: ${device}\nExpiry: at most one hour. The node independently checks keeper authority.` })) return { state: 'denied' as const }
+      const prepared = await _services.storage.prepare(routeId, persona, device, active.identity, current)
+      if (prepared.state !== 'active') return prepared
+      const result = await _services.storage.publish(prepared.value.grant.grantId, prepared.value.revision, false, current)
+      if (result.state !== 'active') return result
+      const grant = result.value.record.grant
+      return { state: 'accepted' as const, node, persona, device, eventId: grant.active.id, expiration: grant.expiration }
+
+    })
+  }
+  storageRecords() { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storage.records()) }
+  publishStorageGrant(grant: string, revision: number, revoke: boolean, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.storage.publish(grant, revision, revoke, () => current() && active.current()))
+  }
+  prepareAdminStorageRequest(room: MlsDevelopmentRoom, input: { routeId: string; leaf: string; expectedStorageKeeper: string; permission: Event; rebind?: { operation: string; bindingRevision: number; requestRevision: number } }) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    const selected = snapshot(input)
+    return this.#run(true, async (services, active) => {
+      await this.#endpoint.resume(active.account.persona)
+      const box = (await this.#endpoint.pairedBoxes(active.account.persona)).find(box => box.routeId === selected.routeId)
+      if (!box || !active.room || !active.selected) throw stale()
+      const current = () => active.current() && this.#endpoint.boxes().some(saved => saved.routeId === box.routeId && saved.eventUrl === box.eventUrl)
+      return services.rooms.prepareAdminStorageRevocation({ ...active.room, current }, active.selected.session,
+        { leaf: selected.leaf, expectedStorageKeeper: selected.expectedStorageKeeper, permission: selected.permission, box, ...(selected.rebind ? { rebind: selected.rebind } : {}) })
+    }, room)
+  }
+  adminStorageBinding(operation: string) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.storageSendCoordinator.transact(active.account.persona, tx => adminStorageRequestRevision(tx, operation), active.current))
+  }
+  adminStorageMembers(room: MlsDevelopmentRoom) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => {
+      if (!active.room || !active.selected) throw stale()
+      return services.rooms.members(active.room, active.selected.session)
+    }, room)
+  }
+  storageKeeperView() { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storageInbox.view()) }
+  storageKeeperCheckPrivate(input: MlsKeeperPrivateInboxPermission) {
+    if (!labStoragePreviewEnabled() || input.authenticate !== true) throw stale()
+    const permission = { ...input, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot decrypt storage requests.')
+      return new BrowserMlsKeeperPrivateInboxFetch(services.storageCoordinator, services.storageInbox, this.#endpoint, () => this.#active?.inbox).check(active.revocation, permission)
+    })
+  }
+  storageKeeperReview(operation: string) { if (!labStoragePreviewEnabled()) throw stale(); return this.#run(true, services => services.storage.review(operation)) }
+  storageKeeperApprove(review: StorageGrantReview, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    const selected = snapshot(review)
+    return this.#run(true, (services, active) => services.storage.approve(selected, () => current() && active.current()))
+  }
+  storageKeeperAdvance(operation: string, current: () => boolean) {
+    if (!labStoragePreviewEnabled()) throw stale()
+    return this.#run(true, (services, active) => services.storage.advance(operation, () => current() && active.current()))
+  }
   records() { return this.#run(false, services => services.ledger.records()) }
   roomChoices() {
     return this.#run(true, (services, active) => services.coordinator.transact(active.account.persona, async tx => {
@@ -122,6 +207,56 @@ export class BrowserMlsGrantDevelopmentOwner {
     return this.#run(true, services => services.member.begin(selected), room)
   }
   memberAdvance(room: MlsDevelopmentRoom, operation: string) { return this.#run(true, services => services.member.advance(operation), room) }
+  currentMlsDevice() { return this.#run(true, (services, active) => services.vault.device(active.inbox.vault)) }
+  revocationRecords() { return this.#run(true, services => (adminInvitationPreviewEnabled() ? services.storageOutbox : services.outbox).records()) }
+  /** Private sending is composed only here, beside its concrete saved-route
+   * endpoint. Public account sending remains an explicit separate action. */
+  sendRevocationPrivately(operation: string, input: { routeId: string; permission: Event; consent: KeeperInboxAuthPrompt; current(): boolean }, revision?: number) {
+    if (!hex(operation) || !input || typeof input.routeId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}(?![\s\S])/.test(input.routeId) ||
+        typeof input.consent !== 'function' || typeof input.current !== 'function' || revision !== undefined && (!Number.isSafeInteger(revision) || revision < 1)) throw new Error('Select a retained request, saved private route and current AUTH consent.')
+    const selected = { routeId: input.routeId, permission: snapshot(input.permission), consent: input.consent, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot encrypt keeper requests.')
+      if (!adminInvitationPreviewEnabled()) return services.outbox.sendPrivately(operation, { identity: active.revocation, endpoint: this.#endpoint, vault: services.vault,
+        routeId: selected.routeId, permission: selected.permission, consent: selected.consent, current: () => selected.current() && active.current() }, revision)
+      let nativeCurrent = () => false
+      return services.storageOutbox.sendPrivately(operation, { identity: active.revocation, endpoint: this.#endpoint, vault: services.vault,
+        routeId: selected.routeId, permission: selected.permission, consent: selected.consent,
+        current: () => selected.current() && active.current() && nativeCurrent(),
+        withinEvidence: async work => {
+          const source = await services.storageSendCoordinator.transact(active.account.persona, async tx => {
+            const selection = await adminStorageRequestSource(tx, operation, active.account.persona), room = await readMlsRoom(tx, selection.source.session)
+            if (room.profile !== 'InvitationAdmins2' || room.keeper !== undefined) throw stale()
+            return { selection, rendezvousKey: room.binding.rendezvousKey }
+          }, () => selected.current() && active.current())
+          if (source.state !== 'active') return source
+          const { selection, rendezvousKey } = source.value
+          const result = await services.rooms.withAdminStorageSend({ vault: active.inbox.vault, rendezvousKey, current: () => selected.current() && active.current() },
+            selection.source.session, operation, { ...selection, permission: selected.permission }, current => { nativeCurrent = current; return work() })
+          if (result.state === 'refused' || result.state === 'unknown') throw new Error('Fresh Admin2 own/target evidence refused private sending; the retained request is unchanged.')
+          return result.state === 'active' ? { ...result, marks: new Map() } : result
+        },
+      }, revision)
+    })
+  }
+
+  keeperPermissions() { return this.#run(true, services => services.permissions.records()) }
+  prepareKeeperPermission(routeId: string, device: string, seconds: number, operationCurrent: () => boolean) {
+    return this.#run(true, (services, active) => services.permissions.prepare(routeId, device, seconds, active.identity, () => operationCurrent() === true && active.current()))
+  }
+  publishKeeperPermission(grant: string, revision: number, revoke: boolean, operationCurrent: () => boolean) {
+    return this.#run(true, (services, active) => services.permissions.publish(grant, revision, revoke, () => operationCurrent() === true && active.current()))
+  }
+  exportKeeperPermission(grant: string, revision: number) { return this.#run(true, services => services.permissions.exportInstalled(grant, revision)) }
+  sendRevocationPublic(operation: string, relays: readonly string[], revision?: number) {
+    if (adminInvitationPreviewEnabled()) throw new Error('Admin2 storage requests have no public outbox.')
+    const selectedRelays = relaySnapshot(relays)
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot encrypt keeper requests.')
+      const transport = new NostrVmlsRevocationTransport(selectedRelays, { socket: url => this.#socket(url) })
+      return revision === undefined ? services.outbox.send(operation, { identity: active.revocation, transport }) : services.outbox.retry(operation, revision, { identity: active.revocation, transport })
+    })
+  }
   keeperView() { return this.#run(true, services => services.inbox.view()) }
   keeperApprovals() { return this.#run(true, services => services.decisions.approvals(true)) }
   keeperReceive(wrappers: readonly Event[]) {
@@ -133,7 +268,8 @@ export class BrowserMlsGrantDevelopmentOwner {
       return services.inbox.receive(selected, active.revocation)
     })
   }
-  keeperCheck(discoveryRelays: readonly string[], permissions: readonly MlsKeeperInboxReadPermission[] = []) {
+  keeperCheck(discoveryRelays: readonly string[], permissions: readonly MlsKeeperInboxReadPermission[] = [], mode: MlsKeeperInboxScanMode = 'latest') {
+    if (mode !== 'latest' && mode !== 'retained') throw new Error('Select a latest or retained keeper inbox check.')
     const selectedRelays = relaySnapshot(discoveryRelays)
     if (!Array.isArray(permissions) || permissions.length > 6) throw new Error('Invalid keeper inbox read permissions.')
     const selectedPermissions = permissions.map(permission => {
@@ -150,7 +286,20 @@ export class BrowserMlsGrantDevelopmentOwner {
       const page = new NostrMlsKeeperInboxTransport(url => this.#socket(url))
       const fetch = new BrowserMlsKeeperInboxFetch(services.coordinator, services.inbox,
         { directory: keeper => directory.directory(keeper), page: query => page.page(query) }, () => this.#active?.inbox)
-      return fetch.check(active.revocation, selectedPermissions)
+      return fetch.check(active.revocation, selectedPermissions, mode)
+    })
+  }
+  keeperCheckPrivate(input: MlsKeeperPrivateInboxPermission) {
+    if (!input || typeof input.routeId !== 'string' || input.authenticate !== true || typeof input.current !== 'function') {
+      throw new Error('Select a saved private route and allow keeper identification to that Bothy.')
+    }
+    const mode = input.mode ?? 'latest'
+    if (mode !== 'latest' && mode !== 'retained') throw new Error('Select a latest or retained private inbox check.')
+    const permission = { routeId: input.routeId, authenticate: true, mode, current: input.current.bind(input) }
+    return this.#run(true, (services, active) => {
+      if (!active.revocation) throw new Error('This account cannot decrypt keeper requests.')
+      const fetch = new BrowserMlsKeeperPrivateInboxFetch(services.coordinator, services.inbox, this.#endpoint, () => this.#active?.inbox)
+      return fetch.check(active.revocation, permission)
     })
   }
   keeperReview(operation: string) { return this.#run(true, services => services.decisions.plan(operation)) }
@@ -244,14 +393,21 @@ export class BrowserMlsGrantDevelopmentOwner {
     const coordinator = new BrowserPersonaCoordinator(new BrowserMlsPersonaStore(), links.channels)
     const vault = new CoordinatedMlsVault(coordinator, { generation: () => this.#epoch })
     const rooms = new BrowserMlsRoomOperations(coordinator, vault), context = () => this.#active?.inbox
-    const admission = new BrowserMlsKeeperAdmission(coordinator, context, vault)
+    const storage = new BrowserMlsStorageGrants(coordinator, this.#endpoint, context, custody)
+    const admission = new BrowserMlsKeeperAdmission(coordinator, context, vault, (tx, node, device, at) => storage.assertLegacyScope(tx, node, device, at))
     const ledger = new BrowserMlsGrantLedger(() => this.#active?.current() ? this.#active.identity : undefined, this.#endpoint, custody,
       (record, identity) => this.#endpoint.carrier(record, identity), undefined, undefined, undefined, admission)
+    const storageCoordinator = storageInboxCoordinator(coordinator)
+    const storageInbox = new BrowserMlsRevocationInbox(storageCoordinator, storage, context, undefined, { storage: tx => storage.authority(tx) })
     const inbox = new BrowserMlsRevocationInbox(coordinator, custody, context)
     const decisions = new BrowserMlsKeeperDecisions(coordinator, custody, context, undefined, ledger, undefined, ledger)
     const keeper = new BrowserMlsKeeperRequestController(decisions, rooms, ledger, context)
     const member = new BrowserMlsMembershipController(rooms, ledger, () => this.#active?.room, () => this.#active?.selected?.session, () => this.#active?.account.persona)
-    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member }
+    const outbox = new BrowserMlsRevocationOutbox(coordinator, context)
+    const storageSendCoordinator = storageOutboxCoordinator(coordinator)
+    const storageOutbox = new BrowserMlsRevocationOutbox(storageSendCoordinator, context)
+    const permissions = new BrowserMlsKeeperPermissions(coordinator, this.#endpoint, context)
+    return { links, coordinator, vault, rooms, ledger, inbox, decisions, keeper, member, outbox, permissions, storage, storageInbox, storageCoordinator, storageOutbox, storageSendCoordinator }
   }
   #socket(url: string): WebSocket {
     const active = this.#active, scope = this.#foreground.capture()

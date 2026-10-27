@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.113",
-  "versionCode": 136,
+  "versionName": "0.6.121",
+  "versionCode": 144,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 64822754,
-  "apkSha256": "03a7bf4280b423ee08047d32e3c7728156adaebc2837dbb6ff9071b286d8d2bb",
+  "apkBytes": 70889984,
+  "apkSha256": "6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.113-production.apk",
+  "downloadFilename": "kithmoot-0.6.121-production.apk",
   "releaseNotes": [
-    "Choose loudspeaker on or off during a call, with headsets taking priority.",
-    "Open chats at unread messages, see your Nostr picture and use larger account-menu actions.",
-    "Optionally find public call relays in Connections; your own relay and Spry still come first."
+    "Shows your signed-in account’s profile name in rooms and chats, independently of lookups for other people.",
+    "Recovers missing profile reads after temporary relay failures.",
+    "Includes message-history recovery, isolated recording playback and relay authentication fixes."
   ]
 }

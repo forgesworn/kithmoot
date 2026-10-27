@@ -63,7 +63,7 @@ export class BrowserPersonaCoordinator {
     else { this.#confirmed.delete(persona); this.#confirming.delete(persona) }
   }
 
-  /** Unjournalled typed box authentication only (§6.2.1). This is not a
+  /** Unjournalled typed box and keeper inbox authentication only. This is not a
    * substitute for transact for leaf signatures, mutations or MLS effects.
    * A restart, local write, pending exchange or fence removes confirmation. */
   async readConfirmed<T>(persona: string, read: (view: PersonaReader) => Promise<T>, current: () => boolean): Promise<CoordinationResult<T>> {

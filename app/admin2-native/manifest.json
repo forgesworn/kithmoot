@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "experimental": true,
+  "qualificationOnly": true,
+  "sourceCommit": "5b3eb5fe28255b5c0cc09d959a3010a3d48f9562",
+  "target": "web",
+  "snapshotVersion": 5,
+  "profile": "Vennel/invitation-admins/2",
+  "policy": "designated-leaf-admins/1",
+  "files": {
+    "vmls_wasm.d.ts": "d0fc76ab83dc12cb69c92ed86a69af318411212a5ca8bb49b8ae09a205de7307",
+    "vmls_wasm.js": "2c07c8c3f0a883440ee9a3c4c2a300bdb20b5e8c9e6d3ff0b65c7b904786c099",
+    "vmls_wasm_bg.wasm": "8c593171bafa5d205e570f58ab1171894b70e5f05d5361b95254228702621560",
+    "vmls_wasm_bg.wasm.d.ts": "8d3c9321f6d3ac092b1781a6bb3db44e9f3f2a916630552f2ef0fa3bc25a4277"
+  }
+}

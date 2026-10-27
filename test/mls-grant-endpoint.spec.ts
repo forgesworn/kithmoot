@@ -163,7 +163,7 @@ test('same-pubkey signer replacement refuses a late AUTH result and publishes no
   expect(await page.evaluate('E.status()')).toMatchObject({ occupied: false, publications: 0, starts: 2, stops: 2, disconnects: 1 })
   expect((await page.evaluate('navigator.locks.query()') as any).held).toEqual([])
 })
-for (const kind of ['initial-routes','unchanged','multiple','changed-seed','corrupt','one'] as const) test(`dedicated vault ${kind} transition ${kind === 'one' ? 'accepts exactly one route append' : 'refuses arbitrary custody replacement'}`, async ({ context }) => {
+for (const kind of ['initial-routes','unchanged','multiple','changed-seed','corrupt','drop-route','rebind-route','one'] as const) test(`dedicated vault ${kind} transition ${kind === 'one' ? 'accepts exactly one route append' : 'refuses arbitrary custody replacement'}`, async ({ context }) => {
   const page = await fixture(context)
   if (kind === 'one') expect(await page.evaluate(kind => (window as any).E.transition(kind), kind)).toMatchObject({ state: 'active' })
   else await expect(page.evaluate(kind => (window as any).E.transition(kind), kind)).rejects.toThrow()

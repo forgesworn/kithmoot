@@ -1,12 +1,13 @@
 import { test, expect, type BrowserContext } from '@playwright/test'
 import { bytesToHex } from '@noble/hashes/utils'
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { accountDevice, signInAccount } from './nostr-account.js'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { dmPolicy } from '../src/dm.js'
 import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
-import { joinWithMedia, leaveToChats, newDeviceContext, openProfileSettings, TEST_RELAY_WS } from './browser.js'
+import { joinWithMedia, leaveToChats, newDeviceContext, openNewRoomForm, nameCreator, openRoomInfoPage, openProfileSettings, TEST_RELAY_WS } from './browser.js'
 
 /**
  * Public-profile lookups, as a relay meets them. A lookup is a plaintext
@@ -20,6 +21,75 @@ import { joinWithMedia, leaveToChats, newDeviceContext, openProfileSettings, TES
  * relays of whichever room happens to be open do not learn who the person
  * talks to elsewhere.
  */
+
+test('saved public profile opt-out survives actual app startup and reload', async ({ page, context, baseURL }) => {
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'false'))
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto(baseURL!)
+  await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+  await expect(page.locator('#ordinaryStartupNotice')).toBeHidden()
+  await openProfileSettings(page)
+  await expect(page.locator('#lookupProfiles')).not.toBeChecked()
+  await page.locator('#profileSettingsClose').click()
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-ordinary-startup', 'ready')
+  await expect(page.locator('#ordinaryStartupNotice')).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('the signed-in account keeps its own kind-0 name with directory lookups off, including after reload', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey(), pubkey = getPublicKey(secret)
+  const profile = finalizeEvent({ kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: '{"name":"TheCryptoDonkey"}' }, secret)
+  const context = await accountDevice(browser, baseURL!, secret)
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'false'))
+  const authors: string[] = []
+  await context.routeWebSocket(() => true, ws => {
+    const server = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'REQ') {
+        const filters = frame.slice(2) as { kinds?: number[]; authors?: string[] }[]
+        for (const filter of filters) {
+          if (!filter.kinds?.includes(0)) continue
+          authors.push(...filter.authors ?? [])
+          if (filter.authors?.includes(pubkey)) ws.send(JSON.stringify(['EVENT', frame[1], profile]))
+        }
+      }
+      server.send(raw)
+    })
+  })
+  try {
+    const page = await context.newPage()
+    await signInAccount(page, baseURL!)
+    await expect(page.locator('#accountProfile')).toContainText('TheCryptoDonkey')
+    await openNewRoomForm(page)
+    await page.locator('#roomName').fill('Own account name')
+    await nameCreator(page, 'Typed fallback')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await openRoomInfoPage(page, 'How you appear')
+    await expect(page.locator('#sendingIdentity')).toBeVisible()
+    await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
+    await expect(page.locator('#sendingIdentity .sendingName')).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('own-account-name-phone.png'), fullPage: true })
+    await page.locator('#roomSheetClose').click()
+    await page.reload()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    await openRoomInfoPage(page, 'How you appear')
+    await expect(page.locator('#sendingIdentity')).toBeVisible()
+    await expect(page.locator('#accountProfile')).toContainText('TheCryptoDonkey')
+    await expect(page.locator('#sendingIdentity')).toContainText('TheCryptoDonkey')
+    await expect(page.locator('#sendingIdentity .sendingName')).toBeVisible()
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.screenshot({ path: test.info().outputPath('own-account-name-desktop.png'), fullPage: true })
+    await page.locator('#roomSheetClose').click()
+    await openProfileSettings(page)
+    await expect(page.locator('#lookupProfiles')).not.toBeChecked()
+    expect(authors.length).toBeGreaterThan(0)
+    expect([...new Set(authors)]).toEqual([pubkey])
+  } finally { await context.close() }
+})
 
 const PUBLIC_PROFILE_HOSTS = ['purplepag.es', 'relay.damus.io', 'relay.primal.net']
 
@@ -69,6 +139,7 @@ async function seed(context: BrowserContext, participant: Uint8Array, rooms: { i
   await context.addInitScript(({ key, rooms }) => {
     if (localStorage.getItem('test.profile-lookups-seeded')) return
     localStorage.setItem('test.profile-lookups-seeded', '1')
+    localStorage.setItem('kithmoot.profiles.enabled', 'true')
     localStorage.setItem('kithmoot.participant', key)
     for (const room of rooms) {
       localStorage.setItem('kithmoot.room.' + room.id, JSON.stringify({ link: room.link, name: room.name, openedAt: Math.floor(Date.now() / 1000), readAt: 0 }))
@@ -172,6 +243,7 @@ test('going home on a docked call closes the room’s lookups, so its people are
   test.setTimeout(180_000)
   const roomRelay = new URL('/__test-relay', baseURL); roomRelay.protocol = 'wss:'
   const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1440, height: 1000 } })
+  await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
   const sent = await record(context, roomRelay.href)
   const bo = localIdentity(generateSecretKey())
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [roomRelay.href], iceUrls: [] })

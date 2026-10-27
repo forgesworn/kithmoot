@@ -2,7 +2,7 @@
 
 Version 0.1.104 adds Spry pairing and encrypted account sync. Pair once while signed in with Nostr and the pairing follows your other signed-in devices, including Android 0.6.112. The web handoff opens the desktop app or shows a locally rendered Android QR for a guest device. See [Spry account pairing](../docs/spry-account-pairing.md).
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.104 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.109 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
@@ -28,7 +28,23 @@ provider completion remain separate acceptance gates.
 
 ## Build and run
 
+The [optional Spry hosting preview](../docs/2026-10-26-desktop-spry-hosting.md)
+has development-only native Start/Stop controls behind an explicit owner
+configuration. It is Off on every launch. No native executable is bundled;
+packaged builds expose no hosting controls. Proton/public routing remains
+unqualified.
+
+The separate [mapping diagnostic](../docs/2026-10-26-proton-mapping-diagnostic.md)
+validates an owner plan without network traffic by default. Its explicit live
+mode observes a small NAT-PMP mapping set and one renewal cycle; it does not
+start hosting or establish Proton reachability.
+
 Use Node 24 from the repository root. Root dependencies must already be installed.
+
+The [Proton routing prototype](../docs/2026-10-26-desktop-proton-routing.md)
+is an opt-in development run. It follows the default network route for WebRTC;
+it does not detect Proton or provide a VPN kill switch. Packaged releases ignore
+the option, and Hide IP still requires a working TURN media relay.
 
 ```sh
 npm ci --prefix desktop

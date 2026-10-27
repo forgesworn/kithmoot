@@ -98,6 +98,14 @@ describe('witnessed browser MLS message driver', () => {
     f.rooms.drive.mockImplementation(async (...args) => args[3].type === 'delivered' ? { state: 'pending', reason: 'stale', refused: false } : drive(...args))
     expect(await f.driver.round()).toMatchObject({ state: 'pending' }); expect(f.s.outbox).toHaveLength(1)
   })
+  it('never deposits private OOB or unprovisioned invitation mailbox carriers', async () => {
+    const f = fixture()
+    f.s.outbox = [{ ...leaf(11), destination: { type: 'InvitationOob', contextCommitment: id(8) } },
+      { ...leaf(12), destination: { type: 'InvitationMailbox', contextCommitment: id(8), node: id(1) } }]
+    expect(await f.driver.round()).toMatchObject({ held: 2, delivered: 0 })
+    expect(f.client.deposit).not.toHaveBeenCalled(); expect(f.client.depositSlot).not.toHaveBeenCalled()
+    expect(f.s.outbox).toHaveLength(2)
+  })
   it('holds foreign destinations, missing Welcome mapping and mismatched Introduction peer', async () => {
     const f = fixture(); const out = leaf(10); (out.destination as any).homeBox = id(99)
     f.s.outbox = [out, { ...leaf(11), destination: { type: 'Welcome', packageId: id(8) } }, { ...leaf(12), destination: { type: 'Introduction', peerRz: id(8) } }]
