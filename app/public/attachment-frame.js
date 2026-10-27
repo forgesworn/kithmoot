@@ -64,6 +64,7 @@
 
     release()
     objectUrl = URL.createObjectURL(message.blob)
+    port.postMessage({ type: 'kithmoot:attachment-preview:url', url: objectUrl })
     document.body.replaceChildren(previewElement(kind, objectUrl))
   })
 
