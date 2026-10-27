@@ -84,14 +84,16 @@ for (const phone of [false, true]) test(`recorded video survives storage refusal
     await expect(attachment).toBeVisible()
     expect(downloads).toBe(0)
     await attachment.getByRole('button', { name: /^Show/ }).click()
-    const video = attachment.locator('video')
+    const video = attachment.frameLocator('iframe.attachmentPreviewFrame').locator('video')
     await expect(video).toBeVisible()
     await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2)
-    const received = await video.evaluate(async (element: HTMLVideoElement) => {
-      const bytes = await (await fetch(element.src)).arrayBuffer()
+    const saveUrl = (await attachment.getByRole('link', { name: /^Save / }).getAttribute('href'))!
+    const received = await b.evaluate(async (url: string) => {
+      const bytes = await (await fetch(url)).arrayBuffer()
       const digest = await crypto.subtle.digest('SHA-256', bytes)
-      return { size: bytes.byteLength, sha256: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join(''), width: element.videoWidth, height: element.videoHeight }
-    })
+      return { size: bytes.byteLength, sha256: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('') }
+    }, saveUrl)
+    Object.assign(received, await video.evaluate((element: HTMLVideoElement) => ({ width: element.videoWidth, height: element.videoHeight })))
     expect(received.size).toBe(original.size); expect(received.sha256).toBe(original.sha256)
     expect(received.width).toBe(1280); expect(received.height).toBe(720)
     expect(downloads).toBeGreaterThan(0)
