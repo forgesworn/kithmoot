@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.120",
-  "versionCode": 143,
+  "versionName": "0.6.121",
+  "versionCode": 144,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70885888,
-  "apkSha256": "17c076ffa43c4227d3d5aaf40913985a9c5cf17f9c66a60adbc02632aaefa2d5",
+  "apkBytes": 70889984,
+  "apkSha256": "6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.120-production.apk",
+  "downloadFilename": "kithmoot-0.6.121-production.apk",
   "releaseNotes": [
-    "Fixes dropped messages while catching up on a burst of stored chat.",
-    "Retries the original history window without duplicating messages already received.",
-    "Includes isolated recording playback and the existing camera startup and relay authentication fixes."
+    "Shows your signed-in account’s profile name in rooms and chats, independently of lookups for other people.",
+    "Recovers missing profile reads after temporary relay failures.",
+    "Includes message-history recovery, isolated recording playback and relay authentication fixes."
   ]
 }

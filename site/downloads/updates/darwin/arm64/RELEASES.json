@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.108",
+  "currentRelease": "0.1.109",
   "releases": [
     {
-      "version": "0.1.108",
+      "version": "0.1.109",
       "updateTo": {
-        "version": "0.1.108",
-        "pub_date": "2026-10-27T10:07:51Z",
-        "notes": "Keeps your draft and asks you to rejoin if this device\u2019s room credential has expired. Includes Electron 44 TLS security updates.",
-        "name": "0.1.108",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.108/KithMoot-0.1.108-mac-arm64.zip",
-        "sha256": "441f8c8fc2aaadff15ec60497360361a80aeccfa653d46b7d131f65a846531c3",
-        "size": 190112773
+        "version": "0.1.109",
+        "pub_date": "2026-10-27T10:50:47Z",
+        "notes": "Shows your signed-in profile name in rooms and chats. Includes message delivery fixes and desktop runtime security updates.",
+        "name": "0.1.109",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.109/KithMoot-0.1.109-mac-arm64.zip",
+        "sha256": "7d77edcdfc359f5317a0f5f67f5872eb5d00325bb0250017e64de35bedb60ecb",
+        "size": 190112402
       }
     }
   ]

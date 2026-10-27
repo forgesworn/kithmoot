@@ -382,6 +382,7 @@ import {
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type LookupScope, type Profile } from './profiles.js'
+import { AccountProfileBook } from './account-profile.js'
 import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-lookups.js'
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
@@ -1395,8 +1396,12 @@ function storeName(name: string): void {
  */
 function joiningName(): string | undefined {
   if (nostrSession) {
-    const profile = profiles.get(nostrSession.pubkey)
+    const profile = accountProfiles.get(nostrSession.pubkey)
     if (profile?.name) return profile.name
+    const name = sanitiseDisplayName(nostrSession.displayName)
+    if (name) return name
+    const remembered = lastKnownProfileNames.get(nostrSession.pubkey)
+    if (remembered) return remembered
   }
   return typedName || undefined
 }
@@ -3163,6 +3168,20 @@ let myDeviceId = ''
  */
 const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://relay.primal.net']
 
+// Signing in selects whose own metadata to read. The directory preference
+// controls other people's profiles, and cannot erase the account's own name.
+const accountProfiles = new AccountProfileBook({
+  relays: () => [],
+  publicRelays: () => PROFILE_RELAYS,
+  transport: urls => relayConnections.pool('account-profile', urls),
+  onChange: () => {
+    renderIdentity()
+    if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
+    renderRooms()
+    renderPeople()
+  },
+})
+
 const profiles = new ProfileBook({
   // For the people in the room on screen: its relays as well as the public
   // ones. `wantProfiles` asks here only while a room is open.
@@ -3223,8 +3242,10 @@ function isOwnAccount(pubkey: string): boolean {
  * real account, not one made here, and is asked about like the account.
  */
 function wantProfiles(pubkeys: string[], scope: LookupScope): void {
+  const own = nostrSession?.pubkey ?? expectedAccount
+  accountProfiles.select(own, accountNetwork.nostr)
   if (!accountNetwork.nostr) return
-  const routed = routeLookups(pubkeys, scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
+  const routed = routeLookups(pubkeys.filter(pubkey => pubkey !== own), scope, { madeHere, isAccount: isOwnAccount, roomOpen: !!(roomSecret as Uint8Array | undefined) })
   if (routed.room.length) profiles.want(routed.room, 'room')
   if (routed.public.length) profiles.want(routed.public, 'public')
 }
@@ -3239,6 +3260,7 @@ function renderLookupHosts(): void {
 renderLookupHosts()
 let nip05Verify = nip05VerifyPreference(relayStorage)
 profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 
 /** People (app/src/people.ts), mounted once the shell's containers exist. */
 let people: PeopleView | undefined
@@ -3272,6 +3294,7 @@ $('verifyAddresses').addEventListener('change', () => {
   nip05Verify = ($('verifyAddresses') as HTMLInputElement).checked
   try { localStorage.setItem('kithmoot.nip05.verify', String(nip05Verify)) } catch { /* The switch still applies to this visit. */ }
   profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+  accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 })
 
 /**
@@ -3389,7 +3412,7 @@ interface Shown {
 
 /** Resolve everything a tile or a chat line needs to show one person. */
 function shownAs(pubkey: string, asserted?: string): Shown {
-  const profile: Profile | undefined = accountNetwork.nostr ? profiles.get(pubkey) : undefined
+  const profile: Profile | undefined = accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
   // Only a published identity is asked about, so a per-device key is never
   // even looked up: there is nothing to attribute a payment to. Cheap on
   // every render by design - it does nothing for a total that is still
@@ -3400,7 +3423,7 @@ function shownAs(pubkey: string, asserted?: string): Shown {
     profileName: profile?.name,
     rememberedName: lastKnownProfileNames.get(pubkey),
     assertedName: asserted,
-    profilesEnabled: accountNetwork.nostr && profilesEnabled,
+    profilesEnabled: isOwnAccount(pubkey) || accountNetwork.nostr && profilesEnabled,
   })
   noteName(pubkey, name)
   return {
@@ -22491,8 +22514,10 @@ function reconcileAccountNetwork(): void {
   // A durable revision may change while the final mode stays Nostr. Drop
   // every old service-owned handle before creating this generation's pools.
   profiles.setEnabled(false)
+  accountProfiles.select(undefined, false)
   profiles.setEnabled(enabled && profilesEnabled)
   profiles.setNip05Automatic(enabled && nip05Verify)
+  accountProfiles.setNip05Automatic(enabled && nip05Verify)
   follows.setEnabled(false)
   follows.close()
   follows.setEnabled(enabled && profilesEnabled)

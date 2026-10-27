@@ -987,3 +987,17 @@ permission guidance and draft logo feature are separate changes and are not
 included in this publication. Physical Android and Zapstore-client installation
 acceptance remain open. The [publication receipt](evidence/android-0.6.80-website-publication-2026-10-11.json)
 records the exact source and these boundaries.
+
+
+## Android 0.6.121 own-profile recovery candidate, 27 October 2026
+
+Production-signed 0.6.121 (code 144) carries the own-account profile recovery
+and 0.6.120 message replay fix. Exact source
+`e515017426513bcc1ffc3d7e419af8258cc68d09`; 70,889,984 bytes; SHA-256
+`6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6`.
+The existing production certificate and preview-to-production lineage are
+retained. Full protocol, debug/release unit tests, both lints, telemetry guard
+and all builds passed; the exact signed APK passed an API 35 emulator upgrade
+over 0.6.118 and 17 native/storage/playback checks. This Google APIs emulator
+does not establish physical GrapheneOS acceptance. Hosted qualification and
+publication are pending. See [candidate evidence](evidence/android-0.6.121-candidate-20261027.json).
