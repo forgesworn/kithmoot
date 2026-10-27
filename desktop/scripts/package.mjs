@@ -22,7 +22,7 @@ const icon = resolve(assets, 'KithMoot.icns')
 if (spawnSync('iconutil', ['-c', 'icns', iconset, '-o', icon]).status) throw new Error('Icon build failed')
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
-  electronVersion: '44.4.1', appBundleId: 'dev.forgesworn.kithmoot.desktop',
+  electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
   appVersion: version, buildVersion: '108', icon, overwrite: true, asar: true,
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],

@@ -2,7 +2,7 @@
 
 Version 0.1.104 adds Spry pairing and encrypted account sync. Pair once while signed in with Nostr and the pairing follows your other signed-in devices, including Android 0.6.112. The web handoff opens the desktop app or shows a locally rendered Android QR for a guest device. See [Spry account pairing](../docs/spry-account-pairing.md).
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.4.1 and the bundled KithMoot client. Current release candidate: 0.1.104 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.104 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence

@@ -64,3 +64,11 @@ exact versions, room identity, times and relay diagnostics for any gap.
 Desktop 0.1.108 carries the credential check. Android 0.6.120, code 143,
 reserves the receive-buffer fix after the already allocated 0.6.119 playback
 release. Publication and device acceptance are tracked separately.
+
+Desktop packaging also updates Electron within major 44 to 44.9.3, carrying
+the TLS certificate mitigation required by
+[GHSA-jr5w-w6x2-84p9](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9).
+The packager's transitive Undici is updated within major 7 for
+[GHSA-xjj6-f33q-929c](https://github.com/nodejs/undici/security/advisories/GHSA-xjj6-f33q-929c).
+These were identified by the release dependency audit; packaging and desktop
+checks must run on the resulting pins.

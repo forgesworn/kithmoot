@@ -14,7 +14,7 @@ const [directory] = await packager({
   executableName: 'KithMoot',
   platform: 'win32',
   arch: 'x64',
-  electronVersion: '44.4.1',
+  electronVersion: '44.9.3',
   appVersion: version,
   overwrite: true,
   asar: true,
