@@ -6,7 +6,7 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
-## Android 0.6.117 account authentication, 27 October 2026
+## Android 0.6.117 account authentication, published 27 October 2026
 
 Version **0.6.117**, code **140**, adds explicit account authentication for
 foreground room relays. Settings → Connections → Nostr relays offers **Use
@@ -31,8 +31,34 @@ installation history and synthetic app data, then launched. Real sender
 Android/Linux delivery and physical GrapheneOS acceptance remain pending.
 See [candidate evidence](evidence/android-0.6.117-candidate-20261027.json).
 
-Publish only the four Android metadata files and this exact APK over the
-current live release, preserving desktop and PWA assets byte-for-byte.
+GitHub stable/latest, both website hosts, the signed in-app update feed and
+Zapstore now serve the exact verified APK. Website PR #590 merged as
+`ac21dcd74053629efa0e18489ecda47d5bf35033`; all 46 required website jobs passed.
+The qualified and merged website trees match. The later combined Android main
+run also passed all 17 jobs. Superseded failures are retained separately and
+are not counted as passing checks.
+
+The deployment changed four Android publication files and the stable APK link,
+preserving all 630 other website files, including all 595 PWA files and desktop
+0.1.107, byte-for-byte. Both hosts passed ordinary complete versioned/stable
+APK downloads and detached-manifest signature checks. Four fresh Chromium
+contexts passed at phone and desktop widths, with the download cards visually
+reviewed at 390px and 1440px.
+
+Zapstore's release and APK asset, Nostr signatures, application reference,
+version code, source commit, signing ancestor and unexpired certificate proof
+were independently returned and verified. Both advertised CDN and immutable
+GitHub downloads matched the APK. The publishing helper stalled; the prepared
+metadata was signed through the same existing paired publisher. Upload/event
+acknowledgements initially preceded CDN availability, so publication was accepted
+only after full downloads and catalogue readback passed. The blob API's canonical
+URL and its hash-only alias were checked; the advertised hash-only alias matches
+the existing publication verifier's exact URL allowlist.
+
+The [stable publication receipt](evidence/android-0.6.117-stable-publication-20261027.json)
+records these gates. The same receipt is attached to the GitHub release and was
+read back byte-for-byte. Sender delivery, physical GrapheneOS and Zapstore-client
+acceptance remain explicitly unobserved.
 
 ## Android 0.6.116 camera backgrounds, 26 October 2026
 
