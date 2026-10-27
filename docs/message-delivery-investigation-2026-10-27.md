@@ -58,3 +58,9 @@ exact versions, room identity, times and relay diagnostics for any gap.
 - `npm run typecheck`: passed for the library and app.
 - Android companion checks are recorded in its own investigation note.
 - No public messages, release artefacts or device installations were created.
+
+## Release allocation
+
+Desktop 0.1.108 carries the credential check. Android 0.6.120, code 143,
+reserves the receive-buffer fix after the already allocated 0.6.119 playback
+release. Publication and device acceptance are tracked separately.
