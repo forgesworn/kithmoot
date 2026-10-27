@@ -25,6 +25,10 @@ const pressDocked = (page: Page, id: string): Promise<void> => page.locator(id).
  *  that must run while docked is started on the call and the call is docked
  *  again, in the room it was docked in, which is what the dock then reports. */
 async function startRecordingThenDock(page: Page, layout: string): Promise<string> {
+  // The title changes before admission finishes. Return is deliberately
+  // ignored during that transition, so wait for the room to be interactive.
+  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomArea')).not.toHaveAttribute('inert', '')
   const room = (await page.locator('#roomTitle').textContent())!
   await page.locator('#callDockBack').click()
   await expect(page.locator('#callDock')).toBeHidden()

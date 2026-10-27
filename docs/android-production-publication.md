@@ -6,6 +6,37 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.116 camera backgrounds, 26 October 2026
+
+Version **0.6.116**, code **139**, restores on-device person cut-outs over sea
+scenes and animated fish, following the owner's explicit change of camera
+policy. Google Play services and a Google account are not required. The pinned
+Google model is bundled, and both camera and QR dependencies exclude Google's
+reporting transport. The local logger transport discards events. Failed or
+invalid masks retain the complete synthetic backdrop; they never publish the
+raw camera frame. This includes the isolated attachment decoder from 0.6.115.
+
+Android source `4e0de49472578432f811fea2b4f0dfc0a0934328` (PR #339).
+The production-signed candidate is 70,865,408 bytes, SHA-256
+`0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015`.
+All 811 ZIP payload entries match the unsigned input, with the existing
+production certificate and signing lineage. Signing-host checks passed 594
+protocol, 2,891 debug app and 2,880 release app tests, both lint variants,
+both builds and the dependency/model guard.
+
+The exact candidate updated the authorised Pixel in place and passed 21 camera,
+model, reef, privacy and native-startup checks in its GrapheneOS main profile
+without Play services or Store. Its UID and original installation date were
+retained. The 20-second camera test establishes liveness; real-person visual
+quality and normal-call performance are separate gates. An unlocked foreground comparison measured 6.17 fps raw and 6.50 fps with
+effects in the current scene, with 101 ms mean synthetic-frame composition.
+Sustained-call and owner visual acceptance remain separate. All 17 Android CI
+jobs passed and PR #339 is merged. Public readbacks remain pending in the
+[candidate receipt](evidence/android-0.6.116-candidate-20261026.json).
+
+This publication updates four Android metadata files and the APK. Preserve the
+current desktop release and PWA byte-for-byte when deploying those files.
+
 ## Android 0.6.115 decoder and WebRTC, published 26 October 2026
 
 Version **0.6.115**, code **138**, isolates attachment image decoding. Merged

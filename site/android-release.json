@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.115",
-  "versionCode": 138,
+  "versionName": "0.6.116",
+  "versionCode": 139,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 65191394,
-  "apkSha256": "e99e211c5904194684451163f56d4832a89d0ad92e7b41d3075ebe8c0b4e6c7b",
+  "apkBytes": 70865408,
+  "apkSha256": "0a269566eeb6615148592e9250f7d240d7d6e38888234a2e434225e985fb0015",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.115-production.apk",
+  "downloadFilename": "kithmoot-0.6.116-production.apk",
   "releaseNotes": [
-    "Improves static image, GIF and Compose artwork decoding.",
-    "Keeps media decoding and WebRTC working in minified production builds.",
+    "Background cut-outs are back, with sea scenes and animated fish behind you.",
+    "Effects run on your phone without camera usage reporting or Google Play services.",
     "Update over your existing installation to keep your account and rooms."
   ]
 }
