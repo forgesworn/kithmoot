@@ -6,6 +6,7 @@ import { ProfileBook, type Profile, type ProfileBookOptions } from './profiles.j
 export class AccountProfileBook {
   #account?: string
   #book?: ProfileBook
+  #verifyAddresses = false
 
   constructor(private readonly options: ProfileBookOptions) {}
 
@@ -17,11 +18,17 @@ export class AccountProfileBook {
     this.#account = selected
     if (selected) {
       this.#book = new ProfileBook(this.options)
+      this.#book.setNip05Automatic(this.#verifyAddresses)
       this.#book.want([selected], 'public')
     }
   }
 
   get(account: string): Profile | undefined {
     return account === this.#account ? this.#book?.get(account) : undefined
+  }
+
+  setNip05Automatic(enabled: boolean): void {
+    this.#verifyAddresses = enabled
+    this.#book?.setNip05Automatic(enabled)
   }
 }

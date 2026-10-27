@@ -3260,6 +3260,7 @@ function renderLookupHosts(): void {
 renderLookupHosts()
 let nip05Verify = nip05VerifyPreference(relayStorage)
 profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 
 /** People (app/src/people.ts), mounted once the shell's containers exist. */
 let people: PeopleView | undefined
@@ -3293,6 +3294,7 @@ $('verifyAddresses').addEventListener('change', () => {
   nip05Verify = ($('verifyAddresses') as HTMLInputElement).checked
   try { localStorage.setItem('kithmoot.nip05.verify', String(nip05Verify)) } catch { /* The switch still applies to this visit. */ }
   profiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
+  accountProfiles.setNip05Automatic(accountNetwork.nostr && nip05Verify)
 })
 
 /**
@@ -22515,6 +22517,7 @@ function reconcileAccountNetwork(): void {
   accountProfiles.select(undefined, false)
   profiles.setEnabled(enabled && profilesEnabled)
   profiles.setNip05Automatic(enabled && nip05Verify)
+  accountProfiles.setNip05Automatic(enabled && nip05Verify)
   follows.setEnabled(false)
   follows.close()
   follows.setEnabled(enabled && profilesEnabled)

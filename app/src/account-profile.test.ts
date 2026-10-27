@@ -3,7 +3,26 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nost
 import type { RelayPoolClient } from '../../src/relay-pool.js'
 import { AccountProfileBook } from './account-profile.js'
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+it('keeps own Nostr address verification off until chosen, and cancels it in private mode', async () => {
+  const secret = generateSecretKey(), account = getPublicKey(secret)
+  let receive!: (event: Event) => void
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ names: { alice: account } }) })
+  vi.stubGlobal('fetch', fetcher)
+  const book = new AccountProfileBook({ relays: () => [], publicRelays: () => [], onChange: vi.fn(), transport: () => ({
+    subscribe(_filters: unknown, handler: typeof receive) { receive = handler; return () => {} }, close() {},
+  }) as unknown as RelayPoolClient })
+  try {
+    book.select(account, true)
+    receive(finalizeEvent({ kind: 0, created_at: 1, tags: [], content: '{"name":"Alice","nip05":"alice@example.com"}' }, secret))
+    expect(fetcher).not.toHaveBeenCalled()
+    book.setNip05Automatic(true)
+    await vi.waitFor(() => expect(book.get(account)?.nip05).toBe('alice@example.com'))
+    book.select(account, false)
+    expect(book.get(account)).toBeUndefined()
+  } finally { book.select(undefined, false) }
+})
 
 it('loads the selected account without directory lookups, and drops old accounts and private-mode work', async () => {
   vi.useFakeTimers()
