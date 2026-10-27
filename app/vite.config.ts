@@ -121,7 +121,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(here, 'index.html'),
+        index: resolve(here, 'index.html'),
         'attachment-frame': resolve(here, 'attachment-frame.html'),
       },
     },
