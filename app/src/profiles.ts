@@ -68,6 +68,7 @@ export interface Profile {
 
 /** How long a lookup has to produce an answer before "no profile" is the answer. */
 const LOOKUP_TIMEOUT_MS = 15_000
+const ADDRESS_TIMEOUT_MS = 5_000
 const LOOKUP_RETRY_MS = [1_000, 5_000]
 
 /** Only these schemes are ever put in an `<img src>`. */
@@ -266,7 +267,7 @@ export class ProfileBook {
     const [, name, domain] = match
     const controller = new AbortController()
     this.#checks.add(controller)
-    const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), ADDRESS_TIMEOUT_MS)
     try {
       const response = await fetch(`https://${domain}/.well-known/nostr.json?name=${encodeURIComponent(name!)}`, {
         signal: controller.signal, redirect: 'error', credentials: 'omit', referrerPolicy: 'no-referrer',
