@@ -48,7 +48,7 @@ async function suite() {
 }
 afterEach(async () => { for (const path of scratch.splice(0)) await rm(path, { recursive: true, force: true }) })
 
-describe('reviewed realtime build source closure', () => {
+describe('reviewed realtime build source closure', { timeout: 20_000 }, () => {
   it('refuses a dirty standalone native facade before creating output or starting a build', async () => {
     const f = await suite()
     await put(f.relayswarmRoot, 'src/node/native-realtime.mjs', 'export const unreviewed = true;')

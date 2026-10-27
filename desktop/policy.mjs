@@ -2,7 +2,9 @@ import { resolve, sep } from 'node:path'
 import { PASSWORD_WORD_LIST } from './meeting-code-words.mjs'
 export const ORIGIN = 'https://kithmoot.forgesworn.dev'
 export const HOME = `${ORIGIN}/j/`
-export const CSP = "default-src 'self'; script-src https://kithmoot.forgesworn.dev/j/ 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src https://kithmoot.forgesworn.dev/j/; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src https://kithmoot.forgesworn.dev/j/girnel/; frame-ancestors 'none'"
+export const ATTACHMENT_FRAME_PATH = '/j/attachment-frame.html'
+export const ATTACHMENT_FRAME_CSP = "default-src 'none'; script-src https://kithmoot.forgesworn.dev/j/attachment-frame.js; style-src https://kithmoot.forgesworn.dev/j/attachment-frame.css; img-src kithmoot-attachment:; media-src kithmoot-attachment:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'self'"
+export const CSP = "default-src 'self'; script-src https://kithmoot.forgesworn.dev/j/ 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src https://kithmoot.forgesworn.dev/j/; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src https://kithmoot.forgesworn.dev/j/girnel/ https://kithmoot.forgesworn.dev/j/attachment-frame.html; frame-ancestors 'none'"
 export function isAppUrl(value) {
   try { const u = new URL(value); return u.origin === ORIGIN && u.pathname === '/j/' && !u.username && !u.password }
   catch { return false }
@@ -90,8 +92,9 @@ export function localAsset(value, root) {
 }
 export const allowedPermissions = new Set(['media', 'display-capture', 'notifications', 'fullscreen', 'clipboard-sanitized-write', 'speaker-selection'])
 
-/** Only the bundled board surface permits a frame from its own origin. */
+/** Only the bundled board and attachment surfaces permit framing by the workspace. */
 export function appContentPolicy(value) {
   const u = new URL(value)
+  if (u.origin === ORIGIN && u.pathname === ATTACHMENT_FRAME_PATH && !u.username && !u.password) return ATTACHMENT_FRAME_CSP
   return u.origin === ORIGIN && u.pathname.startsWith('/j/girnel/') ? CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : CSP
 }

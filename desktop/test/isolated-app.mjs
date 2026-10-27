@@ -14,7 +14,7 @@ export async function stopIsolatedApp(app, profile) {
   // A network helper can retain Playwright's pipes after its parent exits.
   // Recheck the unique profile in live arguments before terminating helpers.
   if (process.platform !== 'win32') {
-    for (const line of execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8' }).split('\n')) {
+    for (const line of execFileSync('ps', ['-Ao', 'pid=,command='], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).split('\n')) {
       if (!line.includes(profile)) continue
       const pid = Number(line.trim().split(/\s+/, 1)[0])
       if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) continue

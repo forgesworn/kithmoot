@@ -1,0 +1,16 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f1215;
+  color: #f4f5f6;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+main { min-height: 100vh; display: flex; flex-direction: column; }
+header { padding: 16px 20px 12px; background: #171b20; border-bottom: 1px solid #30363d; }
+h1 { margin: 0; font-size: 16px; line-height: 1.4; overflow-wrap: anywhere; }
+#attachment-status { margin: 5px 0 0; color: #b6bec8; font-size: 13px; }
+#attachment-surface { flex: 1; min-height: 0; display: grid; place-items: center; padding: 20px; overflow: auto; }
+img, video { display: block; max-width: 100%; max-height: calc(100vh - 110px); object-fit: contain; }
+audio { display: block; width: min(680px, 100%); }

@@ -120,16 +120,19 @@ test.describe.serial('attachment safety', () => {
   test('safe files open quietly: a photo, a PDF, text', async () => {
     const p = reader.page
     const photo = await open(p, 'hilltop.png')
-    await expect(photo.locator('img')).toHaveCount(1)
+    await expect(photo.locator('img')).toHaveCount(0)
+    const frameElement = photo.locator('iframe.attachmentPreviewFrame')
+    await expect(frameElement).toHaveAttribute('sandbox', 'allow-scripts')
+    const frame = await (await frameElement.elementHandle())!.contentFrame()
     await expect(photo.locator('.say')).toHaveCount(0)
     await expect(photo.getByRole('link', { name: 'Save hilltop.png' })).toBeVisible()
     await expect(photo.locator('.attMeta')).toHaveText(/^Image · \d+ B$/)
-    expect(await photo.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
+    await expect.poll(() => frame!.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(1)
 
     const pdf = await open(p, 'minutes.pdf')
     await expect(pdf.getByRole('link', { name: 'Save minutes.pdf' })).toBeVisible()
-    if (desktop()) await expect(pdf.getByRole('link', { name: /^Open/ })).toHaveCount(0)
-    else await expect(pdf.getByRole('link', { name: 'Open minutes.pdf' })).toBeVisible()
+    if (desktop()) await expect(pdf.getByRole('button', { name: /^Open/ })).toHaveCount(0)
+    else await expect(pdf.getByRole('button', { name: 'Open minutes.pdf' })).toBeVisible()
     await expect(pdf.locator('.say')).toHaveCount(0)
 
     const notes = await open(p, 'route-notes.txt')
@@ -169,7 +172,7 @@ test.describe.serial('attachment safety', () => {
   test('a program named like a picture is refused: no image, no Save', async () => {
     const c = await open(reader.page, 'cat.png')
     await expect(c.locator('.say.block')).toContainText('KithMoot won’t open or save this. It’s named like a picture, but it’s really a Windows program. That’s a common way to hide an attack.')
-    await expect(c.locator('img')).toHaveCount(0)
+    await expect(c.locator('img, iframe, object, embed')).toHaveCount(0)
     await expect(c.locator('a, button')).toHaveCount(0)
     await expect(c.locator('[data-question]')).toBeFocused()
   })
@@ -208,7 +211,7 @@ test.describe.serial('attachment safety', () => {
     const p = reader.page
     const macros = await open(p, 'budget.xlsm')
     await expect(macros.locator('.say.warn')).toContainText('Macros are programs inside a document. Only save this if you asked Rowan for it, and don’t turn macros on.')
-    await expect(macros.locator('img, pre, video, audio')).toHaveCount(0)
+    await expect(macros.locator('img, iframe, object, embed, pre, video, audio')).toHaveCount(0)
     const zip = await open(p, 'album.zip')
     await expect(zip.locator('.say.warn')).toContainText('An archive can hold programs. Only save this if you were expecting it.')
     const page = await open(p, 'page.html')
@@ -225,7 +228,7 @@ test.describe.serial('attachment safety', () => {
     const found = await reader.page.locator('#chatLog .attachment').evaluateAll(cards => {
       const controls = cards.flatMap(c => [...c.querySelectorAll<HTMLElement>('button, a')])
       const ctl = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ctl')) || 36
-      return controls.filter(el => !el.classList.contains('attachmentImage')).map(el => ({
+      return controls.filter(el => !el.classList.contains('attachmentImage') && !el.classList.contains('attachmentImageExpand')).map(el => ({
         tag: el.tagName, text: (el.textContent ?? '').trim(),
         underlined: getComputedStyle(el).textDecorationLine.includes('underline'),
         short: el.getBoundingClientRect().height + 0.5 < ctl,

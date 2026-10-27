@@ -119,6 +119,12 @@ export default defineConfig({
     // deploying the app want app/dist, not the library's.
     outDir: resolve(here, desktop ? '../desktop/web' : 'dist'),
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        index: resolve(here, 'index.html'),
+        'attachment-frame': resolve(here, 'attachment-frame.html'),
+      },
+    },
   },
   plugins: [{ name: 'validate-account-network-default', configResolved(config) { accountNetworkDefault(config.env.VITE_ACCOUNT_NETWORK_DEFAULT) } }, admin2ProductCandidate(), girnelAssets(), pinnedWasmPreview(),
     audioWorklet(),

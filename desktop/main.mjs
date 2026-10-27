@@ -9,8 +9,9 @@ import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE
 import { createSpryHosting } from './spry-hosting.mjs'
 import { createHostingControls, createHostingQuitGuard } from './spry-hosting-controls.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
+import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
 import { applyPrototypeRouting } from './prototype-routing.mjs'
-import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme } from 'electron'
+import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { restoreBounds, readWindowState } from './window-state.mjs'
@@ -22,6 +23,7 @@ import { SCREEN_SETTINGS_URL, answerDisplayRequest, displayChoice, screenAccessG
 import platformFeatures from './platform-features.cjs'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
+registerAttachmentScheme(protocol)
 // A sandboxed preload can require only electron, so the platform decision
 // is made here and handed over as a switch.
 // Unpackaged runs may force the Wayland preview so it can be exercised off Linux.
@@ -210,6 +212,7 @@ function applyAppMenu() {
 }
 
 const DESKTOP_PARTITION = 'persist:kithmoot-desktop-v1'
+const attachments = new AttachmentWindows({ icon: join(here, 'web/pwa-512x512.png') })
 
 async function desktopStartupFailed(error) {
   console.error('Desktop startup failed:', error.message)
@@ -221,13 +224,14 @@ async function createWindow() {
   if (!ses.__kithmootConfigured) {
     ses.__kithmootConfigured = true
     ses.protocol.handle('https', async request => {
-      const file = localAsset(request.url, join(here, 'web'))
+      const viewer = attachmentViewerAsset(request.url)
+      const file = viewer === undefined ? localAsset(request.url, join(here, 'web')) : viewer === null ? null : viewer.path
       if (file === undefined) return net.fetch(request, { bypassCustomProtocolHandlers: true })
       if (file === null || !['GET', 'HEAD'].includes(request.method)) return new Response('Not found', { status: 404 })
       try {
         const body = await readFile(file)
         return new Response(request.method === 'HEAD' ? null : body, { headers: {
-          'Content-Type': mime[extname(file)] ?? 'application/octet-stream',
+          'Content-Type': viewer?.type ?? mime[extname(file)] ?? 'application/octet-stream',
           'Content-Security-Policy': testProfile ? appContentPolicy(request.url).replace("connect-src 'self'", "connect-src ws://127.0.0.1:* 'self'") : appContentPolicy(request.url),
           'X-Content-Type-Options': 'nosniff',
           'Cache-Control': 'no-store',
@@ -477,6 +481,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     // First, before any window: no spelling dictionaries from Google.
     for (const ses of [session.defaultSession, session.fromPartition(DESKTOP_PARTITION)]) keepSpellingLocal(ses)
+    const trustedAttachment = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame
+    ipcMain.handle('desktop:attachment-begin', (event, metadata) => trustedAttachment(event) ? attachments.begin(event.sender, metadata) : null)
+    ipcMain.handle('desktop:attachment-write', (event, id, chunk, finish) => trustedAttachment(event) && attachments.write(event.sender, id, chunk, finish))
+    ipcMain.on('desktop:attachment-close', (event, id) => { if (trustedAttachment(event)) attachments.close(event.sender, id) })
+    ipcMain.on('desktop:attachment-close-all', event => { if (trustedAttachment(event)) attachments.closeOwner(event.sender) })
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
     ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
@@ -551,11 +560,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume() })
     applyAppMenu()
     // The share pop-out is a window of ours the app writes into, so it never
-    // navigates anywhere. Every other window inherits the same rules as the
-    // main one: a link leaves for the person's browser, nothing else opens a
-    // window, and nothing here may be navigated to remote content.
+    // navigates anywhere. Attachment viewers keep their own stricter rules.
+    // Every other window inherits the main one: a link leaves for the person's
+    // browser, nothing else opens a window, and nothing navigates remotely.
     app.on('web-contents-created', (_event, contents) => {
-      if (contents === win?.webContents) return
+      if (contents === win?.webContents || attachments.manages(contents)) return
       contents.setWindowOpenHandler(({ url }) => { void external(url); return { action: 'deny' } })
       attachContextMenu(contents)
       contents.on('will-navigate', (event, url) => {
@@ -573,9 +582,12 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     app.on('activate', () => { if (!win) void createWindow().catch(desktopStartupFailed) })
   }).catch(desktopStartupFailed)
   app.on('before-quit', event => {
-    if (!hosting.state().available || hostingQuit.confirmed) return
-    event.preventDefault()
-    void hostingQuit.request()
+    if (hosting.state().available && !hostingQuit.confirmed) {
+      event.preventDefault()
+      void hostingQuit.request()
+      return
+    }
+    attachments.closeAll()
   })
   app.on('window-all-closed', () => { if (hostingQuit.quitting || process.platform !== 'darwin') app.quit() })
 }

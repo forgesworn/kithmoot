@@ -266,7 +266,7 @@ kithmoot.forgesworn.dev {
 
 	@app {
 		path /j /j/*
-		not path /j/girnel/*
+		not path /j/girnel/* /j/attachment-frame.html
 	}
 	header @app {
 		# KithMoot is a WebRTC application. camera, microphone and
@@ -297,6 +297,15 @@ kithmoot.forgesworn.dev {
 		#     and any future recording path do go through URLs.
 		#   worker-src 'self' - the service worker at /j/sw.js.
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: mediastream:; connect-src 'self' wss: https:; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+	}
+
+	# Untrusted attachment bytes arrive by MessageChannel. This static frame may
+	# create blob-backed images, media and PDF objects, but no network content.
+	@attachmentFrame path /j/attachment-frame.html
+	header @attachmentFrame {
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; media-src blob:; object-src blob:; connect-src 'none'; worker-src 'none'; child-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; navigate-to 'none'; frame-ancestors 'self'"
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		X-Frame-Options SAMEORIGIN
 	}
 
 	# The pinned Girnel editor is framed only by this same-origin workspace.

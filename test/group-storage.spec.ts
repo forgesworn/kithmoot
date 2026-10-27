@@ -202,8 +202,9 @@ test.describe('a room that keeps its files on its group’s own computers', () =
       await enter(bob.page, r.link, 'Bob')
       await holdsGrants(bob.page, r.node)
       const opened = await openCard(bob.page, 'hilltop.png')
-      await expect(opened.locator('img')).toHaveCount(1, { timeout: 30_000 })
-      expect(await opened.locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(96)
+      const picture = opened.frameLocator('iframe.attachmentPreviewFrame').locator('img')
+      await expect(picture).toHaveCount(1, { timeout: 30_000 })
+      expect(await picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(96)
       await expect(opened.locator('.say')).toHaveCount(0)
 
       // Every read the app made carried a token, after one probe that proved the node asks who is asking.
