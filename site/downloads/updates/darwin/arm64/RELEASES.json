@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.109",
+  "currentRelease": "0.1.110",
   "releases": [
     {
-      "version": "0.1.109",
+      "version": "0.1.110",
       "updateTo": {
-        "version": "0.1.109",
-        "pub_date": "2026-10-27T10:50:47Z",
-        "notes": "Shows your signed-in profile name in rooms and chats. Includes message delivery fixes and desktop runtime security updates.",
-        "name": "0.1.109",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.109/KithMoot-0.1.109-mac-arm64.zip",
-        "sha256": "7d77edcdfc359f5317a0f5f67f5872eb5d00325bb0250017e64de35bedb60ecb",
-        "size": 190112402
+        "version": "0.1.110",
+        "pub_date": "2026-10-27T19:54:42Z",
+        "notes": "Opens image, audio and video attachments in a dedicated sandboxed renderer with no Node access, application storage or external network access, and closes viewers on retraction.",
+        "name": "0.1.110",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.110/KithMoot-0.1.110-mac-arm64.zip",
+        "sha256": "7d4bdc2a095d8d75c7cfbfe2b83d65b970a5bdde6c8c8abf83ffaf6db465c2e4",
+        "size": 190120748
       }
     }
   ]
