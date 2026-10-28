@@ -18516,6 +18516,25 @@ function renderPublicRelays(): void {
       label.append(claim)
     }
     item.append(label)
+    // The operator's own link, outside the label so a tap does not choose
+    // the relay. Never fetched, prefetched or previewed: it opens only when
+    // tapped, in the browser (the desktop app asks first), with no referrer.
+    if (entry.privacy) {
+      const link = document.createElement('a')
+      link.className = 'publicRelayPrivacy'
+      link.href = entry.privacy.url
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer nofollow'
+      link.referrerPolicy = 'no-referrer'
+      link.textContent = `The operator\u2019s privacy notice (${entry.privacy.host})`
+      link.title = `Opens ${entry.privacy.host} in your browser. KithMoot has not checked it.`
+      const described = document.createElement('span')
+      described.className = 'sr-only'
+      described.id = `publicRelayPrivacy-${entry.key.slice(0, 16)}`
+      described.textContent = link.title
+      link.setAttribute('aria-describedby', described.id)
+      item.append(link, described)
+    }
     return item
   }))
   ;($('publicRelaysCheck') as HTMLButtonElement).disabled = !selected || !listed.some(entry => entry.key === selected) || !!publicRelayCheckAbort

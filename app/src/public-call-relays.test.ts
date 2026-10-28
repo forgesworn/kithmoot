@@ -17,10 +17,10 @@ const NOW = 1_793_000_000
 const keyA = new Uint8Array(32).fill(7), keyB = new Uint8Array(32).fill(8), keyC = new Uint8Array(32).fill(9), keyD = new Uint8Array(32).fill(10)
 const pub = (key: Uint8Array) => getPublicKey(key)
 
-function advert(key: Uint8Array, host: string, options: { at?: number; status?: string; note?: string; region?: string } = {}) {
+function advert(key: Uint8Array, host: string, options: { at?: number; status?: string; note?: string; region?: string; privacy?: string } = {}) {
   const at = options.at ?? NOW
   const tags = [['d', 'spry-turn'], ['v', '1'], ['status', options.status ?? 'open'], ['auth', 'public'], ['expiration', String(at + 7200)],
-    ...(options.region ? [['g', options.region]] : [])]
+    ...(options.region ? [['g', options.region]] : []), ...(options.privacy ? [['privacy', options.privacy]] : [])]
   const content = options.status === 'withdrawn' ? '{}' : JSON.stringify({ credentials: `https://${host}/v1/public/credentials`,
     urls: [`turn:${host}:3478?transport=udp`, `turns:${host}:5349?transport=tcp`], ...(options.note ? { note: options.note } : {}) })
   return finalizeEvent({ kind: 31478, created_at: at, tags, content }, key)
@@ -136,6 +136,36 @@ describe('picker listing', () => {
     expect(listed[0]).toMatchObject({ key: pub(keyA), lastGood: true })
     expect(listed.find(entry => entry.key === pub(keyC))).toMatchObject({ knownHostNewKey: true })
     expect(listed.find(entry => entry.key === pub(keyB))).toMatchObject({ knownHostNewKey: false })
+  })
+})
+
+describe('operator privacy link', () => {
+  it('lists the link with its hostname, never fetching or persisting it', async () => {
+    const link = 'https://notice.example.org/legal/privacy'
+    const { relays, store, fetched } = setup([advert(keyA, 'relay.example.org', { privacy: link })])
+    relays.setEnabled(true)
+    await relays.discover()
+    expect(relays.listing()[0]).toMatchObject({ privacy: { url: link, host: 'notice.example.org' } })
+    relays.select(pub(keyA))
+    await relays.login(pub(keyA))
+    relays.markGood(pub(keyA))
+    expect(fetched.every(url => !url.includes('notice.example.org'))).toBe(true)
+    expect([...store.map.values()].join('')).not.toContain('notice.example.org')
+  })
+  it('hides a link whose host fails the connect-time rules, keeping the relay listed', async () => {
+    // Valid under the advert grammar, but a name no browser should be sent to.
+    const { relays } = setup([advert(keyA, 'relay.example.org', { privacy: 'https://notice.example/privacy' }), advert(keyB, 'other.example.org', { privacy: 'https://router.lan/privacy' })])
+    relays.setEnabled(true)
+    await relays.discover()
+    const listed = relays.listing()
+    expect(listed).toHaveLength(2)
+    expect(listed.some(entry => entry.privacy)).toBe(false)
+  })
+  it('refuses an advert whose privacy tag is malformed', async () => {
+    const { relays } = setup([advert(keyA, 'relay.example.org', { privacy: 'http://notice.example.org/privacy' })])
+    relays.setEnabled(true)
+    await relays.discover()
+    expect(relays.listing()).toEqual([])
   })
 })
 

@@ -546,3 +546,5 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 .publicRelaysList .publicRelayMeta, .publicRelaysList .publicRelayClaim { grid-column: 2; font-size: 0.875rem; overflow-wrap: anywhere; }
 .publicRelaysList .publicRelayClaim bdi { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; unicode-bidi: isolate; }
 .publicRelaysList .publicRelayWarn { grid-column: 2; font-size: 0.875rem; font-weight: 600; }
+/* The operator's privacy link sits under its relay, outside the label, so a tap opens it without choosing the relay. */
+.publicRelaysList .publicRelayPrivacy { display: inline-block; margin: var(--s1) 0 0 calc(13px + 0.2rem + var(--s2)); padding: 0.25rem 0; font-size: 0.875rem; overflow-wrap: anywhere; }

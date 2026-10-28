@@ -17,7 +17,7 @@ import type { Filter } from 'nostr-tools/filter'
 import type { RelayConfig, RelayHealth } from '../../src/relay-pool.js'
 import {
   PUBLIC_RELAY_IDENTIFIER, PUBLIC_RELAY_KIND, PUBLIC_RELAY_MAX_LIFETIME, PUBLIC_RELAY_MAX_TRACKED, PublicRelayAdvertBook,
-  PublicRelayLoginFailed, fetchPublicRelayLogin, publicRelayHostAllowed,
+  PublicRelayLoginFailed, fetchPublicRelayLogin, publicRelayHostAllowed, publicRelayPrivacyValid,
   type PublicRelayAdvert, type PublicRelayLogin, type PublicRelayLoginOptions, type PublicRelayWatermark,
 } from '../../src/public-call-relays.js'
 
@@ -112,6 +112,14 @@ export function shortTransportKey(key: string): string {
   return `${key.slice(0, 8)}…${key.slice(-4)}`
 }
 
+/** A verified advert's privacy link with its hostname, or nothing when the
+ *  host fails `publicRelayHostAllowed`: the advert is still listed. */
+export function privacyLink(url: string | undefined): { url: string; host: string } | undefined {
+  if (!url || !publicRelayPrivacyValid(url)) return undefined
+  const host = url.slice('https://'.length, url.indexOf('/', 'https://'.length))
+  return publicRelayHostAllowed(host) ? { url, host } : undefined
+}
+
 export interface PublicRelayListing {
   key: string
   shortKey: string
@@ -121,6 +129,11 @@ export interface PublicRelayListing {
   region?: string
   /** The operator's own claim, cleaned for display. */
   note?: string
+  /** The operator's own privacy-notice link and its hostname, from the live
+   *  advert only. Never fetched, persisted, or copied into the last good
+   *  relay, a room, a descriptor, a link or an invitation. Absent when its
+   *  host fails the rules a relay's own host must meet before any contact. */
+  privacy?: { url: string; host: string }
   lastGood: boolean
   /** The last good relay's hostname, now advertised under another key. */
   knownHostNewKey: boolean
@@ -198,9 +211,10 @@ export class PublicCallRelays {
     const good = this.lastGood
     return this.#allowed().map(advert => {
       const note = advert.offer?.note !== undefined ? cleanOperatorNote(advert.offer.note) : ''
+      const privacy = privacyLink(advert.privacy)
       return {
         key: advert.publicKey, shortKey: shortTransportKey(advert.publicKey), host: advert.host!,
-        ...(advert.region ? { region: advert.region } : {}), ...(note ? { note } : {}),
+        ...(advert.region ? { region: advert.region } : {}), ...(note ? { note } : {}), ...(privacy ? { privacy } : {}),
         lastGood: good?.key === advert.publicKey,
         knownHostNewKey: !!good && good.key !== advert.publicKey && good.host === advert.host,
       }
