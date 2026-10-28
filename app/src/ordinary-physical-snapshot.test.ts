@@ -27,6 +27,7 @@ const cases: [string, 'browser' | 'tab', string][] = [
   ...['kithmoot.blob-deletes.v1', 'kithmoot.blob-delete-groups.v1', 'kithmoot.file-storage.v1', 'kithmoot.blossom-server'].map(n => [n, 'browser', 'private'] as [string, 'browser', string]),
   ...['effectMode', 'background', 'blurStrength', 'voicePreset', 'cameraDeviceId', 'micDeviceId', 'facePrivacy'].map(f => [`kithmoot.call.${f}`, 'browser', 'media'] as [string, 'browser', string]),
   ['kithmoot.callProfile', 'browser', 'media'], ['kithmoot.callProfile', 'tab', 'media'],
+  ['kithmoot.spry-share.v1', 'browser', 'routing'],
   ...['kithmoot.relays.v1', 'kithmoot.circle.v1', 'kithmoot.room-relays-fixed.v1', `kithmoot.room-relays.v1.${h}`, `kithmoot.room-storage.v1.${h}`].map(n => [n, 'browser', 'routing'] as [string, 'browser', string]),
   ...['mirror-self', 'fish.enabled', 'camera.framing', 'agents-hear', 'zen-bell', 'desktop-bell', 'profiles.enabled', 'name', 'last-nostr-account', 'last-nostr-method', 'profiles.lastKnownName.v1', 'send-delay', 'destructed.v1', 'home.fold.pinned', `room-name.v1.${h}`, `nudge.${h}`, `destruct-heads-up.${h}`].map(n => ['kithmoot.' + n, 'browser', 'ui'] as [string, 'browser', string]),
   ['kithmoot:emoji:skinTone', 'browser', 'ui'], ['kithmoot:emoji:recents', 'browser', 'ui'], ['kithmoot.notice', 'tab', 'ui'], ['kithmoot.way-back', 'tab', 'navigation'], ['kithmoot.room-switch.v1', 'tab', 'navigation'],

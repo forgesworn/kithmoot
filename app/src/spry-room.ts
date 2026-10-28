@@ -84,7 +84,7 @@ export class SpryRoom {
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
     // A saved offer from this device's own node is its own old grant: not
     // reused or republished while it does not share here.
-    this.#offer = saved && !this.#ownNode(saved) ? saved : this.#share ? saved : undefined
+    this.#offer = saved && !this.#ownNode(saved) ? saved : this.#shares() ? saved : undefined
     if (this.#offer) this.#windowStart = Date.now()
     this.#unsub.push(session.onDescriptor(descriptor => {
       if (this.#closed || !descriptor.spry) return
@@ -135,17 +135,20 @@ export class SpryRoom {
     }, 30000)
     if (this.#asksOwnNode()) void this.refresh().catch(() => {})
   }
-  /** Whether this device shares its own relay in this room. */
-  get sharing(): boolean { return this.#share }
+  /** Whether this device shares its own relay in this room. A private
+   *  (`spry:`) pairing always does: its offers reach only devices paired to
+   *  the same node, and the private mesh depends on them. */
+  get sharing(): boolean { return this.#shares() }
+  #shares(): boolean { return this.#share || !!this.pairing?.endpoint.startsWith('spry:') }
   #ownNode(offer: SpryOffer): boolean { return !!this.pairing && offer.endpoint === this.pairing.endpoint }
-  #asksOwnNode(): boolean { return !!this.pairing && this.#share }
+  #asksOwnNode(): boolean { return !!this.pairing && this.#shares() }
   #registrar(): boolean { return this.#asksOwnNode() && !!this.#own }
   /** The offer this device republishes: its own grant when it shares, or the
    *  one another member shared, never a grant it withdrew or keeps to itself. */
   #publishable(): SpryOffer | undefined {
-    const offer = this.#share ? this.#own ?? this.#offer : this.#offer
+    const offer = this.#shares() ? this.#own ?? this.#offer : this.#offer
     if (!offer || this.#withdrawn.has(offer.token)) return undefined
-    if (!this.#share && this.#ownNode(offer) && offer.token !== this.#shared?.token) return undefined
+    if (!this.#shares() && this.#ownNode(offer) && offer.token !== this.#shared?.token) return undefined
     return offer
   }
   async publish(): Promise<void> {
@@ -210,7 +213,7 @@ export class SpryRoom {
    */
   async #registerDevices(): Promise<void> {
     const pair = this.pairing, offer = this.#own
-    if (!pair || !offer || !this.#share || Date.now() < this.#unsupportedUntil || this.#closed) return
+    if (!pair || !offer || !this.#shares() || Date.now() < this.#unsupportedUntil || this.#closed) return
     if (this.#registeredFor !== offer.token) {
       this.#registeredFor = offer.token
       this.#registered.clear(); this.#sealed = false; this.#grantDevices = 0
@@ -296,7 +299,7 @@ export class SpryRoom {
     const now = Date.now() / 1000
     let failure: unknown, ownFailure: unknown
     this.#sharedRefusal = 0
-    if (this.pairing && this.#share && (!this.#own || this.#own.expiresAt - now < 360)) {
+    if (this.pairing && this.#shares() && (!this.#own || this.#own.expiresAt - now < 360)) {
       try {
         const own = await spryGrant(this.pairing, this.session.roomId, this.fetcher)
         if (this.#closed || revision !== this.#pairRevision) return
@@ -312,7 +315,7 @@ export class SpryRoom {
     const seen = new Set<string>()
     for (const offer of [this.#own, this.#offer, this.#shared]) {
       if (!offer || offer.expiresAt <= now || offer.endpoint.startsWith('spry:') && offer.endpoint !== this.pairing?.endpoint) continue
-      if (this.#withdrawn.has(offer.token) || !this.#share && this.#ownNode(offer) && offer.token !== this.#shared?.token) continue
+      if (this.#withdrawn.has(offer.token) || !this.#shares() && this.#ownNode(offer) && offer.token !== this.#shared?.token) continue
       const id = offer.endpoint + ':' + offer.token
       if (seen.has(id)) continue
       seen.add(id)

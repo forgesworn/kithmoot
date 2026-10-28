@@ -40,3 +40,28 @@ it('requires consent and keeps pairing authority with the selected account', asy
   expect(loadSpryPairing(store, 'bob')).toBeUndefined()
   expect(JSON.stringify([...values.values()])).not.toContain(code + '"' + ',"expiresAt')
 })
+
+it('keeps the per-room share choice on this device, per person, bounded and tolerant of junk', async () => {
+  const { loadSpryShare, saveSpryShare } = await import('./spry-pairing.js')
+  const { classifyOrdinaryPhysicalName } = await import('./ordinary-physical-snapshot.js')
+  const data = new Map<string, string>()
+  const store = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v) }, removeItem: (k: string) => { data.delete(k) } }
+  const me = 'a'.repeat(64), other = 'b'.repeat(64), room = 'c'.repeat(64)
+  expect(loadSpryShare(store, me, room)).toBe(false)
+  saveSpryShare(store, me, room, true)
+  expect(loadSpryShare(store, me, room)).toBe(true)
+  expect(loadSpryShare(store, other, room)).toBe(false)
+  expect([...data.keys()]).toEqual(['kithmoot.spry-share.v1'])
+  // Registered with the storage classifier, or it would hold room access.
+  expect(classifyOrdinaryPhysicalName('kithmoot.spry-share.v1', 'browser')?.family).toBe('routing')
+  saveSpryShare(store, me, room, false)
+  expect(loadSpryShare(store, me, room)).toBe(false)
+  expect(data.size).toBe(0)
+  data.set('kithmoot.spry-share.v1', '{not json')
+  expect(loadSpryShare(store, me, room)).toBe(false)
+  data.set('kithmoot.spry-share.v1', JSON.stringify([7, 'x', `${me}:${room}`]))
+  expect(loadSpryShare(store, me, room)).toBe(true)
+  for (let i = 0; i < 300; i++) saveSpryShare(store, me, i.toString(16).padStart(64, '0'), true)
+  expect(JSON.parse(data.get('kithmoot.spry-share.v1')!)).toHaveLength(256)
+  expect(() => saveSpryShare(store, 'visitor', room, true)).toThrow()
+})

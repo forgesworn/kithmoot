@@ -57,6 +57,33 @@ export function saveSpryOffer(store: Pick<Storage, 'getItem' | 'setItem'>, parti
   store.setItem(ROOMS_KEY, JSON.stringify(Object.fromEntries(entries)))
 }
 
+const SHARE_KEY = 'kithmoot.spry-share.v1'
+const SHARE_LIMIT = 256
+const SHARE_ENTRY = /^[0-9a-f]{64}:[0-9a-f]{64}$/
+function shareEntries(store: Pick<Storage, 'getItem'>): string[] {
+  try {
+    const value = store.getItem(SHARE_KEY)
+    if (!value || value.length > SHARE_LIMIT * 140) return []
+    const list: unknown = JSON.parse(value)
+    return Array.isArray(list) ? [...new Set(list.filter((entry): entry is string => typeof entry === 'string' && SHARE_ENTRY.test(entry)))].slice(-SHARE_LIMIT) : []
+  } catch { return [] }
+}
+/** Whether this person chose, on this device, to share their call relay in
+ *  a room they did not make. Rooms they made share without asking. */
+export function loadSpryShare(store: Pick<Storage, 'getItem'>, participant: string, room: string): boolean {
+  return shareEntries(store).includes(`${participant}:${room}`)
+}
+/** Kept on this device only: never synced, published or put in a link. */
+export function saveSpryShare(store: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, participant: string, room: string, on: boolean): void {
+  const entry = `${participant}:${room}`
+  if (!SHARE_ENTRY.test(entry)) throw new Error('Invalid room.')
+  const entries = shareEntries(store).filter(value => value !== entry)
+  if (on) entries.push(entry)
+  const kept = entries.slice(-SHARE_LIMIT)
+  if (kept.length) store.setItem(SHARE_KEY, JSON.stringify(kept))
+  else store.removeItem(SHARE_KEY)
+}
+
 export async function completeSpryPairing(hash: string, store: Pick<Storage, 'setItem'>, participant: string,
   confirm: (host: string) => Promise<boolean>, fetcher: typeof fetch = fetch, isCurrent: () => boolean = () => true): Promise<boolean> {
   const link = parseSpryPairingLink(hash)
