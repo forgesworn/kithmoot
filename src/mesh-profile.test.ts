@@ -16,7 +16,7 @@ import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
 import { unwrapSignalEvent, wrapSignal } from './signal.js'
 import type { SignalBody } from './signal.js'
-import { createFakeFactory, fakeTrack, trackState } from '../test/fake-rtc.js'
+import { createFakeFactory, fakeTrack, trackState, FakeRTCPeerConnection } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import type { ParticipantView } from './session.js'
 import type { ForwarderRef, TrackRole } from './types.js'
@@ -543,4 +543,77 @@ describe('the mesh hands a profile-2 peer its two health callbacks', () => {
       vi.useRealTimers()
     }
   })
+})
+
+describe('no local network address reaches the wire', () => {
+  // What a desktop on a VPN, Tailscale and a mesh gathers. Documentation
+  // and private ranges only.
+  const PRIVATE = /192\.168\.|100\.101\.|fd7a:|fe80:|10\.2\.0\./
+  const lines = [
+    'c=IN IP4 192.168.1.20',
+    'a=rtcp:9 IN IP6 fd7a:115c:a1e0::1',
+    'a=candidate:1 1 udp 2122260223 192.168.1.20 61144 typ host generation 0',
+    'a=candidate:2 1 udp 2122194687 100.101.102.103 53111 typ host generation 0',
+    'a=candidate:3 1 tcp 1518280447 fe80::1%en0 9 typ host tcptype active generation 0',
+    'a=candidate:4 1 udp 1686052607 198.51.100.4 61144 typ srflx raddr 10.2.0.2 rport 61144 generation 0',
+  ]
+  const withAddresses = (sdp: string | undefined) => `${sdp ?? ''}\r\n${lines.join('\r\n')}\r\n`
+
+  for (const profile of [1, 2] as const) {
+    it(`profile ${profile}: strips them from offers and drops or redacts trickled candidates`, async () => {
+      const proto = FakeRTCPeerConnection.prototype
+      const createOffer = proto.createOffer, createAnswer = proto.createAnswer
+      const offer = vi.spyOn(proto, 'createOffer').mockImplementation(async function (this: FakeRTCPeerConnection) {
+        const made = await createOffer.call(this)
+        return { ...made, sdp: withAddresses(made.sdp) }
+      })
+      const answer = vi.spyOn(proto, 'createAnswer').mockImplementation(async function (this: FakeRTCPeerConnection) {
+        const made = await createAnswer.call(this)
+        return { ...made, sdp: withAddresses(made.sdp) }
+      })
+      const h = harness({ callProfile: profile })
+      try {
+        h.roster(profile)
+        h.mesh.publish([track('mic-1')])
+        await settle()
+        const pc = h.factory.to(h.remote.pub)!
+        expect(pc.localDescription?.sdp, 'the fixture did not gather private addresses').toMatch(PRIVATE)
+        const mid = '0'
+        for (const candidate of [
+          'candidate:5 1 udp 2122260223 192.168.1.20 61145 typ host generation 0',
+          'candidate:6 1 udp 2122129151 fd7a:115c:a1e0::1 53112 typ host generation 0',
+          'candidate:7 1 udp 1686052607 198.51.100.4 61145 typ srflx raddr 192.168.1.20 rport 61145 generation 0',
+          'candidate:8 1 udp 2122260223 3f1c9e2a-7b4d.local 61146 typ host generation 0',
+        ]) pc.emitCandidate({ candidate, sdpMid: mid, sdpMLineIndex: 0 })
+        await settle()
+
+        const sent = h.toRemote()
+        const offers = sent.filter((body) => body.type === 'offer')
+        expect(offers.length).toBeGreaterThan(0)
+        expect(JSON.stringify(sent)).not.toMatch(PRIVATE)
+        for (const body of offers) {
+          expect(body.sdp).toContain('typ srflx raddr 0.0.0.0 rport 0')
+          expect(body.sdp).toContain('c=IN IP4 0.0.0.0')
+        }
+        const trickled = sent
+          .filter((body) => body.type === 'ice')
+          .flatMap((body) => [body.candidate, ...(body.candidates ?? [])])
+          .filter((json): json is string => typeof json === 'string')
+          .map((json) => (JSON.parse(json) as RTCIceCandidateInit).candidate)
+        expect(trickled).toEqual([
+          'candidate:7 1 udp 1686052607 198.51.100.4 61145 typ srflx raddr 0.0.0.0 rport 0 generation 0',
+          'candidate:8 1 udp 2122260223 3f1c9e2a-7b4d.local 61146 typ host generation 0',
+        ])
+        if (profile === 2) {
+          // Gapless sequence numbers: nothing was numbered and then dropped.
+          const seqs = sent.filter((body) => body.type === 'offer' || body.type === 'ice').map((body) => body.seq)
+          expect(seqs).toEqual(seqs.map((_seq, index) => index + 1))
+        }
+      } finally {
+        h.mesh.close()
+        offer.mockRestore()
+        answer.mockRestore()
+      }
+    })
+  }
 })

@@ -10,7 +10,7 @@ import { createSpryHosting } from './spry-hosting.mjs'
 import { createHostingControls, createHostingQuitGuard } from './spry-hosting-controls.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
-import { applyPrototypeRouting } from './prototype-routing.mjs'
+import { applyLocalAddressPolicy } from './local-address-policy.mjs'
 import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol } from 'electron'
 import { readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -335,10 +335,11 @@ async function createWindow() {
       backgroundThrottling: false, spellcheck: usesSystemSpellchecker(),
     },
   })
-  // Before any navigation or peer connection, including a recreated window.
-  // A requested prototype must never continue with an unconfirmed policy.
+  // Before any navigation or peer connection, including a recreated window,
+  // packaged or not: local network addresses never go into a call. A window
+  // whose policy Electron will not confirm is refused rather than run.
   try {
-    applyPrototypeRouting(win.webContents, { packaged: app.isPackaged, requested: process.env.KITHMOOT_DESKTOP_PROTON_ROUTING })
+    applyLocalAddressPolicy(win.webContents)
   } catch (error) {
     win.destroy()
     win = undefined

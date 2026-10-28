@@ -18,7 +18,7 @@ for (const simultaneous of [false, true]) test(`native desktop exports gallery v
   const executable = process.env.DESKTOP_EXECUTABLE
   const native = await electron.launch({
     executablePath: executable ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    args: [...(executable ? [] : [desktop]), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--mute-audio'],
+    args: [...(executable ? [] : [desktop]), `--user-data-dir=${profile}`, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--mute-audio'],
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
   let holding = false

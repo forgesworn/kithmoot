@@ -12,7 +12,7 @@ export default defineConfig({
   workers: 1, retries: 0, timeout: 120_000, reporter: 'list',
   use: { baseURL: `https://localhost:${port}/j/`, ignoreHTTPSErrors: true, trace: 'off' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: { args: [
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--disable-audio-output',
     '--autoplay-policy=no-user-gesture-required',
   ] } } }],
   webServer: [
