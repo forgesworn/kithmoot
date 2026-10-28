@@ -109,7 +109,11 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
     await openSettings(a, 'Connections')
     await a.locator('#spryPairingInput').fill('kithmoot://join' + pairingHash())
     await a.locator('#spryPairingAdd').click()
-    await a.getByRole('alertdialog', { name: 'Pair Spry with KithMoot?' }).getByRole('button', { name: 'Pair Spry', exact: true }).click()
+    const confirm = a.getByRole('alertdialog', { name: 'Pair Spry with KithMoot?' })
+    // What pairing does to other people: shared only in rooms you make, or by choice.
+    await expect(confirm).toContainText('will help connect your calls in every room. It is shared with other people automatically only in rooms you make; in other rooms, you choose in Privacy and connection.')
+    await expect(confirm).not.toContainText('temporary relay access')
+    await confirm.getByRole('button', { name: 'Pair Spry', exact: true }).click()
     await expect(a.locator('#spryPairingInput')).toHaveValue('')
     await expect.poll(() => a.evaluate(() => localStorage.getItem('kithmoot.spry-pairing.v1'))).toBeTruthy()
     const b = await (await device()).newPage()
