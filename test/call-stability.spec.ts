@@ -711,7 +711,7 @@ test.describe('call stability', () => {
       // Everything from the suite's launch flags except the one that hides the
       // question: `--autoplay-policy=no-user-gesture-required`.
       const strict = await chromium.launch({
-        args: ['--use-fake-device-for-media-stream', '--disable-audio-output', '--use-fake-ui-for-media-stream', '--auto-accept-this-tab-capture', '--auto-select-desktop-capture-source=Entire screen'],
+        args: ['--use-fake-device-for-media-stream', '--disable-audio-output', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--auto-accept-this-tab-capture', '--auto-select-desktop-capture-source=Entire screen'],
       })
       const contexts: BrowserContext[] = []
       const checkpoints: Checkpoint[] = []

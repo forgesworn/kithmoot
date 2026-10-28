@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createWeriftFactory, DEFAULT_ICE_REFRESH_MS } from './webrtc.js'
+import { createWeriftFactory, DEFAULT_ICE_REFRESH_MS, LOOPBACK_HOST } from './webrtc.js'
 import type { PeerContext } from '../peer.js'
 
 const TURN_CONTEXT: PeerContext = { tier: 'turn', remoteDevice: 'device' }
@@ -17,6 +17,14 @@ describe('createWeriftFactory', () => {
     expect(pc.getConfiguration().iceServers).toEqual([])
     expect(errorSpy).toHaveBeenCalledOnce()
     expect(errorSpy.mock.calls[0]![0]).toContain('no STUN or TURN server configured')
+  })
+
+  it('offers loopback as a host address, the only one the library sends', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const factory = await createWeriftFactory()
+    const pc = factory() as unknown as { getConfiguration(): { iceAdditionalHostAddresses?: string[] } }
+    expect(LOOPBACK_HOST).toBe('127.0.0.1')
+    expect(pc.getConfiguration().iceAdditionalHostAddresses).toEqual([LOOPBACK_HOST])
   })
 
   it('splits static iceUrls into a STUN-only rung and a STUN+TURN rung, applying one credential to every turn: url', async () => {

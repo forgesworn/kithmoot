@@ -14,7 +14,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${port}/j/`, ignoreHTTPSErrors: false,
     trace: 'off', screenshot: 'off', video: 'off' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], launchOptions: { args: [
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection',
     '--disable-audio-output', '--autoplay-policy=no-user-gesture-required',
   ] } } }],
   webServer: [
