@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { createRoom, join, open, newDeviceContext, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
+import { SHARED_RELAY_UNAVAILABLE } from '../src/spry.js'
 
 /**
  * One member runs Spry and pairs KithMoot with it; everyone in that member's
@@ -23,10 +24,12 @@ const LOOPBACK = ['localhost', '127.0.0.1', '[::1]']
 // accepts from an https: offer (src/spry.ts, spryCredentials).
 const TURN_URL = new RegExp(`^turn:${HOST.replaceAll('.', '\\.')}:3478\\?transport=(udp|tcp)$`)
 const SPRY_USERNAME = /^\d{1,12}:[a-f0-9]{24}$/
-// With Hide my IP on and no usable relay, the client refuses to call. A Spry
-// failure surfaces as Spry's own wording; a room with no relay at all gives
-// RELAY_ONLY_NO_RELAY. Either is a refusal, and neither is a direct call.
-const REFUSAL = new RegExp(`Spry could not connect|${RELAY_ONLY_NO_RELAY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+// With Hide my IP on and no usable relay, the client refuses to call. A guest
+// whose shared relay fails is told so, never pointed at a pairing it does not
+// have; a room with no relay at all gives RELAY_ONLY_NO_RELAY. Either is a
+// refusal, and neither is a direct call.
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const REFUSAL = new RegExp(`${escape(SHARED_RELAY_UNAVAILABLE)}|${escape(RELAY_ONLY_NO_RELAY)}`)
 
 interface Device { context: BrowserContext; page: Page; denied: string[]; spryPosts: Map<string, number> }
 
@@ -232,6 +235,7 @@ async function refusedCall(browser: Browser, baseURL: string, request: APIReques
     await c.page.locator('#callToggle').click()
     await expect(c.page.locator('#status')).toContainText(REFUSAL, { timeout: 30_000 })
     const refusal = await c.page.locator('#status').innerText()
+    expect(refusal, 'a guest is not pointed at a pairing it does not have').not.toMatch(/pairing|Connections/)
     // No peer connection was created, so nothing can have gone direct.
     expect(await c.page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
     expect(c.spryPosts.get('/v1/credentials') ?? 0, 'the refused guest did ask the node').toBeGreaterThanOrEqual(1)

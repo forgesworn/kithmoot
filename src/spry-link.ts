@@ -43,6 +43,17 @@ export function spryNodeCard(value: unknown, now = Math.floor(Date.now() / 1000)
   } catch { return undefined }
 }
 
+/** A Spry request that failed. `status` is the node's HTTP status (403 a
+ *  refusal, 404 a path it does not know, 409 out of date, 429 busy), or 0 when
+ *  the node could not be reached or its answer could not be read. The message
+ *  is the pairing hint; callers redeeming another member's relay replace it. */
+export class SpryRequestError extends Error {
+  constructor(readonly status = 0, message = 'Spry could not connect. Check the pairing in Connections and try again.') {
+    super(message)
+    this.name = 'SpryRequestError'
+  }
+}
+
 /** Signed NIP-44 control, pinned to the node identity selected during pairing. */
 export async function spryControlRequest(endpoint: string, path: string, body: object, secret: string,
   now = Math.floor(Date.now() / 1000), socketFactory = (url: string): WebSocket => new WebSocket(url)): Promise<Record<string, unknown>> {
@@ -55,12 +66,12 @@ export async function spryControlRequest(endpoint: string, path: string, body: o
     const sockets: WebSocket[] = []
     let finished = false
     const timer = setTimeout(() => finish(undefined), 10000)
-    function finish(value: Record<string, unknown> | undefined): void {
+    function finish(value: Record<string, unknown> | undefined, status = 0): void {
       if (finished) return
       finished = true; clearTimeout(timer)
       for (const socket of sockets) { socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null; socket.close() }
       if (value) resolve(value)
-      else reject(new Error('Spry could not connect. Check the pairing in Connections and try again.'))
+      else reject(new SpryRequestError(status))
     }
     for (const relay of target.relays) {
       let socket: WebSocket
@@ -87,7 +98,7 @@ export async function spryControlRequest(endpoint: string, path: string, body: o
             Number(tag(event, 'expiration')) > Math.min(current + 90, event.created_at + 30) || !verifyEvent(event)) return
           const result = JSON.parse(decrypt(event.content, conversation))
           if (result.v !== 1 || !Number.isInteger(result.status) || result.status < 200 || result.status > 599 || !result.body || typeof result.body !== 'object' || Array.isArray(result.body) || JSON.stringify(result.body).length > 8192) return
-          finish(result.status === 200 ? result.body : undefined)
+          finish(result.status === 200 ? result.body : undefined, result.status)
         } catch { /* Ignore malformed or unauthenticated relay traffic. */ }
       }
       socket.onerror = () => socket.close()
