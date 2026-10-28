@@ -41,10 +41,11 @@ start hosting or establish Proton reachability.
 
 Use Node 24 from the repository root. Root dependencies must already be installed.
 
-The [Proton routing prototype](../docs/2026-10-26-desktop-proton-routing.md)
-is an opt-in development run. It follows the default network route for WebRTC;
-it does not detect Proton or provide a VPN kill switch. Packaged releases ignore
-the option, and Hide IP still requires a working TURN media relay.
+Every main window keeps local network addresses out of calls
+([details](../docs/2026-10-26-desktop-proton-routing.md)): WebRTC follows the
+default network route and offers no host candidate. It does not detect Proton
+or provide a VPN kill switch, and Hide IP still requires a working TURN media
+relay.
 
 ```sh
 npm ci --prefix desktop
