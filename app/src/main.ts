@@ -90,7 +90,7 @@ import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
 import { installAgentsHear } from './call-agents-hear.js'
-import { installPeerAssist } from './call-assist.js'
+import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
@@ -13706,7 +13706,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          ...(chatOnly ? {} : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          // Peer assist is paused: nothing forwards a carried pair's frames, so a
+          // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
+          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
@@ -13767,7 +13769,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          ...(chatOnly ? {} : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          // Peer assist is paused: nothing forwards a carried pair's frames, so a
+          // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
+          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it

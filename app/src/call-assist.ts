@@ -43,6 +43,9 @@ export interface PeerAssistHooks {
   setStatus(text: string): void
   describeError(err: unknown): string
   setToggle(id: string, on: boolean): void
+  /** Whether assist is paused. Defaults to `PEER_ASSIST_PAUSED`; tests of the
+   *  control itself pass `() => false`. */
+  paused?: () => boolean
 }
 
 export interface PeerAssist {
@@ -156,7 +159,18 @@ export function blockSentence(block: AssistBlock, measured: boolean, form: Assis
  *  `assistDecision` makes, which is not exported as a list. */
 const HARD_ASSIST_BLOCKS: readonly AssistBlock[] = ['no-relay-support', 'not-publicly-reachable', 'no-spare-uplink']
 
+/**
+ * Peer assist is paused (28 October 2026). The library hands a carried pair
+ * to `onRelayStart`, but the app only redraws the indicator there and never
+ * pumps the pair's frames, so a volunteer accepted pairs and carried nothing
+ * while the pair stopped looking for another route. Until the frame pumps are
+ * wired and a route counts only once relayed media arrives, this device
+ * neither offers nor asks, and the control is hidden.
+ */
+export const PEER_ASSIST_PAUSED = true
+
 export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
+  const paused = hooks.paused ?? (() => PEER_ASSIST_PAUSED)
   /** The person's own choice. Opt in, always - see `assistDecision`. */
   let assistEnabled = false
 
@@ -259,6 +273,7 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
     const indicator = document.getElementById('assistIndicator')!
     const costNote = document.getElementById('assistCostNote')!
 
+    if (paused()) { section.hidden = true; return }
     section.hidden = hooks.session() === undefined
     costNote.textContent = costSentence()
 
@@ -372,7 +387,7 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
    * changes either way.
    */
   async function toggleAssist(): Promise<void> {
-    if (!assistOfferable()) return
+    if (paused() || !assistOfferable()) return
     assistEnabled = !assistEnabled
     renderAssist()
     try {
