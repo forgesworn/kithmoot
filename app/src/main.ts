@@ -5055,7 +5055,8 @@ async function toggleAssist(): Promise<void> {
   assistEnabled = !assistEnabled
   renderAssist()
   try {
-    await session?.setAssist(assistEnabled ? currentAssistOffer : null)
+    // The call's room, not whichever room is on screen while docked.
+    await mediaSession()?.setAssist(assistEnabled ? currentAssistOffer : null)
     lastOffering = currentAssistOffer() !== null
   } catch (err) {
     setStatus(describeError(err))
@@ -16038,6 +16039,16 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   renderAutoplayBanner()
   peerRelay.close()
   peerRelay.reopen()
+  // Carrying stopped just above; only now is the choice itself dropped, so
+  // the next room starts off unless they turn it on before joining.
+  assistEnabled = false
+  lastOffering = false
+  renderAssist()
+  // The timer is device-wide: it only stops when no room is left open.
+  if (!session && assistTimer !== undefined) {
+    clearInterval(assistTimer)
+    assistTimer = undefined
+  }
   window.kithmootDesktop?.setCallActive(false)
   // The room on screen is this device's only room now.
   myDeviceId = session?.device ?? ''
