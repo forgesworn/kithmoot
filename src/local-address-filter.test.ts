@@ -20,6 +20,9 @@ describe('hideLocalCandidate', () => {
     ['IPv6 global host address', '2001:db8:85a3::8a2e:370:7334'],
     ['a hostname that is not mDNS', 'laptop.example.org'],
     ['localhost by name', 'localhost'],
+    ['a plain hostname', 'laptop'],
+    ['an out-of-range dotted address, never resolved', '999.1.1.1'],
+    ['a dotted name that is not mDNS', '192.168.1.20.example'],
   ])('drops a host candidate on %s', (_label, address) => {
     expect(hideLocalCandidate(host(address))).toBeNull()
   })
