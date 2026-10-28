@@ -13,7 +13,7 @@ const token = /^[A-Za-z0-9_-]{43}$/
 const encoder = new TextEncoder()
 export const spryHash = (value: string): string => bytesToHex(sha256(encoder.encode(value)))
 export const newSpryKey = (): string => bytesToHex(generateSecretKey())
-export const spryDeviceKey = (key: Uint8Array): string => bytesToHex(hmac(sha256, key, encoder.encode('spry-device-v1')))
+export { spryDeviceKey } from './spry-key.js'
 
 export function spryEndpoint(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048) throw new Error('Invalid Spry address.')

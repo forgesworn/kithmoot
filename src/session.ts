@@ -53,6 +53,7 @@ import type { MemberEpochSource } from './member-epoch.js'
 import type { RelayTransport } from './relay-pool.js'
 import { verificationWords } from './verification.js'
 import { capRecipients, orderRecipients } from './rekey-schedule.js'
+import { spryDevicePublicKey } from './spry-key.js'
 import type {
   AgentOwnership,
   AssistOffer,
@@ -67,6 +68,17 @@ import type {
   TrackAdvert, CallMembership } from './types.js'
 
 /** One person, however many devices they brought. */
+/** One present device as a Spry registrar or voucher sees it. See `RoomSession.spryRoster`. */
+export interface SpryRosterEntry {
+  device: string
+  participant: string
+  /** Absent for a client that predates the field, or a malformed claim. */
+  spryKey?: string
+  agent: boolean
+  /** The call this device says it is on, if any. */
+  call?: string
+}
+
 export interface ParticipantView {
   participant: string
   /**
@@ -680,6 +692,7 @@ export class RoomSession {
    *  than now. What a scheduled rekey's window is measured by. */
   #deviceSeen = new Map<string, number>()
   #entries = new Map<string, RosterEntry>()
+  #spryKey?: string
   #listeners = new Set<(views: ParticipantView[]) => void>()
   #pendingRosterNotification = false
   #descriptorListeners = new Set<(descriptor: RoomDescriptor) => void>()
@@ -2772,6 +2785,10 @@ export class RoomSession {
       updatedAt: this.#now(),
       ...(this.#name !== undefined ? { name: this.#name } : {}),
       ...(this.#opts.callProfile === 2 ? { callProfile: 2 as const } : {}),
+      // Announced in every room, used there or not, so that an admitted
+      // device without one reliably means an older client: the seal rule
+      // in app/src/spry-room.ts depends on it.
+      spryKey: this.#spryKey ??= spryDevicePublicKey(this.#opts.deviceSk),
       ...(recordingProfile(this.#opts.recordingProfile) ? { recordingProfile: this.#opts.recordingProfile } : {}),
       ...(!left && live && (!live.recording.on || self.call?.id === live.call) ? { liveRecording: live } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
@@ -3410,7 +3427,9 @@ export class RoomSession {
     return proof ? structuredClone(proof) : undefined
   }
 
-  participants(): ParticipantView[] {
+  /** The entries `participants()` reads: lapsed devices swept, blocked and
+   *  participants out, the room's agent policy applied. */
+  #presentEntries(): RosterEntry[] {
     // Swept on read as well as on a timer, so a caller reading the roster
     // never sees a device that lapsed since the last sweep. Eviction queues
     // a notification so media peers receive the same fresh answer too.
@@ -3419,9 +3438,34 @@ export class RoomSession {
     const present = new Set(fresh.map((entry) => entry.participant))
     // A proof can expire while its roster entry is still fresh. In rooms
     // requiring an owned agent, expiry must end admission on this read.
-    const entries = this.#opts.policy?.agents === 'owned-by-members'
+    return this.#opts.policy?.agents === 'owned-by-members'
       ? fresh.filter((entry) => evaluateAgentAccess(this.#opts.policy, entry, (principal) => present.has(principal), this.#now()).admitted)
       : fresh
+  }
+
+  /**
+   * Each present device's Spry key claim, one row per device, from the same
+   * entries `participants()` uses. What a paired owner's app registers with
+   * its node and what decides whether a room's grant may be sealed. This
+   * device is included once its own entry has echoed back.
+   */
+  spryRoster(): SpryRosterEntry[] {
+    const rows = new Map<string, SpryRosterEntry>()
+    for (const entry of this.#presentEntries()) {
+      if (this.#removed.has(entry.participant)) continue
+      const old = rows.get(entry.device)
+      const row: SpryRosterEntry = {
+        device: entry.device, participant: entry.participant, agent: entry.agent === true,
+        ...(entry.spryKey ? { spryKey: entry.spryKey } : {}), ...(entry.call ? { call: entry.call.id } : {}),
+      }
+      // Two tabs of one device share its key; keep whichever says more.
+      if (!old || (!old.call && row.call) || (!old.spryKey && row.spryKey)) rows.set(entry.device, { ...old, ...row })
+    }
+    return [...rows.values()]
+  }
+
+  participants(): ParticipantView[] {
+    const entries = this.#presentEntries()
     // Our own claims as they stand now, not as the relay last echoed them.
     // A claim is published and comes back a round trip later - longer on a
     // slow relay - and a client enforcing the answer in between would see

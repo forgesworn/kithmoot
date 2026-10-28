@@ -129,6 +129,7 @@ directly, with no reimplementation involved.
 | `kindredProof` | issuer secret + participant + tier + room + nonce + expiry → signed proof, one per tier (`ken`/`kith`/`kin`) | `src/access.ts` |
 | `accessEvaluation` | a `RoomPolicy` + participant + proof + now → `{ admitted, reason }` | `src/access.ts` |
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
+| `spryDeviceKey` | room device secret → Spry signing secret and the `spryKey` a roster entry announces; malformed claims dropped | `src/spry-key.ts` |
 | `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
 | `roomEpoch` | epoch → `id` + `key`; a kind-1462 rekey read by a kept device, by a removed one, and refused; the authority-signed admin list | `src/epoch.ts` |
 | `epochRequestAdmission` | the `admission` proof inside a kind-20468 epoch request, derived from the epoch-0 room key; a full request decoded by the desk, and the three ways it refuses one | `src/epoch.ts` |

@@ -327,6 +327,15 @@ silently enable new semantics, so capability lives on the one thing each
 device already publishes about itself instead. A malformed value is dropped
 and the entry kept, exactly as a malformed `sid` or `call` is.
 
+An optional `spryKey` is the device's Spry signing key for this room: the
+x-only public key, 64 lowercase hex, of HMAC-SHA256(device secret key,
+"spry-device-v1") (`src/spry-key.ts`). Every current client announces it in
+every room, so an admitted device without one is an older client. A paired
+member's app registers these keys with its own Spry node so the room's relay
+grant redeems only for admitted devices (spry-turn
+`docs/design/2026-10-28-room-grant-seal-and-advert-privacy.md`). A value that
+is not 64 hex naming a curve point is dropped and the entry kept.
+
 A track advert may carry an optional `muted`, meaning the device itself
 turned the track's source off (`track.enabled = false`) rather than a peer
 turning its own playback down; only the exact boolean `true` counts, so it

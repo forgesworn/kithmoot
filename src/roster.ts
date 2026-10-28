@@ -13,6 +13,7 @@ import { sanitiseAssistOffer } from './peer-assist.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
 import { readLiveRecordingState, recordingProfile } from './live-recording.js'
+import { sanitiseSpryKey } from './spry-key.js'
 
 export interface EncodeRosterOptions {
   roomId: string
@@ -119,6 +120,7 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     // byte-identical to one written before the field existed.
     sid: sanitiseSid(entry.sid),
     callProfile: sanitiseCallProfile(entry.callProfile),
+    spryKey: sanitiseSpryKey(entry.spryKey),
     recordingProfile: recordingProfile(entry.recordingProfile),
     liveRecording: entry.recordingProfile === 3 || entry.recordingProfile === 4 ? readLiveRecordingState(entry.liveRecording) : undefined,
     assist: sanitiseAssistOffer(entry.assist),
@@ -248,6 +250,11 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     const callProfile = sanitiseCallProfile(entry.callProfile)
     if (callProfile === undefined) delete entry.callProfile
     else entry.callProfile = callProfile
+    // The Spry key claim: a curve point in 64 hex, or nothing. A malformed
+    // one costs the claim, never the entry, as for the call profile.
+    const spryKey = sanitiseSpryKey(entry.spryKey)
+    if (spryKey === undefined) delete entry.spryKey
+    else entry.spryKey = spryKey
     entry.recordingProfile = recordingProfile(entry.recordingProfile)
     if (entry.recordingProfile === 3 || entry.recordingProfile === 4) entry.liveRecording = readLiveRecordingState(entry.liveRecording)
     else delete entry.liveRecording
