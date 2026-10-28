@@ -185,6 +185,7 @@ export {
   DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
   EPOCH_RETRY_MS,
   EpochUnreachableError,
+  CredentialRenewalError,
   CONFERENCE_ENDED_MESSAGE,
 } from './session.js'
 export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from './expiration.js'
@@ -332,6 +333,7 @@ export {
   MAX_ATTACHMENT_NAME_LENGTH,
   normaliseAttachment,
   CONVERSATION_MOVED,
+  CredentialExpiredError,
   chatStreamsOf,
 } from './chat.js'
 export { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS } from './archive.js'
