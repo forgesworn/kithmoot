@@ -10,11 +10,11 @@
 set -eu
 
 # Full commit SHA on forgesworn/spry-turn main. Move it deliberately, with the
-# spec re-run, never to a branch name.
+# spec re-run, never to a branch name. This pin carries the room-grant paths,
+# sealing and vouching (#18) and the room relay caps (#17) the spec drives.
 # SPRY_TURN_SHA may name another full commit for a run against unmerged
-# server work (with SPRY_TURN_URL pointing at a local checkout); the room-seal
-# tests in the spec need the room-grant paths, which this pin predates.
-SPRY_TURN_SHA=${SPRY_TURN_SHA:-6b9dd555f57f54d45a0c01b77dd1d68a4ce6f5a4}
+# server work (with SPRY_TURN_URL pointing at a local checkout).
+SPRY_TURN_SHA=${SPRY_TURN_SHA:-2605a87455f6d94103b3ce56900ba381454e37eb}
 SPRY_TURN_URL=${SPRY_TURN_URL:-https://github.com/forgesworn/spry-turn.git}
 case $SPRY_TURN_SHA in *[!0-9a-f]*|'') echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2 ;; esac
 [ ${#SPRY_TURN_SHA} -eq 40 ] || { echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2; }
