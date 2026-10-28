@@ -48,6 +48,24 @@ export interface WeriftFactoryOptions {
  *  TURN credential lasts an hour, and this stays well inside that. */
 export const DEFAULT_ICE_REFRESH_MS = 40 * 60 * 1000
 
+/** Added to every connection's host addresses; see `createWeriftFactory`. */
+export const LOOPBACK_HOST = '127.0.0.1'
+
+/**
+ * Handed to werift when no STUN server is configured. werift replaces a
+ * missing STUN server with Google's public one and always gathers
+ * server-reflexive candidates from it, so an empty `iceServers` still
+ * contacted Google. A loopback address on the discard port answers nothing
+ * and never leaves this machine, which keeps "no STUN unless the operator
+ * names one" true. Shared with `server/forwarder.mjs`.
+ */
+export const NO_STUN_PLACEHOLDER = 'stun:127.0.0.1:9'
+
+/** The STUN entries werift gets: the configured ones, or the placeholder. */
+export function weriftStun(stun: IceServer[]): IceServer[] {
+  return stun.length ? stun : [{ urls: NO_STUN_PLACEHOLDER }]
+}
+
 function buildServers(urls: string[], turn: { username: string; credential: string } | undefined) {
   const isTurn = (url: string) => url.toLowerCase().startsWith('turn')
   const stun: IceServer[] = urls.filter((u) => !isTurn(u)).map((u) => ({ urls: u }))
@@ -79,9 +97,10 @@ function buildServers(urls: string[], turn: { username: string; credential: stri
  * the Node equivalent of the web app's own default (`ice-resolve.ts`,
  * `../ice-defaults.ts`) - so this fires only when there is truly nothing
  * to derive one from, or a caller (a test, a library consumer) builds a
- * factory directly with neither option set. Two peers on the same machine,
- * or with at least one publicly reachable, still connect on host
- * candidates alone; a process that needs to get through NAT and has
+ * factory directly with neither option set. Two peers on the same machine
+ * still connect over loopback; local network addresses are never sent
+ * (src/local-address-filter.ts), so a process that needs to get through NAT,
+ * or to be reached from another machine on its LAN, and has
  * neither needs `--ice stun:host:3478` (or `turn:`) or `KITHMOOT_ICE`
  * pointing at a real server - see `--ice` in `kithmoot-agent --help` and
  * deploy/README.md. Logged plainly at start-up so a process that can't get
@@ -100,8 +119,8 @@ export async function createWeriftFactory(opts: WeriftFactoryOptions = {}): Prom
   let { stun, turnServers } = buildServers(initial.iceUrls, initial.turn)
   if (initial.iceUrls.length === 0) {
     console.error(
-      '[kithmoot-agent] no STUN or TURN server configured - connections will only succeed on host ' +
-        "candidates (same machine, or a publicly reachable peer). Set --ice stun:host:3478 (or turn:), " +
+      '[kithmoot-agent] no STUN or TURN server configured - connections will only succeed with a peer ' +
+        "on this machine. Set --ice stun:host:3478 (or turn:), " +
         'or KITHMOOT_ICE, to get through NAT.',
     )
   }
@@ -123,8 +142,14 @@ export async function createWeriftFactory(opts: WeriftFactoryOptions = {}): Prom
   }
 
   return (context?: PeerContext) => {
-    const iceServers = context?.tier === 'turn' ? [...stun, ...turnServers] : stun
-    const pc = new RTCPeerConnection({ iceServers })
+    const iceServers = context?.tier === 'turn' ? [...weriftStun(stun), ...turnServers] : weriftStun(stun)
+    // Loopback is the one host address the library still sends
+    // (src/local-address-filter.ts drops every other), and werift does not
+    // gather it by itself. Without it an agent beside a browser on the same
+    // machine had no candidate the browser could use: werift cannot resolve
+    // the browser's mDNS name, so the pair only ever met on the agent's LAN
+    // address. A far end on another machine simply finds nothing there.
+    const pc = new RTCPeerConnection({ iceServers, iceAdditionalHostAddresses: [LOOPBACK_HOST] })
     return pc as unknown as RTCPeerConnectionLike
   }
 }

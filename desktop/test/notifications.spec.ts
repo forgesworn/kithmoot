@@ -16,7 +16,7 @@ const relay = 'ws://127.0.0.1:17777'
 test('background saved room delivery, private notification clicks and unread badge track reading rather than focus', async () => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-notify-'))
   const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop,
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--disable-audio-output',
   ], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
   const rooms = ['Studio', 'Workshop'].map(name => {
     const secret = generateRoomSecret()
@@ -122,7 +122,7 @@ test('background saved room delivery, private notification clicks and unread bad
 test('muting from the Room menu leaves the room out of the dock badge and the banners, and Unmute brings them back', async () => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-mute-'))
   const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop,
-    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--disable-audio-output',
   ], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
   const secret = generateRoomSecret()
   const room = { name: 'Studio', roomId: deriveRoom(secret).roomId, link: encodeRoomLink(HOME, { secret, name: 'Studio', relays: [relay], iceUrls: [] }), openedAt: Date.now() / 1000, readAt: 0 }

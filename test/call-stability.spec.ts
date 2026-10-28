@@ -711,7 +711,7 @@ test.describe('call stability', () => {
       // Everything from the suite's launch flags except the one that hides the
       // question: `--autoplay-policy=no-user-gesture-required`.
       const strict = await chromium.launch({
-        args: ['--use-fake-device-for-media-stream', '--disable-audio-output', '--use-fake-ui-for-media-stream', '--auto-accept-this-tab-capture', '--auto-select-desktop-capture-source=Entire screen'],
+        args: ['--use-fake-device-for-media-stream', '--disable-audio-output', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--auto-accept-this-tab-capture', '--auto-select-desktop-capture-source=Entire screen'],
       })
       const contexts: BrowserContext[] = []
       const checkpoints: Checkpoint[] = []
@@ -949,6 +949,11 @@ test.describe('call stability', () => {
         'permissions.default.microphone': 1,
         'media.autoplay.default': 0,
         'media.autoplay.blocking_policy': 0,
+        // With media permission granted Firefox offers raw interface
+        // addresses, which the library never sends; loopback is the host
+        // candidate it keeps (src/local-address-filter.ts). The Chromium
+        // pages get the same through --allow-loopback-in-peer-connection.
+        'media.peerconnection.ice.loopback': true,
       },
     })
     const contexts: BrowserContext[] = []

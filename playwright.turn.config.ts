@@ -59,6 +59,7 @@ export default defineConfig({
             // no audio, which reads exactly like an application bug.
             '--disable-audio-output',
             '--use-fake-ui-for-media-stream',
+            '--allow-loopback-in-peer-connection',
           ],
         },
       },
