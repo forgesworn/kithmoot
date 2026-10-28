@@ -38,8 +38,8 @@ describe('what a row says', () => {
     expect(words({ state: 'moved', channel: 'Plans', files: ['x'] })).toContain('in Plans')
   })
 
-  it('sent, held and sending keep their words', () => {
-    expect(words({ acknowledged: true })).toBe('Sent')
+  it('an acknowledged message says sending until its tick has evidence; held and sending keep their words', () => {
+    expect(words({ acknowledged: true })).toBe('Sending…')
     expect(words({ held: true })).toMatch(/^Message held/)
     expect(words({ state: 'sending' })).toBe('Sending…')
     expect(words({ state: 'holding', holdUntil: 1_003_000 })).toBe('Sending in 3 s')

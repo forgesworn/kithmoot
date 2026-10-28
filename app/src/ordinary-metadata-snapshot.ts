@@ -10,7 +10,8 @@ const MUTE_PREFIX = 'kithmoot.mute-until.v1.'
 const MUTE_UNTIL = /^[1-9][0-9]{0,15}$/
 const BOARD_PREFIX = 'kithmoot.board-context.v1.'
 const BOARD_ID = /^[A-Za-z0-9_-]{1,160}$/
-const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project', 'kithmoot.mute-until', 'kithmoot.board-context']
+const DELIVERY_PREFIX = 'kithmoot.delivery.v1.'
+const families = ['kithmoot.volume', 'kithmoot.pinned-rooms', 'kithmoot.notification-scopes', 'kithmoot.project', 'kithmoot.mute-until', 'kithmoot.board-context', 'kithmoot.delivery']
 function hold(): never { throw new OrdinaryStateHold() }
 const account = (value: unknown): boolean => value === 'visitor' || typeof value === 'string' && HEX.test(value)
 function json(raw: string): unknown {
@@ -45,12 +46,28 @@ function boardContext(name: string, raw: string): void {
   if (JSON.stringify(canonical) !== raw) hold()
 }
 
+/** Delivery verdicts for one room's own messages (see `delivery-state.ts`):
+ * ids and a two-valued verdict, and for a not-kept message the signed event
+ * it can be sent again as. No key, membership or permission. */
+function deliveries(name: string, raw: string): number {
+  if (!name.startsWith(DELIVERY_PREFIX) || !HEX.test(name.slice(DELIVERY_PREFIX.length))) hold()
+  const rows = json(raw)
+  if (!Array.isArray(rows) || rows.length > 300) hold()
+  for (const row of rows) {
+    if (!object(row) || typeof row.i !== 'string' || !row.i || row.i.length > 128 || typeof row.e !== 'string' || !HEX.test(row.e) ||
+        (row.s !== 'sent' && row.s !== 'not-kept') || !Number.isSafeInteger(row.a) || (row.a as number) < 0) hold()
+    if (Object.keys(row).some(key => !['i', 'e', 's', 'a', 'v'].includes(key))) hold()
+    if (Object.hasOwn(row, 'v') && (!object(row.v) || row.v.id !== row.e || row.s !== 'not-kept')) hold()
+  }
+  return rows.length
+}
+
 /** Strict custody of private UI metadata. No room membership, notification
  * permission, signer account or current project authority is returned. */
 export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, string>, _migrated: boolean,
-  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number; mutes: number; boardContexts: number }> {
+  options: { kind: 'browser' | 'tab' }): Readonly<{ volumes: number; pinLists: number; notificationScopes: number; projects: number; mutes: number; boardContexts: number; deliveryLists: number }> {
   if (!['browser', 'tab'].includes(options.kind)) hold()
-  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 0 }
+  const counts = { volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 0, deliveryLists: 0 }
   for (const [name, raw] of records) {
     if (name.startsWith('kithmoot.account.') && families.some(family => name.includes('.' + family))) hold()
     const family = families.find(value => name === value || name.startsWith(value + '.'))
@@ -87,6 +104,9 @@ export function validateOrdinaryMetadataSnapshot(records: ReadonlyMap<string, st
     } else if (family === 'kithmoot.board-context') {
       boardContext(name, raw)
       counts.boardContexts++
+    } else if (family === 'kithmoot.delivery') {
+      deliveries(name, raw)
+      counts.deliveryLists++
     } else {
       if (!name.startsWith(PROJECT_PREFIX)) hold()
       const parts = name.slice(PROJECT_PREFIX.length).split('.')
