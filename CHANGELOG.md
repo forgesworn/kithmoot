@@ -3,6 +3,7 @@
 ## Unreleased, 28 October 2026
 
 - **Calls no longer tell the people you call the addresses on your own network.** The web app and desktop app used to offer every call peer each local address the device had: Wi-Fi and Ethernet, a VPN tunnel, Tailscale or a mesh. Together those are a stable fingerprint that can recognise a device across rooms and VPN exits. Now only your public address (or your call relay's) is sent. The Android app is getting the same rule separately. The cost: two devices on the same network connect through the router or a relay instead of directly across the network. "Hide my IP address" is unchanged.
+- **Agents and forwarders no longer ask Google for their public address.** With no STUN server configured, the WebRTC library they use quietly asked Google's instead. They now ask nobody unless you name a server.
 
 ## Desktop 0.1.103, 24 October 2026
 

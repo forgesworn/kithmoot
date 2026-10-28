@@ -51,6 +51,21 @@ export const DEFAULT_ICE_REFRESH_MS = 40 * 60 * 1000
 /** Added to every connection's host addresses; see `createWeriftFactory`. */
 export const LOOPBACK_HOST = '127.0.0.1'
 
+/**
+ * Handed to werift when no STUN server is configured. werift replaces a
+ * missing STUN server with Google's (`stun.l.google.com:19302`) and always
+ * gathers server-reflexive candidates from it, so an empty `iceServers`
+ * still contacted Google. A loopback address on the discard port answers
+ * nothing and leaves this machine never, which keeps "no STUN unless the
+ * operator names one" true. Shared with `server/forwarder.mjs`.
+ */
+export const NO_STUN_PLACEHOLDER = 'stun:127.0.0.1:9'
+
+/** The STUN entries werift gets: the configured ones, or the placeholder. */
+export function weriftStun(stun: IceServer[]): IceServer[] {
+  return stun.length ? stun : [{ urls: NO_STUN_PLACEHOLDER }]
+}
+
 function buildServers(urls: string[], turn: { username: string; credential: string } | undefined) {
   const isTurn = (url: string) => url.toLowerCase().startsWith('turn')
   const stun: IceServer[] = urls.filter((u) => !isTurn(u)).map((u) => ({ urls: u }))
@@ -127,7 +142,7 @@ export async function createWeriftFactory(opts: WeriftFactoryOptions = {}): Prom
   }
 
   return (context?: PeerContext) => {
-    const iceServers = context?.tier === 'turn' ? [...stun, ...turnServers] : stun
+    const iceServers = context?.tier === 'turn' ? [...weriftStun(stun), ...turnServers] : weriftStun(stun)
     // Loopback is the one host address the library still sends
     // (src/local-address-filter.ts drops every other), and werift does not
     // gather it by itself. Without it an agent beside a browser on the same

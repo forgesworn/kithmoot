@@ -357,7 +357,9 @@ export async function createWeriftStack(stunUrl) {
         'KITHMOOT_STUN_URL if this forwarder itself sits behind NAT.',
     )
   }
-  const iceServers = stunUrl ? [{ urls: stunUrl }] : []
+  // werift swaps a missing STUN server for Google's; the placeholder stops
+  // that (see NO_STUN_PLACEHOLDER in src/node/webrtc.ts).
+  const iceServers = [{ urls: stunUrl || 'stun:127.0.0.1:9' }]
 
   return {
     createConnection() {
