@@ -1,7 +1,7 @@
 # public-advert-v1.json
 
 Verbatim copy of spry-turn `docs/fixtures/public-advert-v1.json` on main at
-2605a87455f6d94103b3ce56900ba381454e37eb (last changed by 56c18dc, merged with
+cb46a57876bb15bbdb4407137a2d8102aee4ffad (last changed by 56c18dc, merged with
 #18; privacy links from e478da3, cross-language cases from 56c18dc; profile
 `spry-public-advert-v1`; contract: spry-turn `docs/public-mode.md`, reference
 verifier `crates/spry-link/src/advert.rs`). The key, events and host names in

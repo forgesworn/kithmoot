@@ -14,7 +14,7 @@ set -eu
 # sealing and vouching (#18) and the room relay caps (#17) the spec drives.
 # SPRY_TURN_SHA may name another full commit for a run against unmerged
 # server work (with SPRY_TURN_URL pointing at a local checkout).
-SPRY_TURN_SHA=${SPRY_TURN_SHA:-2605a87455f6d94103b3ce56900ba381454e37eb}
+SPRY_TURN_SHA=${SPRY_TURN_SHA:-cb46a57876bb15bbdb4407137a2d8102aee4ffad}
 SPRY_TURN_URL=${SPRY_TURN_URL:-https://github.com/forgesworn/spry-turn.git}
 case $SPRY_TURN_SHA in *[!0-9a-f]*|'') echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2 ;; esac
 [ ${#SPRY_TURN_SHA} -eq 40 ] || { echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2; }
