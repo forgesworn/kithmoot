@@ -617,3 +617,37 @@ nothing is visible to users until K5 and A5.
 14. Android charging gate: required, or on by default and changeable.
 15. miniupnpd as third-party software in CI test infrastructure only, or
     in-house fake gateways only.
+
+## Owner decisions, 28 October 2026
+
+- **Guest access route:** v1 uses the `spry:` encrypted Nostr control channel;
+  the DNS route is deferred.
+- **Sharing:** the built-in relay shares only with the owner's rooms (own grant
+  always, publish in rooms this device created or after the one-tap choice).
+  No Open to anyone, no advert, no anonymous issuer.
+- **Sealing:** `SPRY_ROOM_SEAL=required` on built-in relays. Clients too old to
+  read the `spry-standard-v1` card never use a foreign `spry:` offer anyway.
+- **Hide my IP:** a guest with Hide my IP may use another member's built-in
+  relay only after a one-time choice per host ("Use Alex's relay? Alex will see
+  your address; others won't."), remembered on the device per host. A host
+  with Hide my IP on may still run the relay.
+- **Caps:** the home defaults (8 allocations, 2 per user, 16 TCP, 125,000
+  bytes/s per allocation), raisable within Spry's maxima. Daily data limit
+  default set during the build PR and shown in the UI.
+- **Autostart:** only while KithMoot is open; no login item or tray relay.
+- **Crash:** restart automatically once, then stay stopped and say so.
+- **Permanent-only UPnP routers:** use the mapping, record it, remove it on
+  stop and again on next launch; tell the person a mapping may outlive a crash.
+- **Reachability test:** only when the host asks.
+- **Address check:** compare the router's reported address with the answer from
+  the STUN server calls already use (no new server).
+- **Platforms:** no macOS Intel build. Windows relay binary stays unsigned like
+  the app (Authenticode signing is a cost; not planned).
+- **Android:** charging always required in v1.
+- **No third-party tools.** Android and any other mobile binding follows
+  ForgeSworn's ferrule decision: a hand-written C ABI with thin JNI (Kotlin)
+  shims, MIT, no UniFFI or other generator. Ship reviewed consumer keep rules
+  with the binding and run a cold-load instrumentation smoke test against the
+  packaged, minified release APK (the 0.6.113 R8/JNI crash is the precedent),
+  then repeat on a physical phone. Router tests use our own fake PCP, NAT-PMP
+  and UPnP gateways; no miniupnpd, even in CI.
