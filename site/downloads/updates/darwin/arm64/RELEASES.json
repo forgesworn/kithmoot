@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.110",
+  "currentRelease": "0.1.111",
   "releases": [
     {
-      "version": "0.1.110",
+      "version": "0.1.111",
       "updateTo": {
-        "version": "0.1.110",
-        "pub_date": "2026-10-27T21:23:34Z",
-        "notes": "Opens image, audio and video attachments in a dedicated sandboxed renderer with no Node access, application storage or external network access, and closes viewers on retraction.",
-        "name": "0.1.110",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.110/KithMoot-0.1.110-mac-arm64.zip",
-        "sha256": "322b2cc3a808b0886b229d75475ad4cc431a3f172fc953ca49e2f35fe3531e6c",
-        "size": 190120998
+        "version": "0.1.111",
+        "pub_date": "2026-10-28T17:40:00Z",
+        "notes": "Renews room access by the clock after the computer sleeps, so a laptop opened in the morning sends without asking you to rejoin; pauses Help other people connect until volunteers carry media.",
+        "name": "0.1.111",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.111/KithMoot-0.1.111-mac-arm64.zip",
+        "sha256": "c45e3e7f6f1b1fd298438f0a481f024b4b9be12ba1bed17ac0803908d3d8474a",
+        "size": 190127671
       }
     }
   ]
