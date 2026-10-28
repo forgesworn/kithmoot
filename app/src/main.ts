@@ -2850,9 +2850,14 @@ function renderKnockChoice(): void {
 function renderSpryShareChoice(): void {
   const s = session
   const relay = s ? spryRooms.get(s) : undefined
+  // The session's own participant, never the current identity: this renders
+  // in the lobby too, and with no account connected yet that would mint and
+  // keep a visitor key before a saved Nostr identity has resolved.
   let pairing: ReturnType<typeof loadSpryPairing>
-  try { pairing = loadSpryPairing(localStorage, currentIdentity().pubkey) } catch { pairing = undefined }
-  const shown = !!s && !!relay && !!pairing && spryRoomMadeHere.get(s) === false
+  if (s && relay && spryRoomMadeHere.get(s) === false) {
+    try { pairing = loadSpryPairing(localStorage, s.participant) } catch { pairing = undefined }
+  }
+  const shown = !!pairing
   $('spryShareRow').hidden = !shown
   if (!shown) return
   const on = relay!.sharing

@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { completeSpryPairing, loadSpryPairing, parseSpryPairingInput } from './spry-pairing.js'
 
 const pairingHash = () => '#spry=' + btoa(JSON.stringify({ v: 1, endpoint: 'https://relay.example:3744', code: 'a'.repeat(43), expiresAt: Math.floor(Date.now()/1000)+100 })).replaceAll('=', '')
@@ -64,4 +65,17 @@ it('keeps the per-room share choice on this device, per person, bounded and tole
   for (let i = 0; i < 300; i++) saveSpryShare(store, me, i.toString(16).padStart(64, '0'), true)
   expect(JSON.parse(data.get('kithmoot.spry-share.v1')!)).toHaveLength(256)
   expect(() => saveSpryShare(store, 'visitor', room, true)).toThrow()
+})
+
+it('renders the share row from the session alone, never minting a visitor key before a saved account resolves', () => {
+  // renderSpryShareChoice runs in the lobby as well as in a room. With no
+  // account connected yet, currentIdentity() falls back to participantKey(),
+  // which mints and keeps a visitor key in a browser whose saved Nostr
+  // account is still being restored.
+  const main = readFileSync(new URL('./main.ts', import.meta.url), 'utf8')
+  const start = main.indexOf('function renderSpryShareChoice(')
+  expect(start).toBeGreaterThan(-1)
+  const body = main.slice(start, main.indexOf('\nfunction ', start + 1))
+  expect(body).not.toMatch(/\b(currentIdentity|participantKey|localIdentity)\(/)
+  expect(body).toContain('loadSpryPairing(localStorage, s.participant)')
 })
