@@ -834,6 +834,12 @@ export interface ChatLogOptions {
    *  above and refuses `send`. */
   credential?: DeviceCredential
   deviceSk?: Uint8Array
+  /** Asked by `send` when `credential` has expired, to renew it (through
+   *  `setCredential`) before the message is prepared again. A session
+   *  passes its own `ensureCredential`, so a message sent just after the
+   *  computer wakes waits for the renewal instead of failing. `prepare`
+   *  never waits: it throws `CredentialExpiredError` for its caller. */
+  renewCredential?: () => Promise<unknown>
   /** What to call this sender on every message. Sanitised here, so a
    *  caller can pass a form field straight in. */
   name?: string
@@ -888,6 +894,21 @@ export interface PreparedSend {
 /** Why a prepared message was not published: its conversation closed or
  *  moved to a new key before it went. Never reaches a relay. */
 export const CONVERSATION_MOVED = 'This conversation has closed or changed its key. Copy your message into the current conversation to send it.'
+
+/**
+ * Thrown by `ChatLog.prepare` when this device's credential has expired at
+ * the moment the message would be stamped. A relay would accept the
+ * ciphertext and every reader would refuse it, so nothing is signed. It is
+ * not the end of the conversation: a primary device renews its credential
+ * (`RoomSession.ensureCredential`) and prepares again. Its message is the
+ * last-resort wording for a caller that does neither.
+ */
+export class CredentialExpiredError extends Error {
+  constructor() {
+    super("This device's access to the room ran out before it could be renewed, so the message was not sent.")
+    this.name = 'CredentialExpiredError'
+  }
+}
 
 export interface SendOptions {
   /** A matching logo op on the control channel; never ordinary chat content. */
@@ -1225,7 +1246,14 @@ export class ChatLog {
   async #sendOwned(text: string, sendOpts: SendOptions, execution: ProtocolExecution | undefined): Promise<void> {
     if (this.#opts.protocol) sendOpts = captureProtocolData(sendOpts)
     const prepare = () => this.#prepareOwned(text, sendOpts, execution)
-    const prepared = execution ? await execution.run('chat-preparation', prepare) : prepare()
+    let prepared: PreparedSend
+    try {
+      prepared = execution ? await execution.run('chat-preparation', prepare) : prepare()
+    } catch (error) {
+      if (!(error instanceof CredentialExpiredError) || !this.#opts.renewCredential) throw error
+      await this.#opts.renewCredential()
+      prepared = execution ? await execution.run('chat-preparation', prepare) : prepare()
+    }
     await prepared.publish()
   }
 
@@ -1254,10 +1282,11 @@ export class ChatLog {
     if (!credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
     // A relay can accept ciphertext that every reader will reject. Refuse
     // before handing a prepared send to the outbox, so the draft stays put
-    // when a sleeping device or an unavailable signer missed renewal.
+    // when a sleeping device or an unavailable signer missed renewal. The
+    // caller renews and prepares again; see `CredentialExpiredError`.
     const sentAt = this.#sentAt()
     const access = verifyDeviceCredential(credential, { roomId: this.#opts.roomId, now: sentAt.sentAt })
-    if (!access.ok) throw new Error('Your device credential is no longer valid. Rejoin the room before sending.')
+    if (!access.ok) throw new CredentialExpiredError()
     if (text.length === 0) throw new Error('chat message is empty')
     if (text.length > MAX_CHAT_TEXT_LENGTH) {
       throw new Error(`chat message exceeds ${MAX_CHAT_TEXT_LENGTH} characters`)

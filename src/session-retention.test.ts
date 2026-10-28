@@ -219,8 +219,12 @@ describe('required own-credential retention', () => {
     await keeper.join([], {})
     await mine.join([], {})
     await flush()
+    // Awake throughout: the wall clock reaches the renewal point as the
+    // renewal timer does. (A jump past it first is a sleep, which the
+    // heartbeat renews from at once; see session.test.ts.)
+    await vi.advanceTimersByTimeAsync(1799_000)
     clock += 1800
-    await vi.advanceTimersByTimeAsync(1800_000)
+    await vi.advanceTimersByTimeAsync(1_000)
     await vi.advanceTimersByTimeAsync(120_000)
     expect(retain).toHaveBeenCalledTimes(3)
     expect(mine.credential).toEqual(resume)

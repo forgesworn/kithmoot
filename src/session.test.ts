@@ -11,7 +11,8 @@ import { KINDS } from './kinds.js'
 import { Mesh } from './mesh.js'
 import { deriveRoom } from './room.js'
 import { decodeRosterEvent, encodeRosterEvent } from './roster.js'
-import { PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js'
+import { CredentialRenewalError, PRESENCE_TTL_SECONDS, RESUME_MIN_REMAINING_SECONDS } from './session.js'
+import { CredentialExpiredError } from './chat.js'
 import type { DeviceCredential } from './types.js'
 import { decodeCallBellEvent } from './call-bell.js'
 import type { RelayTransport } from './relay-pool.js'
@@ -1764,6 +1765,236 @@ describe('RoomSession credential renewal', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('RoomSession credential renewal after sleep', () => {
+  // A computer asleep does not run timers: Chromium, Electron and Node keep
+  // them on a monotonic clock that stands still while it is suspended. These
+  // tests move the wall clock (`now`) without letting the renewal timer
+  // fire, which is what a lid closed overnight does.
+  const TTL = 100
+  const timing = { credentialTtlSeconds: TTL, heartbeatIntervalMs: 1_000, sweepIntervalMs: 1_000_000 }
+  const expiry = (c: DeviceCredential | undefined) => Number(c!.tags.find((t) => t[0] === 'expiration')?.[1])
+
+  /** A signer that counts what it is asked, and can be told to refuse or
+   *  to hold its answer, as a bunker behind a slow relay does. */
+  function controlledSigner(participantSk: Uint8Array) {
+    const inner = localIdentity(participantSk)
+    let release: (() => void) | undefined
+    const signer = {
+      pubkey: inner.pubkey,
+      signs: 0,
+      mode: 'answer' as 'answer' | 'refuse' | 'hold',
+      async signEvent(unsigned: Parameters<typeof inner.signEvent>[0]) {
+        signer.signs++
+        if (signer.mode === 'refuse') throw new Error('the signer refused')
+        if (signer.mode === 'hold') await new Promise<void>((resolve) => { release = resolve })
+        return inner.signEvent(unsigned)
+      },
+      answer() { signer.mode = 'answer'; release?.(); release = undefined },
+    }
+    return signer
+  }
+
+  async function asleep(opts: { signer?: ReturnType<typeof controlledSigner> } = {}) {
+    const relay = new SimRelay({ replay: true })
+    const clock = { at: NOW }
+    const signer = opts.signer ?? controlledSigner(generateSecretKey())
+    const mine = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: signer,
+      deviceSk: generateSecretKey(),
+      now: () => clock.at,
+      announceJitterMs: 0,
+      timing,
+    })
+    await mine.join([], {})
+    expect(signer.signs).toBe(1)
+    return { relay, clock, signer, mine, first: mine.credential! }
+  }
+
+  /** A device that joins after the wake, to read what was sent. */
+  async function reader(relay: SimRelay, clock: { at: number }) {
+    const theirs = new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now: () => clock.at,
+      announceJitterMs: 0,
+      timing,
+    })
+    await theirs.join([], {})
+    return theirs
+  }
+
+  function rosterAfter(relay: SimRelay, mine: RoomSession, from: number, at: number) {
+    return relay.published.slice(from).filter((e) => e.kind === KINDS.ROSTER)
+      .map((e) => decodeRosterEvent(e, { roomId: mine.roomId, roomKey: deriveRoom(secret()).roomKey, now: at }))
+  }
+
+  it('BUG: wakes past expiry and renews on the first heartbeat, not hours later when the renewal timer fires', async () => {
+    vi.useFakeTimers()
+    try {
+      const { relay, clock, signer, mine, first } = await asleep()
+      const before = relay.published.length
+      // Slept for an hour and a half of a credential that lasts 100 s; the
+      // renewal timer has not run a second of its fifty.
+      clock.at = NOW + 5400
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(signer.signs).toBe(2)
+      const renewed = mine.credential!
+      expect(renewed.id).not.toBe(first.id)
+      expect(expiry(renewed)).toBe(clock.at + TTL)
+      // Nothing went out under the lapsed one; the restatement is under the new one.
+      const roster = rosterAfter(relay, mine, before, clock.at)
+      expect(roster.length).toBeGreaterThan(0)
+      expect(roster.every((entry) => entry?.credential.id === renewed.id)).toBe(true)
+      expect(roster[0]?.reply).toBe(true)
+
+      await mine.chat.send('back from sleep')
+      const theirs = await reader(relay, clock)
+      expect(theirs.chat.messages().map((m) => m.text)).toEqual(['back from sleep'])
+      // And the renewal timer that slept through it is replaced, not doubled.
+      await vi.advanceTimersByTimeAsync(49_000)
+      expect(signer.signs).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('renews at once when the embedding says it woke, once however often it says so', async () => {
+    vi.useFakeTimers()
+    try {
+      const { clock, signer, mine, first } = await asleep()
+      clock.at = NOW + 60
+      mine.checkCredential()
+      mine.checkCredential()
+      mine.checkCredential()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(signer.signs).toBe(2)
+      expect(mine.credential!.id).not.toBe(first.id)
+      // Not due again until halfway through the new one.
+      mine.checkCredential()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(signer.signs).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a send after sleep waits for the renewal and then goes, under the new credential', async () => {
+    const { relay, clock, signer, mine, first } = await asleep()
+    clock.at = NOW + 5400
+    // No timer has run: the old credential is still the one in hand, and
+    // nothing is signed under it.
+    expect(mine.credential!.id).toBe(first.id)
+    expect(() => mine.chat.prepare('written on waking')).toThrow(CredentialExpiredError)
+    expect(relay.published.filter((e) => e.kind === KINDS.CHAT)).toHaveLength(0)
+
+    // What a composer does with that: renew, then prepare again.
+    const renewed = await mine.ensureCredential()
+    expect(signer.signs).toBe(2)
+    expect(renewed.id).toBe(mine.credential!.id)
+    expect(renewed.id).not.toBe(first.id)
+    await mine.chat.prepare('written on waking').publish()
+
+    // And `send`, on a channel too, renews by itself.
+    clock.at += 5400
+    await mine.chat.send('and again later')
+    clock.at += 5400
+    await mine.channel('notes').send('in a channel')
+    expect(signer.signs).toBe(4)
+    const theirs = await reader(relay, clock)
+    expect(theirs.chat.messages().map((m) => m.text)).toEqual(['written on waking', 'and again later'])
+  })
+
+  it('hands back a credential past its renewal point without waiting, and renews behind it', async () => {
+    const { signer, mine, first, clock } = await asleep()
+    clock.at = NOW + 60
+    const now = await mine.ensureCredential()
+    expect(now.id).toBe(first.id)
+    await settle()
+    expect(signer.signs).toBe(2)
+    expect(mine.credential!.id).not.toBe(first.id)
+  })
+
+  it('a signer that refuses leaves the message unsent and says so; it goes once the signer answers', async () => {
+    vi.useFakeTimers()
+    try {
+      const { relay, clock, signer, mine } = await asleep()
+      clock.at = NOW + 5400
+      signer.mode = 'refuse'
+      const refused = await mine.ensureCredential().catch((error: unknown) => error)
+      expect(refused).toBeInstanceOf(CredentialRenewalError)
+      expect((refused as CredentialRenewalError).reason).toBe('signer')
+      expect(() => mine.chat.prepare('still waiting')).toThrow(CredentialExpiredError)
+      await expect(mine.chat.send('still waiting')).rejects.toBeInstanceOf(CredentialRenewalError)
+      expect(relay.published.filter((e) => e.kind === KINDS.CHAT)).toHaveLength(0)
+
+      // The heartbeat does not ask a refusing signer again every tick, and
+      // publishes nothing under the lapsed credential.
+      const asked = signer.signs
+      const before = relay.published.length
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(signer.signs).toBe(asked)
+      expect(relay.published.length).toBe(before)
+
+      // The person presses Send again once the signer is open.
+      signer.mode = 'answer'
+      await mine.ensureCredential()
+      await mine.chat.send('sent after the signer answered')
+      expect(relay.published.filter((e) => e.kind === KINDS.CHAT)).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a slow signer: the wait gives up, the request stays open, and an answer later renews', async () => {
+    vi.useFakeTimers()
+    try {
+      const { clock, signer, mine, first } = await asleep()
+      clock.at = NOW + 5400
+      signer.mode = 'hold'
+      const slow = mine.ensureCredential({ timeoutMs: 5_000 }).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(5_000)
+      const outcome = await slow
+      expect(outcome).toBeInstanceOf(CredentialRenewalError)
+      expect((outcome as CredentialRenewalError).reason).toBe('signer-slow')
+      expect(signer.signs).toBe(2)
+
+      // Asking again, or a heartbeat, joins the open request: one signature.
+      const waiting = mine.ensureCredential()
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(signer.signs).toBe(2)
+      signer.answer()
+      const renewed = await waiting
+      expect(renewed.id).not.toBe(first.id)
+      expect(mine.credential!.id).toBe(renewed.id)
+      await mine.chat.send('sent when the signer answered')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a paired device cannot renew for itself, and says so rather than asking a signer it does not have', async () => {
+    const participantSk = generateSecretKey()
+    const deviceSk = generateSecretKey()
+    const credential = await createDeviceCredential({
+      identity: localIdentity(participantSk), devicePubkey: getPublicKey(deviceSk), roomId: ROOM_ID, expiresAt: NOW + TTL, now,
+    })
+    let at = NOW
+    const secondary = new RoomSession({
+      transport: new SimTransport(new SimRelay()), secret: secret(), credential, deviceSk, now: () => at, announceJitterMs: 0, timing,
+    })
+    await secondary.join([], {})
+    at = NOW + 60
+    expect((await secondary.ensureCredential()).id).toBe(credential.id)
+    at = NOW + 5400
+    const refused = await secondary.ensureCredential().catch((error: unknown) => error)
+    expect((refused as CredentialRenewalError).reason).toBe('cannot-renew')
   })
 })
 

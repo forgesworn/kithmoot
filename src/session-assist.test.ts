@@ -33,8 +33,12 @@ function offer(over: Partial<AssistOffer> = {}): AssistOffer {
 interface Fixture {
   relay: SimRelay
   assist?: () => AssistOffer | null
-  /** This device's own relay registry, when it is volunteering. */
+  /** This device's own relay registry, when it is volunteering. A fresh one
+   *  unless `chatOnly`, because a session that can carry nobody never
+   *  advertises an offer, so every test about advertising needs one. */
   peerRelay?: PeerRelay
+  /** Built the way the app builds a text-only room: no relay registry. */
+  chatOnly?: boolean
   factory?: ReturnType<typeof createFakeFactory>
 }
 
@@ -47,7 +51,7 @@ function session(fixture: Fixture): RoomSession {
     now,
     announceJitterMs: 0,
     assist: fixture.assist,
-    relay: fixture.peerRelay,
+    relay: fixture.chatOnly ? undefined : (fixture.peerRelay ?? new PeerRelay()),
     factory: fixture.factory,
   })
 }
@@ -160,6 +164,73 @@ describe('reading other people\'s offers', () => {
     expect(view.assist).toBeUndefined()
     watcher.leave()
     quiet.leave()
+  })
+})
+
+describe('a session that cannot carry', () => {
+  it('is told so by canCarry, and a session with a relay registry is not', () => {
+    const relay = new SimRelay()
+    expect(session({ relay, chatOnly: true }).canCarry).toBe(false)
+    expect(session({ relay }).canCarry).toBe(true)
+    expect(session({ relay, peerRelay: new PeerRelay() }).canCarry).toBe(true)
+  })
+
+  it('never advertises an offer it was constructed with', async () => {
+    const relay = new SimRelay()
+    const s = session({ relay, chatOnly: true, assist: () => offer() })
+    await s.join([], {})
+    await s.announce()
+    await settle()
+
+    expect(entries(relay).length).toBeGreaterThan(0)
+    expect(entries(relay).every((entry) => entry!.assist === undefined)).toBe(true)
+    s.leave()
+  })
+
+  it('never advertises an offer it is handed afterwards, as a value or as a source', async () => {
+    const relay = new SimRelay()
+    const s = session({ relay, chatOnly: true })
+    await s.join([], {})
+    await settle()
+    const before = entries(relay).length
+
+    await s.setAssist(offer())
+    await s.setAssist(() => offer())
+    await s.announce()
+    await settle()
+
+    expect(entries(relay).length).toBeGreaterThan(before)
+    expect(entries(relay).every((entry) => entry!.assist === undefined)).toBe(true)
+    s.leave()
+  })
+
+  it('does not republish for an offer it ignores', async () => {
+    const relay = new SimRelay()
+    const s = session({ relay, chatOnly: true })
+    await s.join([], {})
+    await settle()
+    const before = relay.published.length
+
+    await s.setAssist(offer())
+    await settle()
+
+    expect(relay.published.length).toBe(before)
+    s.leave()
+  })
+
+  it('is not seen offering by anybody else in the room', async () => {
+    const relay = new SimRelay()
+    const chatOnly = session({ relay, chatOnly: true, assist: () => offer() })
+    const watcher = session({ relay })
+    await chatOnly.join([], {})
+    await watcher.join([], {})
+    await chatOnly.setAssist(offer())
+    await settle()
+
+    const view = watcher.participants().find((v) => v.participant === chatOnly.participant)!
+    expect(view.assist).toBeUndefined()
+    watcher.leave()
+    chatOnly.leave()
   })
 })
 

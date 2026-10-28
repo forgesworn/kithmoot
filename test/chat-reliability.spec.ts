@@ -527,3 +527,43 @@ test('choosing another person with the same shown name during retention preserve
     expect(messages[0]?.mentions).not.toEqual(messages[1]?.mentions)
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })
+
+test('a laptop that slept past its device credential sends on waking, without rejoining', async ({ browser, baseURL }) => {
+  // A computer asleep runs no timers, but its wall clock moves on. Moving
+  // only Date.now models that exactly: the renewal timer stays where it
+  // was, and the credential's expiry, which is wall-clock time, passes.
+  const asleep = async (): Promise<BrowserContext> => {
+    const context = await contextFor(browser, baseURL!)
+    await context.addInitScript(() => {
+      const real = Date.now.bind(Date)
+      const clock = window as unknown as { __sleptMs?: number }
+      Date.now = () => real() + (clock.__sleptMs ?? 0)
+    })
+    return context
+  }
+  const relay = testRelay(baseURL!), secret = generateRoomSecret()
+  const url = encodeJoinUrl(baseURL!, secret, [relay])
+  const thirteenHours = 13 * 60 * 60 * 1000
+  const ada = await asleep(), bea = await asleep()
+  try {
+    const page = await ada.newPage()
+    await join(page, url, 'Ada')
+    await page.evaluate(ms => { (window as unknown as { __sleptMs?: number }).__sleptMs = ms }, thirteenHours)
+    await page.locator('#chatInput').fill('Good morning, I slept')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#chatLog')).toContainText('Good morning, I slept')
+    await expect(page.locator('#outbox')).toBeHidden()
+    await expect(page.locator('#chatInput')).toHaveValue('')
+    await expect(page.locator('#status')).not.toContainText(/rejoin|ran out|no longer valid/i)
+
+    // Somebody else, on the same morning, reads it: it was signed under a
+    // credential that was good when it was sent.
+    const reader = await bea.newPage()
+    await reader.addInitScript(ms => { (window as unknown as { __sleptMs?: number }).__sleptMs = ms }, thirteenHours)
+    await join(reader, url, 'Bea')
+    await expect(reader.locator('#chatLog')).toContainText('Good morning, I slept')
+  } finally {
+    await ada.close()
+    await bea.close()
+  }
+})
