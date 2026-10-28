@@ -107,7 +107,7 @@ import { FloatingSharePreview, floatingPreviewSupported } from './floating-share
 import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
-import { EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
+import { CredentialRenewalError, EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
 import { ANDROID_DOWNLOAD_URL, DESKTOP_DOWNLOAD_URL, appLinkFor, appPlatform } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -289,6 +289,7 @@ import {
   type SendOptions,
   type PreparedSend,
   CONVERSATION_MOVED,
+  CredentialExpiredError,
   type PeerCrypt,
   decodeChatEvent,
   isQuietPolicy,
@@ -925,11 +926,24 @@ function configuredPool(urls: string[]): ManagedRelayPool {
 // while still hidden.
 let lastHiddenAt = 0
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') void relayConnections.probeAll()
+  if (document.visibilityState === 'visible') { void relayConnections.probeAll(); checkCredentials() }
   else lastHiddenAt = Date.now()
 })
-window.addEventListener('pageshow', event => { if (event.persisted) void relayConnections.probeAll() })
-window.addEventListener('online', () => { void relayConnections.probeAll() })
+window.addEventListener('pageshow', event => { if (event.persisted) void relayConnections.probeAll(); checkCredentials() })
+window.addEventListener('online', () => { void relayConnections.probeAll(); checkCredentials() })
+window.addEventListener('focus', () => checkCredentials())
+
+/**
+ * The same signals say the computer may have slept, and a renewal timer
+ * stands still through a sleep while the credential's expiry does not. Each
+ * open session checks the wall clock and renews at once if it is due; the
+ * session's own heartbeat does the same within twenty seconds of waking
+ * when none of these events comes.
+ */
+function checkCredentials(): void {
+  session?.checkCredential()
+  if (dockedCall && dockedCall.session !== session) dockedCall.session.checkCredential()
+}
 
 // The room names its own STUN/TURN, carried in the join URL like the relay
 // hints already are - hardcoding an operator's server here is exactly the
@@ -1093,6 +1107,52 @@ function setStatus(message: string, tone: 'problem' | 'progress' | 'done' = 'pro
   el.classList.toggle('progress', tone === 'progress')
   el.classList.toggle('done', tone === 'done')
   if (message && tone === 'problem') console.error(message)
+}
+
+/** How long a send waits on the signer before saying what it is waiting for.
+ *  A key kept on this device answers at once; a bunker or an extension
+ *  that wants a tap does not. */
+const SIGNER_SLOW_MS = 4_000
+const SIGNER_SLOW_WORDS = 'Your signer did not answer, so this message is waiting. Open your signer and it will send.'
+
+/**
+ * Prepare a message, renewing this device's access to the room first when
+ * it ran out, which is what a computer that slept through its renewal
+ * wakes to (see `RoomSession.ensureCredential`). The message is signed only
+ * once the access is good again, so nothing goes out that readers would
+ * refuse, and the draft or the button that asked stays as it was while it
+ * waits. `onSlow` is told when the signer is taking its time.
+ */
+async function prepareFresh(s: RoomSession, prepare: () => PreparedSend, onSlow?: () => void): Promise<PreparedSend> {
+  try {
+    return prepare()
+  } catch (err) {
+    if (!(err instanceof CredentialExpiredError)) throw err
+  }
+  try {
+    await s.ensureCredential({ timeoutMs: SIGNER_SLOW_MS })
+  } catch (err) {
+    if (!(err instanceof CredentialRenewalError) || err.reason !== 'signer-slow') throw err
+    onSlow?.()
+    // The same request, still open: no second prompt.
+    await s.ensureCredential()
+  }
+  return prepare()
+}
+
+/** What to tell the person when a message could not be prepared: for a
+ *  renewal that failed, what went wrong and what to do about it. */
+function sendFailureWords(err: unknown): string {
+  if (!(err instanceof CredentialRenewalError)) return describeError(err)
+  switch (err.reason) {
+    case 'signer-slow': return SIGNER_SLOW_WORDS
+    case 'signer': return /not connected/i.test(err.message)
+      ? 'Your Nostr account is not connected in this tab, so this message has not been sent. Reconnect it, then press Send.'
+      : 'Your signer did not renew this device\'s access to the room, so this message has not been sent. Open your signer, then press Send to try again.'
+    case 'storage': return 'This device could not save its renewed access to the room, so this message has not been sent. Press Send to try again.'
+    case 'cannot-renew': return 'This paired device\'s access to the room has run out, and only the device that holds your identity can renew it. Pair this device again from there to keep sending.'
+    case 'left': return CONVERSATION_MOVED
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2751,7 +2811,7 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
     const invite = await sealInvite(room.link, { to: peer.participant, room: room.roomId, crypt })
     const text = 'Invited you to a room.'
     if (session !== s || contactIsBlocked(peer.participant)) throw new Error('The room or contact permission changed.')
-    const prepared = s.chat.prepare(text, { invite })
+    const prepared = await prepareFresh(s, () => s.chat.prepare(text, { invite }))
     await queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer.participant)) throw new Error('This room invitation is no longer allowed.')
       await prepared.publish()
@@ -2762,7 +2822,7 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
     invitingPeer = undefined
     if (dialog.open) dialog.close()
   } catch (err) {
-    fail(describeError(err))
+    fail(sendFailureWords(err))
     send.textContent = 'Send invite'
     send.disabled = false
   }
@@ -8376,7 +8436,7 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
     const invite = await sealInvite(link, { to: peer, room: roomId, crypt })
     const text = inviteText()
     if (session !== s || contactIsBlocked(peer)) throw new Error('The room or contact permission changed.')
-    const prepared = s.chat.prepare(text, { invite })
+    const prepared = await prepareFresh(s, () => s.chat.prepare(text, { invite }))
     await queueSend(prepared, 'Chat', { publish: async () => {
       if (session !== s || contactIsBlocked(peer)) throw new Error('This room invitation is no longer allowed.')
       await prepared.publish()
@@ -8568,7 +8628,8 @@ function ingestRoomRelays(control: Extract<ControlMessage, { op: 'relays' }>, se
 }
 
 async function postRoomRelays(s: RoomSession, record: RoomRelayRecord): Promise<void> {
-  await s.channel(CONTROL_CHANNEL).prepare(encodeControl({ op: 'relays', ...record })).publish({ allRelays: true })
+  const control = s.channel(CONTROL_CHANNEL)
+  await (await prepareFresh(s, () => control.prepare(encodeControl({ op: 'relays', ...record })))).publish({ allRelays: true })
   roomRelaysSeenAt = nowSeconds()
 }
 
@@ -12288,15 +12349,27 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
       try {
         const reaction = toggleReaction(chat.messages(), original, meParticipant, emoji)
         const text = reactionText(reaction)
-        const prepared = chat.prepare(text, { reaction })
-        void queueSend(prepared, currentChannel ?? 'Chat').then(() => {
+        const channel = currentChannel ?? 'Chat'
+        const sendReaction = (prepared: PreparedSend): Promise<void> => queueSend(prepared, channel).then(() => {
         if (reaction.active) {
           const current = Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
             .find(row => row.dataset.messageId === original.id && row.dataset.messageAuthor === original.participant)
           const anchor = current?.querySelector<HTMLElement>('.bubble')
           if (anchor) showReactionFeedback(anchor, emoji)
         }
-        }).catch(error => setStatus(describeError(error)))
+        })
+        const s = session
+        let prepared: PreparedSend | undefined
+        try {
+          prepared = chat.prepare(text, { reaction })
+        } catch (error) {
+          // Access that ran out while the computer slept is renewed, and the
+          // reaction goes after it; anything else is refused here as before.
+          if (!(error instanceof CredentialExpiredError) || !s) throw error
+          void prepareFresh(s, () => chat.prepare(text, { reaction })).then(sendReaction).catch(failure => setStatus(sendFailureWords(failure)))
+          return true
+        }
+        void sendReaction(prepared).catch(error => setStatus(describeError(error)))
         return true
       } catch (error) { setStatus(describeError(error)); return false }
     }
@@ -20962,9 +21035,10 @@ async function retractMessage(original: ChatMessage): Promise<void> {
   if (!await confirmRoomAction({ title: 'Retract this message?', message: 'It will be marked retracted. People who already received it may still have a copy.', confirmLabel: 'Retract message', danger: true })) return
   try {
     const text = retractionText()
-    await queueSend(chat.prepare(text, { retracts: original.id }), channel ?? 'Chat')
+    const s = session
+    await queueSend(s ? await prepareFresh(s, () => chat.prepare(text, { retracts: original.id })) : chat.prepare(text, { retracts: original.id }), channel ?? 'Chat')
   } catch (err) {
-    setStatus(describeError(err))
+    setStatus(sendFailureWords(err))
   }
 }
 
@@ -21039,13 +21113,34 @@ $('chatForm').addEventListener('submit', async (event) => {
   if (submissions?.has(submissionSnapshot)) return
   if (!submissions) { submissions = new Set(); retainingDrafts.set(draft, submissions) }
   submissions.add(submissionSnapshot)
-  let prepared: PreparedSend
-  try {
-    prepared = log.prepare(text, sendOpts)
-  } catch (err) {
+  const sendingSession = session, sendingChannel = currentChannel
+  const release = (): void => {
     submissions.delete(submissionSnapshot)
     if (!submissions.size) retainingDrafts.delete(draft)
-    setStatus(describeError(err))
+  }
+  let prepared: PreparedSend
+  let waitedForSigner = false
+  try {
+    // Renews first when this device's access ran out while the computer
+    // slept. The draft stays in the box until the message is queued, and a
+    // failure says why; pressing Send again is the retry.
+    prepared = await prepareFresh(sendingSession, () => log.prepare(text, sendOpts), () => {
+      waitedForSigner = true
+      if (session === sendingSession) setStatus(SIGNER_SLOW_WORDS, 'progress')
+    })
+  } catch (err) {
+    release()
+    if (session === sendingSession && !(err instanceof CredentialRenewalError && err.reason === 'left')) setStatus(sendFailureWords(err))
+    return
+  }
+  if (waitedForSigner && $('status').textContent === SIGNER_SLOW_WORDS) setStatus('')
+  // A wait on the signer is long enough to move on from the room, or to go
+  // on writing. Then nothing is sent: the draft is where it was, and Send
+  // sends it as it now stands.
+  if (session !== sendingSession || currentChannel !== sendingChannel || drafts.get(sendingChannel) !== draft ||
+      draftSubmissionSnapshot(input.value, draft) !== submissionSnapshot) {
+    release()
+    if (waitedForSigner && session === sendingSession) setStatus('Your signer answered. Press Send to send your message.', 'done')
     return
   }
   // Into whichever conversation is on screen, which is the main chat until
@@ -21055,7 +21150,6 @@ $('chatForm').addEventListener('submit', async (event) => {
   // Edit takes back only what it can put back as it was: a plain new
   // message, not a reply, an edit or one carrying files.
   // Queue and show it before clearing the draft.
-  const sendingSession = session, sendingChannel = currentChannel
   const draftSnapshot = draftSubmissionSnapshot(input.value, draft)
   // Files no group computer has taken yet go up when the outbox sends the
   // message, which then waits for them: it cannot be kept across a reload,
@@ -21064,7 +21158,7 @@ $('chatForm').addEventListener('submit', async (event) => {
   let groupPublish: (() => Promise<void>) | undefined
   if (waitingFiles.length) {
     heldEnvelopes.attach(waitingFiles, prepared.message.id)
-    groupPublish = groupSendPublisher(prepared, session, session.epoch, currentRoomId()!, waitingFiles)
+    groupPublish = groupSendPublisher(prepared, sendingSession, sendingSession.epoch, currentRoomId()!, waitingFiles)
   }
   try {
     await queueSend(prepared, currentChannel ?? 'Chat', {
