@@ -44,8 +44,12 @@ function fakeElement(): FakeElement {
   return element
 }
 
-function fakeSession(): RoomSession & { setAssist: ReturnType<typeof vi.fn> } {
-  return { setAssist: vi.fn().mockResolvedValue(undefined) } as unknown as RoomSession & { setAssist: ReturnType<typeof vi.fn> }
+type FakeSession = RoomSession & { setAssist: ReturnType<typeof vi.fn> }
+
+/** `canCarry` is what `RoomSession` reports: true for a room built with a relay
+ *  registry, false for a chat-only one (which a Bothy room always is). */
+function fakeSession(canCarry = true): FakeSession {
+  return { canCarry, setAssist: vi.fn().mockResolvedValue(undefined) } as unknown as FakeSession
 }
 
 /** A connection whose statistics grow by `bytesPerPoll` each time they are asked for. */
@@ -217,6 +221,111 @@ describe('the panel', () => {
       'Helping 1 of 3: Priya and Sam. About 4.0 Mbps going out, 0 kB passed on so far.',
     )
     expect(elements.assistIndicator.classes.has('mine')).toBe(true)
+  })
+})
+
+describe('a room that cannot carry', () => {
+  it('hides the panel when the call is in a chat-only room, and does not offer', async () => {
+    const chatOnly = fakeSession(false)
+    onScreen = chatOnly
+    inCall = chatOnly
+    const assist = installPeerAssist(hooks())
+    assist.render()
+    expect(elements.assist.hidden).toBe(true)
+
+    await assist.toggle()
+    assist.render()
+
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
+    // The person's choice is not flipped by a press that went nowhere.
+    expect(elements.toggleAssist.attributes['aria-pressed']).toBe('false')
+    expect(elements.assist.hidden).toBe(true)
+  })
+
+  it('keeps the panel for a docked call whose room can carry, over a chat-only room on screen', async () => {
+    const chatOnly = fakeSession(false)
+    const docked = fakeSession(true)
+    onScreen = chatOnly
+    inCall = docked
+    const assist = installPeerAssist(hooks())
+    assist.render()
+    expect(elements.assist.hidden).toBe(false)
+
+    await assist.toggle()
+
+    // The docked call's room is the one asked, never the chat-only one.
+    expect(docked.setAssist).toHaveBeenCalledTimes(1)
+    expect(docked.setAssist).toHaveBeenLastCalledWith(expect.any(Function))
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
+    expect(elements.toggleAssist.attributes['aria-pressed']).toBe('true')
+  })
+
+  it('hides the panel and publishes nothing once the dock ends with the chat-only room still on screen', async () => {
+    vi.useFakeTimers()
+    stubCapableDesktop()
+    const chatOnly = fakeSession(false)
+    const docked = fakeSession(true)
+    onScreen = chatOnly
+    inCall = docked
+    const assist = installPeerAssist(hooks())
+    assist.noteCandidate('candidate:1 1 udp 1686052607 93.184.216.34 54321 typ srflx raddr 93.184.216.34 rport 54321')
+    const pc = fakeConnection(500_000, 20_000_000)
+    connections.set('direct:x:1', pc)
+    assist.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    await assist.toggle()
+    assist.render()
+    expect(elements.assist.hidden).toBe(false)
+    expect(assist.offer()).not.toBeNull()
+    expect(docked.setAssist).toHaveBeenCalledTimes(1)
+
+    // The dock ends. Taking the carried pairs down and the choice back is
+    // main.ts's job and is deliberately not done here, so that what holds the
+    // line below is the room being unable to carry, not a tidy-up that happened
+    // to have run: the offer is still on, and the room is no longer the call's.
+    inCall = chatOnly
+    ;(pc as unknown as { connectionState: string }).connectionState = 'closed'
+    await vi.advanceTimersByTimeAsync(2000)
+
+    // Nothing is carried and nothing measured, so the offer would be withdrawn
+    // by a room that could carry; this one is not told either way.
+    expect(assist.offer()).toBeNull()
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
+    expect(docked.setAssist).toHaveBeenCalledTimes(1)
+    expect(elements.assist.hidden).toBe(true)
+
+    await assist.toggle()
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
+  })
+
+  it('leaves lastOffering alone, so a room that can carry is still told when it comes back', async () => {
+    vi.useFakeTimers()
+    stubCapableDesktop()
+    const chatOnly = fakeSession(false)
+    const carrying = fakeSession(true)
+    onScreen = carrying
+    inCall = carrying
+    const assist = installPeerAssist(hooks())
+    assist.noteCandidate('candidate:1 1 udp 1686052607 93.184.216.34 54321 typ srflx raddr 93.184.216.34 rport 54321')
+    const pc = fakeConnection(500_000, 20_000_000)
+    connections.set('direct:x:1', pc)
+    assist.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    await assist.toggle()
+    carrying.setAssist.mockClear()
+
+    // The connection goes quiet while the call is somewhere that cannot carry,
+    // and the offer lapses. The chat-only room hears nothing about it.
+    inCall = chatOnly
+    ;(pc as unknown as { connectionState: string }).connectionState = 'closed'
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
+
+    // Back in a room that can carry, the lapse is reported once.
+    inCall = carrying
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(carrying.setAssist).toHaveBeenCalledTimes(1)
+    expect(chatOnly.setAssist).not.toHaveBeenCalled()
   })
 })
 

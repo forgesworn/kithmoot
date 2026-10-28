@@ -29,7 +29,10 @@ import type { RoomSession } from '../../src/index.js'
 export interface PeerAssistHooks {
   /** The room on screen, or undefined. */
   session(): RoomSession | undefined
-  /** The room the call belongs to: the docked call's, else the one on screen. */
+  /** The room the call belongs to: the docked call's, else the one on screen.
+   *  Only a session with `canCarry` can be asked to offer help: a room built
+   *  chat-only, or one that follows a Bothy route, has no relay registry, so
+   *  while one of those is the call's room the panel is not drawn at all. */
   mediaSession(): RoomSession | undefined
   roomGeneration(): number
   /** Every connection currently open, so the uplink probe has something to
@@ -273,8 +276,15 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
     const indicator = document.getElementById('assistIndicator')!
     const costNote = document.getElementById('assistCostNote')!
 
+    // Hidden, not disabled, for the same reason as the phone case below: a
+    // switch that can never work here is still a switch somebody has to work
+    // out. Two ways to have nothing to offer with: no room on screen, or a call
+    // whose room was built without the means to carry anybody (chat-only, which
+    // includes Bothy rooms). A docked call's own room is judged here, not the
+    // chat-only one on screen over it, so the switch stays while docked and
+    // goes when the dock ends with a chat-only room left behind.
     if (paused()) { section.hidden = true; return }
-    section.hidden = hooks.session() === undefined
+    section.hidden = hooks.session() === undefined || !hooks.mediaSession()?.canCarry
     costNote.textContent = costSentence()
 
     if (!assistOfferable()) {
@@ -365,7 +375,9 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
     // and the relay's own gate is brought back into step with it.
     const offering = currentAssistOffer() !== null
     const carrier = hooks.mediaSession()
-    if (carrier && offering !== lastOffering) {
+    // A room that cannot carry is never told about an offer, and `lastOffering`
+    // is left alone so a room that can still gets the republish it is owed.
+    if (carrier?.canCarry && offering !== lastOffering) {
       lastOffering = offering
       void carrier.setAssist(currentAssistOffer).catch(() => {})
     }
@@ -388,6 +400,12 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
    */
   async function toggleAssist(): Promise<void> {
     if (paused() || !assistOfferable()) return
+    // The panel is hidden for a call whose room cannot carry, so this is
+    // unreachable by hand. It is here so nothing else can reach it either: the
+    // choice is not flipped and nothing is published, which keeps a device from
+    // advertising help it cannot give.
+    const carrier = hooks.mediaSession()
+    if (carrier && !carrier.canCarry) return
     assistEnabled = !assistEnabled
     renderAssist()
     try {
