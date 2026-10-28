@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.121",
-  "versionCode": 144,
+  "versionName": "0.6.122",
+  "versionCode": 145,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70889984,
-  "apkSha256": "6c5fbc228da2c7e572ba3b4f58d7ba624566b8fc763e04707b57d7e55fded0f6",
+  "apkBytes": 70898176,
+  "apkSha256": "9e0397ae93ff08899918b1c491f03353cba09b358abcc37031775d68fc417b4e",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.121-production.apk",
+  "downloadFilename": "kithmoot-0.6.122-production.apk",
   "releaseNotes": [
-    "Shows your signed-in account’s profile name in rooms and chats, independently of lookups for other people.",
-    "Recovers missing profile reads after temporary relay failures.",
-    "Includes message-history recovery, isolated recording playback and relay authentication fixes."
+    "A room left open for more than a day keeps sending: your access to it now renews while it stays open, even after the phone sleeps.",
+    "A message never goes out under access that has run out; it waits in the message box and sends once access is renewed.",
+    "If your signer app refuses or does not answer, the message box says so in plain words, and Send tries again."
   ]
 }

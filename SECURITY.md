@@ -17,3 +17,8 @@ Only the current release of the web app, the desktop app and the Android app. Up
 ## What the apps are meant to do
 
 [Check it yourself](https://kithmoot.app/check/) lists everything the desktop app connects to and can touch on your computer, with a command to check each claim. Anything it does beyond that list is a bug.
+
+## Further reading
+
+- [Security review, 15 October 2026](SECURITY-REVIEW-2026-10-15.md): a review of everything changed since the 20 September review, covering group encryption, browser-link pairing, credential vaults and live-meeting admission.
+- [Security remediation, 15 October 2026](SECURITY-REMEDIATION-2026-10-15.md): the fix list for that review's three findings, and where each fix landed.

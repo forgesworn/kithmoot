@@ -16,13 +16,38 @@ message that could never enter the conversation.
 
 Preparation now verifies the credential at the exact message timestamp before
 returning a prepared send. The existing composer catches that failure before
-clearing its draft. The error asks the person to rejoin. Normal credential
-renewal enables sending again. Previously valid messages remain readable after
+clearing its draft. Normal credential renewal enables sending again; see the
+follow-up below. Previously valid messages remain readable after
 their credential expires; reader verification remains tied to send time.
 
 The new regression failed before the fix because sending resolved successfully
 after expiry. It now checks refusal before publication, refusal of preparation,
 renewal and fresh-device replay of both valid messages.
+
+### Follow-up, 28 October: renewal after sleep
+
+A tester met the new refusal the next morning and had to rejoin. The
+credential had expired while the laptop slept: renewal was a single
+`setTimeout` computed from the wall clock, and Chromium, Electron and Node
+run timers on a monotonic clock that can stand still while the computer is
+suspended (Chromium `base/time/time.h`: "TimeTicks may 'stand still' (e.g.,
+if the computer is suspended)"). The laptop woke with an expired credential
+and a renewal timer with hours of awake time left.
+
+Renewal is now driven by the wall clock as well as the timer. Every
+heartbeat (within twenty seconds of waking) and every visibility, focus,
+`pageshow` and `online` event calls `RoomSession.checkCredential()`, which
+renews at once when the credential is past its renewal point. No roster
+entry is published under an expired credential. A send that meets an
+expired credential renews first (`RoomSession.ensureCredential()`), keeping
+the draft in the message box, and then sends. `ChatLog.send` does the same
+for control and channel messages. Only a renewal that genuinely fails is
+reported, in words that name the signer, storage or pairing problem; the
+person is never told to rejoin. The guarantee above stands: nothing is
+signed under an expired credential.
+
+Messages written before 27 October under an expired credential were
+accepted by relays and refused by every reader. They cannot be recovered.
 
 ## Android: overflowing receive buffer
 
