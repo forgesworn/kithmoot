@@ -68,6 +68,8 @@ export class SpryRoom {
   // Member state: when each offer last redeemed, and whom this session vouched for.
   #redeemedAt = new Map<string, number>()
   #vouched = new Set<string>()
+  /** The call whose members were already there when this device saw it. */
+  #vouchCall?: string
   #vouchTimers = new Set<ReturnType<typeof setTimeout>>()
   // Early retry after a refusal.
   #windowStart = 0
@@ -239,7 +241,8 @@ export class SpryRoom {
     for (const owner of this.#registered.values()) perParticipant.set(owner, (perParticipant.get(owner) ?? 0) + 1)
     for (const row of roster) {
       const key = row.spryKey
-      if (!key || key === this.#spryPublic || this.#registered.has(key) || removed.has(row.participant) || add.some(item => item.key === key)) continue
+      // Agents redeem no Spry offers: their keys would only spend the grant's slots.
+      if (!key || row.agent || key === this.#spryPublic || this.#registered.has(key) || removed.has(row.participant) || add.some(item => item.key === key)) continue
       const count = perParticipant.get(row.participant) ?? 0
       if (count >= SPRY_KEYS_PER_PARTICIPANT) continue
       perParticipant.set(row.participant, count + 1)
@@ -264,7 +267,14 @@ export class SpryRoom {
    *  after a random delay, while their own redemption of that grant is fresh. */
   #scheduleVouches(): void {
     const call = this.session.call?.id
-    if (!call || Date.now() < this.#unsupportedUntil || !this.session.spryRoster) return
+    if (!call || !this.session.spryRoster) return
+    // Devices already on the call when this one joined are not newcomers:
+    // every key named counts against this device's daily vouch allowance.
+    if (call !== this.#vouchCall) {
+      this.#vouchCall = call
+      for (const row of this.session.spryRoster()) if (row.call === call) this.#vouched.add(row.device)
+    }
+    if (Date.now() < this.#unsupportedUntil) return
     const offer = [this.#shared, this.#offer].find(candidate => candidate && candidate.token !== this.#own?.token &&
       Date.now() - (this.#redeemedAt.get(candidate.endpoint + ':' + candidate.token) ?? 0) < VOUCH_FRESH_MS)
     if (!offer) return

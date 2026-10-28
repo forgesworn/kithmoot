@@ -153,7 +153,7 @@ const devices = (state: FakeNode) => state.posts.filter(post => post.path === '/
 it('registers its own key before the first redemption, then present members, sealing only once no old client is present', async () => {
   vi.useFakeTimers()
   const old: SpryRosterEntry = { device: 'old-device', participant: 'old', agent: false }
-  const bot: SpryRosterEntry = { device: 'bot-device', participant: 'bot', agent: true }
+  const bot: SpryRosterEntry = { device: 'bot-device', participant: 'bot', spryKey: key(9), agent: true }
   const r = room([me, { device: 'guest-device', participant: 'guest', spryKey: key(1), agent: false }, old, bot])
   const { state, fetcher } = node()
   const broker = new SpryRoom(r.session, pair, vi.fn(), fetcher, deviceSk)
@@ -162,6 +162,8 @@ it('registers its own key before the first redemption, then present members, sea
     const order = state.posts.map(post => post.path)
     expect(order.indexOf('/v1/grants/devices')).toBeLessThan(order.indexOf('/v1/credentials'))
     expect(devices(state)).toEqual([{ v: 1, pairing: pair.id, grant: TOKEN, add: [OWN, key(1)], remove: [], revision: expect.any(Number) }])
+    // The agent's key is not registered: agents redeem no offers.
+    expect(JSON.stringify(devices(state))).not.toContain(key(9))
     expect(state.posts.find(post => post.path === '/v1/grants/devices')!.signer).toBe(getPublicKey(Uint8Array.from(Buffer.from(pair.secretKey, 'hex'))))
     // The old client leaves: the next roster change seals, in a request of its own.
     r.rows.splice(r.rows.indexOf(old), 1)
@@ -362,3 +364,21 @@ it('retries a refused redemption at 3, 10 and 30 seconds, and a patient call wai
     expect(apply).toHaveBeenCalled()
   } finally { second.close() }
 })
+
+it('does not vouch for devices already on the call when it joins', async () => {
+  vi.useFakeTimers()
+  const offer = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
+  const call = { id: 'c'.repeat(32) }
+  const r = room([{ ...me, call: call.id }, { device: 'veteran', participant: 'v', spryKey: key(7), agent: false, call: call.id }], { call, descriptor: { spry: offer } as RoomDescriptor })
+  const { state, fetcher } = node()
+  const broker = new SpryRoom(r.session, undefined, vi.fn(), fetcher, deviceSk, undefined, () => {}, { jitter: () => 10 })
+  try {
+    await broker.prepare()
+    r.change(); await vi.advanceTimersByTimeAsync(100)
+    expect(state.posts.filter(post => post.path === '/v1/grants/vouch')).toHaveLength(0)
+    r.rows.push({ device: 'newcomer', participant: 'n', spryKey: key(8), agent: false, call: call.id })
+    r.change(); await vi.advanceTimersByTimeAsync(100)
+    expect(state.posts.filter(post => post.path === '/v1/grants/vouch').map(post => post.body.add)).toEqual([[key(8)]])
+  } finally { broker.close() }
+})
+
