@@ -8,6 +8,7 @@ import {
   encodeChatEvent,
   decodeChatEvent,
   ChatLog,
+  CredentialExpiredError,
   MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGES_PER_MINUTE,
   MAX_CHAT_TEXT_LENGTH,
@@ -642,8 +643,8 @@ describe('ChatLog', () => {
     try {
       await sender.send('Before expiry')
       clock = NOW + 3601
-      await expect(sender.send('After expiry')).rejects.toThrow(/credential/i)
-      expect(() => sender.prepare('Keep this draft')).toThrow(/credential/i)
+      await expect(sender.send('After expiry')).rejects.toBeInstanceOf(CredentialExpiredError)
+      expect(() => sender.prepare('Keep this draft')).toThrow(CredentialExpiredError)
       expect(relay.published).toHaveLength(1)
       sender.setCredential(await createDeviceCredential({ identity, devicePubkey: getPublicKey(deviceSk), roomId,
         expiresAt: NOW + 7200, now: () => clock }))

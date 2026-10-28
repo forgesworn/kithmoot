@@ -527,6 +527,20 @@ export const CREDENTIAL_RENEWAL_FRACTION = 0.5
  *  a relay was down. Short, because the clock is running on the old one. */
 const CREDENTIAL_RENEWAL_RETRY_MS = 60_000
 
+/*
+ * Renewal is due by the wall clock, and a timer alone cannot be trusted to
+ * say when. Chromium, Electron and Node schedule timers on a monotonic clock
+ * that can stand still while the computer is suspended (Chromium's
+ * base/time/time.h: "TimeTicks may 'stand still' (e.g., if the computer is
+ * suspended)"), while a credential's expiry is wall-clock time. A laptop
+ * closed overnight woke with an expired credential and a renewal timer with
+ * hours of awake time still to run, and every message it tried to send was
+ * refused until the person rejoined. So the deadline is checked again on
+ * every heartbeat, which runs within one interval of waking, and whenever
+ * the embedding says the device may have slept (`checkCredential`), and a
+ * send renews first when it has to (`ensureCredential`).
+ */
+
 /** How many devices' newest credentials a session holds for sealing to. */
 const MAX_NEWEST_CREDENTIALS = 1_024
 /** How many seal key secrets a session holds: a renewal every six hours
@@ -610,6 +624,28 @@ export class EpochUnreachableError extends Error {
 
 /** A pre-effect handoff may be retried in the same session. */
 class CredentialRetentionError extends Error {}
+
+/**
+ * Why `RoomSession.ensureCredential` could not hand back a credential that
+ * is good now. Each reason is something different for the person to do:
+ *
+ * - `signer-slow`: the signer has not answered yet. The request is still
+ *   open, and the credential is renewed the moment it does answer.
+ * - `signer`: the signer refused or failed. `cause` holds what it said.
+ * - `storage`: the new credential could not be kept on this device.
+ * - `cannot-renew`: this device cannot sign for its participant (a paired
+ *   device, or one whose renewal belongs to another owner), so only a new
+ *   credential from elsewhere lets it send again.
+ * - `left`: the session has left or closed.
+ */
+export class CredentialRenewalError extends Error {
+  readonly reason: 'signer-slow' | 'signer' | 'storage' | 'cannot-renew' | 'left'
+  constructor(reason: CredentialRenewalError['reason'], message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'CredentialRenewalError'
+    this.reason = reason
+  }
+}
 
 /** The timings that govern presence. All of them are tunable guesses; none of
  *  them changes what is correct. Matches the Android client's `SessionTiming`. */
@@ -720,6 +756,13 @@ export class RoomSession {
   #heartbeatTimer?: ReturnType<typeof setInterval>
   #sweepTimer?: ReturnType<typeof setInterval>
   #renewalTimer?: ReturnType<typeof setTimeout>
+  /** The renewal in flight, shared by the timer, a wake and a waiting send,
+   *  so they mint and restate once between them. */
+  #renewalWork?: Promise<DeviceCredential>
+  /** When the last background renewal failed, in unix seconds. A heartbeat
+   *  then leaves the next attempt to the retry timer rather than asking the
+   *  signer again every twenty seconds. */
+  #renewalFailedAt?: number
   readonly #protocolTimers?: ProtocolTimers
   #left = false
   #rekeying = false
@@ -1477,6 +1520,7 @@ export class RoomSession {
       roomKey: this.#roomKey,
       credential,
       deviceSk: this.#opts.deviceSk,
+      renewCredential: () => this.ensureCredential(),
       name: this.#name,
       policy: this.#opts.policy,
       proof: this.#opts.proof,
@@ -1508,7 +1552,7 @@ export class RoomSession {
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
       () => {
-        this.#publishEntry(false).catch(() => {})
+        this.#heartbeat().catch(() => {})
       },
     )
     this.#sweepTimer = this.#every(this.#opts.timing?.sweepIntervalMs ?? SWEEP_INTERVAL_MS, () => {
@@ -1570,9 +1614,20 @@ export class RoomSession {
    *  fresh one would be renewed, which for a resumed one may be now. */
   #renewalDelayMs(credential: DeviceCredential): number {
     const ttl = this.#credentialTtl()
-    const renewAt = credentialExpiresAt(credential) - ttl * (1 - CREDENTIAL_RENEWAL_FRACTION)
+    const renewAt = this.#renewAt(credential)
     if (!Number.isFinite(renewAt)) return ttl * CREDENTIAL_RENEWAL_FRACTION * 1000
     return Math.max(0, (renewAt - this.#now()) * 1000)
+  }
+
+  /** The wall-clock second at which `credential` is due to be renewed. */
+  #renewAt(credential: DeviceCredential): number {
+    return credentialExpiresAt(credential) - this.#credentialTtl() * (1 - CREDENTIAL_RENEWAL_FRACTION)
+  }
+
+  /** Whether this session renews its own credential here, rather than an
+   *  issuing device or a native owner doing it elsewhere. */
+  #renewsHere(): boolean {
+    return !!this.#opts.identity && !this.#nativeBinding
   }
 
   #announceCredential(credential: DeviceCredential): void {
@@ -2456,22 +2511,130 @@ export class RoomSession {
    * rather than the room - the old credential is still good for a while.
    */
   #renewCredential(execution = this.#opts.protocol): Promise<void> {
-    return protocolTask(execution, 'credential-renewal', owned => this.#renewOwnedCredential(owned))
+    return protocolTask(execution, 'credential-renewal', async owned => {
+      if (this.#left || !this.#self || !this.#opts.identity) return
+      try {
+        await this.#renewNow(owned)
+      } catch {
+        this.#renewalFailed()
+      }
+    })
   }
 
-  async #renewOwnedCredential(execution: ProtocolExecution | undefined): Promise<void> {
-    if (this.#left || !this.#self || !this.#opts.identity) return
+  /** A renewal failed: try again in a minute, on the timer. */
+  #renewalFailed(): void {
+    if (this.#left || this.#closed) return
+    this.#renewalFailedAt = this.#now()
+    this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
+  }
+
+  /** The one renewal in flight, started if there is none. */
+  #renewNow(execution: ProtocolExecution | undefined): Promise<DeviceCredential> {
+    if (this.#renewalWork) return this.#renewalWork
+    const work = this.#renewOwnedCredential(execution)
+    this.#renewalWork = work
+    void work.finally(() => {
+      if (this.#renewalWork === work) this.#renewalWork = undefined
+    }).catch(() => {})
+    return work
+  }
+
+  async #renewOwnedCredential(execution: ProtocolExecution | undefined): Promise<DeviceCredential> {
+    if (this.#left || this.#closed || !this.#self) throw new Error('room admission cancelled')
+    const credential = await this.#ownCredential(undefined, execution)
+    if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || !this.#self) throw new Error('room admission cancelled')
+    this.#self = { ...this.#self, credential }
+    this.#chat?.setCredential(credential)
+    for (const log of this.#channels.values()) log.setCredential(credential)
+    this.#announceCredential(credential)
+    this.#renewalFailedAt = undefined
+    // Scheduled before restating: a relay that is down costs the restatement,
+    // which the next heartbeat makes, not a second signature.
+    this.#scheduleRenewal(this.#renewalDelayMs(credential))
     try {
-      const credential = await this.#ownCredential(undefined, execution)
-      if (this.#left || this.#closed || this.#opts.admissionSignal?.aborted || !this.#self) return
-      this.#self = { ...this.#self, credential }
-      this.#chat?.setCredential(credential)
-      for (const log of this.#channels.values()) log.setCredential(credential)
-      this.#announceCredential(credential)
       await this.#publishEntry(true, false, this.#currentOutgoingLiveRecording(), undefined, execution)
-      this.#scheduleRenewal(this.#renewalDelayMs(credential))
     } catch {
-      if (!this.#left && !this.#closed) this.#scheduleRenewal(Math.min(CREDENTIAL_RENEWAL_RETRY_MS, this.#credentialTtl() * 1000))
+      // The next heartbeat carries the new credential.
+    }
+    // A catch-up that went unanswered while the old credential had lapsed
+    // was refused for it, and is worth asking again under the new one.
+    if (this.#awaitingEpoch && this.#behind()) this.#catchUp().catch(() => {})
+    return credential
+  }
+
+  /**
+   * Check the wall clock against this device's credential, and renew it now
+   * if it is past its renewal point. Cheap, and safe to call as often as
+   * the embedding likes: when a page becomes visible again, regains focus
+   * or comes back online, or when the computer resumes, which is when a
+   * renewal timer may have stood still through a sleep. Does nothing while
+   * a renewal is in flight, or within a minute of one failing, when the
+   * retry timer already has it. The heartbeat calls it too.
+   */
+  checkCredential(): void {
+    const credential = this.#self?.credential
+    if (!credential || this.#left || this.#closed || !this.#renewsHere() || this.#renewalWork) return
+    const now = this.#now()
+    if (!(now >= this.#renewAt(credential))) return
+    if (this.#renewalFailedAt !== undefined && (now - this.#renewalFailedAt) * 1000 < CREDENTIAL_RENEWAL_RETRY_MS) return
+    this.#renewCredential().catch(() => {})
+  }
+
+  /**
+   * A credential this device may sign under now, renewing first when the
+   * current one has expired.
+   *
+   * What a sender calls when `ChatLog.prepare` throws
+   * `CredentialExpiredError`, so a message written after the computer slept
+   * waits for a renewal rather than being refused. One merely past its
+   * renewal point is handed back at once, with a renewal started behind it:
+   * a message signed under it stays readable, because readers check the
+   * credential at the moment the message was sent. Joins any renewal
+   * already in flight, and ignores the background retry's pause, because
+   * the person is asking now.
+   *
+   * `timeoutMs` bounds only the wait. The signer's request stays open, and
+   * an answer after it renews the credential as usual.
+   *
+   * Throws `CredentialRenewalError`, whose `reason` says what went wrong.
+   */
+  async ensureCredential(opts: { timeoutMs?: number } = {}): Promise<DeviceCredential> {
+    if (this.#left || this.#closed) throw new CredentialRenewalError('left', 'this session has left the room')
+    const credential = this.#self?.credential
+    if (!credential) throw new Error('Join the room before sending')
+    const now = this.#now()
+    if (now < this.#renewAt(credential)) return credential
+    const expired = credentialExpiresAt(credential) <= now
+    if (!this.#renewsHere()) {
+      if (expired) throw new CredentialRenewalError('cannot-renew', 'this device cannot renew its own credential')
+      return credential
+    }
+    if (!expired) {
+      this.checkCredential()
+      return credential
+    }
+    const work = protocolTask(this.#opts.protocol, 'credential-renewal', owned => this.#renewNow(owned))
+    // A failed explicit renewal leaves the next attempt to the retry timer,
+    // as a failed background one does.
+    void work.catch(() => this.#renewalFailed())
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const waits: Promise<DeviceCredential>[] = [work]
+      if (opts.timeoutMs !== undefined) {
+        waits.push(new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new CredentialRenewalError('signer-slow', 'the signer has not answered yet')), opts.timeoutMs)
+        }))
+      }
+      return await Promise.race(waits)
+    } catch (error) {
+      if (error instanceof CredentialRenewalError) throw error
+      if (this.#left || this.#closed) throw new CredentialRenewalError('left', 'this session has left the room', { cause: error })
+      if (error instanceof CredentialRetentionError) {
+        throw new CredentialRenewalError('storage', 'the renewed credential could not be kept on this device', { cause: error })
+      }
+      throw new CredentialRenewalError('signer', error instanceof Error ? error.message : 'the signer did not renew this device', { cause: error })
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
 
@@ -2819,8 +2982,21 @@ export class RoomSession {
 
   #startOwnedHeartbeat(): void {
     const interval = this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS
-    this.#protocolTimers!.schedule('heartbeat', interval, execution =>
-      this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution), interval)
+    this.#protocolTimers!.schedule('heartbeat', interval, execution => this.#heartbeat(execution), interval)
+  }
+
+  /**
+   * Restate this device, after checking the wall clock against its
+   * credential: the first tick after the computer wakes is where an overdue
+   * renewal is noticed. An entry under an expired credential is refused by
+   * every reader, so none is published; the renewal restates this device
+   * once it has a credential that is good.
+   */
+  #heartbeat(execution = this.#opts.protocol): Promise<void> {
+    this.checkCredential()
+    const credential = this.#self?.credential
+    if (credential && credentialExpiresAt(credential) <= this.#now()) return Promise.resolve()
+    return this.#publishEntry(false, false, this.#currentOutgoingLiveRecording(), undefined, execution)
   }
 
   /**
@@ -3089,7 +3265,7 @@ export class RoomSession {
     this.#heartbeatTimer = this.#every(
       this.#opts.timing?.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
       () => {
-        this.#publishEntry(false).catch(() => {})
+        this.#heartbeat().catch(() => {})
       },
     )
   }
@@ -3252,6 +3428,7 @@ export class RoomSession {
       channel: name,
       credential: this.#self!.credential,
       deviceSk: this.#opts.deviceSk,
+      renewCredential: () => this.ensureCredential(),
       name: this.#name,
       policy: this.#opts.policy,
       proof: this.#opts.proof,
