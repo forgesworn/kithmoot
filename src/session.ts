@@ -302,11 +302,24 @@ export interface RoomSessionBaseOptions {
    * Omit it and this device never offers, which is the right default: nothing
    * should spend a person's bandwidth because a library thought it a good
    * idea. See `assistDecision`.
+   *
+   * Ignored unless `relay` is also given. An offer is a promise to carry
+   * somebody else's pair, and a session with no relay registry has nothing to
+   * carry them with, so it never advertises one. See `RoomSession.canCarry`.
    */
   assist?: () => AssistOffer | null
   /** This device's relay registry, when it is volunteering. Handed straight
-   *  to the mesh - see `MeshOptions.relay`. */
+   *  to the mesh - see `MeshOptions.relay`. Without it the session cannot
+   *  carry anybody, whatever `assist` says: a text-only room is built this
+   *  way, and so is any room that has no call. */
   relay?: PeerRelay
+  /**
+   * Whether a failing pair may be routed through a member who volunteered.
+   * Defaults to on. Passed to the mesh as `MeshOptions.assist`. An app that
+   * cannot carry relayed media itself should turn this off, so its pairs go
+   * on to a forwarder or TURN instead of waiting on a volunteer.
+   */
+  peerAssist?: boolean
   /** Called when this device takes on, or stops carrying, a pair. */
   onRelayStart?: (pair: RelayPair) => void
   onRelayStop?: (pair: RelayPair) => void
@@ -748,7 +761,9 @@ export class RoomSession {
   /** This agent's verified ownership proof, when it has one. */
   readonly #owner?: AgentOwnership
   /** Where the current assist offer comes from. Starts as whatever the
-   *  caller passed, and is replaced wholesale by `setAssist`. */
+   *  caller passed, and is replaced wholesale by `setAssist`. Always
+   *  undefined when the session has no relay registry, so nothing that reads
+   *  it can advertise an offer this device has no means to honour. */
   #assist?: () => AssistOffer | null
   /** At most one answer in flight: twenty devices arriving at once must
    *  produce one re-announce from us, not twenty. */
@@ -904,7 +919,7 @@ export class RoomSession {
     this.device = getPublicKey(opts.deviceSk)
     this.sid = sanitiseSid(opts.sid) ?? newSid()
     this.#name = sanitiseDisplayName(opts.name)
-    this.#assist = opts.assist
+    this.#assist = opts.relay ? opts.assist : undefined
 
     const participant = opts.identity ? normaliseHex(opts.identity.pubkey) : undefined
     if (opts.owner) {
@@ -1441,6 +1456,7 @@ export class RoomSession {
         routeTimeoutMs: this.#opts.routeTimeoutMs,
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
+        assist: () => this.#opts.peerAssist !== false,
         expiresAt: this.#opts.endsAt,
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at
@@ -2645,6 +2661,21 @@ export class RoomSession {
   }
 
   /**
+   * Whether this session can carry other people's calls at all: true when it
+   * was built with a relay registry (`RoomSessionOptions.relay`), false
+   * otherwise. Read-only for the life of the session.
+   *
+   * A session that cannot carry never advertises an assist offer, whatever it
+   * is handed, and `setAssist` does nothing on it. Callers that show a control
+   * for offering to help should hide it for a session where this is false,
+   * rather than present a switch that would promise something the device has
+   * no way to give.
+   */
+  get canCarry(): boolean {
+    return this.#opts.relay !== undefined
+  }
+
+  /**
    * Turn this device's offer to relay on, off, or over to a new source, and
    * say so at once.
    *
@@ -2661,8 +2692,14 @@ export class RoomSession {
    * Turning it back on is symmetrical, and has to be: somebody who revokes
    * and changes their mind later would otherwise advertise an offer their own
    * relay would refuse, which is the one thing worse than not offering.
+   *
+   * On a session that cannot carry (`canCarry` is false) this does nothing:
+   * there is no relay registry to open or close, and nothing was ever
+   * advertised that would need withdrawing, so it neither stores the offer nor
+   * republishes.
    */
   async setAssist(next: (() => AssistOffer | null) | AssistOffer | null): Promise<void> {
+    if (!this.canCarry) return
     this.#assist = typeof next === 'function' ? next : () => next
     // Stops carrying anybody before announcing that we no longer will, so
     // there is no window in which the room believes an offer this device has

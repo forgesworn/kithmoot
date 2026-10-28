@@ -207,10 +207,14 @@ test('signer denial and late signer approval after account change create no devi
   const f = await deviceFixture(context)
   await f.page.evaluate('P.denySigner()'); await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
   await expect(f.page.locator('#mlsWitnessNetworkStatus')).toContainText('declined'); expect(f.witness.advances).toBe(0)
-  await f.page.evaluate('P.denySigner(false); P.holdSigner()'); await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
+  // The denied attempt above already set data-signer; clear it so the wait below names the held signer.
+  await f.page.evaluate("P.denySigner(false); P.holdSigner(); document.body.removeAttribute('data-signer')")
+  await f.button('DeviceNew').click(); await f.page.locator('#actionConfirm').click()
   await expect(f.page.locator('body')).toHaveAttribute('data-signer', 'waiting')
-  await f.page.evaluate('P.change({ persona: "22".repeat(32), generation: "2", mode: "normal" })'); await f.page.evaluate('P.finishSigner()')
+  // The change waits for the held signer to settle, so begin it, observe the panel close, then release the signer.
+  await f.page.evaluate('P.beginChange({ persona: "22".repeat(32), generation: "2", mode: "normal" })')
   await expect(f.page.locator('#mlsWitnessSettings')).toBeHidden()
+  await f.page.evaluate('P.finishSigner()'); await f.page.evaluate('P.settleChange()')
   await f.page.evaluate('P.useIdentity()'); await f.open(); await f.button('VaultRead').click()
   await expect(f.button('DeviceNew')).toBeEnabled(); expect(f.witness.advances).toBe(0)
 })
