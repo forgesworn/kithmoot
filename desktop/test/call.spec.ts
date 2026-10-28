@@ -13,7 +13,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-call-'))
   const native = await electron.launch({
     executablePath: process.env.ELECTRON_EXECUTABLE ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--autoplay-policy=no-user-gesture-required'],
     env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile },
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
@@ -39,7 +39,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     mac.on('console', message => { if (message.type() === 'error') console.log('MAC:', message.text()) })
     web.on('console', message => { if (message.type() === 'error') console.log('WEB:', message.text()) })
     console.log('Creating room')
-    const url = await createRoom(mac, HOME, relays)
+    const url = await createRoom(mac, HOME, relays, 'Desktop test')
     console.log('Joining desktop')
     await joinWithMedia(mac, url, 'Desktop test')
     console.log('Joining browser')
