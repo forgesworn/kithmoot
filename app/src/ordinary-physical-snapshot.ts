@@ -51,6 +51,9 @@ add('channelChecks', `kithmoot\\.channel-checks\\.v1\\.${H}\\.${H}`)
 add('roomBoards', `kithmoot\\.room-boards\\.v1\\.${H}\\.${H}`)
 add('journals', `kithmoot\\.shared-projects\\.v1\\.${H}(?:\\.journal\\.v2\\.${H})?|kithmoot\\.context\\.v1\\.${H}|kithmoot\\.assignments\\.v1\\.${H}\\.${H}(?:\\.journal\\.v2\\.${H})?`)
 add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}|kithmoot\\.(?:uploads|room-logo|storage-grants)\\.v1\\.${H}|kithmoot\\.(?:blob-deletes|blob-delete-groups|file-storage)\\.v1|kithmoot\\.blossom-server`)
+// The Spry pairing holds the pairing's authority key; saved Spry offers hold
+// room relay grants. Private service authority, like storage grants.
+names('private', ['kithmoot.spry-pairing.v1', 'kithmoot.spry-rooms.v1'])
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.facePrivacy'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])
 names('routing', ['kithmoot.call-stun.v1', 'kithmoot.spry-share.v1'])
