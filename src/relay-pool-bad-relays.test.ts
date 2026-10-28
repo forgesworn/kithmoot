@@ -314,6 +314,116 @@ describe('NostrRelayPool with a bad relay beside a good one', () => {
     expect(bad.requestedFilters()).toHaveLength(reads)
   })
 
+  it('says which relays acknowledged an event and what each did with it, for the tick under a sent message', async () => {
+    bad.forgetful = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    const first = evt(1460)
+    expect(pool.publishEvidence(first.id)).toBeUndefined()
+    await pool.publish(first)
+    await vi.advanceTimersByTimeAsync(1)
+    // Acknowledged, not yet asked for back.
+    expect(pool.publishEvidence(first.id)).toEqual({ kind: 1460, pending: 0, relays: [
+      { url: GOOD + '/', readable: true, acked: true, at: expect.any(Number), keeps: false, lost: false },
+      { url: BAD + '/', readable: true, acked: true, at: expect.any(Number), keeps: false, lost: false }] })
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(pool.publishEvidence(first.id)).toEqual({ kind: 1460, pending: 0, relays: [
+      { url: GOOD + '/', readable: true, found: true, acked: true, at: expect.any(Number), keeps: true, lost: false },
+      { url: BAD + '/', readable: true, found: false, acked: true, at: expect.any(Number), keeps: false, lost: true }] })
+    // The next message is not asked about again: the relays have shown what they do.
+    const reads = good.requestedFilters().length + bad.requestedFilters().length
+    const second = evt(1460)
+    await pool.publish(second); await vi.advanceTimersByTimeAsync(4_000)
+    expect(good.requestedFilters().length + bad.requestedFilters().length).toBe(reads)
+    expect(pool.publishEvidence(second.id)!.relays).toEqual([
+      { url: GOOD + '/', readable: true, acked: true, at: expect.any(Number), keeps: true, lost: false },
+      { url: BAD + '/', readable: true, acked: true, at: expect.any(Number), keeps: false, lost: true }])
+  })
+
+  it('asks the relays a one-shot carrier cut off for the event by name, since the carrier closes at the first acknowledgement', async () => {
+    bad.silent = true
+    pool = new NostrRelayPool([GOOD, BAD], undefined, { websocketImplementation: FakeWebSocket as unknown as typeof WebSocket })
+    // The room's own subscriptions are what keep the pool connected to its relays.
+    pool.subscribe([{ kinds: [1460] }], () => {}); await vi.advanceTimersByTimeAsync(1)
+    const event = evt(1460)
+    await pool.publishGuarded(event, () => true)
+    // The bad relay got the event and its OK never arrived.
+    bad.silent = false
+    expect(pool.publishEvidence(event.id)!.relays).toEqual([
+      { url: GOOD + '/', readable: true, acked: true, at: expect.any(Number), keeps: false, lost: false },
+      { url: BAD + '/', readable: true, acked: false, at: 0, keeps: false, lost: false }])
+    await vi.advanceTimersByTimeAsync(4_000)
+    const [kept, other] = pool.publishEvidence(event.id)!.relays
+    expect(kept).toMatchObject({ found: true, keeps: true })
+    // It holds the event, so it is found whether or not it ever said OK, and the relay's own check is still its to have.
+    expect(other).toMatchObject({ acked: false, found: true })
+    expect(pool.health().find(r => r.url === BAD + '/')?.unreturned).toBeUndefined()
+  })
+
+  it('finds a message nowhere when no relay returns it, acknowledged or not', async () => {
+    good.forgetful = true; bad.rejectPublishes = true
+    pool = new NostrRelayPool([GOOD, BAD], undefined, { websocketImplementation: FakeWebSocket as unknown as typeof WebSocket })
+    // The room's own subscriptions are what keep the pool connected to its relays.
+    pool.subscribe([{ kinds: [1460] }], () => {}); await vi.advanceTimersByTimeAsync(1)
+    const event = evt(1460)
+    await pool.publishGuarded(event, () => true)
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(pool.publishEvidence(event.id)!.relays).toEqual([
+      expect.objectContaining({ url: GOOD + '/', acked: true, found: false, lost: true }),
+      expect.objectContaining({ url: BAD + '/', acked: false, found: false })])
+    // The relay that refused it is not marked as one that accepts chat and returns none; it never accepted.
+    expect(pool.health().find(r => r.url === BAD + '/')?.unreturned).toBeUndefined()
+    expect(pool.health().find(r => r.url === GOOD + '/')?.unreturned).toEqual([1460])
+  })
+
+  it('says a relay is still working on a write while it has neither answered nor given up', async () => {
+    bad.silent = true
+    pool = new NostrRelayPool([GOOD, BAD])
+    const event = evt(1460)
+    await pool.publish(event)
+    await vi.advanceTimersByTimeAsync(1)
+    // The good relay has acknowledged; the hung one is still being tried.
+    expect(pool.publishEvidence(event.id)).toMatchObject({ pending: 1, relays: [{ url: GOOD + '/' }] })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(pool.publishEvidence(event.id)).toMatchObject({ pending: 0 })
+  })
+
+  it('asks a relay for an event it was written to again by name, and clears the mark when it now returns it', async () => {
+    bad.forgetful = true
+    pool = new NostrRelayPool([BAD])
+    const event = evt(1460)
+    await pool.publish(event); await vi.advanceTimersByTimeAsync(4_000)
+    expect(pool.health()[0]!.unreturned).toEqual([1460])
+    bad.forgetful = false
+    // A retry is the same signed event offered again; this relay is asked about that event, not trusted or condemned for the last.
+    await pool.publish(event); await vi.advanceTimersByTimeAsync(1)
+    expect(pool.publishEvidence(event.id)!.relays[0]).not.toHaveProperty('found')
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(pool.publishEvidence(event.id)!.relays[0]).toMatchObject({ found: true, keeps: true, lost: false })
+    expect(pool.health()[0]!.unreturned).toBeUndefined()
+  })
+
+  it('asks back by name when the check for an event went unanswered', async () => {
+    pool = new NostrRelayPool([GOOD])
+    const event = evt(1460)
+    await pool.publish(event)
+    good.silent = true
+    await vi.advanceTimersByTimeAsync(3_000 + 8_000 + 1)
+    expect(pool.publishEvidence(event.id)!.relays[0]).not.toHaveProperty('found')
+    good.silent = false
+    pool.askBack(event.id)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(pool.publishEvidence(event.id)!.relays[0]).toMatchObject({ found: true, keeps: true })
+  })
+
+  it('does not call a write-only relay readable, and never asks it for anything', async () => {
+    pool = new NostrRelayPool([{ url: BAD, read: false, write: true }, GOOD])
+    const event = evt(1460)
+    await pool.publish(event); await vi.advanceTimersByTimeAsync(4_000)
+    const relays = pool.publishEvidence(event.id)!.relays
+    expect(relays.find(r => r.url === BAD + '/')).toMatchObject({ readable: false, keeps: false, lost: false })
+    expect(bad.requestedFilters()).toHaveLength(0)
+  })
+
   it('claims nothing when the read-back itself goes unanswered', async () => {
     pool = new NostrRelayPool([GOOD, BAD])
     await pool.publish(evt(1460))

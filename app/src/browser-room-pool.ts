@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
-import type { NostrRelayPool, RelayConfig, RelayHealth, RelayTransport, RelayPoolClient } from '../../src/relay-pool.js'
+import type { NostrRelayPool, PublishEvidence, RelayConfig, RelayHealth, RelayTransport, RelayPoolClient } from '../../src/relay-pool.js'
 import type { BrowserRoomBarrier } from './browser-room-barrier.js'
 import type { BrowserRoomConsents, RoomConsent } from './browser-room-consent.js'
 
@@ -158,6 +158,9 @@ export class BrowserRoomPool implements ManagedRelayPool {
     const observable = this.#delegate as (RelayTransport & { health?: () => RelayHealth[] }) | undefined
     return observable?.health?.() ?? (this.#consent ? [{ url: this.#consent.box.eventUrl, read: true, write: true, circle: true, state: 'disconnected', lastError: this.#error }] : [])
   }
+  /** Only a public route has relays to read back from; a private box route reports no evidence. */
+  publishEvidence(eventId: string): PublishEvidence | undefined { return this.#public?.publishEvidence(eventId) }
+  askBack(eventId: string): void { this.#public?.askBack(eventId) }
   setRelays(entries: readonly (string | RelayConfig)[]): void { this.#public?.setRelays(entries) }
   setAuthentication(entries: Parameters<NostrRelayPool['setAuthentication']>[0]): void { this.#public?.setAuthentication(entries) }
   reconnect(): void { if (this.#public) this.#public.reconnect(); else void this.#refresh() }
