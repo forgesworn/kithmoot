@@ -60,6 +60,7 @@ const observed = {
   nodeBinarySha256: sha256(readFileSync(binary)),
   relayBinarySha256: sha256(readFileSync(relayBinary)),
   credentialRequests: 0, grantRequests: 0, claimRequests: 0, pairingRequests: 0,
+  deviceRequests: 0, vouchRequests: 0, removeRequests: 0, sealed: false, leakRefused: 0,
   cookies: false, referrer: false, query: false,
 }
 // Signing keys are public identifiers; only their count is exposed.
@@ -67,6 +68,9 @@ const signers = { credentials: new Set(), grants: new Set(), claims: new Set() }
 // Hashes of issued usernames, so a test can prove which answer a browser used
 // without the facade ever returning a credential.
 const usernames = new Set()
+// Spry keys the owner's app registered or a member vouched for: public
+// identifiers, exposed only as yes or no for a key the test already holds.
+const registered = new Set()
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -184,7 +188,7 @@ async function handle(req, res) {
   if (url.pathname === '/') return reply(res, { ready: true })
   if (url.pathname === '/fixture/stats' && req.method === 'GET') return reply(res, fixtureStats())
   if (url.pathname.startsWith('/fixture/')) {
-    if (req.method !== 'POST' && url.pathname !== '/fixture/username-seen') return reply(res, { error: 'Not found' }, 404)
+    if (req.method !== 'POST' && !['/fixture/username-seen', '/fixture/registered'].includes(url.pathname)) return reply(res, { error: 'Not found' }, 404)
     if (url.pathname === '/fixture/pairing') {
       const issued = await ownerRequest('/v1/pairings', {})
       return reply(res, { hash: new URL(issued.url).hash, expiresAt: issued.expiresAt })
@@ -195,13 +199,35 @@ async function handle(req, res) {
       return reply(res, { removed: pairings.length })
     }
     if (url.pathname === '/fixture/reset') {
-      for (const key of ['credentialRequests', 'grantRequests', 'claimRequests', 'pairingRequests']) observed[key] = 0
-      for (const key of ['cookies', 'referrer', 'query']) observed[key] = false
-      for (const set of [...Object.values(signers), usernames]) set.clear()
+      for (const key of ['credentialRequests', 'grantRequests', 'claimRequests', 'pairingRequests', 'deviceRequests', 'vouchRequests', 'removeRequests', 'leakRefused']) observed[key] = 0
+      for (const key of ['cookies', 'referrer', 'query', 'sealed']) observed[key] = false
+      for (const set of [...Object.values(signers), usernames, registered]) set.clear()
       return reply(res, { reset: true })
     }
     if (url.pathname === '/fixture/stop-node') { await stopNode(); return reply(res, { nodeRunning: false }) }
     if (url.pathname === '/fixture/start-node') { if (!nodeChild) await startNode(); return reply(res, { nodeRunning: true }) }
+    if (url.pathname === '/fixture/registered') {
+      return reply(res, { registered: registered.has(url.searchParams.get('k') ?? '') })
+    }
+    if (url.pathname === '/fixture/leak') {
+      // A leaked token in the hands of a browser that never joined the room:
+      // a fresh key signs a credential request exactly as a client would.
+      const chunks = []
+      for await (const chunk of req) chunks.push(chunk)
+      const { token } = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+      if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return reply(res, { error: 'token' }, 400)
+      const body = JSON.stringify({ grant: token })
+      const event = finalizeEvent({
+        kind: 27235, created_at: Math.floor(Date.now() / 1000), content: '',
+        tags: [['u', ENDPOINT + '/v1/credentials'], ['method', 'POST'], ['payload', sha256(body)], ['nonce', base64url(randomBytes(32))]],
+      }, generateSecretKey())
+      const answer = await nodeRequest('POST', '/v1/credentials', {
+        'Content-Type': 'application/json', 'X-Forwarded-For': '127.0.0.1',
+        Authorization: `Nostr ${Buffer.from(JSON.stringify(event)).toString('base64')}`, 'Content-Length': Buffer.byteLength(body),
+      }, body)
+      if (answer.status === 403) observed.leakRefused++
+      return reply(res, { status: answer.status })
+    }
     if (url.pathname === '/fixture/username-seen') {
       return reply(res, { seen: usernames.has(sha256(url.searchParams.get('u') ?? '')) })
     }
@@ -217,6 +243,9 @@ async function handle(req, res) {
     if (url.pathname === '/v1/grants') { observed.grantRequests++; if (signer) signers.grants.add(signer) }
     if (url.pathname === '/v1/pairings/claim') { observed.claimRequests++; if (signer) signers.claims.add(signer) }
     if (url.pathname === '/v1/pairings') observed.pairingRequests++
+    if (url.pathname === '/v1/grants/devices') observed.deviceRequests++
+    if (url.pathname === '/v1/grants/vouch') observed.vouchRequests++
+    if (url.pathname === '/v1/grants/remove') observed.removeRequests++
   }
   const chunks = []
   let length = 0
@@ -234,6 +263,14 @@ async function handle(req, res) {
   catch { return reply(res, { error: 'unavailable' }, 503) }
   if (req.method === 'POST' && url.pathname === '/v1/credentials' && answer.status === 200) {
     try { usernames.add(sha256(JSON.parse(answer.body.toString()).username)) } catch { /* not a credential answer */ }
+  }
+  if (req.method === 'POST' && answer.status === 200 && ['/v1/grants/devices', '/v1/grants/vouch'].includes(url.pathname)) {
+    try {
+      const sent = JSON.parse(Buffer.concat(chunks).toString())
+      for (const key of sent.add ?? []) registered.add(key)
+      for (const key of sent.remove ?? []) registered.delete(key)
+      if (url.pathname === '/v1/grants/devices') observed.sealed = JSON.parse(answer.body.toString()).sealed === true
+    } catch { /* not a registration */ }
   }
   const out = { ...answer.headers }
   delete out.connection; delete out['transfer-encoding']
