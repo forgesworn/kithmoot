@@ -56,4 +56,30 @@ describe('spryKey in the own roster entry and spryRoster()', () => {
     session.forgetParticipants([oldIdentity.pubkey])
     expect(session.spryRoster().some(row => row.participant === oldIdentity.pubkey)).toBe(false)
   })
+
+  it('lists a blocked participant\'s device for the registrar, while the roster on screen leaves it out', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW * 1000)
+    const relay = new SimRelay()
+    relays.push(relay)
+    const blockedIdentity = localIdentity(generateSecretKey()), blockedSk = generateSecretKey()
+    let blocked = new Set([blockedIdentity.pubkey])
+    const session = new RoomSession({ transport: new SimTransport(relay), secret: SECRET,
+      identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey(), factory: createFakeFactory(),
+      now: () => Math.floor(Date.now() / 1000), announceJitterMs: 0, isBlocked: participant => blocked.has(participant),
+      timing: { heartbeatIntervalMs: 1000, sweepIntervalMs: 1000, presenceTtlSeconds: 20 } })
+    opened.push(session)
+    await session.join([], {})
+    const credential = await createDeviceCredential({ identity: blockedIdentity, devicePubkey: getPublicKey(blockedSk), roomId: ROOT.roomId, expiresAt: NOW + 3600 })
+    await new SimTransport(relay).publish(encodeRosterEvent({ participant: blockedIdentity.pubkey, device: getPublicKey(blockedSk), credential, tracks: [], claims: {},
+      updatedAt: NOW, spryKey: spryDevicePublicKey(blockedSk) }, { roomId: ROOT.roomId, roomKey: ROOT.roomKey, deviceSk: blockedSk }))
+    await vi.advanceTimersByTimeAsync(50)
+    expect(session.participants().some(view => view.participant === blockedIdentity.pubkey)).toBe(false)
+    expect(session.spryRoster()).toContainEqual({ device: getPublicKey(blockedSk), participant: blockedIdentity.pubkey, spryKey: spryDevicePublicKey(blockedSk), agent: false })
+    // Its presence lapses like anybody's.
+    await vi.advanceTimersByTimeAsync(25_000)
+    expect(session.spryRoster().some(row => row.participant === blockedIdentity.pubkey)).toBe(false)
+    blocked = new Set()
+  })
 })
+
