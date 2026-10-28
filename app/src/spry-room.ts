@@ -21,10 +21,10 @@ const VOUCH_FRESH_MS = 10 * 60 * 1000
 
 export interface SpryRoomOptions {
   /**
-   * Whether this device shares its own relay in this room: it asks its node
-   * for the room's grant, publishes it to the room and registers members'
-   * keys. False means no grant at all from this device's pairing; it can
-   * still use a relay another member shares. Defaults to true.
+   * Whether this device shares its own relay in this room: it publishes the
+   * room's grant (with its node card, for a private node) to the room and
+   * registers members' keys. Either way a paired device holds the grant for
+   * its own calls and registers its own key. Defaults to true.
    */
   share?: boolean
   /** Test seam for the vouch delay, in milliseconds. */
@@ -68,8 +68,9 @@ export class SpryRoom {
   // Member state: when each offer last redeemed, and whom this session vouched for.
   #redeemedAt = new Map<string, number>()
   #vouched = new Set<string>()
-  /** The call whose members were already there when this device saw it. */
-  #vouchCall?: string
+  /** Devices present when this device could first vouch: not newcomers. */
+  #vouchBase?: Set<string>
+  #vouchedPer = new Map<string, number>()
   #vouchTimers = new Set<ReturnType<typeof setTimeout>>()
   // Early retry after a refusal.
   #windowStart = 0
@@ -86,7 +87,7 @@ export class SpryRoom {
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
     // A saved offer from this device's own node is its own old grant: not
     // reused or republished while it does not share here.
-    this.#offer = saved && !this.#ownNode(saved) ? saved : this.#shares() ? saved : undefined
+    this.#offer = saved
     if (this.#offer) this.#windowStart = Date.now()
     this.#unsub.push(session.onDescriptor(descriptor => {
       if (this.#closed || !descriptor.spry) return
@@ -137,13 +138,12 @@ export class SpryRoom {
     }, 30000)
     if (this.#asksOwnNode()) void this.refresh().catch(() => {})
   }
-  /** Whether this device shares its own relay in this room. A private
-   *  (`spry:`) pairing always does: its offers reach only devices paired to
-   *  the same node, and the private mesh depends on them. */
+  /** Whether this device shares its own relay in this room. */
   get sharing(): boolean { return this.#shares() }
-  #shares(): boolean { return this.#share || !!this.pairing?.endpoint.startsWith('spry:') }
+  #shares(): boolean { return this.#share }
   #ownNode(offer: SpryOffer): boolean { return !!this.pairing && offer.endpoint === this.pairing.endpoint }
-  #asksOwnNode(): boolean { return !!this.pairing && this.#shares() }
+  /** A paired device always holds its room grant, for its own calls. */
+  #asksOwnNode(): boolean { return !!this.pairing }
   #registrar(): boolean { return this.#asksOwnNode() && !!this.#own }
   /** The offer this device republishes: its own grant when it shares, or the
    *  one another member shared, never a grant it withdrew or keeps to itself. */
@@ -215,7 +215,7 @@ export class SpryRoom {
    */
   async #registerDevices(): Promise<void> {
     const pair = this.pairing, offer = this.#own
-    if (!pair || !offer || !this.#shares() || Date.now() < this.#unsupportedUntil || this.#closed) return
+    if (!pair || !offer || Date.now() < this.#unsupportedUntil || this.#closed) return
     if (this.#registeredFor !== offer.token) {
       this.#registeredFor = offer.token
       this.#registered.clear(); this.#sealed = false; this.#grantDevices = 0
@@ -239,7 +239,8 @@ export class SpryRoom {
     if (this.#spryPublic && !this.#registered.has(this.#spryPublic)) add.push({ key: this.#spryPublic, participant: this.session.participant })
     const perParticipant = new Map<string, number>()
     for (const owner of this.#registered.values()) perParticipant.set(owner, (perParticipant.get(owner) ?? 0) + 1)
-    for (const row of roster) {
+    // Not shared here: nobody else holds the token, so only this device's key.
+    for (const row of this.#shares() ? roster : []) {
       const key = row.spryKey
       // Agents redeem no Spry offers: their keys would only spend the grant's slots.
       if (!key || row.agent || key === this.#spryPublic || this.#registered.has(key) || removed.has(row.participant) || add.some(item => item.key === key)) continue
@@ -263,23 +264,26 @@ export class SpryRoom {
     const ready = roster.length > 0 && roster.every(row => row.agent || row.spryKey) && this.#registered.has(this.#spryPublic)
     if (!this.#sealed && ready) await this.#send(pair, offer, { seal: true })
   }
-  /** Members vouch for a device that joins the call they are on, once each,
-   *  after a random delay, while their own redemption of that grant is fresh. */
+  /**
+   * Members vouch for a device admitted to the room after them, once each,
+   * after a random delay, while their own redemption of that grant is fresh:
+   * so a newcomer, relay-only or not, gets the room's relay while the owner
+   * is away. Devices already present when this one could first vouch are not
+   * newcomers (every key named counts against its daily allowance), and at
+   * most two keys per participant, as the registrar allows.
+   */
   #scheduleVouches(): void {
-    const call = this.session.call?.id
-    if (!call || !this.session.spryRoster) return
-    // Devices already on the call when this one joined are not newcomers:
-    // every key named counts against this device's daily vouch allowance.
-    if (call !== this.#vouchCall) {
-      this.#vouchCall = call
-      for (const row of this.session.spryRoster()) if (row.call === call) this.#vouched.add(row.device)
-    }
-    if (Date.now() < this.#unsupportedUntil) return
+    if (!this.session.spryRoster || Date.now() < this.#unsupportedUntil) return
     const offer = [this.#shared, this.#offer].find(candidate => candidate && candidate.token !== this.#own?.token &&
       Date.now() - (this.#redeemedAt.get(candidate.endpoint + ':' + candidate.token) ?? 0) < VOUCH_FRESH_MS)
     if (!offer) return
-    for (const row of this.session.spryRoster()) {
-      if (row.call !== call || !row.spryKey || row.device === this.session.device || row.spryKey === this.#spryPublic || this.#vouched.has(row.device)) continue
+    const rows = this.session.spryRoster()
+    if (!this.#vouchBase) { this.#vouchBase = new Set(rows.map(row => row.device)); return }
+    for (const row of rows) {
+      if (!row.spryKey || row.agent || row.device === this.session.device || row.spryKey === this.#spryPublic || this.#vouchBase.has(row.device) || this.#vouched.has(row.device)) continue
+      const count = this.#vouchedPer.get(row.participant) ?? 0
+      if (count >= SPRY_KEYS_PER_PARTICIPANT) continue
+      this.#vouchedPer.set(row.participant, count + 1)
       this.#vouched.add(row.device)
       const key = row.spryKey
       const timer = setTimeout(() => {
@@ -309,7 +313,7 @@ export class SpryRoom {
     const now = Date.now() / 1000
     let failure: unknown, ownFailure: unknown
     this.#sharedRefusal = 0
-    if (this.pairing && this.#shares() && (!this.#own || this.#own.expiresAt - now < 360)) {
+    if (this.pairing && (!this.#own || this.#own.expiresAt - now < 360)) {
       try {
         const own = await spryGrant(this.pairing, this.session.roomId, this.fetcher)
         if (this.#closed || revision !== this.#pairRevision) return
@@ -325,7 +329,7 @@ export class SpryRoom {
     const seen = new Set<string>()
     for (const offer of [this.#own, this.#offer, this.#shared]) {
       if (!offer || offer.expiresAt <= now || offer.endpoint.startsWith('spry:') && offer.endpoint !== this.pairing?.endpoint) continue
-      if (this.#withdrawn.has(offer.token) || !this.#shares() && this.#ownNode(offer) && offer.token !== this.#shared?.token) continue
+      if (this.#withdrawn.has(offer.token)) continue
       const id = offer.endpoint + ':' + offer.token
       if (seen.has(id)) continue
       seen.add(id)
@@ -370,7 +374,7 @@ export class SpryRoom {
    */
   async prepare(patient = false): Promise<void> {
     this.#windowStart = Date.now(); this.#retryStep = 0
-    if (!this.#offer && !this.#shared && !this.#asksOwnNode()) {
+    if (!this.#offer && !this.#shared && !this.pairing) {
       await new Promise<void>(resolve => {
         const finish = () => { clearTimeout(timer); this.#waiters.delete(finish); resolve() }
         const timer = setTimeout(finish, 2500)
@@ -389,32 +393,36 @@ export class SpryRoom {
     this.#applyCredentials()
   }
   /**
-   * Start or stop sharing this device's relay in this room. Stopping stops
-   * publishing the offer and asks the node to drop the grant, so access
-   * already handed out ends within five minutes. Resolves false only when
-   * that removal could not be confirmed.
+   * Start or stop sharing this device's relay in this room. Starting
+   * publishes the grant this device already holds and registers members.
+   * Stopping stops publishing it, asks the node to drop that grant, so access
+   * already handed out ends within five minutes, and takes a fresh grant,
+   * never published, for this device's own calls; credentials it already
+   * holds carry its call over the gap. Resolves false only when the removal
+   * could not be confirmed.
    */
   async setShare(on: boolean): Promise<boolean> {
     if (this.#closed || on === this.#share) return true
     this.#share = on
     if (on) {
-      this.#withdrawn.clear()
-      void this.refresh().catch(() => {})
+      void this.refresh().catch(() => {}).then(() => this.publish()).catch(() => {})
       return true
     }
     const pair = this.pairing, own = this.#own ?? (this.#offer && this.#ownNode(this.#offer) ? this.#offer : undefined)
     this.#pairRevision++
     this.#own = undefined
     this.#registeredFor = undefined; this.#registered.clear(); this.#sealed = false
-    if (own) {
-      this.#withdrawn.add(own.token)
-      this.#credentials.delete(own.endpoint + ':' + own.token)
-    }
+    if (own) this.#withdrawn.add(own.token)
     this.#offer = this.#shared && !this.#withdrawn.has(this.#shared.token) ? this.#shared : undefined
-    this.#applyCredentials()
-    if (!pair || !own) return true
-    try { await spryRemoveGrant(pair, own, this.fetcher); return true }
-    catch (error) { return error instanceof SpryRequestError && error.status === 403 }
+    let removed = true
+    if (pair && own) {
+      try { await spryRemoveGrant(pair, own, this.fetcher) }
+      catch (error) { removed = error instanceof SpryRequestError && error.status === 403 }
+    }
+    if (this.#closed) return removed
+    if (this.#work) this.#peerUpdatePending = true
+    else void this.refresh().catch(() => {})
+    return removed
   }
   /** Account sync can arrive after the room opens; no room rejoin is needed. */
   setPairing(pair: SpryPairing | undefined): void {

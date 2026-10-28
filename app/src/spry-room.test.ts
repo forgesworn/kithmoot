@@ -108,9 +108,9 @@ const key = (n: number) => getPublicKey(new Uint8Array(32).fill(n))
 const deviceSk = new Uint8Array(32).fill(200)
 const OWN = spryDevicePublicKey(deviceSk)
 
-interface FakeNode { posts: { path: string; body: Record<string, unknown>; signer: string }[]; sealed: boolean; refuse: Set<string>; status: Partial<Record<string, number[]>> }
+interface FakeNode { posts: { path: string; body: Record<string, unknown>; signer: string }[]; sealed: boolean; refuse: Set<string>; status: Partial<Record<string, number[]>>; token: string }
 function node(): { state: FakeNode; fetcher: typeof fetch } {
-  const state: FakeNode = { posts: [], sealed: false, refuse: new Set(), status: {} }
+  const state: FakeNode = { posts: [], sealed: false, refuse: new Set(), status: {}, token: TOKEN }
   const fetcher: typeof fetch = async (url, options) => {
     const path = new URL(String(url)).pathname
     const body = JSON.parse(String(options!.body))
@@ -119,10 +119,10 @@ function node(): { state: FakeNode; fetcher: typeof fetch } {
     const forced = state.status[path]?.shift()
     if (forced) return Response.json({ error: 'forced' }, { status: forced })
     const expiresAt = Math.floor(Date.now() / 1000) + 300
-    if (path === '/v1/grants') return Response.json({ v: 1, endpoint: ENDPOINT, token: TOKEN, expiresAt: expiresAt + 86400 })
+    if (path === '/v1/grants') return Response.json({ v: 1, endpoint: ENDPOINT, token: state.token, expiresAt: expiresAt + 86400 })
     if (path === '/v1/grants/devices') { if (body.seal) state.sealed = true; return Response.json({ v: 1, sealed: state.sealed, enforced: state.sealed, devices: 1 }) }
     if (path === '/v1/grants/vouch') return Response.json({ v: 1, added: body.add.length })
-    if (path === '/v1/grants/remove') return Response.json({ removed: true })
+    if (path === '/v1/grants/remove') { state.token = 'n'.repeat(43); state.sealed = false; return Response.json({ removed: true }) }
     if (state.refuse.has(signer)) return Response.json({ error: 'Call access has expired.' }, { status: 403 })
     return Response.json({ urls: ['turn:relay.example:3478?transport=udp'], username: `${expiresAt}:${'b'.repeat(24)}`,
       credential: 'a'.repeat(27) + '=', expiresAt, accessExpiresAt: expiresAt + 86400 })
@@ -257,68 +257,6 @@ it('retries a stale revision once and stops asking a node without the paths for 
   } finally { quiet.close() }
 })
 
-it('asks for no grant where it does not share, and still uses a relay someone else shared', async () => {
-  const offer = { v: 1 as const, endpoint: 'https://shared.example', token: 's'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 86400 }
-  const r = room([me], { descriptor: { spry: offer } as RoomDescriptor })
-  const posts: string[] = []
-  const fetcher: typeof fetch = async (url, options) => { posts.push(String(url)); return node().fetcher(String(url).replace('shared.example', 'relay.example'), options).then(async res => {
-    if (!String(url).endsWith('/v1/credentials')) return res
-    const body = await res.json(); return Response.json({ ...body, urls: ['turn:shared.example:3478?transport=udp'] })
-  }) }
-  const saved = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: offer.expiresAt }
-  const broker = new SpryRoom(r.session, pair, vi.fn(), fetcher, deviceSk, saved, () => {}, { share: false })
-  try {
-    await broker.prepare()
-    expect(posts.some(url => url.startsWith(ENDPOINT)), 'nothing to this device\'s own node').toBe(false)
-    expect(posts).toContain('https://shared.example/v1/credentials')
-    await broker.publish()
-    expect(r.published.at(-1)?.spry?.token).toBe(offer.token)
-  } finally { broker.close() }
-})
-
-it('turns sharing on with one tap, and off again withdraws the grant', async () => {
-  const r = room([me])
-  const { state, fetcher } = node()
-  const broker = new SpryRoom(r.session, pair, vi.fn(), fetcher, deviceSk, undefined, () => {}, { share: false })
-  try {
-    await broker.prepare()
-    expect(state.posts).toEqual([])
-    await broker.setShare(true)
-    await broker.refresh()
-    expect(state.posts.map(post => post.path)).toEqual(expect.arrayContaining(['/v1/grants', '/v1/grants/devices', '/v1/credentials']))
-    expect(r.published.at(-1)?.spry?.token).toBe(TOKEN)
-    const count = r.published.length
-    expect(await broker.setShare(false)).toBe(true)
-    expect(state.posts.at(-1)).toMatchObject({ path: '/v1/grants/remove', body: { pairing: pair.id, grant: TOKEN } })
-    await broker.publish()
-    expect(r.published.length, 'the withdrawn offer is not published again').toBe(count)
-    r.descriptor({ spry: { v: 1, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 3600 } } as RoomDescriptor)
-    await broker.publish()
-    expect(r.published.length, 'nor taken back from an old descriptor').toBe(count)
-  } finally { broker.close() }
-})
-
-it('vouches once, after a delay, for a device that joins the call it is on', async () => {
-  vi.useFakeTimers()
-  const offer = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
-  const call = { id: 'c'.repeat(32) }
-  const r = room([{ ...me, call: call.id }], { call, descriptor: { spry: offer } as RoomDescriptor })
-  const { state, fetcher } = node()
-  const broker = new SpryRoom(r.session, undefined, vi.fn(), fetcher, deviceSk, undefined, () => {}, { jitter: () => 2000 })
-  try {
-    await broker.prepare()
-    r.rows.push({ device: 'newcomer', participant: 'n', spryKey: key(5), agent: false, call: call.id },
-      { device: 'lurker', participant: 'l', spryKey: key(6), agent: false })
-    r.change()
-    await vi.advanceTimersByTimeAsync(1500)
-    expect(state.posts.filter(post => post.path === '/v1/grants/vouch')).toHaveLength(0)
-    await vi.advanceTimersByTimeAsync(600)
-    r.change(); await vi.advanceTimersByTimeAsync(3000)
-    const vouches = state.posts.filter(post => post.path === '/v1/grants/vouch')
-    expect(vouches).toEqual([{ path: '/v1/grants/vouch', body: { v: 1, grant: TOKEN, add: [key(5)] }, signer: OWN }])
-  } finally { broker.close() }
-})
-
 it('does not vouch without a fresh redemption of its own', async () => {
   vi.useFakeTimers()
   const offer = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
@@ -365,20 +303,76 @@ it('retries a refused redemption at 3, 10 and 30 seconds, and a patient call wai
   } finally { second.close() }
 })
 
-it('does not vouch for devices already on the call when it joins', async () => {
-  vi.useFakeTimers()
-  const offer = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
-  const call = { id: 'c'.repeat(32) }
-  const r = room([{ ...me, call: call.id }, { device: 'veteran', participant: 'v', spryKey: key(7), agent: false, call: call.id }], { call, descriptor: { spry: offer } as RoomDescriptor })
-  const { state, fetcher } = node()
-  const broker = new SpryRoom(r.session, undefined, vi.fn(), fetcher, deviceSk, undefined, () => {}, { jitter: () => 10 })
+it('holds its own grant where it does not share, registering only itself and publishing nothing of its own', async () => {
+  const offer = { v: 1 as const, endpoint: 'https://shared.example', token: 's'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 86400 }
+  const r = room([me, { device: 'g', participant: 'guest', spryKey: key(1), agent: false }], { descriptor: { spry: offer } as RoomDescriptor })
+  const own = node()
+  const posts: string[] = []
+  const fetcher: typeof fetch = async (url, options) => {
+    posts.push(String(url))
+    if (String(url).startsWith(ENDPOINT)) return own.fetcher(url, options)
+    const res = await node().fetcher(String(url).replace('shared.example', 'relay.example'), options)
+    return Response.json({ ...await res.json(), urls: ['turn:shared.example:3478?transport=udp'] })
+  }
+  const apply = vi.fn()
+  const broker = new SpryRoom(r.session, pair, apply, fetcher, deviceSk, undefined, () => {}, { share: false })
   try {
-    await broker.prepare()
-    r.change(); await vi.advanceTimersByTimeAsync(100)
-    expect(state.posts.filter(post => post.path === '/v1/grants/vouch')).toHaveLength(0)
-    r.rows.push({ device: 'newcomer', participant: 'n', spryKey: key(8), agent: false, call: call.id })
-    r.change(); await vi.advanceTimersByTimeAsync(100)
-    expect(state.posts.filter(post => post.path === '/v1/grants/vouch').map(post => post.body.add)).toEqual([[key(8)]])
+    await broker.prepare(true)
+    expect(broker.sharing).toBe(false)
+    expect(own.state.posts.map(post => post.path)).toEqual(expect.arrayContaining(['/v1/grants', '/v1/grants/devices', '/v1/credentials']))
+    expect(devices(own.state)[0]!.add, 'only its own key: nobody else holds the token').toEqual([OWN])
+    expect(posts).toContain('https://shared.example/v1/credentials')
+    expect(apply.mock.lastCall![0].map((server: RTCIceServer) => server.urls).flat()).toEqual(expect.arrayContaining(['turn:relay.example:3478?transport=udp']))
+    await broker.publish()
+    expect(r.published.every(d => d.spry?.token !== TOKEN), 'its own grant never reaches the room').toBe(true)
   } finally { broker.close() }
 })
 
+it('turns sharing on with one tap, and off again withdraws the shared grant while keeping a fresh one for itself', async () => {
+  const r = room([me, { device: 'g', participant: 'guest', spryKey: key(1), agent: false }])
+  const { state, fetcher } = node()
+  const broker = new SpryRoom(r.session, pair, vi.fn(), fetcher, deviceSk, undefined, () => {}, { share: false })
+  try {
+    await broker.prepare()
+    expect(r.published).toEqual([])
+    await broker.setShare(true)
+    await broker.refresh(); await broker.publish()
+    expect(r.published.at(-1)?.spry?.token).toBe(TOKEN)
+    expect(devices(state).some(body => (body.add as string[]).includes(key(1))), 'members registered once shared').toBe(true)
+    const count = r.published.length
+    expect(await broker.setShare(false)).toBe(true)
+    await broker.refresh()
+    const paths = state.posts.map(post => post.path)
+    expect(paths.lastIndexOf('/v1/grants')).toBeGreaterThan(paths.indexOf('/v1/grants/remove'))
+    expect(state.posts.find(post => post.path === '/v1/grants/remove')!.body).toMatchObject({ pairing: pair.id, grant: TOKEN })
+    expect(devices(state).at(-1)?.grant, 'its own key on the fresh grant').toBe('n'.repeat(43))
+    await broker.publish()
+    expect(r.published.length, 'neither grant is published once it stops sharing').toBe(count)
+    r.descriptor({ spry: { v: 1, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 3600 } } as RoomDescriptor)
+    await broker.publish()
+    expect(r.published.length, 'nor the withdrawn one taken back from an old descriptor').toBe(count)
+  } finally { broker.close() }
+})
+
+it('vouches once, after a delay, for devices admitted after it, up to two per participant, on a call or not', async () => {
+  vi.useFakeTimers()
+  const offer = { v: 1 as const, endpoint: ENDPOINT, token: TOKEN, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
+  const r = room([me, { device: 'veteran', participant: 'v', spryKey: key(7), agent: false }], { descriptor: { spry: offer } as RoomDescriptor })
+  const { state, fetcher } = node()
+  const broker = new SpryRoom(r.session, undefined, vi.fn(), fetcher, deviceSk, undefined, () => {}, { jitter: () => 2000 })
+  const vouches = () => state.posts.filter(post => post.path === '/v1/grants/vouch')
+  try {
+    await broker.prepare()
+    r.change(); await vi.advanceTimersByTimeAsync(3000)
+    expect(vouches(), 'the veteran was here first').toHaveLength(0)
+    r.rows.push({ device: 'n1', participant: 'n', spryKey: key(5), agent: false }, { device: 'n2', participant: 'n', spryKey: key(6), agent: false },
+      { device: 'n3', participant: 'n', spryKey: key(8), agent: false }, { device: 'bot', participant: 'b', spryKey: key(9), agent: true })
+    r.change()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(vouches()).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(600)
+    r.change(); await vi.advanceTimersByTimeAsync(3000)
+    expect(vouches().map(post => post.body.add)).toEqual([[key(5)], [key(6)]])
+    expect(vouches().every(post => post.signer === OWN)).toBe(true)
+  } finally { broker.close() }
+})

@@ -94,7 +94,7 @@ export class SpryAccountSync {
         if (this.#pending && (this.#pending.id === event.id || newer(event, this.#pending))) { this.#pending = undefined; this.#pendingValue = undefined }
         if (this.#removalAt !== undefined && event.created_at >= this.#removalAt) this.#removalAt = undefined
         this.#persist()
-        this.status(pair ? 'Spry loaded from your encrypted Nostr account. Your call relay is shared automatically in rooms you make.' : 'Spry was unpaired for your Nostr account.')
+        this.status(pair ? 'Spry loaded from your encrypted Nostr account. Your calls use it, and it is shared automatically in rooms you make.' : 'Spry was unpaired for your Nostr account.')
       } catch { if (this.#live()) this.status('Spry account data could not be opened. Your local pairing is kept.') }
   }
   save(pair: SpryPairing | null, retainedRemovalAt?: number): Promise<boolean> {

@@ -2792,15 +2792,15 @@ function renderKnockChoice(): void {
 /** The switch, shown to a joiner holding an admission, or to one who kept
  *  one earlier and may want to stop. The creator's own record is already
  *  on these terms, so the creator is not asked. */
-/** "Share my call relay here": only on a device paired with its own Spry
- *  over HTTPS, in a room it did not make. Rooms it made share already, and a
- *  private Spry node shares only with devices paired to it. */
+/** "Share my call relay here": only on a device paired with its own Spry,
+ *  public or private, in a room it did not make. Rooms it made share
+ *  already. Either way the device's own calls use its own relay. */
 function renderSpryShareChoice(): void {
   const s = session
   const relay = s ? spryRooms.get(s) : undefined
   let pairing: ReturnType<typeof loadSpryPairing>
   try { pairing = loadSpryPairing(localStorage, currentIdentity().pubkey) } catch { pairing = undefined }
-  const shown = !!s && !!relay && !!pairing?.endpoint.startsWith('https:') && spryRoomMadeHere.get(s) === false
+  const shown = !!s && !!relay && !!pairing && spryRoomMadeHere.get(s) === false
   $('spryShareRow').hidden = !shown
   if (!shown) return
   const on = relay!.sharing
@@ -18320,8 +18320,7 @@ function renderCallRelay(): void {
     : 'This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices.'
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
-    $('spryPairingStatus').textContent = pairing ? pairing.endpoint.startsWith('spry:') ? 'Paired with your Spry node. Relay access is shared automatically in your calls.'
-      : `Paired with ${new URL(pairing.endpoint).hostname}. Your call relay is shared automatically in rooms you make. In other rooms, turn it on in Privacy and connection.` : 'Install Spry, then choose Pair with KithMoot.'
+    $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Your calls use it everywhere. It is shared automatically in rooms you make; in other rooms, turn it on in Privacy and connection.` : 'Install Spry, then choose Pair with KithMoot.'
     $('spryPairingRemove').hidden = !pairing
   } catch { $('spryPairingStatus').textContent = 'The Spry pairing is unavailable. Remove it and pair again.'; $('spryPairingRemove').hidden = false }
   try {
@@ -22733,7 +22732,7 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
       if (currentIdentity().pubkey !== participant) return
       setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
         : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
-        : 'Spry paired on this device. Your call relay will be shared automatically in rooms you make.')
+        : 'Spry paired on this device. Your calls use it, and it is shared automatically in rooms you make.')
     }
   } catch {
     const message = 'Spry could not be paired. Copy a fresh pairing link from Spry and try again.'
