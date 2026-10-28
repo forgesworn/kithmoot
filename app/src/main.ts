@@ -4925,8 +4925,19 @@ function blockSentence(block: AssistBlock): string {
  * people" is on screen within a second or two of becoming true rather than
  * whenever something else happened to redraw.
  */
+/**
+ * Peer assist is paused (28 October 2026). The library hands a carried pair
+ * to `onRelayStart`, but this app only redrew the indicator and never pumped
+ * the pair's frames, so a volunteer accepted pairs and carried nothing while
+ * the pair stopped looking for another route. Until the frame pumps are wired
+ * and a route counts only once relayed media arrives, this device neither
+ * offers nor asks, and the control is hidden.
+ */
+const PEER_ASSIST_PAUSED = true
+
 function renderAssist(): void {
   const section = $('assist')
+  if (PEER_ASSIST_PAUSED) { section.hidden = true; return }
   const button = $('toggleAssist') as HTMLButtonElement
   const indicator = $('assistIndicator')
   const costNote = $('assistCostNote')
@@ -5051,7 +5062,7 @@ function startAssistPolling(): void {
  * changes either way.
  */
 async function toggleAssist(): Promise<void> {
-  if (!assistOfferable()) return
+  if (PEER_ASSIST_PAUSED || !assistOfferable()) return
   assistEnabled = !assistEnabled
   renderAssist()
   try {
@@ -13942,7 +13953,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
+          // Peer assist is paused: the app never wired relayed frames, so a
+          // volunteer accepted pairs and carried nothing (see PEER_ASSIST_PAUSED).
+          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it
@@ -14003,7 +14016,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          ...(chatOnly ? {} : { assist: currentAssistOffer, relay: peerRelay }),
+          // Peer assist is paused: the app never wired relayed frames, so a
+          // volunteer accepted pairs and carried nothing (see PEER_ASSIST_PAUSED).
+          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: currentAssistOffer, relay: peerRelay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           // Epochs: follow a rekey signed by the room's authority, and ask it

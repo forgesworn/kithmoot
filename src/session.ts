@@ -307,6 +307,13 @@ export interface RoomSessionBaseOptions {
   /** This device's relay registry, when it is volunteering. Handed straight
    *  to the mesh - see `MeshOptions.relay`. */
   relay?: PeerRelay
+  /**
+   * Whether a failing pair may be routed through a member who volunteered.
+   * Defaults to on. Passed to the mesh as `MeshOptions.assist`. An app that
+   * cannot carry relayed media itself should turn this off, so its pairs go
+   * on to a forwarder or TURN instead of waiting on a volunteer.
+   */
+  peerAssist?: boolean
   /** Called when this device takes on, or stops carrying, a pair. */
   onRelayStart?: (pair: RelayPair) => void
   onRelayStop?: (pair: RelayPair) => void
@@ -1398,6 +1405,7 @@ export class RoomSession {
         routeTimeoutMs: this.#opts.routeTimeoutMs,
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
+        assist: () => this.#opts.peerAssist !== false,
         expiresAt: this.#opts.endsAt,
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at
