@@ -905,7 +905,7 @@ export const CONVERSATION_MOVED = 'This conversation has closed or changed its k
  */
 export class CredentialExpiredError extends Error {
   constructor() {
-    super("This device's access to the room ran out before it could be renewed, so the message was not sent. It is still in the message box.")
+    super("This device's access to the room ran out before it could be renewed, so the message was not sent.")
     this.name = 'CredentialExpiredError'
   }
 }

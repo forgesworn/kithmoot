@@ -1058,6 +1058,9 @@ function $<T extends HTMLElement>(id: string): T {
 }
 
 function describeError(err: unknown): string {
+  // A renewal that failed says what went wrong in the app's words wherever
+  // it surfaces, not only in the composer. See `sendFailureWords`.
+  if (err instanceof CredentialRenewalError) return sendFailureWords(err)
   return err instanceof Error ? err.message : String(err)
 }
 
@@ -1143,7 +1146,7 @@ async function prepareFresh(s: RoomSession, prepare: () => PreparedSend, onSlow?
 /** What to tell the person when a message could not be prepared: for a
  *  renewal that failed, what went wrong and what to do about it. */
 function sendFailureWords(err: unknown): string {
-  if (!(err instanceof CredentialRenewalError)) return describeError(err)
+  if (!(err instanceof CredentialRenewalError)) return err instanceof Error ? err.message : String(err)
   switch (err.reason) {
     case 'signer-slow': return SIGNER_SLOW_WORDS
     case 'signer': return /not connected/i.test(err.message)
@@ -21119,15 +21122,22 @@ $('chatForm').addEventListener('submit', async (event) => {
     if (!submissions.size) retainingDrafts.delete(draft)
   }
   let prepared: PreparedSend
-  let waitedForSigner = false
+  let renewed = false, waitedForSigner = false
   try {
-    // Renews first when this device's access ran out while the computer
-    // slept. The draft stays in the box until the message is queued, and a
-    // failure says why; pressing Send again is the retry.
-    prepared = await prepareFresh(sendingSession, () => log.prepare(text, sendOpts), () => {
-      waitedForSigner = true
-      if (session === sendingSession) setStatus(SIGNER_SLOW_WORDS, 'progress')
-    })
+    // Prepared at once, as ever. Only when this device's access ran out
+    // while the computer slept does it renew first and wait: the draft
+    // stays in the box until the message is queued, and a failure says
+    // why; pressing Send again is the retry.
+    try {
+      prepared = log.prepare(text, sendOpts)
+    } catch (err) {
+      if (!(err instanceof CredentialExpiredError)) throw err
+      renewed = true
+      prepared = await prepareFresh(sendingSession, () => log.prepare(text, sendOpts), () => {
+        waitedForSigner = true
+        if (session === sendingSession) setStatus(SIGNER_SLOW_WORDS, 'progress')
+      })
+    }
   } catch (err) {
     release()
     if (session === sendingSession && !(err instanceof CredentialRenewalError && err.reason === 'left')) setStatus(sendFailureWords(err))
@@ -21137,8 +21147,8 @@ $('chatForm').addEventListener('submit', async (event) => {
   // A wait on the signer is long enough to move on from the room, or to go
   // on writing. Then nothing is sent: the draft is where it was, and Send
   // sends it as it now stands.
-  if (session !== sendingSession || currentChannel !== sendingChannel || drafts.get(sendingChannel) !== draft ||
-      draftSubmissionSnapshot(input.value, draft) !== submissionSnapshot) {
+  if (renewed && (session !== sendingSession || currentChannel !== sendingChannel || drafts.get(sendingChannel) !== draft ||
+      draftSubmissionSnapshot(input.value, draft) !== submissionSnapshot)) {
     release()
     if (waitedForSigner && session === sendingSession) setStatus('Your signer answered. Press Send to send your message.', 'done')
     return
@@ -21149,8 +21159,10 @@ $('chatForm').addEventListener('submit', async (event) => {
   // that is not quiet: a quiet room keeps its own queue.
   // Edit takes back only what it can put back as it was: a plain new
   // message, not a reply, an edit or one carrying files.
-  // Queue and show it before clearing the draft.
-  const draftSnapshot = draftSubmissionSnapshot(input.value, draft)
+  // Queue and show it before clearing the draft. The draft as it was
+  // submitted: one changed since, even during a wait for the signer, is new
+  // work and is not cleared.
+  const draftSnapshot = submissionSnapshot
   // Files no group computer has taken yet go up when the outbox sends the
   // message, which then waits for them: it cannot be kept across a reload,
   // because the sealed files live in this page's memory alone.
