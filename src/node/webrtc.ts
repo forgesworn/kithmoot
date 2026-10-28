@@ -53,11 +53,11 @@ export const LOOPBACK_HOST = '127.0.0.1'
 
 /**
  * Handed to werift when no STUN server is configured. werift replaces a
- * missing STUN server with Google's (`stun.l.google.com:19302`) and always
- * gathers server-reflexive candidates from it, so an empty `iceServers`
- * still contacted Google. A loopback address on the discard port answers
- * nothing and leaves this machine never, which keeps "no STUN unless the
- * operator names one" true. Shared with `server/forwarder.mjs`.
+ * missing STUN server with Google's public one and always gathers
+ * server-reflexive candidates from it, so an empty `iceServers` still
+ * contacted Google. A loopback address on the discard port answers nothing
+ * and never leaves this machine, which keeps "no STUN unless the operator
+ * names one" true. Shared with `server/forwarder.mjs`.
  */
 export const NO_STUN_PLACEHOLDER = 'stun:127.0.0.1:9'
 
