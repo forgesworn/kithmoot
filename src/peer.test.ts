@@ -76,6 +76,55 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
+describe('Peer: local network addresses', () => {
+  const PRIVATE = /192\.168\.|fd7a:/
+
+  it('re-sends localDescription without the addresses gathered since the first copy', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      await peer.start([fakeAudioTrack()]); await settle()
+      const pc = factory.instances[0]!
+      const first = signals.find(body => body.type === 'offer')!
+      // What a real connection hands back once gathering has begun.
+      pc.localDescription = { type: 'offer', sdp: `${first.sdp}\r\nc=IN IP4 192.168.1.20\r\na=rtcp:9 IN IP6 fd7a:115c:a1e0::1\r\na=candidate:1 1 udp 2122260223 192.168.1.20 61144 typ host\r\na=candidate:2 1 udp 1686052607 198.51.100.4 61144 typ srflx raddr 192.168.1.20 rport 61144\r\n` }
+      peer.retransmitNow(); await settle()
+      const resent = signals.filter(body => body.type === 'offer').at(-1)!
+      expect(resent.seq).toBe(first.seq)
+      expect(resent.sdp).not.toMatch(PRIVATE)
+      expect(resent.sdp).toContain('typ srflx raddr 0.0.0.0 rport 0')
+    } finally { peer.close() }
+  })
+
+  it('never hands over a private host candidate, and passes loopback, mDNS and end-of-candidates', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      await peer.start([fakeAudioTrack()]); await settle()
+      const pc = factory.instances[0]!
+      for (const candidate of [
+        'candidate:1 1 udp 2122260223 192.168.1.20 61144 typ host',
+        'candidate:2 1 udp 2122260223 fd7a:115c:a1e0::1 61145 typ host',
+        'candidate:3 1 udp 2130706431 127.0.0.1 9000 typ host',
+        'candidate:4 1 udp 2122260223 3f1c9e2a.local 61146 typ host',
+        '',
+      ]) pc.emitCandidate({ candidate, sdpMid: '0', sdpMLineIndex: 0 })
+      const sent = signals.filter(body => body.type === 'ice').map(body => (JSON.parse(body.candidate!) as RTCIceCandidateInit).candidate)
+      expect(sent).toEqual(['candidate:3 1 udp 2130706431 127.0.0.1 9000 typ host', 'candidate:4 1 udp 2122260223 3f1c9e2a.local 61146 typ host', ''])
+    } finally { peer.close() }
+  })
+
+  it('sends host candidates as gathered only when an infrastructure endpoint asks to', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, revealLocalAddresses: true, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      await peer.start([fakeAudioTrack()]); await settle()
+      factory.instances[0]!.emitCandidate({ candidate: 'candidate:1 1 udp 2122260223 203.0.113.7 61144 typ host', sdpMid: '0', sdpMLineIndex: 0 })
+      expect(signals.filter(body => body.type === 'ice')).toHaveLength(1)
+    } finally { peer.close() }
+  })
+})
+
 describe('Peer', () => {
   it('keeps a newer camera offer pending when an older correlated answer arrives', async () => {
     const factory = createFakeFactory(), signals: SignalBody[] = []

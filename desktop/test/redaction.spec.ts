@@ -106,7 +106,7 @@ test('Redaction boxes and a hidden share: what is boxed, or hidden, is covered i
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-redaction-'))
   const native = await electron.launch({
     executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--autoplay-policy=no-user-gesture-required'],
     env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, KITHMOOT_DESKTOP_AREA_MODE: 'frame' },
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
