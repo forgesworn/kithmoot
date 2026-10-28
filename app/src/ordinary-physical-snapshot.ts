@@ -47,6 +47,7 @@ add('contacts', `kithmoot\\.contact\\.v1\\.${H}|kithmoot\\.rendezvous\\.v1|kithm
 add('grantedContacts', `kithmoot\\.contacts\\.v2\\.${H}\\.(?:pairing|signet-contacts:(?:state|pending):[0-9a-f]{32})`)
 add('metadata', `kithmoot\\.volume\\.v1\\.${H}|kithmoot\\.pinned-rooms\\.v1|kithmoot\\.project\\.v1\\.${A}\\.${H}|kithmoot\\.mute-until\\.v1\\.${A}\\.${H}`)
 add('metadata', `kithmoot\\.board-context\\.v1\\.${H}\\.[A-Za-z0-9_-]{1,160}`)
+add('metadata', `kithmoot\\.delivery\\.v1\\.${H}`)
 add('channelChecks', `kithmoot\\.channel-checks\\.v1\\.${H}\\.${H}`)
 add('roomBoards', `kithmoot\\.room-boards\\.v1\\.${H}\\.${H}`)
 add('journals', `kithmoot\\.shared-projects\\.v1\\.${H}(?:\\.journal\\.v2\\.${H})?|kithmoot\\.context\\.v1\\.${H}|kithmoot\\.assignments\\.v1\\.${H}\\.${H}(?:\\.journal\\.v2\\.${H})?`)

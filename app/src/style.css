@@ -1243,6 +1243,35 @@ video {
   opacity: 0.85;
 }
 
+/* Whether the relays kept a message this device sent. One quiet glyph beside
+   the time, in the same muted ink: a clock while the relays have not said, a
+   tick once they have, a warning with Retry when one took it and returned
+   nothing. Never a highlight colour, so it cannot read as "seen". */
+.deliveryTick {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 0 2px;
+  min-height: 0;
+  min-width: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: default;
+}
+.deliveryTick:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+/* The warning glyph and the underlined Retry carry it; no second colour, which
+   would have to hold its contrast on the bubble in every theme. */
+.deliveryTick.not-kept {
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .bubble::after {
   content: '';
   display: block;
