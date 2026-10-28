@@ -949,6 +949,11 @@ test.describe('call stability', () => {
         'permissions.default.microphone': 1,
         'media.autoplay.default': 0,
         'media.autoplay.blocking_policy': 0,
+        // With media permission granted Firefox offers raw interface
+        // addresses, which the library never sends; loopback is the host
+        // candidate it keeps (src/local-address-filter.ts). The Chromium
+        // pages get the same through --allow-loopback-in-peer-connection.
+        'media.peerconnection.ice.loopback': true,
       },
     })
     const contexts: BrowserContext[] = []
