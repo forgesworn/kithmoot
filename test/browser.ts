@@ -325,9 +325,12 @@ export type RoomInfoPage = 'Conversations' | 'Invite link' | 'Notifications' | '
 
 /** One subpage of Room info, opened from its first page by its row. */
 export async function openRoomInfoPage(page: Page, name: RoomInfoPage): Promise<void> {
-  await openRoomDetails(page)
-  await page.locator('#roomSheet .infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
-  await expect(page.locator('#roomSheetTitle')).toHaveText(name)
+  // A click can be lost to a re-render of the sheet; retry it until the page opens.
+  await expect(async () => {
+    await openRoomDetails(page)
+    await page.locator('#roomSheet .infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click({ timeout: 5_000 })
+    await expect(page.locator('#roomSheetTitle')).toHaveText(name, { timeout: 3_000 })
+  }).toPass({ timeout: 20_000 })
 }
 
 /** In the sender picker: choose the room by its name and send the invite. The
