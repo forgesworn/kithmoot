@@ -80,6 +80,7 @@ function hooks(): PeerAssistHooks {
     setStatus: setStatus as unknown as PeerAssistHooks['setStatus'],
     describeError: (err) => (err instanceof Error ? err.message : String(err)),
     setToggle: setToggle as unknown as PeerAssistHooks['setToggle'],
+    paused: () => false,
   }
 }
 
@@ -378,5 +379,17 @@ describe('connection keys', () => {
     expect(assist.connectionKey('direct', 'dev')).toBe('direct:dev:1')
     expect(assist.connectionKey('direct', 'dev')).toBe('direct:dev:2')
     expect(assist.connectionKey('turn', 'other')).toBe('turn:other:3')
+  })
+})
+
+describe('while peer assist is paused', () => {
+  it('hides the control and ignores a press, by default', async () => {
+    const { paused: _ignored, ...rest } = hooks()
+    const assist = installPeerAssist(rest)
+    onScreen = fakeSession()
+    assist.render()
+    expect(document.getElementById('assist')!.hidden).toBe(true)
+    await assist.toggle()
+    expect(assist.offer()).toBeNull()
   })
 })

@@ -43,6 +43,9 @@ export interface PeerAssistHooks {
   setStatus(text: string): void
   describeError(err: unknown): string
   setToggle(id: string, on: boolean): void
+  /** Whether assist is paused. Defaults to `PEER_ASSIST_PAUSED`; tests of the
+   *  control itself pass `() => false`. */
+  paused?: () => boolean
 }
 
 export interface PeerAssist {
@@ -167,6 +170,7 @@ const HARD_ASSIST_BLOCKS: readonly AssistBlock[] = ['no-relay-support', 'not-pub
 export const PEER_ASSIST_PAUSED = true
 
 export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
+  const paused = hooks.paused ?? (() => PEER_ASSIST_PAUSED)
   /** The person's own choice. Opt in, always - see `assistDecision`. */
   let assistEnabled = false
 
@@ -269,7 +273,7 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
     const indicator = document.getElementById('assistIndicator')!
     const costNote = document.getElementById('assistCostNote')!
 
-    if (PEER_ASSIST_PAUSED) { section.hidden = true; return }
+    if (paused()) { section.hidden = true; return }
     section.hidden = hooks.session() === undefined
     costNote.textContent = costSentence()
 
@@ -383,7 +387,7 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
    * changes either way.
    */
   async function toggleAssist(): Promise<void> {
-    if (PEER_ASSIST_PAUSED || !assistOfferable()) return
+    if (paused() || !assistOfferable()) return
     assistEnabled = !assistEnabled
     renderAssist()
     try {
