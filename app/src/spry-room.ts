@@ -114,7 +114,8 @@ export class SpryRoom {
     this.#unsub.push(session.onChange(views => {
       if (this.#closed) return
       this.#scheduleVouches()
-      const roster = views.flatMap(view => view.devices).sort().join(',')
+      // The Spry roster also holds devices of people this device blocked.
+      const roster = (session.spryRoster ? session.spryRoster().map(row => row.device) : views.flatMap(view => view.devices)).sort().join(',')
       if (roster === this.#roster) return
       this.#roster = roster
       // A registrar adds newcomers' keys and drops removed participants'.
