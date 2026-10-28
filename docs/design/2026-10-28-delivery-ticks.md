@@ -597,3 +597,15 @@ two ticks or an explained one tick.
 - That 1465 is unused upstream.
 - That older quiet-room readers ignore unknown rumour kinds in drops.
 - That no automated web-to-Android harness exists.
+
+## Owner decisions, 28 October 2026
+
+- Link rooms show "Delivered to 3" with names on tap; "of N" only where the
+  member list is fixed (direct messages and closed groups).
+- **A setting to stop sending delivery confirmations is added**, against the
+  recommendation. Off by default (confirmations are sent). A device with it
+  on sends no kind 1465 events. It still shows its own messages' ticks from
+  others' confirmations. Wording and placement follow the UI section; the
+  privacy page names the setting.
+- Confirmations expire after 7 days (NIP-40 `expiration`).
+- Quiet rooms show one tick only for now.
