@@ -367,7 +367,11 @@ yields TURN only on `turn:<host>:3478` (UDP, TCP) or `turns:<host>:5349`. A
 24181 and 24182) on the relays its URI names, and `node` is that node's card,
 signed by the URI's key. A `spry-peer-v1` card names a private mesh node:
 only a device paired with that node redeems its offer, and others never
-contact it. A `spry-standard-v1` card names a standard-profile node, such as
+contact it. A member's client does not republish another member's offer, so
+the participant whose descriptor carries an endpoint is its host; with Hide my
+IP on, a client uses another member's relay of either kind only after a
+one-time choice naming that host, and not at all when several descriptors carry
+the endpoint. A `spry-standard-v1` card names a standard-profile node, such as
 a member's built-in relay (spry-turn `docs/supervised-mode.md`): its content
 is exactly `{"profile":"spry-standard-v1","v":1}` (either key order, no
 whitespace), it has exactly one tag, `expiration`, no more than 600 seconds

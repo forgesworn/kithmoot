@@ -400,7 +400,8 @@ calls use the room's other paths, as today.
 Hide my IP cuts both ways. A guest with Hide my IP on who uses a member's
 relay reveals their IP to that member; a host with Hide my IP on who turns the
 relay on reveals theirs to every guest who uses it. Proposed behaviour
-[decision]: with Hide my IP on, a guest uses a member-hosted relay only after
+[decision, applied 29 Oct to any member-run relay whatever its transport]:
+with Hide my IP on, a guest uses a member-hosted relay only after
 a one-time choice naming the host; the host's Turn on dialog says plainly that
 hosting shows their internet address to people who use it, and is not offered
 while Hide my IP is on unless they confirm.
@@ -631,6 +632,19 @@ nothing is visible to users until K5 and A5.
   relay only after a one-time choice per host ("Use Alex's relay? Alex will see
   your address; others won't."), remembered on the device per host. A host
   with Hide my IP on may still run the relay.
+- **Hide my IP, any member-run relay (owner decision 29 Oct):** the same
+  one-time choice, wording, storage key (`kithmoot.spry-consent.v1`) and rules
+  apply to a member's `https:` Spry relay offer as to a built-in `spry:` relay.
+  The answer is per host participant and covers that person's relays whatever
+  the transport. This device's own relay, and a relay entered by hand in
+  settings, are never asked about. With Hide my IP off, use stays automatic.
+  Consequence for clients: an offer is its host's to publish, so a guest no
+  longer republishes another member's `https:` offer (it already did not for
+  `spry:`). Otherwise a second publisher would leave the host unnamed, or name
+  the wrong member, and the question could not be asked honestly. A host's
+  offer now reaches a newcomer only from the host's own descriptor, so a
+  newcomer who arrives after the host has left holds no offer and is refused
+  until the host returns; members still vouch for its key meanwhile.
 - **Caps:** the home defaults (8 allocations, 2 per user, 16 TCP, 125,000
   bytes/s per allocation), raisable within Spry's maxima. Daily data limit
   default set during the build PR and shown in the UI.
