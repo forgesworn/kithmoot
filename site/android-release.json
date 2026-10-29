@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.123",
-  "versionCode": 146,
+  "versionName": "0.6.124",
+  "versionCode": 147,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70955520,
-  "apkSha256": "cb2d807e5deac2693f1b214cbde587546bd8493fb0f6ecd0b514cf0613c548b9",
+  "apkBytes": 71004672,
+  "apkSha256": "716ff86689e50df305d0bbc033283237149fdc062514a8b482ea7a8b65fb188b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.123-production.apk",
+  "downloadFilename": "kithmoot-0.6.124-production.apk",
   "releaseNotes": [
-    "With Spry paired, your call relay is shared in rooms you made on this phone, and by a switch in Room info elsewhere.",
-    "Other people on a call no longer see your phone's local network addresses.",
-    "Send any file, not only pictures, up to 256 MiB, with Save or Open with for files you receive."
+    "A tick shows once a relay has kept your message, and Not kept with Retry when none did.",
+    "Ready for delivery confirmations from the web and desktop apps; the phone sends and shows them next."
   ]
 }
