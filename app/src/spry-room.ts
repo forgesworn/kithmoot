@@ -30,12 +30,13 @@ export interface SpryRoomOptions {
   /** Test seam for the vouch delay, in milliseconds. */
   jitter?: () => number
   /**
-   * Whether this device may use another member's standard-profile relay (a
-   * built-in relay), given the participant who offers it, or undefined when
-   * no single participant does. Using one shows that member this device's
-   * internet address; with Hide my IP address on, the app allows it only
-   * after a one-time choice naming them. Until this says yes, the offer is
-   * neither redeemed nor applied. Defaults to yes.
+   * Whether this device may use another member's relay (a built-in relay
+   * over `spry:`, or a paired node over `https:`), given the participant who
+   * offers it, or undefined when no single participant does. Using one shows
+   * that member this device's internet address; with Hide my IP address on,
+   * the app allows it only after a one-time choice naming them. Until this
+   * says yes, the offer is neither redeemed nor applied. Defaults to yes.
+   * Never asked about this device's own node.
    */
   mayUse?: (host: string | undefined) => boolean
   /** Local acceptance builds only (`VITE_E2E_SPRY_LOOPBACK_TURN`): a
@@ -44,10 +45,10 @@ export interface SpryRoomOptions {
 }
 
 /**
- * The one participant whose descriptor offers this `spry:` endpoint, or
- * undefined when none or more than one does. Current clients never republish
- * another member's `spry:` offer, so only its host publishes it; a copy from
- * anyone else makes the host unknown rather than misnamed.
+ * The one participant whose descriptor offers this endpoint (`spry:` or
+ * `https:`), or undefined when none or more than one does. Current clients
+ * never republish another member's offer, so only its host publishes it; a
+ * copy from anyone else makes the host unknown rather than misnamed.
  */
 export function spryOfferHost(descriptors: readonly { participant: string; spry?: SpryOffer }[], endpoint: string): string | undefined {
   const hosts = new Set(descriptors.filter(descriptor => descriptor.spry?.endpoint === endpoint).map(descriptor => descriptor.participant))
@@ -178,20 +179,23 @@ export class SpryRoom {
   #hostOf(endpoint: string): string | undefined {
     try { return spryOfferHost(this.session.peerDescriptors?.() ?? [], endpoint) } catch { return undefined }
   }
-  /** A foreign `spry:` offer is used only from a standard node, and only
-   *  while the app allows that member's relay. */
+  /** Another member's offer, over any transport; this device's own node is not. */
+  #foreign(offer: SpryOffer): boolean { return !this.#ownNode(offer) }
+  /** A foreign `spry:` offer is used only from a standard node, and any
+   *  foreign offer only while the app allows that member's relay. */
   #usable(offer: SpryOffer): boolean {
-    return !this.#foreignControl(offer) || isSpryStandardOffer(offer) && this.#mayUse(this.#hostOf(offer.endpoint))
+    if (!this.#foreign(offer)) return true
+    return (!this.#foreignControl(offer) || isSpryStandardOffer(offer)) && this.#mayUse(this.#hostOf(offer.endpoint))
   }
   /**
-   * Another member's built-in relay this device holds an offer for but may
-   * not use yet, and who offers it (undefined when no single participant
-   * does): what a one-time choice would name.
+   * Another member's relay this device holds an offer for but may not use
+   * yet, and who offers it (undefined when no single participant does):
+   * what a one-time choice would name.
    */
   blocked(): { endpoint: string; host: string | undefined } | undefined {
     for (const offer of [this.#offer, this.#shared]) {
       if (!offer || offer.expiresAt <= Date.now() / 1000 || this.#withdrawn.has(offer.token)) continue
-      if (this.#foreignControl(offer) && isSpryStandardOffer(offer) && !this.#usable(offer)) return { endpoint: offer.endpoint, host: this.#hostOf(offer.endpoint) }
+      if (this.#foreign(offer) && !this.#usable(offer)) return { endpoint: offer.endpoint, host: this.#hostOf(offer.endpoint) }
     }
     return undefined
   }
@@ -244,9 +248,9 @@ export class SpryRoom {
   #publishable(): SpryOffer | undefined {
     const offer = this.#shares() ? this.#own ?? this.#offer : this.#offer
     if (!offer || this.#withdrawn.has(offer.token)) return undefined
-    // Another member's `spry:` offer is its host's to publish: a copy would
-    // make the host unknown to a guest choosing whether to use it.
-    if (this.#foreignControl(offer)) return undefined
+    // Another member's offer is its host's to publish: a copy would make the
+    // host unknown to a guest choosing whether to use it, or name the wrong one.
+    if (this.#foreign(offer)) return undefined
     if (!this.#shares() && this.#ownNode(offer) && offer.token !== this.#shared?.token) return undefined
     return offer
   }

@@ -5449,7 +5449,7 @@ async function joinCall(): Promise<void> {
   try { await spryRooms.get(s)?.prepare(relayOnlyCall) } catch (error) { relayFailure = error ?? new Error('Spry could not connect.') }
   if (session !== s) return
   // Hide my IP address with no relay yet, and another member's own relay on
-  // offer: ask once, naming them, then use it.
+  // offer (any transport): ask once, naming them, then use it.
   if (relayOnlyCall && sessionRelayBlocked.get(s) === true && await chooseMemberRelay(s)) {
     if (session !== s) return
     relayFailure = undefined
@@ -9548,11 +9548,14 @@ function currentRecordingView(s = session): ReturnType<typeof recordingView> {
 }
 
 /**
- * Hide my IP address and another member's own call relay (a built-in relay):
+ * Hide my IP address and another member's own call relay, whatever its
+ * transport (a built-in relay over `spry:`, or a paired node over `https:`):
  * it shows that member this device's internet address, so it is used only
- * after a one-time choice naming them, remembered on this device per host.
- * Without Hide my IP address the address is in the call's candidates anyway.
- * A relay the room cannot attribute to one member is not used.
+ * after a one-time choice naming them, remembered on this device per host and
+ * covering all of that person's relays. Without Hide my IP address the
+ * address is in the call's candidates anyway. A relay the room cannot
+ * attribute to one member is not used. This device's own relay and one
+ * entered in settings never reach this gate.
  */
 function mayUseMemberRelay(s: RoomSession, relayOnly: boolean, host: string | undefined): boolean {
   if (!relayOnly) return true

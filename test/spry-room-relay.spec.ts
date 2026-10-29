@@ -83,6 +83,21 @@ async function pairThisBrowser(page: Page, baseURL: string, request: APIRequestC
 
 const stored = (page: Page, key: string) => page.evaluate(k => localStorage.getItem(k), key)
 
+/** With Hide my IP address on, another member's relay is used only after a
+ *  one-time question naming them (the same for an `https:` relay as for a
+ *  built-in one). The wording is fixed; the name is whoever hosts it. */
+const relayChoice = (page: Page) => page.getByRole('alertdialog', { name: /^Use .+'s relay\?$/ })
+async function answerRelayChoice(page: Page, name: string | undefined, button: 'Use relay' | 'Not now' = 'Use relay') {
+  const dialog = relayChoice(page)
+  await expect(dialog).toBeVisible({ timeout: 60_000 })
+  // A host who has left no longer has a name on the roster: the key stands in.
+  if (name) {
+    await expect(dialog).toHaveAccessibleName(`Use ${name}'s relay?`)
+    await expect(dialog).toContainText(`${name} will see your address; others won't.`)
+  } else await expect(dialog).toContainText(/will see your address; others won't\./)
+  await dialog.getByRole('button', { name: button }).click()
+}
+
 interface Row {
   peer: number; policy: string; servers: { urls: string[]; username?: string }[]
   frames: number; energy: number; audioBytes: number; videoBytes: number; sentBytes: number
@@ -167,7 +182,11 @@ test('an unpaired guest joins by link and calls through the creator\'s Spry node
     expect(await stored(b.page, 'kithmoot.spry-pairing.v1')).toBeNull()
     expect(await stored(b.page, 'kithmoot.call-relay.v1')).toBeNull()
     await join(b.page)
+    // Hide my IP address is on: the creator is named once before their relay is used.
+    const asked = answerRelayChoice(b.page, 'Ada')
     await turnOnMedia(b.page)
+    await asked
+    expect(JSON.parse(await stored(b.page, 'kithmoot.spry-consent.v1') ?? '[]'), 'the choice is remembered for the creator').toHaveLength(1)
     expect(await stored(b.page, 'kithmoot.spry-pairing.v1'), 'the guest must stay unpaired').toBeNull()
     expect(await stored(b.page, 'kithmoot.call-relay.v1'), 'the guest must have no relay settings').toBeNull()
 
@@ -254,14 +273,19 @@ async function refusedCall(browser: Browser, baseURL: string, request: APIReques
     await pairThisBrowser(a.page, baseURL, request)
     const link = await createRoom(a.page, baseURL)
     await open(b.page, link, 'Rowan'); await join(b.page)
-    const issued = b.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 30_000 })
+    const issued = b.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    const askedB = answerRelayChoice(b.page, 'Ada')
     await b.page.locator('#callToggle').click()
+    await askedB
     await issued
     expect(await request.post(`${FACADE}/fixture/${lose === 'revoke' ? 'revoke' : 'stop-node'}`).then(r => r.ok())).toBe(true)
 
     await open(c.page, link, 'Cleo'); await join(c.page)
     await expect(c.page.locator('#roomArea')).toBeVisible()
+    // Asked and agreed, so the refusal comes from the relay itself.
+    const askedC = answerRelayChoice(c.page, 'Ada')
     await c.page.locator('#callToggle').click()
+    await askedC
     await expect(c.page.locator('#status')).toContainText(REFUSAL, { timeout: 30_000 })
     const refusal = await c.page.locator('#status').innerText()
     expect(refusal, 'a guest is not pointed at a pairing it does not have').not.toMatch(/pairing|Connections/)
@@ -292,9 +316,11 @@ test('a relay-only guest is refused, not sent direct, when the node is down', as
   await refusedCall(browser, baseURL!, request, 'stop')
 })
 
-test('a member vouches a relay-only newcomer in while the owner is away, and it calls through the room\'s relay', async ({ browser, baseURL, request }) => {
-  // Everyone has Hide my IP address on: the newcomer cannot be on a call
-  // before it has a relay, so members vouch for it when it is admitted.
+test('a member vouches a relay-only newcomer in while the owner is away, and the newcomer is not sent to anyone else\'s relay', async ({ browser, baseURL, request }) => {
+  // Everyone has Hide my IP address on. Members still vouch for a newcomer's
+  // key, so it is ready when the owner is back; but nobody republishes the
+  // owner's offer, so with the owner gone no one can be named as its host and
+  // the newcomer is refused rather than asked about the wrong member.
   const [a, b, c] = await Promise.all([0, 1, 2].map(() => device(browser, baseURL!)))
   expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
   try {
@@ -302,7 +328,9 @@ test('a member vouches a relay-only newcomer in while the owner is away, and it 
     const link = await createRoom(a.page, baseURL!)
     await open(b.page, link, 'Rowan'); await join(b.page)
     const issued = b.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    const askedB = answerRelayChoice(b.page, 'Ada')
     await turnOnMedia(b.page)
+    await askedB
     await issued
     await expect.poll(async () => (await fixtureStats(request)).sealed, { timeout: 30_000 }).toBe(true)
     // The owner goes away, and with it every registrar.
@@ -312,23 +340,17 @@ test('a member vouches a relay-only newcomer in while the owner is away, and it 
     await open(c.page, link, 'Cleo'); await join(c.page)
     await expect(c.page.locator('#roomArea')).toBeVisible()
     await vouched
-    const relayed = c.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
-    await turnOnMedia(c.page)
-    await relayed
-    const rows = await movingRelayedMedia(c.page, 1)
-    for (const row of rows) {
-      expect(row.policy, 'newcomer is relay-only').toBe('relay')
-      expect([row.local, row.remote]).toEqual(['relay', 'relay'])
-      expect(row.url).toMatch(TURN_URL)
-    }
-    expect(await registeredOnNode(request, credentialSigner(c)!), 'newcomer vouched').toBe(true)
+
+    await c.page.locator('#callToggle:visible').click()
+    await expect(c.page.locator('#status')).toContainText(RELAY_ONLY_NO_RELAY, { timeout: 30_000 })
+    await expect(relayChoice(c.page)).toHaveCount(0)
+    expect(await stored(c.page, 'kithmoot.spry-rooms.v1'), 'the newcomer holds no copy of the offer').toBeNull()
+    expect(await c.page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), 'nothing went direct').toBe(0)
+    expect(c.spryPosts.get('/v1/credentials') ?? 0, 'the relay was never contacted').toBe(0)
+    expect(await stored(c.page, 'kithmoot.spry-consent.v1')).toBeNull()
     expect(c.spryPosts.get('/v1/grants/vouch') ?? 0, 'the newcomer does not vouch for itself').toBe(0)
     expect(c.spryPosts.get('/v1/grants') ?? 0, 'the newcomer holds no grant').toBe(0)
     expect([...b.denied, ...c.denied]).toEqual([])
-    await test.info().attach('spry-room-relay-vouch', { contentType: 'application/json', body: JSON.stringify({
-      ownerOnline: false, newcomerRelayOnly: true, voucherVouches: b.spryPosts.get('/v1/grants/vouch'),
-      newcomerCredentialRequests: c.spryPosts.get('/v1/credentials'), selectedPair: 'relay/relay',
-    }, null, 2) })
   } finally { await Promise.all([b, c].map(d => d.context.close())); await a.context.close().catch(() => {}) }
 })
 
@@ -373,7 +395,10 @@ test('in a room they did not make, paired members call through their own relays,
 
     // Now the maker calls through it, registered by the paired member's app.
     const relayed = maker.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    // The maker has Hide my IP address on: asked once, by the sharing member's name.
+    const asked = answerRelayChoice(maker.page, 'Rowan')
     await maker.page.locator('#callToggle').click()
+    await asked
     await relayed
     expect(await registeredOnNode(request, credentialSigner(maker)!), 'maker registered').toBe(true)
 
@@ -392,4 +417,30 @@ test('in a room they did not make, paired members call through their own relays,
     expect(await paired.page.evaluate(() => localStorage.getItem('kithmoot.spry-share.v1'))).toBeNull()
     expect([...maker.denied, ...paired.denied, ...other.denied]).toEqual([])
   } finally { await Promise.all([maker, paired, other].map(d => d.context.close())) }
+})
+
+test('a Hide my IP guest who says Not now is not sent to a member\'s https relay, and a guest without it is not asked', async ({ browser, baseURL, request }) => {
+  const [a, b, c] = await Promise.all([true, true, false].map(hide => device(browser, baseURL!, hide)))
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(a.page, baseURL!, request)
+    const link = await createRoom(a.page, baseURL!)
+    await open(b.page, link, 'Rowan'); await join(b.page)
+    const asked = answerRelayChoice(b.page, 'Ada', 'Not now')
+    await b.page.locator('#callToggle').click()
+    await asked
+    await expect(b.page.locator('#status')).toContainText(RELAY_ONLY_NO_RELAY, { timeout: 30_000 })
+    expect(await b.page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length), 'nothing went direct').toBe(0)
+    expect(b.spryPosts.get('/v1/credentials') ?? 0, 'the relay was never contacted').toBe(0)
+    expect(await stored(b.page, 'kithmoot.spry-consent.v1')).toBeNull()
+
+    // Without Hide my IP address the relay is used as before, unasked.
+    await open(c.page, link, 'Sam'); await join(c.page)
+    const used = c.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    await c.page.locator('#callToggle').click()
+    await used
+    await expect(relayChoice(c.page)).toHaveCount(0)
+    expect(await stored(c.page, 'kithmoot.spry-consent.v1')).toBeNull()
+    expect([...a.denied, ...b.denied, ...c.denied]).toEqual([])
+  } finally { await Promise.all([a, b, c].map(d => d.context.close())) }
 })
