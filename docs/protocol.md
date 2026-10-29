@@ -89,6 +89,7 @@ submission to the upstream registry is separate. Existing numbers do not change.
 | 1462 | Room rekey | Authority-signed, prior-epoch ciphertext; regular |
 | 1463 | Group invitation | Creator-signed, bearer-derived ciphertext; regular |
 | 1464 | Call bell | Throwaway-signed, daily room-derived tag, room/epoch ciphertext; regular with NIP-40 expiration |
+| 1465 | Delivery receipt | Signed by a one-time key derived from the device key, chat stream `d`, stream-derived ciphertext; regular with NIP-40 expiration of at most seven days |
 | 20460 | Device credential | Participant-signed inner event; never published bare |
 | 20461 | Roster | Device-signed room ciphertext; ephemeral |
 | 20462 | KithMoot signal | Signed inner event or sealed rumor; never published bare |
@@ -657,6 +658,83 @@ read the roster.
 way round, link bells of one room across days without the key, or tie a bell
 to any device or participant key: those are only inside the ciphertext.
 Another room's bells share nothing with this one's on the wire.
+
+## Delivery receipts
+
+A delivery receipt says that some messages reached a device: they were
+decrypted and verified there. It is never a read receipt and says nothing
+about whether anybody looked. A sender shows two ticks for a message once a
+receipt from another person's device names it. The design, writer rules and
+UI are in `docs/design/2026-10-28-delivery-ticks.md`; this section is the
+wire contract, pinned by `vectors/delivery-receipt-v1.json`.
+
+Kind 1465 is regular, so a sender who was away learns on return. The outer
+event has these tags and no others beyond a total of four, each name once:
+
+- `d`: the chat stream's own `d` (`deriveChannel` of the epoch root and the
+  channel name, exactly as kind 1460 carries it), 64 hex characters.
+- `expiration`: canonical decimal, `created_at + 604800`, lowered to a
+  conference room's end when it is sooner. Required.
+
+The outer event is signed by a key used for that one receipt:
+HKDF-SHA256(device secret key, empty salt,
+`kithmoot/v1/delivery-receipt-outer:<d>:<created_at>:<n>`, 32), where `n` is
+the receipt's decimal index within that second for that stream (0 unless a
+flush splits). Derived so the device can later sign NIP-09 deletions of its
+own receipts; nobody without the device key can link two receipts to each
+other or to the device.
+
+The content is NIP-44 v2 under the conversation key HKDF-SHA256(stream key,
+empty salt, `kithmoot/v1/delivery-receipt-key`, 32), separate from the chat
+key, of `{"v":1,"body":<string>,"sig":<128 lower-case hex>}` with exactly
+those three keys. `body` is compact JSON kept as a string so the signature
+covers the sender's bytes, with keys in this order:
+
+```json
+{"v":1,"room":"<room id>","participant":"<hex>","device":"<hex>","credential":{...},"proof":{...},"agent":true,"got":["<16 hex>"]}
+```
+
+`proof` (the admission proof chat carries in closed tiers) and `agent` are
+omitted when absent. `agent` counts only as exact boolean `true`. Unknown
+body keys are ignored. `got` lists 1 to 256 unique entries, each the first 16
+hex characters of SHA-256 of UTF-8 `kithmoot/v1/delivery-receipt-id:` + the
+message's inner id (`ChatMessage.id`). `room`, `participant` and `device` are
+64 lower-case hex characters. `sig` is the device's BIP-340 signature over
+SHA-256 of UTF-8
+`kithmoot/v1/delivery-receipt:<room id>:<d>:<outer pubkey>:<created_at>:<body>`,
+every hex lower case. Binding the outer key and `d` stops a member lifting a
+body into another event or stream.
+
+A reader refuses a receipt, silently, unless every check holds. The cheap
+ones come before any signature check or decryption:
+
+1. Kind 1465; at most four tags with unique names and string values; one
+   two-value `d` of 64 hex characters naming a stream the reader follows;
+   one canonical `expiration` with `created_at < expiration <= created_at +
+   604860`; the serialised event at most 16,384 UTF-8 bytes.
+2. `created_at` at most 60 seconds ahead of the reader's clock and at most
+   604,800 seconds behind it; `expiration` still in the future.
+3. The outer signature verifies.
+4. The content opens under the receipt key; envelope and body `v` are 1;
+   `room` is the reader's room; `got` is well formed.
+5. The inner signature verifies against `device`.
+6. `credential` binds `device` to `participant` for this room and is valid
+   at `created_at`, the rule chat applies at `sentAt`.
+7. The room's access policy admits `participant` at `created_at`, with
+   `proof` when present.
+
+The 60-second future bound is deliberately tighter than chat's 300: a
+receipt is signed when it is published, never composed offline.
+
+**What a relay learns.** That a key it has never seen wrote a small event
+under a chat stream's `d` at a time, and the connection that published it.
+The `d` already groups that stream's chat, so the receipt adds no linkage the
+relay could not get from timing. It cannot read which messages, which
+person or which device a receipt is about. Its timing does show that a device
+in the room was active. Quiet rooms never publish receipts.
+
+**What members learn.** When each member's device received each message.
+That is the point of the feature, and why no read state is ever carried.
 
 ## Call signalling profile 1
 

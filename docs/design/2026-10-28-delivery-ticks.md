@@ -1,6 +1,8 @@
 # Delivery ticks: sent and delivered, no read receipts
 
-Status: design, not implemented. Owner decision of 28 October 2026: sent and
+Status: one tick shipped (web and desktop 0.1.112); receipt codec and vectors
+implemented (`src/delivery-receipt.ts`, `vectors/delivery-receipt-v1.json`),
+not yet sent or read by any client. Owner decision of 28 October 2026: sent and
 delivered ticks; no read receipts. Signal is the simplicity reference.
 
 ## Why

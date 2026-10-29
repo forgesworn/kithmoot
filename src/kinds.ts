@@ -73,4 +73,11 @@ export const KINDS = {
    * with a daily rendezvous derived from the epoch key, so a relay cannot
    * tie it to the room's roster or to any device. See `call-bell.ts`. */
   CALL_BELL: 1464,
+  /** A device saying which messages reached it, so their sender can show
+   * "Delivered". Never a read receipt. Regular, so a sender who was away
+   * learns on return, and every one carries a NIP-40 `expiration` at most
+   * seven days out. Signed by a key derived for that one receipt and tagged
+   * only with the chat stream's existing `d`, so a relay learns nothing the
+   * stream's chat does not already tell it. See `delivery-receipt.ts`. */
+  DELIVERY_RECEIPT: 1465,
 } as const
