@@ -1271,6 +1271,16 @@ video {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* Two ticks: the same muted ink as one, never a highlight, so it cannot read as "read". */
+.deliveryTick.delivered { padding: 0; }
+.deliveredButton { display: inline-flex; align-items: center; margin: 0; padding: 0 2px; min-height: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.deliveredButton:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+.deliveredDetails { display: none; flex-direction: column; gap: .3rem; }
+.deliveredDetails:popover-open { display: flex; }
+.deliveredPerson { display: flex; justify-content: space-between; gap: 1rem; }
+.deliveredPerson time, .deliveredNote, .deliveredSection { color: var(--muted); }
+.deliveredSection { margin-top: .35rem; font-size: var(--fs-1); }
+.deliveredNote { margin-top: .35rem; max-width: 18rem; }
 
 .bubble::after {
   content: '';

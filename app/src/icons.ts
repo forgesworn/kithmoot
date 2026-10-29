@@ -42,6 +42,7 @@ export const ICONS = {
   lock: '<rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   compose: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  checks: '<path d="M2 12.5l4.5 4.5L16 7.5"/><path d="M11 16l1 1L21.5 7.5"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   signin: '<path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M18 12H8"/>',
   leave: '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 8l-4 4 4 4M6 12h10"/>',

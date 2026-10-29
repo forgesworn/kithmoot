@@ -73,12 +73,31 @@ async function send(page: Page, text: string): Promise<void> {
 const own = (page: Page, text: string) => page.locator('#chatLog .msg.mine', { hasText: text })
 const tick = (page: Page, text: string) => own(page, text).locator('.deliveryTick')
 
+test('a message turns to two ticks once the other person\'s device confirms it, and never says read', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), other = await contextFor(browser, baseURL!)
+  try {
+    const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [testRelay(baseURL!)])
+    const ada = await context.newPage(), bo = await other.newPage()
+    await join(ada, link, 'Ada'); await join(bo, link, 'Bo')
+    await send(ada, 'Did it arrive?')
+    await expect(bo.locator('#chatLog .msg.theirs', { hasText: 'Did it arrive?' })).toBeVisible()
+    await expect(tick(ada, 'Did it arrive?')).toHaveAttribute('data-state', 'delivered', { timeout: 30_000 })
+    await expect(tick(ada, 'Did it arrive?').locator('button')).toHaveAttribute('aria-label', 'Delivered to Bo')
+    await expect(ada.locator('#chatLog .deliveryTick[data-state="delivered"]')).toHaveCount(1)
+    await expect(ada.locator('#chatLog')).not.toContainText(/\bRead\b|\bSeen\b/)
+    // Bo's own screen shows no tick on Ada's message.
+    await expect(bo.locator('#chatLog .msg.theirs .deliveryTick')).toHaveCount(0)
+  } finally { await context.close(); await other.close() }
+})
+
 test('a message shows a clock, then one tick once a relay has returned it, and only its own messages have one', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!), other = await contextFor(browser, baseURL!)
   try {
     const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [testRelay(baseURL!)])
     const ada = await context.newPage(), bo = await other.newPage()
     await join(ada, link, 'Ada'); await join(bo, link, 'Bo')
+    // One tick only here: Bo confirms nothing, so the second tick never supersedes it.
+    await bo.evaluate(() => localStorage.setItem('kithmoot.delivery-receipts.v1', 'off'))
     await send(ada, 'Is this kept?')
     await expect(own(ada, 'Is this kept?')).toBeVisible()
     // A relay said OK a moment ago; nobody has yet been asked whether it kept it.

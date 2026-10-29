@@ -79,6 +79,8 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { PendingSends, StorageStuckError, type PendingSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
+import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
+import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
 import { signerLabel } from './signer-label.js'
@@ -109,7 +111,7 @@ import { FloatingSharePreview, floatingPreviewSupported } from './floating-share
 import { mayShowItself, type CaptureIdentity } from './self-mirror-guard.js'
 import { DrawingNoticeGate } from './drawing-notice.js'
 import type { ScreenAnnotation } from '../../src/signal.js'
-import { CredentialRenewalError, EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason } from '../../src/session.js'
+import { CredentialRenewalError, EpochUnreachableError, RESUME_MIN_REMAINING_SECONDS, type EpochWaitReason, type RoomSessionBaseOptions } from '../../src/session.js'
 import { ANDROID_DOWNLOAD_URL, DESKTOP_DOWNLOAD_URL, appLinkFor, appPlatform } from './open-in-app.js'
 import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, latestDmRelayList, relaysForPrivateConversation } from '../../src/dm-relays.js'
 import type { MarkAuthor } from './share-marks.js'
@@ -504,6 +506,15 @@ setInterval(() => { if (pendingSends.holding) outbox.render() }, 1000)
 /** Seconds a typed message waits before it goes, for a moment to take it
  *  back. Per device, off unless chosen. */
 const SEND_DELAY_KEY = 'kithmoot.send-delay'
+// Delivery confirmations: on unless the person turned them off. Read at every flush, so a change applies at once.
+;($('sendDeliveryReceipts') as HTMLInputElement).checked = sendsDeliveryReceipts(localStorage)
+$('sendDeliveryReceipts').addEventListener('change', () => {
+  const on = ($('sendDeliveryReceipts') as HTMLInputElement).checked
+  try { localStorage.setItem(DELIVERY_RECEIPTS_SETTING, on ? 'on' : 'off') } catch {
+    ;($('sendDeliveryReceipts') as HTMLInputElement).checked = sendsDeliveryReceipts(localStorage)
+    setStatus('This browser could not save the choice, so it has not changed.')
+  }
+})
 const SEND_DELAYS = [0, 5, 10]
 function sendDelaySeconds(): number {
   try {
@@ -1247,6 +1258,27 @@ const delivery = new DeliveryTicks({
   askBack: eventId => sessionTransport?.askBack(eventId),
   onChange: () => syncDeliveryTicks(),
 })
+/** Says which messages reached this device, unless the person turned that off. See src/delivery-receipt-writer.ts. */
+const receiptWriter = new DeliveryReceiptWriter({ store: deviceStore, enabled: () => sendsDeliveryReceipts(localStorage) })
+/** Who has confirmed this person's own messages: the second tick. See delivery-receipts.ts. */
+const deliveredLedger = new DeliveredLedger({ store: deviceStore, onChange: roomId => { if (session && currentRoomId() === roomId) syncDeliveryTicks() } })
+
+/** One session's part in delivery receipts: confirm what arrives from
+ *  others, and hear who confirmed this person's own messages. A quiet room
+ *  does neither: a bare receipt would say in the open that a device there
+ *  just received something. */
+function deliveryReceiptHooks(roomId: string, self: string, quiet: boolean): Pick<RoomSessionBaseOptions, 'receipts' | 'onChatAccepted'> {
+  if (quiet) return {}
+  const me = self.toLowerCase()
+  return {
+    receipts: { since: () => deliveredLedger.since(roomId), onReceipt: receipt => deliveredLedger.receipt(roomId, receipt, me) },
+    onChatAccepted: (message, d, log) => {
+      if (message.participant === me) deliveredLedger.own(roomId, message)
+      else receiptWriter.received({ roomId, self: me }, message, d, log)
+    },
+  }
+}
+
 // The relays answer about a write a few seconds after it, so the clock is looked at again until they have.
 setInterval(() => {
   const roomId = session ? currentRoomId() : undefined
@@ -2007,6 +2039,8 @@ function followReadPositions(roomId: string, roomKey: Uint8Array, expiresAt?: nu
  * time. Every tab whose room is going does this before the deletion.
  */
 async function stopReadPositions(roomId: string): Promise<void> {
+  // A delivery receipt still waiting would land after the deletion too.
+  receiptWriter.cancel(roomId)
   readSync?.forget(roomId)
   await readSync?.settle()
 }
@@ -11590,22 +11624,133 @@ function deliveryTick(id: string, state: DeliveryState): HTMLButtonElement {
   return button
 }
 
+/** Who besides this person is known in the room on screen: the roster,
+ *  the log's authors and whoever confirmed. Agents apart, since an agent's
+ *  confirmation lights the tick only when nobody else is known. */
+function deliveryAudience(s: RoomSession, delivered: readonly DeliveredBy[]): { knownPeople: boolean; knownOthers: number } {
+  const me = s.participant
+  const agents = new Set<string>(), people = new Set<string>()
+  for (const p of s.participants()) if (p.participant !== me) (p.agent ? agents : people).add(p.participant)
+  for (const w of delivered) if (w.participant !== me) (w.agent ? agents : people).add(w.participant)
+  for (const m of conversationMessages(undefined)) if (m.participant !== me && !agents.has(m.participant)) people.add(m.participant)
+  for (const a of agents) people.delete(a)
+  return { knownPeople: people.size > 0, knownOthers: people.size + agents.size }
+}
+
+/**
+ * Two ticks: at least one other person's device confirmed the message. A
+ * button whose details, on hover or focus, list who and when, then who has
+ * not confirmed where the room has a fixed member list. Muted like the one
+ * tick; there is no "read".
+ */
+function deliveredTick(messageId: string, view: DeliveredView, words: { text: string; label: string }, linkRoom: boolean): HTMLElement {
+  const wrap = document.createElement('span')
+  wrap.className = 'deliveryTick delivered'
+  wrap.dataset.state = 'delivered'
+  wrap.dataset.key = `delivered:${words.label}:${view.people.length}:${view.agents.length}`
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'deliveredButton'
+  button.title = words.text
+  button.setAttribute('aria-label', words.label)
+  button.append(icon('checks'))
+  const details = document.createElement('span')
+  details.className = 'reactionDetails deliveredDetails'
+  details.popover = 'manual'
+  details.id = `delivered-details-${messageId}`.replace(/[^A-Za-z0-9_-]/g, '_')
+  details.setAttribute('role', 'tooltip')
+  const heading = document.createElement('strong')
+  heading.textContent = view.of !== undefined && view.of > 1 ? words.text : words.label
+  details.append(heading)
+  const line = (label: string, at?: number): HTMLElement => {
+    const row = document.createElement('span')
+    row.className = 'deliveredPerson'
+    const name = document.createElement('span')
+    name.textContent = label
+    row.append(name)
+    if (at !== undefined) {
+      const time = document.createElement('time')
+      time.dateTime = new Date(at * 1000).toISOString()
+      time.textContent = CLOCK.format(new Date(at * 1000))
+      time.title = DATE_FULL.format(new Date(at * 1000))
+      row.append(time)
+    }
+    return row
+  }
+  const section = (title: string): void => {
+    const h = document.createElement('span')
+    h.className = 'deliveredSection'
+    h.textContent = title
+    details.append(h)
+  }
+  for (const w of view.people) details.append(line(personLabel(w.participant), w.at))
+  if (view.agents.length) {
+    section('Agents')
+    for (const w of view.agents) details.append(line(personLabel(w.participant), w.at))
+  }
+  if (view.waiting?.length) {
+    section('Not confirmed yet')
+    for (const p of view.waiting) details.append(line(personLabel(p)))
+  }
+  const foot = document.createElement('span')
+  foot.className = 'deliveredNote'
+  foot.textContent = linkRoom ? `${DELIVERED_FOOTNOTE} ${DELIVERED_LINK_ROOM_NOTE}` : DELIVERED_FOOTNOTE
+  details.append(foot)
+  button.setAttribute('aria-describedby', details.id)
+  let hideTimer: ReturnType<typeof setTimeout> | undefined
+  const keep = (): void => { clearTimeout(hideTimer) }
+  const hide = (): void => { keep(); if (details.matches(':popover-open')) details.hidePopover() }
+  const queueHide = (): void => { keep(); hideTimer = setTimeout(hide, 150) }
+  const show = (): void => {
+    if (dismissedReaction === details.id || !details.isConnected) return
+    keep()
+    // Top layer: a long list of names must not be clipped by the chat log.
+    document.querySelectorAll<HTMLElement>('.reactionDetails:popover-open').forEach(other => { if (other !== details) other.hidePopover() })
+    details.showPopover()
+    positionReactionDetails(details)
+  }
+  button.addEventListener('pointerenter', show)
+  button.addEventListener('pointerleave', queueHide)
+  details.addEventListener('pointerenter', keep)
+  details.addEventListener('pointerleave', queueHide)
+  button.addEventListener('focus', show)
+  button.addEventListener('blur', hide)
+  button.addEventListener('click', event => { event.stopPropagation(); if (details.matches(':popover-open')) hide(); else { dismissedReaction = undefined; show() } })
+  wrap.append(button, details)
+  return wrap
+}
+
 /** Put each own message's tick in the log to match what is known, without redrawing the log. */
 function syncDeliveryTicks(log: HTMLElement = $('chatLog')): void {
-  const roomId = session ? currentRoomId() : undefined
-  if (!roomId) return
+  const s = session
+  const roomId = s ? currentRoomId() : undefined
+  if (!s || !roomId) return
+  const linkRoom = !roomPolicy?.members
   for (const row of log.querySelectorAll<HTMLElement>(':scope > .msg.mine[data-message-id]')) {
     const meta = row.querySelector<HTMLElement>('.messageMeta')
     if (!meta) continue
-    const record = delivery.get(roomId, row.dataset.messageId!)
-    const existing = meta.querySelector<HTMLButtonElement>('.deliveryTick')
-    if (!record) { existing?.remove(); continue }
-    if (existing?.dataset.state === record.state) continue
-    const next = deliveryTick(record.id, record.state)
-    const hadFocus = !!existing && existing === document.activeElement
+    const id = row.dataset.messageId!
+    const record = delivery.get(roomId, id)
+    const existing = meta.querySelector<HTMLElement>('.deliveryTick')
+    // Two ticks supersede whatever the relays said, and need no record of
+    // ours: the message may have been sent from another of this person's devices.
+    const confirmed = isQuietPolicy(roomPolicy) ? [] : deliveredLedger.delivered(roomId, id)
+    const audience = confirmed.length ? deliveryAudience(s, confirmed) : undefined
+    const view = audience ? deliveredView(confirmed, { self: s.participant, knownPeople: audience.knownPeople, ...(roomPolicy?.members ? { members: roomPolicy.members } : {}) }) : undefined
+    let next: HTMLElement | undefined
+    if (view && audience) {
+      const words = deliveredWords(view, personLabel, audience.knownOthers)
+      const key = `delivered:${words.label}:${view.people.length}:${view.agents.length}`
+      if (existing?.dataset.key === key) continue
+      next = deliveredTick(id, view, words, linkRoom)
+    } else if (record) {
+      if (existing?.dataset.state === record.state) continue
+      next = deliveryTick(record.id, record.state)
+    } else { existing?.remove(); continue }
+    const hadFocus = !!existing && existing.contains(document.activeElement)
     if (existing) existing.replaceWith(next)
     else meta.querySelector('time.when')?.after(next)
-    if (hadFocus) next.focus()
+    if (hadFocus) (next.matches('button') ? next : next.querySelector('button'))?.focus()
   }
 }
 
@@ -13841,6 +13986,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
+          ...deliveryReceiptHooks(sessionRoomId, credential.pubkey, isQuietPolicy(roomPolicy)),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -13904,6 +14050,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
+          ...deliveryReceiptHooks(sessionRoomId, currentIdentity().pubkey, isQuietPolicy(roomPolicy)),
           // Epochs: follow a rekey signed by the room's authority, and ask it
           // first if the responder said the room is ahead of the secret we
           // were handed. See src/epoch.ts and docs/decisions.md.
@@ -16137,6 +16284,9 @@ function forgetLocally(roomId: string): void {
   stopWatching(roomId)
   // The room is not this browser's any more: no more read positions for it.
   readSync?.forget(roomId)
+  // Nor delivery confirmations, sent or received.
+  receiptWriter.forget(roomId)
+  deliveredLedger.forget(roomId)
   retireMeetingCode({ roomId })
   forgetRoomAccess(deviceStore, roomId)
   forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)

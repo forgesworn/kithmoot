@@ -32,7 +32,7 @@ import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
 import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf } from './chat.js'
-import type { ChatStream, EpochRoot, PastEpoch } from './chat.js'
+import type { ChatMessage, ChatStream, DeliveryReceiptHooks, EpochRoot, PastEpoch } from './chat.js'
 import { CONTROL_CHANNEL } from './control.js'
 import { ASSIGNMENT_CHANNEL } from './assignments.js'
 import type { EventArchive } from './archive.js'
@@ -200,6 +200,12 @@ export interface RoomSessionBaseOptions {
    *  Everything read back is checked by the same rules as a relay's events.
    *  See `archive.ts`. */
   archive?: EventArchive
+  /** Delivery receipts on every chat log this session opens: see
+   *  `ChatLogOptions.receipts`. */
+  receipts?: DeliveryReceiptHooks
+  /** Told of every message any of this session's chat logs accepts: see
+   *  `ChatLogOptions.onAccepted`. */
+  onChatAccepted?: (message: ChatMessage, d: string, log: ChatLog) => void
   secret: Uint8Array
   /** This endpoint's own key. Never the participant's. */
   deviceSk: Uint8Array
@@ -1565,6 +1571,8 @@ export class RoomSession {
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
+      ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
       expiresAt: this.#opts.endsAt,
       protocol: this.#opts.protocol,
     })
@@ -3498,6 +3506,8 @@ export class RoomSession {
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
+      ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
+      ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
       expiresAt: this.#opts.endsAt,
       protocol: this.#opts.protocol,
     })
