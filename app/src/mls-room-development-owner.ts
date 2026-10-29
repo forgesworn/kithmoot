@@ -249,7 +249,7 @@ export class BrowserMlsRoomDevelopmentOwner {
         () => active.current() && !!held?.current())
       const client = await this.#client(active, services, routeId, ctx, consent)
       const caps = await client.capabilities(active.current)
-      if (caps.state !== 'ok') throw new Error('The selected Bothy installation could not be authenticated.')
+      if (caps.state !== 'ok') throw new Error(nodeAuthenticationHeld(caps).reason)
       if (selected.type === 'accept') {
         if (!hex(selected.expectedInviterPersona)) throw new Error('Select the expected inviter through your authenticated private contact or OOB source first.')
         const wasm = await (admin ? loadAdminInvitationEngine() : loadInvitationEngine()), info = (admin ? wasm.inspectAdminInvitation : wasm.inspectInvitation)(BigInt(clock.read() ?? 0), selected.authorization)

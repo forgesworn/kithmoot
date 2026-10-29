@@ -9,6 +9,9 @@ export class PresenceAnnouncements {
   #missing = new Map<string, number>()
   #started = false
 
+  /** A new room has no replay population: its peer baseline is already empty. */
+  constructor(createdHere = false) { this.#started = createdHere }
+
   update(people: PresencePerson[], now: number, settled: boolean): PresenceAnnouncement[] {
     const present = new Map(people.map(person => [person.participant, person]))
     if (!this.#started || !settled) {
