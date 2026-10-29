@@ -21,7 +21,7 @@ export function spryEndpoint(value: unknown): string {
   if (value.startsWith('spry:')) { parseSpryControl(value); return value }
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.hash || url.search ||
-    !url.hostname.includes('.') || /(?:^|\.)(?:localhost|local|internal|invalid|test)$/.test(url.hostname) ||
+    !url.hostname.includes('.') || url.hostname.endsWith('.') || /(?:^|\.)(?:localhost|local|internal|invalid|test)$/.test(url.hostname) ||
     /^\[|^[0-9.]+$/.test(url.hostname)) throw new Error('Spry needs a public HTTPS address.')
   return url.origin
 }

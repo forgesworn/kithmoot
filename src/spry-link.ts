@@ -14,7 +14,8 @@ export function parseSpryControl(value: string): SpryControlEndpoint {
   for (const [name, value] of uri.searchParams) {
     if (name !== 'relay' || value.length > 256) throw new Error('Invalid Spry relay.')
     const url = new URL(value)
-    if (url.protocol !== 'wss:' || !url.hostname.includes('.') || url.username || url.password || url.hash || url.search ||
+    // A trailing dot (`localhost.`) would slip a local name past the suffix check.
+    if (url.protocol !== 'wss:' || !url.hostname.includes('.') || url.hostname.endsWith('.') || url.username || url.password || url.hash || url.search ||
       /^\[|^[0-9.]+$/.test(url.hostname) || /(?:^|\.)(?:localhost|local|internal|invalid|test)$/.test(url.hostname)) throw new Error('Invalid Spry relay.')
     if (relays.includes(url.href)) throw new Error('Invalid Spry relay.')
     relays.push(url.href)

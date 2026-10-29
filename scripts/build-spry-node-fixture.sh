@@ -38,4 +38,4 @@ git -C "$dir/src" checkout --quiet --detach FETCH_HEAD
 # spry-node supervises spry-turn from the same directory, so build both.
 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR="$dir/target" \
   cargo build --locked --release --manifest-path "$dir/src/Cargo.toml" --workspace --features tls --bins >&2
-echo "$dir/target/release/spry-node"
+echo "$dir/target/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release/spry-node"

@@ -70,6 +70,9 @@ const offers = [
   { name: 'peer card (a private node)', offer: { endpoint, node: rust.node }, standard: false },
   { name: 'no card', offer: { endpoint }, standard: false },
   { name: 'standard card on an https: offer', offer: { endpoint: 'https://relay.example', node: standard }, standard: false },
+  { name: 'control relay on a local name with a trailing dot', offer: { endpoint: `spry://${node}?relay=${encodeURIComponent('wss://localhost./')}`, node: standard }, standard: false },
+  { name: 'control relay that is an IP literal', offer: { endpoint: `spry://${node}?relay=${encodeURIComponent('wss://127.0.0.1/')}`, node: standard }, standard: false },
+  { name: 'control relay over ws:', offer: { endpoint: `spry://${node}?relay=${encodeURIComponent('ws://relay.example/')}`, node: standard }, standard: false },
 ]
 
 const ip = '1.2.3.4'

@@ -503,6 +503,69 @@
         }
       },
       "standard": false
+    },
+    {
+      "name": "control relay on a local name with a trailing dot",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Flocalhost.%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "control relay that is an IP literal",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2F127.0.0.1%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "control relay over ws:",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=ws%3A%2F%2Frelay.example%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
     }
   ],
   "urls": [
