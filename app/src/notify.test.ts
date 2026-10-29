@@ -136,6 +136,23 @@ describe('the notifier over changing logs', () => {
     expect(counts).toEqual([1, 0])
   })
 
+  it('reads a room as the identity it was joined as: what that identity sent from another device is never news', () => {
+    const { notifier, delivered } = harness()
+    // This device is signed in as somebody else right now (or not yet at
+    // all), but joined room A as ADA.
+    const ingest = notifier.follow({ roomId: ROOM_A, channel: 'chat', room: () => 'Town hall', sender: (m) => m.name ?? '?', self: () => ADA })
+    ingest([])
+    ingest([message('mine', ADA, NOW + 1, 'sent from my phone')])
+    expect(delivered).toEqual([])
+    ingest([message('mine', ADA, NOW + 1), message('theirs', ME, NOW + 2, 'hello Ada')])
+    expect(delivered).toHaveLength(1)
+    // With no identity of its own, a follow falls back to the notifier's.
+    const other = notifier.follow({ roomId: ROOM_B, channel: 'chat', room: () => 'Kitchen', sender: (m) => m.name ?? '?', self: () => undefined })
+    other([])
+    other([message('b1', ME, NOW + 3)])
+    expect(delivered).toHaveLength(1)
+  })
+
   it('with Only mentions and replies, tells about a reply, a mention and @everyone, and about everything in a private chat', () => {
     const store = memoryDeviceStore()
     setNotifySettings(store, { enabled: true })
