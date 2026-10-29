@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { createWeriftFactory, DEFAULT_ICE_REFRESH_MS } from './webrtc.js'
+import dgram from 'node:dgram'
+import { createWeriftFactory, DEFAULT_ICE_REFRESH_MS, LOOPBACK_HOST, NO_STUN_PLACEHOLDER } from './webrtc.js'
 import type { PeerContext } from '../peer.js'
 
 const TURN_CONTEXT: PeerContext = { tier: 'turn', remoteDevice: 'device' }
@@ -10,13 +11,41 @@ afterEach(() => {
 })
 
 describe('createWeriftFactory', () => {
-  it('builds no ICE servers, and logs, when nothing is configured', async () => {
+  it('names no STUN server but the loopback placeholder, and logs, when nothing is configured', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const factory = await createWeriftFactory()
     const pc = factory() as unknown as { getConfiguration(): RTCConfiguration }
-    expect(pc.getConfiguration().iceServers).toEqual([])
+    expect(pc.getConfiguration().iceServers).toEqual([{ urls: NO_STUN_PLACEHOLDER }])
     expect(errorSpy).toHaveBeenCalledOnce()
     expect(errorSpy.mock.calls[0]![0]).toContain('no STUN or TURN server configured')
+  })
+
+  it('never sends a STUN request off this machine when nothing is configured', async () => {
+    // werift replaces a missing STUN server with Google's; the placeholder
+    // must keep every datagram it sends on loopback.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const destinations: string[] = []
+    const send = dgram.Socket.prototype.send
+    vi.spyOn(dgram.Socket.prototype, 'send').mockImplementation(function (this: dgram.Socket, ...args: unknown[]) {
+      const address = args.find((value, index) => index > 0 && typeof value === 'string' && /[.:]/.test(value)) as string | undefined
+      if (address) destinations.push(address)
+      return (send as (...rest: unknown[]) => void).apply(this, args)
+    } as never)
+    const factory = await createWeriftFactory()
+    const pc = factory() as unknown as RTCPeerConnection
+    pc.createDataChannel('probe')
+    await pc.setLocalDescription(await pc.createOffer())
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await (pc as unknown as { close(): Promise<void> }).close()
+    expect(destinations.filter((address) => !address.startsWith('127.') && address !== '::1')).toEqual([])
+  }, 20_000)
+
+  it('offers loopback as a host address, the only one the library sends', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const factory = await createWeriftFactory()
+    const pc = factory() as unknown as { getConfiguration(): { iceAdditionalHostAddresses?: string[] } }
+    expect(LOOPBACK_HOST).toBe('127.0.0.1')
+    expect(pc.getConfiguration().iceAdditionalHostAddresses).toEqual([LOOPBACK_HOST])
   })
 
   it('splits static iceUrls into a STUN-only rung and a STUN+TURN rung, applying one credential to every turn: url', async () => {

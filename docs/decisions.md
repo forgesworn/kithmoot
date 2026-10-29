@@ -1545,6 +1545,17 @@ set; that is flagged as the owner's call in the PR that made this change
 rather than guessed at here, because there is no way to know from this
 repository alone which shape any given deployment is.
 
+**Correction, 28 October 2026: werift still asked Google.** An empty
+`iceServers` did not mean no STUN. werift replaces a missing STUN server
+with `stun.l.google.com:19302` inside its ICE layer and always gathers
+server-reflexive candidates from it, so every agent and forwarder run with
+nothing configured kept sending STUN requests to Google (a unit test
+recorded datagrams to 74.125.250.129). Both now hand werift a loopback
+placeholder, `stun:127.0.0.1:9` (`NO_STUN_PLACEHOLDER` in
+`src/node/webrtc.ts`), which answers nothing and never leaves the machine;
+`src/node/webrtc.test.ts` checks that no datagram goes anywhere but
+loopback.
+
 **Node agents and keepers derive the same origin-relative default the web
 app does - corrected 14 September 2026.** The first version of this change
 also defaulted `src/node/webrtc.ts`'s `createWeriftFactory` to no STUN and

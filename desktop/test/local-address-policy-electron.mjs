@@ -1,5 +1,6 @@
-// Offline integration check of the real desktop entry point, before its first
-// page script creates a peer connection. No camera, microphone or VPN changes.
+// Offline integration check of the real desktop entry point: every main
+// window hides local network addresses before its first page script creates a
+// peer connection, with no opt-in. No camera, microphone or VPN changes.
 import assert from 'node:assert/strict'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,12 +9,12 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { _electron as electron, expect } from '@playwright/test'
 import { stopIsolatedApp } from './isolated-app.mjs'
-import { PROTOTYPE_IP_POLICY } from '../prototype-routing.mjs'
+import { LOCAL_ADDRESS_POLICY } from '../local-address-policy.mjs'
 
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const executablePath = process.env.ELECTRON_EXECUTABLE
 assert.ok(executablePath && isAbsolute(executablePath), 'Supply an Electron test executable')
-const fixture = await mkdtemp(join(tmpdir(), 'kithmoot-routing-'))
+const fixture = await mkdtemp(join(tmpdir(), 'kithmoot-local-addresses-'))
 const appDir = join(fixture, 'app')
 const results = []
 let app, appChild, profile, rejectedChild
@@ -47,14 +48,14 @@ app.on('web-contents-created', (_event, contents) => {
 })
 await import('./main.mjs')
 `)
-  for (const requested of [undefined, 'true', '1']) {
-    profile = join(fixture, `kithmoot-profile-${requested ?? 'unset'}`)
+  {
+    profile = join(fixture, 'kithmoot-profile')
     const env = { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, ROUTING_FIXTURE_VISITS: join(fixture, 'visits.json') }
-    delete env.KITHMOOT_DESKTOP_PROTON_ROUTING
+    // The variable that used to opt in must make no difference now.
+    env.KITHMOOT_DESKTOP_PROTON_ROUTING = '0'
     delete env.KITHMOOT_DESKTOP_SPRY_CONFIG
     delete env.ROUTING_FIXTURE_REJECT
-    if (requested !== undefined) env.KITHMOOT_DESKTOP_PROTON_ROUTING = requested
-    const policy = requested === '1' ? PROTOTYPE_IP_POLICY : 'default'
+    const policy = LOCAL_ADDRESS_POLICY
     app = await electron.launch({ executablePath, args: [appDir], env, timeout: 30000 })
     appChild = app.process()
     let page = await app.firstWindow()
@@ -69,8 +70,8 @@ await import('./main.mjs')
     await check()
     await page.reload()
     await check()
-    await app.evaluate(({ app }) => app.emit('open-url', { preventDefault() {} }, 'kithmoot://join?prototype=1#synthetic'))
-    await expect(page).toHaveURL(/prototype=1#synthetic$/)
+    await app.evaluate(({ app }) => app.emit('open-url', { preventDefault() {} }, 'kithmoot://join?fixture=1#synthetic'))
+    await expect(page).toHaveURL(/fixture=1#synthetic$/)
     await check()
     if (process.platform === 'darwin') {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].destroy())
@@ -79,25 +80,25 @@ await import('./main.mjs')
       page = await nextWindow
       await check()
     }
-    results.push({ requested: requested ?? 'unset', policy, reload: true, invitation: true, recreated: process.platform === 'darwin' })
-    if (process.platform === 'darwin' && requested === '1') {
+    results.push({ policy, reload: true, invitation: true, recreated: process.platform === 'darwin' })
+    if (process.platform === 'darwin') {
       const before = await app.evaluate(() => globalThis.routingVisits.length)
       await app.evaluate(({ app, BrowserWindow }) => {
         globalThis.routingRejectPolicy = true
         BrowserWindow.getAllWindows()[0].destroy()
         app.emit('activate')
       }).catch(() => {}) // The controlled exit can close the evaluation pipe.
-      await expect.poll(() => appChild.exitCode).toBe(1)
+      await expect.poll(() => appChild.exitCode, { timeout: 15000 }).toBe(1)
       assert.equal(JSON.parse(await readFile(env.ROUTING_FIXTURE_VISITS, 'utf8')).length, before)
       results.push({ rejectedRecreatedWindow: true, exitCode: 1, navigationPrevented: true })
     }
     await stopCurrentApp()
   }
-  // A requested policy that Electron cannot apply exits before navigation.
+  // A policy that Electron cannot apply exits before navigation.
   profile = join(fixture, 'kithmoot-profile-rejected')
   const visitsFile = join(fixture, 'rejected-visits.json')
   rejectedChild = spawn(executablePath, [appDir], { env: {
-    ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, KITHMOOT_DESKTOP_PROTON_ROUTING: '1',
+    ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile,
     KITHMOOT_DESKTOP_SPRY_CONFIG: '', ROUTING_FIXTURE_REJECT: '1', ROUTING_FIXTURE_VISITS: visitsFile,
   }, stdio: ['ignore', 'ignore', 'pipe'] })
   let stderr = ''

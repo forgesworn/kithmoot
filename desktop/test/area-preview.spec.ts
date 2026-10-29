@@ -15,7 +15,7 @@ test('Wayland preview: the far end receives only the area drawn on the preview',
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-preview-'))
   const native = await electron.launch({
     executablePath: process.env.ELECTRON_EXECUTABLE ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+    args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--autoplay-policy=no-user-gesture-required'],
     env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, KITHMOOT_DESKTOP_AREA_MODE: 'preview' },
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })

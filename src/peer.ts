@@ -1,4 +1,5 @@
 import { normaliseHex } from './hex.js'
+import { hideLocalAddressesInSignal } from './local-address-filter.js'
 import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, type SdpSession } from './sdp-shape.js'
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
@@ -321,7 +322,19 @@ export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
   remoteDevice: string
+  /** Every signal for the far end. Its SDP and candidates have already been
+   *  through `hideLocalAddressesInSignal`, so no local network address
+   *  reaches it; a candidate that would reveal one is never handed over -
+   *  unless `revealLocalAddresses` is set. */
   onSignal: (body: SignalBody) => void
+  /**
+   * Send host candidates and addresses as gathered. Only for an endpoint that
+   * is infrastructure rather than a person's device: the reference forwarder
+   * (`server/forwarder.mjs`), which is documented to work on a box with a
+   * public address and no STUN server, where its host candidate is the only
+   * address it has to offer. Every client leaves this unset.
+   */
+  revealLocalAddresses?: boolean
   /** `receiver` is the browser receiver when the factory exposes it. It is
    * deliberately optional so Node and existing test factories stay valid. */
   onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole) => void
@@ -534,7 +547,17 @@ export class Peer implements NegotiatingPeer {
     // normalised at the one place a device pubkey enters this class rather
     // than trusted to already be canonical by the time it gets here.
     this.polite = normaliseHex(opts.localDevice) < normaliseHex(opts.remoteDevice)
-    this.#onSignal = opts.onSignal
+    // The one way out of this class, so every offer, answer and candidate -
+    // including an offer re-sent from `localDescription` and a stored answer
+    // replayed - loses this device's local addresses before it is signed.
+    // A profile-1 candidate carries no sequence number, so not sending one
+    // leaves no gap. See src/local-address-filter.ts.
+    this.#onSignal = opts.revealLocalAddresses
+      ? opts.onSignal
+      : (body) => {
+          const safe = hideLocalAddressesInSignal(body)
+          if (safe) opts.onSignal(safe)
+        }
     this.#onTrack = opts.onTrack
     this.#mustOfferFirst = opts.mustOfferFirst ?? false
     this.#pc = opts.factory(opts.context ?? { tier: 'direct', remoteDevice: opts.remoteDevice })

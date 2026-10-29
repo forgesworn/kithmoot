@@ -453,3 +453,29 @@ describe('acknowledged pending-message custody', () => {
     expect(h.image()).toEqual(before); expect(h.pending.items()[0]?.roomId).toBe(ROOM)
   })
 })
+
+describe('telling the page a relay acknowledged a message', () => {
+  it('says so once, with the signed event, when a publish succeeds', async () => {
+    const acknowledged: string[] = []
+    const store = memoryDeviceStore()
+    const pending = new PendingSends({ store, connected: () => true, schedule: () => {}, onAcknowledged: item => acknowledged.push(`${item.id}:${item.event.id}:${item.roomId}`) })
+    await add(pending, 'one', async () => {})
+    await flush()
+    expect(acknowledged).toEqual(['one:one:' + ROOM])
+  })
+
+  it('says nothing for a publish that failed', async () => {
+    const acknowledged: string[] = []
+    const pending = new PendingSends({ store: memoryDeviceStore(), connected: () => true, schedule: () => {}, onAcknowledged: item => acknowledged.push(item.id) })
+    await add(pending, 'one', async () => { throw new Error('every relay rejected the event (a: no)') })
+    await flush()
+    expect(acknowledged).toEqual([])
+  })
+
+  it('does not let a failing observer undo the acknowledgement', async () => {
+    const pending = new PendingSends({ store: memoryDeviceStore(), connected: () => true, schedule: () => {}, onAcknowledged: () => { throw new Error('boom') } })
+    await add(pending, 'one', async () => {})
+    await flush()
+    expect(pending.items(ROOM).find(item => item.id === 'one')?.acknowledged).toBe(true)
+  })
+})

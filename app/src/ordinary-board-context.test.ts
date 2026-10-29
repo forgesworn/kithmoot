@@ -9,7 +9,7 @@ describe('strict board-context personal metadata custody', () => {
     const f = boardContextFixture(mode), before = [...f.records]
     expect(route(f.name, 'browser')).toEqual({ family: 'metadata', custody: 'protected' })
     const counts = validate(f.records, false, { kind: 'browser' })
-    expect(counts).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 1 })
+    expect(counts).toEqual({ volumes: 0, pinLists: 0, notificationScopes: 0, projects: 0, mutes: 0, boardContexts: 1, deliveryLists: 0 })
     expect(Object.isFrozen(counts)).toBe(true)
     expect(validate(f.records, true, { kind: 'browser' })).toEqual(counts)
     expect([...f.records]).toEqual(before)

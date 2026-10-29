@@ -587,6 +587,10 @@ third party to every forwarder run without one - see docs/decisions.md,
 that date, for the full finding. It now defaults to none, and logs one
 plain line at start-up saying so.
 
+Until 28 October 2026 "none" was not quite true: werift itself swaps a
+missing STUN server for Google's, so the forwarder kept asking Google
+anyway. It now passes werift a loopback placeholder that contacts nobody.
+
 That is fine for most installs: a forwarder is normally the box named in
 the deploy guide above, with its own public address, and two peers with a
 public address connect on host candidates with no STUN server at all - it

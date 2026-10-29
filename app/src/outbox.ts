@@ -192,7 +192,8 @@ export class Outbox {
 
 /** What a row says about its message: pure, so every state's words can be checked without a page. `sending` is what a row says while its publish is in flight. */
 export function pendingStatusWords(item: PendingSend, sending: string, now: number): string {
-  if (item.acknowledged) return 'Sent'
+  // A relay saying OK is not the message being kept; the chat row's tick says that once it has the evidence.
+  if (item.acknowledged) return sending
   if (item.held) return 'Message held: could not save its state. Retry when storage is available.'
   const where = item.channel === 'Chat' ? '' : ` in ${item.channel}`
   switch (item.state) {

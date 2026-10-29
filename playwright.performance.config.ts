@@ -16,7 +16,7 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   use: {
     baseURL: `https://localhost:${port}/j/`, ignoreHTTPSErrors: true,
-    launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output', '--autoplay-policy=no-user-gesture-required'] },
+    launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--disable-audio-output', '--autoplay-policy=no-user-gesture-required'] },
   },
   projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
   webServer: [

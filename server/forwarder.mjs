@@ -357,7 +357,9 @@ export async function createWeriftStack(stunUrl) {
         'KITHMOOT_STUN_URL if this forwarder itself sits behind NAT.',
     )
   }
-  const iceServers = stunUrl ? [{ urls: stunUrl }] : []
+  // werift swaps a missing STUN server for Google's; the placeholder stops
+  // that (see NO_STUN_PLACEHOLDER in src/node/webrtc.ts).
+  const iceServers = [{ urls: stunUrl || 'stun:127.0.0.1:9' }]
 
   return {
     createConnection() {
@@ -455,6 +457,11 @@ export function createForwarder({ config, transport, stack, log = defaultLog, no
       localDevice: config.pubkey,
       remoteDevice: device,
       onSignal: (body) => send(device, body),
+      // Infrastructure, not a person's device: a forwarder on a box with a
+      // public address and no STUN server (see createWeriftStack) has only
+      // its host candidate to offer, and the shared library would otherwise
+      // drop it. Clients never set this; see src/local-address-filter.ts.
+      revealLocalAddresses: true,
       // A forwarder is not a member: a track is not media to it, only packets
       // to move.
       onTrack: (track) => onInboundTrack(device, track),
