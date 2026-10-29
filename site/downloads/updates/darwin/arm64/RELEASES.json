@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.112",
+  "currentRelease": "0.1.113",
   "releases": [
     {
-      "version": "0.1.112",
+      "version": "0.1.113",
       "updateTo": {
-        "version": "0.1.112",
-        "pub_date": "2026-10-29T03:45:00Z",
-        "notes": "Shares a paired Spry call relay in rooms this device made, or on one tap elsewhere; keeps local network addresses out of calls; shows a tick once a relay confirms it kept your message.",
-        "name": "0.1.112",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.112/KithMoot-0.1.112-mac-arm64.zip",
-        "sha256": "7b21af8552d9799b143586b19e9b3926bac72c70de2cda4d12d65170c781b8c2",
-        "size": 190131603
+        "version": "0.1.113",
+        "pub_date": "2026-10-29T12:00:00Z",
+        "notes": "Shows two ticks once another person's device has received your message (never read), with a setting under Messages to stop confirming; leaving and deleting a room also deletes your confirmations.",
+        "name": "0.1.113",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.113/KithMoot-0.1.113-mac-arm64.zip",
+        "sha256": "6a3cc8c016dd0c33c38d8e2427922fa89876d797ff9dbd28e352a93098d48271",
+        "size": 190132907
       }
     }
   ]
