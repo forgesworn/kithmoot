@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.122",
-  "versionCode": 145,
+  "versionName": "0.6.123",
+  "versionCode": 146,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70898176,
-  "apkSha256": "9e0397ae93ff08899918b1c491f03353cba09b358abcc37031775d68fc417b4e",
+  "apkBytes": 70955520,
+  "apkSha256": "cb2d807e5deac2693f1b214cbde587546bd8493fb0f6ecd0b514cf0613c548b9",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.122-production.apk",
+  "downloadFilename": "kithmoot-0.6.123-production.apk",
   "releaseNotes": [
-    "A room left open for more than a day keeps sending: your access to it now renews while it stays open, even after the phone sleeps.",
-    "A message never goes out under access that has run out; it waits in the message box and sends once access is renewed.",
-    "If your signer app refuses or does not answer, the message box says so in plain words, and Send tries again."
+    "With Spry paired, your call relay is shared in rooms you made on this phone, and by a switch in Room info elsewhere.",
+    "Other people on a call no longer see your phone's local network addresses.",
+    "Send any file, not only pictures, up to 256 MiB, with Save or Open with for files you receive."
   ]
 }
