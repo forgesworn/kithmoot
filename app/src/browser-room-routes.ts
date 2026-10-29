@@ -56,7 +56,17 @@ export class BrowserRoomRoutes {
   }
   changed(): void { this.barrier.changed() }
   pause(): void { this.#enabled = false; this.changed() }
-  resume(): void { this.#enabled = true; this.changed() }
+  /** Every sign-in and restore calls this, usually with routes already
+   *  enabled. Only a real change from paused tells the other tabs: a
+   *  broadcast makes each of them close and reopen its room pools and stop
+   *  its public operations, so a tab restoring its account in the background
+   *  cut short a deletion that another tab was in the middle of sending. */
+  resume(): void {
+    const wasEnabled = this.#enabled
+    this.#enabled = true
+    if (wasEnabled) this.barrier.wake()
+    else this.changed()
+  }
 }
 
 /** Text, roster and rekey reads only. Unsupported media/invitation channels
