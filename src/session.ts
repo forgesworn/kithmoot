@@ -24,7 +24,8 @@ import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwn
 import { Mesh } from './mesh.js'
 import type { PeerFactory } from './peer.js'
 import type { RoleResolver } from './peer-slots.js'
-import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteTrack, RouteView } from './mesh.js'
+import type { ForwardingState, MeshDiagnostic, RemoteAnnotation, RemoteRelayTest, RemoteTrack, RouteView } from './mesh.js'
+import type { RelayTestRequest, RelayTestResult } from './relay-test.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
 import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
@@ -769,6 +770,7 @@ export class RoomSession {
    */
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
   readonly #annotationListeners = new Set<(annotation: RemoteAnnotation) => void>()
+  readonly #relayTestListeners = new Set<(message: RemoteRelayTest) => void>()
   #unsub?: () => void
   #mesh?: Mesh
   #chat?: ChatLog
@@ -1517,6 +1519,15 @@ export class RoomSession {
             cb(annotation)
           } catch {
             // A drawing surface cannot disturb the room.
+          }
+        }
+      })
+      this.#mesh.onRelayTest((message) => {
+        for (const cb of [...this.#relayTestListeners]) {
+          try {
+            cb(message)
+          } catch {
+            // A relay test cannot disturb the room.
           }
         }
       })
@@ -3439,6 +3450,18 @@ export class RoomSession {
   onAnnotation(cb: (annotation: RemoteAnnotation) => void): () => void {
     this.#annotationListeners.add(cb)
     return () => this.#annotationListeners.delete(cb)
+  }
+
+  /** A relay outside test message to exactly one other admitted device,
+   *  through encrypted signalling (see `relay-test.ts`). False, and nothing
+   *  sent, when there is no call layer or that device is not in the roster. */
+  sendRelayTest(device: string, message: { type: 'relay-test'; relayTest: RelayTestRequest } | { type: 'relay-test-result'; relayTest: RelayTestResult }): boolean {
+    return this.#mesh?.sendRelayTest(device, message) ?? false
+  }
+
+  onRelayTest(cb: (message: RemoteRelayTest) => void): () => void {
+    this.#relayTestListeners.add(cb)
+    return () => this.#relayTestListeners.delete(cb)
   }
 
   /** The room's chat log. Only available after a successful `join()` - chat

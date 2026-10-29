@@ -7,6 +7,7 @@ import type { PairDiagnostics } from './pair-controller.js'
 import type { RoleResolver } from './peer-slots.js'
 import { wrapSignal, unwrapSignalEvent, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
 import type { ScreenAnnotation, SignalBody } from './signal.js'
+import { RELAY_TEST_SIGNALS_PER_WINDOW, type RelayTestRequest, type RelayTestResult } from './relay-test.js'
 import { SignalGuard } from './signal-guard.js'
 import { KINDS } from './kinds.js'
 import type { RelayTransport } from './relay-pool.js'
@@ -59,6 +60,12 @@ export interface RemoteAnnotation {
   device: string
   annotation: ScreenAnnotation
 }
+
+/** A relay outside test message from another admitted room device: a
+ *  host's request, or a tester's result. See `relay-test.ts`. */
+export type RemoteRelayTest = { participant: string; device: string; createdAt: number } & (
+  | { type: 'relay-test'; relayTest: RelayTestRequest }
+  | { type: 'relay-test-result'; relayTest: RelayTestResult })
 
 /** Something that went wrong in signalling and was survived, or something
  *  ordinary worth a line in a call's timeline. See `MeshOptions.onDiagnostic`. */
@@ -563,10 +570,14 @@ export class Mesh {
   readonly #trackOwner = new Map<string, string>()
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
   readonly #annotationListeners = new Set<(annotation: RemoteAnnotation) => void>()
+  readonly #relayTestListeners = new Set<(message: RemoteRelayTest) => void>()
   /** Staleness, deduplication and rate limiting - the three rules §3 of the
    *  design says signalling reuses from NIP-AC. */
   readonly #guard = new SignalGuard()
   readonly #annotationGuard = new SignalGuard(480)
+  /** Relay tests have a budget of their own, far below a call's, so a test
+   *  can neither starve the call nor be used to keep a device busy. */
+  readonly #relayTestGuard = new SignalGuard(RELAY_TEST_SIGNALS_PER_WINDOW)
   readonly #now: () => number
   #tracks: MediaStreamTrack[] = []
   /** Who the tracks are for. Absent means everybody. See `publish`. */
@@ -779,6 +790,20 @@ export class Mesh {
     return () => this.#annotationListeners.delete(cb)
   }
 
+  /** Send one relay outside test message to one other admitted room device.
+   *  False, and nothing sent, when that device is not in the roster. */
+  sendRelayTest(device: string, message: { type: 'relay-test'; relayTest: RelayTestRequest } | { type: 'relay-test-result'; relayTest: RelayTestResult }): boolean {
+    const to = normaliseHex(device)
+    if (this.#closed || !this.#annotationDevices.has(to)) return false
+    this.#send(to, { type: message.type, relayTest: message.relayTest })
+    return true
+  }
+
+  onRelayTest(cb: (message: RemoteRelayTest) => void): () => void {
+    this.#relayTestListeners.add(cb)
+    return () => this.#relayTestListeners.delete(cb)
+  }
+
   close(): void {
     if (this.#closed) return
     this.#closed = true
@@ -807,6 +832,7 @@ export class Mesh {
     this.#trackOwner.clear()
     this.#trackListeners.clear()
     this.#annotationListeners.clear()
+    this.#relayTestListeners.clear()
     try {
       this.#opts.forwarderMediaPipeline?.close?.()
     } catch {
@@ -2112,6 +2138,8 @@ export class Mesh {
     // only stable identity a budget can be held against is the one inside.
     if (unwrapped.body.type === 'annotation') {
       if (!this.#annotationDevices.has(unwrapped.from) || !this.#annotationGuard.admitSender(unwrapped.from, now)) return
+    } else if (unwrapped.body.type === 'relay-test' || unwrapped.body.type === 'relay-test-result') {
+      if (!this.#annotationDevices.has(unwrapped.from) || !this.#relayTestGuard.admitSender(unwrapped.from, now)) return
     } else if (!this.#guard.admitSender(unwrapped.from, now)) return
 
     this.#diagnose({ kind: 'signal-received', device: unwrapped.from, detail: unwrapped.body.type })
@@ -2138,6 +2166,22 @@ export class Mesh {
           listener({ participant, device: unwrapped.from, annotation })
         } catch {
           // Drawing UI cannot disturb signalling or the call.
+        }
+      }
+      return
+    }
+
+    if (unwrapped.body.type === 'relay-test' || unwrapped.body.type === 'relay-test-result') {
+      // Admitted by the roster above, never by a peer: a host and its tester
+      // usually have no connection open to each other.
+      const participant = this.#annotationDevices.get(unwrapped.from)
+      if (!participant || !unwrapped.body.relayTest) return
+      const message = { participant, device: unwrapped.from, createdAt: unwrapped.createdAt, type: unwrapped.body.type, relayTest: unwrapped.body.relayTest } as RemoteRelayTest
+      for (const listener of this.#relayTestListeners) {
+        try {
+          listener(message)
+        } catch {
+          // A test cannot disturb signalling or the call.
         }
       }
       return

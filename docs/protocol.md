@@ -781,10 +781,11 @@ Writers keep the existing seal-less envelope:
 
 1. Sign a kind-20462 inner event with the room device key. Its content is a
    `SignalBody` JSON object: `type` = `offer`, `answer`, `ice`, `assist` or
-   optional `annotation`;
+   optional `annotation`, `relay-test` or `relay-test-result` (see "Relay
+   outside test" below);
    `roomId`; optional `sdp`, JSON-string `candidate`, `trackHints`, `tier`,
-   `assist` (far-end device), `accept` (assist response boolean) and
-   `annotation`. An annotation is temporary screen-share markup:
+   `assist` (far-end device), `accept` (assist response boolean),
+   `annotation` and `relayTest`. An annotation is temporary screen-share markup:
    `{op:"stroke",shareId,strokeId,points:[{x,y},...]}` or
    `{op:"clear",shareId,strokeId:""}`. `shareId` is the advertised screen
    track ID; coordinates are finite numbers from zero to one; a stroke has
@@ -896,6 +897,67 @@ and the ±20-second staleness window never confuse a retransmission for a stale
 replay, and the inner-event-id dedup above never mistakes it for a duplicate
 of the original. Receiver dedup for profile-2 signals is keyed `(conn, seq)`
 rather than by inner event id.
+
+### Relay outside test
+
+A member who shares a built-in call relay (a `spry:` offer with a
+`spry-standard-v1` card, see the descriptor's Spry offer above) can ask one
+other device in the room to test that relay from wherever the device is. The
+test runs only when the host asks; nothing triggers it automatically. Both
+messages ride the envelope above, so each is NIP-44 to exactly one device,
+signed by the sending device key, tagged outside with only `p` and a NIP-40
+`expiration` 60 seconds out, and subject to the same staleness, dedup and
+roster checks. No new kind is used. An old reader refuses both types as it
+refuses any unknown `type`, so an old client is never asked to do anything;
+the host simply hears no answer.
+
+The host sends `type: "relay-test"` with
+`relayTest: {"id":"<16 lower-case hex>","endpoint":"<spry: URI>"}`: a fresh
+`id` and its own endpoint exactly as its room offer carries it. The tester
+answers the asking device alone with `type: "relay-test-result"` and
+`relayTest: {"id","endpoint","ok":<boolean>,"stage"?,"sameNetwork"?:true}`,
+echoing `id` and `endpoint`. `stage` is present exactly when `ok` is false and
+is one of `declined` (the tester did not run it), `credentials` (the node gave
+the tester no relay login), `allocate` (no relayed address), `stun` (the
+listener did not answer plain STUN) or `inbound` (both ends ready, nothing
+reached the relayed address). `sameNetwork` is present only as `true` and
+never with `declined` or `credentials`. Both bodies are closed: any other key,
+a missing key, an `id` that is not 16 lower-case hex, an endpoint over 1,024
+characters or not a canonical `spry:` URI refuses the whole signal. Neither
+body carries an address, a credential, a name or a time; the result's time is
+the signed inner `created_at`. Readers admit at most 8 relay-test signals per
+sending device per 20 seconds, apart from the call budget, and only from
+devices in the current roster, whether or not a media connection exists.
+
+A tester ignores, without answering, a request whose sender's participant is
+not the one participant whose descriptor carries that endpoint, or for an
+endpoint it holds no unexpired standard offer for. It answers a genuine host
+`declined` when a test is already running, when it ran a test for the same
+device in the last 60 seconds, or when it may not use that relay (Hide my IP address on
+and no choice made for that host). Otherwise it takes a relay login for the
+offer (one it holds with at least a minute left, or a fresh `/v1/credentials`
+redemption that is never applied to its calls), and answers `credentials` if
+that fails.
+
+The test itself, at most 15 seconds: peer A is relay-only on the returned
+TURN URLs; peer B has no TURN and uses `stun:<ip>:<port>` from the UDP TURN
+URL, so it learns its own public address and A's relay can let it in. The
+two peers exchange candidates locally, A opens a data channel and B echoes a
+fixed string. It passes when the echo returns, A's nominated succeeded pair
+has a `relay` local candidate that received bytes, and B's has a local
+candidate that is not `relay` and received bytes: B's checks reached A's
+relayed address from B's public address, through the host's allocation
+port, proving listener and allocation inbound together. Otherwise the stage
+is `allocate` when A gathered no relay candidate, then `stun` when B gathered
+no server-reflexive candidate and `sameNetwork` does not hold, otherwise
+`inbound`. `sameNetwork` holds when any of B's server-reflexive addresses, or
+the address of B's selected local candidate, equals the relay's IPv4: the
+tester was on the host's own network or machine. A host may call its relay
+reachable only from `ok: true` without `sameNetwork`; a pass with
+`sameNetwork` is a hint, never "reachable". Only the verdict leaves the
+tester. The host's relay sees the tester's address, as on any call through
+it; the room's relays see only that two devices exchanged wraps; ForgeSworn
+receives nothing. Pinned by `vectors/relay-outside-test-v1.json`.
 
 ## Files, payments and ecosystem compatibility
 

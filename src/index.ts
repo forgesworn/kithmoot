@@ -174,7 +174,9 @@ export type { EncodeRosterOptions, DecodeRosterOptions } from './roster.js'
 export { resolveSingularRoles } from './roles.js'
 export type { RoleAssignment } from './roles.js'
 export { wrapSignal, unwrapSignal, unwrapSignalEvent, SIGNAL_EXPIRATION_SECONDS, SIGNAL_PROFILE, MAX_SIGNAL_WRAP_LENGTH } from './signal.js'
-export type { AnnotationPoint, ScreenAnnotation, SignalBody } from './signal.js'
+export type { AnnotationPoint, ScreenAnnotation, SignalBody, SignalType } from './signal.js'
+export { RELAY_TEST_STAGES, RELAY_TEST_ANSWER_MS, RELAY_TEST_RUN_MS, RELAY_TEST_COOLDOWN_MS, RELAY_TEST_SIGNALS_PER_WINDOW, MAX_RELAY_TEST_ENDPOINT_LENGTH, validRelayTestRequest, validRelayTestResult, relayTestVerdict, relayTestFinding } from './relay-test.js'
+export type { RelayTestStage, RelayTestRequest, RelayTestResult, RelayTestObservations, RelayTestVerdict } from './relay-test.js'
 export type { RosterEntry, TrackAdvert, TrackRole, SingularRole, DeviceCredential, CallMembership } from './types.js'
 export {
   RoomSession,
@@ -273,7 +275,7 @@ export type { IssueAgentOwnershipOptions, VerifyAgentOwnershipOptions, Ownership
 export { Peer } from './peer.js'
 export type { RTCPeerConnectionLike, PeerFactory, PeerOptions, PeerContext, RouteTier } from './peer.js'
 export { Mesh, DEFAULT_FORWARDER_TIMEOUT_MS, DEFAULT_ROUTE_TIMEOUT_MS, DEFAULT_TURN_ROUTE_TIMEOUT_MS, DEFAULT_RENEGOTIATION_TIMEOUT_MS, EXHAUSTED_RETRY_MS, MAX_EXHAUSTED_RETRY_MS } from './mesh.js'
-export type { MeshOptions, MeshSession, MeshDiagnostic, RemoteAnnotation, RemoteTrack, ForwarderMediaPipeline, ForwardingState, RouteView } from './mesh.js'
+export type { MeshOptions, MeshSession, MeshDiagnostic, RemoteAnnotation, RemoteRelayTest, RemoteTrack, ForwarderMediaPipeline, ForwardingState, RouteView } from './mesh.js'
 export type { LadderState, PairDiagnostics } from './pair-controller.js'
 export {
   ReachabilityProbe,
