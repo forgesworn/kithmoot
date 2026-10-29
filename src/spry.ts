@@ -1,5 +1,5 @@
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
-import { parseSpryControl, spryControlRequest, spryNodeCard, SpryRequestError } from './spry-link.js'
+import { parseSpryControl, spryControlRequest, spryNodeCard, spryStandardCard, SpryRequestError } from './spry-link.js'
 export { SpryRequestError } from './spry-link.js'
 import { sha256 } from '@noble/hashes/sha256'
 import { bytesToHex } from '@noble/hashes/utils'
@@ -21,7 +21,7 @@ export function spryEndpoint(value: unknown): string {
   if (value.startsWith('spry:')) { parseSpryControl(value); return value }
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.hash || url.search ||
-    !url.hostname.includes('.') || /(?:^|\.)(?:localhost|local|internal|invalid|test)$/.test(url.hostname) ||
+    !url.hostname.includes('.') || url.hostname.endsWith('.') || /(?:^|\.)(?:localhost|local|internal|invalid|test)$/.test(url.hostname) ||
     /^\[|^[0-9.]+$/.test(url.hostname)) throw new Error('Spry needs a public HTTPS address.')
   return url.origin
 }
@@ -31,8 +31,58 @@ export function parseSpryOffer(value: unknown): SpryOffer | undefined {
     if (!value || typeof value !== 'object') return undefined
     const raw = value as Partial<SpryOffer>
     if (raw.v !== 1 || typeof raw.token !== 'string' || !token.test(raw.token) || !Number.isSafeInteger(raw.expiresAt) || raw.expiresAt! < 0) return undefined
-    return { v: 1, endpoint: spryEndpoint(raw.endpoint), token: raw.token, expiresAt: raw.expiresAt!, ...(spryNodeCard(raw.node) ? { node: spryNodeCard(raw.node) } : {}) }
+    const node = spryNodeCard(raw.node) ?? spryStandardCard(raw.node)
+    return { v: 1, endpoint: spryEndpoint(raw.endpoint), token: raw.token, expiresAt: raw.expiresAt!, ...(node ? { node } : {}) }
   } catch { return undefined }
+}
+
+/**
+ * Whether an offer is a standard-profile node reached over `spry:` control,
+ * such as a member's built-in relay: its card is a `spry-standard-v1` card
+ * signed by the endpoint's own key. The card's ten-minute expiry was checked
+ * when the offer was read; here it is checked as of the card's own signing
+ * time, so a guest that read a fresh offer keeps using it. Only such an offer
+ * from another member is ever redeemed: a private-node (`spry-peer-v1`) offer
+ * belongs to its own pairing alone.
+ */
+export function isSpryStandardOffer(offer: Pick<SpryOffer, 'endpoint' | 'node'>): boolean {
+  try {
+    const node = offer.node
+    return offer.endpoint.startsWith('spry:') && !!node && !!spryStandardCard(node, node.created_at) &&
+      node.pubkey === parseSpryControl(offer.endpoint).publicKey
+  } catch { return false }
+}
+
+/** Public unicast IPv4, as Spry's `public_v4` decides it: not private,
+ *  loopback, link-local, broadcast, documentation, `0/8`, multicast or
+ *  reserved (`224/3`), carrier-grade NAT, benchmarking or `192.0.0/24`. */
+export function isPublicIpv4(text: string): boolean {
+  const match = /^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/.exec(text)
+  if (!match) return false
+  const [a, b, c] = match.slice(1, 4).map(Number) as [number, number, number]
+  return !(a === 10 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 127 || a === 169 && b === 254 ||
+    text === '255.255.255.255' || a === 192 && b === 0 && c === 2 || a === 198 && b === 51 && c === 100 || a === 203 && b === 0 && c === 113 ||
+    a === 0 || a >= 224 || a === 100 && b >= 64 && b <= 127 || a === 198 && (b === 18 || b === 19) || a === 192 && b === 0 && c === 0)
+}
+
+const STANDARD_URL = /^turn:([0-9.]{7,15}):([1-9][0-9]{3,4})\?transport=(udp|tcp)$/
+/**
+ * The TURN URLs a standard-profile node may hand a guest (built-in relay
+ * design, section 3.3): one or two `turn:` URLs on one public IPv4 literal,
+ * ports 1024 to 65535, UDP or TCP, no repeats. No `turns:`, names, IPv6 or
+ * private addresses, so another member's offer cannot point a guest's TURN
+ * client into its own network. `loopback` admits 127.0.0.1 and exists only
+ * for the local acceptance build (`VITE_E2E_SPRY_LOOPBACK_TURN`).
+ */
+export function isSpryStandardTurnUrls(urls: unknown, loopback = false): urls is string[] {
+  if (!Array.isArray(urls) || !urls.length || urls.length > 2 || new Set(urls).size !== urls.length) return false
+  const hosts = new Set<string>()
+  for (const url of urls) {
+    const match = typeof url === 'string' ? STANDARD_URL.exec(url) : null
+    if (!match || Number(match[2]) < 1024 || Number(match[2]) > 65535 || !(isPublicIpv4(match[1]!) || loopback && match[1] === '127.0.0.1')) return false
+    hosts.add(match[1]!)
+  }
+  return hosts.size === 1
 }
 
 export function parseSpryPairingLink(hash: string, now = Math.floor(Date.now() / 1000)): { endpoint: string; code: string; expiresAt: number } {
@@ -101,12 +151,20 @@ export async function spryGrant(pair: SpryPairing, scope: string, fetcher: typeo
  *  it has no pairing to check, so no pairing hint. */
 export const SHARED_RELAY_UNAVAILABLE = 'The call relay shared in this room is not available right now.'
 
-export async function spryCredentials(offer: SpryOffer, secretKey: string, fetcher: typeof fetch = fetch, own?: SpryPairing): Promise<SpryCredential> {
-  const privateNode = offer.endpoint.startsWith('spry:')
-  if (privateNode && own?.endpoint !== offer.endpoint) throw new Error('Pair your own Spry node to use private call access.')
+export interface SpryCredentialOptions {
+  /** Local acceptance builds only: see `isSpryStandardTurnUrls`. */
+  loopbackTurn?: boolean
+}
+
+export async function spryCredentials(offer: SpryOffer, secretKey: string, fetcher: typeof fetch = fetch, own?: SpryPairing,
+  options: SpryCredentialOptions = {}): Promise<SpryCredential> {
+  const control = offer.endpoint.startsWith('spry:')
   // Another member's relay: refusals and failures say so, without pointing
   // at a pairing this device does not have.
   const shared = own?.endpoint !== offer.endpoint
+  // Another member's `spry:` offer is redeemed only from a standard node
+  // that says so; a private mesh node serves its own pairing alone.
+  if (control && shared && !isSpryStandardOffer(offer)) throw new Error('Pair your own Spry node to use private call access.')
   if (offer.expiresAt <= Date.now() / 1000 || offer.expiresAt > Date.now() / 1000 + SPRY_GRANT_SECONDS + 60) throw new SpryRequestError(403, shared ? SHARED_RELAY_UNAVAILABLE : 'Spry call access has expired.')
   let value: Record<string, unknown>
   try { value = await spryRequest(offer.endpoint, '/v1/credentials', { grant: offer.token }, secretKey, fetcher) }
@@ -114,16 +172,22 @@ export async function spryCredentials(offer: SpryOffer, secretKey: string, fetch
     if (shared && error instanceof SpryRequestError) throw new SpryRequestError(error.status, SHARED_RELAY_UNAVAILABLE)
     throw error
   }
+  // A `spry:` answer carries the node's card, signed by the endpoint's key:
+  // a standard card from a standard node (its URL rule below), or a peer
+  // card from this device's own private node.
+  const peer = spryNodeCard(value.node), standard = control && !peer ? spryStandardCard(value.node) : undefined
+  const node = peer ?? standard
+  if (control && (!node || node.pubkey !== parseSpryControl(offer.endpoint).publicKey || shared && !standard)) throw new Error('Invalid Spry node answer.')
   const host = new URL(offer.endpoint).hostname
   const allowed = new Set([`turn:${host}:3478?transport=udp`, `turn:${host}:3478?transport=tcp`, `turns:${host}:5349?transport=tcp`])
-  if (!Array.isArray(value.urls) || !value.urls.length || value.urls.length > 3 || !value.urls.every(url => typeof url === 'string' && (privateNode ? /^turns?:[A-Za-z0-9.-]{1,253}:[0-9]{2,5}\?transport=(udp|tcp)$/.test(url) && !/[\s@/]/.test(url) : allowed.has(url))) ||
+  if (!Array.isArray(value.urls) || !value.urls.length || value.urls.length > 3 ||
+    (control && standard ? !isSpryStandardTurnUrls(value.urls, options.loopbackTurn === true) :
+      !value.urls.every(url => typeof url === 'string' && (control ? /^turns?:[A-Za-z0-9.-]{1,253}:[0-9]{2,5}\?transport=(udp|tcp)$/.test(url) && !/[\s@/]/.test(url) : allowed.has(url)))) ||
     typeof value.username !== 'string' || !/^[0-9]{1,12}:[a-f0-9]{24}$/.test(value.username) ||
     typeof value.credential !== 'string' || !/^[A-Za-z0-9+/]{27}=$/.test(value.credential) ||
     !Number.isSafeInteger(value.expiresAt) || Number(value.expiresAt) <= Date.now() / 1000 || Number(value.expiresAt) > Date.now() / 1000 + 360 ||
     Number(value.username.split(':')[0]) !== value.expiresAt || !Number.isSafeInteger(value.accessExpiresAt) ||
     Number(value.accessExpiresAt) < Number(value.expiresAt) || Number(value.accessExpiresAt) > Date.now() / 1000 + SPRY_GRANT_SECONDS + 60) throw new Error('Invalid Spry relay answer.')
-  const node = spryNodeCard(value.node)
-  if (privateNode && (!node || node.pubkey !== parseSpryControl(offer.endpoint).publicKey)) throw new Error('Invalid Spry node answer.')
   return { ...(node ? { node } : {}), urls: value.urls as string[], username: value.username, credential: value.credential, expiresAt: value.expiresAt as number, accessExpiresAt: value.accessExpiresAt as number }
 }
 

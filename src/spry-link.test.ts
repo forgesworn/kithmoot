@@ -1,14 +1,15 @@
 import { expect, it } from 'vitest'
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { decrypt, encrypt, getConversationKey } from 'nostr-tools/nip44'
-import { parseSpryControl, spryControlRequest, spryNodeCard, SpryRequestError } from './spry-link.js'
+import { parseSpryControl, spryControlRequest, spryNodeCard, spryStandardCard, SpryRequestError } from './spry-link.js'
 import { newSpryKey, spryCredentials } from './spry.js'
 
 const nodeKey = new Uint8Array(32).fill(1), pubkey = getPublicKey(nodeKey)
 const endpoint = `spry://${pubkey}?relay=${encodeURIComponent('wss://relay.example/')}`
 it('accepts only bounded explicitly selected public relay addresses', () => {
   expect(parseSpryControl(endpoint)).toEqual({ publicKey: pubkey, relays: ['wss://relay.example/'] })
-  for (const relay of ['ws://relay.example', 'wss://127.0.0.1', 'wss://node.local', 'wss://user:secret@relay.example', 'wss://relay.example?token=value']) {
+  for (const relay of ['ws://relay.example', 'wss://127.0.0.1', 'wss://node.local', 'wss://user:secret@relay.example', 'wss://relay.example?token=value',
+    'wss://localhost./', 'wss://node.local./', 'wss://relay.example./']) {
     expect(() => parseSpryControl(`spry://${pubkey}?relay=${encodeURIComponent(relay)}`)).toThrow()
   }
   expect(() => parseSpryControl(`spry://${pubkey}`)).toThrow()
@@ -99,4 +100,8 @@ it('reads the actual Rust protocol fixtures in both encryption directions', asyn
   expect(JSON.parse(decrypt(vector.response.content, conversation))).toEqual({ v: 1, status: 200, body: { ok: true } })
   expect(vector.response.tags).toContainEqual(['e', vector.request.id])
   expect(spryNodeCard(vector.node, vector.now)?.pubkey).toBe(target.publicKey)
+  // The standard card (supervised mode) is never a peer route, and a peer card never a standard one.
+  expect(spryStandardCard(vector.standardNode, vector.now)?.pubkey).toBe(target.publicKey)
+  expect(spryNodeCard(vector.standardNode, vector.now)).toBeUndefined()
+  expect(spryStandardCard(vector.node, vector.now)).toBeUndefined()
 })

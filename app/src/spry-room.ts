@@ -1,5 +1,5 @@
 import { spryCredentials, spryGrant, spryPeers, spryRegisterDevices, spryRemoveGrant, spryVouch, newSpryKey, spryDeviceKey, SpryRequestError,
-  type SpryOffer, type SpryPairing, type SpryCredential } from '../../src/spry.js'
+  isSpryStandardOffer, type SpryOffer, type SpryPairing, type SpryCredential } from '../../src/spry.js'
 import { spryDevicePublicKey } from '../../src/spry-key.js'
 import { parseSpryControl, spryNodeCard } from '../../src/spry-link.js'
 import type { RoomSession } from '../../src/session.js'
@@ -29,6 +29,29 @@ export interface SpryRoomOptions {
   share?: boolean
   /** Test seam for the vouch delay, in milliseconds. */
   jitter?: () => number
+  /**
+   * Whether this device may use another member's standard-profile relay (a
+   * built-in relay), given the participant who offers it, or undefined when
+   * no single participant does. Using one shows that member this device's
+   * internet address; with Hide my IP address on, the app allows it only
+   * after a one-time choice naming them. Until this says yes, the offer is
+   * neither redeemed nor applied. Defaults to yes.
+   */
+  mayUse?: (host: string | undefined) => boolean
+  /** Local acceptance builds only (`VITE_E2E_SPRY_LOOPBACK_TURN`): a
+   *  standard node may answer with 127.0.0.1. */
+  loopbackTurn?: boolean
+}
+
+/**
+ * The one participant whose descriptor offers this `spry:` endpoint, or
+ * undefined when none or more than one does. Current clients never republish
+ * another member's `spry:` offer, so only its host publishes it; a copy from
+ * anyone else makes the host unknown rather than misnamed.
+ */
+export function spryOfferHost(descriptors: readonly { participant: string; spry?: SpryOffer }[], endpoint: string): string | undefined {
+  const hosts = new Set(descriptors.filter(descriptor => descriptor.spry?.endpoint === endpoint).map(descriptor => descriptor.participant))
+  return hosts.size === 1 ? [...hosts][0] : undefined
 }
 
 /** One room owns its credentials and timers, including while its call is docked. */
@@ -55,6 +78,8 @@ export class SpryRoom {
   #waiters = new Set<() => void>()
   #share: boolean
   #jitter: () => number
+  #mayUse: (host: string | undefined) => boolean
+  #loopbackTurn: boolean
   /** Tokens this device withdrew; never republished. */
   #withdrawn = new Set<string>()
   // Registrar state for the grant `#registeredFor`, this session only.
@@ -85,6 +110,8 @@ export class SpryRoom {
     this.#spryPublic = deviceKey ? spryDevicePublicKey(deviceKey) : ''
     this.#share = options.share ?? true
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
+    this.#mayUse = options.mayUse ?? (() => true)
+    this.#loopbackTurn = options.loopbackTurn === true
     // A saved offer from this device's own node is its own old grant: not
     // reused or republished while it does not share here.
     this.#offer = saved
@@ -92,8 +119,10 @@ export class SpryRoom {
     this.#unsub.push(session.onDescriptor(descriptor => {
       if (this.#closed || !descriptor.spry) return
       const next = descriptor.spry
-      // Private adverts travel to our paired node; they never open foreign sockets.
-      if (next.endpoint.startsWith('spry:') && next.endpoint !== this.pairing?.endpoint) return
+      // Private adverts travel to our paired node; they never open foreign
+      // sockets. Another member's standard node (a built-in relay) is the
+      // one foreign `spry:` offer a device redeems.
+      if (this.#foreignControl(next) && !isSpryStandardOffer(next)) return
       if (this.#withdrawn.has(next.token)) return
       const fresh = this.#shared?.token !== next.token
       this.#shared = next
@@ -143,6 +172,29 @@ export class SpryRoom {
   get sharing(): boolean { return this.#shares() }
   #shares(): boolean { return this.#share }
   #ownNode(offer: SpryOffer): boolean { return !!this.pairing && offer.endpoint === this.pairing.endpoint }
+  /** Another member's offer reached over `spry:` control. */
+  #foreignControl(offer: SpryOffer): boolean { return offer.endpoint.startsWith('spry:') && !this.#ownNode(offer) }
+  /** The participant offering this endpoint, as the room's descriptors show it. */
+  #hostOf(endpoint: string): string | undefined {
+    try { return spryOfferHost(this.session.peerDescriptors?.() ?? [], endpoint) } catch { return undefined }
+  }
+  /** A foreign `spry:` offer is used only from a standard node, and only
+   *  while the app allows that member's relay. */
+  #usable(offer: SpryOffer): boolean {
+    return !this.#foreignControl(offer) || isSpryStandardOffer(offer) && this.#mayUse(this.#hostOf(offer.endpoint))
+  }
+  /**
+   * Another member's built-in relay this device holds an offer for but may
+   * not use yet, and who offers it (undefined when no single participant
+   * does): what a one-time choice would name.
+   */
+  blocked(): { endpoint: string; host: string | undefined } | undefined {
+    for (const offer of [this.#offer, this.#shared]) {
+      if (!offer || offer.expiresAt <= Date.now() / 1000 || this.#withdrawn.has(offer.token)) continue
+      if (this.#foreignControl(offer) && isSpryStandardOffer(offer) && !this.#usable(offer)) return { endpoint: offer.endpoint, host: this.#hostOf(offer.endpoint) }
+    }
+    return undefined
+  }
   /** A paired device always holds its room grant, for its own calls. */
   #asksOwnNode(): boolean { return !!this.pairing }
   #registrar(): boolean { return this.#asksOwnNode() && !!this.#own }
@@ -151,6 +203,9 @@ export class SpryRoom {
   #publishable(): SpryOffer | undefined {
     const offer = this.#shares() ? this.#own ?? this.#offer : this.#offer
     if (!offer || this.#withdrawn.has(offer.token)) return undefined
+    // Another member's `spry:` offer is its host's to publish: a copy would
+    // make the host unknown to a guest choosing whether to use it.
+    if (this.#foreignControl(offer)) return undefined
     if (!this.#shares() && this.#ownNode(offer) && offer.token !== this.#shared?.token) return undefined
     return offer
   }
@@ -179,7 +234,8 @@ export class SpryRoom {
   }
   async #registerPeers(): Promise<void> {
     const pair = this.pairing
-    if (!pair?.endpoint.startsWith('spry:')) return
+    // A standard node (the built-in relay) has no private mesh to tell.
+    if (!pair?.endpoint.startsWith('spry:') || this.#own && isSpryStandardOffer(this.#own)) return
     const own = parseSpryControl(pair.endpoint).publicKey
     const peers = new Map<string, NonNullable<SpryOffer['node']>>()
     for (const descriptor of this.session.peerDescriptors()) {
@@ -329,7 +385,7 @@ export class SpryRoom {
     if (this.#closed || revision !== this.#pairRevision) return
     const seen = new Set<string>()
     for (const offer of [this.#own, this.#offer, this.#shared]) {
-      if (!offer || offer.expiresAt <= now || offer.endpoint.startsWith('spry:') && offer.endpoint !== this.pairing?.endpoint) continue
+      if (!offer || offer.expiresAt <= now || !this.#usable(offer)) continue
       if (this.#withdrawn.has(offer.token)) continue
       const id = offer.endpoint + ':' + offer.token
       if (seen.has(id)) continue
@@ -337,7 +393,7 @@ export class SpryRoom {
       if ((this.#credentials.get(id)?.expiresAt ?? 0) - now > 90) continue
       const mine = this.#own?.token === offer.token && this.#own.endpoint === offer.endpoint
       try {
-        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing)
+        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
         if (this.#closed || revision !== this.#pairRevision) return
         this.#credentials.set(id, credential)
         this.#redeemedAt.set(id, Date.now())

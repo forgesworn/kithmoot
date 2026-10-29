@@ -58,7 +58,7 @@ add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}
 names('private', ['kithmoot.spry-pairing.v1', 'kithmoot.spry-rooms.v1'])
 names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.facePrivacy'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])
-names('routing', ['kithmoot.call-stun.v1', 'kithmoot.spry-share.v1'])
+names('routing', ['kithmoot.call-stun.v1', 'kithmoot.spry-share.v1', 'kithmoot.spry-consent.v1'])
 add('routing', `kithmoot\\.(?:relays|circle|room-relays-fixed)\\.v1|kithmoot\\.(?:room-relays|room-storage)\\.v1\\.${H}`)
 names('ui', ['kithmoot.mirror-self', 'kithmoot.fish.enabled', 'kithmoot.camera.framing', 'kithmoot.agents-hear', 'kithmoot.zen-bell', 'kithmoot.desktop-bell', 'kithmoot.profiles.enabled', 'kithmoot.nip05.verify',
   'kithmoot.name', 'kithmoot.last-nostr-account', 'kithmoot.last-nostr-method', 'kithmoot.profiles.lastKnownName.v1', 'kithmoot.send-delay', 'kithmoot.delivery-receipts.v1', 'kithmoot.destructed.v1', 'kithmoot:emoji:skinTone', 'kithmoot:emoji:recents'])

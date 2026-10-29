@@ -60,9 +60,10 @@ export function saveSpryOffer(store: Pick<Storage, 'getItem' | 'setItem'>, parti
 const SHARE_KEY = 'kithmoot.spry-share.v1'
 const SHARE_LIMIT = 256
 const SHARE_ENTRY = /^[0-9a-f]{64}:[0-9a-f]{64}$/
-function shareEntries(store: Pick<Storage, 'getItem'>): string[] {
+function shareEntries(store: Pick<Storage, 'getItem'>): string[] { return storedEntries(store, SHARE_KEY) }
+function storedEntries(store: Pick<Storage, 'getItem'>, key: string): string[] {
   try {
-    const value = store.getItem(SHARE_KEY)
+    const value = store.getItem(key)
     if (!value || value.length > SHARE_LIMIT * 140) return []
     const list: unknown = JSON.parse(value)
     return Array.isArray(list) ? [...new Set(list.filter((entry): entry is string => typeof entry === 'string' && SHARE_ENTRY.test(entry)))].slice(-SHARE_LIMIT) : []
@@ -82,6 +83,23 @@ export function saveSpryShare(store: Pick<Storage, 'getItem' | 'setItem' | 'remo
   const kept = entries.slice(-SHARE_LIMIT)
   if (kept.length) store.setItem(SHARE_KEY, JSON.stringify(kept))
   else store.removeItem(SHARE_KEY)
+}
+
+const CONSENT_KEY = 'kithmoot.spry-consent.v1'
+/**
+ * The members whose own call relay (a built-in relay, reached over `spry:`)
+ * this person chose to use with Hide my IP address on, each entry
+ * `<own participant>:<host participant>`. The choice is once per host and
+ * kept on this device only: never synced, published or put in a link.
+ */
+export function loadSpryConsent(store: Pick<Storage, 'getItem'>, participant: string, host: string): boolean {
+  return storedEntries(store, CONSENT_KEY).includes(`${participant}:${host}`)
+}
+export function saveSpryConsent(store: Pick<Storage, 'getItem' | 'setItem'>, participant: string, host: string): void {
+  const entry = `${participant}:${host}`
+  if (!SHARE_ENTRY.test(entry)) throw new Error('Invalid participant.')
+  const kept = [...storedEntries(store, CONSENT_KEY).filter(value => value !== entry), entry].slice(-SHARE_LIMIT)
+  store.setItem(CONSENT_KEY, JSON.stringify(kept))
 }
 
 export async function completeSpryPairing(hash: string, store: Pick<Storage, 'setItem'>, participant: string,

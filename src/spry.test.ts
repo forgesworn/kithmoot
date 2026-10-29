@@ -8,7 +8,7 @@ const endpoint = 'https://relay.example:3744', code = 'a'.repeat(43)
 describe('Spry operator access', () => {
   it('rejects private and malformed endpoints before a request', () => {
     for (const value of ['http://relay.example', 'https://127.0.0.1', 'https://10.0.0.1', 'https://[::1]', 'https://node.local',
-      'https://user:secret@relay.example', 'https://relay.example/path', 'https://relay.example?secret=value']) expect(() => spryEndpoint(value)).toThrow()
+      'https://user:secret@relay.example', 'https://relay.example/path', 'https://relay.example?secret=value', 'https://localhost.', 'https://node.local.']) expect(() => spryEndpoint(value)).toThrow()
   })
   it('projects only the room capability and bounds pairing lifetime', () => {
     expect(parseSpryOffer({ v: 1, endpoint, token: code, expiresAt: 12, roomKey: 'never copy', secretKey: 'never copy' }))
