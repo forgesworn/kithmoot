@@ -19,6 +19,12 @@ describe('Spry operator access', () => {
     expect(() => parseSpryPairingLink(link(100), 100)).toThrow(/expired/)
     expect(() => parseSpryPairingLink(link(1000), 100)).toThrow(/expired/)
   })
+  it('marks a republished copy with exactly relayed: true and reads anything else as unmarked', () => {
+    const base = { v: 1, endpoint, token: code, expiresAt: 12 }
+    expect(parseSpryOffer({ ...base, relayed: true })).toEqual({ ...base, relayed: true })
+    for (const relayed of [false, 'true', 1, null, {}, []]) expect(parseSpryOffer({ ...base, relayed })).toEqual(base)
+    expect(parseSpryOffer(base)).not.toHaveProperty('relayed')
+  })
   it('signs the exact body and endpoint, without cookies, referrers or redirects', async () => {
     await spryRequest(endpoint, '/v1/credentials', { grant: code }, newSpryKey(), async (url, options) => {
       expect(url).toBe(endpoint + '/v1/credentials')

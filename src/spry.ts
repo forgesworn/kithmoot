@@ -5,8 +5,14 @@ import { sha256 } from '@noble/hashes/sha256'
 import { bytesToHex } from '@noble/hashes/utils'
 import { hmac } from '@noble/hashes/hmac'
 
-/** A room-scoped access capability, carried only inside the encrypted descriptor. */
-export interface SpryOffer { v: 1; endpoint: string; token: string; expiresAt: number; node?: Event }
+/**
+ * A room-scoped access capability, carried only inside the encrypted descriptor.
+ * `relayed: true` marks a copy: a member republishing the offer of a relay it
+ * does not run, so the room keeps it while the host is away. Absent means the
+ * publisher says it runs the relay itself. A copy is an unverifiable claim
+ * about who runs the relay, so a client asking "whose relay?" ignores it.
+ */
+export interface SpryOffer { v: 1; endpoint: string; token: string; expiresAt: number; node?: Event; relayed?: true }
 export interface SpryPairing { v: 1; endpoint: string; id: string; secretKey: string }
 export interface SpryCredential { urls: string[]; username: string; credential: string; expiresAt: number; accessExpiresAt: number; node?: Event }
 export const SPRY_GRANT_SECONDS = 30 * 24 * 60 * 60
@@ -32,7 +38,9 @@ export function parseSpryOffer(value: unknown): SpryOffer | undefined {
     const raw = value as Partial<SpryOffer>
     if (raw.v !== 1 || typeof raw.token !== 'string' || !token.test(raw.token) || !Number.isSafeInteger(raw.expiresAt) || raw.expiresAt! < 0) return undefined
     const node = spryNodeCard(raw.node) ?? spryStandardCard(raw.node)
-    return { v: 1, endpoint: spryEndpoint(raw.endpoint), token: raw.token, expiresAt: raw.expiresAt!, ...(node ? { node } : {}) }
+    return { v: 1, endpoint: spryEndpoint(raw.endpoint), token: raw.token, expiresAt: raw.expiresAt!, ...(node ? { node } : {}),
+      // Exactly `true` marks a copy; any other value reads as unmarked.
+      ...(raw.relayed === true ? { relayed: true as const } : {}) }
   } catch { return undefined }
 }
 

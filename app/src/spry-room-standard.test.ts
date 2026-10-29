@@ -40,7 +40,7 @@ const credential = () => {
     credential: 'a'.repeat(27) + '=', expiresAt, accessExpiresAt: expiresAt + 86400, node: standard() }
 }
 
-it('a guest redeems another member\'s built-in relay, and never republishes its offer', async () => {
+it('a guest redeems another member\'s built-in relay, and republishes its offer only as a marked copy', async () => {
   vi.useFakeTimers()
   control.answer = credential
   const { session, publish, change } = room(offerWith())
@@ -53,7 +53,8 @@ it('a guest redeems another member\'s built-in relay, and never republishes its 
     expect(broker.blocked()).toBeUndefined()
     change([{ devices: ['generated-a', 'generated-b'] }] as ParticipantView[])
     await vi.advanceTimersByTimeAsync(2000)
-    expect(publish).not.toHaveBeenCalled()
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ spry: expect.objectContaining({ endpoint, relayed: true }) }))
   } finally { broker.close(); vi.useRealTimers() }
 })
 
@@ -102,6 +103,10 @@ it('names no host when more than one participant publishes the same relay', asyn
   } finally { broker.close() }
   expect(spryOfferHost([{ participant: HOST, spry: offerWith() }, { participant: HOST, spry: offerWith() }], endpoint)).toBe(HOST)
   expect(spryOfferHost([{ participant: HOST }], endpoint)).toBeUndefined()
+  // A marked copy names nobody, beside the host's offer or alone; a different token is not the host's offer.
+  expect(spryOfferHost([{ participant: HOST, spry: offerWith() }, { participant: OTHER, spry: { ...offerWith(), relayed: true } }], endpoint)).toBe(HOST)
+  expect(spryOfferHost([{ participant: OTHER, spry: { ...offerWith(), relayed: true } }], endpoint)).toBeUndefined()
+  expect(spryOfferHost([{ participant: HOST, spry: offerWith() }], endpoint, 'z'.repeat(43))).toBeUndefined()
 })
 
 it('a relay outside test names the host and the Hide my IP answer, and its login touches no call', async () => {
