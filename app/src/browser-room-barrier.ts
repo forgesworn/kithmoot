@@ -16,6 +16,9 @@ export class BrowserRoomBarrier {
     navigator.serviceWorker?.addEventListener('message', this.#workerReady)
   }
   changed(): void { this.#changed(); this.#channel.postMessage('changed') }
+  /** Wake this tab's own listeners without telling the other tabs, for a
+   *  change that did not alter what any other tab may do. */
+  wake(): void { this.#changed() }
   #changed(): void { for (const listener of this.#listeners) listener() }
   listen(listener: () => void): () => void { this.#listeners.add(listener); return () => this.#listeners.delete(listener) }
   async publicLease(room: string): Promise<() => Promise<void>> {

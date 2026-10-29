@@ -73,6 +73,34 @@ export interface RelayHealth extends RelayConfig {
 
 export type ReadEvidence = 'confirmed' | 'refused' | 'authentication-required'
 
+/** What the pool knows about one relay that acknowledged one event. */
+export interface RelayAckEvidence {
+  url: string
+  /** This relay can be asked for the event back. A write-only relay never can. */
+  readable: boolean
+  /** This event was asked for back from this relay after its write: true when
+   *  the relay returned it, false when the relay ended the request without it.
+   *  Absent while that has not been asked or has not been answered. */
+  found?: boolean
+  /** This relay said OK to the event. A relay that did not (its answer was cut off when a one-shot carrier closed at the first acknowledgement, or it is slow) may still hold it: it is asked by name. */
+  acked: boolean
+  /** When this relay last acknowledged the event, in milliseconds; 0 when it has not. */
+  at: number
+  /** Since the last setup this relay has returned an event of the same kind. */
+  keeps: boolean
+  /** This relay has accepted an event of the same kind and not returned it. */
+  lost: boolean
+}
+
+/** Which relays acknowledged an event, and what each was seen to do with it
+ *  afterwards. Evidence only: the verdict belongs to the caller. */
+export interface PublishEvidence {
+  kind: number
+  relays: RelayAckEvidence[]
+  /** Write relays still working on this event: neither acknowledged nor given up on. */
+  pending: number
+}
+
 /** Worst read evidence first, so a merge can keep the one that matters. */
 export const READ_EVIDENCE_RANK: Record<ReadEvidence, number> = { refused: 0, 'authentication-required': 1, confirmed: 2 }
 
@@ -164,6 +192,16 @@ export class NostrRelayPool implements RelayTransport {
   readonly #dials: RelayDialGate
   /** Kinds already read back from each relay since the last setup. */
   #readBack = new Map<string, Set<number>>()
+  /** Kinds a relay has returned since the last setup: it was asked for an
+   *  event it had accepted and sent it back. */
+  #kept = new Map<string, Set<number>>()
+  /** Events acknowledged by a relay, newest last, and for each relay the
+   *  answer to asking for that event back. Bounded: an open room writes for
+   *  as long as it is open. */
+  #acknowledged = new Map<string, { kind: number; relays: Map<string, { found?: boolean; acked: boolean; at: number }> }>()
+  readonly #askedBack = new Set<string>()
+  /** Relays a publish of an event is still waiting on, by event id. */
+  readonly #inflight = new Map<string, Set<string>>()
   #whenIdle: (() => void)[] = []
   readonly #authTimeout: number
   readonly #verifyEvent = boundedEventVerifier()
@@ -407,7 +445,7 @@ export class NostrRelayPool implements RelayTransport {
     this.#attempted.clear()
     // The dial backoff is kept: it belongs to the relay, not to this pool,
     // and a pool rebuilt every few seconds would otherwise redial at will.
-    this.#readBack.clear()
+    this.#readBack.clear(); this.#kept.clear(); this.#acknowledged.clear(); this.#askedBack.clear(); this.#inflight.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub)
@@ -460,15 +498,21 @@ export class NostrRelayPool implements RelayTransport {
     const results: (PromiseSettledResult<void> | undefined)[] = urls.map(() => undefined)
     let remaining = urls.length
     let settled = false
+    const waitingOn = this.#inflight.get(event.id) ?? new Set<string>()
+    this.#inflight.set(event.id, waitingOn)
+    for (const url of urls) waitingOn.add(url)
+    const finished = (url: string) => { waitingOn.delete(url); if (waitingOn.size === 0 && this.#inflight.get(event.id) === waitingOn) this.#inflight.delete(event.id) }
     return new Promise<void>((resolve, reject) => {
       urls.forEach((url, i) => {
         this.#publishToRelay(url, event, generation, start).then(
           () => {
+            finished(url)
             results[i] = { status: 'fulfilled', value: undefined }
             if (!settled) { settled = true; resolve() }
             if (--remaining === 0) this.#publishDone()
           },
           (error: unknown) => {
+            finished(url)
             results[i] = { status: 'rejected', reason: error }
             const last = --remaining === 0
             if (last) this.#publishDone()
@@ -524,7 +568,18 @@ export class NostrRelayPool implements RelayTransport {
       // visible relay health. Transfer only its observed OK receipts.
       for (const receipt of carrier.health()) if (receipt.lastPublishedAt) {
         this.#mark(receipt.url, { lastPublishedAt: receipt.lastPublishedAt, publishLatencyMs: receipt.publishLatencyMs, lastError: undefined })
+        this.#noteAcknowledged(receipt.url, event)
         this.#scheduleReadBack(receipt.url, event, generation)
+      }
+      // The carrier closed at the first acknowledgement, which cuts off every
+      // other relay's answer though the event was sent to them too. They are
+      // asked for it by name: one that returns it holds it, and none that
+      // does is how a message is known to be nowhere.
+      const rec = this.#acknowledged.get(event.id)
+      if (rec) for (const relay of this.#relays) {
+        if (!relay.write || rec.relays.has(relay.url)) continue
+        rec.relays.set(relay.url, { acked: false, at: 0 })
+        this.#scheduleReadBack(relay.url, event, generation, 'again')
       }
     } finally {
       clearInterval(timer)
@@ -564,7 +619,11 @@ export class NostrRelayPool implements RelayTransport {
         if (generation === this.#generation) {
           this.#answered(url)
           this.#mark(url, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
-          this.#scheduleReadBack(url, event, generation)
+          // Writing an event again asks for it back again, whatever this
+          // relay was seen to do before: that is what a Retry is for.
+          const again = this.#acknowledged.get(event.id)?.relays.has(url) === true
+          this.#noteAcknowledged(url, event)
+          this.#scheduleReadBack(url, event, generation, again ? 'again' : 'first')
         }
         return
       } catch (error) {
@@ -628,28 +687,89 @@ export class NostrRelayPool implements RelayTransport {
    *  once per kind: a relay that accepts chat and keeps none of it looks
    *  healthy by every other measure. Only a real EOSE without the event
    *  counts against it; a timeout, a refusal or a dropped socket proves
-   *  nothing, and the kind is tried again on a later write. */
-  #scheduleReadBack(url: string, event: Event, generation: number): void {
+   *  nothing, and the kind is tried again on a later write.
+   *
+   *  A relay that has not said OK to the event (its answer was cut off, or it
+   *  refused) is only probed for this one event: what it answers says where
+   *  the event is, and nothing about the relay, which never accepted it. */
+  #scheduleReadBack(url: string, event: Event, generation: number, mode: 'first' | 'again' | 'now' = 'first'): void {
+    const force = mode !== 'first'
     if (this.#paused || this.#closed || !isStoredKind(event.kind) || !this.#relays.some(relay => relay.url === url && relay.read)) return
     const checked = this.#readBack.get(url) ?? new Set<number>()
-    if (checked.has(event.kind)) return
-    checked.add(event.kind)
-    this.#readBack.set(url, checked)
+    // A relay is asked about a kind once; an event written again, or one
+    // whose answer was lost, is asked about by name.
+    const own = `${url}\n${event.id}`
+    const probing = (): boolean => this.#acknowledged.get(event.id)?.relays.get(url)?.acked === false
+    if (checked.has(event.kind) && !force) return
+    if (this.#askedBack.has(own)) return
+    if (!probing()) { checked.add(event.kind); this.#readBack.set(url, checked) }
+    this.#askedBack.add(own)
     const stale = () => this.#closed || this.#paused || generation !== this.#generation
     const timer = setTimeout(() => {
       this.#readBackTimers.delete(timer)
-      if (stale()) return
+      if (stale()) { this.#askedBack.delete(own); return }
       void this.#background(async () => {
         const returned = await this.#readBackOnce(url, event, generation)
+        this.#askedBack.delete(own)
         if (stale()) return
-        if (returned === undefined) { checked.delete(event.kind); return }
+        if (returned === undefined) { if (!force) checked.delete(event.kind); return }
+        const rec = this.#acknowledged.get(event.id)
+        const ours = rec?.relays.get(url)
+        if (ours) ours.found = returned
+        // Only a relay that said OK is held to account, or credited, for the kind.
+        if (ours?.acked === false) return
+        const kept = this.#kept.get(url) ?? new Set<number>()
+        if (returned) kept.add(event.kind)
+        this.#kept.set(url, kept)
         const previous = this.#health.get(url)?.unreturned ?? []
         const unreturned = returned ? previous.filter(kind => kind !== event.kind) : [...new Set([...previous, event.kind])]
         this.#mark(url, { unreturned: unreturned.length ? unreturned : undefined })
-      }).catch(() => { if (!stale()) checked.delete(event.kind) })
-    }, READ_BACK_DELAY_MS)
+      }).catch(() => { this.#askedBack.delete(own); if (!stale() && !force) checked.delete(event.kind) })
+    }, mode === 'now' ? 0 : READ_BACK_DELAY_MS)
     this.#readBackTimers.add(timer)
     ;(timer as unknown as { unref?: () => void }).unref?.()
+  }
+
+  #noteAcknowledged(url: string, event: Event): void {
+    let rec = this.#acknowledged.get(event.id)
+    if (!rec) {
+      rec = { kind: event.kind, relays: new Map() }
+      this.#acknowledged.set(event.id, rec)
+      if (this.#acknowledged.size > MAX_ACKNOWLEDGED) this.#acknowledged.delete(this.#acknowledged.keys().next().value!)
+    }
+    // A fresh write makes any earlier answer about this relay out of date.
+    rec.relays.set(url, { acked: true, at: Date.now() })
+  }
+
+  /** What is known about the relays that acknowledged `eventId`, or undefined
+   *  when none has since the last setup. Cheap and synchronous: a caller that
+   *  shows delivery asks again as it redraws. */
+  publishEvidence(eventId: string): PublishEvidence | undefined {
+    const rec = this.#acknowledged.get(eventId)
+    if (!rec) return undefined
+    return { kind: rec.kind, pending: this.#inflight.get(eventId)?.size ?? 0, relays: [...rec.relays].map(([url, { found, acked, at }]) => ({
+      url,
+      readable: isStoredKind(rec.kind) && this.#relays.some(relay => relay.url === url && relay.read),
+      ...(found === undefined ? {} : { found }),
+      acked,
+      at,
+      keeps: this.#kept.get(url)?.has(rec.kind) === true,
+      lost: this.#health.get(url)?.unreturned?.includes(rec.kind) === true,
+    })) }
+  }
+
+  /** Ask for `eventId` back, by name, from each relay that acknowledged it and
+   *  has not been asked since: for a caller that has waited long enough for
+   *  the one check per kind and still has no answer about this event. */
+  askBack(eventId: string): void {
+    const rec = this.#acknowledged.get(eventId)
+    if (!rec || this.#closed || this.#paused) return
+    const generation = this.#generation
+    for (const [url, { found }] of rec.relays) {
+      if (found !== undefined) continue
+      // The event itself is needed to ask; it is rebuilt from the id alone.
+      this.#scheduleReadBack(url, { id: eventId, kind: rec.kind } as Event, generation, 'now')
+    }
   }
 
   async #readBackOnce(url: string, event: Event, generation: number): Promise<boolean | undefined> {
@@ -993,7 +1113,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#closed || !this.#paused || this.#publishing || this.#backgroundJobs.size) throw new Error('pool has not drained for resume')
     this.#generation++; this.#abort.abort(); this.#pool.destroy()
     this.#abort = new AbortController(); this.#retryAbort = new AbortController()
-    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear()
+    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear(); this.#kept.clear(); this.#askedBack.clear()
     this.#paused = false; this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub, true)
     this.#startRecovery()
@@ -1096,6 +1216,8 @@ const MAX_SEEN_PER_SUBSCRIPTION = 8_192
  *  and how long it has to answer before the check proves nothing. */
 const READ_BACK_DELAY_MS = 3_000
 const READ_BACK_TIMEOUT_MS = 8_000
+/** Acknowledged events the pool remembers the relays of. */
+const MAX_ACKNOWLEDGED = 1_000
 
 /** Regular kinds (NIP-01), which a relay that keeps anything keeps. */
 function isStoredKind(kind: number): boolean {

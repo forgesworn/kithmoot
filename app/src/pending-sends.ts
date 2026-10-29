@@ -95,6 +95,8 @@ export interface PendingSendsOptions {
   connected: () => boolean
   now?: () => number
   onChange?: () => void
+  /** A relay acknowledged this message. Not that it was kept: see `delivery-state.ts`. */
+  onAcknowledged?: (item: PendingSend) => void
   /** The room open now. A message is only offered from its own room: one
    *  left behind in another waits, kept, until that room is open again. */
   active?: () => string | undefined
@@ -365,6 +367,7 @@ export class PendingSends {
       } else { saved.acknowledged = true; saved.durable = false; saved.stuck = undefined }
       return true
     }, version)
+    if (!failed && this.#items.get(item.id) === item) { try { this.#opts.onAcknowledged?.(this.#snapshot(item)) } catch { /* Rendering is not a custody receipt. */ } }
     // A problem that waiting will not mend is not tried again on a timer.
     if (failed && this.#items.get(item.id) === item && item.state !== 'moved' && item.stuck === undefined) this.#later(item)
   }

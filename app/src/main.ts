@@ -78,6 +78,7 @@ import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { PendingSends, StorageStuckError, type PendingSend } from './pending-sends.js'
+import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
 import { signerLabel } from './signer-label.js'
@@ -464,8 +465,14 @@ const pendingSends = new PendingSends({
     ? sessionTransport.health().some(relay => relay.state === 'connected')
     : navigator.onLine !== false,
   onChange: () => { outbox.render(); refreshRoomNavigation(); sweepHeldEnvelopes() },
+  onAcknowledged: item => {
+    // Only messages that render as a row get a tick; a reaction or an edit is not one.
+    if (tickIds.delete(item.id)) delivery.note(item.roomId, item.id, item.event, !!quietTransport)
+  },
   active: () => session ? currentRoomId() : undefined,
 })
+/** Messages queued in this page that will render as a row, until a relay acknowledges them. */
+const tickIds = new Set<string>()
 const outbox = new Outbox(document.getElementById('outbox')!, pendingSends, () => currentRoomId(), () =>
   quietTransport ? `Waiting for this quiet room's next slot, within ${slotWords()}…` : 'Sending…',
   item => editPending(item), item => item.channel === (currentChannel ?? 'Chat') && channelAvailable(currentChannel),
@@ -512,6 +519,7 @@ async function queueSend(prepared: PreparedSend, channel: string, opts: { files?
   const roomId = currentRoomId()
   if (!roomId) throw new Error('Open a room to send a message.')
   const sendingSession = session
+  if (isTickMessage(prepared.message)) tickIds.add(prepared.message.id)
   await pendingSends.add({
     id: prepared.message.id, roomId, channel, text: prepared.message.text, files: opts.files ?? [],
     ...(prepared.message.artwork?.length ? { artwork: prepared.message.artwork } : {}),
@@ -1232,6 +1240,18 @@ function disconnectedAccountRooms(): KnownRoom[] {
 // `device-store.ts` for why a relay must never see one device key across
 // two rooms. The single shared key this replaces is forgotten on load.
 const deviceStore = browserDeviceStore(localStorage)
+/** Whether the relays kept this device's own messages: the tick. See delivery-state.ts. */
+const delivery = new DeliveryTicks({
+  store: deviceStore,
+  evidence: eventId => sessionTransport?.publishEvidence(eventId),
+  askBack: eventId => sessionTransport?.askBack(eventId),
+  onChange: () => syncDeliveryTicks(),
+})
+// The relays answer about a write a few seconds after it, so the clock is looked at again until they have.
+setInterval(() => {
+  const roomId = session ? currentRoomId() : undefined
+  if (roomId && delivery.waiting(roomId)) delivery.refresh(roomId)
+}, 1000)
 const roomLogoCache = new RoomLogoCache(deviceStore)
 forgetLegacyStorage(deviceStore)
 
@@ -3200,6 +3220,7 @@ async function requeueQuiet(s: RoomSession): Promise<void> {
       addSystemLine('A message you wrote before this page reloaded was not sent: the room changed its key while it waited. Write it again if it still applies.')
       continue
     }
+    if (isTickMessage(msg)) tickIds.add(msg.id)
     await pendingSends.add({ id: msg.id, roomId, channel: 'Chat', text: msg.text, files: [], event, publish: retained => transport.publish(retained), durable: false })
   }
   persistQuiet()
@@ -3221,6 +3242,7 @@ async function resumePending(s: RoomSession): Promise<void> {
   for (const item of restored) {
     const msg = decodeChatEvent(item.event, { roomId, roomKey, now: nowSeconds(), policy: roomPolicy, ...(root.epoch > 0 ? { epoch: { id: root.id, key: root.key } } : {}) })
     if (!msg || msg.id !== item.id || msg.participant !== s.participant) { await pendingSends.strand(item.id); continue }
+    if (isTickMessage(msg)) tickIds.add(msg.id)
     pendingSends.resume(item.id, async retained => {
       if (session !== s || s.epochKeys().epoch !== root.epoch) throw new Error(CONVERSATION_MOVED)
       await transport.publish(retained)
@@ -11540,6 +11562,68 @@ function messageWhen(at: number, now: number = Date.now()): string {
   return `${date.format(moment)} · ${CLOCK.format(moment)}`
 }
 
+/**
+ * The tick beside the time on a message this device sent: a clock while the
+ * relays have not yet said whether they kept it, one tick once they have, and
+ * a warning with Retry when one took it and did not return it. Muted, never a
+ * highlight colour; there is no tick for "read". Changes are not announced.
+ */
+function deliveryTick(id: string, state: DeliveryState): HTMLButtonElement {
+  const words = deliveryWords(state)
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = `deliveryTick ${state}`
+  button.dataset.state = state
+  button.title = words.title
+  button.setAttribute('aria-label', words.label)
+  button.append(icon(state === 'checking' ? 'clock' : state === 'sent' ? 'check' : 'warn'))
+  if (state === 'not-kept') {
+    const retry = document.createElement('span')
+    retry.textContent = 'Retry'
+    button.append(retry)
+  }
+  button.addEventListener('click', event => {
+    event.stopPropagation()
+    if (state === 'not-kept') void retryNotKept(id)
+    else setStatus(words.title, 'done')
+  })
+  return button
+}
+
+/** Put each own message's tick in the log to match what is known, without redrawing the log. */
+function syncDeliveryTicks(log: HTMLElement = $('chatLog')): void {
+  const roomId = session ? currentRoomId() : undefined
+  if (!roomId) return
+  for (const row of log.querySelectorAll<HTMLElement>(':scope > .msg.mine[data-message-id]')) {
+    const meta = row.querySelector<HTMLElement>('.messageMeta')
+    if (!meta) continue
+    const record = delivery.get(roomId, row.dataset.messageId!)
+    const existing = meta.querySelector<HTMLButtonElement>('.deliveryTick')
+    if (!record) { existing?.remove(); continue }
+    if (existing?.dataset.state === record.state) continue
+    const next = deliveryTick(record.id, record.state)
+    const hadFocus = !!existing && existing === document.activeElement
+    if (existing) existing.replaceWith(next)
+    else meta.querySelector('time.when')?.after(next)
+    if (hadFocus) next.focus()
+  }
+}
+
+/** Offer a not-kept message to the relays again, as the same signed event: a relay that has it keeps one copy. */
+async function retryNotKept(id: string): Promise<void> {
+  const roomId = session ? currentRoomId() : undefined
+  const transport = sessionTransport
+  if (!roomId || !transport) return
+  const record = delivery.retry(roomId, id)
+  if (!record?.event) return
+  try {
+    await transport.publish(record.event)
+  } catch (error) {
+    delivery.failed(roomId, id)
+    setStatus(describeError(error))
+  }
+}
+
 function timeChip(at: number, exact = false): HTMLTimeElement {
   const el = document.createElement('time')
   el.className = 'when'
@@ -12287,6 +12371,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
   for (const r of rows) paint(r, log)
   systemUpTo(Number.POSITIVE_INFINITY)
   if (countId) $(countId).textContent = conversation.byKey.size ? `(${conversation.byKey.size})` : ''
+  syncDeliveryTicks(log)
   restoreScroll()
   messageActions.refresh()
   if (!appending) restoreReaction?.()
