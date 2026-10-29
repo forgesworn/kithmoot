@@ -43,6 +43,36 @@ export function spryNodeCard(value: unknown, now = Math.floor(Date.now() / 1000)
   } catch { return undefined }
 }
 
+/** The only two spellings of a `spry-standard-v1` card's content: Spry writes
+ *  the first. Stricter than Spry's own verifier, which parses the JSON, so a
+ *  second implementation can compare two strings and never disagree about
+ *  `1.0`, duplicate keys or whitespace. */
+const STANDARD_CONTENT = ['{"profile":"spry-standard-v1","v":1}', '{"v":1,"profile":"spry-standard-v1"}']
+
+/**
+ * A standard-profile node card (spry-turn `docs/supervised-mode.md`, "The
+ * `spry-standard-v1` node card"): kind 24183 signed by the node's control key,
+ * exactly one `expiration` tag no more than 600 seconds after `created_at` and
+ * in the future, `created_at` at most 60 seconds ahead, and content naming the
+ * profile and nothing else. It carries no address and is never a peer route:
+ * `spryNodeCard` refuses it, and this refuses a peer card.
+ */
+export function spryStandardCard(value: unknown, now = Math.floor(Date.now() / 1000)): Event | undefined {
+  try {
+    if (!value || typeof value !== 'object' || JSON.stringify(value).length > 2048) return undefined
+    const event = value as Event
+    if (event.kind !== 24183 || !Number.isSafeInteger(event.created_at) || event.created_at > now + 60 ||
+      typeof event.content !== 'string' || !STANDARD_CONTENT.includes(event.content) ||
+      !Array.isArray(event.tags) || event.tags.length !== 1 || !verifyEvent(event)) return undefined
+    const expiry = tag(event, 'expiration')
+    if (expiry === undefined || !/^[0-9]{1,15}$/.test(expiry)) return undefined
+    const at = Number(expiry)
+    if (at <= now || at > now + 660 || at > event.created_at + 600) return undefined
+    return { id: event.id, pubkey: event.pubkey, created_at: event.created_at, kind: event.kind, content: event.content,
+      tags: event.tags.map(tag => [...tag]), sig: event.sig }
+  } catch { return undefined }
+}
+
 /** A Spry request that failed. `status` is the node's HTTP status (403 a
  *  refusal, 404 a path it does not know, 409 out of date, 429 busy), or 0 when
  *  the node could not be reached or its answer could not be read. The message

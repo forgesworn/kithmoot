@@ -321,7 +321,7 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
-import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare } from './spry-pairing.js'
+import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare, loadSpryConsent, saveSpryConsent } from './spry-pairing.js'
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
@@ -5422,12 +5422,22 @@ async function joinCall(): Promise<void> {
   if (!s || s.call) return
   // A relay-only call waits a few seconds for the room's owner to register
   // this device before it refuses; an ordinary call starts and upgrades.
-  try { await spryRooms.get(s)?.prepare(sessionRelayOnly.get(s) === true) }
-  catch (error) {
-    if (sessionRelayOnly.get(s)) throw error
+  const relayOnlyCall = sessionRelayOnly.get(s) === true
+  let relayFailure: unknown
+  try { await spryRooms.get(s)?.prepare(relayOnlyCall) } catch (error) { relayFailure = error ?? new Error('Spry could not connect.') }
+  if (session !== s) return
+  // Hide my IP address with no relay yet, and another member's own relay on
+  // offer: ask once, naming them, then use it.
+  if (relayOnlyCall && sessionRelayBlocked.get(s) === true && await chooseMemberRelay(s)) {
+    if (session !== s) return
+    relayFailure = undefined
+    try { await spryRooms.get(s)?.prepare(true) } catch (error) { relayFailure = error ?? new Error('Spry could not connect.') }
+    if (session !== s) return
+  }
+  if (relayFailure) {
+    if (relayOnlyCall) throw relayFailure
     noteRelayMissing(true)
   }
-  if (session !== s) return
   // Below the room's own TURN or Spry offer, above the default: a relay
   // the person chose from public adverts, asked for a login now.
   await publicRelayRoutes.get(s)?.start().catch(() => {})
@@ -9513,6 +9523,47 @@ function currentRecordingView(s = session): ReturnType<typeof recordingView> {
   const legacy = recordingView(heard, heard?.since ?? 0, heard?.heardAt ?? 0, nowSeconds())
   const views = [legacy, ...memberRecordingViews(s).map(heard => heard.view)]
   return views.find(view => view.state === 'on') ?? views.find(view => view.state === 'unconfirmed') ?? { state: 'off' }
+}
+
+/**
+ * Hide my IP address and another member's own call relay (a built-in relay):
+ * it shows that member this device's internet address, so it is used only
+ * after a one-time choice naming them, remembered on this device per host.
+ * Without Hide my IP address the address is in the call's candidates anyway.
+ * A relay the room cannot attribute to one member is not used.
+ */
+function mayUseMemberRelay(s: RoomSession, relayOnly: boolean, host: string | undefined): boolean {
+  if (!relayOnly) return true
+  if (!host) return false
+  if (host === s.participant) return true
+  try { return loadSpryConsent(localStorage, s.participant, host) } catch { return false }
+}
+
+/** Ask once whether to use the member relay this room offers; true when the
+ *  person said yes and the choice is now remembered. */
+async function chooseMemberRelay(s: RoomSession): Promise<boolean> {
+  const host = spryRooms.get(s)?.blocked()?.host
+  if (!host || host === s.participant) return false
+  // The offer can arrive a moment before the host's roster entry with its name.
+  const view = () => s.participants().find(person => person.participant === host)
+  if (!view()?.name) {
+    await new Promise<void>(resolve => {
+      let off: (() => void) | undefined
+      const finish = (): void => { clearTimeout(timer); off?.(); resolve() }
+      const timer = setTimeout(finish, 3000)
+      off = s.onChange(() => { if (view()?.name) finish() })
+    })
+    if (session !== s) return false
+  }
+  const name = shownAs(host, view()?.name).name ?? shortKey(host)
+  if (!await confirmRoomAction({
+    title: `Use ${name}'s relay?`,
+    message: `${name} will see your address; others won't.`,
+    confirmLabel: 'Use relay',
+    cancelLabel: 'Not now',
+  }) || session !== s) return false
+  try { saveSpryConsent(localStorage, s.participant, host) } catch { return false }
+  return true
 }
 
 /**
@@ -14182,7 +14233,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
         applyCallServers(withDeviceStun(servers, deviceStun), false)
       }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer),
-      { share: madeHere || chosen })
+      { share: madeHere || chosen, mayUse: host => mayUseMemberRelay(s, relayOnly, host),
+        loopbackTurn: import.meta.env.VITE_E2E_SPRY_LOOPBACK_TURN === 'true' })
       spryRooms.set(s, relay)
       spryRoomMadeHere.set(s, madeHere)
       renderSpryShareChoice()

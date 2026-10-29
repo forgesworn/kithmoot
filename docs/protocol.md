@@ -357,6 +357,37 @@ reference names its signalling relay and public key; unrecognised properties do
 not create capabilities. The old descriptor and first-offer shapes stay valid
 without a ticket or policy event.
 
+A descriptor may carry one Spry offer, `spry`:
+`{"v":1,"endpoint":"<https origin or spry: URI>","token":"<43 base64url>","expiresAt":<unix seconds>,"node"?:<kind 24183 event>}`
+(`src/spry.ts`, `parseSpryOffer`). The token is a room relay grant; the
+member's own node issues it and redeems it, with `/v1/credentials`, only for
+devices whose `spryKey` it has registered or vouched for. An `https:` offer
+yields TURN only on `turn:<host>:3478` (UDP, TCP) or `turns:<host>:5349`. A
+`spry:` offer is reached over Spry's encrypted Nostr control channel (kinds
+24181 and 24182) on the relays its URI names, and `node` is that node's card,
+signed by the URI's key. A `spry-peer-v1` card names a private mesh node:
+only a device paired with that node redeems its offer, and others never
+contact it. A `spry-standard-v1` card names a standard-profile node, such as
+a member's built-in relay (spry-turn `docs/supervised-mode.md`): its content
+is exactly `{"profile":"spry-standard-v1","v":1}` (either key order, no
+whitespace), it has exactly one tag, `expiration`, no more than 600 seconds
+after `created_at` and in the future, and `created_at` is at most 60 seconds
+ahead. A reader checks the card's expiry when it reads the offer and drops a
+stale card, so an offer whose card has lapsed is not redeemed until its host
+publishes it again. Any member may redeem a standard offer. The credential
+answer must carry a standard card signed by the URI's key and one or two
+`turn:` URLs on a single public unicast IPv4 literal (Spry's `public_v4`: not
+private, loopback, link-local, broadcast, documentation, `0/8`, `224/3`,
+carrier-grade NAT, benchmarking or `192.0.0/24`), ports 1024 to 65535,
+`?transport=udp` or `?transport=tcp`, no repeats. Only the host publishes its
+own `spry:` offer: other members do not republish it, so a reader can name
+the host as the one participant whose descriptor carries it, and names
+nobody if more than one does. A client with Hide my IP address on uses
+another member's standard offer only after a one-time choice naming that
+host, kept on the device per host. The card carries no address; the host's
+public IPv4 travels only in the encrypted credential answer. The cards, offer
+marker and URL rule are pinned by `vectors/spry-standard-offer-v1.json`.
+
 The room's name is shared room state with no kind of its own: any member
 renames the room with a `name` op on the encrypted control channel,
 `{"op":"name","name":"…","id":"<32 hex>","at":<unix ms>}`, plus

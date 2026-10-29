@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { decrypt, encrypt, getConversationKey } from 'nostr-tools/nip44'
-import { parseSpryControl, spryControlRequest, spryNodeCard, SpryRequestError } from './spry-link.js'
+import { parseSpryControl, spryControlRequest, spryNodeCard, spryStandardCard, SpryRequestError } from './spry-link.js'
 import { newSpryKey, spryCredentials } from './spry.js'
 
 const nodeKey = new Uint8Array(32).fill(1), pubkey = getPublicKey(nodeKey)
@@ -99,4 +99,8 @@ it('reads the actual Rust protocol fixtures in both encryption directions', asyn
   expect(JSON.parse(decrypt(vector.response.content, conversation))).toEqual({ v: 1, status: 200, body: { ok: true } })
   expect(vector.response.tags).toContainEqual(['e', vector.request.id])
   expect(spryNodeCard(vector.node, vector.now)?.pubkey).toBe(target.publicKey)
+  // The standard card (supervised mode) is never a peer route, and a peer card never a standard one.
+  expect(spryStandardCard(vector.standardNode, vector.now)?.pubkey).toBe(target.publicKey)
+  expect(spryNodeCard(vector.standardNode, vector.now)).toBeUndefined()
+  expect(spryStandardCard(vector.node, vector.now)).toBeUndefined()
 })

@@ -1,6 +1,8 @@
 #!/bin/sh
-# Build the standard-profile spry-node and spry-turn executables that
-# test/spry-room-relay.spec.ts runs, from one pinned spry-turn commit.
+# Build the spry-node and spry-turn executables that
+# test/spry-room-relay.spec.ts (standard profile) and
+# test/spry-standard-offer.spec.ts (supervised mode) run, from one pinned
+# spry-turn commit.
 #
 #   scripts/build-spry-node-fixture.sh <empty-or-new-directory>
 #
@@ -10,11 +12,12 @@
 set -eu
 
 # Full commit SHA on forgesworn/spry-turn main. Move it deliberately, with the
-# spec re-run, never to a branch name. This pin carries the room-grant paths,
-# sealing and vouching (#18) and the room relay caps (#17) the spec drives.
+# specs re-run, never to a branch name. This pin carries the room-grant paths,
+# sealing and vouching (#18), the room relay caps (#17) and supervised
+# standard mode with the spry-standard-v1 node card (#23) the specs drive.
 # SPRY_TURN_SHA may name another full commit for a run against unmerged
 # server work (with SPRY_TURN_URL pointing at a local checkout).
-SPRY_TURN_SHA=${SPRY_TURN_SHA:-cb46a57876bb15bbdb4407137a2d8102aee4ffad}
+SPRY_TURN_SHA=${SPRY_TURN_SHA:-b74fd31f37897ab12eb7e7fb4f2d97e0be761bd7}
 SPRY_TURN_URL=${SPRY_TURN_URL:-https://github.com/forgesworn/spry-turn.git}
 case $SPRY_TURN_SHA in *[!0-9a-f]*|'') echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2 ;; esac
 [ ${#SPRY_TURN_SHA} -eq 40 ] || { echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2; }
