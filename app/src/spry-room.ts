@@ -1,5 +1,5 @@
 import { spryCredentials, spryGrant, spryPeers, spryRegisterDevices, spryRemoveGrant, spryVouch, newSpryKey, spryDeviceKey, SpryRequestError,
-  isSpryStandardOffer, type SpryOffer, type SpryPairing, type SpryCredential } from '../../src/spry.js'
+  isSpryStandardOffer, SHARED_RELAY_UNAVAILABLE, type SpryOffer, type SpryPairing, type SpryCredential } from '../../src/spry.js'
 import { spryDevicePublicKey } from '../../src/spry-key.js'
 import { parseSpryControl, spryNodeCard } from '../../src/spry-link.js'
 import type { RoomSession } from '../../src/session.js'
@@ -194,6 +194,47 @@ export class SpryRoom {
       if (this.#foreignControl(offer) && isSpryStandardOffer(offer) && !this.#usable(offer)) return { endpoint: offer.endpoint, host: this.#hostOf(offer.endpoint) }
     }
     return undefined
+  }
+  /**
+   * The endpoint of this device's own built-in relay (a standard node) while
+   * it shares it in this room: the relay a host may ask a member to test
+   * from outside. Undefined when it does not share one here.
+   */
+  hostedEndpoint(): string | undefined {
+    const own = this.#own
+    if (!own || !this.#shares() || this.#withdrawn.has(own.token) || own.expiresAt <= Date.now() / 1000 || !isSpryStandardOffer(own)) return undefined
+    return own.endpoint
+  }
+  /** The standard offer this device holds for `endpoint`, unwithdrawn and unexpired. */
+  #heldStandard(endpoint: string): SpryOffer | undefined {
+    const now = Date.now() / 1000
+    return [this.#shared, this.#offer, this.#own].find(offer => !!offer && offer.endpoint === endpoint && offer.expiresAt > now &&
+      !this.#withdrawn.has(offer.token) && isSpryStandardOffer(offer))
+  }
+  /**
+   * For a relay outside test: who offers the built-in relay at `endpoint` in
+   * this room (undefined when no single participant does) and whether this
+   * device may use it now (Hide my IP address asks first). Undefined when this
+   * device holds no such offer.
+   */
+  testOffer(endpoint: string): { host: string | undefined; usable: boolean } | undefined {
+    if (this.#closed) return undefined
+    const offer = this.#heldStandard(endpoint)
+    return offer ? { host: this.#hostOf(endpoint), usable: this.#usable(offer) } : undefined
+  }
+  /**
+   * A relay login for a relay outside test of the built-in relay at
+   * `endpoint`: one this device already holds while it has a minute left,
+   * or a fresh redemption. Never applied to the room's calls and never
+   * counted as a redemption for vouching. Throws when there is no usable
+   * offer or the node refuses.
+   */
+  async testCredential(endpoint: string): Promise<SpryCredential> {
+    const offer = this.#heldStandard(endpoint)
+    if (this.#closed || !offer || !this.#usable(offer)) throw new Error(SHARED_RELAY_UNAVAILABLE)
+    const held = this.#credentials.get(offer.endpoint + ':' + offer.token)
+    if (held && held.expiresAt - Date.now() / 1000 > 60) return held
+    return spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
   }
   /** A paired device always holds its room grant, for its own calls. */
   #asksOwnNode(): boolean { return !!this.pairing }

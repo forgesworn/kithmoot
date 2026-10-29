@@ -103,3 +103,27 @@ it('names no host when more than one participant publishes the same relay', asyn
   expect(spryOfferHost([{ participant: HOST, spry: offerWith() }, { participant: HOST, spry: offerWith() }], endpoint)).toBe(HOST)
   expect(spryOfferHost([{ participant: HOST }], endpoint)).toBeUndefined()
 })
+
+it('a relay outside test names the host and the Hide my IP answer, and its login touches no call', async () => {
+  vi.useFakeTimers()
+  control.answer = credential
+  const { session } = room(offerWith())
+  // Not on a call, so nothing else redeems or applies a login.
+  Object.assign(session, { call: undefined })
+  const apply = vi.fn()
+  let allowed = false
+  const broker = new SpryRoom(session, undefined, apply, fetch, new Uint8Array(32).fill(9), undefined, () => {}, { share: false, mayUse: () => allowed })
+  try {
+    expect(broker.hostedEndpoint()).toBeUndefined()
+    expect(broker.testOffer(endpoint.replace('relay.example', 'other.example'))).toBeUndefined()
+    expect(broker.testOffer(endpoint)).toEqual({ host: HOST, usable: false })
+    await expect(broker.testCredential(endpoint)).rejects.toThrow()
+    expect(control.requests).toEqual([])
+    allowed = true
+    expect(broker.testOffer(endpoint)).toEqual({ host: HOST, usable: true })
+    await expect(broker.testCredential(endpoint)).resolves.toMatchObject({ urls: credential().urls })
+    expect(control.requests).toEqual([{ endpoint, path: '/v1/credentials' }])
+    await vi.advanceTimersByTimeAsync(31_000)
+    expect(apply).not.toHaveBeenCalled()
+  } finally { broker.close(); vi.useRealTimers() }
+})

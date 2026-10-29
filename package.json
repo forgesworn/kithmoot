@@ -87,6 +87,7 @@
     "test:automatic-calls": "playwright test --config playwright.automatic-calls.config.ts",
     "test:spry-room-relay": "playwright test --config playwright.spry-room-relay.config.ts",
     "test:spry-standard-offer": "playwright test --config playwright.spry-standard-offer.config.ts",
+    "test:relay-outside-test": "playwright test --config playwright.relay-outside-test.config.ts",
     "agent": "npm run build:lib && node bin/kithmoot-agent.mjs",
     "build:context": "npm run build --workspace @forgesworn/context && npm run build --workspace @forgesworn/context-tools",
     "test:context-packages": "node test/context-package-smoke.mjs",

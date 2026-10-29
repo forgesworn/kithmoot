@@ -325,6 +325,7 @@ import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPa
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
+import { RelayOutsideTests } from './relay-outside-test.js'
 import { waitForExistingCall } from './call-startup.js'
 import { spryRequest } from '../../src/spry.js'
 import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
@@ -3116,6 +3117,27 @@ window.addEventListener('storage', (event) => {
 
 let session: RoomSession | undefined
 const spryRooms = new WeakMap<RoomSession, SpryRoom>()
+/** The relay outside test for each room session: as host of a built-in
+ *  relay, asking a member to test it; as a member, answering the host.
+ *  No visible control yet (docs/design/2026-10-28-built-in-relay.md, K5). */
+const relayOutsideTests = new WeakMap<RoomSession, RelayOutsideTests>()
+function closeSpryRoom(s: RoomSession | undefined): void {
+  if (!s) return
+  relayOutsideTests.get(s)?.close()
+  spryRooms.get(s)?.close()
+}
+// Local acceptance builds only (VITE_E2E_RELAY_OUTSIDE_TEST): the host's
+// trigger, until the built-in relay's own screen gives it a control (K5).
+// Vite drops this block from every other build.
+if (import.meta.env.VITE_E2E_RELAY_OUTSIDE_TEST === 'true') {
+  (window as unknown as { __kithmootRelayOutsideTest?: (participant: string) => Promise<unknown> }).__kithmootRelayOutsideTest = async participant => {
+    const s = session
+    const tests = s ? relayOutsideTests.get(s) : undefined
+    const device = s?.participants().find(view => view.participant === participant)?.devices.find(candidate => candidate !== s.device)
+    if (!s || !tests || !device) throw new Error('No such device in the room.')
+    return tests.ask(device)
+  }
+}
 /** Whether this device made the room a SpryRoom serves, as `isRoomAuthority`
  *  said when its session started: a docked call keeps its own answer. */
 const spryRoomMadeHere = new WeakMap<RoomSession, boolean>()
@@ -14236,6 +14258,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       { share: madeHere || chosen, mayUse: host => mayUseMemberRelay(s, relayOnly, host),
         loopbackTurn: import.meta.env.VITE_E2E_SPRY_LOOPBACK_TURN === 'true' })
       spryRooms.set(s, relay)
+      relayOutsideTests.set(s, new RelayOutsideTests(s, relay))
       spryRoomMadeHere.set(s, madeHere)
       renderSpryShareChoice()
     }
@@ -14464,7 +14487,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
-    if (failed) { spryRooms.get(failed)?.close(); publicRelayRoutes.get(failed)?.end() }
+    if (failed) { closeSpryRoom(failed); publicRelayRoutes.get(failed)?.end() }
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
     await closeFailedRoomWithCatalogues(failed,failedTransport,()=>failed?closeRoomBoardCatalogues(failed):Promise.resolve(),()=>{
@@ -15870,7 +15893,7 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean; preserv
   // tab lock and timers are left exactly as they are. `dockCall` has already
   // taken them out of the globals this clears.
   const keepCall = docked()
-  if (old && !keepCall) { spryRooms.get(old)?.close(); publicRelayRoutes.get(old)?.end() }
+  if (old && !keepCall) { closeSpryRoom(old); publicRelayRoutes.get(old)?.end() }
   const boardsClosing=old&&!keepCall?closeRoomBoardCatalogues(old):Promise.resolve()
   const recordingStop = activeRecording?.session === old && old !== dockedCall?.session
     ? stopRecording().catch(err => setStatus(describeError(err))) : undefined
@@ -16071,7 +16094,7 @@ function dockCall(room: KnownRoom): void {
 function resumeDockedCall(): void {
   const c = dockedCall
   if (!c) return
-  spryRooms.get(c.session)?.close()
+  closeSpryRoom(c.session)
   closeAccountMessageViews()
   dockedCall = undefined
   delete document.documentElement.dataset.callDocked
@@ -18414,7 +18437,7 @@ $('spryPairingRemove').addEventListener('click', async () => {
     if (nostrSession !== account || currentIdentity().pubkey !== participant) return
     removeSpryPairing(localStorage)
     if (account) await spryAccountSync?.save(null)
-    for (const active of [session, dockedCall?.session]) if (active) { spryRooms.get(active)?.close(); spryRooms.delete(active) }
+    for (const active of [session, dockedCall?.session]) if (active) { closeSpryRoom(active); spryRooms.delete(active); relayOutsideTests.delete(active) }
     renderSpryShareChoice()
     renderCallRelay()
     setStatus('Spry unpaired. Existing relay access expires within five minutes.')
@@ -22701,7 +22724,7 @@ function reconcileAccountNetwork(): void {
     sessionTransport?.close(); sessionTransport = undefined
     setStatus(roomHold)
   }
-  if (dockedCall && !dockedCall.ui.roomUsesBothy) spryRooms.get(dockedCall.session)?.close()
+  if (dockedCall && !dockedCall.ui.roomUsesBothy) closeSpryRoom(dockedCall.session)
   if (dockedCall && !dockedCall.ui.roomUsesBothy) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
   if (session && !roomUsesBothy) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
   // Invalidate ordinary views before any asynchronous teardown can complete.
