@@ -174,6 +174,11 @@ export interface FollowOptions {
   /** This is a direct message, looked up at delivery. See
    *  `ReachesReaderOptions.direct` in `src/messages.ts`. */
   direct?: () => boolean
+  /** Who this device is in this room, looked up at delivery. Defaults to
+   *  the notifier's `self`. A room joined as one identity is read as that
+   *  identity, whatever this device is signed in as now, so what that
+   *  identity sent from another device is never news. */
+  self?: () => string | undefined
 }
 
 export interface NotifierOptions {
@@ -242,17 +247,17 @@ export class Notifier {
         const settings = this.#opts.settings(follow.roomId)
         if (!settings.enabled) continue
         const hidden = this.#opts.hidden()
-        if (!shouldNotify(arrival, { hidden, shownRoomId: this.#opts.shownRoomId(), self: this.#opts.self(), followedSince })) continue
+        const self = (follow.self ? follow.self() : undefined) ?? this.#opts.self()
+        if (!shouldNotify(arrival, { hidden, shownRoomId: this.#opts.shownRoomId(), self, followedSince })) continue
         // Two agents talking to each other is not news for a person to be
         // interrupted for; naming them directly still is, and everything
         // said in a direct message is. See `classifyMessage` in
         // `src/messages.ts`. `self` falling back to '' when this identity
         // is not yet known matches every unread count, rather than letting
         // agent chatter through on a device that has not paired in yet.
-        const self = this.#opts.self() ?? ''
-        const cls = classifyMessage(message, self, follow.roster?.() ?? [], { direct: follow.direct?.() ?? false, minutes: follow.channel === 'minutes' })
+        const cls = classifyMessage(message, self ?? '', follow.roster?.() ?? [], { direct: follow.direct?.() ?? false, minutes: follow.channel === 'minutes' })
         if (cls === null) continue
-        if (settings.mentionsOnly && !(follow.direct?.() ?? false) && !addressesReader(message, self, follow.roster?.() ?? [])) continue
+        if (settings.mentionsOnly && !(follow.direct?.() ?? false) && !addressesReader(message, self ?? '', follow.roster?.() ?? [])) continue
         const content = notificationContent({
           roomId: follow.roomId,
           room: follow.room(),

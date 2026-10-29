@@ -14633,8 +14633,9 @@ function watchKnownRoom(room: KnownRoom): void {
     sender: senderLabel,
     // The viewer is never in `present()` here - this device is not in the
     // room - so a name-in-text mention of them would otherwise be missed.
-    roster: () => [...watch.present(), { participant: meParticipant || currentParticipant() || '', name: joiningName() }],
+    roster: () => [...watch.present(), { participant: roomSelf(roomId), name: joiningName() }],
     direct: () => dmPeerOf(room) !== undefined,
+    self: () => roomSelf(roomId),
   })
   const epoch = loadRoomEpoch(roomId)
   // The epochs before it, when what this device kept says where the room is.
@@ -14765,18 +14766,30 @@ function roomIsEnded(room: KnownRoom): boolean {
   return room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())
 }
 
+/** Who this device is in a room it is not showing: the identity it joined
+ *  as, so what that identity sent from another device is never unread here.
+ *  Until the signer reconnects after a restart there is no session, and
+ *  `currentParticipant` would answer with this browser's guest key; the
+ *  account it expects comes first. A room written down before the joining
+ *  identity was kept falls back the same way. */
+function roomSelf(roomOrId: KnownRoom | string): string {
+  const room = typeof roomOrId === 'string' ? knownRoom(roomStore(), roomOrId) : roomOrId
+  if (session && room?.roomId === currentRoomId() && meParticipant) return meParticipant
+  return room?.joinedAs || meParticipant || nostrSession?.pubkey || expectedAccount || currentParticipant() || ''
+}
+
 /** Unread messages from people in a room the list is watching. */
 function roomUnreadPeople(room: KnownRoom): number {
   const watched = roomWatches.get(room.roomId)
   if (!watched || !watched.watch.readsChat) return 0
-  return watched.watch.unread(room.readAt, meParticipant || currentParticipant() || '', joiningName(), room.readIds).people
+  return watched.watch.unread(room.readAt, roomSelf(room), joiningName(), room.readIds).people
 }
 
 /** Whether a message since this room was last read names the viewer or
  *  replies to them: the Mentions chip and the @ on the row. */
 function roomHasMention(room: KnownRoom): boolean {
   const watched = roomWatches.get(room.roomId)
-  const self = meParticipant || currentParticipant() || ''
+  const self = roomSelf(room)
   if (!watched?.watch.readsChat || !self) return false
   const roster = [...watched.watch.present(), { participant: self, name: joiningName() }]
   return [...resolveConversation(watched.watch.messages()).byKey.values()].some(message => {
@@ -15159,7 +15172,7 @@ function roomRowState(room: KnownRoom): RoomRowState {
     return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
   }
 
-  const self = meParticipant || currentParticipant() || ''
+  const self = here ? meParticipant || currentParticipant() || '' : roomSelf(room)
   const messages = here ? conversationMessages(undefined) : watched!.watch.messages()
   const latest = messages.reduce<ChatMessage | undefined>((best, m) => (!best || m.sentAt > best.sentAt ? m : best), undefined)
   const nameOf = (participant: string): string =>
@@ -16453,7 +16466,6 @@ window.kithmootDesktop?.onOpenRoom(roomId => {
 
 /** Use the same resolved messages/read positions as chat, not the number of banners. */
 function updateDesktopUnread(): void {
-  const self = meParticipant || currentParticipant() || ''
   const selfName = joiningName()
   let { people, agents } = session && currentRoomId() && roomIsMuted(currentRoomId()!) ? { people: 0, agents: 0 } : currentRoomUnreadSplit()
   for (const room of knownRooms(roomStore())) {
@@ -16461,7 +16473,7 @@ function updateDesktopUnread(): void {
     if (roomIsMuted(room.roomId)) continue
     const watched = roomWatches.get(room.roomId)
     if (!watched) continue
-    const split = watched.watch.unread(room.readAt ?? 0, self, selfName, room.readIds)
+    const split = watched.watch.unread(room.readAt ?? 0, roomSelf(room), selfName, room.readIds)
     people += split.people
     agents += split.agents
   }
