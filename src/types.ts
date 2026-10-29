@@ -153,6 +153,14 @@ export interface RosterEntry {
    * device already publishes about itself, instead.
    */
   callProfile?: number
+  /**
+   * This device's Spry signing key for this room: the x-only public key of
+   * `spryDeviceKey(deviceSk)`, 64 lowercase hex (`spry-key.ts`). A claim like
+   * `callProfile`; a malformed value is dropped, never the entry. A paired
+   * owner's app registers it with its Spry node so the room's relay grant can
+   * be sealed to admitted devices. Absent on clients before this field.
+   */
+  spryKey?: string
   /** Exact 2 means this device explains signed audio/video capture notices.
    * Absent/unknown devices must not have their video included in an app-made
    * recording. This is a UI capability claim, not proof of identity or consent. */

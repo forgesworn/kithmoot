@@ -27,6 +27,7 @@ const cases: [string, 'browser' | 'tab', string][] = [
   ...['kithmoot.blob-deletes.v1', 'kithmoot.blob-delete-groups.v1', 'kithmoot.file-storage.v1', 'kithmoot.blossom-server'].map(n => [n, 'browser', 'private'] as [string, 'browser', string]),
   ...['effectMode', 'background', 'blurStrength', 'voicePreset', 'cameraDeviceId', 'micDeviceId', 'facePrivacy'].map(f => [`kithmoot.call.${f}`, 'browser', 'media'] as [string, 'browser', string]),
   ['kithmoot.callProfile', 'browser', 'media'], ['kithmoot.callProfile', 'tab', 'media'],
+  ['kithmoot.spry-share.v1', 'browser', 'routing'], ['kithmoot.spry-pairing.v1', 'browser', 'private'], ['kithmoot.spry-rooms.v1', 'browser', 'private'],
   ...['kithmoot.relays.v1', 'kithmoot.circle.v1', 'kithmoot.room-relays-fixed.v1', `kithmoot.room-relays.v1.${h}`, `kithmoot.room-storage.v1.${h}`].map(n => [n, 'browser', 'routing'] as [string, 'browser', string]),
   ...['mirror-self', 'fish.enabled', 'camera.framing', 'agents-hear', 'zen-bell', 'desktop-bell', 'profiles.enabled', 'name', 'last-nostr-account', 'last-nostr-method', 'profiles.lastKnownName.v1', 'send-delay', 'destructed.v1', 'home.fold.pinned', `room-name.v1.${h}`, `nudge.${h}`, `destruct-heads-up.${h}`].map(n => ['kithmoot.' + n, 'browser', 'ui'] as [string, 'browser', string]),
   ['kithmoot:emoji:skinTone', 'browser', 'ui'], ['kithmoot:emoji:recents', 'browser', 'ui'], ['kithmoot.notice', 'tab', 'ui'], ['kithmoot.way-back', 'tab', 'navigation'], ['kithmoot.room-switch.v1', 'tab', 'navigation'],
@@ -55,6 +56,11 @@ describe('complete reserved physical namespace routing', () => {
     const image = new Map([['kithmoot.name', 'malformed\nname'], ['kithmoot.textSize', 'large'], ['kithmoot-mls-vault-v1.revision', uuid]])
     expect(validate(image, { kind: 'browser' })).toEqual({ protectedRecords: 2, signals: 1, tabMarkers: 0, families: { ui: 1, appearance: 1, signal: 1 } })
     expect(() => validateOrdinaryUiSnapshot(image, false, { kind: 'browser' })).toThrow(OrdinaryStateHold)
+  })
+  it('protects a Spry pairing and saved room grants instead of holding the image', () => {
+    const image = new Map([['kithmoot.spry-pairing.v1', JSON.stringify({ v: 1, endpoint: 'https://relay.example', id: 'c'.repeat(43), secretKey: 'd'.repeat(64), participant: h })],
+      ['kithmoot.spry-rooms.v1', JSON.stringify({ [`${h}:${j}`]: { v: 1, endpoint: 'https://relay.example', token: 't'.repeat(43), expiresAt: 1 } })], ['kithmoot.spry-share.v1', JSON.stringify([`${h}:${j}`])]])
+    expect(validate(image, { kind: 'browser' })).toMatchObject({ protectedRecords: 3, families: { private: 2, routing: 1 } })
   })
   for (const size of ['standard', 'large', 'huge']) it(`protects exact ${size} text size`, () => expect(validate(new Map([['kithmoot.textSize', size]]), { kind: 'browser' }).protectedRecords).toBe(1))
   for (const [name, raw] of [['kithmoot.textSize', 'giant'], ['kithmoot-mls-vault-v1.revision', 'private-room'], ['kithmoot.mls-coordinated-vault.revision', uuid.toUpperCase()], ['kithmoot-rendezvous-vault-v1:revision', ''], ['kithmoot.ordinary-tab.v1', uuid]] as const) it(`holds malformed special ${name}`, () => expect(() => validate(new Map([[name, raw]]), { kind: name.includes('ordinary-tab') ? 'tab' : 'browser' })).toThrow(OrdinaryStateHold))

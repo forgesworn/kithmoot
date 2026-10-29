@@ -69,6 +69,7 @@ import { decodeRosterEvent } from '../dist/src/roster.js'
 import { unwrapSignal } from '../dist/src/signal.js'
 import { evaluateAccess } from '../dist/src/access.js'
 import { mintTurnCredential } from '../dist/src/turn.js'
+import { spryDeviceKey, spryDevicePublicKey, sanitiseSpryKey } from '../dist/src/spry-key.js'
 import { decodeDescriptorEvent } from '../dist/src/descriptor.js'
 import { verifyRoomRelays, canonicalRoomRelays } from '../dist/src/room-relays.js'
 import { verifyRoomStorage } from '../dist/src/room-storage.js'
@@ -87,7 +88,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [], spryDeviceKey: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -1489,6 +1490,30 @@ for (const [name, note, secret, ttlSeconds, now, deviceName] of [
     input: { secret, ttlSeconds, now, name: deviceName ?? null },
     output: result,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Spry device key (src/spry-key.ts): the per-room Spry signing key a device
+// redeems room relay access with, and the `spryKey` its roster entry carries
+// so a paired owner's app can register it with the node.
+// ---------------------------------------------------------------------------
+for (const [name, seed] of [['spry-device-key-a', 'spry-device-a'], ['spry-device-key-b', 'spry-device-b']]) {
+  const deviceSk = deriveSecretKey(seed)
+  const spryKey = spryDevicePublicKey(deviceSk)
+  vectors.spryDeviceKey.push({
+    name,
+    kind: 'positive',
+    note: 'sprySecretHex = HMAC-SHA256(key = the room device secret key, message = "spry-device-v1"); spryKey is its BIP-340 x-only public key, 64 lowercase hex, announced as `spryKey` in the device\'s own roster entry.',
+    input: { deviceSkHex: bytesToHex(deviceSk) },
+    output: { sprySecretHex: spryDeviceKey(deviceSk), spryKey, rosterSpryKey: sanitiseSpryKey(spryKey.toUpperCase()) },
+  })
+}
+for (const [name, value, note] of [
+  ['spry-key-not-a-point', 'f'.repeat(64), 'Above the field prime, so no x coordinate: dropped, the entry kept.'],
+  ['spry-key-short', 'ab'.repeat(31), 'Not 64 hex: dropped, the entry kept.'],
+  ['spry-key-not-a-string', 7, 'Not a string: dropped, the entry kept.'],
+]) {
+  vectors.spryDeviceKey.push({ name, kind: 'negative', note, input: { spryKey: value }, output: { rosterSpryKey: sanitiseSpryKey(value) ?? null } })
 }
 
 // ===========================================================================

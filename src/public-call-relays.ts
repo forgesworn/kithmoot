@@ -11,7 +11,8 @@
  *
  * A signature names the key that made the statement. It says nothing about
  * the operator's identity, honesty, uptime, logging or jurisdiction, and the
- * region and note are the operator's own claims.
+ * region, note and privacy link are the operator's own claims. Nothing here
+ * ever fetches the privacy link (client rule 8).
  */
 import type { Event } from 'nostr-tools/pure'
 import { verifyEventUncached } from './verify.js'
@@ -28,6 +29,10 @@ export const PUBLIC_RELAY_MAX_FUTURE = 10 * 60
 export const PUBLIC_RELAY_MAX_NOTE = 140
 export const PUBLIC_RELAY_MAX_URLS = 4
 const MAX_URL = 256
+/** Longest operator privacy-notice link. */
+export const PUBLIC_RELAY_MAX_PRIVACY = 256
+/** Last labels a privacy link, like a credential endpoint, may not end in. */
+const RESERVED_SUFFIXES = ['local', 'localhost', 'internal', 'invalid', 'test']
 /** TURN ports a client will contact. Omitted means the scheme's default. */
 export const PUBLIC_RELAY_TURN_PORTS: readonly string[] = ['3478', '5349', '443']
 const MAX_EXPIRATION_DIGITS = 16
@@ -63,6 +68,9 @@ export interface PublicRelayAdvert {
   expiresAt: number
   /** The operator's own claim, never verified. */
   region?: string
+  /** The operator's own privacy-notice link, never fetched: shown with its
+   *  hostname and opened only when the person taps it. */
+  privacy?: string
   status: 'open' | 'withdrawn'
   /** Present exactly when `status` is `open`. */
   offer?: PublicRelayOffer
@@ -80,6 +88,32 @@ export function publicRelayNoteValid(note: string): boolean {
   return bytes(note) <= PUBLIC_RELAY_MAX_NOTE && !/\p{Cc}/u.test(note)
 }
 
+/** A DNS label as adverts accept it (spry-link's `label_valid`): lowercase
+ *  letters, digits and inner hyphens, and no `xn--` prefix. */
+function labelValid(label: string): boolean {
+  return /^[a-z0-9-]{1,63}$/.test(label) && !label.startsWith('-') && !label.endsWith('-') && !label.startsWith('xn--')
+}
+
+/**
+ * spry-link's `privacy_valid`: `https://`, a DNS name of two or more labels
+ * whose last starts with a letter and is not reserved, and a path of
+ * `[A-Za-z0-9._~/-]` with no empty, `.` or `..` segment, at most 256 bytes.
+ * So no userinfo, port, query, fragment, percent-escape, uppercase host or
+ * trailing dot, and the string is its own canonical form.
+ */
+export function publicRelayPrivacyValid(link: string): boolean {
+  if (typeof link !== 'string' || bytes(link) > PUBLIC_RELAY_MAX_PRIVACY || !link.startsWith('https://')) return false
+  const rest = link.slice('https://'.length)
+  const slash = rest.indexOf('/')
+  if (slash < 0) return false
+  const host = rest.slice(0, slash), path = rest.slice(slash)
+  const labels = host.split('.')
+  const last = labels[labels.length - 1]!
+  if (labels.length < 2 || !labels.every(labelValid) || !/^[a-z]/.test(last) || RESERVED_SUFFIXES.includes(last)) return false
+  if (!/^[A-Za-z0-9._~/-]*$/.test(path) || path.includes('//') || path.slice(1).split('/').some(segment => segment === '.' || segment === '..')) return false
+  try { return new URL(link).href === link } catch { return false }
+}
+
 /** Static checks only; spry-link's `credential_host`. */
 function credentialHost(endpoint: string): string {
   if (bytes(endpoint) > MAX_URL) refuse('Size')
@@ -95,7 +129,9 @@ function credentialHost(endpoint: string): string {
     || url.search !== '' || url.hash !== ''
     || url.pathname !== PUBLIC_RELAY_CREDENTIAL_PATH
     || labels.length < 2
-    || labels.some(label => label.length === 0 || label.length > 63 || !/^[A-Za-z0-9-]+$/.test(label))
+    || labels.some(label => label.length === 0 || label.length > 63 || !/^[A-Za-z0-9-]+$/.test(label)
+      // Punycode labels are refused, as Android always has.
+      || /^xn--/i.test(label))
     // An all-digit last label is an IPv4 literal; a bracketed IPv6 one fails the label check.
     || /^[0-9]+$/.test(suffix)
     || ['local', 'localhost', 'internal', 'invalid', 'test'].includes(suffix)) refuse('Destination')
@@ -214,8 +250,16 @@ export function verifyPublicRelayAdvert(value: unknown, now: number): PublicRela
     region = tag(event, 'g')
     if (!publicRelayRegionValid(region)) refuse('Destination')
   }
+  // Like `g`: optional, but once present it must occur once, with two items
+  // and a valid link, or the whole advert is refused.
+  let privacy: string | undefined
+  if (event.tags.some(entry => entry[0] === 'privacy')) {
+    privacy = tag(event, 'privacy')
+    if (!publicRelayPrivacyValid(privacy)) refuse('Destination')
+  }
   const status = tag(event, 'status')
-  const base = { publicKey: event.pubkey, createdAt: event.created_at, expiresAt, ...(region !== undefined ? { region } : {}) }
+  const base = { publicKey: event.pubkey, createdAt: event.created_at, expiresAt, ...(region !== undefined ? { region } : {}),
+    ...(privacy !== undefined ? { privacy } : {}) }
   if (status === 'open') {
     const offer = parseOffer(event.content)
     const host = validatePublicRelayOffer(offer)

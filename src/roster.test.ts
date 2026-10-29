@@ -7,6 +7,7 @@ import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, MAX_FUTURE_S
 import type { RosterEntry } from './types.js'
 import { localIdentity } from './identity.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from './display-name.js'
+import { spryDevicePublicKey } from './spry-key.js'
 
 const NOW = 1_800_000_000
 
@@ -361,6 +362,39 @@ describe('callProfile', () => {
       const decoded = decodeRosterEvent(event, { roomId, roomKey, now: NOW })
       expect(decoded, `callProfile=${JSON.stringify(hostile)}`).not.toBeNull()
       expect(decoded, `callProfile=${JSON.stringify(hostile)}`).not.toHaveProperty('callProfile')
+    }
+  })
+})
+
+describe('spryKey', () => {
+  it('round-trips a device\'s Spry key, lower-cased', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const spryKey = spryDevicePublicKey(deviceSk)
+    const decoded = decodeRosterEvent(encodeRosterEvent({ ...entry, spryKey: spryKey.toUpperCase() }, { roomId, roomKey, deviceSk }), { roomId, roomKey, now: NOW })
+    expect(decoded?.spryKey).toBe(spryKey)
+  })
+
+  it('is absent when unset, so the entry is byte-identical to one from before the field', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+    const plaintext = nip44.v2.decrypt(event.content, roomKey)
+    expect(plaintext).not.toContain('spryKey')
+    expect(plaintext).toBe(nip44.v2.decrypt(encodeRosterEvent({ ...entry, spryKey: undefined }, { roomId, roomKey, deviceSk }).content, roomKey))
+    expect(decodeRosterEvent(event, { roomId, roomKey, now: NOW })).not.toHaveProperty('spryKey')
+  })
+
+  it('drops a hostile claim on the way in and out, never the entry', async () => {
+    const { roomId, roomKey, deviceSk, entry } = await fixture()
+    // 'f'.repeat(64) is above the field prime, so it is no x coordinate.
+    for (const hostile of ['f'.repeat(64), 'ab', 'g'.repeat(64), ' '.repeat(64), 7, null, {}, [spryDevicePublicKey(deviceSk)], spryDevicePublicKey(deviceSk) + '00']) {
+      const out = encodeRosterEvent({ ...entry, spryKey: hostile } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      expect(nip44.v2.decrypt(out.content, roomKey), `encode ${JSON.stringify(hostile)}`).not.toContain('spryKey')
+      const event = encodeRosterEvent(entry, { roomId, roomKey, deviceSk })
+      const raw = finalizeEvent({ kind: event.kind, created_at: event.created_at, tags: event.tags,
+        content: nip44.v2.encrypt(JSON.stringify({ ...entry, spryKey: hostile }), roomKey) }, deviceSk)
+      const decoded = decodeRosterEvent(raw, { roomId, roomKey, now: NOW })
+      expect(decoded, `decode ${JSON.stringify(hostile)}`).not.toBeNull()
+      expect(decoded, `decode ${JSON.stringify(hostile)}`).not.toHaveProperty('spryKey')
     }
   })
 })

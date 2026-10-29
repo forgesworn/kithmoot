@@ -1734,6 +1734,14 @@
             </p>
           </details>
         </section>
+        <!-- Only on a device paired with its own Spry (public or private),
+             in a room it did not make: rooms it made share its call relay
+             already, and its own calls use it everywhere. Filled in by
+             `renderSpryShareChoice` in app/src/main.ts. -->
+        <div id="spryShareRow" class="toggles switchRow" hidden>
+          <button id="toggleSpryShare" type="button" class="toggle" data-on="false" aria-pressed="false" aria-describedby="spryShareNote">Share my call relay here</button>
+          <span id="spryShareNote" class="note inline"></span>
+        </div>
         <div class="infoRows">
           <button id="roomRelaySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="relaySettings">
             <span class="infoRowText"><span class="infoRowTitle">Relays for this room</span></span>

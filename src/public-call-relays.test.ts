@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { finalizeEvent, getPublicKey } from 'nostr-tools/pure'
 import {
-  PUBLIC_RELAY_MAX_LIFETIME, PUBLIC_RELAY_MAX_NOTE, PUBLIC_RELAY_MAX_URLS, PublicRelayAdvertBook, PublicRelayLoginFailed,
+  publicRelayPrivacyValid, PUBLIC_RELAY_MAX_PRIVACY, PUBLIC_RELAY_MAX_LIFETIME, PUBLIC_RELAY_MAX_NOTE, PUBLIC_RELAY_MAX_URLS, PublicRelayAdvertBook, PublicRelayLoginFailed,
   PublicRelayRefused, fetchPublicRelayLogin, publicRelayHostAllowed, validatePublicRelayOffer, verifyPublicRelayAdvert,
   type PublicRelayAdvert, type PublicRelayOffer,
 } from './public-call-relays.js'
 
-interface FixtureCase { name: string; events: unknown[]; expect: string[] }
+interface FixtureCase { name: string; events: unknown[]; expect: string[]; privacy?: (string | null)[] }
 const fixture = JSON.parse(readFileSync(new URL('../test/fixtures/public-advert-v1.json', import.meta.url), 'utf8')) as
   { cases: FixtureCase[]; now: number; profile: string; schema: number }
 
@@ -22,12 +22,18 @@ describe('spry-turn public-advert-v1 fixture', () => {
   it('is the profile this port implements', () => {
     expect(fixture.profile).toBe('spry-public-advert-v1')
     expect(fixture.schema).toBe(1)
-    expect(fixture.cases.length).toBeGreaterThanOrEqual(12)
+    expect(fixture.cases.length).toBeGreaterThanOrEqual(37)
+    expect(fixture.cases.every(entry => entry.privacy?.length === entry.events.length)).toBe(true)
   })
   for (const entry of fixture.cases) {
     it(entry.name, () => {
       const book = new PublicRelayAdvertBook()
-      expect(entry.events.map(event => verdict(() => book.accept(event, fixture.now)))).toEqual(entry.expect)
+      const privacy: (string | null)[] = []
+      expect(entry.events.map(event => verdict(() => {
+        try { const advert = book.accept(event, fixture.now); privacy.push(advert.privacy ?? null); return advert }
+        catch (error) { privacy.push(null); throw error }
+      }))).toEqual(entry.expect)
+      expect(privacy).toEqual(entry.privacy)
     })
   }
 })
@@ -58,6 +64,8 @@ describe('destination rules, as spry-link', () => {
     'https://relay.local/v1/public/credentials',
     'https://relay.example./v1/public/credentials',
     'https://RELAY.example/v1/public/credentials',
+    'https://xn--rlay-6qa.example/v1/public/credentials',
+    'https://relay.xn--p1ai/v1/public/credentials',
   ]) it(`refuses endpoint ${endpoint}`, () => expect(refused({ ...offer(), credentials: endpoint })).toBe(true))
   for (const uri of [
     'turn:other.example:3478?transport=udp',
@@ -283,4 +291,34 @@ describe('fetchPublicRelayLogin', () => {
     await expect(fetchPublicRelayLogin(withdrawn, { now: () => NOW, fetch: async () => { called = true; return reply(login()) } })).rejects.toBeInstanceOf(PublicRelayLoginFailed)
     expect(called).toBe(false)
   })
+})
+
+// The table from spry-link advert.rs `privacy_links_follow_the_string_grammar`.
+describe('privacy link grammar, as spry-link', () => {
+  for (const link of [
+    'https://operator.example/privacy',
+    'https://operator.example/',
+    'https://a.b.operator.example/legal/privacy-notice.html',
+    'https://op-erator.example/~operator/privacy_v2',
+    'https://123.example/p',
+    'https://operator.co.uk/Privacy/Notice',
+    `https://operator.example/${'p'.repeat(PUBLIC_RELAY_MAX_PRIVACY - 25)}`,
+  ]) it(`accepts ${link.slice(0, 60)}`, () => expect(publicRelayPrivacyValid(link)).toBe(true))
+  for (const link of [
+    'http://operator.example/privacy', 'HTTPS://operator.example/privacy', 'https://operator.example:443/privacy',
+    'https://operator.example:8443/privacy', 'https://user@operator.example/privacy', 'https://user:pass@operator.example/privacy',
+    'https://operator.example/privacy?x=1', 'https://operator.example/privacy?', 'https://operator.example/privacy#notice',
+    'https://operator.example/privacy%20notice', 'https://Operator.example/privacy', 'https://OPERATOR.EXAMPLE/privacy',
+    'https://192.0.2.1/privacy', 'https://[2001:db8::1]/privacy', 'https://1.2.3.4.5/privacy', 'https://operator.123/privacy',
+    'https://operator.1example/privacy', 'https://localhost/privacy', 'https://operator.local/privacy', 'https://operator.localhost/privacy',
+    'https://operator.internal/privacy', 'https://operator.invalid/privacy', 'https://operator.test/privacy', 'https://operator/privacy',
+    'https://operator.example./privacy', 'https://.operator.example/privacy', 'https://operator..example/privacy',
+    'https://-operator.example/privacy', 'https://operator-.example/privacy', 'https://xn--oprator-bva.example/privacy',
+    'https://operator.xn--p1ai/privacy', 'https://opérator.example/privacy', 'https://operator_x.example/privacy',
+    'https://operator.example/a/../privacy', 'https://operator.example/./privacy', 'https://operator.example/privacy/..',
+    'https://operator.example/privacy/.', 'https://operator.example//privacy', 'https://operator.example/privacy//notice',
+    'https://operator.example/privacy notice', 'https://operator.example/privacy\\notice', 'https://operator.example/privacy\nnotice',
+    'https://operator.example/priv@cy', `https://${'l'.repeat(64)}.example/p`, `https://operator.example/${'p'.repeat(PUBLIC_RELAY_MAX_PRIVACY - 24)}`,
+    'https://operator.example',
+  ]) it(`refuses ${JSON.stringify(link).slice(0, 60)}`, () => expect(publicRelayPrivacyValid(link)).toBe(false))
 })

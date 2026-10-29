@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, join, open, newDeviceContext, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, join, open, newDeviceContext, openRoomInfoPage, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
+import { SHARED_RELAY_UNAVAILABLE } from '../src/spry.js'
 
 /**
  * One member runs Spry and pairs KithMoot with it; everyone in that member's
@@ -23,15 +24,18 @@ const LOOPBACK = ['localhost', '127.0.0.1', '[::1]']
 // accepts from an https: offer (src/spry.ts, spryCredentials).
 const TURN_URL = new RegExp(`^turn:${HOST.replaceAll('.', '\\.')}:3478\\?transport=(udp|tcp)$`)
 const SPRY_USERNAME = /^\d{1,12}:[a-f0-9]{24}$/
-// With Hide my IP on and no usable relay, the client refuses to call. A Spry
-// failure surfaces as Spry's own wording; a room with no relay at all gives
-// RELAY_ONLY_NO_RELAY. Either is a refusal, and neither is a direct call.
-const REFUSAL = new RegExp(`Spry could not connect|${RELAY_ONLY_NO_RELAY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+// With Hide my IP on and no usable relay, the client refuses to call. A guest
+// whose shared relay fails is told so, never pointed at a pairing it does not
+// have; a room with no relay at all gives RELAY_ONLY_NO_RELAY. Either is a
+// refusal, and neither is a direct call.
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const REFUSAL = new RegExp(`${escape(SHARED_RELAY_UNAVAILABLE)}|${escape(RELAY_ONLY_NO_RELAY)}`)
 
-interface Device { context: BrowserContext; page: Page; denied: string[]; spryPosts: Map<string, number> }
+interface Device { context: BrowserContext; page: Page; denied: string[]; spryPosts: Map<string, number>; signers: Map<string, Set<string>> }
 
-/** A fresh browser profile: no pairing, no relay settings, no imported file. */
-async function device(browser: Browser, baseURL: string): Promise<Device> {
+/** A fresh browser profile: no pairing, no relay settings, no imported file.
+ *  Hide my IP address is on unless `hideIp` is false. */
+async function device(browser: Browser, baseURL: string, hideIp = true): Promise<Device> {
   const context = await newDeviceContext(browser, baseURL, { viewport: { width: 1280, height: 800 } })
   const denied: string[] = []
   const allowed = [...LOOPBACK, HOST]
@@ -45,19 +49,26 @@ async function device(browser: Browser, baseURL: string): Promise<Device> {
     socket.connectToServer()
   })
   await context.addInitScript(SYNTHETIC_MIC)
-  await context.addInitScript(() => {
+  await context.addInitScript(hide => {
     // Hide my IP address on calls: relay-only ICE, chosen on this device.
-    localStorage.setItem('kithmoot.hide-ip.v1', '1')
+    if (hide) localStorage.setItem('kithmoot.hide-ip.v1', '1')
     localStorage.setItem('kithmoot.profiles.enabled', 'false')
-  })
+  }, hideIp)
   const page = await context.newPage()
   const spryPosts = new Map<string, number>()
+  // Who signed each Spry request: a credential request's signer is the
+  // device's room Spry key, the spryKey its roster entry announces.
+  const signers = new Map<string, Set<string>>()
   page.on('request', request => {
     if (request.method() !== 'POST' || !request.url().startsWith(ENDPOINT + '/v1/')) return
     const path = new URL(request.url()).pathname
     spryPosts.set(path, (spryPosts.get(path) ?? 0) + 1)
+    try {
+      const signer = JSON.parse(Buffer.from(String(request.headers().authorization).slice(6), 'base64').toString()).pubkey
+      if (typeof signer === 'string') signers.set(path, new Set([...(signers.get(path) ?? []), signer]))
+    } catch { /* unsigned */ }
   })
-  return { context, page, denied, spryPosts }
+  return { context, page, denied, spryPosts, signers }
 }
 
 /** The member's own pairing, through the same pairing link and screen a real one uses. */
@@ -132,6 +143,14 @@ async function movingRelayedMedia(page: Page, peers: number) {
 }
 
 const fixtureStats = async (request: APIRequestContext) => (await request.get(`${FACADE}/fixture/stats`)).json()
+const registeredOnNode = async (request: APIRequestContext, key: string) =>
+  (await (await request.get(`${FACADE}/fixture/registered?k=${key}`)).json()).registered as boolean
+/** The room's grant token, as a device that holds it saved it. */
+const savedToken = (page: Page) => page.evaluate(() => {
+  const offers = JSON.parse(localStorage.getItem('kithmoot.spry-rooms.v1') ?? '{}') as Record<string, { token: string }>
+  return Object.values(offers)[0]?.token
+})
+const credentialSigner = (d: Device) => [...(d.signers.get('/v1/credentials') ?? [])][0]
 const seenByNode = async (request: APIRequestContext, username: string) =>
   (await (await request.post(`${FACADE}/fixture/username-seen?u=${encodeURIComponent(username)}`)).json()).seen as boolean
 
@@ -197,9 +216,22 @@ test('an unpaired guest joins by link and calls through the creator\'s Spry node
     expect(a.denied).toEqual([])
     expect(b.denied).toEqual([])
 
+    // The owner's app registered the guest's room Spry key, and its own, and
+    // sealed the grant: nobody here is an older client.
+    expect(a.spryPosts.get('/v1/grants/devices') ?? 0, 'owner registrations').toBeGreaterThanOrEqual(1)
+    expect(b.spryPosts.get('/v1/grants/devices') ?? 0, 'a guest never registers').toBe(0)
+    expect(await registeredOnNode(request, credentialSigner(b)!), 'guest key registered').toBe(true)
+    expect(await registeredOnNode(request, credentialSigner(a)!), 'owner key registered').toBe(true)
+    expect(stats.sealed, 'grant sealed').toBe(true)
+    // A copy of the token in a browser that never joined the room is refused.
+    const token = await savedToken(b.page)
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect((await (await request.post(`${FACADE}/fixture/leak`, { data: { token } })).json()).status, 'leaked token refused').toBe(403)
+
     await test.info().attach('spry-room-relay-guest', { contentType: 'application/json', body: JSON.stringify({
       guestHadPairing: false, guestHadRelaySettings: false, guestImportedFile: false,
       guestCredentialRequests: b.spryPosts.get('/v1/credentials'), guestGrantRequests: 0,
+      guestRegistered: true, sealed: true, leakedTokenStatus: 403,
       distinctCredentialSigners: stats.distinctCredentialSigners, distinctUsernames: logins.length,
       relayOnly: true, selectedPair: 'relay/relay', relayProtocol: 'tcp',
       creator: aMedia.map(({ frames, energy, audioBytes, videoBytes, sentBytes }) => ({ frames, energy, audioBytes, videoBytes, sentBytes })),
@@ -232,6 +264,7 @@ async function refusedCall(browser: Browser, baseURL: string, request: APIReques
     await c.page.locator('#callToggle').click()
     await expect(c.page.locator('#status')).toContainText(REFUSAL, { timeout: 30_000 })
     const refusal = await c.page.locator('#status').innerText()
+    expect(refusal, 'a guest is not pointed at a pairing it does not have').not.toMatch(/pairing|Connections/)
     // No peer connection was created, so nothing can have gone direct.
     expect(await c.page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
     expect(c.spryPosts.get('/v1/credentials') ?? 0, 'the refused guest did ask the node').toBeGreaterThanOrEqual(1)
@@ -257,4 +290,106 @@ test('a relay-only guest is refused, not sent direct, when the owner has removed
 
 test('a relay-only guest is refused, not sent direct, when the node is down', async ({ browser, baseURL, request }) => {
   await refusedCall(browser, baseURL!, request, 'stop')
+})
+
+test('a member vouches a relay-only newcomer in while the owner is away, and it calls through the room\'s relay', async ({ browser, baseURL, request }) => {
+  // Everyone has Hide my IP address on: the newcomer cannot be on a call
+  // before it has a relay, so members vouch for it when it is admitted.
+  const [a, b, c] = await Promise.all([0, 1, 2].map(() => device(browser, baseURL!)))
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(a.page, baseURL!, request)
+    const link = await createRoom(a.page, baseURL!)
+    await open(b.page, link, 'Rowan'); await join(b.page)
+    const issued = b.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    await turnOnMedia(b.page)
+    await issued
+    await expect.poll(async () => (await fixtureStats(request)).sealed, { timeout: 30_000 }).toBe(true)
+    // The owner goes away, and with it every registrar.
+    await a.context.close()
+
+    const vouched = b.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/grants/vouch' && response.status() === 200, { timeout: 60_000 })
+    await open(c.page, link, 'Cleo'); await join(c.page)
+    await expect(c.page.locator('#roomArea')).toBeVisible()
+    await vouched
+    const relayed = c.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    await turnOnMedia(c.page)
+    await relayed
+    const rows = await movingRelayedMedia(c.page, 1)
+    for (const row of rows) {
+      expect(row.policy, 'newcomer is relay-only').toBe('relay')
+      expect([row.local, row.remote]).toEqual(['relay', 'relay'])
+      expect(row.url).toMatch(TURN_URL)
+    }
+    expect(await registeredOnNode(request, credentialSigner(c)!), 'newcomer vouched').toBe(true)
+    expect(c.spryPosts.get('/v1/grants/vouch') ?? 0, 'the newcomer does not vouch for itself').toBe(0)
+    expect(c.spryPosts.get('/v1/grants') ?? 0, 'the newcomer holds no grant').toBe(0)
+    expect([...b.denied, ...c.denied]).toEqual([])
+    await test.info().attach('spry-room-relay-vouch', { contentType: 'application/json', body: JSON.stringify({
+      ownerOnline: false, newcomerRelayOnly: true, voucherVouches: b.spryPosts.get('/v1/grants/vouch'),
+      newcomerCredentialRequests: c.spryPosts.get('/v1/credentials'), selectedPair: 'relay/relay',
+    }, null, 2) })
+  } finally { await Promise.all([b, c].map(d => d.context.close())); await a.context.close().catch(() => {}) }
+})
+
+test('in a room they did not make, paired members call through their own relays, and share only after the one-tap choice', async ({ browser, baseURL, request }) => {
+  // The room's maker has no Spry; two paired members join it. Everyone has
+  // Hide my IP address on.
+  const [maker, paired, other] = await Promise.all([0, 1, 2].map(() => device(browser, baseURL!)))
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(paired.page, baseURL!, request)
+    await pairThisBrowser(other.page, baseURL!, request)
+    const link = await createRoom(maker.page, baseURL!)
+    for (const [d, name] of [[paired, 'Rowan'], [other, 'Sam']] as const) { await open(d.page, link, name); await join(d.page) }
+
+    // Each paired member's own calls go through its own node, relay only.
+    await Promise.all([turnOnMedia(paired.page), turnOnMedia(other.page)])
+    const rows = await movingRelayedMedia(paired.page, 1)
+    for (const row of rows) {
+      expect(row.policy).toBe('relay')
+      expect([row.local, row.remote]).toEqual(['relay', 'relay'])
+      expect(row.url).toMatch(TURN_URL)
+    }
+    expect(paired.spryPosts.get('/v1/grants') ?? 0, 'its own grant').toBeGreaterThanOrEqual(1)
+    // Nothing of theirs reached the maker, who has nothing to call through.
+    await maker.page.locator('#callToggle').click()
+    await expect(maker.page.locator('#status')).toContainText(RELAY_ONLY_NO_RELAY, { timeout: 30_000 })
+    expect(maker.spryPosts.size, 'the maker never contacted the node').toBe(0)
+    expect(await maker.page.evaluate(() => localStorage.getItem('kithmoot.spry-rooms.v1'))).toBeNull()
+
+    await openRoomInfoPage(paired.page, 'Privacy and connection')
+    const row = paired.page.locator('#spryShareRow')
+    await expect(row).toBeVisible()
+    const toggle = row.getByRole('button', { name: 'Share my call relay here' })
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(row.locator('#spryShareNote')).toHaveText('Rooms you make use your call relay automatically. Turn this on to let everyone here use it too.')
+    await paired.page.screenshot({ path: test.info().outputPath('spry-share-row-off.png') })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(row.locator('#spryShareNote')).toHaveText('Everyone in this room can make calls through your call relay.')
+    await paired.page.screenshot({ path: test.info().outputPath('spry-share-row-on.png') })
+    expect(await paired.page.evaluate(() => localStorage.getItem('kithmoot.spry-share.v1'))).toContain(':')
+
+    // Now the maker calls through it, registered by the paired member's app.
+    const relayed = maker.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/credentials' && response.status() === 200, { timeout: 60_000 })
+    await maker.page.locator('#callToggle').click()
+    await relayed
+    expect(await registeredOnNode(request, credentialSigner(maker)!), 'maker registered').toBe(true)
+
+    // Off again: the shared grant is withdrawn, and a fresh one kept for itself.
+    const grantsBefore = paired.spryPosts.get('/v1/grants') ?? 0
+    const removed = paired.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/grants/remove' && response.status() === 200, { timeout: 30_000 })
+    const regranted = paired.page.waitForResponse(response => response.url() === ENDPOINT + '/v1/grants' && response.status() === 200, { timeout: 60_000 })
+    await toggle.click()
+    // Only a 200 from the node, which answers it after dropping the grant and its keys.
+    await removed
+    await regranted
+    expect(paired.spryPosts.get('/v1/grants') ?? 0).toBe(grantsBefore + 1)
+    expect((await fixtureStats(request)).removeRequests, 'one removal').toBe(1)
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(paired.page.locator('#status')).toContainText('Your call relay is no longer shared in this room.')
+    expect(await paired.page.evaluate(() => localStorage.getItem('kithmoot.spry-share.v1'))).toBeNull()
+    expect([...maker.denied, ...paired.denied, ...other.denied]).toEqual([])
+  } finally { await Promise.all([maker, paired, other].map(d => d.context.close())) }
 })

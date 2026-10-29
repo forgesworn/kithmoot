@@ -45,6 +45,7 @@ import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-nam
 import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
 import { mintTurnCredential } from '../src/turn.js'
+import { sanitiseSpryKey, spryDeviceKey, spryDevicePublicKey } from '../src/spry-key.js'
 import { decodeDescriptorEvent } from '../src/descriptor.js'
 import { HISTORY_WINDOW_SECONDS, MAX_HISTORY_EPOCHS, epochsInWindow, deriveEpoch, peekRekeyEvent, decodeRekeyEvent, decodeEpochRequest, deriveEpochRequestKey, epochRequestAdmission, signAdmins, verifyAdmins, canonicalAdmins, encodeRekeyEvent, encodeEpochRequest } from '../src/epoch.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from '../src/ownership.js'
@@ -631,6 +632,23 @@ describe('TURN credential', () => {
         ? mintTurnCredential(v.input.secret, v.input.ttlSeconds, v.input.now, v.input.name)
         : mintTurnCredential(v.input.secret, v.input.ttlSeconds, v.input.now)
       expect(result).toEqual(v.output)
+    })
+  }
+})
+
+describe('spry device key', () => {
+  it('has both positive and negative cases', () => {
+    expect(groups.spryDeviceKey.some(v => v.kind === 'positive')).toBe(true)
+    expect(groups.spryDeviceKey.some(v => v.kind === 'negative')).toBe(true)
+  })
+  for (const v of groups.spryDeviceKey) {
+    it(v.name, () => {
+      if (v.kind === 'positive') {
+        const deviceSk = hexToBytes(v.input.deviceSkHex as string)
+        expect(spryDeviceKey(deviceSk)).toBe(v.output.sprySecretHex)
+        expect(spryDevicePublicKey(deviceSk)).toBe(v.output.spryKey)
+        expect(sanitiseSpryKey((v.output.spryKey as string).toUpperCase())).toBe(v.output.rosterSpryKey)
+      } else expect(sanitiseSpryKey(v.input.spryKey) ?? null).toBe(v.output.rosterSpryKey)
     })
   }
 })

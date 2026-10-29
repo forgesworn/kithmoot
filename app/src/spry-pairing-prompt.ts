@@ -13,7 +13,7 @@ export function confirmSpryPairingTarget(hash: string, host: string,
   options: { desktop: boolean; syncAccount?: boolean; isCurrent: () => boolean }): Promise<boolean> {
   if (options.desktop) return confirmAction({
     title: 'Pair Spry with KithMoot?',
-    message: `${host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot. ${options.syncAccount ? 'The pairing is encrypted to your Nostr account and shared with your other signed-in devices.' : 'This pairing stays on this device.'}`,
+    message: `${host} will help connect your calls in every room. It is shared with other people automatically only in rooms you make; in other rooms, you choose in Privacy and connection. Your room and media keys stay in KithMoot. ${options.syncAccount ? 'The pairing is encrypted to your Nostr account and shared with your other signed-in devices.' : 'This pairing stays on this device.'}`,
     confirmLabel: 'Pair Spry', isCurrent: options.isCurrent,
   })
 

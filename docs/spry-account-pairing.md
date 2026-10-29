@@ -48,3 +48,29 @@ Pairing config sync does not provide a network route to a private node. Each
 device still needs to reach its paired relay; private home calls still use
 their existing node mesh. Spry's Rust runtime and Archipelago's authority,
 identity and lifecycle adapters are unchanged by account sync.
+
+## Which rooms share your relay
+
+A paired device always holds its own grant for each room it opens, so its
+own calls go through its own relay everywhere. It shares that relay (puts
+the offer, with a private node's card, in the room) automatically only in
+rooms it made: it holds the room's root inviter key, so `isRoomAuthority()`
+is true when the room's session starts. A room made on another of your
+devices does not count on this one. In any other room, **Privacy and
+connection** shows **Share my call relay here**, for public and private
+(`spry:`) pairings alike; the choice is kept per person and room on this
+device (`kithmoot.spry-share.v1`) and is never synced or put in a link.
+Turning it off stops publishing the offer, asks the node to remove that
+grant, so access already handed out ends within five minutes, and takes a
+fresh grant, never published, for this device's own calls.
+
+Where it shares, the app registers each present member's room Spry key (the
+`spryKey` in their roster entry), including people this device has blocked,
+since a block is never revealed, and asks the node to seal the grant once no
+present device lacks one, so a copied token alone no longer gets relay
+access (spry-turn
+`docs/design/2026-10-28-room-grant-seal-and-advert-privacy.md`). Where it
+does not share, it registers only its own key. Members with a fresh
+redemption vouch for devices admitted to the room after them, so the room's
+relay keeps working for newcomers, relay-only ones included, while the owner
+is away.

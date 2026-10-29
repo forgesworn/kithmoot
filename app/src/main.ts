@@ -319,7 +319,7 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
-import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer } from './spry-pairing.js'
+import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare } from './spry-pairing.js'
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
@@ -2063,6 +2063,7 @@ function startRoomBookmarks(account: SignetSession): void {
       if (pair) saveSpryPairing(localStorage, pair, account.pubkey)
       else if (loadSpryPairing(localStorage, account.pubkey)) removeSpryPairing(localStorage)
       for (const active of [session, dockedCall?.session]) if (active?.participant === account.pubkey) spryRooms.get(active)?.setPairing(pair ?? undefined)
+      renderSpryShareChoice()
       renderCallRelay()
     },
     spryStatus: message => { $('spryAccountSyncStatus').textContent = message },
@@ -2863,6 +2864,40 @@ function renderKnockChoice(): void {
 /** The switch, shown to a joiner holding an admission, or to one who kept
  *  one earlier and may want to stop. The creator's own record is already
  *  on these terms, so the creator is not asked. */
+/** "Share my call relay here": only on a device paired with its own Spry,
+ *  public or private, in a room it did not make. Rooms it made share
+ *  already. Either way the device's own calls use its own relay. */
+function renderSpryShareChoice(): void {
+  const s = session
+  const relay = s ? spryRooms.get(s) : undefined
+  // The session's own participant, never the current identity: this renders
+  // in the lobby too, and with no account connected yet that would mint and
+  // keep a visitor key before a saved Nostr identity has resolved.
+  let pairing: ReturnType<typeof loadSpryPairing>
+  if (s && relay && spryRoomMadeHere.get(s) === false) {
+    try { pairing = loadSpryPairing(localStorage, s.participant) } catch { pairing = undefined }
+  }
+  const shown = !!pairing
+  $('spryShareRow').hidden = !shown
+  if (!shown) return
+  const on = relay!.sharing
+  setToggle('toggleSpryShare', on)
+  $('spryShareNote').textContent = on
+    ? 'Everyone in this room can make calls through your call relay.'
+    : 'Rooms you make use your call relay automatically. Turn this on to let everyone here use it too.'
+}
+
+async function setSpryShareChoice(on: boolean): Promise<void> {
+  const s = session
+  const relay = s ? spryRooms.get(s) : undefined
+  if (!s || !relay || spryRoomMadeHere.get(s) !== false) return
+  try { saveSpryShare(localStorage, s.participant, s.roomId, on) } catch { /* Kept for this visit only. */ }
+  const withdrawn = await relay.setShare(on)
+  if (session === s) renderSpryShareChoice()
+  if (!on) setStatus(withdrawn ? 'Your call relay is no longer shared in this room. Anyone using it loses it within five minutes.'
+    : 'Your call relay is no longer offered in this room. Spry could not be reached to stop access already given; that ends when Spry is next online.')
+}
+
 function renderKeepChoice(): void {
   renderKnockChoice()
   const row = $('keepRow')
@@ -3047,6 +3082,9 @@ window.addEventListener('storage', (event) => {
 
 let session: RoomSession | undefined
 const spryRooms = new WeakMap<RoomSession, SpryRoom>()
+/** Whether this device made the room a SpryRoom serves, as `isRoomAuthority`
+ *  said when its session started: a docked call keeps its own answer. */
+const spryRoomMadeHere = new WeakMap<RoomSession, boolean>()
 const callPresenceReadyAt = new WeakMap<RoomSession, number>()
 /** Recording signatures always use the originating session's device key. */
 const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
@@ -4959,6 +4997,7 @@ function showRoomUi(): void {
   // The tagline has just gone and the way back has just appeared, so where
   // the room starts is not where it started a moment ago.
   renderKeepChoice()
+  renderSpryShareChoice()
   renderArrival()
   renderOpenInApp()
   $('join').hidden = false
@@ -5041,6 +5080,7 @@ async function makeOwnInvitation(): Promise<void> {
   }
   renderShareControls()
   renderKeepChoice()
+  renderSpryShareChoice()
   setStatus('This device has its own link now. Share it, and keep the room open here so it can let people in.')
 }
 
@@ -5346,7 +5386,9 @@ async function joinCall(): Promise<void> {
   if (docked()) return
   const s = session
   if (!s || s.call) return
-  try { await spryRooms.get(s)?.prepare() }
+  // A relay-only call waits a few seconds for the room's owner to register
+  // this device before it refuses; an ordinary call starts and upgrades.
+  try { await spryRooms.get(s)?.prepare(sessionRelayOnly.get(s) === true) }
   catch (error) {
     if (sessionRelayOnly.get(s)) throw error
     noteRelayMissing(true)
@@ -13555,6 +13597,9 @@ function isUnreachableRelayFailure(error: unknown): boolean {
 
 async function startSession(asVisitor = false, retry?: { deadline: number, signerRetried?: boolean }): Promise<void> {
   const generation = roomGeneration
+  // Rooms this device made (it holds their root inviter key) share its call
+  // relay without asking; in others, sharing is the person's one-tap choice.
+  const madeHere = isRoomAuthority()
   const requireOpeningNetwork = accountNetworkRoomOpening(accountNetwork)
   if (!retry && (joining || session || loginBusy)) return
   closeAccountMessageViews()
@@ -13981,14 +14026,19 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       return !failed
     }
     if (!roomUsesBothy && !deviceRelay) {
+      let chosen = false
+      try { chosen = loadSpryShare(localStorage, s.participant, s.roomId) } catch { /* Storage blocked: not shared. */ }
       const relay = new SpryRoom(s, spryPairing, servers => {
         if (!alive()) return
         spryActive = true
         // The room's Spry offer outranks a discovered relay.
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
         applyCallServers(withDeviceStun(servers, deviceStun), false)
-      }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer))
+      }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer),
+      { share: madeHere || chosen })
       spryRooms.set(s, relay)
+      spryRoomMadeHere.set(s, madeHere)
+      renderSpryShareChoice()
     }
     // A relay the person chose from public adverts, for a call only. It
     // never enters the descriptor, adverts, claims, links or invitations:
@@ -18126,7 +18176,7 @@ function renderCallRelay(): void {
     : 'This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices.'
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
-    $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Relay access is shared automatically in your calls.` : 'Install Spry, then choose Pair with KithMoot.'
+    $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Your calls use it everywhere. It is shared automatically in rooms you make; in other rooms, turn it on in Privacy and connection.` : 'Install Spry, then choose Pair with KithMoot.'
     $('spryPairingRemove').hidden = !pairing
   } catch { $('spryPairingStatus').textContent = 'The Spry pairing is unavailable. Remove it and pair again.'; $('spryPairingRemove').hidden = false }
   try {
@@ -18151,6 +18201,7 @@ $('spryPairingRemove').addEventListener('click', async () => {
     removeSpryPairing(localStorage)
     if (account) await spryAccountSync?.save(null)
     for (const active of [session, dockedCall?.session]) if (active) { spryRooms.get(active)?.close(); spryRooms.delete(active) }
+    renderSpryShareChoice()
     renderCallRelay()
     setStatus('Spry unpaired. Existing relay access expires within five minutes.')
   } catch { setStatus('Spry could not be unpaired. Check your connection and try again, or remove the pairing on your node.') }
@@ -18320,6 +18371,25 @@ function renderPublicRelays(): void {
       label.append(claim)
     }
     item.append(label)
+    // The operator's own link, outside the label so a tap does not choose
+    // the relay. Never fetched, prefetched or previewed: it opens only when
+    // tapped, in the browser (the desktop app asks first), with no referrer.
+    if (entry.privacy) {
+      const link = document.createElement('a')
+      link.className = 'publicRelayPrivacy'
+      link.href = entry.privacy.url
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer nofollow'
+      link.referrerPolicy = 'no-referrer'
+      link.textContent = `The operator\u2019s privacy notice (${entry.privacy.host})`
+      link.title = `Opens ${entry.privacy.host} in your browser. KithMoot has not checked it.`
+      const described = document.createElement('span')
+      described.className = 'sr-only'
+      described.id = `publicRelayPrivacy-${entry.key.slice(0, 16)}`
+      described.textContent = link.title
+      link.setAttribute('aria-describedby', described.id)
+      item.append(link, described)
+    }
     return item
   }))
   ;($('publicRelaysCheck') as HTMLButtonElement).disabled = !selected || !listed.some(entry => entry.key === selected) || !!publicRelayCheckAbort
@@ -18480,6 +18550,7 @@ $('toggleNotifyText').addEventListener('click', () => {
 })
 
 $('toggleKeep').addEventListener('click', () => setKeepRoomChoice($('toggleKeep').dataset.on !== 'true'))
+$('toggleSpryShare').addEventListener('click', () => { void setSpryShareChoice($('toggleSpryShare').dataset.on !== 'true') })
 $('toggleKnock').addEventListener('click', () => {
   const roomId = currentRoomId()
   if (!roomId) return
@@ -22542,11 +22613,12 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
       renderCallRelay()
       const pair = loadSpryPairing(localStorage, participant)
       if (pair) for (const active of [session, dockedCall?.session]) if (active?.participant === participant) spryRooms.get(active)?.setPairing(pair)
+      renderSpryShareChoice()
       const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
       if (currentIdentity().pubkey !== participant) return
       setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
         : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
-        : 'Spry paired on this device. Relay access will be shared automatically in your calls.')
+        : 'Spry paired on this device. Your calls use it, and it is shared automatically in rooms you make.')
     }
   } catch {
     const message = 'Spry could not be paired. Copy a fresh pairing link from Spry and try again.'

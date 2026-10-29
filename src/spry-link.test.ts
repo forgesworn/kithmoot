@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest'
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { decrypt, encrypt, getConversationKey } from 'nostr-tools/nip44'
-import { parseSpryControl, spryControlRequest, spryNodeCard } from './spry-link.js'
+import { parseSpryControl, spryControlRequest, spryNodeCard, SpryRequestError } from './spry-link.js'
 import { newSpryKey, spryCredentials } from './spry.js'
 
 const nodeKey = new Uint8Array(32).fill(1), pubkey = getPublicKey(nodeKey)
@@ -50,6 +50,29 @@ it('authenticates the relay, encrypts the action and ignores replies from a diff
   })
   expect(answer).toEqual({ ok: true }); expect(closed).toBe(1)
   expect(JSON.stringify(sent)).not.toContain('generated')
+})
+it('carries a refusal status over the control channel', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  const socket = {
+    onopen: undefined as (() => void) | undefined,
+    onmessage: undefined as ((value: { data: string }) => void) | undefined,
+    close() {},
+    send(text: string) {
+      const frame = JSON.parse(text)
+      const deliver = (value: unknown) => queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(value) }))
+      if (frame[0] === 'REQ') deliver(['EOSE', 'spry-reply'])
+      if (frame[0] === 'EVENT') {
+        const request = frame[1], conversation = getConversationKey(nodeKey, request.pubkey)
+        deliver(['EVENT', 'spry-reply', finalizeEvent({ kind: 24182, created_at: now, tags: [['p', request.pubkey], ['e', request.id], ['expiration', String(now + 30)]],
+          content: encrypt(JSON.stringify({ v: 1, status: 404, body: { error: 'Not found.' } }), conversation) }, nodeKey)])
+      }
+    },
+  }
+  const error = await spryControlRequest(endpoint, '/v1/grants/devices', {}, newSpryKey(), now, () => {
+    queueMicrotask(() => socket.onopen?.()); return socket as unknown as WebSocket
+  }).catch(e => e)
+  expect(error).toBeInstanceOf(SpryRequestError)
+  expect(error.status).toBe(404)
 })
 it('never contacts another participant’s private control endpoint', async () => {
   await expect(spryCredentials({ v: 1, endpoint, token: 'a'.repeat(43), expiresAt: Date.now() / 1000 + 3600 }, newSpryKey())).rejects.toThrow(/Pair your own/)
