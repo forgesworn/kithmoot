@@ -8937,7 +8937,7 @@ function showPresenceNotice(text: string): void {
 function announceComings(views: ParticipantView[], me: string): void {
   const now = Date.now()
   if (!presenceAnnouncements) {
-    presenceAnnouncements = new PresenceAnnouncements()
+    presenceAnnouncements = new PresenceAnnouncements(startedHere)
     rosterJoinedAt = now
   }
   // A room created in this tab has no replay population to suppress: every
