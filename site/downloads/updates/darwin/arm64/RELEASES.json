@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.113",
+  "currentRelease": "0.1.114",
   "releases": [
     {
-      "version": "0.1.113",
+      "version": "0.1.114",
       "updateTo": {
-        "version": "0.1.113",
-        "pub_date": "2026-10-29T12:00:00Z",
-        "notes": "Shows two ticks once another person's device has received your message (never read), with a setting under Messages to stop confirming; leaving and deleting a room also deletes your confirmations.",
-        "name": "0.1.113",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.113/KithMoot-0.1.113-mac-arm64.zip",
-        "sha256": "6a3cc8c016dd0c33c38d8e2427922fa89876d797ff9dbd28e352a93098d48271",
-        "size": 190132907
+        "version": "0.1.114",
+        "pub_date": "2026-10-29T20:00:00Z",
+        "notes": "Your own messages from another device no longer show as unread. Can use another member's built-in call relay, asking first when Hide my IP is on.",
+        "name": "0.1.114",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.114/KithMoot-0.1.114-mac-arm64.zip",
+        "sha256": "ffbcf0eeea6edd3f7bc39916a58f742f8a47242a64839e5db8e37a5634089a87",
+        "size": 190137633
       }
     }
   ]
