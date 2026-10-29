@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.111",
+  "currentRelease": "0.1.112",
   "releases": [
     {
-      "version": "0.1.111",
+      "version": "0.1.112",
       "updateTo": {
-        "version": "0.1.111",
-        "pub_date": "2026-10-28T17:40:00Z",
-        "notes": "Renews room access by the clock after the computer sleeps, so a laptop opened in the morning sends without asking you to rejoin; pauses Help other people connect until volunteers carry media.",
-        "name": "0.1.111",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.111/KithMoot-0.1.111-mac-arm64.zip",
-        "sha256": "c45e3e7f6f1b1fd298438f0a481f024b4b9be12ba1bed17ac0803908d3d8474a",
-        "size": 190127671
+        "version": "0.1.112",
+        "pub_date": "2026-10-29T03:45:00Z",
+        "notes": "Shares a paired Spry call relay in rooms this device made, or on one tap elsewhere; keeps local network addresses out of calls; shows a tick once a relay confirms it kept your message.",
+        "name": "0.1.112",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.112/KithMoot-0.1.112-mac-arm64.zip",
+        "sha256": "7b21af8552d9799b143586b19e9b3926bac72c70de2cda4d12d65170c781b8c2",
+        "size": 190131603
       }
     }
   ]
