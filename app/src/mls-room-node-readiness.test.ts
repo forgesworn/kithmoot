@@ -23,3 +23,21 @@ test('declined local scope and witnessed signing readiness are separately action
   expect(pending.nodeAuthentication).toEqual({ state: 'not-signed', refusal: 'witness-pending' })
   expect(pending.reason).toContain('witness settings')
 })
+
+test.each([
+  { state: 'unavailable' as const, expected: 'connection' },
+  { state: 'malformed' as const, expected: 'unsupported MLS capability reply' },
+  { state: 'refused' as const, status: 403, code: 'authority', serverTime: 100, expected: 'keeper' },
+  { state: 'not-signed' as const, reason: 'denied' as const, expected: 'not approved' },
+  { state: 'not-signed' as const, reason: 'witness-pending' as const, expected: 'witness settings' },
+])('normal invitation failure advice is static, held and safe to display: $state', ({ expected, ...answer }) => {
+  const opaque = 'private-payload-identifier-must-not-enter-status'
+  const input = Object.freeze({ ...answer, body: opaque, error: opaque, identifier: opaque })
+  const held = nodeAuthenticationHeld(input)
+  expect(held.state).toBe('held')
+  expect(held.nodeAuthentication.state).toBe(answer.state)
+  expect(held.reason).toContain(expected)
+  expect(held.reason).not.toContain(opaque)
+  expect(held.reason).not.toMatch(/create.*room|enrol|approved automatically|permission granted/i)
+  expect(input).toEqual({ ...answer, body: opaque, error: opaque, identifier: opaque })
+})
