@@ -579,6 +579,22 @@ export {
 } from './call-bell.js'
 export type { CallBell, CallBellState, EncodeCallBellOptions, DecodeCallBellOptions } from './call-bell.js'
 
+export {
+  DELIVERY_RECEIPT_TTL_SECONDS,
+  DELIVERY_RECEIPT_FUTURE_SKEW_SECONDS,
+  DELIVERY_RECEIPT_SIGNATURE_PREFIX,
+  MAX_DELIVERY_RECEIPT_IDS,
+  MAX_DELIVERY_RECEIPT_EVENT_BYTES,
+  MAX_DELIVERY_RECEIPT_TAGS,
+  deliveryReceiptKey,
+  deliveryReceiptOuterSecretKey,
+  deliveryReceiptIdHash,
+  deliveryReceiptDigest,
+  encodeDeliveryReceipt,
+  decodeDeliveryReceipt,
+} from './delivery-receipt.js'
+export type { DeliveryReceipt, EncodeDeliveryReceiptOptions, DecodeDeliveryReceiptOptions } from './delivery-receipt.js'
+
 export { localPeerCrypt, dmPolicy, isDmPolicy, dmPeer, sealInvite, openInvite, preferredDm, peerCryptPubkey } from './dm.js'
 export type { PeerCrypt, SealInviteOptions, OpenInviteOptions } from './dm.js'
 export {

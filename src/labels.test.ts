@@ -26,6 +26,7 @@ import { ACCESS_LABELS } from './access.js'
 import { ASSIGNMENT_LABELS } from './assignments.js'
 import { CALL_BELL_LABELS } from './call-bell.js'
 import { CHAT_LABELS, CHANNEL_ID_INFO, CHANNEL_KEY_INFO } from './chat.js'
+import { DELIVERY_RECEIPT_LABELS } from './delivery-receipt.js'
 import { DEN_CLIENT_LABELS } from './den-client.js'
 import { EPOCH_LABELS, EPOCH_ID_INFO, EPOCH_KEY_INFO } from './epoch.js'
 import { EPOCH_COMMIT_LABELS } from './epoch-commit.js'
@@ -93,6 +94,12 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/chat-envelope-2:',
   'kithmoot/v1/chat-outer',
   'kithmoot/v1/chat-outer:',
+  'kithmoot/v1/delivery-receipt',
+  'kithmoot/v1/delivery-receipt-id:',
+  'kithmoot/v1/delivery-receipt-key',
+  'kithmoot/v1/delivery-receipt-outer',
+  'kithmoot/v1/delivery-receipt-outer:',
+  'kithmoot/v1/delivery-receipt:',
   'kithmoot/v1/forwarder-key',
   'kithmoot/v1/media-key',
   'kithmoot/v1/meeting:',
@@ -200,6 +207,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['assignments.ts', ASSIGNMENT_LABELS],
   ['call-bell.ts', CALL_BELL_LABELS],
   ['chat.ts', CHAT_LABELS],
+  ['delivery-receipt.ts', DELIVERY_RECEIPT_LABELS],
   ['den-client.ts', DEN_CLIENT_LABELS],
   ['forwarder.ts', FORWARDER_LABELS],
   ['media-crypto.ts', MEDIA_CRYPTO_LABELS],

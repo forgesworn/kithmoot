@@ -27,6 +27,11 @@
     content:
       type: free
 
+  1465:
+    description: KithMoot Delivery receipt
+    content:
+      type: free
+
   20460:
     description: KithMoot Device credential, inner only
     content:
