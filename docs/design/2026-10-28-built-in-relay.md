@@ -638,13 +638,18 @@ nothing is visible to users until K5 and A5.
   The answer is per host participant and covers that person's relays whatever
   the transport. This device's own relay, and a relay entered by hand in
   settings, are never asked about. With Hide my IP off, use stays automatic.
-  Consequence for clients: an offer is its host's to publish, so a guest no
-  longer republishes another member's `https:` offer (it already did not for
-  `spry:`). Otherwise a second publisher would leave the host unnamed, or name
-  the wrong member, and the question could not be asked honestly. A host's
-  offer now reaches a newcomer only from the host's own descriptor, so a
-  newcomer who arrives after the host has left holds no offer and is refused
-  until the host returns; members still vouch for its key meanwhile.
+  Attribution: a guest republishes another member's offer (either transport)
+  only as a marked copy, `"relayed": true` on the descriptor's `spry` entry, so
+  the room keeps the relay while its host is away. The host is the one
+  participant whose own descriptor carries the endpoint and token unmarked. With
+  Hide my IP on, only that host can be asked about or redeemed; a marked copy is
+  an unverifiable claim about who runs the relay and is ignored, so a guest who
+  arrives while the host is away gets the usual refusal (revised 29 Oct after
+  an earlier draft stopped republishing and cost the away-vouch feature). With
+  Hide my IP off a marked copy is used as before. An older client republishes
+  unmarked: two unmarked publishers name nobody, so Hide my IP guests fail
+  closed and others are unaffected. The outside test answers only the single
+  unmarked host.
 - **Caps:** the home defaults (8 allocations, 2 per user, 16 TCP, 125,000
   bytes/s per allocation), raisable within Spry's maxima. Daily data limit
   default set during the build PR and shown in the UI.
