@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.111 renews a room's access by the wall clock after the computer sleeps, so a laptop opened in the morning sends without asking you to rejoin; a message waits in the box while access renews, and a failed renewal says why. "Help other people connect" is paused until volunteers carry media. Version 0.1.110 opened image, audio and video attachments in a dedicated sandboxed renderer.
+Version 0.1.112 shares a paired Spry call relay automatically in rooms this device made, and on one tap ("Share my call relay here") in others; keeps this computer's local network addresses out of calls; and shows a Sent tick once a relay has taken your message. Version 0.1.111 renewed a room's access by the wall clock after the computer sleeps.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.111 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.112 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
