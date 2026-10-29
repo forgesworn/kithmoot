@@ -52,13 +52,14 @@ it('uses an offer received during joining and renews without the paired particip
     expect(requests).toBe(1)
     expect(apply).toHaveBeenCalledTimes(1)
     const roster = [{ devices: ['generated-a', 'generated-b'] }] as ParticipantView[]
-    // Another member's offer is its host's to publish: a guest never copies
-    // it, so a Hide my IP guest can name whose relay it would be using.
+    // The room keeps the offer while its host is away, as a marked copy.
     change(roster)
     await vi.advanceTimersByTimeAsync(1000)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ spry: expect.objectContaining({ endpoint, token: offer.token, relayed: true }) }))
     for (let i = 0; i < 4; i++) change(roster)
     await vi.advanceTimersByTimeAsync(1000)
-    expect(publish).not.toHaveBeenCalled()
+    expect(publish).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(240000)
     expect(requests).toBe(2)
     expect(apply).toHaveBeenCalledTimes(2)

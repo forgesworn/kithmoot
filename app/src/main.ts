@@ -9567,7 +9567,20 @@ function mayUseMemberRelay(s: RoomSession, relayOnly: boolean, host: string | un
 /** Ask once whether to use the member relay this room offers; true when the
  *  person said yes and the choice is now remembered. */
 async function chooseMemberRelay(s: RoomSession): Promise<boolean> {
-  const host = spryRooms.get(s)?.blocked()?.host
+  const blockedHost = () => spryRooms.get(s)?.blocked()?.host
+  // A member's copy of the offer can arrive before the host's own, and only
+  // the host's own names them: give it a few seconds before refusing.
+  if (!blockedHost() && spryRooms.get(s)?.blocked()) {
+    await new Promise<void>(resolve => {
+      let off: (() => void) | undefined, done = false
+      const finish = (): void => { if (done) return; done = true; clearTimeout(timer); off?.(); resolve() }
+      const timer = setTimeout(finish, 3000)
+      off = s.onPeerDescriptors(() => { if (blockedHost()) finish() })
+      if (done) off()
+    })
+    if (session !== s) return false
+  }
+  const host = blockedHost()
   if (!host || host === s.participant) return false
   // The offer can arrive a moment before the host's roster entry with its name.
   const view = () => s.participants().find(person => person.participant === host)

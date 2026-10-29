@@ -5,16 +5,19 @@ import type { SpryOffer } from '../../src/spry.js'
 import { SpryRoom } from './spry-room.js'
 
 // A guest and another member's paired Spry relay reached over `https:`: the
-// same Hide my IP gate as a built-in relay, naming the one host.
+// same Hide my IP gate as a built-in relay, naming the one host. A host is the
+// one participant whose own descriptor carries the offer unmarked; a copy
+// republished by a guest is marked `relayed: true` and names nobody.
 const seconds = () => Math.floor(Date.now() / 1000)
 const ENDPOINT = 'https://relay.example'
 const HOST = 'a1'.repeat(32), GUEST = 'b2'.repeat(32), OTHER = 'c3'.repeat(32)
 const offer = (): SpryOffer => ({ v: 1, endpoint: ENDPOINT, token: 'a'.repeat(43), expiresAt: seconds() + 86400 })
 
-function room(shared: SpryOffer, publishers: string[] = [HOST]) {
+function room(shared: SpryOffer, publishers: string[] = [HOST], copies: string[] = []) {
   let change: (views: ParticipantView[]) => void = () => {}
   const publish = vi.fn(async () => {})
-  const descriptors = publishers.map(participant => ({ participant, device: participant, spry: shared }))
+  const descriptors = [...publishers.map(participant => ({ participant, device: participant, spry: shared })),
+    ...copies.map(participant => ({ participant, device: participant, spry: { ...shared, relayed: true as const } }))]
   const session = { roomId: 'generated-room', participant: GUEST, call: 'generated-call', descriptor: { spry: shared },
     onDescriptor: (cb: (d: RoomDescriptor) => void) => { cb({ spry: shared, participant: publishers[0] } as unknown as RoomDescriptor); return () => {} },
     peerDescriptors: () => descriptors,
@@ -92,7 +95,7 @@ it('never asks about this device\'s own node, even when the room shows the same 
   } finally { broker.close() }
 })
 
-it('does not republish another member\'s https offer, so its host stays the only publisher', async () => {
+it('republishes another member\'s https offer only as a marked copy', async () => {
   vi.useFakeTimers()
   const { session, publish, change } = room(offer())
   const { fetcher } = node()
@@ -101,6 +104,62 @@ it('does not republish another member\'s https offer, so its host stays the only
     await broker.prepare(true)
     change([{ devices: ['generated-a', 'generated-b'] }] as ParticipantView[])
     await vi.advanceTimersByTimeAsync(2000)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ spry: expect.objectContaining({ endpoint: ENDPOINT, relayed: true }) }))
+  } finally { broker.close(); vi.useRealTimers() }
+})
+
+it('does not copy an offer it may not use yet', async () => {
+  vi.useFakeTimers()
+  const { session, publish, change } = room(offer())
+  const broker = new SpryRoom(session, undefined, vi.fn(), node().fetcher, new Uint8Array(32).fill(9), undefined, () => {}, { share: false, mayUse: () => false })
+  try {
+    await broker.prepare(true).catch(() => {})
+    change([{ devices: ['generated-a', 'generated-b'] }] as ParticipantView[])
+    await vi.advanceTimersByTimeAsync(2000)
     expect(publish).not.toHaveBeenCalled()
   } finally { broker.close(); vi.useRealTimers() }
+})
+
+it('names the host only from the unmarked offer, ignoring copies beside it', async () => {
+  const { session } = room(offer(), [HOST], [OTHER])
+  const broker = new SpryRoom(session, undefined, vi.fn(), node().fetcher, new Uint8Array(32).fill(9), undefined, () => {}, { mayUse: () => false })
+  try {
+    await broker.prepare(true)
+    expect(broker.blocked()).toEqual({ endpoint: ENDPOINT, host: HOST })
+  } finally { broker.close() }
+})
+
+it('names nobody from a marked copy alone: a Hide my IP guest fails closed, one without it still uses the relay', async () => {
+  const asked: (string | undefined)[] = []
+  // The host is away; only a member's marked copy remains.
+  const closed = room(offer(), [], [OTHER])
+  const gated = node()
+  const brokerOn = new SpryRoom(closed.session, undefined, vi.fn(), gated.fetcher, new Uint8Array(32).fill(9), undefined, () => {},
+    { mayUse: host => { asked.push(host); return !!host } })
+  try {
+    await brokerOn.prepare(true)
+    expect(brokerOn.blocked()).toEqual({ endpoint: ENDPOINT, host: undefined })
+    expect(gated.requests).toEqual([])
+    expect(asked.every(host => host === undefined)).toBe(true)
+  } finally { brokerOn.close() }
+  // Hide my IP off asks nothing of the gate's host and uses the copy.
+  const open = room(offer(), [], [OTHER])
+  const free = node(), apply = vi.fn()
+  const brokerOff = new SpryRoom(open.session, undefined, apply, free.fetcher, new Uint8Array(32).fill(9), undefined, () => {}, { mayUse: () => true })
+  try {
+    await brokerOff.prepare(true)
+    expect(free.requests).toEqual([ENDPOINT + '/v1/credentials'])
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(brokerOff.blocked()).toBeUndefined()
+  } finally { brokerOff.close() }
+})
+
+it('names nobody when an old client\'s unmarked copy sits beside the host\'s offer', async () => {
+  const { session } = room(offer(), [HOST, OTHER])
+  const broker = new SpryRoom(session, undefined, vi.fn(), node().fetcher, new Uint8Array(32).fill(9), undefined, () => {}, { mayUse: host => !!host })
+  try {
+    await broker.prepare(true)
+    expect(broker.blocked()).toEqual({ endpoint: ENDPOINT, host: undefined })
+  } finally { broker.close() }
 })
