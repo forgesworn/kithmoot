@@ -84,7 +84,7 @@ const results = [
 ].map(([name, relayTest, accept]) => ({ name, relayTest, accept }))
 
 const relayIp = '203.0.113.9'
-const seen = (fields) => ({ turnHost: relayIp, relayed: true, reflexive: ['198.51.100.7'], local: '192.168.1.20', echoed: true, pathA: true, pathB: true, ...fields })
+const seen = (fields) => ({ turnHost: relayIp, relayed: true, reflexive: ['198.51.100.7'], hosts: ['192.168.1.20', 'a1b2c3d4-0000-4000-8000-000000000000.local'], local: '192.168.1.20', echoed: true, pathA: true, pathB: true, ...fields })
 /** `verdict`: what the tester sends; `finding`: what the host may say. */
 const verdicts = [
   ['echo over both paths', seen({}), { ok: true }, 'reachable'],
@@ -98,6 +98,8 @@ const verdicts = [
   ['no relayed address', seen({ relayed: false, echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'allocate' }, 'unreachable'],
   ['no relayed address and no outside address', seen({ relayed: false, reflexive: [], echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'allocate' }, 'unreachable'],
   ['no outside address', seen({ reflexive: [], local: undefined, echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'stun' }, 'unreachable'],
+  ['no outside address, a host address is the relay\'s (the relay\'s own machine)', seen({ reflexive: [], hosts: ['192.168.1.20', relayIp], local: undefined, echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'inbound', sameNetwork: true }, 'same-network'],
+  ['echo with a host address that is the relay\'s', seen({ hosts: [relayIp] }), { ok: true, sameNetwork: true }, 'same-network'],
   ['no outside address, local is the relay\'s', seen({ reflexive: [], local: relayIp, echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'inbound', sameNetwork: true }, 'same-network'],
   ['no relayed address from the host\'s network', seen({ relayed: false, reflexive: [relayIp], echoed: false, pathA: false, pathB: false }), { ok: false, stage: 'allocate', sameNetwork: true }, 'same-network'],
 ].map(([name, observations, verdict, finding]) => ({ name, observations: JSON.parse(JSON.stringify(observations)), verdict, finding }))

@@ -53,7 +53,7 @@ describe('relay test messages', () => {
 })
 
 describe('relay test verdict', () => {
-  const base: RelayTestObservations = { turnHost: '203.0.113.9', relayed: true, reflexive: ['198.51.100.7'], local: '192.168.1.20', echoed: true, pathA: true, pathB: true }
+  const base: RelayTestObservations = { turnHost: '203.0.113.9', relayed: true, reflexive: ['198.51.100.7'], hosts: ['192.168.1.20'], local: '192.168.1.20', echoed: true, pathA: true, pathB: true }
   it('passes only with the echo and both paths', () => {
     expect(relayTestVerdict(base)).toEqual({ ok: true })
     expect(relayTestVerdict({ ...base, pathB: false })).toEqual({ ok: false, stage: 'inbound' })
@@ -69,6 +69,9 @@ describe('relay test verdict', () => {
     expect(relayTestFinding(hairpin)).toBe('same-network')
     expect(relayTestVerdict({ ...base, reflexive: [], local: '203.0.113.9' })).toEqual({ ok: true, sameNetwork: true })
     expect(relayTestVerdict({ ...base, reflexive: [], local: '203.0.113.9', echoed: false })).toEqual({ ok: false, stage: 'inbound', sameNetwork: true })
+    // On the relay's own machine: a host address is the relay's, and the relay refuses it as a peer.
+    expect(relayTestVerdict({ ...base, reflexive: [], hosts: ['203.0.113.9'], local: undefined, echoed: false, pathA: false, pathB: false }))
+      .toEqual({ ok: false, stage: 'inbound', sameNetwork: true })
   })
   it('says reachable only for a pass from another network', () => {
     expect(relayTestFinding({ ok: true })).toBe('reachable')

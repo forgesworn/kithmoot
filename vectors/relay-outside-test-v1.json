@@ -340,6 +340,10 @@
         "reflexive": [
           "198.51.100.7"
         ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "192.168.1.20",
         "echoed": true,
         "pathA": true,
@@ -358,6 +362,10 @@
         "reflexive": [
           "198.51.100.7"
         ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "echoed": true,
         "pathA": true,
         "pathB": true
@@ -374,6 +382,10 @@
         "relayed": true,
         "reflexive": [
           "203.0.113.9"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
         ],
         "local": "192.168.1.20",
         "echoed": true,
@@ -395,6 +407,10 @@
           "198.51.100.7",
           "203.0.113.9"
         ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "192.168.1.20",
         "echoed": true,
         "pathA": true,
@@ -412,6 +428,10 @@
         "turnHost": "203.0.113.9",
         "relayed": true,
         "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "203.0.113.9",
         "echoed": true,
         "pathA": true,
@@ -430,6 +450,10 @@
         "relayed": true,
         "reflexive": [
           "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
         ],
         "local": "192.168.1.20",
         "echoed": false,
@@ -450,6 +474,10 @@
         "reflexive": [
           "198.51.100.7"
         ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "192.168.1.20",
         "echoed": true,
         "pathA": false,
@@ -468,6 +496,10 @@
         "relayed": true,
         "reflexive": [
           "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
         ],
         "local": "192.168.1.20",
         "echoed": true,
@@ -488,6 +520,10 @@
         "reflexive": [
           "198.51.100.7"
         ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "192.168.1.20",
         "echoed": false,
         "pathA": false,
@@ -505,6 +541,10 @@
         "turnHost": "203.0.113.9",
         "relayed": false,
         "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "192.168.1.20",
         "echoed": false,
         "pathA": false,
@@ -522,6 +562,10 @@
         "turnHost": "203.0.113.9",
         "relayed": true,
         "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "echoed": false,
         "pathA": false,
         "pathB": false
@@ -533,11 +577,58 @@
       "finding": "unreachable"
     },
     {
+      "name": "no outside address, a host address is the relay's (the relay's own machine)",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "203.0.113.9"
+        ],
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound",
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "echo with a host address that is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "203.0.113.9"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true,
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
       "name": "no outside address, local is the relay's",
       "observations": {
         "turnHost": "203.0.113.9",
         "relayed": true,
         "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
         "local": "203.0.113.9",
         "echoed": false,
         "pathA": false,
@@ -557,6 +648,10 @@
         "relayed": false,
         "reflexive": [
           "203.0.113.9"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
         ],
         "local": "192.168.1.20",
         "echoed": false,

@@ -17,6 +17,7 @@ class Connection {
   static connect = true
   static relayed = true
   static reflexive = '198.51.100.7'
+  static bHost = '192.168.1.20'
   static bLocal = { candidateType: 'host', address: '192.168.1.20' }
   signalingState = 'stable'
   remoteDescription?: { type: string }
@@ -33,6 +34,7 @@ class Connection {
   async setLocalDescription(description: { type: string }) {
     this.localDescription = description
     if (this.role === 'a' && Connection.relayed) this.onicecandidate?.({ candidate: { type: 'relay', address: '203.0.113.9' } })
+    if (this.role === 'b') this.onicecandidate?.({ candidate: { type: 'host', address: Connection.bHost } })
     if (this.role === 'b' && Connection.reflexive) this.onicecandidate?.({ candidate: { type: 'srflx', address: Connection.reflexive } })
   }
   async setRemoteDescription(description: { type: string }) {
@@ -61,7 +63,7 @@ const relay = { urls: ['turn:203.0.113.9:51000?transport=udp', 'turn:203.0.113.9
 describe('relay outside test run', () => {
   beforeEach(() => {
     Connection.instances = []; Connection.connect = true; Connection.relayed = true
-    Connection.reflexive = '198.51.100.7'; Connection.bLocal = { candidateType: 'host', address: '192.168.1.20' }
+    Connection.reflexive = '198.51.100.7'; Connection.bHost = '192.168.1.20'; Connection.bLocal = { candidateType: 'host', address: '192.168.1.20' }
     vi.stubGlobal('RTCPeerConnection', Connection)
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -86,6 +88,10 @@ describe('relay outside test run', () => {
     Connection.instances = []; Connection.relayed = false
     await expect(runRelayOutsideTest(relay, new AbortController().signal, 50)).resolves.toEqual({ ok: false, stage: 'allocate' })
     expect(Connection.instances.every(pc => pc.closed)).toBe(true)
+  })
+  it('says so when the tester runs on the relay\'s own machine, where the relay refuses it as a peer', async () => {
+    Connection.connect = false; Connection.reflexive = ''; Connection.bHost = '203.0.113.9'
+    await expect(runRelayOutsideTest(relay, new AbortController().signal, 50)).resolves.toEqual({ ok: false, stage: 'inbound', sameNetwork: true })
   })
   it('fails a B path that went through a relay', async () => {
     Connection.bLocal = { candidateType: 'relay', address: '203.0.113.9' }

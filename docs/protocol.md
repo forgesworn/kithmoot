@@ -950,9 +950,11 @@ relayed address from B's public address, through the host's allocation
 port, proving listener and allocation inbound together. Otherwise the stage
 is `allocate` when A gathered no relay candidate, then `stun` when B gathered
 no server-reflexive candidate and `sameNetwork` does not hold, otherwise
-`inbound`. `sameNetwork` holds when any of B's server-reflexive addresses, or
-the address of B's selected local candidate, equals the relay's IPv4: the
-tester was on the host's own network or machine. A host may call its relay
+`inbound`. `sameNetwork` holds when any of B's server-reflexive or host
+addresses, or the address of B's selected local candidate, equals the relay's
+IPv4: the tester was on the host's own network or machine. A relay with
+mapped ports refuses peers on its own addresses other than its allocations,
+so such a test normally fails `inbound` with `sameNetwork`. A host may call its relay
 reachable only from `ok: true` without `sameNetwork`; a pass with
 `sameNetwork` is a hint, never "reachable". Only the verdict leaves the
 tester. The host's relay sees the tester's address, as on any call through

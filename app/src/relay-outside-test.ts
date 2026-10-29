@@ -21,8 +21,8 @@ import { relayOnlyIceConfiguration } from './relay-only.js'
  * only the verdict leaves this function.
  */
 export async function runRelayOutsideTest(relay: CallRelay, signal: AbortSignal, timeoutMs = RELAY_TEST_RUN_MS): Promise<RelayTestVerdict> {
-  const seen: { -readonly [K in keyof RelayTestObservations]: RelayTestObservations[K] } & { reflexive: string[] } = {
-    turnHost: turnHostOf(relay.urls) ?? '', relayed: false, reflexive: [], echoed: false, pathA: false, pathB: false,
+  const seen: { -readonly [K in keyof RelayTestObservations]: RelayTestObservations[K] } & { reflexive: string[]; hosts: string[] } = {
+    turnHost: turnHostOf(relay.urls) ?? '', relayed: false, reflexive: [], hosts: [], echoed: false, pathA: false, pathB: false,
   }
   const peers: RTCPeerConnection[] = []
   const channels: RTCDataChannel[] = []
@@ -52,7 +52,8 @@ export async function runRelayOutsideTest(relay: CallRelay, signal: AbortSignal,
       b.onicecandidate = event => {
         if (!event.candidate) return
         const address = event.candidate.address
-        if (event.candidate.type === 'srflx' && address && seen.reflexive.length < 16 && !seen.reflexive.includes(address)) seen.reflexive.push(address)
+        const list = event.candidate.type === 'srflx' ? seen.reflexive : event.candidate.type === 'host' ? seen.hosts : undefined
+        if (list && address && list.length < 32 && !list.includes(address)) list.push(address)
         forward(a, pendingA, event.candidate)
       }
       const sent = 'kithmoot-relay-outside-test'

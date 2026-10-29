@@ -14,8 +14,10 @@ import { createRoom, join, open, newDeviceContext } from './browser.js'
  *
  * Everything is on loopback (test/spry-supervised-fixture.mjs), so the
  * tester's address is the relay's own and the honest answer is "from the
- * host's own network": a pass that proves the mechanism, never outside
- * reachability. The host's trigger is a hook that only the acceptance build
+ * host's own network": the relay refuses a peer on its own address, so the
+ * test fails `inbound` with `sameNetwork`. That proves the mechanism end to
+ * end, never outside reachability, and no pass is possible here. The
+ * host's trigger is a hook that only the acceptance build
  * (VITE_E2E_RELAY_OUTSIDE_TEST) has; no screen offers it yet.
  */
 
@@ -81,8 +83,11 @@ test('a host asks a member to test its built-in relay from outside, and hears th
       if (outcome.answered && outcome.stage !== 'credentials') break
       await host.page.waitForTimeout(3000)
     }
+    // Peer A got a relayed address (the stage is past `allocate`); peer B's
+    // address is the relay's own, which a node with mapped ports refuses as a
+    // peer, exactly as it would refuse a tester behind the host's own router.
     expect(outcome).toEqual({ answered: true, device: expect.stringMatching(/^[0-9a-f]{64}$/), participant: GUEST_PARTICIPANT,
-      at: expect.any(Number), ok: true, sameNetwork: true, finding: 'same-network' })
+      at: expect.any(Number), ok: false, stage: 'inbound', sameNetwork: true, finding: 'same-network' })
     expect(guest.control.length, 'the tester redeemed the host\'s offer over control').toBeGreaterThan(0)
 
     // The tester's two temporary peers: A relay-only on the node, B with the
@@ -109,7 +114,7 @@ test('a host asks a member to test its built-in relay from outside, and hears th
 
     const stats = await (await request.get(`${FIXTURE}/fixture/stats`)).json()
     await test.info().attach('relay-outside-test', { contentType: 'application/json', body: JSON.stringify({
-      result: { ok: outcome.ok, sameNetwork: outcome.sameNetwork, finding: outcome.finding }, again: again.stage,
+      result: { ok: outcome.ok, stage: outcome.stage, sameNetwork: outcome.sameNetwork, finding: outcome.finding }, again: again.stage,
       testerPeers: peers.map(peer => ({ policy: peer.policy, schemes: peer.urls.map(url => url.split(':')[0]) })),
       nodeUrls: stats.urls, nodeBinarySha256: stats.nodeBinarySha256, externalRequests: [...host.denied, ...guest.denied],
       loopbackOnly: true, separateNetworks: false, outsideReachabilityProven: false, physicalDevices: false,

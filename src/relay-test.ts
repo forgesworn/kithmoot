@@ -110,6 +110,8 @@ export interface RelayTestObservations {
   relayed: boolean
   /** Addresses of peer B's server-reflexive candidates. */
   reflexive: readonly string[]
+  /** Addresses of peer B's host candidates (an mDNS name never matches). */
+  hosts: readonly string[]
   /** Address of peer B's local candidate on its selected pair, when known. */
   local?: string
   /** The data-channel echo came back. */
@@ -125,16 +127,18 @@ export interface RelayTestObservations {
 export interface RelayTestVerdict { ok: boolean; stage?: RelayTestStage; sameNetwork?: true }
 
 /**
- * The verdict a tester sends. `sameNetwork` when any of B's reflexive
- * addresses, or B's selected local address, is the relay's own address: B
- * then reached the relay from inside the host's network (or the host's own
- * machine), which proves nothing about outside. A pass needs the echo and
- * both paths. A failure names the first part that did not work: no relayed
- * address, then (when B learnt no outside address at all) no STUN answer,
- * otherwise inbound.
+ * The verdict a tester sends. `sameNetwork` when any of B's reflexive or
+ * host addresses, or B's selected local address, is the relay's own address:
+ * B then reached the relay from inside the host's network (or the host's own
+ * machine), which proves nothing about outside. A relay with mapped ports
+ * refuses peers on its own addresses, so such a test usually fails
+ * `inbound`. A pass needs the echo and both paths. A failure names the first
+ * part that did not work: no relayed address, then (when B learnt no outside
+ * address and is not on the relay's network) no STUN answer, otherwise
+ * inbound.
  */
 export function relayTestVerdict(seen: RelayTestObservations): RelayTestVerdict {
-  const sameNetwork = seen.reflexive.includes(seen.turnHost) || seen.local === seen.turnHost
+  const sameNetwork = seen.reflexive.includes(seen.turnHost) || seen.hosts.includes(seen.turnHost) || seen.local === seen.turnHost
   const verdict: RelayTestVerdict = seen.echoed && seen.pathA && seen.pathB ? { ok: true }
     : !seen.relayed ? { ok: false, stage: 'allocate' }
       : seen.reflexive.length === 0 && !sameNetwork ? { ok: false, stage: 'stun' }
