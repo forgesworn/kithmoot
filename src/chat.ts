@@ -44,6 +44,7 @@ import type { AgentOwnership, DeviceCredential, KindredProof, RoomPolicy } from 
 // exist in KithMoot today (this file's own label is `CHAT_LABELS`, below).
 import { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH } from '@forgesworn/fold-kit'
 import { MAX_HISTORY_EPOCHS } from './epoch.js'
+import { decodeDeliveryReceipt, encodeDeliveryReceipt, type DeliveryReceipt } from './delivery-receipt.js'
 
 export { deriveChannel, CHANNEL_ID_INFO, CHANNEL_KEY_INFO, MAX_CHANNEL_NAME_LENGTH }
 
@@ -880,7 +881,29 @@ export interface ChatLogOptions {
   /** A conference room's end: every message, reaction, edit and retraction
    *  this log sends carries it as an expiration. See `withExpiration`. */
   expiresAt?: number
+  /** Delivery receipts (kind 1465) on this log's streams. Given, the log's
+   *  one subscription asks for receipts too, under a filter of their own so
+   *  they never displace chat history, and hands each one that passes
+   *  `decodeDeliveryReceipt`, the block list and the removed list to
+   *  `onReceipt`. `since` is asked each time the subscription is opened. */
+  receipts?: DeliveryReceiptHooks
+  /** Told of every message this log accepts, from a relay or from this
+   *  device's archive, with the stream it arrived on: what a delivery
+   *  receipt writer acknowledges. Never told twice for one message. */
+  onAccepted?: (message: ChatMessage, d: string, log: ChatLog) => void
 }
+
+/** What a `ChatLog` asks of whoever reads its delivery receipts. */
+export interface DeliveryReceiptHooks {
+  /** The oldest `created_at` worth asking relays for, unix seconds: the
+   *  oldest of this person's messages not yet delivered to everyone known,
+   *  less a minute, or now when there is none. */
+  since: () => number
+  onReceipt: (receipt: DeliveryReceipt, log: ChatLog) => void
+}
+
+/** The most receipts a subscription asks a relay for. */
+export const MAX_DELIVERY_RECEIPTS_FETCHED = 1000
 
 /** What `send` may say beyond the text. */
 /** What `ChatLog.prepare` hands back: the message as it will read, the
@@ -963,6 +986,9 @@ export class ChatLog {
    *  3 ms an event, several seconds of a frozen page on opening it. */
   readonly #decoded = new Set<string>()
   readonly #senderTimes = new Map<string, number[]>()
+  /** Receipts already decoded, by event id: every relay replays them on
+   *  every reconnect, and each costs a decryption and three signatures. */
+  readonly #receiptsSeen = new Set<string>()
   readonly #listeners = new Set<(messages: ChatMessage[]) => void>()
   #closed = false
   #unsub: () => void
@@ -1038,10 +1064,89 @@ export class ChatLog {
     const filter = (d: string[]) => ({ kinds: [KINDS.CHAT], '#d': d, since, limit: MAX_CHAT_MESSAGES })
     const past = [...this.#past].sort((a, b) => b[1].leftAt - a[1].leftAt).map(([d]) => d)
     const older = past.slice(SEPARATE_PAST_FILTERS)
+    const receipts = this.#opts.receipts ? [{ kinds: [KINDS.DELIVERY_RECEIPT], '#d': [this.#stream, ...past], since: this.#receiptsSince(), limit: MAX_DELIVERY_RECEIPTS_FETCHED }] : []
     return this.#opts.transport.subscribe(
-      [filter([this.#stream]), ...past.slice(0, SEPARATE_PAST_FILTERS).map((d) => filter([d])), ...(older.length ? [filter(older)] : [])],
-      (event, via) => this.#ingest(event, via),
+      [filter([this.#stream]), ...past.slice(0, SEPARATE_PAST_FILTERS).map((d) => filter([d])), ...(older.length ? [filter(older)] : []), ...receipts],
+      (event, via) => {
+        // Receipts are not chat: none of chat's retention, rate or archive
+        // rules apply to them, so they never reach `#ingest`.
+        if (event.kind === KINDS.DELIVERY_RECEIPT) this.#ingestReceipt(event)
+        else this.#ingest(event, via)
+      },
     )
+  }
+
+  #receiptsSince(): number {
+    try {
+      const since = this.#opts.receipts!.since()
+      if (Number.isSafeInteger(since)) return Math.max(0, Math.min(since, this.#now()))
+    } catch { /* Fall back to the newest: nothing old is asked for. */ }
+    return this.#now()
+  }
+
+  /** Every stream this log reads, with its key: the current epoch's and
+   *  each left epoch it still reads. What a receipt is decoded against,
+   *  and what a device searches for its own receipts to delete them. */
+  streams(): ChatStream[] {
+    const out: ChatStream[] = []
+    for (const epoch of [this.#epoch, ...[...this.#past.values()].map(p => p.root)]) {
+      const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch })
+      const { id, key } = deriveChannel(root.id, root.key, this.#opts.channel)
+      if (!out.some(s => s.d === id)) out.push({ d: id, key })
+    }
+    return out
+  }
+
+  #ingestReceipt(event: Event): void {
+    try {
+      this.#opts.protocol?.check('delivery-receipt-ingress')
+      const hooks = this.#opts.receipts
+      if (!hooks || this.#closed || this.#receiptsSeen.has(event.id)) return
+      this.#receiptsSeen.add(event.id)
+      if (this.#receiptsSeen.size > MAX_DELIVERY_RECEIPTS_FETCHED * 4) {
+        const first = this.#receiptsSeen.values().next().value
+        if (first !== undefined) this.#receiptsSeen.delete(first)
+      }
+      const receipt = decodeDeliveryReceipt(event, { roomId: this.#opts.roomId, streams: this.streams(), now: this.#now(), policy: this.#opts.policy })
+      if (!receipt || this.#blocked(receipt.participant) || this.#removed(receipt.participant)) return
+      hooks.onReceipt(receipt, this)
+    } catch {
+      // A receipt is never worth the room.
+    }
+  }
+
+  /**
+   * Publish one delivery receipt for messages that arrived on stream `d`.
+   * Resolves once a relay has taken it. Refused in a quiet room, where a
+   * bare receipt would say in the open that a device just received
+   * something, and on a log that only reads. When this device's credential
+   * has lapsed (a computer that slept), it is renewed once first, as `send`
+   * does.
+   */
+  async publishDeliveryReceipt(opts: { d: string; messageIds: readonly string[]; createdAt?: number; index?: number; agent?: boolean }): Promise<Event> {
+    if (isQuietPolicy(this.#opts.policy)) throw new Error('quiet rooms send no delivery receipts')
+    if (this.#closed) throw new Error(CONVERSATION_MOVED)
+    const stream = this.streams().find(s => s.d === opts.d.toLowerCase())
+    if (!stream) throw new Error('not a stream this conversation reads')
+    const encode = () => {
+      const deviceSk = this.#opts.deviceSk
+      if (!this.#credential || !deviceSk) throw new Error('this log only reads; it was opened without a credential')
+      return encodeDeliveryReceipt({
+        roomId: this.#opts.roomId, stream, deviceSk, credential: this.#credential,
+        ...(this.#opts.proof ? { proof: this.#opts.proof } : {}),
+        ...(opts.agent ? { agent: true } : {}),
+        messageIds: opts.messageIds, createdAt: opts.createdAt ?? this.#now(), index: opts.index ?? 0,
+        ...(this.#opts.expiresAt !== undefined ? { expiresAt: this.#opts.expiresAt } : {}),
+      })
+    }
+    const lapsed = () => !!this.#credential && !verifyDeviceCredential(this.#credential, { roomId: this.#opts.roomId, now: opts.createdAt ?? this.#now() }).ok
+    if (lapsed() && this.#opts.renewCredential) {
+      await this.#opts.renewCredential()
+      if (this.#closed) throw new Error(CONVERSATION_MOVED)
+    }
+    const event = encode()
+    await this.#opts.transport.publish(event)
+    return event
   }
 
   /**
@@ -1233,6 +1338,11 @@ export class ChatLog {
   /** The channel this log is, or undefined for the main chat. */
   get channel(): string | undefined {
     return this.#opts.channel
+  }
+
+  /** Whether this log has been closed. */
+  get closed(): boolean {
+    return this.#closed
   }
 
   /** Whether this log can send, or was opened to read only. */
@@ -1524,6 +1634,9 @@ export class ChatLog {
 
     this.#messages.push(msg)
     this.#messages.sort(compareMessages)
+    if (this.#opts.onAccepted && d !== undefined) {
+      try { this.#opts.onAccepted(msg, d, this) } catch { /* A writer cannot refuse a message. */ }
+    }
     while (this.#messages.length > this.#window) {
       const removed = this.#messages.shift()
       if (removed) this.#seen.delete(removed.id)
