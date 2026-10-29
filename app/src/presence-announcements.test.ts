@@ -35,3 +35,15 @@ it('suppresses replay population and preserves independent departures and name c
   expect(notices.nextCheck).toBe(80_000)
   expect(notices.update([chip], 75_000, true)).toEqual([])
 })
+
+it('announces the first guest when a creator first hears a roster containing that guest', () => {
+  const notices = new PresenceAnnouncements(true)
+  expect(notices.update([chip], 1_000, true)).toEqual([{ person: chip, arrived: true }])
+  expect(notices.update([chip], 2_000, true)).toEqual([])
+})
+
+it('still treats an established room’s first settled roster as replay', () => {
+  const notices = new PresenceAnnouncements()
+  expect(notices.update([chip], 1_000, true)).toEqual([])
+  expect(notices.update([chip, tally], 2_000, true)).toEqual([{ person: tally, arrived: true }])
+})
