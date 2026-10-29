@@ -26,6 +26,7 @@ import type { HistoryReadResult } from '../../src/history-import.js'
 import type { PublicDeletionRelayOutcome } from './public-deletion-relay-writer.js'
 import { KINDS } from '../../src/kinds.js'
 import { ownEnvelope2Events, type ChatStream } from '../../src/chat.js'
+import { ownDeliveryReceipts } from '../../src/delivery-receipt.js'
 import { scanChatHistory } from '../../src/chat-history-scan.js'
 import type { FileDeletionReport } from './blob-deletion.js'
 
@@ -228,11 +229,12 @@ async function gatherOwnChat(deps: TidyUpDeps, streams: readonly ChatStream[]): 
   for (const group of chunks(streams, STREAMS_PER_FILTER)) {
     await Promise.all(deps.roomRelays.map(async relay => {
       const seen = new Set<string>()
-      const complete = await scanChatHistory({ kinds: [KINDS.CHAT], '#d': group.map(s => s.d) }, async filter => {
+      const complete = await scanChatHistory({ kinds: [KINDS.CHAT, KINDS.DELIVERY_RECEIPT], '#d': group.map(s => s.d) }, async filter => {
         const result = await deps.read(relay, filter)
         return { events: result.events, complete: result.terminal === 'complete' }
       }, events => {
-        for (const m of ownEnvelope2Events(events.filter(e => !seen.has(e.id)), group, deps.device.sk)) {
+        const unseen = events.filter(e => !seen.has(e.id))
+        for (const m of [...ownEnvelope2Events(unseen, group, deps.device.sk), ...ownDeliveryReceipts(unseen, group, deps.device.sk)]) {
           seen.add(m.event.id)
           if (byId.has(m.event.id)) m.sk.fill(0)
           else byId.set(m.event.id, m)

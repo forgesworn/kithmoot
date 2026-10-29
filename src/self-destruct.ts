@@ -4,6 +4,7 @@ import type { Filter } from 'nostr-tools/filter'
 import type { RelayTransport } from './relay-pool.js'
 import { KINDS } from './kinds.js'
 import { ownEnvelope2Events, type ChatStream } from './chat.js'
+import { ownDeliveryReceipts } from './delivery-receipt.js'
 import { scanChatHistory } from './chat-history-scan.js'
 
 /**
@@ -165,12 +166,13 @@ async function deleteOwnEnvelope2(
   const asked = new Set<string>()
   for (let i = 0; i < chat.streams.length; i += STREAMS_PER_FILTER) {
     const streams = chat.streams.slice(i, i + STREAMS_PER_FILTER)
-    const complete = await scanChatHistory({ kinds: [KINDS.CHAT], '#d': streams.map(s => s.d) }, filter => {
+    const complete = await scanChatHistory({ kinds: [KINDS.CHAT, KINDS.DELIVERY_RECEIPT], '#d': streams.map(s => s.d) }, filter => {
       if (Date.now() >= deadline) return Promise.resolve({ events: [], complete: false })
       return readEvents(transport, filter, deadline)
     }, async events => {
       const fresh = new Map<string, { event: Event; sk: Uint8Array }>()
-      for (const own of ownEnvelope2Events(events.filter(e => !asked.has(e.id)), streams, chat.deviceSk)) {
+      const unasked = events.filter(e => !asked.has(e.id))
+      for (const own of [...ownEnvelope2Events(unasked, streams, chat.deviceSk), ...ownDeliveryReceipts(unasked, streams, chat.deviceSk)]) {
         if (fresh.has(own.event.id)) own.sk.fill(0)
         else fresh.set(own.event.id, own)
       }

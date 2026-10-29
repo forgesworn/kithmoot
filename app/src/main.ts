@@ -79,7 +79,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { PendingSends, StorageStuckError, type PendingSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
-import { DeliveredLedger, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
+import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
@@ -506,6 +506,15 @@ setInterval(() => { if (pendingSends.holding) outbox.render() }, 1000)
 /** Seconds a typed message waits before it goes, for a moment to take it
  *  back. Per device, off unless chosen. */
 const SEND_DELAY_KEY = 'kithmoot.send-delay'
+// Delivery confirmations: on unless the person turned them off. Read at every flush, so a change applies at once.
+;($('sendDeliveryReceipts') as HTMLInputElement).checked = sendsDeliveryReceipts(localStorage)
+$('sendDeliveryReceipts').addEventListener('change', () => {
+  const on = ($('sendDeliveryReceipts') as HTMLInputElement).checked
+  try { localStorage.setItem(DELIVERY_RECEIPTS_SETTING, on ? 'on' : 'off') } catch {
+    ;($('sendDeliveryReceipts') as HTMLInputElement).checked = sendsDeliveryReceipts(localStorage)
+    setStatus('This browser could not save the choice, so it has not changed.')
+  }
+})
 const SEND_DELAYS = [0, 5, 10]
 function sendDelaySeconds(): number {
   try {
