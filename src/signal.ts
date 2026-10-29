@@ -10,6 +10,7 @@ import { SIGNAL_MAX_AGE_SECONDS } from './signal-guard.js'
 export { SIGNAL_MAX_AGE_SECONDS }
 import { hexEquals, normaliseHex } from './hex.js'
 import type { TrackAdvert, TrackRole } from './types.js'
+import { validRelayTestRequest, validRelayTestResult, type RelayTestRequest, type RelayTestResult } from './relay-test.js'
 
 export interface AnnotationPoint { x: number; y: number }
 export interface ScreenAnnotation {
@@ -21,6 +22,9 @@ export interface ScreenAnnotation {
   /** Coordinates in the shared image, from zero to one. */
   points?: AnnotationPoint[]
 }
+
+export type SignalType = 'offer' | 'answer' | 'ice' | 'assist' | 'annotation' | 'ack' | 'health' | 'sync' | 'relay-test' | 'relay-test-result'
+const SIGNAL_TYPES: readonly SignalType[] = ['offer', 'answer', 'ice', 'assist', 'annotation', 'ack', 'health', 'sync', 'relay-test', 'relay-test-result']
 
 export interface SignalBody {
   /**
@@ -39,7 +43,14 @@ export interface SignalBody {
    * three exactly as it rejects any other unrecognised type, which is what
    * keeps them addressed only to peers already known to speak profile 2.
    */
-  type: 'offer' | 'answer' | 'ice' | 'assist' | 'annotation' | 'ack' | 'health' | 'sync'
+  /**
+   * `relay-test` and `relay-test-result` are not negotiation either: a
+   * member's built-in relay asking one device to test it from outside, and
+   * that device's answer to the asker alone (see `relay-test.ts`). They ride
+   * this wrap because it is already encrypted to exactly one admitted device
+   * and signed by the sender's device key, which is all the result needs.
+   */
+  type: SignalType
   roomId: string
   sdp?: string
   candidate?: string
@@ -70,6 +81,8 @@ export interface SignalBody {
   /** Temporary screen-share markup. It uses signalling because that path is
    * encrypted, live and already addressed to every room device. */
   annotation?: ScreenAnnotation
+  /** On `relay-test`: the request. On `relay-test-result`: the result. */
+  relayTest?: RelayTestRequest | RelayTestResult
 
   // --- Profile 2 (docs/protocol.md "Profile 2 additions") ------------------
   // All additive and optional, ignored by an old reader's JSON.parse. See
@@ -321,8 +334,10 @@ export function unwrapSignalEvent(
 
     const body = JSON.parse(inner.content) as SignalBody
     if (!hexEquals(body.roomId, opts.roomId)) return null
-    if (!['offer', 'answer', 'ice', 'assist', 'annotation', 'ack', 'health', 'sync'].includes(body.type)) return null
+    if (!SIGNAL_TYPES.includes(body.type)) return null
     if (body.type === 'annotation' && !validScreenAnnotation(body.annotation)) return null
+    if (body.type === 'relay-test' && !validRelayTestRequest(body.relayTest)) return null
+    if (body.type === 'relay-test-result' && !validRelayTestResult(body.relayTest)) return null
     if (!validSignalExtensions(body)) return null
     // Canonicalise the two connection-id fields the same way every other hex
     // identifier on this wire is canonicalised - see `normaliseHex` - so a
