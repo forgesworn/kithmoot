@@ -254,6 +254,49 @@ export function decodeDeliveryReceipt(event: Event, opts: DecodeDeliveryReceiptO
   }
 }
 
+/** How many receipts per stream per second `ownDeliveryReceipts` looks for:
+ *  a writer that splits a flush wider than this cannot delete the rest. */
+export const MAX_DELIVERY_RECEIPT_INDEX = 8
+
+/**
+ * The receipts among `events` that this device wrote, each with the outer
+ * key that signed it, so the device can ask for their deletion (NIP-09 takes
+ * a deletion only from the event's own author). A receipt is this device's
+ * when its stream opens it, its body names this device, and the outer key
+ * derived from this device's key, `d`, `created_at` and an index below
+ * `MAX_DELIVERY_RECEIPT_INDEX` is its author: nobody else can sign with that
+ * key, so the inner signature need not be checked. Never throws; the caller
+ * zeroes each key.
+ */
+export function ownDeliveryReceipts(events: readonly Event[], streams: readonly ChatStream[], deviceSk: Uint8Array): Array<{ event: Event; sk: Uint8Array }> {
+  const device = getPublicKey(deviceSk)
+  const out: Array<{ event: Event; sk: Uint8Array }> = []
+  for (const event of events) {
+    let receiptKey: Uint8Array | undefined
+    try {
+      const shape = boundedReceipt(event)
+      if (!shape || hexEquals(event.pubkey, device)) continue
+      const stream = streams.find((s) => hexEquals(s.d, shape.d))
+      if (!stream) continue
+      receiptKey = deliveryReceiptKey(stream.key)
+      const envelope = openEnvelope(JSON.parse(nip44.v2.decrypt(event.content, receiptKey)))
+      if (!envelope) continue
+      const body = JSON.parse(envelope.body) as { device?: unknown }
+      if (typeof body.device !== 'string' || !hexEquals(body.device, device)) continue
+      for (let index = 0; index < MAX_DELIVERY_RECEIPT_INDEX; index++) {
+        const sk = deliveryReceiptOuterSecretKey(deviceSk, shape.d, event.created_at, index)
+        if (hexEquals(getPublicKey(sk), event.pubkey)) { out.push({ event, sk }); break }
+        sk.fill(0)
+      }
+    } catch {
+      // Not ours, or not readable here: nothing to ask for.
+    } finally {
+      receiptKey?.fill(0)
+    }
+  }
+  return out
+}
+
 /** The routing a receipt may carry, checked on the wire fields alone. */
 function boundedReceipt(event: Event): { d: string; expiration: number } | null {
   if (event.kind !== KINDS.DELIVERY_RECEIPT) return null

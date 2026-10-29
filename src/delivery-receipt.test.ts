@@ -19,6 +19,7 @@ import {
   deliveryReceiptKey,
   deliveryReceiptOuterSecretKey,
   encodeDeliveryReceipt,
+  ownDeliveryReceipts,
 } from './delivery-receipt.js'
 
 const NOW = 1_800_000_000
@@ -259,6 +260,16 @@ describe('delivery receipts', () => {
       const many = Array.from({ length: 257 }, (_, i) => deliveryReceiptIdHash(`m${i}`))
       expect(read(seal(goodBody({ got: many })))).toBeNull()
     })
+  })
+
+  it('finds this device\'s own receipts with the keys that signed them, and nobody else\'s', async () => {
+    const otherSk = generateSecretKey()
+    const theirs = encodeDeliveryReceipt({ roomId, stream, deviceSk: otherSk, credential: await credentialFor(otherSk), messageIds: ['m1'], createdAt: NOW })
+    const mine = [receipt(), receipt({ index: 3 }), receipt({ stream: channel })]
+    const found = ownDeliveryReceipts([...mine, theirs, { ...theirs, kind: 1 }], streams, deviceSk)
+    expect(found.map((f) => f.event.id)).toEqual(mine.map((e) => e.id))
+    for (const { event, sk } of found) expect(getPublicKey(sk)).toBe(event.pubkey)
+    expect(ownDeliveryReceipts(mine, [stream], deviceSk)).toHaveLength(2)
   })
 
   it('hashes message ids to 16 hex characters of a domain-separated SHA-256', () => {

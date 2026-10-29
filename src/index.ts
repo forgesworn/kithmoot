@@ -592,6 +592,8 @@ export {
   deliveryReceiptDigest,
   encodeDeliveryReceipt,
   decodeDeliveryReceipt,
+  ownDeliveryReceipts,
+  MAX_DELIVERY_RECEIPT_INDEX,
 } from './delivery-receipt.js'
 export type { DeliveryReceipt, EncodeDeliveryReceiptOptions, DecodeDeliveryReceiptOptions } from './delivery-receipt.js'
 
