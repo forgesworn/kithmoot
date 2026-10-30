@@ -8,6 +8,7 @@ import { buildContextMenuTemplate } from './context-menu.mjs'
 import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
 import { createRelayHost, createHostingQuitGuard } from './relay-host.mjs'
 import { createRelayIdentity } from './relay-identity.mjs'
+import { createRelaySettings } from './relay-settings.mjs'
 import { SPRY_MANIFEST, helperKey, verifiedHelper } from './spry-bundle.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
@@ -74,6 +75,7 @@ function sendRelayState() { if (win && !win.isDestroyed()) win.webContents.send(
 const hosting = createRelayHost({
   enabled: process.env.KITHMOOT_DESKTOP_RELAY === 'on',
   identity: createRelayIdentity({ dir: join(app.getPath('userData'), 'call-relay'), safeStorage }),
+  settings: createRelaySettings({ dir: join(app.getPath('userData'), 'call-relay') }),
   executable: relayExecutable,
   showDialog: options => win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
   changed: () => { if (app.isReady()) applyAppMenu(); sendRelayState() },
@@ -85,7 +87,7 @@ const hostingQuit = createHostingQuitGuard({ stop: options => hosting.stop(optio
 function cancelHostingQuit() {
   if (!hosting.state().available) return
   hostingQuit.cancel()
-  if (!suspended) void hosting.resume()
+  if (!suspended) void hosting.resume({ restart: true })
 }
 const updateNotify = state => { if (win && !win.isDestroyed()) win.webContents.send('desktop:update-state', state) }
 const updateLog = error => console.warn('Desktop update failed:', error?.message ?? 'Unknown error')
@@ -522,11 +524,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || callActive) return false
       if (!await hosting.stop({ block: true })) { await hostingStopFailure(); return false }
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || callActive || suspended || hostingQuit.quitting) {
-        if (!suspended && !hostingQuit.quitting) await hosting.resume()
+        if (!suspended && !hostingQuit.quitting) await hosting.resume({ restart: true })
         return false
       }
       const installed = await updates.install()
-      if (!installed && !suspended && !hostingQuit.quitting) await hosting.resume()
+      if (!installed && !suspended && !hostingQuit.quitting) await hosting.resume({ restart: true })
       return installed
     })
     ipcMain.handle('desktop:redaction-begin', event => {
@@ -582,7 +584,8 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     })
     ipcMain.handle('desktop:spry-relay-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? relayView() : null)
     powerMonitor.on('suspend', () => { suspended = true; void hosting.stop({ block: true }) })
-    powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume() })
+    // Waking brings back a relay the person had on, once there is a network.
+    powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume({ restart: true }) })
     applyAppMenu()
     // The share pop-out is a window of ours the app writes into, so it never
     // navigates anywhere. Attachment viewers keep their own stricter rules.
