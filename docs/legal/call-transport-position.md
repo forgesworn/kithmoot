@@ -8,7 +8,9 @@ client has updated. The law is in jurisdiction-kit's
 [`law/gb/online-services.md`](https://github.com/forgesworn/jurisdiction-kit/blob/main/law/gb/online-services.md),
 verified 28 September 2026; section 2.11 adds primary sources read on
 23 October 2026. `[P]` means primary source read; `[U]`
-means an unresolved interpretation. Neither mark is legal advice.
+means an unresolved interpretation. Neither mark is legal advice. The
+section "30 October 2026: the built-in call relay" was added against
+kithmoot `12e62ebd` and is a pre-release draft.
 
 ## What exists today
 
@@ -251,6 +253,317 @@ no exemption. The note remains verified 28 September 2026, with transport and
 telecoms primary sources read 23 October and discovery sources read 25 October;
 review is due 28 March 2027 or sooner if a relevant watch item moves. No legal
 verified date, deadline or operating capacity is changed by this factual update.
+
+## 30 October 2026: the built-in call relay
+
+Pre-release draft, 30 October 2026. Not legal advice; not reviewed by a
+lawyer. Prepared against kithmoot `12e62ebd`, the design
+[`docs/design/2026-10-28-built-in-relay.md`](../design/2026-10-28-built-in-relay.md)
+(sections 3.4 and 3.5 and the owner decisions of 28 and 29 October), and
+spry-turn `origin/main` at 0.4.1 (`8db0f6e`), `docs/supervised-mode.md`. The
+law is jurisdiction-kit's GB online-services note: verified 28 September
+2026, partial updates 23 and 25 October 2026, review by 28 March 2027. No
+watch list item was rechecked for this refresh. Design section 3.5 asks for
+this refresh "from the shipped behaviour". The shipped behaviour does not
+yet include a running built-in relay, so everything below about a running
+relay must be read again against the supervisor (K4) and the Android stages
+before release.
+
+### What is shipped and what is not
+
+| Part | State at `12e62ebd` | Evidence |
+|---|---|---|
+| Share rule for a device paired with its own Spry node: offered automatically in rooms it made, elsewhere only after **Share my call relay here** | On main, released | `app/src/main.ts:2902`, `app/src/spry-pairing.ts:72` |
+| Hide my IP one-time choice before using any member-run relay, `spry:` or `https:` | On main, released in desktop 0.1.115 | `app/src/main.ts:9598`, `app/src/spry-pairing.ts:88`, `app/src/spry-room.ts:194`; commit `2537853c` |
+| Members republish a host's offer only as a marked copy (`relayed: true`) | On main | `app/src/spry-room.ts:52`, `:261`; `src/spry.ts:10`; commit `36ad7c96` |
+| Client accepts a foreign standard `spry:` offer | On main | `app/src/spry-room.ts:194` (`isSpryStandardOffer`) |
+| Outside reachability test, run only when the host asks | On main, released in desktop 0.1.114 | `app/src/relay-outside-test.ts`; commit `a1dc5dc9` |
+| `spry-node` bundled in every desktop package, hash-checked | On main, unreleased. "Nothing starts it yet" | `desktop/spry-bundle.mjs`; commit `1a02c45e` |
+| Supervisor that starts the bundled node, the Turn on dialog, status and Stop | Not built | Design section 7, stage K4 |
+| Android built-in relay | Not built in this repository; Android is a separate repository, not read for this refresh | Design section 4 |
+| Supervised standard mode in spry-turn: no HTTP listener, no public mode, no anonymous credentials, no advert, every grant sealed, port opening, aggregate cap | In spry-turn's documentation at both 0.4.0 (the helper desktop pins) and 0.4.1, which adds forwarding between two allocations behind a router without NAT loopback; the code was not read | spry-turn `docs/supervised-mode.md` at `v0.4.0` and `v0.4.1`; `CHANGELOG.md` |
+
+### Inventory question 7
+
+Something the operator may run holds a key to content: a keeper
+(`deploy/keeper@.service:6-13`) holds the room key for each room it keeps.
+The built-in relay path is a different component. The design passes it no
+room key or media key, and the media key exchange (DTLS-SRTP) runs between
+the call's endpoints, so the relay forwards ciphertext. That makes the
+relay's "no content" claim true for the relay. It does not make a general
+claim that nothing ForgeSworn ships can read content true.
+
+### Who operates what
+
+**The person who turns it on** runs the relay on their own computer, or
+later their phone. They choose to turn it on, choose which other rooms it
+serves, and can stop it. It runs only while KithMoot is open (owner
+decision, 28 October). Their device holds the node's secret and a state file
+with the room grants and each registered guest's per-room device key
+(spry-turn `docs/supervised-mode.md`, "Pairing and state"). Their router
+opens the ports in their name. Their internet address is the one guests
+connect to. As a fact, they operate that relay. What duties follow from that
+is set out under "Position" below and is not settled.
+
+**ForgeSworn** writes and publishes the software, builds and signs the
+helper (Developer ID on macOS; unsigned on Windows, like the app), and pins
+its hash (`desktop/scripts/spry-release.json`). It sets the defaults: off,
+share with rooms the person made, the caps, the Hide my IP rule, no open
+mode. It runs no part of the data path or the control path: no relay,
+credential issuer, directory, DNS name, address lookup or reachability
+probe. It receives no usage counts, no reachability results and no reports.
+The desktop app's ordinary update checks to ForgeSworn's site carry on as
+the privacy notice describes; they are not part of the relay.
+
+One fact to record for the access-facility test: ForgeSworn's update
+channel can change or withdraw the feature in a later release. Section
+146(10) counts the ability to withdraw or change a facility `[P]` (note
+2.11). Whether a publisher's software updates are that kind of control over
+a relay somebody else runs is not addressed in the note `[U]`. It does not
+let ForgeSworn admit or remove a guest.
+
+**Others in the path.** The Nostr relays the person's node uses for control
+(one to four `wss://` relays, taken from the person's own configured relays;
+`docs/supervised-mode.md`, `--control-relay`). The STUN server the person's
+calls already use (Cloudflare's by default, `src/ice-defaults.ts:55`), asked
+once to compare the router's reported address (owner decision, 28 October).
+The person's router and internet provider.
+
+`[INPUT: which control relays the owner's own built-in relay would list. If
+they include a relay ForgeSworn runs for its own use, room members' devices
+would send encrypted control requests to it, which bears on the standing
+position that ForgeSworn's servers are closed and for its own use.]`
+
+### Who can use it
+
+Admitted devices in rooms the person made, and in rooms where they turned
+on **Share my call relay here**. Nobody else: no advert, no anonymous
+issuer, no HTTP listener, and every grant sealed to a registered device key
+(`SPRY_ROOM_SEAL=required`). A copied grant without a registered device key
+is refused (design 3.3).
+
+The person does not pick each guest. Room membership follows whoever holds
+the link: in a room without the knock setting, "Anyone who opens the link
+comes straight in while you are here" (`app/src/main.ts:2896`), and any
+member can pass the link on. Members also republish the offer as a marked
+copy so the room keeps the relay while its host is away. So the relay's
+users are whoever is admitted to those rooms, which may include people the
+person has never met. This matters for the closed-group reading below.
+
+### What the person running it can see
+
+- Each guest's internet address and port, and the timing, volume and length
+  of their relayed traffic.
+- The addresses of the devices a guest's packets go to through the relay.
+  TURN permissions name those peers, so a relay learns both ends of a
+  relayed leg. This is how the protocol works; it was not tested against
+  spry-turn's code for this refresh.
+- An opaque TURN login and a per-room per-device Spry key for each
+  registered guest, kept in the state file.
+- Not the call's content: the relay is given no media key and forwards
+  DTLS-SRTP ciphertext. Not room ids, names or room keys (design 3.4).
+
+The node's status output carries counts only: allocations open, bytes
+relayed, and the time of the newest outside allocation, never an address
+(`docs/supervised-mode.md`, "The status line"). That is the node's own
+output. The person's operating system, router, firewall and internet
+provider may keep their own records, and the person can run their own
+tools on their own machine. Nothing here promises that no record is kept.
+
+### What guests reveal, and the Hide my IP rule
+
+To the host's relay: the items above. To the host's control relays: that a
+key sent small encrypted requests to the node's key, with timing and the
+guest's address. Those may be relays the guest does not otherwise use
+(design 3.3). To other members: nothing new.
+
+**Hide my IP, as shipped** (owner decisions 28 and 29 October;
+`app/src/main.ts:9598`, `app/src/spry-pairing.ts:88`):
+
+- With Hide my IP off, a member-run relay is used automatically.
+- With Hide my IP on, a member-run relay, built-in `spry:` or `https:`, is
+  used only after a one-time choice naming the host: "Use Alex's relay?
+  Alex will see your address; others won't." with **Use relay** and **Not
+  now**.
+- The choice is per host participant, covers all that person's relays, and
+  is kept on the device only (`kithmoot.spry-consent.v1`, registered at
+  `app/src/ordinary-physical-snapshot.ts:61`). It is never synced,
+  published or put in a link.
+- The device's own relay and a relay entered by hand are never asked about.
+- With Hide my IP on, only the single member whose descriptor carries the
+  offer unmarked can be asked about. A marked copy names nobody and is
+  ignored, so a guest who arrives while the host is away is refused
+  (`app/src/spry-room.ts:52`, `spryOfferHost`).
+
+The code comment at `app/src/spry-pairing.ts:89` still describes the
+consent as for "a built-in relay, reached over `spry:`". The behaviour has
+covered `https:` offers since `2537853c`. This is a stale comment, not a
+legal gap.
+
+**The outside test.** When the host asks, a member's device (or the host's
+own phone) runs a short test through the relay. The relay sees that
+device's address, as on any call through it. The verdict goes back to the
+host only, inside the existing encrypted channel, signed by the tester's
+device key. It names no addresses (`app/src/relay-outside-test.ts`).
+
+### What the host reveals
+
+- Their public internet address, to every guest who redeems the offer. It
+  is in the credential answer, not in the room descriptor (design 3.4).
+- The same with Hide my IP on: the owner decided on 28 October that a host
+  with Hide my IP on may still run the relay. The Turn on dialog has to say
+  that Hide my IP does not cover this.
+- Port mappings on their router, visible to whoever manages that network.
+  On a router that grants only permanent mappings, a mapping may outlive a
+  crash until the next launch removes it (owner decision, 28 October).
+
+### Position
+
+**ForgeSworn, today.** For the public distribution, publisher with defaults,
+as above and still `[U]` (note 2.2). Its own servers are closed and for its
+own use. The built-in relay adds software that other people run, not a
+service ForgeSworn runs. Somebody who installs and runs the software
+operates their own deployment (note 6.1). Publishing general-purpose
+software does not make the publisher party to an offence someone commits
+with it, absent intent or belief `[P]` (6.1); do not present the relay as a
+way round any law. The owner means to stay in this position, and the design
+keeps it while all of these hold:
+
+- no ForgeSworn relay, control relay default, credential issuer, directory,
+  advert, address lookup or reachability service;
+- no telemetry, usage count or test result reaching ForgeSworn;
+- no open mode, anonymous issuer or public advert in the built-in relay;
+- grants issued by the person's own node, sealed to admitted devices.
+
+Any one of those changing needs a fresh review (2.2, 2.11, 2.13).
+
+**The person who turns it on.** They operate their relay. The note leaves
+open what follows, and the answer depends on facts about each person that
+the software cannot know. This document does not settle it.
+
+| Regime | What the note says | What turns on the person's facts |
+|---|---|---|
+| Online Safety Act (2.1, 2.2, 2.10, 2.11) | No primary source classifies a TURN relay `[U]`. Family and friends by invitation has no exemption and no decision `[U]`. Selecting guests in an ordinary conversation is not by itself enough to be a provider `[U]`. Forwarding for unrelated users is a separate role `[U]` | Whether it relays for people they know or, through link sharing, for people they do not; whether the rooms serve a project or business (2.10, internal business row) |
+| Data protection (3.1, 3.9) | Guests' addresses are personal data. Purely personal or household processing is outside UK GDPR `[P]`; applying that to a given person is `[U]` | Whether the rooms are private life only, or work, a project or a public group |
+| Investigatory powers (5.1, 5.2) | The definition is wide; a relay for people in the UK "very probably" meets it `[U]` | Where they and their guests are |
+| Communications Act and PECR (7, 4.1) | Written for public packet relays; whether a given relay is in scope is `[U]` | Whether a relay offered only to room members is "public" at all; the note does not say |
+
+What the software does to keep the person's role small: off by default,
+rooms only, sealed grants, runs only while KithMoot is open, a visible Stop,
+caps, and no addresses in its own output. None of these is an exemption,
+and the dialog must not suggest one.
+
+### Draft notice for the Turn on dialog
+
+`[DECISION: wording for the owner's UI review. Draft only; not in the
+app.]` Adapted from spry-turn GOALS G7. G7 asks for proportionate
+information before restricted hosting and a separate acknowledgement before
+public hosting; the built-in relay has no public mode, so this is the
+lighter form. **Turn on** and **Cancel**, Cancel the default.
+
+Desktop:
+
+> **Turn on the call relay?**
+>
+> People in rooms you made, and rooms where you share it, can send their
+> encrypted calls through this computer while KithMoot is open. It uses your
+> upload bandwidth, and they will see your internet address. KithMoot asks
+> your router to open the ports it needs. You run this relay and can stop it
+> at any time. Check your local laws and your internet provider's terms
+> first.
+
+Android, same text with these changes: "through this phone while KithMoot
+is open, on Wi-Fi while charging" and "It uses your upload bandwidth and
+battery".
+
+Added when Hide my IP is on:
+
+> Hide my IP address does not hide your address from people who use your
+> relay.
+
+`[DECISION: G7 asks the operator to check the laws "where they operate and
+serve users"; "your local laws" is narrower. Choose which the dialog
+says.]`
+
+`[DECISION: whether to add "KithMoot's makers run no part of it and are not
+told when it is used." It is true at this commit and would have to stay
+true.]`
+
+The dialog must not say or imply that a private, encrypted or log-free
+relay is exempt from anything, that nobody keeps records, or that the
+person carries no duties.
+
+### Gaps in the law note for this question
+
+The note is inside its review date and not overdue. Nothing in it is stale
+by date. These are places where it does not settle the home relay question.
+None is resolved here.
+
+1. **2.11, TURN classification.** No primary source classifies a TURN relay
+   under the access-facility provisions, and the note does not say where
+   "forwarding for unrelated users" begins. Room members admitted by link
+   are neither the operator nor plainly unrelated. Settled by: an Ofcom
+   statement or decision on packet relays (already on the watch list).
+2. **2.10, closed groups admitted by link.** The family and friends row has
+   no decision, and the note does not consider a closed group whose
+   membership the operator does not control because any member can pass the
+   link on. Settled by: an Ofcom statement or decision on small closed
+   services; failing that, a narrow legal review, which is optional and
+   worth it only if the answer would change what ForgeSworn ships.
+3. **2.1, "encounter" through a relay.** The note reads "encounter" as to
+   "read, view, hear or otherwise experience" (2.12) but does not apply it
+   to a service that carries only ciphertext no member can read through it.
+   Whether a TURN relay is a service "by means of which" content is
+   encountered is open. Settled by: the same Ofcom classification as item
+   1, or a written reading of sections 3 and 236 against a relay, marked as
+   a reading.
+4. **3.9, mixed-purpose hosts.** The note gives the household test but
+   cannot apply it to a person whose rooms mix private life and project
+   work. Nothing external settles this; it turns on each person's own
+   purpose. What the note could add: the ICO's guidance and any case law on
+   "purely" personal processing, which it does not record.
+5. **5.1, private relays.** "Very probably" is written for a relay serving
+   people in the UK generally. Sections 5.1 and 5.2 do not record whether the
+   investigatory powers definitions or the Home Office code treat a relay
+   for invited people differently. Settled by: reading the code's
+   provisions on private and non-public systems into the note.
+6. **7 and 4.1, non-public relays.** Both are framed around public packet
+   relays. Sections 7 and 4.1 do not record the Communications Act's meaning
+   of a public electronic communications service, so they cannot say whether
+   a members-only relay is outside. Settled by: reading the statutory
+   definition of "public" into section 7.
+7. **2.13, offers inside an encrypted room.** The four designs cover
+   adverts others can read. An offer carried inside an encrypted room
+   descriptor, readable only by members, is none of them. The likely
+   reading is that it is not discovery at all, but the note does not say.
+   Settled by: a sentence in 2.13 marked `[U]`.
+8. **Section 1, scoping.** No row asks "does your software let its users
+   relay calls for each other?". The nearest row sends the reader to 2.2
+   and 2.11, which is right, but the case is common enough to name.
+
+### Public pages that now differ
+
+`site/privacy/index.html` sections 4.5 and 7 say nothing about member-run
+relays, the share rule, the Hide my IP choice, marked copies, the outside
+test or the host's control relays. These are already released on web and
+desktop, so this gap exists today, before the built-in relay ships (note
+3.2). The pages were not edited.
+
+### What would change this reading
+
+A ForgeSworn control relay among the defaults; any reachability, address
+or usage service ForgeSworn runs; an open mode, advert or anonymous issuer;
+grants issued by anything but the person's own node; relaying for rooms the
+person neither made nor chose; or any route by which the relay receives a
+media or room key.
+
+### Not checked
+
+The supervisor (K4) and the dialog, which do not exist yet; the Android
+repository; spry-turn's code (only its documentation was read); behaviour
+on real routers and networks; what operating systems, routers and internet
+providers record; Android parity of the Hide my IP choice; the laws of
+other countries.
 
 ## Documentation and publication
 
