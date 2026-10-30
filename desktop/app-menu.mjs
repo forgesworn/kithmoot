@@ -21,7 +21,7 @@ export const MENU_COMMANDS = Object.freeze([
   'notify-all', 'notify-mentions', 'notify-off', 'notify-inherit',
   'mute-1h', 'mute-8h', 'mute-1d', 'mute-1w', 'unmute',
   'pin', 'leave',
-  'shortcuts',
+  'shortcuts', 'call-relay',
 ])
 
 const TEXT_SIZES = ['standard', 'large', 'huge']
@@ -72,13 +72,12 @@ export function sanitiseRoomMenuState(value) {
  *   run: (command: string) => void,
  *   about: () => void,
  *   reportAbuse: () => void,
- *   hostingState?: { available: boolean, status: string },
- *   hostingControls?: () => void,
+ *   hostingState?: { available: boolean, status: string, wanted?: boolean },
  *   hostingStop?: () => void,
  * }} options
  * @returns {Electron.MenuItemConstructorOptions[]}
  */
-export function buildAppMenuTemplate({ platform, appName, state, run, about, reportAbuse, hostingState, hostingControls, hostingStop }) {
+export function buildAppMenuTemplate({ platform, appName, state, run, about, reportAbuse, hostingState, hostingStop }) {
   const mac = platform === 'darwin'
   // Access keys are a Windows habit; elsewhere an ampersand would show.
   const name = (text, key) => platform === 'win32' ? text.replace(key, `&${key}`) : text
@@ -111,8 +110,10 @@ export function buildAppMenuTemplate({ platform, appName, state, run, about, rep
         item('New room', 'new-room', { accelerator: 'CmdOrCtrl+N' }),
         item('Open an invite link…', 'open-link'),
         item('Join with a code…', 'join-code'),
-        ...(hostingState?.available === true && hostingControls ? [{ label: `Local call relay: ${({ off: 'Off', starting: 'Starting', running: 'Running', stopping: 'Stopping', failed: 'Failed', 'cannot-host': "Can't host here" }[hostingState.status] ?? 'Off')}…`, click: hostingControls }] : []),
-        ...(hostingState?.available === true && hostingStop ? [{ label: 'Stop local call relay', enabled: ['starting', 'running'].includes(hostingState.status), click: hostingStop }] : []),
+        // The built-in call relay: its page is the page's own business (a closed
+        // command); Stop is the main process's, so it works on any page.
+        ...(hostingState?.available === true ? [item('Call relay on this computer…', 'call-relay')] : []),
+        ...(hostingState?.available === true && hostingStop ? [{ label: 'Stop call relay', enabled: hostingState.wanted === true || ['starting', 'running'].includes(hostingState.status), click: hostingStop }] : []),
         ...(mac ? [] : [{ type: 'separator' }, settings('Ctrl+,')]),
         { type: 'separator' },
         { role: 'close', label: 'Close window' },

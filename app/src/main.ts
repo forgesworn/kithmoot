@@ -326,6 +326,7 @@ import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
 import { RelayOutsideTests } from './relay-outside-test.js'
+import { createRelayPage, type RelayCheckCandidate, type RelayCheckRoom } from './relay-settings-page.js'
 import { waitForExistingCall } from './call-startup.js'
 import { spryRequest, localTurnUrls, type SpryPairing } from '../../src/spry.js'
 import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
@@ -2935,6 +2936,7 @@ function ownSpryPairing(participant: string): SpryPairing | undefined {
   return own ? { v: 1, endpoint: own.endpoint, id: own.id, secretKey: own.secretKey } : undefined
 }
 function applyDesktopRelay(value: unknown): void {
+  relayPage?.apply(value)
   const next = parseDesktopRelayPairing((value as { pairing?: unknown } | null)?.pairing)
   if (JSON.stringify(next ?? null) === JSON.stringify(desktopRelayPairing ?? null)) return
   desktopRelayPairing = next
@@ -2971,7 +2973,7 @@ if (window.kithmootDesktop?.onRelayState) {
     Promise.resolve(window.kithmootDesktop.relayState?.()).then(applyDesktopRelay).catch(() => {})
   } catch { /* No relay on this build. */ }
   setTimeout(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 0)
-  setInterval(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 3000)
+  setInterval(() => { try { sendDesktopRelayContext(); relayPage?.refresh() } catch { /* No relay on this build. */ } }, 3000)
 }
 
 function renderSpryShareChoice(): void {
@@ -3209,6 +3211,53 @@ if (import.meta.env.VITE_E2E_RELAY_OUTSIDE_TEST === 'true') {
     if (!s || !tests || !device) throw new Error('No such device in the room.')
     return tests.ask(device)
   }
+}
+/**
+ * The built-in call relay's row, page and rail item (desktop app only, and
+ * only when the main process reports the relay as available). The outside
+ * check is offered for the room on screen while this device shares its relay
+ * in it and another device is present.
+ */
+let relayPage: ReturnType<typeof createRelayPage> | undefined
+function relayCheckRoom(): RelayCheckRoom | undefined {
+  // Acceptance builds only (VITE_TEST_DIAGNOSTICS): a room and devices a spec supplies,
+  // since a real check needs a real relay on the other end. Vite drops this from other builds.
+  if (import.meta.env.VITE_TEST_DIAGNOSTICS === 'true') {
+    const stub = (window as unknown as { __kithmootRelayCheckStub?: RelayCheckRoom }).__kithmootRelayCheckStub
+    if (stub) return stub.candidates.length ? stub : undefined
+  }
+  const s = session
+  const tests = s ? relayOutsideTests.get(s) : undefined
+  if (!s || !tests || !spryRooms.get(s)?.hostedEndpoint()) return undefined
+  const views = s.participants()
+  const own = views.find(view => view.participant === s.participant)?.devices.filter(device => device !== s.device) ?? []
+  const candidates: RelayCheckCandidate[] = [
+    ...own.map((device, index) => ({ device, label: own.length > 1 ? `Your other device ${index + 1}` : 'Your other device',
+      who: own.length > 1 ? `your other device ${index + 1}` : 'your other device' })),
+    ...views.filter(view => view.participant !== s.participant && view.devices.length > 0).map(view => {
+      const name = shownAs(view.participant, view.name).name ?? 'Somebody'
+      return { device: view.devices[view.devices.length - 1]!, label: name, who: name }
+    }),
+  ]
+  if (!candidates.length) return undefined
+  return { roomName: currentRoomLabel(), candidates, ask: device => tests.ask(device) }
+}
+function openRelayPage(): void {
+  if (!relayPage?.available) return
+  openDestination('settings')
+  showSettingsPage('callRelay', $('settingsRowCallRelay'))
+}
+if (window.kithmootDesktop?.relayState) {
+  try {
+    relayPage = createRelayPage({
+      bridge: window.kithmootDesktop,
+      confirm: options => confirmAction(options),
+      hideIp: () => hideIpDefault(),
+      handPaired: () => { try { const participant = nostrSession?.pubkey; return !!participant && !!loadSpryPairing(localStorage, participant) } catch { return true } },
+      checkRoom: relayCheckRoom,
+      open: openRelayPage,
+    })
+  } catch { /* A desktop build without the relay page: the row stays hidden. */ }
 }
 /** Whether this device made the room a SpryRoom serves, as `isRoomAuthority`
  *  said when its session started: a docked call keeps its own answer. */
@@ -14286,6 +14335,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       render(views, meParticipant)
       renderInvites()
       renderHost()
+      relayPage?.refresh()
       // The owner of an agent that asked may only now be known.
       renderApprovals()
     })
@@ -18474,6 +18524,7 @@ function applyHideIpDefault(): void {
 }
 
 function renderSettingsRows(): void {
+  relayPage?.refresh()
   renderCallRelay()
   renderPublicRelays()
   renderCallStun()
@@ -18838,6 +18889,7 @@ settingsPane.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(row =
 $('settingsBack').addEventListener('click', () => {
   // Where files go sits under Privacy, so back goes there, not to the list.
   if (settingsPage === 'files') showSettingsPage('privacy', $('settingsRowprivacy'))
+  else if (settingsPage === 'callRelay') showSettingsPage('connections', $('settingsRowconnections'))
   else if (settingsPage !== 'main') showSettingsPage('main')
   else openDestination('chats')
 })
@@ -19245,6 +19297,7 @@ function chooseTextSize(size: 'standard' | 'large' | 'huge'): void {
       pin: inRoom(() => { const room = currentKnownRoom(); if (room) togglePinned(room) }),
       leave: inRoom(() => $('leave').click()),
       shortcuts: () => $('keyboardHelp').click(),
+      'call-relay': openRelayPage,
     }
     desktop.onMenuCommand(command => { if (Object.hasOwn(commands, command)) commands[command]!() })
     // The room opens and closes behind a `hidden` attribute, and the text size

@@ -10,10 +10,10 @@ import { DAILY_LIMIT_BYTES, defaultSettings, localDay } from './relay-settings.m
  * at a time (docs/design/2026-10-28-built-in-relay.md, 1.3).
  *
  * It keeps the shape the window, quit and update flows in main.mjs already
- * use (`state`, `present`, `stop`, `resume`). Nothing here is shown to people
- * yet: the only way in is a development dialog, enabled with
- * KITHMOOT_DESKTOP_RELAY=on, until the settings screen (K5) has had the
- * owner's review.
+ * use (`state`, `stop`, `resume`). The settings page (K5) starts, stops and
+ * configures it through `start`, `stop`, `setStartOnOpen` and `removeKeys`,
+ * and asks the person first; nothing here asks. It is reached only with
+ * KITHMOOT_DESKTOP_RELAY=on until the owner lifts that gate.
  */
 
 const HEX64 = /^[0-9a-f]{64}$/
@@ -92,7 +92,7 @@ export function sanitiseRelayContext(value) {
 }
 
 export function createRelayHost({ enabled, identity, settings, executable, createSupervisor = createRelaySupervisor,
-  localAddress = defaultRouteAddress, showDialog, changed = () => {}, now = () => new Date(), timers = globalThis,
+  localAddress = defaultRouteAddress, changed = () => {}, now = () => new Date(), timers = globalThis,
   crashRestartMs = 10_000, networkPollMs = 15_000, wakeWaitMs = 120_000, dailyLimit = DAILY_LIMIT_BYTES }) {
   const available = enabled === true
   let supervisor
@@ -103,13 +103,13 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
   let blocked = false
   let starting
   let stopping
-  let presenting
   // Whether the person wants the relay on: set by Turn on or Start it when
   // KithMoot opens, cleared only by their own Stop. Sleep, quit and updates
   // stop the relay without changing it, so waking brings the relay back.
   let wanted = false
   let crashRestarted = false
   let crashTimer
+  let midnightTimer
   let networkTimer
   let lastAddress
   let openTried = false
@@ -128,7 +128,24 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
   }
   const state = () => ({ available, blocked, wanted, startOnOpen: prefs?.startOnOpen === true, today: today().bytes, dailyLimit, ...visible() })
   const publish = next => { status = next; changed(state()) }
-  const fail = (code, message) => publish({ status: 'failed', error: { code, message: message ?? messages[code] } })
+  const fail = (code, message) => {
+    publish({ status: 'failed', error: { code, message: message ?? messages[code] } })
+    if (code === 'ERR_DAILY_LIMIT' && wanted) scheduleMidnight()
+  }
+  /** A relay the daily limit paused starts again just after local midnight, if the person still wants it. */
+  function scheduleMidnight() {
+    if (midnightTimer) timers.clearTimeout(midnightTimer)
+    const current = now()
+    const next = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1, 0, 0, 1)
+    midnightTimer = timers.setTimeout(() => {
+      midnightTimer = undefined
+      if (wanted && !blocked && !supervisor && !starting) void start()
+    }, Math.max(1000, next.getTime() - current.getTime()))
+  }
+  function clearMidnight() {
+    if (midnightTimer) timers.clearTimeout(midnightTimer)
+    midnightTimer = undefined
+  }
   async function loadPrefs() {
     if (!prefs) prefs = settings ? await settings.load() : defaultSettings()
     return prefs
@@ -223,6 +240,7 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
     if (!available || blocked || starting || supervisor) return starting
     if (person) { wanted = true; crashRestarted = false }
     if (crashTimer) { timers.clearTimeout(crashTimer); crashTimer = undefined }
+    clearMidnight()
     if (wanted) watchNetwork()
     const token = generation
     starting = (async () => {
@@ -294,7 +312,7 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
    * installing an update): the relay is held off until `resume`.
    */
   async function stop({ block = false } = {}) {
-    if (!block) { wanted = false; unwatchNetwork() }
+    if (!block) { wanted = false; unwatchNetwork(); clearMidnight() }
     return halt({ block })
   }
   /** Lift a blocking stop. With `restart`, a relay the person wanted on
@@ -320,59 +338,25 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
     }
     if (token === generation && !blocked && wanted) await start()
   }
-  function describe() {
-    const lines = []
-    const view = visible()
-    if (view.mapping) lines.push(`Router: opened by ${({ pcp: 'PCP', natpmp: 'NAT-PMP', upnp: 'UPnP' })[view.mapping.method]}, ${view.mapping.allocationPorts} of ${view.mapping.requested} call ports${view.mapping.permanent ? ' (permanent: a crash may leave them open until KithMoot next starts)' : ''}${view.mapping.restored ? `, ${view.mapping.restored} put back after the router dropped them` : ''}.`)
-    if (view.control) lines.push(view.control.relays ? 'Reachable over your Nostr relays.' : 'Not connected to your Nostr relays yet.')
-    if (view.counts) lines.push(`In use: ${view.counts.allocations} now; ${view.counts.bytesRelayed.toLocaleString('en-GB')} bytes relayed since it started.`)
-    lines.push(`Relayed today: ${today().bytes.toLocaleString('en-GB')} of ${dailyLimit.toLocaleString('en-GB')} bytes.`)
-    return lines.join('\n')
-  }
-  async function ask(options) {
-    await loadPrefs()
-    const answer = await showDialog({ ...options, checkboxLabel: 'Start it when KithMoot opens', checkboxChecked: prefs.startOnOpen })
-    if (typeof answer?.checkboxChecked === 'boolean' && answer.checkboxChecked !== prefs.startOnOpen) await setStartOnOpen(answer.checkboxChecked)
-    return answer ?? { response: 0 }
-  }
-  /** Development dialog only: start, see and stop the relay. */
-  async function present() {
-    if (presenting || !available) return presenting
+  /**
+   * Keys this build cannot read (another build's keychain entry, a damaged
+   * file) can only be replaced, which gives the relay a new address: rooms
+   * get its new offer as they open. Only from the page's own confirmation.
+   */
+  async function removeKeys() {
+    if (!available || blocked || supervisor || starting || status.status !== 'failed' || status.error?.code !== 'ERR_IDENTITY') return false
     const token = generation
-    presenting = (async () => {
-      try {
-        const view = visible()
-        if (supervisor && ['starting', 'running', 'stopping'].includes(view.status)) {
-          const { response } = await ask({ message: `Call relay on this computer: ${({ starting: 'Starting', running: 'Running', stopping: 'Stopping' })[view.status]}`,
-            detail: describe() || 'Waiting for the router and your Nostr relays.', buttons: ['Close', 'Stop'], defaultId: 0, cancelId: 0 })
-          if (response === 1 && token === generation) await stop()
-          return
-        }
-        if (blocked) return
-        if (view.status === 'failed' && view.error?.code === 'ERR_IDENTITY') {
-          // Keys this build cannot read (another build's keychain entry, a
-          // damaged file) can only be replaced, which gives the relay a new
-          // address: rooms get its new offer as they open.
-          const { response } = await showDialog({ type: 'warning', message: "The call relay's saved keys could not be read",
-            detail: 'This happens after switching between builds of KithMoot. Remove them to start the relay afresh with new keys. People will use its new address the next time they open your rooms.',
-            buttons: ['Cancel', 'Remove keys'], defaultId: 0, cancelId: 0 })
-          if (response === 1 && token === generation && !blocked && !supervisor) {
-            await identity.remove()
-            publish({ status: 'off' })
-          }
-          return
-        }
-        const failure = view.status === 'cannot-host' ? view.reasonText ?? 'This network cannot host a call relay.' : view.status === 'failed' ? view.error?.message : undefined
-        const { response } = await ask({ type: 'warning', message: failure ? 'The call relay stopped' : 'Turn on the call relay on this computer? (development build)',
-          detail: `${failure ? `${failure}\n\n` : ''}When two people can't connect directly, a call relay passes their encrypted audio and video along. People in your rooms can use this computer as their relay. It uses your upload bandwidth while they're on a call, up to ${(dailyLimit / 1e9).toLocaleString('en-GB')} GB a day, and they'll see your internet address. KithMoot asks your router to open the ports it needs and closes them when the relay stops. It stops when KithMoot closes and while this computer sleeps. You run it, and you can stop it at any time.`,
-          buttons: ['Cancel', failure ? 'Try again' : 'Turn on'], defaultId: 0, cancelId: 0 })
-        if (response !== 1 || token !== generation || blocked) return
-        await start({ person: true })
-      } finally { presenting = undefined }
-    })()
-    return presenting
+    await identity.remove()
+    if (token !== generation || blocked || supervisor) return false
+    publish({ status: 'off' })
+    return true
   }
-  return { state, pairing, setContext, setStartOnOpen, start, stop, resume, present }
+  /** The window is back (macOS keeps the app after its window closes): a relay the person had on starts again. */
+  function reopen() {
+    if (!available || blocked || !wanted || supervisor || starting) return
+    void startWhenOnline(generation)
+  }
+  return { state, pairing, setContext, setStartOnOpen, start, stop, resume, removeKeys, reopen }
 }
 
 /** Cancellation invalidates an outstanding stop before it can reissue Quit. */

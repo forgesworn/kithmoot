@@ -52,13 +52,11 @@ function harness(options = {}) {
   }
   const supervisors = fakeSupervisors()
   const changes = []
-  const dialogs = []
   const host = createRelayHost({ enabled: true, identity: store, executable: async () => '/app/resources/spry/spry-node',
     createSupervisor: supervisors.create, localAddress: async () => '192.168.1.20',
-    showDialog: async options => { dialogs.push(options); return { response: settings.response ?? 1 } },
     changed: state => changes.push(state), ...settings })
   if (context) host.setContext(context)
-  return { host, supervisors, changes, dialogs, created }
+  return { host, supervisors, changes, created }
 }
 const tick = () => new Promise(resolve => setTimeout(resolve, 5))
 
@@ -145,24 +143,25 @@ test('a blocking stop (sleep, quit, update) holds the relay off until resume', a
   assert.equal(host.state().blocked, false)
 })
 
-test('the development dialog asks before starting and Stop stops a running relay', async () => {
-  const { host, supervisors, dialogs } = harness()
-  const presenting = host.present()
+test('the page starts the relay as the person\'s own Turn on, and Stop ends it and what they wanted', async () => {
+  const { host, supervisors } = harness()
+  const starting = host.start({ person: true })
   await tick()
-  assert.match(dialogs[0].detail, /they'll see your internet address/)
-  assert.equal(dialogs[0].defaultId, 0, 'Cancel is the default')
+  assert.equal(host.state().wanted, true)
+  assert.equal(host.state().status, 'starting')
   supervisors.made[0].ready()
-  await presenting
-  await host.present()
-  assert.match(dialogs[1].message, /Running/)
+  await starting
+  assert.equal(host.state().status, 'running')
+  await host.stop()
   assert.equal(host.state().status, 'off')
+  assert.equal(host.state().wanted, false)
 })
 
-test('a disabled host never shows the dialog or starts', async () => {
-  const { host, supervisors, dialogs } = harness({ enabled: false })
-  await host.present()
+test('a disabled host never starts', async () => {
+  const { host, supervisors } = harness({ enabled: false })
   await host.start()
-  assert.equal(dialogs.length + supervisors.made.length, 0)
+  await host.start({ person: true })
+  assert.equal(supervisors.made.length, 0)
   assert.equal(host.state().available, false)
 })
 
@@ -236,22 +235,22 @@ test('quit refusal on unconfirmed exit can be retried without automatic quit', a
   assert.equal(quits, 1)
 })
 
-test('keys this build cannot read can be removed from the dialog, after a confirm', async () => {
+test('keys this build cannot read can be removed from the page, only while that is why it stopped', async () => {
   let gone = 0
-  const dialogs = []
   const store = { stateFile: '/data/call-relay/node-state.json', create: async () => assert.fail('nothing is made over unreadable keys'),
     load: async () => { throw Object.assign(new Error("The call relay's saved keys could not be read."), { code: 'ERR_IDENTITY' }) },
     remove: async () => { gone++ } }
   const host = createRelayHost({ enabled: true, identity: store, executable: async () => '/app/resources/spry/spry-node',
-    localAddress: async () => '192.168.1.20', showDialog: async options => { dialogs.push(options); return { response: 1 } } })
+    localAddress: async () => '192.168.1.20' })
+  assert.equal(await host.removeKeys(), false, 'nothing to remove while nothing failed')
   host.setContext({ participant, relays: ['wss://relay.example'] })
   await host.start()
   assert.equal(host.state().error.code, 'ERR_IDENTITY')
-  await host.present()
-  assert.match(dialogs[0].message, /could not be read/)
-  assert.equal(dialogs[0].defaultId, 0, 'Cancel is the default')
+  assert.equal(await host.removeKeys(), true)
   assert.equal(gone, 1)
   assert.equal(host.state().status, 'off')
+  assert.equal(await host.removeKeys(), false)
+  assert.equal(gone, 1)
 })
 
 /** Timers a test fires by hand. */
@@ -267,6 +266,7 @@ function manualTimers() {
     async fireIntervals() { for (const { fn } of [...intervals.values()]) await fn() },
     get intervals() { return intervals.size },
     get timeouts() { return timeouts.size },
+    get timeoutDelays() { return [...timeouts.values()].map(({ ms }) => ms) },
   }
 }
 function memorySettings(initial = {}) {
@@ -395,11 +395,76 @@ test('a new network address stops the relay on the old one and starts it on the 
   assert.equal(timers.intervals, 0, 'the person\'s Stop ends the watch')
 })
 
-test('the dialog\'s checkbox saves Start it when KithMoot opens', async () => {
+test('Start it when KithMoot opens is saved from the page and reported back', async () => {
   const settings = memorySettings()
-  const { host, dialogs } = harness({ settings, timers: manualTimers(), showDialog: async options => { dialogs.push(options); return { response: 0, checkboxChecked: true } } })
-  await host.present()
-  assert.equal(dialogs[0].checkboxLabel, 'Start it when KithMoot opens')
+  const { host, changes } = harness({ settings, timers: manualTimers() })
+  await host.setStartOnOpen(true)
   assert.equal(settings.value().startOnOpen, true)
   assert.equal(host.state().startOnOpen, true)
+  assert.equal(changes.at(-1).startOnOpen, true)
+  await host.setStartOnOpen('yes')
+  assert.equal(settings.value().startOnOpen, false, 'only a real true turns it on')
+})
+
+test('lastAllocation reaches the page with the counts', async () => {
+  const { host, supervisors } = harness({ settings: memorySettings(), timers: manualTimers() })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  supervisors.made[0].relayed(10)
+  assert.deepEqual(host.state().counts, { allocations: 1, bytesRelayed: 10, lastAllocation: null })
+})
+
+test('a relay the daily limit paused starts again after local midnight, once, if still wanted', async () => {
+  let clock = new Date(2026, 9, 30, 23, 0)
+  const timers = manualTimers()
+  const { host, supervisors } = harness({ timers, settings: memorySettings(), now: () => clock, dailyLimit: 1000 })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  supervisors.made[0].relayed(1500)
+  await tick()
+  assert.equal(host.state().error.code, 'ERR_DAILY_LIMIT')
+  const [due] = [...timers.timeoutDelays]
+  assert.equal(due, 60 * 60 * 1000 + 1000, 'one second past local midnight')
+  clock = new Date(2026, 9, 31, 0, 0, 1)
+  await timers.fireTimeouts()
+  await running(host, supervisors, 1)
+  assert.equal(host.state().status, 'running')
+  assert.equal(supervisors.made.length, 2)
+  await timers.fireTimeouts()
+  assert.equal(supervisors.made.length, 2, 'nothing more to fire')
+})
+
+test('a person\'s own Stop cancels the midnight restart', async () => {
+  let clock = new Date(2026, 9, 30, 23, 0)
+  const timers = manualTimers()
+  const { host, supervisors } = harness({ timers, settings: memorySettings(), now: () => clock, dailyLimit: 1000 })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  supervisors.made[0].relayed(1500)
+  await tick()
+  await host.stop()
+  clock = new Date(2026, 9, 31, 0, 0, 1)
+  await timers.fireTimeouts()
+  await tick()
+  assert.equal(supervisors.made.length, 1)
+  assert.equal(host.state().wanted, false)
+})
+
+test('a window that comes back restarts a relay the person had on, and leaves one they stopped', async () => {
+  const wanted = harness({ settings: memorySettings(), timers: manualTimers() })
+  void wanted.host.start({ person: true })
+  await running(wanted.host, wanted.supervisors, 0)
+  await wanted.host.stop({ block: true })
+  await wanted.host.resume()
+  assert.equal(wanted.supervisors.made.length, 1, 'closing the window leaves it off')
+  wanted.host.reopen()
+  await running(wanted.host, wanted.supervisors, 1)
+  assert.equal(wanted.host.state().status, 'running')
+  const stopped = harness({ settings: memorySettings(), timers: manualTimers() })
+  void stopped.host.start({ person: true })
+  await running(stopped.host, stopped.supervisors, 0)
+  await stopped.host.stop()
+  stopped.host.reopen()
+  await tick()
+  assert.equal(stopped.supervisors.made.length, 1)
 })

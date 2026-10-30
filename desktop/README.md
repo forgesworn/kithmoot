@@ -30,9 +30,18 @@ provider completion remain separate acceptance gates.
 
 The [built-in call relay](../docs/design/2026-10-28-built-in-relay.md) runs
 the bundled `spry-node` in supervised mode (`relay-host.mjs`,
-`relay-supervisor.mjs`, `relay-identity.mjs`). Until its settings screen has
-the owner's review it is reached only from a File menu dialog shown when the
-app is started with `KITHMOOT_DESKTOP_RELAY=on`, and it is Off on every launch.
+`relay-supervisor.mjs`, `relay-identity.mjs`). It is reached from Settings,
+Connections, Call relay on this computer (and File, Call relay on this
+computer…), only when the app is started with `KITHMOOT_DESKTOP_RELAY=on`, and
+it is Off on every launch. The page asks before Turn on and talks to the main
+process through `relay-ipc.mjs`.
+
+To see any state of that page without a router, run an unpackaged build with
+`KITHMOOT_DESKTOP_RELAY_PREVIEW=<state id>` (`S1`, `S4`, `S5`, `S7:double-nat`
+and so on; `relay-preview.mjs` lists them) and, for a check result,
+`KITHMOOT_DESKTOP_RELAY_PREVIEW_CHECK=reachable|same-network|inbound|allocate|declined|credentials|noanswer`.
+Start and Stop are logged and ignored, and a packaged build never reads either.
+
 An unpackaged run uses a helper staged by `scripts/spry-helper.mjs`, or the
 absolute path in `KITHMOOT_DESKTOP_SPRY_NODE`. It replaces the
 [earlier hosting preview](../docs/2026-10-26-desktop-spry-hosting.md).
