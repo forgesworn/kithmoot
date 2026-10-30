@@ -46,6 +46,7 @@
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
+        <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
         <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
     </nav>
@@ -285,6 +286,10 @@
                     <span class="infoRowText"><span class="infoRowTitle">Bothy connection</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
+                  <button id="settingsRowCallRelay" type="button" class="infoRow" data-settings-open="callRelay" hidden>
+                    <span class="infoRowText"><span class="infoRowTitle">Call relay on this computer</span><span class="infoRowSub" id="settingsSubCallRelay"></span></span>
+                    <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+                  </button>
                   <button id="mlsWitnessSettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>
                     <span class="infoRowText"><span class="infoRowTitle">MLS restore protection (preview)</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
@@ -340,6 +345,22 @@
           </div>
           <p id="publicRelaysStatus" class="note" role="status" aria-live="polite"></p>
         </fieldset></details>
+        </section>
+        <!-- The built-in call relay. Every line is written by relay-settings-page.ts from relay-words.ts. The live
+             regions are here, empty, before the first render, or the first change would not be announced. -->
+        <section class="settingsPage relayPage" data-settings-page="callRelay" data-settings-title="Call relay on this computer" hidden>
+          <div class="relayFacts">
+            <p id="relayRunning" class="relayHead" role="status"></p>
+            <p id="relayReachable" class="relayFact" role="status"></p>
+            <p id="relayUse" class="relayFact" aria-live="off"></p>
+          </div>
+          <div class="relayActions">
+            <button id="relayToggle" type="button" hidden></button>
+            <button id="relayCheck" type="button" aria-describedby="relayReachable" hidden>Check from another device…</button>
+          </div>
+          <label class="checkboxRow" id="relayStartOnOpenRow" hidden><input id="relayStartOnOpen" type="checkbox" /> <span>Start it when KithMoot opens</span></label>
+          <details id="relayDetails" hidden><summary>Details</summary><div id="relayDetailsList"></div></details>
+          <p id="relayNote" class="note" hidden></p>
         </section>
         <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
         <p class="note">

@@ -530,6 +530,24 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 #settingsPane #accountHome { margin: 0; }
 @media (max-width: 599px) { #settingsPane { padding-inline: var(--s2); } }
 
+/* Settings › Connections › Call relay on this computer: the relay's three
+   facts, then its controls. Three sizes and two weights; no box. The live
+   regions stay in the page when empty (an empty one takes no room). */
+.relayPage .relayFacts { margin: 0 0 var(--s5); }
+.relayPage .relayFacts p { margin: 0; overflow-wrap: anywhere; }
+.relayPage .relayHead { font-size: var(--fs-3); font-weight: 600; line-height: var(--lh-3); color: var(--text); }
+.relayPage .relayFact { font-size: var(--fs-2); line-height: var(--lh-2); color: var(--text); }
+.relayPage .relayFact:not(:empty) { margin-top: var(--s1); }
+.relayPage .relayActions { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 var(--s5); }
+.relayPage .relayActions button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.relayPage .checkboxRow { margin: 0 0 var(--s5); }
+.relayPage details { margin: 0 0 var(--s5); }
+.relayPage summary { min-height: 44px; display: flex; align-items: center; }
+.relayPage #relayDetailsList .note { margin: var(--s1) 0 0; overflow-wrap: anywhere; }
+.relayPage #relayNote { margin: 0; }
+#railRelay .railIcon { color: var(--ok); }
+@media (forced-colors: active) { #railRelay .railIcon { color: CanvasText; } }
+
 /* Settings › Privacy › Blocked on this device: a name and Unblock per row. */
 #settingsPane .blockedSection h3 { margin: var(--s5) 0 var(--s1); font-size: var(--fs-2); }
 #settingsPane .blockedList { list-style: none; margin: 0; padding: 0; }

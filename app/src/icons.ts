@@ -27,6 +27,7 @@ export const ICONS = {
   chats: '<path d="M4 5h11a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/><path d="M17 9h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-1v2.5L16 19h-3"/>',
   chat: '<path d="M5 4.5h14a2 2 0 0 1 2 2V15a2 2 0 0 1-2 2h-8l-5 3.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z"/>',
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2c2.1.7 3.5 2.6 3.5 5.8"/>',
+  relay: '<circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/><path d="M8.7 8.7a4.7 4.7 0 0 0 0 6.6M15.3 8.7a4.7 4.7 0 0 1 0 6.6M5.6 5.6a9.1 9.1 0 0 0 0 12.8M18.4 5.6a9.1 9.1 0 0 1 0 12.8"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.8l1.6 2.3 2.7-.7.5 2.8 2.5 1.3-1.2 2.5 1.2 2.5-2.5 1.3-.5 2.8-2.7-.7L12 21.2l-1.6-2.3-2.7.7-.5-2.8-2.5-1.3L5.9 13 4.7 10.5l2.5-1.3.5-2.8 2.7.7z"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   smile: '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><circle cx="9" cy="10" r=".9" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r=".9" fill="currentColor" stroke="none"/>',
