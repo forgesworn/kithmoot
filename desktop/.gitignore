@@ -3,3 +3,4 @@ web/
 out/
 artifacts/
 test-results/
+spry-manifest.json
