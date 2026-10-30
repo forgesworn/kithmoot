@@ -215,6 +215,19 @@ export function createRelayHost({ enabled, identity, executable, createSuperviso
           return
         }
         if (blocked) return
+        if (view.status === 'failed' && view.error?.code === 'ERR_IDENTITY') {
+          // Keys this build cannot read (another build's keychain entry, a
+          // damaged file) can only be replaced, which gives the relay a new
+          // address: rooms get its new offer as they open.
+          const { response } = await showDialog({ type: 'warning', message: "The call relay's saved keys could not be read",
+            detail: 'This happens after switching between builds of KithMoot. Remove them to start the relay afresh with new keys. People will use its new address the next time they open your rooms.',
+            buttons: ['Cancel', 'Remove keys'], defaultId: 0, cancelId: 0 })
+          if (response === 1 && token === generation && !blocked && !supervisor) {
+            await identity.remove()
+            publish({ status: 'off' })
+          }
+          return
+        }
         const failure = view.status === 'cannot-host' ? view.reasonText ?? 'This network cannot host a call relay.' : view.status === 'failed' ? view.error?.message : undefined
         const { response } = await showDialog({ type: 'warning', message: failure ? 'The call relay stopped' : 'Turn on the call relay on this computer? (development build)',
           detail: `${failure ? `${failure}\n\n` : ''}When two people can't connect directly, a call relay passes their encrypted audio and video along. People in your rooms can use this computer as their relay. It uses your upload bandwidth while they're on a call, and they'll see your internet address. KithMoot asks your router to open the ports it needs and closes them when the relay stops. It stops when KithMoot closes or this computer sleeps. You run it, and you can stop it at any time.`,

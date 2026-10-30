@@ -233,3 +233,21 @@ test('quit refusal on unconfirmed exit can be retried without automatic quit', a
   assert.equal(await guard.request(), true)
   assert.equal(quits, 1)
 })
+
+test('keys this build cannot read can be removed from the dialog, after a confirm', async () => {
+  let gone = 0
+  const dialogs = []
+  const store = { stateFile: '/data/call-relay/node-state.json', create: async () => assert.fail('nothing is made over unreadable keys'),
+    load: async () => { throw Object.assign(new Error("The call relay's saved keys could not be read."), { code: 'ERR_IDENTITY' }) },
+    remove: async () => { gone++ } }
+  const host = createRelayHost({ enabled: true, identity: store, executable: async () => '/app/resources/spry/spry-node',
+    localAddress: async () => '192.168.1.20', showDialog: async options => { dialogs.push(options); return { response: 1 } } })
+  host.setContext({ participant, relays: ['wss://relay.example'] })
+  await host.start()
+  assert.equal(host.state().error.code, 'ERR_IDENTITY')
+  await host.present()
+  assert.match(dialogs[0].message, /could not be read/)
+  assert.equal(dialogs[0].defaultId, 0, 'Cancel is the default')
+  assert.equal(gone, 1)
+  assert.equal(host.state().status, 'off')
+})
