@@ -84,6 +84,16 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   setCallActive(active) {
     if (typeof active === 'boolean') ipcRenderer.send('desktop:call-state', active)
   },
+  // The built-in call relay: the page says which account is on screen and
+  // which relays it uses; the main process answers with the relay's state and,
+  // while it runs, this computer's own pairing.
+  setRelayContext(context) { if (typeof context === 'object' && context !== null) ipcRenderer.send('desktop:spry-relay-context', context) },
+  relayState() { return ipcRenderer.invoke('desktop:spry-relay-state') },
+  onRelayState(listener) {
+    const handler = (_event, value) => listener(value)
+    ipcRenderer.on('desktop:spry-relay-state', handler)
+    return () => ipcRenderer.removeListener('desktop:spry-relay-state', handler)
+  },
   updateState() { return ipcRenderer.invoke('desktop:update-state') },
   installUpdate() { return ipcRenderer.invoke('desktop:update-install') },
   onUpdateState(listener) {

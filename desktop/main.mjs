@@ -6,13 +6,14 @@ import { createPackageUpdater, packageVersionFile, readPackageVersion } from './
 import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
-import { createSpryHosting } from './spry-hosting.mjs'
-import { createHostingControls, createHostingQuitGuard } from './spry-hosting-controls.mjs'
+import { createRelayHost, createHostingQuitGuard } from './relay-host.mjs'
+import { createRelayIdentity } from './relay-identity.mjs'
+import { SPRY_MANIFEST, helperKey, verifiedHelper } from './spry-bundle.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
 import { applyLocalAddressPolicy } from './local-address-policy.mjs'
-import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol } from 'electron'
-import { readFile } from 'node:fs/promises'
+import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol, safeStorage } from 'electron'
+import { access, readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { restoreBounds, readWindowState } from './window-state.mjs'
 import { dirname, extname, join, isAbsolute } from 'node:path'
@@ -53,12 +54,29 @@ const notices = new DesktopNotices({
 })
 let win
 let suspended = false
-const hosting = createHostingControls({
-  enabled: !app.isPackaged,
-  configPath: !app.isPackaged ? process.env.KITHMOOT_DESKTOP_SPRY_CONFIG : undefined,
-  createHost: createSpryHosting,
+// The built-in call relay (docs/design/2026-10-28-built-in-relay.md). Until
+// its settings screen has the owner's review it is reached only from a
+// development dialog, with KITHMOOT_DESKTOP_RELAY=on.
+async function relayExecutable() {
+  if (app.isPackaged) {
+    const manifest = JSON.parse(await readFile(join(app.getAppPath(), SPRY_MANIFEST), 'utf8'))
+    return verifiedHelper({ resourcesPath: process.resourcesPath, manifest })
+  }
+  // Unpackaged: a helper staged by scripts/spry-helper.mjs, or one named here.
+  const path = process.env.KITHMOOT_DESKTOP_SPRY_NODE
+    || join(here, 'artifacts', 'spry', helperKey(), 'spry', process.platform === 'win32' ? 'spry-node.exe' : 'spry-node')
+  if (!isAbsolute(path)) throw new Error('No call relay helper')
+  await access(path)
+  return path
+}
+const relayView = () => ({ state: hosting.state(), pairing: hosting.pairing() ?? null })
+function sendRelayState() { if (win && !win.isDestroyed()) win.webContents.send('desktop:spry-relay-state', relayView()) }
+const hosting = createRelayHost({
+  enabled: process.env.KITHMOOT_DESKTOP_RELAY === 'on',
+  identity: createRelayIdentity({ dir: join(app.getPath('userData'), 'call-relay'), safeStorage }),
+  executable: relayExecutable,
   showDialog: options => win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
-  changed: () => { if (app.isReady()) applyAppMenu() },
+  changed: () => { if (app.isReady()) applyAppMenu(); sendRelayState() },
 })
 async function hostingStopFailure() {
   await dialog.showMessageBox({ type: 'error', message: 'The local relay has not stopped', detail: 'KithMoot will remain open because native process exit has not been confirmed. Try Stop again before closing.', buttons: ['OK'] })
@@ -557,6 +575,12 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       roomMenuState = next
       applyAppMenu()
     })
+    // The account on screen and its relays, for the call relay's identity;
+    // and the relay's state and own pairing back to the page.
+    ipcMain.on('desktop:spry-relay-context', (event, value) => {
+      if (trusted(event.sender) && event.senderFrame === win.webContents.mainFrame) hosting.setContext(value)
+    })
+    ipcMain.handle('desktop:spry-relay-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? relayView() : null)
     powerMonitor.on('suspend', () => { suspended = true; void hosting.stop({ block: true }) })
     powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume() })
     applyAppMenu()

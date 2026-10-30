@@ -40,6 +40,12 @@ declare global {
       setRoomMenuState?(state: Record<string, unknown>): void
       /** A chosen application menu item, by its name. Absent before desktop 0.1.92. */
       onMenuCommand?(listener: (command: string) => void): () => void
+      /** The account on screen, its relays and whether it has a hand-claimed
+       *  Spry pairing, for the built-in call relay. Absent before K4. */
+      setRelayContext?(context: { participant?: string; relays: string[]; handPaired: boolean }): void
+      /** The built-in call relay's state and, while it runs, this computer's own pairing. */
+      relayState?(): Promise<{ state: Record<string, unknown>; pairing: unknown } | null>
+      onRelayState?(listener: (value: { state: Record<string, unknown>; pairing: unknown } | null) => void): () => void
       /** Open verified media in a separate, non-persistent native renderer. */
       beginAttachment?(metadata: { name: string; type: string; kind: 'image' | 'audio' | 'video'; size: number }): Promise<string | null>
       writeAttachment?(id: string, chunk: Uint8Array | ArrayBuffer, finish: boolean): Promise<boolean>

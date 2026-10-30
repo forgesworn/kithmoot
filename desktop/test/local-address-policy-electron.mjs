@@ -53,7 +53,7 @@ await import('./main.mjs')
     const env = { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, ROUTING_FIXTURE_VISITS: join(fixture, 'visits.json') }
     // The variable that used to opt in must make no difference now.
     env.KITHMOOT_DESKTOP_PROTON_ROUTING = '0'
-    delete env.KITHMOOT_DESKTOP_SPRY_CONFIG
+    delete env.KITHMOOT_DESKTOP_RELAY
     delete env.ROUTING_FIXTURE_REJECT
     const policy = LOCAL_ADDRESS_POLICY
     app = await electron.launch({ executablePath, args: [appDir], env, timeout: 30000 })
@@ -99,7 +99,7 @@ await import('./main.mjs')
   const visitsFile = join(fixture, 'rejected-visits.json')
   rejectedChild = spawn(executablePath, [appDir], { env: {
     ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile,
-    KITHMOOT_DESKTOP_SPRY_CONFIG: '', ROUTING_FIXTURE_REJECT: '1', ROUTING_FIXTURE_VISITS: visitsFile,
+    KITHMOOT_DESKTOP_RELAY: '', ROUTING_FIXTURE_REJECT: '1', ROUTING_FIXTURE_VISITS: visitsFile,
   }, stdio: ['ignore', 'ignore', 'pipe'] })
   let stderr = ''
   rejectedChild.stderr.on('data', data => { stderr += data })

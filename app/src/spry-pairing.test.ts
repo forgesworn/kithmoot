@@ -77,5 +77,9 @@ it('renders the share row from the session alone, never minting a visitor key be
   expect(start).toBeGreaterThan(-1)
   const body = main.slice(start, main.indexOf('\nfunction ', start + 1))
   expect(body).not.toMatch(/\b(currentIdentity|participantKey|localIdentity)\(/)
-  expect(body).toContain('loadSpryPairing(localStorage, s.participant)')
+  expect(body).toContain('ownSpryPairing(s.participant)')
+  // The helper reads the hand pairing and this computer's own relay by the
+  // participant it is given, and never the current identity.
+  const helper = main.slice(main.indexOf('function ownSpryPairing('), main.indexOf('\nfunction ', main.indexOf('function ownSpryPairing(') + 1))
+  expect(helper).not.toMatch(/\b(currentIdentity|participantKey|localIdentity)\(/)
 })
