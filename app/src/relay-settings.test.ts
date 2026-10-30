@@ -2,6 +2,7 @@ import { describe, expect, it, beforeAll, vi } from 'vitest'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { currentRoomRelayHints, RelayConnections, profilePreference } from './relay-settings.js'
+import { NostrRelayPool } from '../../src/relay-pool.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays } from '../../test/fake-socket.js'
 
 beforeAll(() => {
@@ -286,7 +287,7 @@ describe('scheduled liveness probing', () => {
     try {
       resetFakeRelays()
       const relay = fakeRelay(probeDefaults[0]!)
-      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => true })
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => true, quietMs: 0, reconnectJitterMs: 0 })
       const pool = connections.pool('default')
       try {
         const seen: string[] = []
@@ -313,7 +314,7 @@ describe('scheduled liveness probing', () => {
       resetFakeRelays()
       const relay = fakeRelay(probeDefaults[0]!)
       let hidden = true
-      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => !hidden })
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => !hidden, quietMs: 0, reconnectJitterMs: 0 })
       const pool = connections.pool('default')
       try {
         pool.subscribe([{ kinds: [1] }], () => {})
@@ -338,7 +339,7 @@ describe('scheduled liveness probing', () => {
       const relayA = fakeRelay('wss://probe-a.test')
       const relayB = fakeRelay('wss://probe-b.test')
       random.mockReturnValueOnce(0).mockReturnValueOnce(1)
-      const connections = new RelayConnections(storage(), [], undefined, { intervalMs: 1_000, visible: () => true })
+      const connections = new RelayConnections(storage(), [], undefined, { intervalMs: 1_000, visible: () => true, quietMs: 0, reconnectJitterMs: 0 })
       const poolA = connections.pool('default', ['wss://probe-a.test'])
       const poolB = connections.pool('room:' + 'a'.repeat(64), ['wss://probe-b.test'])
       try {
@@ -495,5 +496,36 @@ describe('central room route selection', () => {
     const id = 'a'.repeat(64)
     for (const prefix of ['room','lookup','link']) expect(connections.pool(`${prefix}:${id}`)).toBe(held)
     expect(routed.mock.calls).toEqual([[id],[id],[id]])
+  })
+})
+
+describe('probeAll', () => {
+  it('runs at most once in ten seconds, after a random wait, folding later calls into one', async () => {
+    vi.useFakeTimers()
+    const probe = vi.spyOn(NostrRelayPool.prototype, 'probe').mockResolvedValue()
+    try {
+      resetFakeRelays()
+      fakeRelay('wss://probe-all.test')
+      let draw = 0.5
+      const connections = new RelayConnections(storage(), ['wss://probe-all.test'], undefined, { visible: () => true, random: () => draw })
+      const pool = connections.pool('default')
+      try {
+        // Foreground, pageshow and online, all at once.
+        void connections.probeAll(); void connections.probeAll(); void connections.probeAll()
+        // Half of the two-second jitter.
+        await vi.advanceTimersByTimeAsync(999)
+        expect(probe).toHaveBeenCalledTimes(0)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(probe).toHaveBeenCalledTimes(1)
+        // An alt-tab two seconds later waits for the window to close.
+        draw = 0
+        await vi.advanceTimersByTimeAsync(2_000)
+        void connections.probeAll(); void connections.probeAll()
+        await vi.advanceTimersByTimeAsync(7_999)
+        expect(probe).toHaveBeenCalledTimes(1)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(probe).toHaveBeenCalledTimes(2)
+      } finally { pool.close() }
+    } finally { probe.mockRestore(); vi.useRealTimers() }
   })
 })

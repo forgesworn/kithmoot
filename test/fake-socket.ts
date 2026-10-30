@@ -23,6 +23,8 @@ export class FakeRelayServer {
   readonly stored: Event[] = []
   /** Refuse every publish with `OK false`, the way a full or hostile relay does. */
   rejectPublishes = false
+  /** The reason `rejectPublishes` gives. */
+  rejectReason = 'blocked: this relay refuses everything'
   /** Accept every frame - `EVENT`, `REQ` - and answer none of it: no `OK`,
    *  no `EVENT`, no `EOSE`. The way a socket the client still thinks is
    *  open, but the far end has already gone quiet on, behaves: `send()`
@@ -72,6 +74,11 @@ export class FakeRelayServer {
     for (const socket of [...this.#sockets]) socket.dropped()
   }
 
+  /** Send a `NOTICE` down every open socket. */
+  notice(text: string): void {
+    for (const socket of [...this.#sockets]) socket.deliver(JSON.stringify(['NOTICE', text]))
+  }
+
   /** The filter sets this relay has been asked to subscribe with, in order. */
   requestedFilters(): Filter[][] {
     return this.frames
@@ -117,7 +124,7 @@ export class FakeRelayServer {
         return
       }
       if (this.rejectPublishes) {
-        socket.deliver(JSON.stringify(['OK', event.id, false, 'blocked: this relay refuses everything']))
+        socket.deliver(JSON.stringify(['OK', event.id, false, this.rejectReason]))
         return
       }
       this.stored.push(event)

@@ -7,7 +7,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
-import { relayDials, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
+import { doublingBackoff, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
@@ -19,6 +19,14 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
   /** Ownership only: register an entire background/dial body before its
    * first await. The supplied socket still owns all execution permission. */
   ownBackground?: (body: () => Promise<void>) => Promise<void>
+  /** The longest random wait before redialling a relay found dead, so pools
+   *  that wake together do not all dial at once. 5 s unless set. */
+  reconnectJitterMs?: number
+  /** How long a socket must have been quiet before a liveness probe is sent
+   *  on it. `PROBE_QUIET_MS` unless set. */
+  probeQuietMs?: number
+  /** Uniform in [0, 1), for the jitter above and the resend backoff. */
+  random?: () => number
 }
 
 /** The transport seam shared by real relays and the in-process simulator. */
@@ -108,20 +116,41 @@ export const READ_EVIDENCE_RANK: Record<ReadEvidence, number> = { refused: 0, 'a
  *  prefix, or undefined when the close was not the relay answering: our own
  *  close, a dropped socket, a dial held back. */
 export function closedReadEvidence(reason: string): ReadEvidence | undefined {
-  if (reason.startsWith('auth-required:')) return 'authentication-required'
+  const prefix = relayReason(reason)
+  if (prefix === 'auth-required') return 'authentication-required'
   // `error:` is the relay failing, not a decision about this reader.
-  return /^(blocked|restricted|rate-limited|invalid|unsupported):/.test(reason) ? 'refused' : undefined
+  return prefix && ['blocked', 'restricted', 'rate-limited', 'invalid', 'unsupported', 'pow'].includes(prefix) ? 'refused' : undefined
+}
+
+/** A relay's refusal of a subscription that means "do not ask again": the
+ *  relay will not serve this filter to this client, whatever the timing. */
+export function refusalStops(reason: string, granted: boolean): boolean {
+  const prefix = relayReason(reason)
+  return prefix === 'blocked' || prefix === 'restricted' || prefix === 'pow' || (prefix === 'auth-required' && !granted)
 }
 
 /** A fixed description of a relay's `OK false`, by its NIP-01 prefix. The
  *  relay's own words stay out of health, which a settings screen shows. */
 export function writeRefusal(reason: string): string {
-  if (reason.startsWith('auth-required:')) return 'Write refused: authentication required'
-  if (reason.startsWith('rate-limited:')) return 'Write refused: rate limited'
-  if (reason.startsWith('pow:')) return 'Write refused: proof of work required'
-  if (reason.startsWith('blocked:') || reason.startsWith('restricted:')) return 'Write refused: not accepted from this account or kind'
-  if (reason.startsWith('invalid:')) return 'Write refused as invalid'
+  if (reason === WRITE_HELD) return WRITE_HELD_HEALTH
+  const prefix = relayReason(reason)
+  if (prefix === 'auth-required') return 'Write refused: authentication required'
+  if (prefix === 'rate-limited') return 'Write refused: rate limited'
+  if (prefix === 'pow') return 'Write refused: proof of work required'
+  if (prefix === 'blocked' || prefix === 'restricted') return 'Write refused: not accepted from this account or kind'
+  if (prefix === 'invalid') return 'Write refused as invalid'
   return 'Write refused'
+}
+
+/** Why a write was not offered to a relay that asked this client to slow
+ *  down (see `RelayDialGate.throttled`). Not the relay's own words. */
+export const WRITE_HELD = 'held: this relay asked this device to slow down'
+const WRITE_HELD_HEALTH = 'Writes paused: the relay asked this device to slow down'
+
+/** Ephemeral kinds (NIP-01): presence heartbeats, call signals. A relay keeps
+ *  none of them, so one that cannot be written now is dropped, not queued. */
+export function isEphemeralKind(kind: number): boolean {
+  return kind >= 20_000 && kind < 30_000
 }
 
 /** The most relays one pool connects to: a room's own relays (at most
@@ -163,6 +192,15 @@ type Subscription = {
   eoseSent: boolean
   deadline?: ReturnType<typeof setTimeout>
   deadlineAt?: number
+  /** Relays that refused this subscription for good (`blocked:`,
+   *  `restricted:`, `pow:`, or `auth-required:` with no grant). It is not
+   *  sent to them again until the relays or grants change or the person
+   *  reconnects, all of which start it afresh. */
+  stuck: Set<string>
+  /** Relay closes in a row for this subscription on each relay, and when it
+   *  may be resent there: backoff with jitter, not a flat 15 s. */
+  closes: Map<string, number>
+  resendAt: Map<string, number>
 }
 
 export class NostrRelayPool implements RelayTransport {
@@ -205,6 +243,15 @@ export class NostrRelayPool implements RelayTransport {
   #whenIdle: (() => void)[] = []
   readonly #authTimeout: number
   readonly #verifyEvent = boundedEventVerifier()
+  /** When each relay last said anything on this pool's socket: an event, its
+   *  own EOSE or CLOSED, an OK or a NOTICE. A socket heard from lately needs
+   *  no liveness probe. */
+  readonly #heardAt = new Map<string, number>()
+  /** Redials waiting out their jitter, by relay. */
+  readonly #reconnects = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #random: () => number
+  readonly #reconnectJitterMs: number
+  readonly #probeQuietMs: number
 
   constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
     this.#relays = normaliseRelayConfig(relays, this.options.profile)
@@ -212,6 +259,11 @@ export class NostrRelayPool implements RelayTransport {
       throw new Error('Tor-only mode does not use relay authentication; start with a fresh local persona')
     }
     this.#dials = options.dialGate ?? relayDials
+    this.#random = options.random ?? Math.random
+    this.#reconnectJitterMs = options.reconnectJitterMs ?? RECONNECT_JITTER_MS
+    this.#probeQuietMs = options.probeQuietMs ?? PROBE_QUIET_MS
+    if (!Number.isFinite(this.#reconnectJitterMs) || this.#reconnectJitterMs < 0) throw new Error('Invalid reconnect jitter')
+    if (!Number.isFinite(this.#probeQuietMs) || this.#probeQuietMs < 0) throw new Error('Invalid probe quiet period')
     this.#authTimeout = options.authenticationTimeoutMs ?? AUTH_TIMEOUT_MS
     if (!Number.isSafeInteger(this.#authTimeout) || this.#authTimeout < 100 || this.#authTimeout > 120_000) throw new Error('Invalid relay authentication deadline')
     this.#authentication = this.#grants(options.authentication ?? [])
@@ -303,8 +355,9 @@ export class NostrRelayPool implements RelayTransport {
       for (const receipt of receipts) this.#dials.release(receipt)
     }
     const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
-    const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation)
-    const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket))
+    const refusedUpgrade = (url: string) => { try { this.#dials.refusedUpgrade(normalizeURL(url)) } catch { /* Not a relay URL. */ } }
+    const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation, refusedUpgrade)
+    const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket, refusedUpgrade))
     const websocketImplementation = this.#authentication.size
       ? authenticatedWebSocket(base, url => this.#authentication.get(url) ?? undefined, current, (url, reason) => {
           if (generation === this.#generation) {
@@ -331,6 +384,7 @@ export class NostrRelayPool implements RelayTransport {
         return ensure(url, this, abort => {
           const connecting = super.ensureRelay(url, owner.#authentication.get(normalizeURL(url))
             ? { ...params, abort, connectionTimeout: owner.#authTimeout + 8_000 } : { ...params, abort })
+          owner.#listen(this.relays.get(normalizeURL(url)), normalizeURL(url), generation)
           return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => {})
         }, params?.abort)
       }
@@ -340,6 +394,7 @@ export class NostrRelayPool implements RelayTransport {
         override ensureRelay(url: string, params?: Parameters<AbstractSimplePool['ensureRelay']>[1]) {
           return ensure(url, this, abort => {
             const connecting = super.ensureRelay(url, { ...params, abort })
+            owner.#listen(this.relays.get(normalizeURL(url)), normalizeURL(url), generation)
             return closingAbandoned(this.relays.get(normalizeURL(url)), connecting, () => {})
           }, params?.abort)
         }
@@ -356,7 +411,10 @@ export class NostrRelayPool implements RelayTransport {
     pool.onRelayConnectionSuccess = url => {
       // Receipt completion belongs to the exact ensure promise above.
       // This URL-only callback may be duplicated or arrive after another dial.
-      if (generation === this.#generation) this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
+      if (generation === this.#generation) {
+        this.#mark(url, { state: 'connected', lastConnectedAt: Date.now(), lastError: undefined })
+        this.#heard(normalizeURL(url))
+      }
     }
     pool.onRelayConnectionFailure = url => {
       if (dialsCancelled) return // deliberate cleanup is not a remote failure
@@ -366,6 +424,23 @@ export class NostrRelayPool implements RelayTransport {
     }
     return pool
   }
+
+  /** Read a relay's `NOTICE`s, which nostr-tools only logs. One that asks
+   *  this client to slow down holds writes to that relay across the process.
+   *  The relay object is new after every close, so this runs for each dial. */
+  #listen(relay: unknown, url: string, generation: number): void {
+    const target = relay as { onnotice?: (message: string) => void } | undefined
+    if (!target) return
+    target.onnotice = message => {
+      if (generation !== this.#generation || this.#closed || typeof message !== 'string') return
+      this.#heard(url)
+      if (!noticeThrottles(message)) return
+      this.#dials.throttled(url)
+      this.#mark(url, { lastError: WRITE_HELD_HEALTH })
+    }
+  }
+
+  #heard(url: string): void { this.#heardAt.set(url, Date.now()) }
 
   #grants(entries: readonly RelayAuthentication[]): Map<string, AuthenticationGrant | null> {
     if (this.options.profile === 'tor' && entries.length !== 0) throw new Error('Tor-only mode does not use relay authentication')
@@ -446,6 +521,7 @@ export class NostrRelayPool implements RelayTransport {
     // The dial backoff is kept: it belongs to the relay, not to this pool,
     // and a pool rebuilt every few seconds would otherwise redial at will.
     this.#readBack.clear(); this.#kept.clear(); this.#acknowledged.clear(); this.#askedBack.clear(); this.#inflight.clear()
+    this.#heardAt.clear()
     this.#abort = new AbortController()
     this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub)
@@ -480,8 +556,21 @@ export class NostrRelayPool implements RelayTransport {
   async publish(event: Event): Promise<void> {
     if (this.#closed) throw new Error('pool is closed')
     if (this.#paused) throw new Error('pool is suspended')
-    const urls = this.#relays.filter(relay => relay.write).map(relay => relay.url)
-    if (!urls.length) throw new Error('no writable relay is configured')
+    const writable = this.#relays.filter(relay => relay.write).map(relay => relay.url)
+    if (!writable.length) throw new Error('no writable relay is configured')
+    // A relay that asked us to slow down is not written to until its hold
+    // ends (relay-dial-gate.ts), by this pool or any other.
+    const held = writable.filter(url => this.#dials.writeHeld(url))
+    for (const url of held) this.#mark(url, { lastError: WRITE_HELD_HEALTH })
+    const urls = writable.filter(url => !held.includes(url))
+    if (!urls.length) {
+      // A heartbeat or a call signal is worth nothing late: dropped, never
+      // queued for a relay that has asked for less traffic.
+      if (isEphemeralKind(event.kind)) return
+      // Nothing left this device; to the caller that is a write that could
+      // not be made yet, not a relay looking at it and saying no.
+      throw new Error(`no relay could be reached in time (${held.map(url => `${url}: ${WRITE_HELD}`).join('; ')})`)
+    }
     const generation = this.#generation
     const start = Date.now()
     for (const url of urls) if (!this.#pool.listConnectionStatus().get(url) && this.#dialable(url)) this.#mark(url, { state: 'connecting' })
@@ -615,8 +704,10 @@ export class NostrRelayPool implements RelayTransport {
   async #publishToRelay(url: string, event: Event, generation: number, start: number): Promise<void> {
     for (let attempt = 0; ; attempt++) {
       try {
+        if (this.#dials.writeHeld(url)) throw new Error(WRITE_HELD)
         await this.#pool.publish([url], event, { abort: this.#abort.signal })[0]
         if (generation === this.#generation) {
+          this.#heard(url)
           this.#answered(url)
           this.#mark(url, { state: 'connected', lastPublishedAt: Date.now(), publishLatencyMs: Date.now() - start, lastError: undefined })
           // Writing an event again asks for it back again, whatever this
@@ -627,6 +718,11 @@ export class NostrRelayPool implements RelayTransport {
         }
         return
       } catch (error) {
+        if (error instanceof Error && error.message === WRITE_HELD) {
+          if (generation === this.#generation) this.#mark(url, { lastError: WRITE_HELD_HEALTH })
+          throw error
+        }
+        if (generation === this.#generation) this.#refusedWrite(url, error)
         const timedOut = this.#unanswered(url, error)
         // A relay that could not be dialled did not time out a publish;
         // saying so sent people looking at the wrong thing. One held back by
@@ -670,6 +766,14 @@ export class NostrRelayPool implements RelayTransport {
    *  already come back. */
   #dialFailed(url: string): void { this.#dials.failedDial(url) }
 
+  /** An `OK false` is the relay answering; `rate-limited:` in it holds every
+   *  pool's writes to that relay for a while. */
+  #refusedWrite(url: string, error: unknown): void {
+    if (!(error instanceof Error) || isTimeoutError(error)) return
+    this.#heard(url)
+    if (relayReason(error.message) === 'rate-limited') this.#dials.throttled(url)
+  }
+
   /** The relay said something on its own account: an `OK` either way, or an
    *  event. That, not an open socket, is what clears its backoff. */
   #answered(url: string): void { this.#dials.answered(url) }
@@ -680,7 +784,7 @@ export class NostrRelayPool implements RelayTransport {
   /** Whether a publish to `url` failed without the relay ever answering:
    *  a timeout, a lost connection, or a dial held back by its backoff. */
   #unanswered(url: string, error: unknown): boolean {
-    return isTimeoutError(error) || (error === DIAL_SKIPPED && !this.#authError(url))
+    return isTimeoutError(error) || (error === DIAL_SKIPPED && !this.#authError(url)) || (error instanceof Error && error.message === WRITE_HELD)
   }
 
   /** Ask a relay that has just said OK to a stored kind for that event back,
@@ -773,7 +877,7 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   async #readBackOnce(url: string, event: Event, generation: number): Promise<boolean | undefined> {
-    if (this.#pool.listConnectionStatus().get(url) !== true) return undefined
+    if (this.#pool.listConnectionStatus().get(url) !== true || this.#dials.readHeld(url)) return undefined
     const relay = await this.#pool.ensureRelay(url, { abort: this.#abort.signal })
     if (this.#paused || this.#closed || generation !== this.#generation) return undefined
     return new Promise(resolve => {
@@ -793,7 +897,7 @@ export class NostrRelayPool implements RelayTransport {
       sub = relay.subscribe([{ ids: [event.id] }], {
         eoseTimeout: READ_BACK_TIMEOUT_MS * 4,
         onevent: received => { if (received.id === event.id) found = true },
-        oneose: () => finish(found),
+        oneose: () => { this.#heard(url); finish(found) },
         onclose: cancel,
       })
       if (settled) sub.close()
@@ -814,39 +918,80 @@ export class NostrRelayPool implements RelayTransport {
 
   async #probeOwned(timeoutMs: number): Promise<void> {
     const generation = this.#generation
-    const connected = [...this.#pool.listConnectionStatus().entries()].filter(([, ok]) => ok).map(([url]) => url)
+    const now = Date.now()
+    // One probe per socket, and only for a socket that has been quiet for
+    // `PROBE_QUIET_MS`: one that delivered anything lately is plainly alive,
+    // and every probe is a `REQ` a relay counts against this address.
+    const connected = [...this.#pool.listConnectionStatus().entries()].filter(([url, ok]) => ok &&
+      now - (this.#heardAt.get(url) ?? 0) >= this.#probeQuietMs && !this.#dials.readHeld(url)).map(([url]) => url)
     await Promise.all(connected.map(url => this.#probeRelay(url, timeoutMs, generation)))
   }
 
   async #probeRelay(url: string, timeoutMs: number, generation: number): Promise<void> {
-    const alive = await new Promise<boolean>(resolve => {
+    const alive = await new Promise<'alive' | 'dropped' | 'silent'>(resolve => {
       let settled = false
       let handle: { close(): void } | undefined, timer: ReturnType<typeof setTimeout> | undefined
-      const finish = (ok: boolean): void => {
+      const finish = (outcome: 'alive' | 'dropped' | 'silent'): void => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         this.#backgroundStops.delete(cancel)
         handle?.close()
-        resolve(ok)
+        resolve(outcome)
       }
-      const cancel = () => finish(false)
+      const cancel = () => finish('silent')
       this.#backgroundStops.add(cancel)
-      // A filter nothing can match: the round trip is the point, not the
-      // answer. A far-future `since` is honoured by every NIP-01 relay.
-      handle = this.#pool.subscribeMap([{ url, filter: { since: Math.floor(Date.now() / 1000) + 1_000_000_000 } }], {
+      // An id nobody has, so nothing comes back: the round trip is the point,
+      // not the answer, and an `ids` filter is one no relay refuses as a scrape.
+      handle = this.#pool.subscribeMap([{ url, filter: { ids: [bytesToHex(randomBytes(32))], limit: 1 } }], {
         abort: this.#abort.signal,
-        maxWait: timeoutMs,
-        oneose: () => finish(true),
-        onclose: () => finish(false),
+        maxWait: timeoutMs * 4,
+        // nostr-tools also calls this just before a close; wait a microtask
+        // so a close is heard first.
+        oneose: () => queueMicrotask(() => finish('alive')),
+        onclose: closes => {
+          // A `CLOSED` from the relay is the relay answering, so the socket is
+          // alive; nostr-tools marks a dropped socket disconnected before it
+          // closes its subscriptions, so the two can be told apart here.
+          if (this.#pool.listConnectionStatus().get(url) !== true) { finish('dropped'); return }
+          const reason = closes[0]?.reason ?? ''
+          if (generation === this.#generation && relayReason(reason) === 'rate-limited') { this.#dials.readRateLimited(url); this.#dials.throttled(url) }
+          finish('alive')
+        },
       })
       if (settled) handle.close()
       else timer = setTimeout(cancel, timeoutMs)
     })
-    if (alive || generation !== this.#generation || this.#closed || this.#paused) return
+    if (generation !== this.#generation || this.#closed || this.#paused) return
+    if (alive === 'alive') { this.#heard(url); return }
+    // A socket that said nothing in time is a failed connection as far as
+    // the dial backoff is concerned, or every pool that woke from sleep
+    // together would redial a relay at once.
+    if (alive === 'silent') this.#dials.failed(url)
     this.#pool.close([url])
+    this.#reconnectSoon(url)
+  }
+
+  /** Redial `url` for this pool's subscriptions after a random wait of up to
+   *  `reconnectJitterMs`, so the pools of a device that just woke or changed
+   *  network spread their dials instead of arriving together. */
+  #reconnectSoon(url: string, every = false): void {
+    if (this.#reconnects.has(url) || this.#closed || this.#paused) return
     this.#attempted.set(url, Date.now())
-    for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
+    const generation = this.#generation
+    const redial = () => {
+      this.#reconnects.delete(url)
+      if (generation !== this.#generation || this.#closed || this.#paused) return
+      this.#attempted.set(url, Date.now())
+      for (const sub of this.#subscriptions) if (every || sub.bindings.has(url)) this.#startRelay(sub, url)
+    }
+    // Never before the relay's dial backoff ends: a dial turned away by it
+    // would leave the subscriptions for the next recovery pass.
+    const wait = Math.max(Math.floor(this.#random() * this.#reconnectJitterMs), this.#dials.retryAt(url) - Date.now())
+    if (wait <= 0) { redial(); return }
+    const timer = setTimeout(redial, wait)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#reconnects.set(url, timer)
   }
 
   /**
@@ -868,6 +1013,9 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#paused) return Promise.reject(new Error('pool is suspended'))
     const relay = this.#relays.find(r => r.url === normalizeURL(url))
     if (!relay?.read) return Promise.reject(new Error('not a readable relay of this pool'))
+    // A relay that refused a read with `rate-limited:` is not asked again
+    // until its hold ends; the answer is unknown, not empty.
+    if (this.#dials.readHeld(relay.url)) return Promise.resolve({ events: [], complete: false })
     let result: { events: Event[]; complete: boolean }
     return this.#background(async () => { result = await this.#queryOwned(relay.url, filters, timeoutMs, maxEvents) }).then(() => result!)
   }
@@ -903,7 +1051,13 @@ export class NostrRelayPool implements RelayTransport {
         // not reach, just before it says the relay closed. Wait a microtask
         // so the close is heard first.
         oneose: () => queueMicrotask(() => finish(!this.#paused && !this.#closed && generation === this.#generation)),
-        onclose: () => finish(false),
+        onclose: closes => {
+          const reason = closes[0]?.reason ?? ''
+          if (generation === this.#generation && this.#pool.listConnectionStatus().get(url) === true && relayReason(reason) === 'rate-limited') {
+            this.#dials.readRateLimited(url); this.#dials.throttled(url)
+          }
+          finish(false)
+        },
       })
       if (settled) handle.close()
       else timer = setTimeout(() => finish(false), timeoutMs)
@@ -922,7 +1076,12 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#paused) throw new Error('pool is suspended')
     const relay = this.#relays.find(r => r.url === normalizeURL(url))
     if (!relay?.write) throw new Error('not a writable relay of this pool')
-    await this.#background(async () => { await this.#pool.publish([relay.url], event, { abort: this.#abort.signal })[0] })
+    if (this.#dials.writeHeld(relay.url)) throw new Error(WRITE_HELD)
+    const generation = this.#generation
+    await this.#background(async () => {
+      try { await this.#pool.publish([relay.url], event, { abort: this.#abort.signal })[0] }
+      catch (error) { if (generation === this.#generation) this.#refusedWrite(relay.url, error); throw error }
+    })
   }
 
   describe(): RelayConfig[] {
@@ -938,7 +1097,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#paused) throw new Error('pool is suspended')
     if (history && (!Number.isSafeInteger(history.deadlineAt) || history.deadlineAt < 0 || typeof history.loaded !== 'boolean')) throw new Error('invalid subscription history deadline')
     const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(),
-      eoseSent: history?.loaded ?? false, ...(history ? { deadlineAt: Math.min(history.deadlineAt, Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS) } : {}) }
+      stuck: new Set(), closes: new Map(), resendAt: new Map(), eoseSent: history?.loaded ?? false, ...(history ? { deadlineAt: Math.min(history.deadlineAt, Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS) } : {}) }
     this.#subscriptions.add(sub)
     this.#start(sub, history !== undefined)
     return () => { this.#subscriptions.delete(sub); this.#stop(sub) }
@@ -962,17 +1121,26 @@ export class NostrRelayPool implements RelayTransport {
       if (!this.#closed && !this.#paused && this.#subscriptions.has(sub) && !sub.eoseSent) { sub.eoseSent = true; sub.onEose?.() }
     }, Math.max(0, (sub.deadlineAt ?? Date.now()) - Date.now()))
     ;(sub.deadline as unknown as { unref?: () => void } | undefined)?.unref?.()
+    // A fresh start (new relays, new grants, a reconnect the person asked
+    // for, a resume) is the one thing that may ask a relay that refused this
+    // subscription for good to serve it again.
+    sub.stuck.clear(); sub.closes.clear(); sub.resendAt.clear()
     for (const relay of this.#relays) if (relay.read) this.#startRelay(sub, relay.url)
   }
 
   #startRelay(sub: Subscription, url: string, since = Date.now()): void {
     if (this.#closed || this.#paused) return
+    // Refused for good by this relay: only `#start` clears that.
+    if (sub.stuck.has(url)) return
     const previous = sub.bindings.get(url)
     previous?.stop()
     const generation = this.#generation
     // What the relay last said stands until it answers this request.
     const binding: Binding = { stop: () => {}, closed: false, readEvidence: previous?.readEvidence }
     sub.bindings.set(url, binding)
+    // A relay that refused a read with `rate-limited:` is sent nothing until
+    // its hold ends: the binding waits, closed, for `#recoverSubscriptions`.
+    if (this.#dials.readHeld(url)) { binding.closed = true; return }
     const requestedAt = Date.now()
     let closedBy: string | undefined
     if (!this.#pool.listConnectionStatus().get(url)) {
@@ -998,7 +1166,7 @@ export class NostrRelayPool implements RelayTransport {
     // resending - not listening - once `SUBSCRIBE_STALL_BUDGET_MS` passes,
     // rather than resending into the void forever.
     const stall = setTimeout(() => {
-      if (!active() || this.#authError(url) || Date.now() - since >= SUBSCRIBE_STALL_BUDGET_MS) return
+      if (!active() || this.#authError(url) || this.#dials.readHeld(url) || Date.now() - since >= SUBSCRIBE_STALL_BUDGET_MS) return
       void this.#background(async () => this.#startRelay(sub, url, since)).catch(() => {})
     }, SUBSCRIBE_STALL_MS)
     const handle = this.#pool.subscribeMap(sub.filters.map(filter => ({ url, filter: { ...filter } })), {
@@ -1014,7 +1182,12 @@ export class NostrRelayPool implements RelayTransport {
         // Only an answer inside that wait, with no close heard after it, is
         // the relay's: the `REQ` went out after `requestedAt`.
         if (Date.now() - requestedAt < SUBSCRIBE_EOSE_DEADLINE_MS) {
-          queueMicrotask(() => { if (closedBy === undefined && active() && !this.#authError(url)) binding.readEvidence = 'confirmed' })
+          queueMicrotask(() => {
+            if (closedBy !== undefined || !active() || this.#authError(url)) return
+            binding.readEvidence = 'confirmed'
+            this.#heard(url)
+            sub.closes.delete(url); sub.resendAt.delete(url)
+          })
         }
         if (!active() || this.#authError(url)) return
         sub.eosed.add(url)
@@ -1026,6 +1199,7 @@ export class NostrRelayPool implements RelayTransport {
       },
       onevent: event => {
         clearTimeout(stall)
+        if (generation === this.#generation) this.#heard(url)
         if (generation === this.#generation && this.#dials.failing(url)) this.#answered(url)
         if (!active() || sub.seen.has(event.id)) return
         sub.seen.add(event.id)
@@ -1041,9 +1215,29 @@ export class NostrRelayPool implements RelayTransport {
         binding.closed = true
         const evidence = closedReadEvidence(closedBy)
         if (evidence) binding.readEvidence = evidence
+        // The socket still up means the relay sent `CLOSED` itself; a dropped
+        // socket is marked disconnected before its subscriptions close.
+        if (this.#pool.listConnectionStatus().get(url) === true) this.#relayClosed(sub, url, closedBy)
       },
     })
     binding.stop = () => { clearTimeout(stall); handle.close() }
+  }
+
+  /** The relay itself closed one subscription. What it said decides what
+   *  happens next: `rate-limited:` holds every pool's reads (and writes) to
+   *  that relay; a refusal for good stops this subscription there; anything
+   *  else is resent after a backoff that grows with each close in a row. */
+  #relayClosed(sub: Subscription, url: string, reason: string): void {
+    this.#heard(url)
+    if (relayReason(reason) === 'rate-limited') {
+      this.#dials.readRateLimited(url)
+      this.#dials.throttled(url)
+      return
+    }
+    if (refusalStops(reason, !!this.#authentication.get(url))) { sub.stuck.add(url); return }
+    const closes = (sub.closes.get(url) ?? 0) + 1
+    sub.closes.set(url, closes)
+    sub.resendAt.set(url, Date.now() + resendDelay(closes, this.#random))
   }
 
   #recoverSubscriptions(): void {
@@ -1051,13 +1245,16 @@ export class NostrRelayPool implements RelayTransport {
     const connected = this.#pool.listConnectionStatus()
     const now = Date.now()
     for (const relay of this.#relays) {
-      if (!relay.read || this.#authError(relay.url) ||
+      if (!relay.read || this.#authError(relay.url) || this.#dials.readHeld(relay.url) || this.#reconnects.has(relay.url) ||
           now - (this.#attempted.get(relay.url) ?? 0) < (this.#authentication.get(relay.url) && this.#health.get(relay.url)?.state === 'connecting' ? this.#authTimeout + 8_000 : 15_000)) continue
       if (connected.get(relay.url)) {
         // A publish can reconnect before this timer, but cannot restore the
         // subscriptions closed with the old socket. Rebind only dead readers;
         // keep healthy readers and in-flight publishes on this socket intact.
-        const closed = [...this.#subscriptions].filter(sub => sub.bindings.get(relay.url)?.closed)
+        // One the relay refused for good stays closed; one it closed for
+        // another reason waits out its own backoff.
+        const closed = [...this.#subscriptions].filter(sub => sub.bindings.get(relay.url)?.closed &&
+          !sub.stuck.has(relay.url) && now >= (sub.resendAt.get(relay.url) ?? 0))
         if (closed.length) this.#attempted.set(relay.url, now)
         for (const sub of closed) this.#startRelay(sub, relay.url)
         continue
@@ -1065,9 +1262,10 @@ export class NostrRelayPool implements RelayTransport {
       // Keep healthy relays and their consumers running. Replaying the
       // original filters catches missed events; each consumer retains its
       // deduplication set across reconnections, including same-second events.
+      // The redial waits a random moment, so pools that found the relay gone
+      // together (after sleep, or a network change) do not dial it together.
       this.#pool.close([relay.url])
-      this.#attempted.set(relay.url, now)
-      for (const sub of this.#subscriptions) this.#startRelay(sub, relay.url)
+      this.#reconnectSoon(relay.url, true)
     }
   }
 
@@ -1088,6 +1286,8 @@ export class NostrRelayPool implements RelayTransport {
   #stopBackground(): void {
     for (const timer of this.#readBackTimers) clearTimeout(timer)
     this.#readBackTimers.clear()
+    for (const timer of this.#reconnects.values()) clearTimeout(timer)
+    this.#reconnects.clear()
     for (const stop of [...this.#backgroundStops]) stop()
     this.#backgroundStops.clear()
   }
@@ -1113,7 +1313,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#closed || !this.#paused || this.#publishing || this.#backgroundJobs.size) throw new Error('pool has not drained for resume')
     this.#generation++; this.#abort.abort(); this.#pool.destroy()
     this.#abort = new AbortController(); this.#retryAbort = new AbortController()
-    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear(); this.#kept.clear(); this.#askedBack.clear()
+    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear(); this.#kept.clear(); this.#askedBack.clear(); this.#heardAt.clear()
     this.#paused = false; this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub, true)
     this.#startRecovery()
@@ -1200,6 +1400,21 @@ const RETRY_DELAYS_MS = [1_000, 3_000]
  *  response time, so an unusually slow but working `REQ` is not mistaken
  *  for a dropped one. */
 const SUBSCRIBE_STALL_MS = 5_000
+
+/** A liveness probe is only sent on a socket that has been quiet this long. */
+export const PROBE_QUIET_MS = 30_000
+
+/** The longest random wait before a pool redials a relay it found dead. */
+export const RECONNECT_JITTER_MS = 5_000
+
+/** Resending a subscription a relay closed for no stated reason that means
+ *  stop: 15 s after the first close, doubling with each close in a row to at
+ *  most 5 minutes, each within 20% either way so pools drift apart. */
+export const RESEND_MS = 15_000
+export const RESEND_MAX_MS = 5 * 60_000
+export function resendDelay(closes: number, random: () => number = Math.random): number {
+  return Math.round(doublingBackoff(closes, RESEND_MS, RESEND_MAX_MS) * (0.8 + 0.4 * random()))
+}
 
 /** How long a subscription's first `EOSE` may take, across all its relays,
  *  before its reader is told history has loaded: nostr-tools' own `maxWait`

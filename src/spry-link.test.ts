@@ -1,11 +1,13 @@
-import { expect, it } from 'vitest'
+import { beforeEach, expect, it, vi } from 'vitest'
 import { finalizeEvent, getPublicKey, verifyEvent } from 'nostr-tools/pure'
 import { decrypt, encrypt, getConversationKey } from 'nostr-tools/nip44'
-import { parseSpryControl, spryControlRequest, spryNodeCard, spryStandardCard, SpryRequestError } from './spry-link.js'
+import { parseSpryControl, resetSpryControlTurns, SPRY_CONTROL_SPACING_MS, spryControlRequest, spryControlTurn, spryNodeCard, spryStandardCard, SpryRequestError } from './spry-link.js'
+import { RelayDialGate } from './relay-dial-gate.js'
 import { newSpryKey, spryCredentials } from './spry.js'
 
 const nodeKey = new Uint8Array(32).fill(1), pubkey = getPublicKey(nodeKey)
 const endpoint = `spry://${pubkey}?relay=${encodeURIComponent('wss://relay.example/')}`
+beforeEach(() => resetSpryControlTurns())
 it('accepts only bounded explicitly selected public relay addresses', () => {
   expect(parseSpryControl(endpoint)).toEqual({ publicKey: pubkey, relays: ['wss://relay.example/'] })
   for (const relay of ['ws://relay.example', 'wss://127.0.0.1', 'wss://node.local', 'wss://user:secret@relay.example', 'wss://relay.example?token=value',
@@ -105,3 +107,52 @@ it('reads the actual Rust protocol fixtures in both encryption directions', asyn
   expect(spryNodeCard(vector.standardNode, vector.now)).toBeUndefined()
   expect(spryStandardCard(vector.node, vector.now)).toBeUndefined()
 })
+
+it('spaces control requests through one relay at least a second apart', () => {
+  expect(spryControlTurn('wss://relay.example/', 0)).toBe(0)
+  expect(spryControlTurn('wss://relay.example/', 0)).toBe(SPRY_CONTROL_SPACING_MS)
+  expect(spryControlTurn('wss://relay.example/', 100)).toBe(2 * SPRY_CONTROL_SPACING_MS - 100)
+  expect(spryControlTurn('wss://other.example/', 100)).toBe(0)
+  expect(spryControlTurn('wss://relay.example/', 10_000)).toBe(0)
+})
+
+it('waits for its turn before opening a socket to a busy relay', async () => {
+  vi.useFakeTimers()
+  try {
+    const opened: number[] = []
+    const factory = () => { opened.push(Date.now()); return { send() {}, close() {} } as unknown as WebSocket }
+    const gate = new RelayDialGate()
+    const first = spryControlRequest(endpoint, '/v1/peers', {}, '02'.repeat(32), undefined, factory, gate).catch(() => {})
+    const second = spryControlRequest(endpoint, '/v1/peers', {}, '02'.repeat(32), undefined, factory, gate).catch(() => {})
+    expect(opened).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(SPRY_CONTROL_SPACING_MS - 1)
+    expect(opened).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(opened).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await Promise.all([first, second])
+  } finally { vi.useRealTimers() }
+})
+
+it('stops using a relay that says rate-limited:, and does not ask it again while held', async () => {
+  const gate = new RelayDialGate()
+  let created = 0
+  const socket = {
+    onopen: undefined as (() => void) | undefined,
+    onmessage: undefined as ((value: { data: string }) => void) | undefined,
+    close() {},
+    send(text: string) {
+      const frame = JSON.parse(text)
+      if (frame[0] === 'REQ') queueMicrotask(() => socket.onmessage?.({ data: JSON.stringify(['CLOSED', 'spry-reply', 'ERROR: rate-limited: slow down']) }))
+    },
+  }
+  const factory = () => { created++; queueMicrotask(() => socket.onopen?.()); return socket as unknown as WebSocket }
+  const refused = await spryControlRequest(endpoint, '/v1/peers', {}, '02'.repeat(32), undefined, factory, gate).catch(error => error)
+  expect(refused).toBeInstanceOf(SpryRequestError)
+  expect(refused.status).toBe(429)
+  expect(gate.writeHeld('wss://relay.example/')).toBe(true)
+  const again = await spryControlRequest(endpoint, '/v1/peers', {}, '02'.repeat(32), undefined, factory, gate).catch(error => error)
+  expect(again.status).toBe(429)
+  expect(created).toBe(1)
+})
+

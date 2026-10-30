@@ -22,7 +22,9 @@ import { DELIVERY_RECEIPT_TTL_SECONDS, MAX_DELIVERY_RECEIPT_IDS, deliveryReceipt
  * receipts a minute per stream. Over 256 waiting ids splits into several
  * receipts in one flush. An id is remembered as acknowledged only after a
  * relay took the receipt naming it, so a receipt that never left is retried
- * on the next visit; a duplicate is harmless.
+ * on the next visit; a duplicate is harmless. Within a visit an id is tried
+ * at most `MAX_RECEIPT_ATTEMPTS` times and then dropped: a receipt is never
+ * worth resending to relays that keep refusing it.
  */
 
 /** The storage a writer remembers what it acknowledged in. */
@@ -76,6 +78,8 @@ export const RECEIPT_JOIN_SLACK_SECONDS = 60
 /** Most acknowledged ids remembered per room. */
 export const MAX_ACKNOWLEDGED_KEPT = 4_000
 export const DEFAULT_RECEIPT_PREFIX = 'kithmoot.delivery-acks.v1.'
+/** Flushes an id may be part of within a visit before it is dropped. */
+export const MAX_RECEIPT_ATTEMPTS = 8
 
 /** A message that renders as a row of its own: not a reaction, an edit, a
  *  retraction, an invitation, a room logo or a shared-work operation. */
@@ -90,6 +94,8 @@ interface Stream {
   publisher: ReceiptPublisher
   /** Waiting ids, by hash, so a message seen twice waits once. */
   pending: Map<string, string>
+  /** Failed flushes so far for each waiting id, by hash. */
+  tries: Map<string, number>
   timer?: ReturnType<typeof setTimeout>
   /** When the last receipt for this stream was signed, milliseconds. */
   lastAt?: number
@@ -154,7 +160,7 @@ export class DeliveryReceiptWriter {
       const key = `${ctx.roomId}\n${d.toLowerCase()}`
       let stream = this.#streams.get(key)
       if (!stream) {
-        stream = { roomId: ctx.roomId, d: d.toLowerCase(), publisher, pending: new Map(), flushing: false }
+        stream = { roomId: ctx.roomId, d: d.toLowerCase(), publisher, pending: new Map(), tries: new Map(), flushing: false }
         this.#streams.set(key, stream)
       }
       stream.publisher = publisher
@@ -192,7 +198,7 @@ export class DeliveryReceiptWriter {
             d: stream.d, messageIds: chunk.map(([, id]) => id), createdAt, index, ...(this.#opts.agent ? { agent: true } : {}),
           })
           if (room.generation !== generation || this.#rooms.get(stream.roomId) !== room) return
-          for (const [hash] of chunk) room.acked.set(hash, createdAt)
+          for (const [hash] of chunk) { room.acked.set(hash, createdAt); stream.tries.delete(hash) }
           this.#save(stream.roomId, room)
           try { this.#opts.onPublished?.(stream.roomId, event) } catch { /* Told; nothing to undo. */ }
         } catch {
@@ -204,8 +210,16 @@ export class DeliveryReceiptWriter {
     }
     if (this.#streams.get(key) !== stream) return
     if (stream.publisher.closed) { this.#streams.delete(key); return }
-    // What did not go waits for the next turn, behind the spacing.
-    for (const [hash, id] of failed) if (!room.acked.has(hash)) stream.pending.set(hash, id)
+    // What did not go waits for the next turn, behind the spacing, until it
+    // has been tried `MAX_RECEIPT_ATTEMPTS` times. Dropped, it is not
+    // remembered as acknowledged, so the next visit says it again.
+    for (const [hash, id] of failed) {
+      if (room.acked.has(hash)) continue
+      const tries = (stream.tries.get(hash) ?? 0) + 1
+      if (tries >= MAX_RECEIPT_ATTEMPTS) { stream.tries.delete(hash); continue }
+      stream.tries.set(hash, tries)
+      stream.pending.set(hash, id)
+    }
     this.#schedule(key, stream)
   }
 

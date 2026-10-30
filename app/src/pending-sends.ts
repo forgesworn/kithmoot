@@ -26,6 +26,11 @@
  * again on a timer, and goes only when something about the storage changes
  * (`wakeStorage`) or the person presses Retry.
  *
+ * A message the relays refused, or did not answer, is tried again by itself
+ * at most `MAX_AUTO_ATTEMPTS` times. After that it stays `refused` or
+ * `unknown` and says so, and goes again only when the person presses Retry:
+ * a client that resends for ever is what gets an address banned.
+ *
  * Every retry publishes the same signed event, so a relay that already has
  * it keeps one copy. A row leaves when its message arrives in the chat, not
  * when a relay acknowledges it, so it never disappears before the message
@@ -80,9 +85,12 @@ export interface PendingSend {
   holdUntil?: number
   /** A relay acknowledged it; it leaves once the chat shows it. */
   acknowledged?: boolean
+  /** It was tried `MAX_AUTO_ATTEMPTS` times without a relay taking it: it
+   *  is not tried again until the person presses Retry. */
+  gaveUp?: boolean
 }
 
-export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck'> & { publish?: (event: Event) => Promise<void> }
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck' | 'gaveUp'> & { publish?: (event: Event) => Promise<void> }
 type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
 
 export interface PendingSendsOptions {
@@ -113,6 +121,8 @@ export interface PendingStorage {
 
 /** Seconds before each automatic retry, the last repeating. */
 export const RETRY_SECONDS = [5, 15, 30, 60]
+/** Attempts a message gets by itself; after these, only Retry sends it. */
+export const MAX_AUTO_ATTEMPTS = 8
 /** How often a message waiting for a connection looks for one. */
 export const CONNECT_POLL_MS = 1_000
 const PREFIX = 'kithmoot.pending.'
@@ -247,7 +257,7 @@ export class PendingSends {
   }
   wake(): void {
     const now = this.#opts.now()
-    for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) && !item.stuck &&
+    for (const item of this.#items.values()) if (!this.#blocked.has(item.id) && item.publish && this.#here(item) && !item.stuck && !item.gaveUp &&
       (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && (item.retryAt ?? 0) <= now) void this.#attempt(item)
   }
   /** A grant or a node list arrived: messages waiting on the group's storage try again now, not at their next turn, and one that a storage problem had stopped gets another look. */
@@ -265,6 +275,8 @@ export class PendingSends {
     this.#blocked.delete(id)
     if (item.state === 'holding') { await this.#release(item); return }
     item.retryAt = undefined
+    // Retry starts the count again: the person asked for it.
+    item.gaveUp = undefined; item.attempts = 0
     await this.#attempt(item, true)
   }
   async dismiss(id: string): Promise<PendingSend | undefined> {
@@ -372,6 +384,11 @@ export class PendingSends {
     if (failed && this.#items.get(item.id) === item && item.state !== 'moved' && item.stuck === undefined) this.#later(item)
   }
   #later(item: PrivatePendingSend): void {
+    // Only a relay's refusal or silence counts towards giving up: a message
+    // waiting on the group's storage is not offered to a relay at all.
+    if (item.attempts >= MAX_AUTO_ATTEMPTS && (item.state === 'refused' || item.state === 'unknown')) {
+      item.gaveUp = true; item.retryAt = undefined; this.#notify(); return
+    }
     const seconds = RETRY_SECONDS[Math.min(item.attempts, RETRY_SECONDS.length - 1)]!
     item.retryAt = this.#opts.now() + seconds * 1000; this.#scheduleRetry(item, seconds * 1000)
   }
@@ -379,7 +396,7 @@ export class PendingSends {
    * remaining wait without releasing a held or superseded custody owner. */
   #scheduleRetry(item: PrivatePendingSend, ms: number): void {
     this.#schedule(() => {
-      if (this.#items.get(item.id) !== item || !this.#here(item) || !item.publish || this.#blocked.has(item.id) ||
+      if (this.#items.get(item.id) !== item || !this.#here(item) || !item.publish || this.#blocked.has(item.id) || item.gaveUp ||
           (item.state !== 'waiting' && item.state !== 'refused' && item.state !== 'unknown')) return
       const remaining = (item.retryAt ?? 0) - this.#opts.now()
       if (remaining > 0) this.#scheduleRetry(item, remaining)

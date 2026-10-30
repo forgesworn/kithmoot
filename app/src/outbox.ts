@@ -207,8 +207,8 @@ export function pendingStatusWords(item: PendingSend, sending: string, now: numb
       if (item.storage && item.stuck) return item.stuck
       if (item.storage && item.attempts) return GROUP_STORAGE_WAITING
       return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`
-    case 'refused': return `Not sent${where}: the relays turned it down. Trying again shortly.`
-    case 'unknown': return `Not confirmed${where}: no relay answered in time. Trying again shortly.`
+    case 'refused': return item.gaveUp ? `Not sent${where}: the relays turned it down. Press Retry to try again.` : `Not sent${where}: the relays turned it down. Trying again shortly.`
+    case 'unknown': return item.gaveUp ? `Not confirmed${where}: no relay answered in time. Press Retry to try again.` : `Not confirmed${where}: no relay answered in time. Trying again shortly.`
     // Its files were put aside with it, and Edit does not offer to take a message with files back: copying its words carries no file.
     case 'moved': return item.files.length
       ? `Not sent${where}: this conversation changed its key before it went. Copy its text into the conversation to send it, and add its files again.`

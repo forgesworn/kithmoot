@@ -23,13 +23,19 @@ type NodeEmitter = {
  * `closingAbandoned` can attach one, so an unreachable relay would end the
  * process. Observe errors for the handshake only; browsers and Node's native
  * WebSocket have no `on` and no such throw. */
-export function handshakeObservedWebSocket(Base: typeof WebSocket): typeof WebSocket {
+export function handshakeObservedWebSocket(Base: typeof WebSocket, refusedUpgrade?: (url: string) => void): typeof WebSocket {
   return class extends Base {
     constructor(...args: ConstructorParameters<typeof WebSocket>) {
       super(...args)
       const socket = this as unknown as Partial<NodeEmitter>
       if (!socket.on || !socket.once || !socket.removeListener) return
-      const observed = () => {}
+      // Node ws names the HTTP status of a refused upgrade; a browser never
+      // shows it. 429 and 503 are a relay telling this address to back off.
+      const url = typeof args[0] === 'string' ? args[0] : String(args[0])
+      const observed = ((error?: { message?: unknown }) => {
+        const status = /^Unexpected server response: (\d{3})/.exec(typeof error?.message === 'string' ? error.message : '')?.[1]
+        if (status === '429' || status === '503') { try { refusedUpgrade?.(url) } catch { /* Observation only. */ } }
+      }) as () => void
       const detach = () => {
         socket.removeListener!('error', observed)
         socket.removeListener!('open', detach)
