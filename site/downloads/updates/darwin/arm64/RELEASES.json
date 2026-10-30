@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.115",
+  "currentRelease": "0.1.116",
   "releases": [
     {
-      "version": "0.1.115",
+      "version": "0.1.116",
       "updateTo": {
-        "version": "0.1.115",
-        "pub_date": "2026-10-30T04:00:00Z",
-        "notes": "With Hide my IP on, asks before using any relay another member runs, not only built-in ones.",
-        "name": "0.1.115",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.115/KithMoot-0.1.115-mac-arm64.zip",
-        "sha256": "9c48120cff475fd3016c799e33e35ebac8192e1f979a89152d7e81906c6b1b94",
-        "size": 190137223
+        "version": "0.1.116",
+        "pub_date": "2026-10-30T07:30:00Z",
+        "notes": "The outside test of a member's built-in call relay now checks the connection actually in use.",
+        "name": "0.1.116",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.116/KithMoot-0.1.116-mac-arm64.zip",
+        "sha256": "aac41cec13f78f17ad68017b305c3c8cea24c66ee4a719d9b3ce244f93502879",
+        "size": 190136823
       }
     }
   ]
