@@ -340,6 +340,7 @@ import { deleteImportedHistory, recordPrivateHistoryTombstone } from './private-
 import { indexAccessibleNip17GiftWraps, indexAccountAuthoredTextNotes } from './private-history-index.js'
 import { recoverHistoryWindows, retainRecoveredHistory } from './private-history-recovery.js'
 import { NostrPublicDeletionRelayWriter } from './public-deletion-relay-writer.js'
+import { DestructSchedule } from './destruct-schedule.js'
 import { runTidyUp, tidyUpSteps, TIDY_UP_LIMITS, type TidyStepReport, type TidyUpReport } from './room-tidy-up.js'
 import { HeldEnvelopes, lostAttachments } from './held-envelopes.js'
 import { removeStaleTemporaryUploadsHere } from './temp-upload-cleanup.js'
@@ -4890,7 +4891,7 @@ async function roomFromLocation(): Promise<boolean> {
     if (roomId) for (const store of bookmarks ? [deviceStore, bookmarks.rooms] : [deviceStore]) markEnded(store, roomId, roomEndsAt!)
     stopInvitationHost()
     // A self-destructing room that ended while this device was away goes now.
-    if (roomDestruct) { void runDueDestructs(); throw new Error(SELF_DESTRUCTED_MESSAGE) }
+    if (roomDestruct) { void runDueDestructs(roomId); throw new Error(SELF_DESTRUCTED_MESSAGE) }
     throw new Error(conferenceEndedMessage(roomEndsAt!))
   }
 
@@ -15061,7 +15062,7 @@ function renderRooms(): void {
     for (const roomId of endLapsedConferences(store, nowSeconds())) stopWatching(roomId)
   }
   // And a self-destructing one is tidied away, here as at launch.
-  if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId))) void runDueDestructs()
+  if (!destructRun && dueDestructRooms().some(room => !destructing.has(room.roomId) && destructSchedule.ready(room.roomId))) void runDueDestructs()
   retryFileDeletes()
   workspaceWork?.sync()
   boardsPanel?.sync()
@@ -20495,19 +20496,33 @@ function dueDestructRooms(): KnownRoom[] {
 }
 
 let destructRun: Promise<void> | undefined
+/** When a room whose tidy-up failed may be tried again by itself: the list's
+ *  5 s timer used to start it again every 5 s. See destruct-schedule.ts. */
+const destructSchedule = new DestructSchedule()
 /** Tidy away every self-destructing room whose end has come. One run at a
- *  time; each room is tried once a run, so a relay that fails is retried at
- *  the next one (the list's timer, the next launch), not in a loop. */
-function runDueDestructs(): Promise<void> {
+ *  time; each room is tried once a run. A room whose tidy-up failed waits
+ *  out its schedule (1 minute, doubling) before the list's timer tries it
+ *  again, and after eight failures only `manual` (the person opening that
+ *  room) or a reload tries it. */
+function runDueDestructs(manual?: string): Promise<void> {
+  if (manual) destructSchedule.reset(manual)
   if (destructRun) return destructRun
   destructRun = (async () => {
     const tried = new Set<string>()
     for (;;) {
-      const due = dueDestructRooms().filter(room => !tried.has(room.roomId) && !destructing.has(room.roomId))
+      const due = dueDestructRooms().filter(room => !tried.has(room.roomId) && !destructing.has(room.roomId) && destructSchedule.ready(room.roomId))
       if (!due.length) break
       for (const room of due) {
         tried.add(room.roomId)
-        try { await selfDestruct(room) } catch (error) { console.warn('self-destruct did not finish', error) }
+        try {
+          await selfDestruct(room)
+          destructSchedule.reset(room.roomId)
+        } catch (error) {
+          destructSchedule.failed(room.roomId)
+          console.warn(destructSchedule.manualOnly(room.roomId)
+            ? 'self-destruct did not finish; it will be tried again when the room is opened or the page reloads'
+            : 'self-destruct did not finish', error)
+        }
       }
     }
   })().finally(() => { destructRun = undefined })
@@ -20730,6 +20745,7 @@ async function selfDestructNow(): Promise<void> {
   const room = knownRoom(roomStore(), roomId) ?? knownRoom(deviceStore, roomId)
   if (!room) throw new Error('This room is not saved on this device, so it cannot be tidied away here.')
   destructSecrets.set(roomId, roomSecret)
+  destructSchedule.reset(roomId)
   await selfDestruct(room, () => endRoomForEveryone(true))
 }
 
