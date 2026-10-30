@@ -75,13 +75,20 @@ export class RelayConnections {
   #shared = new Map<string, NostrRelayPool>()
   readonly #probeIntervalMs: number
   readonly #visible: () => boolean
+  /** Pool timing a test may shorten; production uses the pool's defaults. */
+  readonly #poolTiming: { probeQuietMs?: number; reconnectJitterMs?: number }
   /** `circle` says whether a relay URL is a box of the person's own circle,
    *  verified from current signed box status; such a relay is marked on every
    *  configuration handed out, which is what lets a message to it show as
    *  sheltered (`src/lane.ts`). The mark is a fact about the relay, not a
    *  preference, so it is not saved and cannot be edited into place. */
-  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false, probing: { intervalMs?: number; visible?: () => boolean } = {}) {
+  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false,
+    probing: { intervalMs?: number; visible?: () => boolean; quietMs?: number; reconnectJitterMs?: number; probeAllMinMs?: number; random?: () => number } = {}) {
     this.#probeIntervalMs = probing.intervalMs ?? 30_000
+    this.#poolTiming = { ...(probing.quietMs !== undefined ? { probeQuietMs: probing.quietMs } : {}),
+      ...(probing.reconnectJitterMs !== undefined ? { reconnectJitterMs: probing.reconnectJitterMs } : {}) }
+    this.#probeAllMinMs = probing.probeAllMinMs ?? PROBE_ALL_MIN_MS
+    this.#random = probing.random ?? Math.random
     // `document` is absent outside a browser tab (a Node test, an agent
     // host); nothing there is ever hidden, so a probe is never skipped for
     // it. Injectable so a test can pretend the tab just went to the
@@ -292,7 +299,7 @@ export class RelayConnections {
     if (!pool) {
       const configuration = this.configuration(scope, hints)
       const Base = globalThis.WebSocket
-      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration),
+      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration), ...this.#poolTiming,
         ...(guard && Base ? { websocketImplementation: guardedWebSocket(Base, guard) } : {}) })
       const owner: PoolOwner = { scope, hints, key, holders: 0 }
       this.#pools.set(pool, owner)
@@ -356,9 +363,30 @@ export class RelayConnections {
    *  the app's own "we might be back" signals: tab foregrounded, `pageshow`
    *  from the back-forward cache, and the network coming back. */
   async probeAll(timeoutMs?: number): Promise<void> {
-    this.#prune()
-    await Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {})))
+    // Foregrounding, `pageshow` and `online` often come together, and a tab
+    // flicked back and forth fires them over and over: each used to probe
+    // every pool at once. Now one run at most every `PROBE_ALL_MIN_MS`, a
+    // later call inside that window folding into one run at its end, and
+    // each run starts after a random moment so the pools of several tabs
+    // or windows do not probe together.
+    const now = Date.now()
+    if (this.#probeAllRun) return this.#probeAllRun
+    const wait = Math.max(0, this.#lastProbeAll + this.#probeAllMinMs - now) + Math.floor(this.#random() * PROBE_ALL_JITTER_MS)
+    this.#probeAllRun = new Promise<void>(resolve => {
+      const timer = setTimeout(() => {
+        this.#lastProbeAll = Date.now()
+        this.#probeAllRun = undefined
+        this.#prune()
+        void Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {}))).then(() => resolve())
+      }, wait)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+    })
+    return this.#probeAllRun
   }
+  #probeAllRun?: Promise<void>
+  #lastProbeAll = -Infinity
+  readonly #probeAllMinMs: number
+  readonly #random: () => number
   health(scope: string, hints: RelayHints = []): RelayHealth[] {
     this.#prune()
     return this.configuration(scope, hints).map(relay => {
@@ -394,6 +422,10 @@ export class RelayConnections {
     }
   }
 }
+
+/** At most one `probeAll` run in this long, and the random wait before each. */
+export const PROBE_ALL_MIN_MS = 10_000
+export const PROBE_ALL_JITTER_MS = 2_000
 
 interface PoolOwner { scope: string; hints: RelayHints; key: string; holders: number; probeTimer?: ReturnType<typeof setTimeout> }
 
