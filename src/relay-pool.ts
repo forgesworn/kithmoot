@@ -1313,7 +1313,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#closed || !this.#paused || this.#publishing || this.#backgroundJobs.size) throw new Error('pool has not drained for resume')
     this.#generation++; this.#abort.abort(); this.#pool.destroy()
     this.#abort = new AbortController(); this.#retryAbort = new AbortController()
-    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear(); this.#kept.clear(); this.#askedBack.clear()
+    this.#authFailures.clear(); this.#attempted.clear(); this.#readBack.clear(); this.#kept.clear(); this.#askedBack.clear(); this.#heardAt.clear()
     this.#paused = false; this.#pool = this.#createPool()
     for (const sub of this.#subscriptions) this.#start(sub, true)
     this.#startRecovery()
