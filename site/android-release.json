@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.125",
-  "versionCode": 148,
+  "versionName": "0.6.126",
+  "versionCode": 149,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71037440,
-  "apkSha256": "f9ba6d419195f11b7b124dda2922e70dc44c9619a43304555203acdf1d98da31",
+  "apkBytes": 71070208,
+  "apkSha256": "e9c4874f71274e8b832dad0da957d8c73dc4242d44180661ae66ec598644ae2c",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.125-production.apk",
+  "downloadFilename": "kithmoot-0.6.126-production.apk",
   "releaseNotes": [
-    "Use another member's built-in call relay; with Hide my IP on, Join asks first.",
-    "Answer a host's request to test their relay from outside, with pass or fail and never an address."
+    "Two ticks once another person's device has received your message; never whether they read it.",
+    "With Hide my IP on, asks before using any relay another member runs."
   ]
 }

@@ -1,3 +1,10 @@
+9c48120cff475fd3016c799e33e35ebac8192e1f979a89152d7e81906c6b1b94  KithMoot-0.1.115-mac-arm64.zip
+436592c5a2ead6b35991bbded12d8c52773096ed2a1fbcda64d9d43579d96bb8  KithMoot-0.1.115-linux-arm64.tar.gz
+dcffc54bf74ddbcc582d0e0ee54136f2a44ae935f4ed13f018ab02f53735bd96  KithMoot-0.1.115-linux-x64.tar.gz
+f7b38a8a1e3b7995d8f3c655de4df1238f32046b6e3c328b7e6daec5fb109da2  KithMoot-0.1.115-windows-x64.zip
+5774bbc318ae8f13b292c30bffbd2cd5e70b1cefff19ed8d6c47a80a30cded04  kithmoot_0.1.115_amd64.deb
+b8edc462aa60efc8910bec90de7b2e136a099dd9f590ea89028ab92fe8ea40f5  kithmoot_0.1.115_arm64.deb
+
 ffbcf0eeea6edd3f7bc39916a58f742f8a47242a64839e5db8e37a5634089a87  KithMoot-0.1.114-mac-arm64.zip
 83aeeb50b27a22fa72fd27893e69e9b4733e11293465788f33bc1e2f9cad7a43  KithMoot-0.1.114-linux-arm64.tar.gz
 ea54c40b25bca2fd937074f9cc305af1c11a496cd24c673525cf9daad66c203d  KithMoot-0.1.114-linux-x64.tar.gz
