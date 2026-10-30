@@ -2964,10 +2964,14 @@ function sendDesktopRelayContext(): void {
   bridge.setRelayContext(context)
 }
 if (window.kithmootDesktop?.onRelayState) {
-  window.kithmootDesktop.onRelayState(applyDesktopRelay)
-  void window.kithmootDesktop.relayState?.().then(applyDesktopRelay).catch(() => {})
-  setTimeout(sendDesktopRelayContext, 0)
-  setInterval(sendDesktopRelayContext, 3000)
+  // A desktop build without the relay (or a test double) may answer with
+  // anything, and nothing here may stop the page from starting.
+  try {
+    window.kithmootDesktop.onRelayState(applyDesktopRelay)
+    Promise.resolve(window.kithmootDesktop.relayState?.()).then(applyDesktopRelay).catch(() => {})
+  } catch { /* No relay on this build. */ }
+  setTimeout(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 0)
+  setInterval(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 3000)
 }
 
 function renderSpryShareChoice(): void {
