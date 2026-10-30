@@ -45,13 +45,13 @@ async function device(browser: Browser, base: string, offline = false): Promise<
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const known = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
+        const known = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
         if (!known.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay refused by board acceptance')
         super(relay, protocols)
       }
     }
   }, relay.href)
-  await context.route(/^https:\/\/(relay\.damus\.io|nos\.lol|relay\.primal\.net|nostr\.oxtr\.dev|relay\.nostr\.net)\/?$/, route => route.fulfill({status: 200, contentType: 'application/nostr+json', body: JSON.stringify({limitation: {max_message_length: 131072}})}))
+  await context.route(/^https:\/\/(relay\.damus\.io|nos\.lol|relay\.primal\.net|nostr\.oxtr\.dev|relay\.nostr\.net|relay\.ditto\.pub|offchain\.pub)\/?$/, route => route.fulfill({status: 200, contentType: 'application/nostr+json', body: JSON.stringify({limitation: {max_message_length: 131072}})}))
   await context.route('**/turn', route => route.fulfill({status: 503, body: ''}))
   await context.route('https://board-files.test/**', async route => {
     const url = new URL(route.request().url()), path = url.pathname === '/upload' ? '/upload' : '/blossom' + url.pathname

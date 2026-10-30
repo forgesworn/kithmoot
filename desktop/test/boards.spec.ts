@@ -19,7 +19,7 @@ test('the Electron sandbox hosts durable Boards and keeps labelled popouts throu
     await context.exposeFunction('boardEncrypt', (peer: string, text: string) => encrypt(text, getConversationKey(key, peer)))
     await context.exposeFunction('boardDecrypt', (peer: string, text: string) => decrypt(text, getConversationKey(key, peer)))
     await context.routeWebSocket(/.*/, ws => ws.close())
-    await context.route(/^https:\/\/(relay\.damus\.io|nos\.lol|relay\.primal\.net|nostr\.oxtr\.dev)\/?$/, route => route.fulfill({status: 200, contentType: 'application/nostr+json', body: JSON.stringify({limitation: {max_message_length: 131072}})}))
+    await context.route(/^https:\/\/(relay\.damus\.io|nos\.lol|relay\.primal\.net|nostr\.oxtr\.dev|relay\.ditto\.pub|offchain\.pub)\/?$/, route => route.fulfill({status: 200, contentType: 'application/nostr+json', body: JSON.stringify({limitation: {max_message_length: 131072}})}))
     await context.addInitScript(() => {
       const host = window as typeof window & {boardKey(): Promise<string>; boardSign(event: unknown): Promise<unknown>; boardEncrypt(peer: string, text: string): Promise<string>; boardDecrypt(peer: string, text: string): Promise<string>}
       Object.defineProperty(window, 'nostr', {configurable: true, value: {getPublicKey: () => host.boardKey(), signEvent: (event: unknown) => host.boardSign(event), nip44: {encrypt: (peer: string, text: string) => host.boardEncrypt(peer, text), decrypt: (peer: string, text: string) => host.boardDecrypt(peer, text)}}})
