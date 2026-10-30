@@ -70,7 +70,7 @@ function dpkgDeb(stage, output) {
     'chown -R root:root .',
     'find . -type d -exec chmod 0755 {} +',
     'find . -type f -exec chmod go-w,a+r {} +',
-    'chmod 0755 DEBIAN/postinst DEBIAN/postrm opt/KithMoot/kithmoot opt/KithMoot/chrome_crashpad_handler',
+    'chmod 0755 DEBIAN/postinst DEBIAN/postrm opt/KithMoot/kithmoot opt/KithMoot/chrome_crashpad_handler opt/KithMoot/resources/spry/spry-node',
     'chmod 0644 DEBIAN/control DEBIAN/conffiles',
     // Chromium falls back to the setuid sandbox where user namespaces are
     // refused; Google Chrome's own package ships it the same way.

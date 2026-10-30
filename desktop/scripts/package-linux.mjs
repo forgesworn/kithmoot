@@ -4,15 +4,23 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { hashFile, stageHelper, writeManifest } from './spry-helper.mjs'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
+// The built-in call relay's helper for each architecture, at
+// resources/spry/spry-node; one manifest in the app names both hashes.
+const helpers = { x64: await stageHelper('linux-x64'), arm64: await stageHelper('linux-arm64') }
+await writeManifest({ 'linux-x64': helpers.x64.sha256, 'linux-arm64': helpers.arm64.sha256 }, { version: helpers.x64.version })
 for (const arch of ['x64', 'arm64']) {
   const [directory] = await packager({
     dir: root, out: resolve(root, 'out'), name: 'KithMoot', executableName: 'kithmoot',
     platform: 'linux', arch, electronVersion: '44.9.3', appVersion: version,
-    overwrite: true, asar: true,
+    overwrite: true, asar: true, extraResource: [helpers[arch].dir],
     ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   })
+  const bundledHelper = resolve(directory, 'resources/spry/spry-node')
+  await chmod(bundledHelper, 0o755)
+  if (await hashFile(bundledHelper) !== helpers[arch].sha256) throw new Error(`The bundled relay helper for ${arch} does not match its manifest`)
   await copyFile(resolve(root, 'icons/kithmoot-512.png'), resolve(directory, 'kithmoot.png'))
   await copyFile(resolve(root, 'scripts/install-linux.py'), resolve(directory, 'install.py'))
   await chmod(resolve(directory, 'install.py'), 0o755)

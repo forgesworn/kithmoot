@@ -4,9 +4,14 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { basename, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { hashFile, stageHelper, writeManifest } from './spry-helper.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
+// The built-in call relay's helper at resources\spry\spry-node.exe. Unsigned,
+// like the app.
+const helper = await stageHelper('win32-x64')
+await writeManifest({ 'win32-x64': helper.sha256 }, { version: helper.version })
 const [directory] = await packager({
   dir: root,
   out: resolve(root, 'out'),
@@ -18,6 +23,7 @@ const [directory] = await packager({
   appVersion: version,
   overwrite: true,
   asar: true,
+  extraResource: [helper.dir],
   icon: resolve(root, 'artifacts/KithMoot.ico'),
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
 })
@@ -41,6 +47,7 @@ const peOffset = executable.readUInt32LE(0x3c)
 if (executable.toString('ascii', peOffset, peOffset + 4) !== 'PE\0\0') throw new Error('Windows executable has no PE header')
 if (executable.readUInt16LE(peOffset + 4) !== 0x8664) throw new Error('Windows executable is not x64')
 await readFile(resolve(directory, 'resources/app.asar'))
+if (await hashFile(resolve(directory, 'resources/spry/spry-node.exe')) !== helper.sha256) throw new Error('The bundled relay helper does not match its manifest')
 
 const archiveName = `KithMoot-${version}-windows-x64.zip`
 const archive = resolve(root, 'out', archiveName)
