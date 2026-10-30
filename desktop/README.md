@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.116 fixes the outside test of a member's built-in call relay to check the connection actually in use. Version 0.1.115 asks before using any relay another member runs when Hide my IP is on, not only built-in ones.
+Version 0.1.117 is gentler with public Nostr relays: it sends over the connections it already has instead of opening a new one for every message, waits when a relay says it is busy, and starts new installs on relay.primal.net, relay.ditto.pub and offchain.pub. It also carries the built-in call relay, kept off unless started with KITHMOOT_DESKTOP_RELAY=on. Version 0.1.116 fixed the outside test of a member's built-in call relay.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.116 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.117 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
