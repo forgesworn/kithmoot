@@ -80,6 +80,9 @@ export class SpryRoom {
   #pairRevision = 0
   #peerUpdatePending = false
   #peerRevision = Date.now()
+  /** The peer list last told to the paired node, and under which pairing:
+   *  told again only when it changes. It went every 30 s per room. */
+  #peersSent?: { list: string; pairing: number }
   #timer: ReturnType<typeof setInterval>
   #unsub: Array<() => void> = []
   #roster = ''
@@ -304,7 +307,15 @@ export class SpryRoom {
       const old = peers.get(node.pubkey)
       if (!old || node.created_at > old.created_at || node.created_at === old.created_at && node.id > old.id) peers.set(node.pubkey, node)
     }
-    await spryPeers(pair, this.session.roomId, this.#key, [...peers.values()].sort((a, b) => a.pubkey.localeCompare(b.pubkey)).slice(0, 8), this.fetcher, ++this.#peerRevision)
+    const list = [...peers.values()].sort((a, b) => a.pubkey.localeCompare(b.pubkey)).slice(0, 8)
+    // A card is re-signed when its node renews it, so its id changing is a
+    // change worth telling: the node keeps only cards that have not expired.
+    const fingerprint = list.map(node => `${node.pubkey}:${node.id}`).join(',')
+    const pairing = this.#pairRevision
+    if (this.#peersSent?.list === fingerprint && this.#peersSent.pairing === pairing) return
+    this.#peersSent = undefined
+    await spryPeers(pair, this.session.roomId, this.#key, list, this.fetcher, ++this.#peerRevision)
+    if (pairing === this.#pairRevision) this.#peersSent = { list: fingerprint, pairing }
   }
   /** One registration request, retried once with a fresh revision when the
    *  node says it is out of date. Every answer re-decides the seal. */
