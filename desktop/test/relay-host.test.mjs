@@ -33,6 +33,8 @@ function fakeSupervisors() {
         pending?.reject(Object.assign(new Error('x'), { code: 'ERR_CANNOT_HOST' }))
       },
       async stop() { publish({ status: 'off' }); pending?.reject(Object.assign(new Error('cancelled'), { code: 'ERR_START_CANCELLED' })); return { status: 'off' } },
+      crash() { publish({ status: 'failed', error: { code: 'ERR_RELAY_EXITED', message: 'x' } }) },
+      relayed(bytesRelayed) { publish({ ...current, counts: { allocations: 1, bytesRelayed, lastAllocation: null } }) },
     }
     made.push(supervisor)
     return supervisor
@@ -250,4 +252,154 @@ test('keys this build cannot read can be removed from the dialog, after a confir
   assert.equal(dialogs[0].defaultId, 0, 'Cancel is the default')
   assert.equal(gone, 1)
   assert.equal(host.state().status, 'off')
+})
+
+/** Timers a test fires by hand. */
+function manualTimers() {
+  const timeouts = new Map(), intervals = new Map()
+  let next = 1
+  return {
+    setTimeout(fn, ms) { const id = next++; timeouts.set(id, { fn, ms }); return id },
+    clearTimeout(id) { timeouts.delete(id) },
+    setInterval(fn, ms) { const id = next++; intervals.set(id, { fn, ms }); return id },
+    clearInterval(id) { intervals.delete(id) },
+    async fireTimeouts() { const due = [...timeouts.values()]; timeouts.clear(); for (const { fn } of due) await fn() },
+    async fireIntervals() { for (const { fn } of [...intervals.values()]) await fn() },
+    get intervals() { return intervals.size },
+    get timeouts() { return timeouts.size },
+  }
+}
+function memorySettings(initial = {}) {
+  let value = { v: 1, startOnOpen: false, day: '', dayBytes: 0, ...initial }
+  const saves = []
+  return { saves, value: () => value, load: async () => structuredClone(value), save: async next => { value = structuredClone(next); saves.push(value) } }
+}
+async function running(host, supervisors, index = supervisors.made.length) {
+  await tick()
+  supervisors.made[index].ready()
+  await tick()
+}
+
+test('a crash restarts the relay once after a pause; a second crash leaves it off and says so', async () => {
+  const timers = manualTimers()
+  const { host, supervisors } = harness({ timers, settings: memorySettings() })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  supervisors.made[0].crash()
+  assert.equal(host.state().status, 'failed')
+  assert.equal(supervisors.made.length, 1, 'no restart before the pause')
+  await timers.fireTimeouts()
+  await running(host, supervisors, 1)
+  assert.equal(host.state().status, 'running')
+  supervisors.made[1].crash()
+  await timers.fireTimeouts()
+  assert.equal(supervisors.made.length, 2, 'no second automatic restart')
+  assert.equal(host.state().error.code, 'ERR_CRASHED_TWICE')
+  assert.equal(host.state().wanted, false)
+})
+
+test('a network that cannot host is never restarted as if it had crashed', async () => {
+  const timers = manualTimers()
+  const { host, supervisors } = harness({ timers, settings: memorySettings() })
+  void host.start({ person: true })
+  await tick()
+  supervisors.made[0].cannotHost('no-answer')
+  await tick()
+  await timers.fireTimeouts()
+  assert.equal(supervisors.made.length, 1)
+  assert.equal(host.state().status, 'cannot-host')
+})
+
+test('waking restarts a relay the person had on; after their own Stop it stays off', async () => {
+  const timers = manualTimers()
+  const { host, supervisors } = harness({ timers, settings: memorySettings() })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  await host.stop({ block: true })
+  assert.equal(host.state().wanted, true, 'sleep does not change what the person chose')
+  await host.resume({ restart: true })
+  await running(host, supervisors, 1)
+  assert.equal(host.state().status, 'running')
+  await host.stop()
+  assert.equal(host.state().wanted, false)
+  await host.stop({ block: true })
+  await host.resume({ restart: true })
+  await tick()
+  assert.equal(supervisors.made.length, 2, 'stopped by the person: waking does not start it')
+  // Closing the window resumes without a restart.
+  void host.start({ person: true })
+  await running(host, supervisors, 2)
+  await host.stop({ block: true })
+  await host.resume()
+  await tick()
+  assert.equal(supervisors.made.length, 3)
+})
+
+test('Start it when KithMoot opens starts the relay once the account is known, and only then', async () => {
+  const settings = memorySettings({ startOnOpen: true })
+  const { host, supervisors } = harness({ context: null, settings, timers: manualTimers() })
+  await tick()
+  assert.equal(supervisors.made.length, 0)
+  host.setContext({ participant, relays: ['wss://relay.example'] })
+  await running(host, supervisors, 0)
+  assert.equal(host.state().status, 'running')
+  host.setContext({ participant, relays: ['wss://relay.example'] })
+  await tick()
+  assert.equal(supervisors.made.length, 1, 'only on the first context of a launch')
+  const off = harness({ context: null, settings: memorySettings(), timers: manualTimers() })
+  off.host.setContext({ participant, relays: ['wss://relay.example'] })
+  await tick()
+  assert.equal(off.supervisors.made.length, 0)
+})
+
+test('the daily limit stops the relay, counts across runs and lifts the next day', async () => {
+  let clock = new Date(2026, 9, 30, 12)
+  const settings = memorySettings()
+  const { host, supervisors } = harness({ timers: manualTimers(), settings, now: () => clock, dailyLimit: 1000 })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  supervisors.made[0].relayed(600)
+  await host.stop({ block: true })
+  await host.resume()
+  void host.start({ person: true })
+  await running(host, supervisors, 1)
+  assert.equal(host.state().today, 600, 'a new run counts from its own zero')
+  supervisors.made[1].relayed(500)
+  await tick()
+  assert.equal(host.state().status, 'failed')
+  assert.equal(host.state().error.code, 'ERR_DAILY_LIMIT')
+  assert.equal(settings.value().dayBytes, 1100, 'saved, so a restart of the app cannot reset it')
+  await host.start({ person: true })
+  assert.equal(supervisors.made.length, 2, 'refused for the rest of the day')
+  clock = new Date(2026, 9, 31, 9)
+  void host.start({ person: true })
+  await running(host, supervisors, 2)
+  assert.equal(host.state().status, 'running')
+  assert.equal(host.state().today, 0)
+})
+
+test('a new network address stops the relay on the old one and starts it on the new', async () => {
+  const timers = manualTimers()
+  let address = '192.168.1.20'
+  const { host, supervisors } = harness({ timers, settings: memorySettings(), localAddress: async () => address })
+  void host.start({ person: true })
+  await running(host, supervisors, 0)
+  assert.equal(timers.intervals, 1)
+  await timers.fireIntervals()
+  assert.equal(supervisors.made.length, 1, 'same network: nothing to do')
+  address = '10.0.0.7'
+  await timers.fireIntervals()
+  await running(host, supervisors, 1)
+  assert.equal(supervisors.made[1].started.bind, '10.0.0.7')
+  await host.stop()
+  assert.equal(timers.intervals, 0, 'the person\'s Stop ends the watch')
+})
+
+test('the dialog\'s checkbox saves Start it when KithMoot opens', async () => {
+  const settings = memorySettings()
+  const { host, dialogs } = harness({ settings, timers: manualTimers(), showDialog: async options => { dialogs.push(options); return { response: 0, checkboxChecked: true } } })
+  await host.present()
+  assert.equal(dialogs[0].checkboxLabel, 'Start it when KithMoot opens')
+  assert.equal(settings.value().startOnOpen, true)
+  assert.equal(host.state().startOnOpen, true)
 })
