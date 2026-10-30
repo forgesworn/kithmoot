@@ -19,6 +19,10 @@ class Connection {
   static reflexive = '198.51.100.7'
   static bHost = '192.168.1.20'
   static bLocal = { candidateType: 'host', address: '192.168.1.20' }
+  /** Peer A's pair as libwebrtc may report it, and whether a transport names it. */
+  static aNominated = true
+  static aTransport = false
+  static aState = 'succeeded'
   signalingState = 'stable'
   remoteDescription?: { type: string }
   localDescription?: { type: string }
@@ -49,10 +53,12 @@ class Connection {
   }
   async addIceCandidate() {}
   async getStats() {
+    const a = this.role === 'a'
     return new Map<string, Record<string, unknown>>([
-      ['pair', { type: 'candidate-pair', state: 'succeeded', nominated: true, bytesReceived: 64, localCandidateId: 'local', remoteCandidateId: 'remote' }],
-      ['local', this.role === 'a' ? { candidateType: 'relay', address: '203.0.113.9' } : Connection.bLocal],
+      ['pair', { type: 'candidate-pair', state: a ? Connection.aState : 'succeeded', nominated: a ? Connection.aNominated : true, bytesReceived: 64, localCandidateId: 'local', remoteCandidateId: 'remote' }],
+      ['local', a ? { candidateType: 'relay', address: '203.0.113.9' } : Connection.bLocal],
       ['remote', { candidateType: 'host' }],
+      ...(a && Connection.aTransport ? [['transport', { type: 'transport', selectedCandidatePairId: 'pair' }] as [string, Record<string, unknown>]] : []),
     ])
   }
   close() { this.closed = true }
@@ -64,6 +70,7 @@ describe('relay outside test run', () => {
   beforeEach(() => {
     Connection.instances = []; Connection.connect = true; Connection.relayed = true
     Connection.reflexive = '198.51.100.7'; Connection.bHost = '192.168.1.20'; Connection.bLocal = { candidateType: 'host', address: '192.168.1.20' }
+    Connection.aNominated = true; Connection.aTransport = false; Connection.aState = 'succeeded'
     vi.stubGlobal('RTCPeerConnection', Connection)
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -92,6 +99,20 @@ describe('relay outside test run', () => {
   it('says so when the tester runs on the relay\'s own machine, where the relay refuses it as a peer', async () => {
     Connection.connect = false; Connection.reflexive = ''; Connection.bHost = '203.0.113.9'
     await expect(runRelayOutsideTest(relay, new AbortController().signal, 50)).resolves.toEqual({ ok: false, stage: 'inbound', sameNetwork: true })
+  })
+  it('passes when A\'s transport selects a pair libwebrtc does not mark nominated', async () => {
+    Connection.aNominated = false; Connection.aTransport = true
+    await expect(runRelayOutsideTest(relay, new AbortController().signal, 1000)).resolves.toEqual({ ok: true })
+  })
+  it('passes while a fresh check is out on the selected pair, but not once it has failed', async () => {
+    Connection.aTransport = true; Connection.aState = 'in-progress'
+    await expect(runRelayOutsideTest(relay, new AbortController().signal, 1000)).resolves.toEqual({ ok: true })
+    Connection.instances = []; Connection.aState = 'failed'
+    await expect(runRelayOutsideTest(relay, new AbortController().signal, 1000)).resolves.toMatchObject({ ok: false, stage: 'inbound' })
+  })
+  it('without a transport naming one, an unnominated pair is not the path', async () => {
+    Connection.aNominated = false
+    await expect(runRelayOutsideTest(relay, new AbortController().signal, 1000)).resolves.toMatchObject({ ok: false, stage: 'inbound' })
   })
   it('fails a B path that went through a relay', async () => {
     Connection.bLocal = { candidateType: 'relay', address: '203.0.113.9' }
