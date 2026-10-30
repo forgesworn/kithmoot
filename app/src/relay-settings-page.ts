@@ -74,7 +74,8 @@ export function createRelayPage(deps: RelayPageDeps) {
   let shown: RelayView | undefined
   let signature = ''
 
-  const view = (): RelayView | undefined => relayView({ state, handPaired: deps.handPaired(), check, canCheck: !!deps.checkRoom(), now: new Date(now()) })
+  // Who could be asked is only worked out while the relay runs: it is the one state that offers a check.
+  const view = (): RelayView | undefined => relayView({ state, handPaired: deps.handPaired(), check, canCheck: state?.status === 'running' && !!deps.checkRoom(), now: new Date(now()) })
   const setText = (el: HTMLElement, text: string | undefined): void => { if (el.textContent !== (text ?? '')) el.textContent = text ?? '' }
 
   function render(): void {
@@ -111,7 +112,8 @@ export function createRelayPage(deps: RelayPageDeps) {
     setText($('relayNote'), shown.note)
     $('relayNote').hidden = !shown.note
     // Everyone left while the picker was open: it has nobody to offer.
-    if (!deps.checkRoom()) document.querySelector<HTMLDialogElement>('dialog.actionDialog:has(#relayCheckChoices)')?.close('cancel')
+    const picker = document.getElementById('relayCheckChoices')?.closest('dialog')
+    if (picker && !deps.checkRoom()) picker.close('cancel')
   }
 
   /** The main process's report arrived (or the room or account on screen changed). */

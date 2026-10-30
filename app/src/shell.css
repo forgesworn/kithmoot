@@ -542,7 +542,7 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 .relayPage .relayActions button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .relayPage .checkboxRow { margin: 0 0 var(--s5); }
 .relayPage details { margin: 0 0 var(--s5); }
-.relayPage summary { min-height: 44px; display: flex; align-items: center; }
+.relayPage summary { padding: var(--s3) 0; cursor: pointer; }
 .relayPage #relayDetailsList .note { margin: var(--s1) 0 0; overflow-wrap: anywhere; }
 .relayPage #relayNote { margin: 0; }
 #railRelay .railIcon { color: var(--ok); }
