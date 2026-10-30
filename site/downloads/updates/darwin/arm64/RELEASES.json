@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.114",
+  "currentRelease": "0.1.115",
   "releases": [
     {
-      "version": "0.1.114",
+      "version": "0.1.115",
       "updateTo": {
-        "version": "0.1.114",
-        "pub_date": "2026-10-29T20:00:00Z",
-        "notes": "Your own messages from another device no longer show as unread. Can use another member's built-in call relay, asking first when Hide my IP is on.",
-        "name": "0.1.114",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.114/KithMoot-0.1.114-mac-arm64.zip",
-        "sha256": "ffbcf0eeea6edd3f7bc39916a58f742f8a47242a64839e5db8e37a5634089a87",
-        "size": 190137633
+        "version": "0.1.115",
+        "pub_date": "2026-10-30T04:00:00Z",
+        "notes": "With Hide my IP on, asks before using any relay another member runs, not only built-in ones.",
+        "name": "0.1.115",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.115/KithMoot-0.1.115-mac-arm64.zip",
+        "sha256": "9c48120cff475fd3016c799e33e35ebac8192e1f979a89152d7e81906c6b1b94",
+        "size": 190137223
       }
     }
   ]
