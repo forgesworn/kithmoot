@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import { memoryDeviceStore } from './device-store.js'
-import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, type PendingSend } from './pending-sends.js'
+import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, MAX_AUTO_ATTEMPTS, type PendingSend } from './pending-sends.js'
+import { pendingStatusWords } from './outbox.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 
 const ROOM = 'a'.repeat(64)
@@ -477,5 +478,32 @@ describe('telling the page a relay acknowledged a message', () => {
     await add(pending, 'one', async () => {})
     await flush()
     expect(pending.items(ROOM).find(item => item.id === 'one')?.acknowledged).toBe(true)
+  })
+
+  it('stops trying by itself after eight attempts, says so, and goes again on Retry', async () => {
+    const h = harness()
+    const publish = vi.fn(async () => { throw new Error('every relay rejected the event (wss://a: rate-limited: slow down)') })
+    await add(h.pending, 'capped', publish)
+    await flush()
+    expect(publish).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 20; i++) await h.advance(60_000)
+    expect(publish).toHaveBeenCalledTimes(MAX_AUTO_ATTEMPTS)
+    const item = h.pending.items(ROOM)[0]!
+    expect(item.state).toBe('refused')
+    expect(item.gaveUp).toBe(true)
+    expect(pendingStatusWords(item, 'Sending', 0)).toBe('Not sent: the relays turned it down. Press Retry to try again.')
+    // Coming back online does not send it again; only the person does.
+    h.pending.wake()
+    await h.advance(60 * 60_000)
+    expect(publish).toHaveBeenCalledTimes(MAX_AUTO_ATTEMPTS)
+    await h.pending.retry('capped')
+    expect(publish).toHaveBeenCalledTimes(MAX_AUTO_ATTEMPTS + 1)
+    expect(h.pending.items(ROOM)[0]!.gaveUp).toBeUndefined()
+  })
+
+  it('says a message no relay answered will go on Retry once it has stopped trying', () => {
+    const base = { id: 'x', roomId: ROOM, channel: 'Chat', text: 't', files: [], event: event('x'), durable: true, attempts: MAX_AUTO_ATTEMPTS }
+    expect(pendingStatusWords({ ...base, state: 'unknown', gaveUp: true }, 'Sending', 0)).toBe('Not confirmed: no relay answered in time. Press Retry to try again.')
+    expect(pendingStatusWords({ ...base, state: 'unknown' }, 'Sending', 0)).toBe('Not confirmed: no relay answered in time. Trying again shortly.')
   })
 })
