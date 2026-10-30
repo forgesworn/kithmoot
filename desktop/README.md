@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.114 no longer counts your own messages from another device as unread, and can use another member's built-in call relay, asking first ("Use NAME's relay?") when Hide my IP is on. Version 0.1.113 showed two ticks once another person's device had received your message.
+Version 0.1.115 asks before using any relay another member runs when Hide my IP is on, not only built-in ones. Version 0.1.114 stopped counting your own messages from another device as unread and could use another member's built-in call relay.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.114 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.115 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
