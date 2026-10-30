@@ -9,6 +9,8 @@ import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE
 import { createRelayHost, createHostingQuitGuard } from './relay-host.mjs'
 import { createRelayIdentity } from './relay-identity.mjs'
 import { createRelaySettings } from './relay-settings.mjs'
+import { registerRelayIpc } from './relay-ipc.mjs'
+import { createPreviewRelayHost, previewFromEnvironment } from './relay-preview.mjs'
 import { SPRY_MANIFEST, helperKey, verifiedHelper } from './spry-bundle.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
@@ -55,9 +57,11 @@ const notices = new DesktopNotices({
 })
 let win
 let suspended = false
-// The built-in call relay (docs/design/2026-10-28-built-in-relay.md). Until
-// its settings screen has the owner's review it is reached only from a
-// development dialog, with KITHMOOT_DESKTOP_RELAY=on.
+// The built-in call relay (docs/design/2026-10-28-built-in-relay.md). It is
+// reached from the page's own settings (the page asks first), and only with
+// KITHMOOT_DESKTOP_RELAY=on until the owner lifts that gate. A development run
+// can show any state of the page with KITHMOOT_DESKTOP_RELAY_PREVIEW
+// (relay-preview.mjs); a packaged build ignores it.
 async function relayExecutable() {
   if (app.isPackaged) {
     const manifest = JSON.parse(await readFile(join(app.getAppPath(), SPRY_MANIFEST), 'utf8'))
@@ -72,16 +76,19 @@ async function relayExecutable() {
 }
 const relayView = () => ({ state: hosting.state(), pairing: hosting.pairing() ?? null })
 function sendRelayState() { if (win && !win.isDestroyed()) win.webContents.send('desktop:spry-relay-state', relayView()) }
-const hosting = createRelayHost({
-  enabled: process.env.KITHMOOT_DESKTOP_RELAY === 'on',
-  identity: createRelayIdentity({ dir: join(app.getPath('userData'), 'call-relay'), safeStorage }),
-  settings: createRelaySettings({ dir: join(app.getPath('userData'), 'call-relay') }),
-  executable: relayExecutable,
-  showDialog: options => win && !win.isDestroyed() ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options),
-  changed: () => { if (app.isReady()) applyAppMenu(); sendRelayState() },
-})
+const relayChanged = () => { if (app.isReady()) applyAppMenu(); sendRelayState() }
+const relayPreview = previewFromEnvironment({ env: process.env, packaged: app.isPackaged })
+const hosting = relayPreview
+  ? createPreviewRelayHost({ ...relayPreview, changed: relayChanged, log: (...line) => console.warn(...line) })
+  : createRelayHost({
+    enabled: process.env.KITHMOOT_DESKTOP_RELAY === 'on',
+    identity: createRelayIdentity({ dir: join(app.getPath('userData'), 'call-relay'), safeStorage }),
+    settings: createRelaySettings({ dir: join(app.getPath('userData'), 'call-relay') }),
+    executable: relayExecutable,
+    changed: relayChanged,
+  })
 async function hostingStopFailure() {
-  await dialog.showMessageBox({ type: 'error', message: 'The local relay has not stopped', detail: 'KithMoot will remain open because native process exit has not been confirmed. Try Stop again before closing.', buttons: ['OK'] })
+  await dialog.showMessageBox({ type: 'error', message: 'The call relay has not stopped', detail: 'KithMoot will remain open because native process exit has not been confirmed. Try Stop again before closing.', buttons: ['OK'] })
 }
 const hostingQuit = createHostingQuitGuard({ stop: options => hosting.stop(options), quit: () => app.quit(), failed: hostingStopFailure })
 function cancelHostingQuit() {
@@ -224,7 +231,7 @@ function applyAppMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(buildAppMenuTemplate({
     platform: process.platform, appName: app.name, state: roomMenuState, run: runMenuCommand,
     ...(hosting.state().available ? {
-      hostingState: hosting.state(), hostingControls: () => { if (win && !win.isDestroyed() && !hostingQuit.quitting) void hosting.present() },
+      hostingState: hosting.state(),
       hostingStop: () => { void hosting.stop().then(stopped => { if (!stopped) void hostingStopFailure() }) },
     } : {}),
     about: showAbout, reportAbuse: () => void external('https://kithmoot.forgesworn.dev/report/'),
@@ -577,12 +584,13 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       roomMenuState = next
       applyAppMenu()
     })
-    // The account on screen and its relays, for the call relay's identity;
-    // and the relay's state and own pairing back to the page.
-    ipcMain.on('desktop:spry-relay-context', (event, value) => {
-      if (trusted(event.sender) && event.senderFrame === win.webContents.mainFrame) hosting.setContext(value)
+    // The account on screen and its relays, for the call relay's identity; the
+    // relay's state and own pairing back to the page; and the page's own
+    // Turn on, Stop, Start it when KithMoot opens and Remove keys (relay-ipc.mjs).
+    registerRelayIpc({
+      ipcMain, hosting, view: relayView,
+      allowed: event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame,
     })
-    ipcMain.handle('desktop:spry-relay-state', event => trusted(event.sender) && event.senderFrame === win.webContents.mainFrame ? relayView() : null)
     powerMonitor.on('suspend', () => { suspended = true; void hosting.stop({ block: true }) })
     // Waking brings back a relay the person had on, once there is a network.
     powerMonitor.on('resume', () => { suspended = false; if (!hostingQuit.quitting) void hosting.resume({ restart: true }) })
@@ -607,7 +615,12 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     if (app.isPackaged && !testProfile) app.setAsDefaultProtocolClient('kithmoot')
     await createWindow()
     updates.start()
-    app.on('activate', () => { if (!win) void createWindow().catch(desktopStartupFailed) })
+    // On a Mac the app outlives its window, and closing the window stopped the
+    // relay: a relay the person had on starts again when the window is back.
+    app.on('activate', () => {
+      if (win) return
+      void createWindow().then(() => { if (!suspended && !hostingQuit.quitting) hosting.reopen() }).catch(desktopStartupFailed)
+    })
   }).catch(desktopStartupFailed)
   app.on('before-quit', event => {
     if (hosting.state().available && !hostingQuit.confirmed) {

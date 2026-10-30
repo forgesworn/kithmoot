@@ -125,9 +125,6 @@ export const T = {
   indicatorName: 'Call relay on',
 } as const
 
-/** The two menu items (D-MENU), kept here with the rest of the words. */
-export const RELAY_MENU = { open: `Call relay on this ${DEVICE}…`, stop: 'Stop call relay' } as const
-
 /** Section 6.5: why this network cannot host. One table; unknown codes get the last line. */
 export const CANNOT_HOST_WORDS: Readonly<Record<string, string>> = Object.freeze({
   'no-gateway': `This ${DEVICE} has no route to the internet.`,

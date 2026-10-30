@@ -89,6 +89,12 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   // while it runs, this computer's own pairing.
   setRelayContext(context) { if (typeof context === 'object' && context !== null) ipcRenderer.send('desktop:spry-relay-context', context) },
   relayState() { return ipcRenderer.invoke('desktop:spry-relay-state') },
+  // The relay page's own controls. The main process checks the sender and every
+  // argument again; the answer says only whether it was accepted.
+  relayStart() { return ipcRenderer.invoke('desktop:spry-relay-start').catch(() => false) },
+  relayStop() { return ipcRenderer.invoke('desktop:spry-relay-stop').catch(() => false) },
+  relaySetStartOnOpen(on) { return typeof on === 'boolean' ? ipcRenderer.invoke('desktop:spry-relay-start-on-open', on).catch(() => false) : Promise.resolve(false) },
+  relayRemoveKeys() { return ipcRenderer.invoke('desktop:spry-relay-remove-keys').catch(() => false) },
   onRelayState(listener) {
     const handler = (_event, value) => listener(value)
     ipcRenderer.on('desktop:spry-relay-state', handler)

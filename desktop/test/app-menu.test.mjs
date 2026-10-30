@@ -89,24 +89,26 @@ test('nonsense from the page gives the empty state, not an error, and unknown va
   assert.ok(!('extra' in state))
 })
 
-test('native hosting controls use main-owned state and callbacks outside renderer commands', () => {
-  for (const status of ['off', 'starting', 'running', 'stopping', 'failed', 'cannot-host']) {
-    let shown = 0
+test('the call relay menu items open its page by a closed command, and Stop is main-owned', () => {
+  for (const [status, wanted, enabled] of [['off', false, false], ['off', true, true], ['starting', true, true], ['running', true, true], ['stopping', false, false],
+    ['failed', false, false], ['failed', true, true], ['cannot-host', true, true], ['cannot-host', false, false]]) {
+    const sent = []
     let stopped = 0
     const template = buildAppMenuTemplate({ platform: 'linux', appName: 'KithMoot', state: EMPTY_STATE,
-      run: () => assert.fail('hosting must not dispatch to the renderer'), about() {}, reportAbuse() {},
-      hostingState: { available: true, status }, hostingControls: () => shown++, hostingStop: () => stopped++ })
-    const controls = template[0].submenu.find(item => item.label?.startsWith('Local call relay:'))
-    assert.match(controls.label, status === 'cannot-host' ? /Can't host here/ : new RegExp(status[0].toUpperCase() + status.slice(1)))
-    controls.click()
-    assert.equal(shown, 1)
-    const stop = find(template, 'File', 'Stop local call relay')
-    assert.equal(stop.enabled, status === 'starting' || status === 'running')
+      run: command => sent.push(command), about() {}, reportAbuse() {},
+      hostingState: { available: true, status, wanted }, hostingStop: () => stopped++ })
+    const open = find(template, 'File', 'Call relay on this computer…')
+    open.click()
+    assert.deepEqual(sent, ['call-relay'])
+    const stop = find(template, 'File', 'Stop call relay')
+    assert.equal(stop.enabled, enabled, `${status} wanted=${wanted}`)
     stop.click()
     assert.equal(stopped, 1)
+    assert.equal(find(template, 'File', 'Local call relay: Off…'), undefined)
   }
   const template = buildAppMenuTemplate({ platform: 'darwin', appName: 'KithMoot', state: EMPTY_STATE,
-    run() {}, about() {}, reportAbuse() {}, hostingState: { available: false, status: 'off' }, hostingControls() {}, hostingStop() {} })
-  assert.equal(template.find(menu => menu.label === 'File').submenu.some(item => item.label?.includes('local call relay') || item.label?.includes('Local call relay')), false)
-  assert.equal(MENU_COMMANDS.some(command => command.includes('hosting') || command.includes('relay')), false)
+    run() {}, about() {}, reportAbuse() {}, hostingState: { available: false, status: 'off' }, hostingStop() {} })
+  assert.equal(template.find(menu => menu.label === 'File').submenu.some(item => /call relay/i.test(item.label ?? '')), false)
+  assert.ok(MENU_COMMANDS.includes('call-relay'))
+  assert.equal(MENU_COMMANDS.some(command => command.includes('hosting')), false)
 })

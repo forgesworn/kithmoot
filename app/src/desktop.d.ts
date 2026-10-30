@@ -46,6 +46,11 @@ declare global {
       /** The built-in call relay's state and, while it runs, this computer's own pairing. */
       relayState?(): Promise<{ state: Record<string, unknown>; pairing: unknown } | null>
       onRelayState?(listener: (value: { state: Record<string, unknown>; pairing: unknown } | null) => void): () => void
+      /** The relay page's Turn on (after its own consent dialog), Stop, Start it when KithMoot opens and Remove keys. Absent before K5. */
+      relayStart?(): Promise<boolean>
+      relayStop?(): Promise<boolean>
+      relaySetStartOnOpen?(on: boolean): Promise<boolean>
+      relayRemoveKeys?(): Promise<boolean>
       /** Open verified media in a separate, non-persistent native renderer. */
       beginAttachment?(metadata: { name: string; type: string; kind: 'image' | 'audio' | 'video'; size: number }): Promise<string | null>
       writeAttachment?(id: string, chunk: Uint8Array | ArrayBuffer, finish: boolean): Promise<boolean>
