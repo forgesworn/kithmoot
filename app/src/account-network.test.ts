@@ -198,6 +198,18 @@ describe('installation account network and production account composition', () =
     await expect(first.publish(event)).rejects.toThrow(NOSTR_MODE_REQUIRED)
   })
 
+  it('publishes ordinary events over the pool\'s own socket, not a new connection each time', async () => {
+    // Public relays rate limit and ban by IP; a heartbeat every 20 s must not
+    // open a fresh connection to every relay.
+    const h = harness('nostr'), pool = h.connections.pool('default')
+    cleanups.push(() => pool.close())
+    for (let i = 0; i < 5; i++) {
+      await pool.publish(finalizeEvent({ kind: 30078, content: `encrypted ${i}`, tags: [], created_at: 1 + i }, h.secret))
+    }
+    expect(h.relay.stored.length).toBe(5)
+    expect(h.relay.attempts).toBe(1)
+  })
+
   it('cancels a stalled socket publication and prevents retained handles from restarting after cross-tab changes', async () => {
     const h = harness('nostr'), pool = h.connections.pool('default')
     cleanups.push(() => pool.close())

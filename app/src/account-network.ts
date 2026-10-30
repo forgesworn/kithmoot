@@ -94,15 +94,22 @@ export class AccountNetwork {
   }
   requireNostr(): void { if (!this.nostr) throw new Error(NOSTR_MODE_REQUIRED) }
 
-  /** App composition boundary, before allocating a PUBLIC transport. All
-   * writes use the carrier's socket/retry guard. Closing and generations stop
-   * retained handles, callbacks, queued writes and reconnects across transitions.
-   * Private Link/Bothy transports never pass through this method. */
-  publicTransport<T extends RelayTransport>(make: () => T): T {
+  /** App composition boundary, before allocating a PUBLIC transport. `make`
+   * receives this generation's guard and should give it to every socket the
+   * transport opens, so each frame is checked immediately before it is
+   * written (see `guardedWebSocket`). Ordinary publishes then use the
+   * transport's long-lived sockets: a fresh carrier per event opened a new
+   * connection to every relay for every heartbeat and message, which public
+   * relays rate limit and ban by IP. Explicitly guarded decisions (and room
+   * handovers that must reach every relay) still use the short-lived carrier.
+   * Closing and generations stop retained handles, callbacks, queued writes
+   * and reconnects across transitions. Private Link/Bothy transports never
+   * pass through this method. */
+  publicTransport<T extends RelayTransport>(make: (guard: () => boolean) => T): T {
     this.requireNostr()
     const current = this.current()
     if (!current()) throw new Error(NOSTR_MODE_REQUIRED)
-    const transport = make()
+    const transport = make(current)
     try { if (!current()) throw new Error(NOSTR_MODE_REQUIRED) }
     catch (error) { transport.close(); throw error }
     let closed = false
@@ -114,12 +121,17 @@ export class AccountNetwork {
       get(target, property) {
         if (property === 'close') return close
         if (property === 'closed') return closed || Reflect.get(target, property, target) === true
-        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowedOrOptions: (() => boolean) | { allRelays?: boolean } = () => true, options?: { allRelays?: boolean }) => {
+        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowedOrOptions?: (() => boolean) | { allRelays?: boolean }, options?: { allRelays?: boolean }) => {
           requireLive()
-          if (!target.publishGuarded) throw new Error('A guarded public Nostr transport is required.')
-          const allowed = typeof allowedOrOptions === 'function' ? allowedOrOptions : () => true
+          const allowed = typeof allowedOrOptions === 'function' ? allowedOrOptions : undefined
           const publishOptions = typeof allowedOrOptions === 'function' ? options : allowedOrOptions
-          await target.publishGuarded(event, () => live() && allowed(), publishOptions)
+          if (property === 'publish' && !allowed && !publishOptions?.allRelays) {
+            // Over the transport's own guarded, long-lived sockets.
+            await target.publish(event)
+          } else {
+            if (!target.publishGuarded) throw new Error('A guarded public Nostr transport is required.')
+            await target.publishGuarded(event, () => live() && (allowed ? allowed() : true), publishOptions)
+          }
           requireLive()
         }
         if (property === 'subscribe') return (filters: Filter[], receive: (event: Event, via?: string) => void, eose?: () => void) => {

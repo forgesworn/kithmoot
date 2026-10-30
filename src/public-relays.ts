@@ -29,6 +29,17 @@ import { isForgeSwornHost } from './forgesworn-hosts.js'
  * operators on three hosts; at least two entries with `quietRooms`, one of
  * them a default.
  *
+ * Checked again on 30 October 2026 from a UK home line, read only, with a
+ * second UK line (a server) for reachability. relay.primal.net,
+ * relay.ditto.pub and offchain.pub passed 1 to 6 and became the defaults.
+ * nostr.oxtr.dev stopped being a default: it dropped connections from the
+ * home line while answering the server. relay.damus.io refused the home line
+ * with HTTP 503 and relay.snort.social closed its TLS; that pattern, an IP
+ * that had sent too much, is what the client changes of that date address.
+ * nos.lol, nostr.mom, relay.nostr.band and relay.nostr.net answered neither
+ * line. nostr-pub.wellorder.net took 2.6 s once (criterion 5); it does name
+ * an operator pubkey. nostr.data.haus is the first to round-trip test.
+ *
  * Checked on 21 October 2026 from the UK and from Germany. Left out:
  *  - nos.lol and nostr.mom: unreachable on 21 October, and one host.
  *  - relay.nostr.net: a default for a few hours on 21 October, until it
@@ -42,9 +53,9 @@ import { isForgeSwornHost } from './forgesworn-hosts.js'
  *    or errored.
  *  - purplepag.es: profiles only. The app still asks it for profiles.
  *
- * offchain.pub is listed but not a default, and not marked for quiet rooms:
- * it refused a stranger's gift wrap on 25 September 2026, and the write test
- * decides.
+ * offchain.pub is a default from 30 October 2026 but not marked for quiet
+ * rooms: it refused a stranger's gift wrap on 25 September 2026, and the
+ * write test decides.
  */
 export interface PublicRelay {
   /** Canonical, `wss://host/`. */
@@ -64,10 +75,10 @@ export interface PublicRelay {
 }
 
 const ENTRIES: PublicRelay[] = [
-  { url: 'wss://relay.primal.net/', operator: 'Primal Public Relay', default: true, quietRooms: true, keeps: 'under-a-day', test: 'read', checked: '2026-10-21' },
-  { url: 'wss://nostr.oxtr.dev/', operator: '0xtr relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-21' },
-  { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-21' },
-  { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: false, quietRooms: false, test: 'read', checked: '2026-10-21' },
+  { url: 'wss://relay.primal.net/', operator: 'Primal Public Relay', default: true, quietRooms: true, keeps: 'under-a-day', test: 'read', checked: '2026-10-30' },
+  { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-30' },
+  { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: true, quietRooms: false, test: 'read', checked: '2026-10-30' },
+  { url: 'wss://nostr.oxtr.dev/', operator: '0xtr relay', default: false, quietRooms: true, test: 'read', checked: '2026-10-21' },
   { url: 'wss://relay.damus.io/', operator: 'damus.io', default: false, quietRooms: false, test: 'read', checked: '2026-10-21' },
 ]
 
