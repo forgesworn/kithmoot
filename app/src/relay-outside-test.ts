@@ -100,17 +100,28 @@ function turnHostOf(urls: readonly string[]): string | undefined {
   return hosts.size === 1 ? [...hosts][0] : undefined
 }
 
-/** The nominated, succeeded pair that received bytes: its local candidate's
- *  type and address. */
+/** The pair in use: its local candidate's type and address. The pair in use
+ *  is the one a transport names as selected, and bytes it received are what
+ *  prove the path. libwebrtc's flags on that pair lag the traffic: on Android,
+ *  which shares the engine (30 October 2026), the controlling peer's working
+ *  pair said not `nominated` and the other peer's said `in-progress` while a
+ *  fresh check was out, both after the echo had crossed them. So a selected
+ *  pair needs only bytes and not to have failed; only when no transport names
+ *  a pair does the nominated, succeeded one decide. */
 async function selectedPath(pc: RTCPeerConnection): Promise<{ localType?: string; localAddress?: string } | undefined> {
   const stats = await pc.getStats()
-  let found: { localType?: string; localAddress?: string } | undefined
+  const selected: any[] = []
+  const nominated: any[] = []
   stats.forEach(stat => {
-    if (found || stat.type !== 'candidate-pair' || stat.state !== 'succeeded' || !stat.nominated || !(stat.bytesReceived > 0)) return
-    const local = stats.get(stat.localCandidateId)
-    found = { localType: local?.candidateType, localAddress: typeof local?.address === 'string' ? local.address : undefined }
+    if (stat.type === 'transport' && typeof stat.selectedCandidatePairId === 'string') {
+      const pair = stats.get(stat.selectedCandidatePairId)
+      if (pair?.type === 'candidate-pair' && pair.state !== 'failed') selected.push(pair)
+    } else if (stat.type === 'candidate-pair' && stat.nominated && stat.state === 'succeeded') nominated.push(stat)
   })
-  return found
+  const pair = (selected.length ? selected : nominated).find(stat => stat.bytesReceived > 0)
+  if (!pair) return undefined
+  const local = stats.get(pair.localCandidateId)
+  return { localType: local?.candidateType, localAddress: typeof local?.address === 'string' ? local.address : undefined }
 }
 
 /** What a host hears back from one request. */

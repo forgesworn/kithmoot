@@ -116,10 +116,10 @@ export interface RelayTestObservations {
   local?: string
   /** The data-channel echo came back. */
   echoed: boolean
-  /** Peer A's nominated, succeeded pair has a `relay` local candidate and
+  /** Peer A's selected pair (else its nominated, succeeded one) has a `relay` local candidate and
    *  received bytes. */
   pathA: boolean
-  /** Peer B's nominated, succeeded pair has a local candidate that is not
+  /** Peer B's selected pair (else its nominated, succeeded one) has a local candidate that is not
    *  `relay` and received bytes. */
   pathB: boolean
 }
