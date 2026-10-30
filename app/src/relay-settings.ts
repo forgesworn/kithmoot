@@ -1,4 +1,5 @@
 import type { AccountNetwork } from './account-network.js'
+import { guardedWebSocket } from '../../src/guarded-websocket.js'
 import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, READ_EVIDENCE_RANK, type ReadEvidence, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
@@ -278,16 +279,21 @@ export class RelayConnections {
     return this.#publicPool(scope, hints)
   }
   #publicPool(scope: string, hints: RelayHints): NostrRelayPool {
-    if (this.#accountNetwork) return this.#accountNetwork.publicTransport(() => this.#unrestrictedPublicPool(scope, hints))
+    const network = this.#accountNetwork
+    if (network) return network.publicTransport(guard => this.#unrestrictedPublicPool(scope, hints, guard, network.generation))
     return this.#unrestrictedPublicPool(scope, hints)
   }
-  #unrestrictedPublicPool(scope: string, hints: RelayHints): NostrRelayPool {
+  /** `guard`, from the account network, is checked before every frame any
+   *  socket of the pool writes; pools are shared only within its generation. */
+  #unrestrictedPublicPool(scope: string, hints: RelayHints, guard?: () => boolean, generation?: number): NostrRelayPool {
     this.#prune()
-    const key = poolKey(scope, hints)
+    const key = guard ? `${poolKey(scope, hints)}#${generation ?? 0}` : poolKey(scope, hints)
     let pool = this.#shared.get(key)
     if (!pool) {
       const configuration = this.configuration(scope, hints)
-      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
+      const Base = globalThis.WebSocket
+      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration),
+        ...(guard && Base ? { websocketImplementation: guardedWebSocket(Base, guard) } : {}) })
       const owner: PoolOwner = { scope, hints, key, holders: 0 }
       this.#pools.set(pool, owner)
       this.#shared.set(key, pool)
