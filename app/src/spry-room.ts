@@ -43,6 +43,11 @@ export interface SpryRoomOptions {
   /** Local acceptance builds only (`VITE_E2E_SPRY_LOOPBACK_TURN`): a
    *  standard node may answer with 127.0.0.1. */
   loopbackTurn?: boolean
+  /** This computer's own built-in relay's local listener, read at each
+   *  credential request for the pairing in use, given its endpoint; undefined
+   *  for any pairing that is not that relay (see
+   *  `SpryCredentialOptions.localTurn`). */
+  localTurn?: (endpoint: string) => { host: string; port: number } | undefined
 }
 
 /**
@@ -86,6 +91,7 @@ export class SpryRoom {
   #jitter: () => number
   #mayUse: (host: string | undefined) => boolean
   #loopbackTurn: boolean
+  #localTurn: (endpoint: string) => { host: string; port: number } | undefined
   /** Tokens this device withdrew; never republished. */
   #withdrawn = new Set<string>()
   // Registrar state for the grant `#registeredFor`, this session only.
@@ -118,6 +124,7 @@ export class SpryRoom {
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
     this.#mayUse = options.mayUse ?? (() => true)
     this.#loopbackTurn = options.loopbackTurn === true
+    this.#localTurn = options.localTurn ?? (() => undefined)
     // A saved offer from this device's own node is its own old grant: not
     // reused or republished while it does not share here.
     this.#offer = saved
@@ -244,7 +251,7 @@ export class SpryRoom {
     if (this.#closed || !offer || !this.#usable(offer)) throw new Error(SHARED_RELAY_UNAVAILABLE)
     const held = this.#credentials.get(offer.endpoint + ':' + offer.token)
     if (held && held.expiresAt - Date.now() / 1000 > 60) return held
-    return spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
+    return spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn, localTurn: this.pairing ? this.#localTurn(this.pairing.endpoint) : undefined })
   }
   /** A paired device always holds its room grant, for its own calls. */
   #asksOwnNode(): boolean { return !!this.pairing }
@@ -446,7 +453,7 @@ export class SpryRoom {
       if ((this.#credentials.get(id)?.expiresAt ?? 0) - now > 90) continue
       const mine = this.#own?.token === offer.token && this.#own.endpoint === offer.endpoint
       try {
-        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
+        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn, localTurn: this.pairing ? this.#localTurn(this.pairing.endpoint) : undefined })
         if (this.#closed || revision !== this.#pairRevision) return
         this.#credentials.set(id, credential)
         this.#redeemedAt.set(id, Date.now())

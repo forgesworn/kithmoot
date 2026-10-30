@@ -321,13 +321,13 @@ import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RE
 import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
-import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare, loadSpryConsent, saveSpryConsent } from './spry-pairing.js'
+import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare, loadSpryConsent, saveSpryConsent, parseAccountSpryPairing } from './spry-pairing.js'
 import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
 import { RelayOutsideTests } from './relay-outside-test.js'
 import { waitForExistingCall } from './call-startup.js'
-import { spryRequest } from '../../src/spry.js'
+import { spryRequest, localTurnUrls, type SpryPairing } from '../../src/spry.js'
 import { CALL_RELAY_PROFILE_LIMIT, INVALID_CALL_RELAY_PROFILE, parseCallRelayProfile } from './call-relay-profile.js'
 import { CALL_RELAY_CHECK_FAILED, checkCallRelay } from './call-relay-check.js'
 import { loadCallStun, parseCallStun, saveCallStun, withDeviceStun } from './call-stun.js'
@@ -2902,6 +2902,78 @@ function renderKnockChoice(): void {
 /** "Share my call relay here": only on a device paired with its own Spry,
  *  public or private, in a room it did not make. Rooms it made share
  *  already. Either way the device's own calls use its own relay. */
+/**
+ * This computer's own built-in call relay, as the desktop app's main process
+ * reports it: while it runs, its pairing and its listener on the local
+ * network. Held in memory only: never stored, synced with the account,
+ * published or put in a link. Other devices of the same person use it as
+ * they would any member's relay, through the room's offer.
+ */
+type DesktopRelayPairing = SpryPairing & { participant: string; local: { host: string; port: number } }
+let desktopRelayPairing: DesktopRelayPairing | undefined
+function parseDesktopRelayPairing(value: unknown): DesktopRelayPairing | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  try {
+    const pair = parseAccountSpryPairing(raw)
+    const local = raw.local as { host?: unknown; port?: unknown } | undefined
+    if (typeof raw.participant !== 'string' || !/^[0-9a-f]{64}$/.test(raw.participant) || !pair.endpoint.startsWith('spry:') ||
+      typeof local?.host !== 'string' || typeof local.port !== 'number') return undefined
+    localTurnUrls({ host: local.host, port: local.port })
+    return { ...pair, participant: raw.participant, local: { host: local.host, port: local.port } }
+  } catch { return undefined }
+}
+function builtInSpryPairing(participant: string): DesktopRelayPairing | undefined {
+  return desktopRelayPairing?.participant === participant ? desktopRelayPairing : undefined
+}
+/** The pairing this device's own calls use: one claimed by hand (and synced
+ *  with the account) first, else this computer's own running relay. */
+function ownSpryPairing(participant: string): SpryPairing | undefined {
+  const hand = loadSpryPairing(localStorage, participant)
+  if (hand) return hand
+  const own = builtInSpryPairing(participant)
+  return own ? { v: 1, endpoint: own.endpoint, id: own.id, secretKey: own.secretKey } : undefined
+}
+function applyDesktopRelay(value: unknown): void {
+  const next = parseDesktopRelayPairing((value as { pairing?: unknown } | null)?.pairing)
+  if (JSON.stringify(next ?? null) === JSON.stringify(desktopRelayPairing ?? null)) return
+  desktopRelayPairing = next
+  for (const active of [session, dockedCall?.session]) {
+    if (!active) continue
+    let pair: SpryPairing | undefined
+    try { pair = ownSpryPairing(active.participant) } catch { pair = undefined }
+    spryRooms.get(active)?.setPairing(pair)
+  }
+  renderSpryShareChoice()
+  renderCallRelay()
+}
+let desktopRelayContext = ''
+/** Tell the main process which account is on screen, its relays, and
+ *  whether it already uses a Spry node it paired by hand. Only on change. */
+function sendDesktopRelayContext(): void {
+  const bridge = window.kithmootDesktop
+  if (!bridge?.setRelayContext) return
+  const participant = nostrSession?.pubkey
+  let handPaired = false
+  try { handPaired = !!participant && !!loadSpryPairing(localStorage, participant) } catch { handPaired = true }
+  const relays = relayConnections.personal('default').filter(relay => relay.read && relay.write).map(relay => relay.url)
+  const context = { participant, relays, handPaired }
+  const key = JSON.stringify(context)
+  if (key === desktopRelayContext) return
+  desktopRelayContext = key
+  bridge.setRelayContext(context)
+}
+if (window.kithmootDesktop?.onRelayState) {
+  // A desktop build without the relay (or a test double) may answer with
+  // anything, and nothing here may stop the page from starting.
+  try {
+    window.kithmootDesktop.onRelayState(applyDesktopRelay)
+    Promise.resolve(window.kithmootDesktop.relayState?.()).then(applyDesktopRelay).catch(() => {})
+  } catch { /* No relay on this build. */ }
+  setTimeout(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 0)
+  setInterval(() => { try { sendDesktopRelayContext() } catch { /* No relay on this build. */ } }, 3000)
+}
+
 function renderSpryShareChoice(): void {
   const s = session
   const relay = s ? spryRooms.get(s) : undefined
@@ -2910,7 +2982,7 @@ function renderSpryShareChoice(): void {
   // keep a visitor key before a saved Nostr identity has resolved.
   let pairing: ReturnType<typeof loadSpryPairing>
   if (s && relay && spryRoomMadeHere.get(s) === false) {
-    try { pairing = loadSpryPairing(localStorage, s.participant) } catch { pairing = undefined }
+    try { pairing = ownSpryPairing(s.participant) } catch { pairing = undefined }
   }
   const shown = !!pairing
   $('spryShareRow').hidden = !shown
@@ -13896,7 +13968,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // unless this device explicitly requires a relay before any media can
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
-    const spryPairing = loadSpryPairing(localStorage, credential?.pubkey ?? currentIdentity().pubkey)
+    const spryPairing = ownSpryPairing(credential?.pubkey ?? currentIdentity().pubkey)
     const deviceRelay = spryPairing ? undefined : loadCallRelay(localStorage)
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
     let resolvedIceServers = deviceRelay ? callRelayServers(deviceRelay) : relayOnly
@@ -14272,7 +14344,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         applyCallServers(withDeviceStun(servers, deviceStun), false)
       }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer),
       { share: madeHere || chosen, mayUse: host => mayUseMemberRelay(s, relayOnly, host),
-        loopbackTurn: import.meta.env.VITE_E2E_SPRY_LOOPBACK_TURN === 'true' })
+        loopbackTurn: import.meta.env.VITE_E2E_SPRY_LOOPBACK_TURN === 'true',
+        localTurn: endpoint => { const own = builtInSpryPairing(s.participant); return own?.endpoint === endpoint ? own.local : undefined } })
       spryRooms.set(s, relay)
       relayOutsideTests.set(s, new RelayOutsideTests(s, relay))
       spryRoomMadeHere.set(s, madeHere)
@@ -18577,7 +18650,7 @@ function cancelPublicRelayCheck(): void {
 /** Whether a Spry pairing or a hand-entered relay is set, in which case no
  *  discovery query or login request is made. */
 function publicRelaysOutranked(): boolean {
-  try { return !!loadSpryPairing(localStorage, currentIdentity().pubkey) || !!loadCallRelay(localStorage) } catch { return true }
+  try { return !!ownSpryPairing(currentIdentity().pubkey) || !!loadCallRelay(localStorage) } catch { return true }
 }
 function renderPublicRelays(): void {
   const on = publicCallRelays.enabled

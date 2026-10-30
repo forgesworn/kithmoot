@@ -73,6 +73,25 @@ describe('another member\'s standard spry: offer', () => {
 
 describe('this device\'s own spry: pairing', () => {
   const own: SpryPairing = { v: 1, endpoint, id: 'c'.repeat(43), secretKey: '01'.repeat(32) }
+  it('swaps in this computer\'s local listener for its own built-in relay, after checking the node\'s answer', async () => {
+    const local = { host: '192.168.1.20', port: 30000 }
+    control.answer.mockResolvedValueOnce(answer(URLS))
+    expect((await spryCredentials(offer(), newSpryKey(), fetch, own, { localTurn: local })).urls)
+      .toEqual(['turn:192.168.1.20:30000?transport=udp', 'turn:192.168.1.20:30000?transport=tcp'])
+    // The node's own answer must still pass the public URL rule first.
+    control.answer.mockResolvedValueOnce(answer(['turn:10.0.0.1:41000?transport=udp']))
+    await expect(spryCredentials(offer(), newSpryKey(), fetch, own, { localTurn: local })).rejects.toThrow('Invalid Spry relay answer.')
+    // A local address that cannot be one is refused.
+    for (const bad of [{ host: '127.0.0.1', port: 30000 }, { host: '192.168.1.20', port: 80 }, { host: 'relay.example', port: 30000 }, { host: '169.254.1.1', port: 30000 }]) {
+      control.answer.mockResolvedValueOnce(answer(URLS))
+      await expect(spryCredentials(offer(), newSpryKey(), fetch, own, { localTurn: bad })).rejects.toThrow('Invalid Spry relay answer.')
+    }
+  })
+  it('never swaps another member\'s offer, even when asked', async () => {
+    control.answer.mockResolvedValueOnce(answer(URLS))
+    const other: SpryPairing = { ...own, endpoint: `spry://${getPublicKey(new Uint8Array(32).fill(4))}?relay=${encodeURIComponent('wss://relay.example/')}` }
+    expect((await spryCredentials(offer(), newSpryKey(), fetch, other, { localTurn: { host: '192.168.1.20', port: 30000 } })).urls).toEqual(URLS)
+  })
   it('accepts its own standard node, under the standard URL rule', async () => {
     control.answer.mockResolvedValueOnce(answer(URLS))
     expect((await spryCredentials(offer(), newSpryKey(), fetch, own)).urls).toEqual(URLS)

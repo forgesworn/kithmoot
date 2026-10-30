@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { completeSpryPairing, loadSpryPairing, parseSpryPairingInput } from './spry-pairing.js'
+import { getPublicKey } from 'nostr-tools/pure'
+import { completeSpryPairing, loadSpryPairing, parseAccountSpryPairing, parseSpryPairingInput } from './spry-pairing.js'
 
 const pairingHash = () => '#spry=' + btoa(JSON.stringify({ v: 1, endpoint: 'https://relay.example:3744', code: 'a'.repeat(43), expiresAt: Math.floor(Date.now()/1000)+100 })).replaceAll('=', '')
 
@@ -77,5 +78,18 @@ it('renders the share row from the session alone, never minting a visitor key be
   expect(start).toBeGreaterThan(-1)
   const body = main.slice(start, main.indexOf('\nfunction ', start + 1))
   expect(body).not.toMatch(/\b(currentIdentity|participantKey|localIdentity)\(/)
-  expect(body).toContain('loadSpryPairing(localStorage, s.participant)')
+  expect(body).toContain('ownSpryPairing(s.participant)')
+  // The helper reads the hand pairing and this computer's own relay by the
+  // participant it is given, and never the current identity.
+  const helper = main.slice(main.indexOf('function ownSpryPairing('), main.indexOf('\nfunction ', main.indexOf('function ownSpryPairing(') + 1))
+  expect(helper).not.toMatch(/\b(currentIdentity|participantKey|localIdentity)\(/)
+})
+
+it('keeps the endpoint a built-in relay reports exactly as the node printed it', () => {
+  // The shape of spry-node's ready line: clients compare spry: endpoints as
+  // whole strings, so any rewriting here would leave the desktop's own relay
+  // running while the page never matched its offers.
+  const endpoint = `spry://${getPublicKey(new Uint8Array(32).fill(5))}?relay=wss%3A%2F%2Frelay.primal.net%2F`
+  const pair = parseAccountSpryPairing({ v: 1, endpoint, id: 'p'.repeat(43), secretKey: '01'.repeat(32), participant: 'd'.repeat(64), local: { host: '192.168.1.20', port: 30000 } })
+  expect(pair.endpoint).toBe(endpoint)
 })

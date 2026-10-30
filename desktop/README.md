@@ -28,11 +28,14 @@ provider completion remain separate acceptance gates.
 
 ## Build and run
 
-The [optional Spry hosting preview](../docs/2026-10-26-desktop-spry-hosting.md)
-has development-only native Start/Stop controls behind an explicit owner
-configuration. It is Off on every launch. No native executable is bundled;
-packaged builds expose no hosting controls. Proton/public routing remains
-unqualified.
+The [built-in call relay](../docs/design/2026-10-28-built-in-relay.md) runs
+the bundled `spry-node` in supervised mode (`relay-host.mjs`,
+`relay-supervisor.mjs`, `relay-identity.mjs`). Until its settings screen has
+the owner's review it is reached only from a File menu dialog shown when the
+app is started with `KITHMOOT_DESKTOP_RELAY=on`, and it is Off on every launch.
+An unpackaged run uses a helper staged by `scripts/spry-helper.mjs`, or the
+absolute path in `KITHMOOT_DESKTOP_SPRY_NODE`. It replaces the
+[earlier hosting preview](../docs/2026-10-26-desktop-spry-hosting.md).
 
 The separate [mapping diagnostic](../docs/2026-10-26-proton-mapping-diagnostic.md)
 validates an owner plan without network traffic by default. Its explicit live

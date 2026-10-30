@@ -90,18 +90,18 @@ test('nonsense from the page gives the empty state, not an error, and unknown va
 })
 
 test('native hosting controls use main-owned state and callbacks outside renderer commands', () => {
-  for (const status of ['off', 'starting', 'running', 'stopping', 'failed']) {
+  for (const status of ['off', 'starting', 'running', 'stopping', 'failed', 'cannot-host']) {
     let shown = 0
     let stopped = 0
     const template = buildAppMenuTemplate({ platform: 'linux', appName: 'KithMoot', state: EMPTY_STATE,
       run: () => assert.fail('hosting must not dispatch to the renderer'), about() {}, reportAbuse() {},
       hostingState: { available: true, status }, hostingControls: () => shown++, hostingStop: () => stopped++ })
     const controls = template[0].submenu.find(item => item.label?.startsWith('Local call relay:'))
-    assert.match(controls.label, status === 'running' ? /Running \(local bind\)/ : new RegExp(status[0].toUpperCase() + status.slice(1)))
+    assert.match(controls.label, status === 'cannot-host' ? /Can't host here/ : new RegExp(status[0].toUpperCase() + status.slice(1)))
     controls.click()
     assert.equal(shown, 1)
     const stop = find(template, 'File', 'Stop local call relay')
-    assert.equal(stop.enabled, status !== 'off')
+    assert.equal(stop.enabled, status === 'starting' || status === 'running')
     stop.click()
     assert.equal(stopped, 1)
   }
