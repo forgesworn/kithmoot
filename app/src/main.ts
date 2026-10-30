@@ -4447,7 +4447,8 @@ async function deleteImportedHistoryResult(eventId: string): Promise<void> {
         if (!relays.length) publicStatus = 'Public relays: no configured writable public relay; no deletion request was sent.'
         else {
           const request = await signedPublicDeletionRequest(account, eventId, publicKind)
-          const outcomes = await new NostrPublicDeletionRelayWriter().publish(relays, request)
+          const writer = new NostrPublicDeletionRelayWriter()
+          const outcomes = await writer.publish(relays, request).finally(() => writer.close())
           publicStatus = `Public relays: ${outcomes.map(outcome => `${outcome.relay} ${outcome.status}${outcome.detail ? ` (${outcome.detail})` : ''}`).join('; ')}.`
         }
       } catch (error) {
@@ -20289,6 +20290,7 @@ async function runRoomTidyUp(): Promise<void> {
   } finally {
     --roomOperation
     tidyUpRunning = false
+    writer.close()
   }
 }
 
@@ -20667,6 +20669,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
       } finally {
         --roomOperation
         if (here) tidyUpRunning = false
+        writer.close()
       }
     })
     // Another tab holds the room's lock and is tidying it; this one only leaves.
