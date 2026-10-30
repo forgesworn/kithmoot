@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.116",
+  "currentRelease": "0.1.117",
   "releases": [
     {
-      "version": "0.1.116",
+      "version": "0.1.117",
       "updateTo": {
-        "version": "0.1.116",
-        "pub_date": "2026-10-30T07:30:00Z",
-        "notes": "The outside test of a member's built-in call relay now checks the connection actually in use.",
-        "name": "0.1.116",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.116/KithMoot-0.1.116-mac-arm64.zip",
-        "sha256": "aac41cec13f78f17ad68017b305c3c8cea24c66ee4a719d9b3ce244f93502879",
-        "size": 190136823
+        "version": "0.1.117",
+        "pub_date": "2026-10-30T15:00:00Z",
+        "notes": "Gentler with public Nostr relays: one connection per relay instead of one per message, waits when a relay is busy, new default relays.",
+        "name": "0.1.117",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.117/KithMoot-0.1.117-mac-arm64.zip",
+        "sha256": "9dbe4f5b6776752a3a62a0a1999460fa0cf757b060bcbcc29fe39408254c274e",
+        "size": 192972973
       }
     }
   ]
