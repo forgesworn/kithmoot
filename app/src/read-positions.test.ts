@@ -4,19 +4,22 @@ import { deriveRoom } from '../../src/room.js'
 import { localIdentity } from '../../src/identity.js'
 import { decodeReadPositions, encodeReadPositionsLocal, localSelfCrypt } from '../../src/read-position.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
-import { ReadPositionSync } from './read-positions.js'
+import { READ_POSITION_IDS_PER_FILTER, ReadPositionSync } from './read-positions.js'
+import type { Filter } from 'nostr-tools/filter'
+import { readPositionId } from '../../src/read-position.js'
 
 const NOW = 1_800_000_000
 
 function fakeRelay() {
   const published: Event[] = []
-  let handler: ((event: Event) => void) | undefined
+  const open = new Map<number, { filters: Filter[]; onEvent: (event: Event) => void }>()
+  let next = 0
   const relay = {
-    subscribe: (_filters: unknown, onEvent: (event: Event) => void) => { handler = onEvent; return () => { handler = undefined } },
+    subscribe: (filters: Filter[], onEvent: (event: Event) => void) => { const id = next++; open.set(id, { filters, onEvent }); return () => { open.delete(id) } },
     publish: async (event: Event) => { published.push(event) },
     close: () => {},
   } as unknown as RelayTransport
-  return { relay, published, deliver: (event: Event) => handler?.(event) }
+  return { relay, published, open, deliver: (event: Event) => { for (const sub of [...open.values()]) sub.onEvent(event) } }
 }
 
 describe('ReadPositionSync', () => {
@@ -46,6 +49,7 @@ describe('ReadPositionSync', () => {
     const ahead = vi.fn()
     const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, ahead, () => NOW)
     sync.follow(roomId, roomKey, { '': { at: 10 }, minutes: { at: 50 } })
+    await Promise.resolve()
     deliver(encodeReadPositionsLocal({ '': { at: 30 } }, { roomId, roomKey, participantSk: sk, createdAt: NOW - 5 }))
     await vi.advanceTimersByTimeAsync(0)
     expect(ahead).toHaveBeenCalledWith(roomId, { '': { at: 30 }, minutes: { at: 50 } })
@@ -114,10 +118,54 @@ describe('ReadPositionSync', () => {
     const ahead = vi.fn()
     const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, ahead, () => NOW)
     sync.follow(roomId, roomKey, {})
+    await Promise.resolve()
     deliver(encodeReadPositionsLocal({ '': { at: 30 } }, { roomId, roomKey, participantSk: generateSecretKey(), createdAt: NOW }))
     await vi.advanceTimersByTimeAsync(0)
     expect(ahead).not.toHaveBeenCalled()
     sync.close()
     vi.useRealTimers()
+  })
+
+  it('follows every room in one subscription, and routes each record to its room', async () => {
+    vi.useFakeTimers()
+    const { relay, open, deliver } = fakeRelay()
+    const ahead = vi.fn()
+    const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, ahead, () => NOW)
+    const rooms = Array.from({ length: 30 }, (_, i) => deriveRoom(new Uint8Array(32).fill(i + 1)))
+    for (const room of rooms) sync.follow(room.roomId, room.roomKey, { '': { at: 1 } })
+    await Promise.resolve()
+    expect(open.size).toBe(1)
+    const [sub] = [...open.values()]
+    expect(sub!.filters).toHaveLength(1)
+    expect(sub!.filters[0]!['#d']).toEqual(rooms.map(room => readPositionId(room.roomKey)))
+    const target = rooms[7]!
+    deliver(encodeReadPositionsLocal({ '': { at: 40 } }, { roomId: target.roomId, roomKey: target.roomKey, participantSk: sk, createdAt: NOW - 5 }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ahead).toHaveBeenCalledTimes(1)
+    expect(ahead).toHaveBeenCalledWith(target.roomId, { '': { at: 40 } })
+    // Forgetting a room narrows the one subscription; nothing is left open twice.
+    sync.forget(target.roomId)
+    await Promise.resolve()
+    expect(open.size).toBe(1)
+    expect([...open.values()][0]!.filters[0]!['#d']).not.toContain(readPositionId(target.roomKey))
+    sync.close()
+    expect(open.size).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('splits a long list of rooms across filters of one subscription', async () => {
+    const { relay, open } = fakeRelay()
+    const sync = new ReadPositionSync(localIdentity(sk), localSelfCrypt(sk), relay, () => {}, () => NOW)
+    const count = READ_POSITION_IDS_PER_FILTER * 2 + 5
+    for (let i = 0; i < count; i++) {
+      const seed = new Uint8Array(32); seed[0] = i & 0xff; seed[1] = i >> 8; seed[2] = 7
+      const room = deriveRoom(seed)
+      sync.follow(room.roomId, room.roomKey, {})
+    }
+    await Promise.resolve()
+    expect(open.size).toBe(1)
+    const filters = [...open.values()][0]!.filters
+    expect(filters.map(filter => filter['#d']!.length)).toEqual([READ_POSITION_IDS_PER_FILTER, READ_POSITION_IDS_PER_FILTER, 5])
+    sync.close()
   })
 })
