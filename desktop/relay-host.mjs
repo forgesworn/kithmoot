@@ -12,9 +12,15 @@ import { DAILY_LIMIT_BYTES, defaultSettings, localDay } from './relay-settings.m
  * It keeps the shape the window, quit and update flows in main.mjs already
  * use (`state`, `stop`, `resume`). The settings page (K5) starts, stops and
  * configures it through `start`, `stop`, `setStartOnOpen` and `removeKeys`,
- * and asks the person first; nothing here asks. It is reached only with
- * KITHMOOT_DESKTOP_RELAY=on until the owner lifts that gate.
+ * and asks the person first; nothing here asks. It is released to everyone
+ * and stays off until the person turns it on through the notice in Settings.
+ * KITHMOOT_DESKTOP_RELAY=off is the opt-out for support and tests.
  */
+
+/** Whether this build offers the relay at all: yes, unless the environment says `off`. */
+export function relayEnabled(env) {
+  return env?.KITHMOOT_DESKTOP_RELAY !== 'off'
+}
 
 const HEX64 = /^[0-9a-f]{64}$/
 const messages = {

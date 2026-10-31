@@ -6,7 +6,7 @@ import { createPackageUpdater, packageVersionFile, readPackageVersion } from './
 import { createArchiveUpdater } from './archive-updater.mjs'
 import { buildContextMenuTemplate } from './context-menu.mjs'
 import { buildAppMenuTemplate, sanitiseRoomMenuState, MENU_COMMANDS, EMPTY_STATE } from './app-menu.mjs'
-import { createRelayHost, createHostingQuitGuard } from './relay-host.mjs'
+import { createRelayHost, createHostingQuitGuard, relayEnabled } from './relay-host.mjs'
 import { createRelayIdentity } from './relay-identity.mjs'
 import { createRelaySettings } from './relay-settings.mjs'
 import { registerRelayIpc } from './relay-ipc.mjs'
@@ -58,8 +58,9 @@ const notices = new DesktopNotices({
 let win
 let suspended = false
 // The built-in call relay (docs/design/2026-10-28-built-in-relay.md). It is
-// reached from the page's own settings (the page asks first), and only with
-// KITHMOOT_DESKTOP_RELAY=on until the owner lifts that gate. A development run
+// reached from the page's own settings (the page asks first) and is released
+// to everyone: it stays off until the person turns it on, and
+// KITHMOOT_DESKTOP_RELAY=off hides it entirely. A development run
 // can show any state of the page with KITHMOOT_DESKTOP_RELAY_PREVIEW
 // (relay-preview.mjs); a packaged build ignores it.
 async function relayExecutable() {
@@ -81,7 +82,7 @@ const relayPreview = previewFromEnvironment({ env: process.env, packaged: app.is
 const hosting = relayPreview
   ? createPreviewRelayHost({ ...relayPreview, changed: relayChanged, log: (...line) => console.warn(...line) })
   : createRelayHost({
-    enabled: process.env.KITHMOOT_DESKTOP_RELAY === 'on',
+    enabled: relayEnabled(process.env),
     identity: createRelayIdentity({ dir: join(app.getPath('userData'), 'call-relay'), safeStorage }),
     settings: createRelaySettings({ dir: join(app.getPath('userData'), 'call-relay') }),
     executable: relayExecutable,

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { createRelayHost, createHostingQuitGuard, defaultRouteAddress, pickControlRelays, sanitiseRelayContext, CANNOT_HOST_TEXT } from '../relay-host.mjs'
+import { createRelayHost, createHostingQuitGuard, relayEnabled, defaultRouteAddress, pickControlRelays, sanitiseRelayContext, CANNOT_HOST_TEXT } from '../relay-host.mjs'
 import { PORTMAP_REASONS } from '../relay-supervisor.mjs'
 
 const participant = 'd'.repeat(64)
@@ -467,4 +467,12 @@ test('a window that comes back restarts a relay the person had on, and leaves on
   stopped.host.reopen()
   await tick()
   assert.equal(stopped.supervisors.made.length, 1)
+})
+
+test('the relay is offered unless KITHMOOT_DESKTOP_RELAY is off', () => {
+  assert.equal(relayEnabled({}), true)
+  assert.equal(relayEnabled({ KITHMOOT_DESKTOP_RELAY: '' }), true)
+  assert.equal(relayEnabled({ KITHMOOT_DESKTOP_RELAY: 'on' }), true)
+  assert.equal(relayEnabled({ KITHMOOT_DESKTOP_RELAY: 'off' }), false)
+  assert.equal(relayEnabled(undefined), true)
 })
