@@ -281,8 +281,8 @@ relay page only in debug builds (`ui/KithMootApp.kt:1013`,
 `ui/start/SettingsScreen.kt:158`, `ui/settings/DeveloperPage.kt:24`).
 Everything below about the released relay is true only from the releases
 that lift those gates and keep the rest of this section true.
-`[INPUT: the desktop and Android versions that ship the relay to everyone.
-The privacy notice says "in versions that offer it" until then.]`
+The gates are lifted in desktop 0.1.120 and Android 0.6.130 (owner, 31
+October 2026: "ship it"). The privacy notice names those versions.
 
 ### What is shipped and what is not
 
@@ -378,11 +378,14 @@ documentation says the node makes none (`docs/supervised-mode.md`,
 "Automatic router port opening", "Limits"). The outside check (below) is
 the only reachability test, and it runs through a room member's device.
 
-`[INPUT: which control relays the owner's own built-in relay would list. The
-relay takes them from the person's own relay list, so a relay ForgeSworn runs
-for its own use would be picked if it is on that list. Room members' devices
-would then send encrypted control requests to it, which bears on the
-standing position that ForgeSworn's servers are closed and for its own use.]`
+`[INPUT, open: which control relays the owner's own built-in relay would
+list. The relay takes them from the person's own relay list, unchanged; the
+release adds no ForgeSworn relay to anybody's list. A relay ForgeSworn runs
+for its own use would be picked only if the owner has it on their own list,
+and room members' devices would then send encrypted control requests to it,
+which bears on the standing position that ForgeSworn's servers are closed
+and for its own use. Raised with the owner on 31 October 2026, not yet
+answered.]`
 
 ### Who can use it
 
