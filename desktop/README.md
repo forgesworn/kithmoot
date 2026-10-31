@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.118 puts rooms on a few shared connections to each relay instead of one each: thirty rooms now hold three connections to a relay rather than about thirty-seven, and the account's own connections stay apart from the rooms'. Version 0.1.117 was gentler with public Nostr relays and started new installs on relay.primal.net, relay.ditto.pub and offchain.pub.
+Version 0.1.119 starts a call with fewer messages to each relay: the opening offer and its answer carry the network addresses found in their first fifth of a second, instead of each address going out on its own. A device that falls silent now stays listed for 100 seconds rather than 75, ready for a slower heartbeat in a later version. Version 0.1.118 put rooms on a few shared connections to each relay instead of one each.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.118 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.119 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
