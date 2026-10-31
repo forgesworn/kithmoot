@@ -9,10 +9,12 @@ read as a claim that no private deployment exists.
   the current private deployment, the public software and the planned choice
   of independent providers or self-hosting. It records the service and
   infrastructure distinction, the open operator-capacity input, and what is
-  not yet implemented. Its 30 October 2026 section covers the built-in call
-  relay before release: who operates it, what the person running it and
-  their guests see and reveal, the Hide my IP rule, a draft Turn on notice
-  for UI review, and where the law note leaves the home relay unsettled.
+  not yet implemented. Its section on the built-in call relay (30 October,
+  updated 31 October 2026) covers the owner's decision to release it to
+  everyone, off by default: what is built and what still gates it, who
+  operates it, what the person running it and their guests see and reveal,
+  the Hide my IP rule, the approved Turn on notice checked against the code,
+  and where the law note leaves the home relay unsettled.
 
 - [`closure-record.md`](closure-record.md) is the current record: what
   ForgeSworn ran for KithMoot users from 24 August 2026, what closed on 21
