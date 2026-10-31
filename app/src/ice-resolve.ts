@@ -5,7 +5,7 @@ import { CALL_RELAY_PROFILE_LIMIT, parseCallRelayProfile } from './call-relay-pr
 /** Said in the call when no relay is configured or the credential mint fails.
  *  It names a call relay and where to add one: "relay" alone reads as the
  *  room's Nostr relays, which carry no media. */
-export const RELAY_MISSING_NOTICE = 'No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections.'
+export const RELAY_MISSING_NOTICE = 'No call relay is set up on this device, so this call may not connect on some networks. Set one up in Settings › Calls.'
 
 /** How long a call waits for the credential mint before going on without it. */
 export const TURN_MINT_TIMEOUT_MS = 4000

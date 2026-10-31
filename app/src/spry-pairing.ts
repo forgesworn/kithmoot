@@ -31,7 +31,7 @@ export function loadSpryPairing(store: Pick<Storage, 'getItem'>, participant: st
     if (raw.participant !== participant) return undefined
     if (raw.v !== 1 || !/^[A-Za-z0-9_-]{43}$/.test(raw.id) || !/^[a-f0-9]{64}$/.test(raw.secretKey)) throw new Error()
     return { v: 1, endpoint: spryEndpoint(raw.endpoint), id: raw.id, secretKey: raw.secretKey }
-  } catch { throw new Error('The Spry pairing could not be read. Remove it in Connections and pair again.') }
+  } catch { throw new Error("The Spry pairing can't be read. Unpair it in Settings › Calls › Your Spry node, then pair again.") }
 }
 export function removeSpryPairing(store: Pick<Storage, 'removeItem'>): void { store.removeItem(KEY) }
 

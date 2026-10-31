@@ -80,7 +80,7 @@ export function spryStandardCard(value: unknown, now = Math.floor(Date.now() / 1
  *  the node could not be reached or its answer could not be read. The message
  *  is the pairing hint; callers redeeming another member's relay replace it. */
 export class SpryRequestError extends Error {
-  constructor(readonly status = 0, message = 'Spry could not connect. Check the pairing in Connections and try again.') {
+  constructor(readonly status = 0, message = "Spry couldn't connect. Check the pairing in Settings › Calls and try again.") {
     super(message)
     this.name = 'SpryRequestError'
   }

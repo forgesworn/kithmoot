@@ -64,6 +64,8 @@ export interface RelayView {
   note?: string
   /** The rail's Relay on item. */
   indicator: boolean
+  /** T-OWNCALLS: shown under the facts while running with a relay server saved. */
+  ownCalls?: string
 }
 
 export interface RelayViewInput {
@@ -73,6 +75,8 @@ export interface RelayViewInput {
   check?: RelayCheckResult
   /** A room is open that shares this relay and another device is in it. */
   canCheck: boolean
+  /** A relay server is saved on this device, so its own calls use that first. */
+  serverSaved?: boolean
   now?: Date
 }
 
@@ -117,10 +121,11 @@ export const T = {
   limit: 'Paused for today',
   limitNext: 'It starts again after midnight.',
   spry: 'You already use your own Spry relay',
-  spryNext: `Your calls go through your Spry node, so this ${DEVICE}'s relay stays off. To use this one instead, unpair Spry on the Connections page.`,
+  spryNext: `Your calls go through your Spry node, so this ${DEVICE}'s relay stays off. To use this one instead, unpair your Spry node first.`,
   noAccount: "Start or open a room first, so the relay knows whose rooms it serves.",
   otherAccount: `This ${DEVICE}'s relay is set up for another account you use here. Switch to that account to use it.`,
   noControl: 'None of your Nostr relays can carry requests for the call relay. Add one whose address starts with wss:// and uses a domain name, in Nostr relays.',
+  ownCalls: "Your own calls use your relay server, which comes first. People in your rooms can still use this relay.",
   indicator: 'Relay on',
   indicatorName: 'Call relay on',
 } as const
@@ -367,6 +372,7 @@ export function relayView(input: RelayViewInput): RelayView | undefined {
     details: detailLines(state, check, now),
     note: T.noteOn,
     indicator: true,
+    ...(input.serverSaved ? { ownCalls: T.ownCalls } : {}),
   }
 }
 

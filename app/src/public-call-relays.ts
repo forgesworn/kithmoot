@@ -3,7 +3,7 @@
  * (docs/2026-10-25-public-relay-discovery.md).
  *
  * Off until the person turns it on. When on, one query goes to the read
- * relays of this device's own Connections list for operator-signed Spry
+ * relays of this device's own Nostr relays list for operator-signed Spry
  * adverts; KithMoot ships no list of call relays and contacts no host of
  * its own for this. The person chooses a relay; the chosen operator issues
  * an hour-long login for a call, held in memory and dropped when the call
@@ -57,7 +57,7 @@ function load(store: Store): Saved | undefined {
   } catch { return undefined }
 }
 
-/** The relays the one query goes to: this device's default Connections
+/** The relays the one query goes to: this device's default Nostr relays
  *  entries marked read, less any its health reports failing. Never a room's
  *  relays, an invitation's hints or a relay added for this. */
 export function publicRelayQueryRelays(personal: readonly RelayConfig[], health: readonly RelayHealth[]): string[] {

@@ -68,7 +68,7 @@ describe('a device-owned call relay', () => {
     expect(() => parseCallRelay('turn:relay.example', 'u', 'p\n')).toThrow()
     expect(parseCallRelay('', '', '')).toBeUndefined()
     for (const text of ['{test-secret', '{"urls":[],"username":"u","credential":"test-secret"}', 'x'.repeat(16385)]) {
-      expect(() => loadCallRelay({ getItem: () => text })).toThrow('The saved call relay could not be read.')
+      expect(() => loadCallRelay({ getItem: () => text })).toThrow("The saved relay server can't be read.")
     }
   })
 })
