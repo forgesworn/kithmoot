@@ -460,6 +460,31 @@ describe('pools shared by everyone asking for the same relays', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('puts thirty rooms on two sockets to a relay, apart from the account\'s own', async () => {
+    vi.useFakeTimers()
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(url)
+      const connections = new RelayConnections(storage(), [url], undefined, { intervalMs: 60_000, visible: () => true })
+      const account = connections.pool('default')
+      account.subscribe([{ kinds: [1] }], () => {})
+      const rooms = Array.from({ length: 30 }, (_, i) => connections.pool(`room:${i.toString(16).padStart(64, '0')}`, [url]))
+      const heard = rooms.map(() => 0)
+      rooms.forEach((pool, i) => pool.subscribe([{ kinds: [30_000 + i] }], () => { heard[i]!++ }))
+      await vi.advanceTimersByTimeAsync(10)
+      // Sixteen subscriptions a socket at most: thirty rooms need two.
+      expect(relay.connections).toBe(3)
+      await account.publish(finalizeEvent({ kind: 30_007, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, generateSecretKey()))
+      await account.publish(finalizeEvent({ kind: 30_023, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, generateSecretKey()))
+      await vi.advanceTimersByTimeAsync(10)
+      expect(heard.flatMap((n, i) => n ? [i] : [])).toEqual([7, 23])
+      for (const pool of rooms) pool.close()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(relay.connections).toBe(1)
+      account.close()
+    } finally { vi.useRealTimers() }
+  })
+
   it('keeps a pool apart for another scope or other hints', async () => {
     vi.useFakeTimers()
     try {
@@ -470,7 +495,11 @@ describe('pools shared by everyone asking for the same relays', () => {
       for (const pool of pools) pool.subscribe([{ kinds: [1] }], () => {})
       await vi.advanceTimersByTimeAsync(10)
       // The last asks for the same relay as the second, written differently.
-      expect(relay.connections).toBe(3)
+      expect(new Set(pools.map(pool => pool.configuration().map(r => r.url).join()))).toHaveProperty('size', 2)
+      expect(pools[1]).not.toBe(pools[2])
+      // Three pools, but the rooms' ones share a socket; the account's
+      // default pool keeps its own.
+      expect(relay.connections).toBe(2)
       for (const pool of pools) pool.close()
     } finally { vi.useRealTimers() }
   })
