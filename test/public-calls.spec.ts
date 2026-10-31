@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join as fileJoin } from 'node:path'
 import { test, expect, type Page } from '@playwright/test'
-import { chooseCallMore, closeSettings, createRoom, joinWithMedia, newDeviceContext, openSettings, SYNTHETIC_MIC } from './browser.js'
+import { chooseCallMore, closeSettings, createRoom, joinWithMedia, newDeviceContext, openCallSettings, openSettings, SYNTHETIC_MIC } from './browser.js'
 import { parseCallRelayProfile } from '../app/src/call-relay-profile.js'
 import type { CallRelay } from '../app/src/call-relay.js'
 import { syntheticSource } from './browser-protected-share-fixture.js'
@@ -20,14 +20,13 @@ function account(transport: Transport, participant: number): CallRelay {
 }
 
 async function configure(page: Page, relay: CallRelay, check = false) {
-  await openSettings(page, 'Connections')
-  await page.getByText('Other call relays', { exact: true }).click()
-  await page.getByLabel('Call relay connection file', { exact: true }).setInputFiles({
+  await openCallSettings(page, 'Relay server')
+  await page.getByLabel('Connection file', { exact: true }).setInputFiles({
     name: 'private-operator-profile.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(relay)),
   })
-  await expect(page.locator('#callRelayStatus')).toContainText('File imported for review')
-  await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
-  await expect(page.locator('#callRelayStatus')).toContainText('Call relay saved')
+  await expect(page.locator('#callRelayStatus')).toContainText('File imported')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator('#callRelayStatus')).toContainText('Saved. Leave and reopen a room to use it.')
   if (check) {
     await page.locator('#callRelayCheck').click()
     await expect(page.locator('#callRelayStatus')).toContainText('Test data passed', { timeout: 20_000 })

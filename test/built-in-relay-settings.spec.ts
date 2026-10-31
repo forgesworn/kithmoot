@@ -85,7 +85,7 @@ async function launch(browser: Browser, baseURL: string, options: Options = {}):
 const push = (page: Page, state: State) => page.evaluate(next => (window as unknown as { __relayState(s: unknown): void }).__relayState(next), state)
 const calls = (page: Page) => page.evaluate(() => (window as unknown as { __relayCalls: { start: number; stop: number; startOnOpen: boolean[]; removeKeys: number; asked: string[] } }).__relayCalls)
 async function openRelayPage(page: Page): Promise<void> {
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Calls')
   await page.locator('#settingsRowCallRelay').click()
   await expect(page.locator('#settingsTitle')).toHaveText('Call relay on this computer')
 }
@@ -96,10 +96,10 @@ const page$ = (page: Page) => ({
 })
 const INTRO = "When two people can't connect directly, a call relay passes their encrypted audio and video along. Turn this on to let people in rooms you made use this computer as their relay. It uses your upload bandwidth while they're on a call, and they'll see your internet address. You run it, and you can stop it at any time."
 
-test('without the desktop app (no bridge), Settings > Connections has no call relay row', async ({ browser, baseURL }) => {
+test('without the desktop app (no bridge), Settings > Calls has no call relay row', async ({ browser, baseURL }) => {
   const { context, page } = await launch(browser, baseURL!, { stub: false })
   try {
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Calls')
     await expect(page.locator('#settingsRowCallRelay')).toBeHidden()
     await expect(page.locator('#railRelay')).toBeHidden()
   } finally { await context.close() }
@@ -108,16 +108,16 @@ test('without the desktop app (no bridge), Settings > Connections has no call re
 test('the row reads "Call relay on this computer", Off, only when the relay is available', async ({ browser, baseURL }) => {
   const { context, page } = await launch(browser, baseURL!, { state: { ...off, available: false } })
   try {
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Calls')
     await expect(page.locator('#settingsRowCallRelay')).toBeHidden()
     await push(page, off)
     const p = page$(page)
     await expect(p.row).toBeVisible()
     await expect(p.row.locator('.infoRowTitle')).toHaveText('Call relay on this computer')
     await expect(p.sub).toHaveText('Off')
-    // Directly after Bothy connection, in the same group.
-    const ids = await page.locator('[data-settings-page="connections"] .infoRows > button:not([hidden])').evaluateAll(rows => rows.map(row => row.id))
-    expect(ids.slice(ids.indexOf('bothySettingsOpen'), ids.indexOf('bothySettingsOpen') + 2)).toEqual(['bothySettingsOpen', 'settingsRowCallRelay'])
+    // First in the list of relays for your calls, ahead of Spry, the relay server and public relays.
+    const ids = await page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden])').evaluateAll(rows => rows.map(row => row.id))
+    expect(ids.slice(0, 4)).toEqual(['settingsRowCallRelay', 'callsRowSpry', 'callsRowServer', 'callsRowPublic'])
   } finally { await context.close() }
 })
 
@@ -219,7 +219,7 @@ test.describe('every state says what the spec says', () => {
     ['S8g', failed('ERR_SOMETHING_ELSE'), 'Stopped', "The relay couldn't start.", 'Try turning it on again.', 'Turn on…', 'Stopped'],
     ['S8h', failed('ERR_IDENTITY'), 'Stopped', "The relay's saved keys couldn't be read. This happens after switching between builds of KithMoot.", undefined, 'Remove keys…', 'Stopped'],
     ['S9', failed('ERR_DAILY_LIMIT', true), 'Paused for today', "Today's limit of 5 GB is used up.", 'It starts again after midnight.', 'Stop', 'Paused until midnight'],
-    ['S10a', failed('ERR_HAND_PAIRED'), 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair Spry on the Connections page.", undefined, '', 'Not used: you have Spry'],
+    ['S10a', failed('ERR_HAND_PAIRED'), 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair your Spry node first.", undefined, '', 'Not used: you have Spry'],
     ['S10b', failed('ERR_NO_ACCOUNT'), 'Stopped', 'Start or open a room first, so the relay knows whose rooms it serves.', undefined, 'Turn on…', 'Off'],
     ['S10c', failed('ERR_OTHER_ACCOUNT'), 'Stopped', "This computer's relay is set up for another account you use here. Switch to that account to use it.", undefined, 'Turn on…', 'Off'],
     ['S10d', failed('ERR_NO_CONTROL_RELAYS'), 'Stopped', 'None of your Nostr relays can carry requests for the call relay. Add one whose address starts with wss:// and uses a domain name, in Nostr relays.', undefined, 'Turn on…', 'Off'],
@@ -419,9 +419,10 @@ test('Relay on sits in the rail above Settings while starting or running, and op
     await expect(p.head).toHaveText('Running on this computer')
     for (const state of [{ ...off, wanted: true, status: 'starting' }, running, { ...running, control: { relays: 0 } }]) { await push(page, state); await expect(p.rail).toBeVisible() }
     for (const state of [off, { ...off, status: 'cannot-host', reason: 'vpn' }, failed('ERR_START_FAILED'), { ...running, status: 'stopping' }]) { await push(page, state); await expect(p.rail).toBeHidden() }
-    // Back goes to Connections, as every page under it does.
+    // Back goes to Calls, with focus on the row that opened the page.
     await page.locator('#settingsBack').click()
-    await expect(page.locator('#settingsTitle')).toHaveText('Connections')
+    await expect(page.locator('#settingsTitle')).toHaveText('Calls')
+    await expect(p.row).toBeFocused()
   } finally { await context.close() }
 })
 

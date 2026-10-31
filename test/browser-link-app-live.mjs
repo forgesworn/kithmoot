@@ -22,7 +22,7 @@ try {
   await page.getByRole('button',{name:/Browser extension/}).click()
   const open=async()=>{
     await page.locator('#openAppSettings').click()
-    await page.locator('#settingsRowconnections').click()
+    await page.locator('#settingsRowrelays').click()
     await page.locator('#bothySettingsOpen').click()
   }
   await open()

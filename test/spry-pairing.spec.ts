@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
-import { openSettings } from './browser.js'
+import { openCallSettings } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 function pairingHash() {
@@ -106,7 +106,7 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
     })
     await a.goto(baseURL! + '?signin=nostr')
     await a.getByRole('button', { name: /Browser extension/ }).click()
-    await openSettings(a, 'Connections')
+    await openCallSettings(a, 'Your Spry node')
     await a.locator('#spryPairingInput').fill('kithmoot://join' + pairingHash())
     await a.locator('#spryPairingAdd').click()
     const confirm = a.getByRole('alertdialog', { name: 'Pair Spry with KithMoot?' })
@@ -124,7 +124,7 @@ test('pairing one signed-in browser follows the account and unpairing reaches an
     expect(second).toEqual(first)
     expect(second.participant).toBe(pubkey)
     expect(claims).toBe(1)
-    await openSettings(a, 'Connections')
+    await openCallSettings(a, 'Your Spry node')
     await a.locator('#spryPairingRemove').click()
     await a.getByRole('alertdialog', { name: 'Unpair Spry for your account?' }).getByRole('button', { name: 'Unpair Spry', exact: true }).click()
     await expect.poll(() => b.evaluate(() => localStorage.getItem('kithmoot.spry-pairing.v1'))).toBeNull()

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Relay } from 'nostr-tools/relay'
-import { newDeviceContext, openSettings } from './browser.js'
+import { newDeviceContext, openCallSettings } from './browser.js'
 import { TEST_RELAY_WS, testRelays } from './relays.js'
 
 /**
@@ -43,8 +43,7 @@ test('the public call relay switch lists verified adverts from my own relays and
   try {
     const page = await context.newPage()
     await page.goto(baseURL!)
-    await openSettings(page, 'Connections')
-    await page.getByText('Other call relays', { exact: true }).click()
+    await openCallSettings(page, 'Public call relays')
     const toggle = page.getByLabel('Find public call relays on my Nostr relays')
     await expect(toggle).not.toBeChecked()
     await expect(page.locator('#publicRelaysPicker')).toBeHidden()
