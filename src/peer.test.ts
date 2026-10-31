@@ -125,6 +125,114 @@ describe('Peer: local network addresses', () => {
   })
 })
 
+describe('Peer: candidates written into the first description', () => {
+  /** A connection that gathers the way a real one does: `iceGatheringState`
+   *  reads `gathering` once a description is set, two candidates arrive a
+   *  turn later, and then the end-of-candidates marker unless told not to. */
+  function gathering(factory: ReturnType<typeof createFakeFactory>, opts: { finish?: boolean } = {}): FakeRTCPeerConnection {
+    const pc = factory.instances.at(-1)!
+    Object.assign(pc, { iceGatheringState: 'new' })
+    const apply = pc.setLocalDescription.bind(pc)
+    let gathered = false
+    pc.setLocalDescription = async (description) => {
+      await apply(description)
+      if (gathered) return
+      gathered = true
+      Object.assign(pc, { iceGatheringState: 'gathering' })
+      setTimeout(() => {
+        pc.emitCandidate(); pc.emitCandidate()
+        if (opts.finish !== false) {
+          Object.assign(pc, { iceGatheringState: 'complete' })
+          pc.onicecandidate?.({ candidate: null })
+        }
+      }, 0)
+    }
+    return pc
+  }
+  const lines = (sdp: string | undefined) => (sdp ?? '').split(/\r?\n/).filter(line => line.startsWith('a=candidate:'))
+
+  it('carries the candidates gathered before the offer goes, and trickles only the later ones', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      const pc = gathering(factory)
+      await peer.start([fakeAudioTrack()])
+      // The end-of-candidates marker ends the wait, not the minute-long window.
+      await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+      expect(lines(signals[0]!.sdp)).toHaveLength(2)
+      pc.emitCandidate()
+      expect(signals.map(body => body.type)).toEqual(['offer', 'ice'])
+    } finally { peer.close() }
+  })
+
+  it('trickles every held candidate after the offer when the description does not carry them', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory)
+      await peer.start([fakeAudioTrack()])
+      await vi.waitFor(() => expect(signals).toHaveLength(3), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer', 'ice', 'ice'])
+    } finally { peer.close() }
+  })
+
+  it('sends after the window when gathering never says it is done', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 40, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory, { finish: false })
+      await peer.start([fakeAudioTrack()])
+      await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+      expect(lines(signals[0]!.sdp)).toHaveLength(2)
+    } finally { peer.close() }
+  })
+
+  it('answers with the gathered candidates, and replays that same answer', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const offerer = createFakeFactory({ structuredSdp: true })
+    const remote = offerer()
+    remote.addTrack(fakeAudioTrack())
+    const offer = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: HIGH, remoteDevice: LOW, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory)
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      const answers = () => signals.filter(body => body.type === 'answer')
+      expect(answers()).toHaveLength(1)
+      expect(lines(answers()[0]!.sdp)).toHaveLength(2)
+      expect(signals.filter(body => body.type === 'ice')).toHaveLength(0)
+      // The far end asks again with the same offer: the answer it gets is
+      // the one already sent, candidates and all.
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      expect(answers()).toHaveLength(2)
+      expect(answers()[1]!.sdp).toBe(answers()[0]!.sdp)
+    } finally { peer.close() }
+  })
+
+  it('sends at once on a connection that is not gathering', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      Object.assign(factory.instances[0]!, { iceGatheringState: 'complete' })
+      await peer.start([fakeAudioTrack()]); await settle()
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+    } finally { peer.close() }
+  })
+
+  it('closing during the wait ends it', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    gathering(factory, { finish: false })
+    await peer.start([fakeAudioTrack()])
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(signals).toHaveLength(0)
+    peer.close()
+    await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
+  })
+})
+
 describe('Peer', () => {
   it('keeps a newer camera offer pending when an older correlated answer arrives', async () => {
     const factory = createFakeFactory(), signals: SignalBody[] = []

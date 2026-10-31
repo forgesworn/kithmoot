@@ -314,7 +314,9 @@ session that sent it, and a media connection is bound to the page session
 it was negotiated with - a changed `sid` for a device is a different
 endpoint, and whatever was open to the old one is closed and rebuilt rather
 than reused. Absence means unknown and reads exactly as it did before the
-field existed. Presence expires; replayed
+field existed. Presence expires: a reader drops an
+entry 100 seconds after its `updatedAt` (75 before October 2026), and a
+device restates itself every 20 seconds. Replayed
 presence is not a permanent guest list. New arrivals announce and existing
 members answer because relays need not retain presence.
 
@@ -804,6 +806,11 @@ Writers keep the existing seal-less envelope:
    track ID; coordinates are finite numbers from zero to one; a stroke has
    2–128 points. Readers discard invalid annotation bodies. An old reader
    ignores the unknown signal type, so drawing cannot disturb its call.
+   A first offer or answer may be held for up to 200 ms while its connection
+   gathers, and then carries the candidates found so far as `a=candidate`
+   lines in its `sdp`; only later candidates go out as `ice` signals. Readers
+   apply candidates from either place, as they always have for an offer
+   re-sent from its connection's current description.
 2. Include inner tags `p` = recipient device, `call-id` = room ID,
    `alt` = `KithMoot call signalling`, and `kithmoot` = `1`.
 3. Generate a fresh ephemeral signing key for each wrap. NIP-44-encrypt the
