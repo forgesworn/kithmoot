@@ -148,7 +148,7 @@ test('relay-only network privacy joins the room without a TURN allocation and re
     })
     await other.locator('#callToggle').click()
     await expect(other.locator('#status')).toContainText('no usable TURN relay')
-    await expect(other.locator('#status')).toContainText('No call relay (TURN) is set up on this device')
+    await expect(other.locator('#status')).toContainText('No call relay is set up on this device')
     await expect(other.locator('#relayMissingNote')).not.toHaveAttribute('hidden', /.*/)
     const configs = await other.evaluate(() => (window as unknown as { __iceConfigs: unknown[] }).__iceConfigs)
     // Nothing was built without relay-only; a built one has no non-relay server.
