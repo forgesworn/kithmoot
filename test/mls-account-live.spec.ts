@@ -7,7 +7,7 @@ import { witnessDaemon } from './mls-witness-daemon.js'
 const binary = process.env.BOTHYD, relay = process.env.LAB_RELAY
 test.skip(!binary || !relay, 'Set BOTHYD and LAB_RELAY for the disposable full-app lab.')
 async function settings(page: Page) {
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#mlsWitnessSettingsOpen').click()
 }
 test('full app creates and manages a witnessed device, survives reload, holds offline and switches accounts', async ({ context, page, baseURL }) => {

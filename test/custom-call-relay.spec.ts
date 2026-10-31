@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, inbound, joinWithMedia, newDeviceContext, openSettings, closeSettings, remoteAudioCount, remotePictures, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, openCallSettings, openSettings, closeSettings, remoteAudioCount, remotePictures, SYNTHETIC_MIC } from './browser.js'
 import { callRelayPeerConnection, withoutPlainTurnTcp } from '../app/src/call-relay.js'
 
 interface Relay { urls: string[]; username: string; credential: string }
@@ -26,13 +26,12 @@ test('configured URI alternatives work in the real browser constructor and retai
 })
 
 async function configure(page: Page, relay: Relay) {
-  await openSettings(page, 'Connections')
-  await page.getByText('Other call relays', { exact: true }).click()
-  await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
-  await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
-  await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)
-  await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
-  await expect(page.locator('#callRelayStatus')).toContainText('Call relay saved')
+  await openCallSettings(page, 'Relay server')
+  await page.getByLabel('Addresses', { exact: true }).fill(relay.urls.join(', '))
+  await page.getByLabel('Username', { exact: true }).fill(relay.username)
+  await page.getByLabel('Password', { exact: true }).fill(relay.credential)
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator('#callRelayStatus')).toContainText('Saved. Leave and reopen a room to use it.')
   await closeSettings(page)
 }
 
@@ -122,11 +121,16 @@ test('an existing room carries two-way audio and video through a private relay c
     }, relays[1])
     expect(refused).toEqual({ complete: true, candidates: 0 })
     await pages[1].reload()
-    await openSettings(pages[1], 'Connections')
-    await expect(pages[1].getByLabel('Relay username', { exact: true })).toHaveValue('friend')
+    await openCallSettings(pages[1], 'Relay server')
+    await expect(pages[1].getByLabel('Username', { exact: true })).toHaveValue('friend')
     await pages[1].screenshot({ path: test.info().outputPath('call-relay-settings.png') })
-    await pages[1].getByText('Other call relays', { exact: true }).click()
-    await pages[1].getByRole('button', { name: 'Remove call relay', exact: true }).click()
+    await pages[1].getByRole('button', { name: 'Remove…', exact: true }).click()
+    await expect(pages[1].locator('#actionDialog')).toContainText('Remove this relay server?')
+    await pages[1].locator('#actionCancel').click()
+    expect(await pages[1].evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).not.toBeNull()
+    await pages[1].getByRole('button', { name: 'Remove…', exact: true }).click()
+    await pages[1].locator('#actionConfirm').click()
+    await expect(pages[1].locator('#callRelayStatus')).toContainText('Removed.')
     expect(await pages[1].evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
   } finally { await Promise.all(contexts.map(context => context.close())) }
 })

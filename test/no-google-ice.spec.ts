@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, open, join, openSettings } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, open, join, openCallSettings } from './browser.js'
 
 /**
  * Regression test for the fix in docs/decisions.md, 13 September 2026:
@@ -178,7 +178,7 @@ test('a member can require credentialed relay-only ICE without querying STUN', a
   }
 })
 
-test('a STUN server saved in Connections is the only STUN its own calls use, and stays off the room link', async ({ browser, baseURL }) => {
+test('a STUN server saved in Calls › Advanced is the only STUN its own calls use, and stays off the room link', async ({ browser, baseURL }) => {
   test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
 
   const contextA = await newDeviceContext(browser, baseURL!)
@@ -194,21 +194,23 @@ test('a STUN server saved in Connections is the only STUN its own calls use, and
     const url = await createRoom(pageA, baseURL!)
 
     await pageB.goto(baseURL!)
-    await openSettings(pageB, 'Connections')
+    await openCallSettings(pageB, 'Advanced')
     const field = pageB.getByLabel('Your STUN server')
     const status = pageB.locator('#callStunStatus')
-    await expect(field).toHaveAttribute('placeholder', 'stun:stun.example.org:3478')
+    // No example in the field: it would look like a value. The example is in the note.
+    await expect(field).not.toHaveAttribute('placeholder', /.+/)
+    await expect(status).toHaveText("Using Cloudflare's public STUN server.")
 
     // A relay address is refused here, said why, and nothing is saved.
     await field.fill('turn:relay.example:3478')
     await field.press('Enter')
-    await expect(status).toHaveText('Use stun:host:3478, separated by commas. A relay goes under Call relay.')
+    await expect(status).toHaveText('Use stun:host:3478, separated by commas. A relay goes under Relay server.')
     await expect(field).toHaveAttribute('aria-invalid', 'true')
     expect(await pageB.evaluate(() => localStorage.getItem('kithmoot.call-stun.v1'))).toBeNull()
 
     await field.fill(' STUN:Home.Example:3478 ')
     await field.press('Enter')
-    await expect(status).toHaveText('Saved. Calls use it from the next room you open.')
+    await expect(status).toHaveText('Using your STUN server: home.example.')
     await expect(field).not.toHaveAttribute('aria-invalid', 'true')
     await expect(field).toHaveValue('stun:home.example:3478')
 
@@ -230,11 +232,11 @@ test('a STUN server saved in Connections is the only STUN its own calls use, and
     expect(url).not.toContain('home.example')
 
     // Clearing it goes back to the default.
-    await openSettings(pageB, 'Connections')
+    await openCallSettings(pageB, 'Advanced')
     await expect(field).toHaveValue('stun:home.example:3478')
     await field.fill('')
     await field.press('Enter')
-    await expect(status).toHaveText('Cleared. Calls use Cloudflare’s public STUN server from the next room you open.')
+    await expect(status).toHaveText("Using Cloudflare's public STUN server.")
     expect(await pageB.evaluate(() => localStorage.getItem('kithmoot.call-stun.v1'))).toBeNull()
   } finally {
     await contextA.close()

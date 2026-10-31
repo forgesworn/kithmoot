@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { chooseCallMore, createRoom, inbound, join, joinWithMedia, newDeviceContext, openSettings, closeSettings, SYNTHETIC_MIC } from './browser.js'
+import { chooseCallMore, createRoom, inbound, join, joinWithMedia, newDeviceContext, openCallSettings, openSettings, closeSettings, SYNTHETIC_MIC } from './browser.js'
 import type { CallRelay } from '../app/src/call-relay.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
 
@@ -12,21 +12,20 @@ async function account(instance: 'alpha' | 'beta', participant: number): Promise
 }
 
 async function configure(page: Page, relay: CallRelay, importFile = false): Promise<void> {
-  await openSettings(page, 'Connections')
-  await page.getByText('Other call relays', { exact: true }).click()
+  await openCallSettings(page, 'Relay server')
   if (importFile) {
-    await page.getByLabel('Call relay connection file', { exact: true }).setInputFiles({
+    await page.getByLabel('Connection file', { exact: true }).setInputFiles({
       name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(relay)),
     })
-    await expect(page.locator('#callRelayStatus')).toContainText('File imported for review')
-    await expect(page.getByLabel('Relay addresses', { exact: true })).toHaveValue(relay.urls.join(', '))
+    await expect(page.locator('#callRelayStatus')).toContainText('File imported')
+    await expect(page.getByLabel('Addresses', { exact: true })).toHaveValue(relay.urls.join(', '))
   } else {
-    await page.getByLabel('Relay addresses', { exact: true }).fill(relay.urls.join(', '))
-    await page.getByLabel('Relay username', { exact: true }).fill(relay.username)
-    await page.getByLabel('Relay password', { exact: true }).fill(relay.credential)
+    await page.getByLabel('Addresses', { exact: true }).fill(relay.urls.join(', '))
+    await page.getByLabel('Username', { exact: true }).fill(relay.username)
+    await page.getByLabel('Password', { exact: true }).fill(relay.credential)
   }
-  await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
-  await expect(page.locator('#callRelayStatus')).toContainText('Call relay saved')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.locator('#callRelayStatus')).toContainText('Saved. Leave and reopen a room to use it.')
   await closeSettings(page)
 }
 
@@ -244,31 +243,30 @@ test('connection files need review and saving; relay checks exchange real data, 
   })
   try {
     await page.goto(baseURL!)
-    await openSettings(page, 'Connections')
-  await page.getByText('Other call relays', { exact: true }).click()
+    await openCallSettings(page, 'Relay server')
     const relay = await account('beta', 0)
-    const file = page.getByLabel('Call relay connection file', { exact: true })
+    const file = page.getByLabel('Connection file', { exact: true })
     const upload = (value: unknown) => file.setInputFiles({ name: 'synthetic-call-relay.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(value)) })
     const pcs = () => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)
     const before = await pcs()
     await upload(relay)
-    await expect(page.locator('#callRelayStatus')).toContainText('File imported for review')
+    await expect(page.locator('#callRelayStatus')).toContainText('File imported')
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
     expect(await pcs()).toBe(before)
-    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
-    await expect(page.locator('#callRelayStatus')).toHaveText('Save a call relay before testing it.')
+    // Nothing is saved, so there is nothing to test yet.
+    await expect(page.getByRole('button', { name: 'Test', exact: true })).toBeHidden()
     expect(await pcs()).toBe(before)
-    await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
     const saved = await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))
     await upload({ ...relay, secret: 'synthetic-root-key-not-for-import' })
     await expect(page.locator('#callRelayStatus')).toContainText('not a supported call relay file')
     expect(await page.locator('#callRelayStatus').textContent()).not.toContain('synthetic-root-key')
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBe(saved)
-    await expect(page.getByLabel('Relay password', { exact: true })).toHaveValue(relay.credential)
+    await expect(page.getByLabel('Password', { exact: true })).toHaveValue(relay.credential)
     await file.setInputFiles({ name: 'oversize.json', mimeType: 'application/json', buffer: Buffer.alloc(16_385, 'x') })
     await expect(page.locator('#callRelayStatus')).toContainText('not a supported call relay file')
     expect(await pcs()).toBe(before)
-    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await page.getByRole('button', { name: 'Test', exact: true }).click()
     await expect(page.locator('#callRelayStatus')).toContainText('Test data passed through', { timeout: 20_000 })
     const successful = await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => ({
       policy: pc.getConfiguration().iceTransportPolicy, closed: pc.connectionState === 'closed',
@@ -276,15 +274,15 @@ test('connection files need review and saving; relay checks exchange real data, 
     expect(successful.length).toBe(before + 2)
     expect(successful.every(pc => pc.policy === 'relay' && pc.closed)).toBe(true)
     // Altering the review form must not test the previous hidden/saved endpoint.
-    await page.getByLabel('Relay password', { exact: true }).fill('synthetic-wrong-password')
-    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
-    await expect(page.locator('#callRelayStatus')).toContainText('Save the changes before testing')
+    await page.getByLabel('Password', { exact: true }).fill('synthetic-wrong-password')
+    await page.getByRole('button', { name: 'Test', exact: true }).click()
+    await expect(page.locator('#callRelayStatus')).toContainText('Save your changes first')
     expect(await pcs()).toBe(before + 2)
-    await page.getByRole('button', { name: 'Save call relay', exact: true }).click()
-    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await page.getByRole('button', { name: 'Test', exact: true }).click()
     await expect(page.locator('#callRelayStatus')).toContainText('relay test did not complete', { timeout: 20_000 })
     expect(await page.locator('#callRelayStatus').textContent()).not.toContain('synthetic-wrong-password')
-    await page.getByRole('button', { name: 'Test saved call relay', exact: true }).click()
+    await page.getByRole('button', { name: 'Test', exact: true }).click()
     await expect.poll(pcs).toBe(before + 6)
     await closeSettings(page)
     await expect.poll(() => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.every(pc => pc.connectionState === 'closed'))).toBe(true)

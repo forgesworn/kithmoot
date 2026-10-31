@@ -31,9 +31,9 @@ provider completion remain separate acceptance gates.
 The [built-in call relay](../docs/design/2026-10-28-built-in-relay.md) runs
 the bundled `spry-node` in supervised mode (`relay-host.mjs`,
 `relay-supervisor.mjs`, `relay-identity.mjs`). It is reached from Settings,
-Connections, Call relay on this computer (and File, Call relay on this
-computer…), only when the app is started with `KITHMOOT_DESKTOP_RELAY=on`, and
-it is Off on every launch. The page asks before Turn on and talks to the main
+Calls, Call relay on this computer (and File, Call relay on this
+computer…). It is released to everyone and is Off on every launch until the
+person turns it on; start the app with `KITHMOOT_DESKTOP_RELAY=off` to hide it. The page asks before Turn on and talks to the main
 process through `relay-ipc.mjs`.
 
 To see any state of that page without a router, run an unpackaged build with

@@ -29,6 +29,7 @@ interface Options {
   size?: 'standard' | 'large' | 'huge'
   viewport?: { width: number; height: number }
   hideIp?: boolean
+  storage?: Record<string, string>
   forcedColors?: boolean
   contrast?: boolean
 }
@@ -39,10 +40,11 @@ async function launch(browser: Browser, baseURL: string, options: Options = {}):
     colorScheme: options.scheme ?? 'light', ...(options.forcedColors ? { forcedColors: 'active' as const } : {}), ...(options.contrast ? { contrast: 'more' as const } : {}) })
   await context.routeWebSocket(url => url.protocol === 'wss:' && url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
-  await context.addInitScript(({ size, hideIp }) => {
+  await context.addInitScript(({ size, hideIp, storage }) => {
     if (size && size !== 'standard') localStorage.setItem('kithmoot.textSize', size)
     if (hideIp) localStorage.setItem('kithmoot.hide-ip.v1', '1')
-  }, { size: options.size, hideIp: options.hideIp })
+    for (const [key, value] of Object.entries(storage)) localStorage.setItem(key, value)
+  }, { size: options.size, hideIp: options.hideIp, storage: options.storage ?? {} })
   if (options.stub !== false) {
     await context.addInitScript(initial => {
       const listeners: Array<(value: unknown) => void> = []
@@ -85,7 +87,7 @@ async function launch(browser: Browser, baseURL: string, options: Options = {}):
 const push = (page: Page, state: State) => page.evaluate(next => (window as unknown as { __relayState(s: unknown): void }).__relayState(next), state)
 const calls = (page: Page) => page.evaluate(() => (window as unknown as { __relayCalls: { start: number; stop: number; startOnOpen: boolean[]; removeKeys: number; asked: string[] } }).__relayCalls)
 async function openRelayPage(page: Page): Promise<void> {
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Calls')
   await page.locator('#settingsRowCallRelay').click()
   await expect(page.locator('#settingsTitle')).toHaveText('Call relay on this computer')
 }
@@ -96,10 +98,10 @@ const page$ = (page: Page) => ({
 })
 const INTRO = "When two people can't connect directly, a call relay passes their encrypted audio and video along. Turn this on to let people in rooms you made use this computer as their relay. It uses your upload bandwidth while they're on a call, and they'll see your internet address. You run it, and you can stop it at any time."
 
-test('without the desktop app (no bridge), Settings > Connections has no call relay row', async ({ browser, baseURL }) => {
+test('without the desktop app (no bridge), Settings > Calls has no call relay row', async ({ browser, baseURL }) => {
   const { context, page } = await launch(browser, baseURL!, { stub: false })
   try {
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Calls')
     await expect(page.locator('#settingsRowCallRelay')).toBeHidden()
     await expect(page.locator('#railRelay')).toBeHidden()
   } finally { await context.close() }
@@ -108,16 +110,65 @@ test('without the desktop app (no bridge), Settings > Connections has no call re
 test('the row reads "Call relay on this computer", Off, only when the relay is available', async ({ browser, baseURL }) => {
   const { context, page } = await launch(browser, baseURL!, { state: { ...off, available: false } })
   try {
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Calls')
     await expect(page.locator('#settingsRowCallRelay')).toBeHidden()
     await push(page, off)
     const p = page$(page)
     await expect(p.row).toBeVisible()
     await expect(p.row.locator('.infoRowTitle')).toHaveText('Call relay on this computer')
     await expect(p.sub).toHaveText('Off')
-    // Directly after Bothy connection, in the same group.
-    const ids = await page.locator('[data-settings-page="connections"] .infoRows > button:not([hidden])').evaluateAll(rows => rows.map(row => row.id))
-    expect(ids.slice(ids.indexOf('bothySettingsOpen'), ids.indexOf('bothySettingsOpen') + 2)).toEqual(['bothySettingsOpen', 'settingsRowCallRelay'])
+    // First in the list of relays for your calls, ahead of Spry, the relay server and public relays.
+    const ids = await page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden])').evaluateAll(rows => rows.map(row => row.id))
+    expect(ids.slice(0, 4)).toEqual(['settingsRowCallRelay', 'callsRowSpry', 'callsRowServer', 'callsRowPublic'])
+  } finally { await context.close() }
+})
+
+test('Calls: the built-in row leads the list and the summary names this computer\'s relay while it runs', async ({ browser, baseURL }) => {
+  const { context, page } = await launch(browser, baseURL!, { state: inUse })
+  try {
+    await openSettings(page, 'Calls')
+    const p = page$(page)
+    await expect(p.row.locator('.infoRowTitle')).toHaveText('Call relay on this computer')
+    await expect(p.sub).toHaveText('On · in use now')
+    await expect(page.locator('#callsHead')).toHaveText("Direct, or through this computer's relay")
+    await expect(page.locator('#settingsSubcalls')).toHaveText("Direct, or through this computer's relay")
+    await expect(page.locator('#callsSubPublic')).toHaveText('Off')
+    // Public relays on: outranked by the running relay.
+    await p.rail.click()
+    await expect(page.locator('#relayOwn')).toHaveText('')
+    await page.locator('#settingsBack').click()
+    await expect(page.locator('#settingsTitle')).toHaveText('Calls')
+  } finally { await context.close() }
+})
+
+test('Calls: with a relay server saved the summary names it and the relay page says its own calls use it', async ({ browser, baseURL }) => {
+  const { context, page } = await launch(browser, baseURL!, { state: inUse, storage: { 'kithmoot.call-relay.v1': JSON.stringify({ urls: ['turn:relay.example.org:3478'], username: 'u', credential: 'p' }) } })
+  try {
+    await openSettings(page, 'Calls')
+    await expect(page.locator('#callsHead')).toHaveText('Direct, or through your relay server')
+    await expect(page.locator('#settingsSubCallRelay')).toHaveText('On · in use now')
+    await page.locator('#settingsRowCallRelay').click()
+    await expect(page.locator('#relayOwn')).toHaveText('Your own calls use your relay server, which comes first. People in your rooms can still use this relay.')
+    await push(page, off)
+    await expect(page.locator('#relayOwn')).toHaveText('')
+  } finally { await context.close() }
+})
+
+test('Calls: starting leaves the summary at Direct only, and running updates it in place without moving focus', async ({ browser, baseURL }) => {
+  const { context, page } = await launch(browser, baseURL!, { state: { ...off, wanted: true, status: 'starting' } })
+  try {
+    await openSettings(page, 'Calls')
+    const head = page.locator('#callsHead')
+    await expect(head).toHaveText('Direct only')
+    await expect(head).toHaveAttribute('aria-live', 'polite')
+    await expect(page.locator('#settingsSubCallRelay')).toHaveText('Starting…')
+    await page.locator('#callsRowSpry').focus()
+    await push(page, running)
+    await expect(head).toHaveText("Direct, or through this computer's relay")
+    await expect(page.locator('#settingsSubCallRelay')).toHaveText('On')
+    await expect(page.locator('#callsRowSpry')).toBeFocused()
+    await push(page, off)
+    await expect(head).toHaveText('Direct only')
   } finally { await context.close() }
 })
 
@@ -219,7 +270,7 @@ test.describe('every state says what the spec says', () => {
     ['S8g', failed('ERR_SOMETHING_ELSE'), 'Stopped', "The relay couldn't start.", 'Try turning it on again.', 'Turn on…', 'Stopped'],
     ['S8h', failed('ERR_IDENTITY'), 'Stopped', "The relay's saved keys couldn't be read. This happens after switching between builds of KithMoot.", undefined, 'Remove keys…', 'Stopped'],
     ['S9', failed('ERR_DAILY_LIMIT', true), 'Paused for today', "Today's limit of 5 GB is used up.", 'It starts again after midnight.', 'Stop', 'Paused until midnight'],
-    ['S10a', failed('ERR_HAND_PAIRED'), 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair Spry on the Connections page.", undefined, '', 'Not used: you have Spry'],
+    ['S10a', failed('ERR_HAND_PAIRED'), 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair your Spry node first.", undefined, '', 'Not used: you have Spry'],
     ['S10b', failed('ERR_NO_ACCOUNT'), 'Stopped', 'Start or open a room first, so the relay knows whose rooms it serves.', undefined, 'Turn on…', 'Off'],
     ['S10c', failed('ERR_OTHER_ACCOUNT'), 'Stopped', "This computer's relay is set up for another account you use here. Switch to that account to use it.", undefined, 'Turn on…', 'Off'],
     ['S10d', failed('ERR_NO_CONTROL_RELAYS'), 'Stopped', 'None of your Nostr relays can carry requests for the call relay. Add one whose address starts with wss:// and uses a domain name, in Nostr relays.', undefined, 'Turn on…', 'Off'],
@@ -419,9 +470,10 @@ test('Relay on sits in the rail above Settings while starting or running, and op
     await expect(p.head).toHaveText('Running on this computer')
     for (const state of [{ ...off, wanted: true, status: 'starting' }, running, { ...running, control: { relays: 0 } }]) { await push(page, state); await expect(p.rail).toBeVisible() }
     for (const state of [off, { ...off, status: 'cannot-host', reason: 'vpn' }, failed('ERR_START_FAILED'), { ...running, status: 'stopping' }]) { await push(page, state); await expect(p.rail).toBeHidden() }
-    // Back goes to Connections, as every page under it does.
+    // Back goes to Calls, with focus on the row that opened the page.
     await page.locator('#settingsBack').click()
-    await expect(page.locator('#settingsTitle')).toHaveText('Connections')
+    await expect(page.locator('#settingsTitle')).toHaveText('Calls')
+    await expect(p.row).toBeFocused()
   } finally { await context.close() }
 })
 

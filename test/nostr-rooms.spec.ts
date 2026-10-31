@@ -441,7 +441,7 @@ test('a private conversation is started on the relays its starter listed for pri
   try {
     const page = await ada.newPage()
     await signIn(page, baseURL!)
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Relays')
     await page.locator('#dmRelaySettingsOpen').click()
     await expect(page.locator('#dmRelayStatus')).toContainText('no list yet')
     await page.locator('#dmRelayList').fill(`wss://dm.example\n${relay.href}`)

@@ -35,7 +35,7 @@ describe('relay page states (spec 6.2)', () => {
     ['S8g', failed('ERR_SOMETHING_NEW'), false, 'Stopped', "The relay couldn't start.", 'Try turning it on again.', 'turn-on', 'Turn on…', 'Stopped'],
     ['S8h', failed('ERR_IDENTITY'), false, 'Stopped', "The relay's saved keys couldn't be read. This happens after switching between builds of KithMoot.", undefined, 'remove-keys', 'Remove keys…', 'Stopped'],
     ['S9', failed('ERR_DAILY_LIMIT', true), false, 'Paused for today', "Today's limit of 5 GB is used up.", 'It starts again after midnight.', 'stop', 'Stop', 'Paused until midnight'],
-    ['S10a', base, true, 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair Spry on the Connections page.", undefined, 'none', '', 'Not used: you have Spry'],
+    ['S10a', base, true, 'You already use your own Spry relay', "Your calls go through your Spry node, so this computer's relay stays off. To use this one instead, unpair your Spry node first.", undefined, 'none', '', 'Not used: you have Spry'],
     ['S10a', failed('ERR_HAND_PAIRED'), false, 'You already use your own Spry relay', undefined, undefined, 'none', '', 'Not used: you have Spry'],
     ['S10b', failed('ERR_NO_ACCOUNT'), false, 'Stopped', 'Start or open a room first, so the relay knows whose rooms it serves.', undefined, 'turn-on', 'Turn on…', 'Off'],
     ['S10c', failed('ERR_OTHER_ACCOUNT'), false, 'Stopped', "This computer's relay is set up for another account you use here. Switch to that account to use it.", undefined, 'turn-on', 'Turn on…', 'Off'],
@@ -56,6 +56,13 @@ describe('relay page states (spec 6.2)', () => {
   it('shows nothing before the first report, or when the relay is not available', () => {
     expect(relayView({ state: undefined, handPaired: false, canCheck: false })).toBeUndefined()
     expect(relayView({ state: { ...base, available: false }, handPaired: false, canCheck: false })).toBeUndefined()
+  })
+
+  it('T-OWNCALLS shows only while running with a relay server saved', () => {
+    const own = "Your own calls use your relay server, which comes first. People in your rooms can still use this relay."
+    expect(relayView({ state: running, handPaired: false, canCheck: false, serverSaved: true, now: NOW })!.ownCalls).toBe(own)
+    expect(relayView({ state: running, handPaired: false, canCheck: false, now: NOW })!.ownCalls).toBeUndefined()
+    expect(relayView({ state: base, handPaired: false, canCheck: false, serverSaved: true, now: NOW })!.ownCalls).toBeUndefined()
   })
 
   it('S1 shows the intro and the Off page has no Details or checkbox', () => {

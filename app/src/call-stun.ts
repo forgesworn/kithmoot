@@ -18,7 +18,7 @@ export const CALL_STUN_KEY = 'kithmoot.call-stun.v1'
 export const MAX_CALL_STUN_URLS = 4
 
 /** Said when an entry is not a plain STUN address. */
-export const CALL_STUN_FORMAT_ERROR = 'Use stun:host:3478, separated by commas. A relay goes under Call relay.'
+export const CALL_STUN_FORMAT_ERROR = 'Use stun:host:3478, separated by commas. A relay goes under Relay server.'
 
 const STUN_URL = /^stun:(\[[0-9a-f:.]+\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::([0-9]{1,5}))?$/i
 

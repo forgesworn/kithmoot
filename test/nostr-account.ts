@@ -81,7 +81,7 @@ export async function configureAccountTestRelay(page: Page, baseURL: string): Pr
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await page.goto(baseURL)
   await expect(page.locator('html[data-ordinary-startup=ready]')).toBeVisible()
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#defaultRelaySettings').click()
   await page.locator('#relayScope').selectOption('default')
   const remove = page.locator('#relayList button[aria-label^="Remove "]')

@@ -923,7 +923,7 @@ test('at 1440 Settings opens in the main pane beside the chats, with its pages a
     await expect(page.locator('#openAppSettings')).toHaveAttribute('aria-current', 'page')
     await expect(page.locator('#settingsPane')).toBeVisible()
     await expect(page.locator('#rooms')).toBeVisible()
-    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'Keyboard shortcuts', 'About and help'])
+    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help'])
     await expect(page.locator('#settingsSubaccount')).toHaveText('Just a name · sign in with Nostr')
     expect(await page.evaluate(() => document.querySelector('dialog:modal'))).toBeNull()
     const pane = await box(page, '#settingsPane'), list = await box(page, '#listColumn')
@@ -983,7 +983,7 @@ for (const scheme of ['dark', 'light'] as const) {
         await page.goto(baseURL!)
         await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
         await openSettings(page)
-        for (const where of ['Settings', 'Display', 'Connections', 'Notifications']) {
+        for (const where of ['Settings', 'Display', 'Calls', 'Relays', 'Notifications']) {
           if (where !== 'Settings') await openSettings(page, where as 'Display')
           const scan = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
           expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), `${where} ${size.width} ${scheme}`).toEqual([])
@@ -999,7 +999,7 @@ test('Settings does not scroll sideways at 320 by 640 with Huge text, on any pag
     await page.goto(baseURL!)
     await expect(page.locator('#roomList .roomRow')).toHaveCount(4, { timeout: 30_000 })
     await openSettings(page)
-    for (const where of ['Settings', 'Account', 'Notifications', 'Messages', 'Display', 'Privacy', 'Connections', 'About and help'] as const) {
+    for (const where of ['Settings', 'Account', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'About and help'] as const) {
       if (where !== 'Settings') await openSettings(page, where)
       const widths = await page.evaluate(() => ({ doc: document.documentElement.scrollWidth, pane: document.getElementById('settingsPane')!.scrollWidth, inner: innerWidth, paneClient: document.getElementById('settingsPane')!.clientWidth }))
       console.log(`settings 320 huge ${where}: ${JSON.stringify(widths)}`)
@@ -2030,18 +2030,32 @@ test('a member with no name is Somebody in the log, the roster, the came-in line
 // Stage 6 follow-up: Hide my IP address on calls is a Settings › Privacy default.
 // ---------------------------------------------------------------------------
 
-test('Hide my IP address on calls is a switch in Settings › Privacy kept as one device key, above Blocked', async ({ browser, baseURL }) => {
+test('Hide my IP address on calls is a checkbox on Settings › Calls kept as one device key, with a row on Privacy that opens it', async ({ browser, baseURL }) => {
   const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
   try {
     await page.goto(baseURL!)
     await openSettings(page, 'Privacy')
-    const toggle = page.getByLabel('Hide my IP address on calls', { exact: true })
-    await expect(toggle).not.toBeChecked()
-    await expect(page.locator('[data-settings-page="privacy"]')).toContainText('other people on the call don’t see your IP address')
+    const row = page.locator('#privacyHideIpRow')
+    await expect(row.locator('.infoRowTitle')).toHaveText('Hide my IP address on calls')
+    await expect(page.locator('#privacyHideIpState')).toHaveText('Off')
     // Above the Blocked section in the page.
-    expect(await page.evaluate(() => { const a = document.getElementById('privacyHideIp')!, b = document.getElementById('blockedSection')!; return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) })).toBe(true)
+    expect(await page.evaluate(() => { const a = document.getElementById('privacyHideIpRow')!, b = document.getElementById('blockedSection')!; return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) })).toBe(true)
+    await row.click()
+    await expect(page.locator('#settingsTitle')).toHaveText('Calls')
+    const toggle = page.getByLabel('Hide my IP address on calls', { exact: true })
+    await expect(toggle).toBeFocused()
+    await expect(toggle).not.toBeChecked()
+    await expect(page.locator('[data-settings-page="calls"]')).toContainText('so people on the call don\'t see your IP address')
     await toggle.check()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBe('1')
+    await expect(page.locator('#callsHead')).toHaveText('No relay for calls')
+    await expect(page.locator('#settingsSubcalls')).toHaveText('Hide my IP is on · no relay')
+    await page.reload()
+    await openSettings(page, 'Calls')
+    await expect(toggle).toBeChecked()
+    await openSettings(page, 'Privacy')
+    await expect(page.locator('#privacyHideIpState')).toHaveText('On')
+    await openSettings(page, 'Calls')
     await toggle.uncheck()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBeNull()
   } finally { await context.close() }

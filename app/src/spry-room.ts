@@ -27,6 +27,8 @@ export interface SpryRoomOptions {
    * its own calls and registers its own key. Defaults to true.
    */
   share?: boolean
+  /** Told the time (milliseconds) whenever this device's own node refuses or does not answer a credential request. Never stored. */
+  ownFailure?: (at: number) => void
   /** Test seam for the vouch delay, in milliseconds. */
   jitter?: () => number
   /**
@@ -114,6 +116,7 @@ export class SpryRoom {
   #vouchTimers = new Set<ReturnType<typeof setTimeout>>()
   // Early retry after a refusal.
   #windowStart = 0
+  #onOwnFailure: (at: number) => void
   #retryStep = 0
   #retryTimer?: ReturnType<typeof setTimeout>
   /** Status of the last refused redemption of another member's relay. */
@@ -126,6 +129,7 @@ export class SpryRoom {
     this.#share = options.share ?? true
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
     this.#mayUse = options.mayUse ?? (() => true)
+    this.#onOwnFailure = options.ownFailure ?? (() => {})
     this.#loopbackTurn = options.loopbackTurn === true
     this.#localTurn = options.localTurn ?? (() => undefined)
     // A saved offer from this device's own node is its own old grant: not
@@ -448,7 +452,7 @@ export class SpryRoom {
         this.#offer = this.#own = own
         this.retain(own)
         await this.publish().catch(() => {})
-      } catch (error) { failure = ownFailure = error }
+      } catch (error) { failure = ownFailure = error; this.#onOwnFailure(Date.now()) }
     }
     // Registered before the first redemption, so a node that seals every
     // grant still serves this device from its first call.
@@ -480,6 +484,7 @@ export class SpryRoom {
         failure = error
         if (mine) {
           ownFailure = error
+          this.#onOwnFailure(Date.now())
           // The grant was removed or lapsed on the node: ask again next time.
           if (error instanceof SpryRequestError && error.status === 403) this.#own = undefined
         } else if (error instanceof SpryRequestError && error.status === 403) {

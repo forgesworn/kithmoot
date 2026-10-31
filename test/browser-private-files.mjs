@@ -47,7 +47,7 @@ export async function privateFileOwnerCleanup(owner, app, proof) {
   await page.goto(app)
   await expect(page.locator('#roomArea')).toBeHidden()
   await page.locator('#openAppSettings').click()
-  if (!await page.locator('#bothySettingsOpen').isVisible()) await page.locator('#settingsRowconnections').click()
+  if (!await page.locator('#bothySettingsOpen').isVisible()) await page.locator('#settingsRowrelays').click()
   await page.locator('#bothySettingsOpen').click()
   await page.getByRole('button',{name:'Connect or resume',exact:true}).click()
   await expect(page.locator('#bothyStatus')).toContainText('Connection resumed.',{timeout:60000})
