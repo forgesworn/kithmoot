@@ -4,7 +4,7 @@ import type { PublicCallRelays } from './public-call-relays.js'
 export const PUBLIC_RELAY_DISCOVERY_PAUSED = 'Public call relay discovery is paused in private invitations. Paired nodes and manually configured connections remain available. Enable Nostr in Account network to search public relays.'
 export type PublicRelayDiscoveryTrigger = 'automatic' | 'manual'
 
-/** Connections opening is a render opportunity, not an explicit request for
+/** Opening the Public call relays page is a render opportunity, not an explicit request for
  * public account traffic. Only Find/On may present the mode-required action;
  * a private automatic visit keeps all paired/native controls usable. */
 export async function findPublicCallRelays(options: {
