@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.129",
-  "versionCode": 152,
+  "versionName": "0.6.130",
+  "versionCode": 153,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74003020,
-  "apkSha256": "b2dab7c267c92518d6269284dfd57d9d83164590cd77f206efe924e21b8cd215",
+  "apkBytes": 74015308,
+  "apkSha256": "3516024bd602348b08b85edb6b2df519b98c73969204bf14b88b9721c46ee22d",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.129-production.apk",
+  "downloadFilename": "kithmoot-0.6.130-production.apk",
   "releaseNotes": [
-    "A silent device stays in a room's list for 100 seconds rather than 75, ready for a quieter heartbeat later.",
-    "Gentler with public Nostr relays: waits when a relay is busy and stops retrying unsent messages after eight tries."
+    "Settings splits into Calls and Relays, with one line saying how your calls connect.",
+    "A call relay on this phone, off until you turn it on, carries calls for your own rooms."
   ]
 }
