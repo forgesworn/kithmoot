@@ -46,6 +46,10 @@ export interface RelayPageDeps {
   hideIp(): boolean
   /** This account has a Spry node it paired by hand. */
   handPaired(): boolean
+  /** A relay server is saved on this device, so its own calls use that before this relay. */
+  serverSaved?(): boolean
+  /** The page was drawn again (Calls follows it). */
+  onChange?(): void
   /** The room to check from, or undefined when there is none or nobody to ask. */
   checkRoom(): RelayCheckRoom | undefined
   /** Open Settings at this page (the rail's Relay on). */
@@ -75,7 +79,7 @@ export function createRelayPage(deps: RelayPageDeps) {
   let signature = ''
 
   // Who could be asked is only worked out while the relay runs: it is the one state that offers a check.
-  const view = (): RelayView | undefined => relayView({ state, handPaired: deps.handPaired(), check, canCheck: state?.status === 'running' && !!deps.checkRoom(), now: new Date(now()) })
+  const view = (): RelayView | undefined => relayView({ state, handPaired: deps.handPaired(), check, canCheck: state?.status === 'running' && !!deps.checkRoom(), serverSaved: deps.serverSaved?.() === true, now: new Date(now()) })
   const setText = (el: HTMLElement, text: string | undefined): void => { if (el.textContent !== (text ?? '')) el.textContent = text ?? '' }
 
   function render(): void {
@@ -84,12 +88,13 @@ export function createRelayPage(deps: RelayPageDeps) {
     const rail = $('railRelay')
     row.hidden = !shown
     rail.hidden = !shown?.indicator
-    if (!shown) { setText($('settingsSubCallRelay'), ''); return }
+    if (!shown) { setText($('settingsSubCallRelay'), ''); deps.onChange?.(); return }
     setText($('settingsSubCallRelay'), shown.rowSub)
     // A repeated state is not set again, so a screen reader hears only changes.
     setText($('relayRunning'), shown.line1)
     setText($('relayReachable'), shown.line2)
     setText($('relayUse'), shown.line3)
+    setText($('relayOwn'), shown.ownCalls)
     const toggle = $<HTMLButtonElement>('relayToggle')
     toggle.hidden = shown.control.kind === 'none'
     setText(toggle, shown.control.label)
@@ -114,6 +119,7 @@ export function createRelayPage(deps: RelayPageDeps) {
     // Everyone left while the picker was open: it has nobody to offer.
     const picker = document.getElementById('relayCheckChoices')?.closest('dialog')
     if (picker && !deps.checkRoom()) picker.close('cancel')
+    deps.onChange?.()
   }
 
   /** The main process's report arrived (or the room or account on screen changed). */

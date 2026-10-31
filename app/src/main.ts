@@ -326,6 +326,7 @@ import { confirmSpryPairingTarget } from './spry-pairing-prompt.js'
 import { SpryAccountSync } from './spry-account-sync.js'
 import { SpryRoom } from './spry-room.js'
 import { RelayOutsideTests } from './relay-outside-test.js'
+import { addressHost, callPathView, spryFailureLine, type CallPathInput } from './call-path-words.js'
 import { createRelayPage, type RelayCheckCandidate, type RelayCheckRoom } from './relay-settings-page.js'
 import { waitForExistingCall } from './call-startup.js'
 import { spryRequest, localTurnUrls, type SpryPairing } from '../../src/spry.js'
@@ -2101,7 +2102,8 @@ function startRoomBookmarks(account: SignetSession): void {
       else if (loadSpryPairing(localStorage, account.pubkey)) removeSpryPairing(localStorage)
       for (const active of [session, dockedCall?.session]) if (active?.participant === account.pubkey) spryRooms.get(active)?.setPairing(pair ?? undefined)
       renderSpryShareChoice()
-      renderCallRelay()
+      renderSpryPage()
+      renderCalls()
     },
     spryStatus: message => { $('spryAccountSyncStatus').textContent = message },
     changed: () => {
@@ -2948,7 +2950,8 @@ function applyDesktopRelay(value: unknown): void {
     spryRooms.get(active)?.setPairing(pair)
   }
   renderSpryShareChoice()
-  renderCallRelay()
+  renderSpryPage()
+  renderCalls()
 }
 let desktopRelayContext = ''
 /** Tell the main process which account is on screen, its relays, and
@@ -3254,6 +3257,8 @@ if (window.kithmootDesktop?.relayState) {
       bridge: window.kithmootDesktop,
       confirm: options => confirmAction(options),
       hideIp: () => hideIpDefault(),
+      serverSaved: () => { try { return !!loadCallRelay(localStorage) } catch { return true } },
+      onChange: () => { try { renderCalls() } catch { /* Settings is not ready yet; it draws itself when opened. */ } },
       handPaired: () => { try { const participant = nostrSession?.pubkey; return !!participant && !!loadSpryPairing(localStorage, participant) } catch { return true } },
       checkRoom: relayCheckRoom,
       open: openRelayPage,
@@ -3263,6 +3268,8 @@ if (window.kithmootDesktop?.relayState) {
 /** Whether this device made the room a SpryRoom serves, as `isRoomAuthority`
  *  said when its session started: a docked call keeps its own answer. */
 const spryRoomMadeHere = new WeakMap<RoomSession, boolean>()
+/** Sessions whose own calls use the relay server saved on this device, which Spry then does not carry. */
+const sessionHasRelayServer = new WeakSet<RoomSession>()
 const callPresenceReadyAt = new WeakMap<RoomSession, number>()
 /** Recording signatures always use the originating session's device key. */
 const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
@@ -5569,7 +5576,9 @@ async function joinCall(): Promise<void> {
   // this device before it refuses; an ordinary call starts and upgrades.
   const relayOnlyCall = sessionRelayOnly.get(s) === true
   let relayFailure: unknown
-  try { await spryRooms.get(s)?.prepare(relayOnlyCall) } catch (error) { relayFailure = error ?? new Error('Spry could not connect.') }
+  // A relay server on this device carries the call, so a Spry that does not answer cannot refuse it.
+  const ownRelayServer = sessionHasRelayServer.has(s)
+  if (!ownRelayServer) try { await spryRooms.get(s)?.prepare(relayOnlyCall) } catch (error) { relayFailure = error ?? new Error('Spry could not connect.') }
   if (session !== s) return
   // Hide my IP address with no relay yet, and another member's own relay on
   // offer (any transport): ask once, naming them, then use it.
@@ -14020,7 +14029,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
     const spryPairing = ownSpryPairing(credential?.pubkey ?? currentIdentity().pubkey)
-    const deviceRelay = spryPairing ? undefined : loadCallRelay(localStorage)
+    // A relay server a person saved comes first, then their Spry; a pairing is
+    // still shared in their rooms either way.
+    let deviceRelay: CallRelay | undefined
+    try { deviceRelay = loadCallRelay(localStorage) } catch (error) { if (!spryPairing) throw error }
     const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
     let resolvedIceServers = deviceRelay ? callRelayServers(deviceRelay) : relayOnly
       ? await resolveIceServers(roomIceUrls, deviceRelay)
@@ -14385,17 +14397,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       }
       return !failed
     }
-    if (!roomUsesBothy && !deviceRelay) {
+    if (deviceRelay) sessionHasRelayServer.add(s)
+    if (!roomUsesBothy && (!deviceRelay || spryPairing)) {
       let chosen = false
       try { chosen = loadSpryShare(localStorage, s.participant, s.roomId) } catch { /* Storage blocked: not shared. */ }
       const relay = new SpryRoom(s, spryPairing, servers => {
         if (!alive()) return
+        // The relay server outranks Spry for this device's own calls.
+        if (deviceRelay) return
         spryActive = true
         // The room's Spry offer outranks a discovered relay.
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
         applyCallServers(withDeviceStun(servers, deviceStun), false)
       }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer),
-      { share: madeHere || chosen, mayUse: host => mayUseMemberRelay(s, relayOnly, host),
+      { share: madeHere || chosen,
+        ownFailure: at => { if (spryPairing && loadSpryPairing(localStorage, s.participant)) { spryFailedAt = at; renderSpryPage(); renderCalls() } },
+        mayUse: host => mayUseMemberRelay(s, relayOnly, host),
         loopbackTurn: import.meta.env.VITE_E2E_SPRY_LOOPBACK_TURN === 'true',
         localTurn: endpoint => { const own = builtInSpryPairing(s.participant); return own?.endpoint === endpoint ? own.local : undefined } })
       spryRooms.set(s, relay)
@@ -18495,19 +18512,26 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
-  if (name !== 'connections') { cancelCallRelayActions(); cancelPublicRelayCheck() }
+  if (name !== 'callServer') cancelCallRelayActions()
+  if (name !== 'callPublic') cancelPublicRelayCheck()
   if (name !== 'account') closeAccountMessageViews()
   const previous = settingsPage
   settingsPage = name
   reconcileAccountMessageViews()
-  if (name !== 'main' && row) settingsRow = row
+  // Back to the list lands on the list's row, so only a row of the list is remembered.
+  if (name !== 'main' && row?.closest('[data-settings-page="main"]')) settingsRow = row
   for (const page of settingsPane.querySelectorAll<HTMLElement>('[data-settings-page]')) page.hidden = page.dataset.settingsPage !== name
   $('settingsTitle').textContent = name === 'main' ? 'Settings' : settingsPane.querySelector<HTMLElement>(`[data-settings-page="${name}"]`)?.dataset.settingsTitle ?? 'Settings'
   $('settingsBack').hidden = name === 'main' && !ONE_PANE_SETTINGS.matches
   settingsPane.dataset.page = name
   settingsPane.scrollTop = 0
   if (name === 'files') renderFilesSettings()
-  if (name === 'connections') { renderPublicRelays(); void findPublicRelays() }
+  if (name === 'calls') renderCalls()
+  if (name === 'callSpry') renderSpryPage()
+  if (name === 'callServer') renderRelayServer()
+  if (name === 'callAdvanced') renderCallStun()
+  // The public lookup asks every Nostr relay for adverts, so it runs only on its own page.
+  if (name === 'callPublic') { renderPublicRelays(); void findPublicRelays() }
   if (!focus) return
   if (name === 'main' && previous !== 'main' && settingsRow?.isConnected) settingsRow.focus({ preventScroll: true })
   else $('settingsTitle').focus({ preventScroll: true })
@@ -18530,7 +18554,6 @@ function renderSettingsRows(): void {
   renderCallRelay()
   renderPublicRelays()
   renderCallStun()
-  ;($('privacyHideIp') as HTMLInputElement).checked = hideIpDefault()
   setInfoSub('settingsSubaccount', nostrSession ? 'Signed in with Nostr' : 'Just a name · sign in with Nostr')
   setInfoSub('privacyProfilesState', profilesEnabled ? 'On' : 'Off')
   renderFilesSettings()
@@ -18547,24 +18570,128 @@ function cancelCallRelayActions(): void {
   ;($('callRelayFile') as HTMLInputElement).value = ''
 }
 
+/** Text is set only when it changes, so a live region speaks once, not on every refresh. */
+function setIfChanged(el: HTMLElement, text: string): void { if (el.textContent !== text) el.textContent = text }
+function setShown(el: HTMLElement, shown: boolean): void { if (el.hidden === shown) el.hidden = !shown }
+
+/** The last time this device's own Spry node did not answer a credential request.
+ *  In memory for this run of the app, never stored: it is a report, not a probe. */
+let spryFailedAt: number | undefined
+
+/** Everything Settings › Calls says is worked out from the same settings a call is built from. */
+function callPathInput(): CallPathInput {
+  let spry: CallPathInput['spry'] = { state: 'none' }
+  try {
+    if (loadSpryPairing(localStorage, currentIdentity().pubkey)) spry = { state: 'paired', ...(spryFailedAt !== undefined ? { failedAt: spryFailedAt } : {}) }
+  } catch { spry = { state: 'unreadable' } }
+  let server: CallPathInput['server'] = { state: 'none' }
+  try {
+    const relay = loadCallRelay(localStorage)
+    if (relay) server = { state: 'saved', host: addressHost(relay.urls[0]) }
+  } catch { server = { state: 'unreadable' } }
+  let stun: string | undefined
+  try { stun = loadCallStun(localStorage)?.[0] } catch { stun = undefined }
+  const built = relayPage?.view
+  return {
+    ...(built ? { builtIn: { running: built.running, rowSub: built.rowSub } } : {}),
+    spry, server, ...(stun ? { stun } : {}),
+    publicRelays: { enabled: publicCallRelays.enabled, chosen: !!(publicCallRelays.selected ?? publicCallRelays.lastGood?.key) },
+    hideIp: hideIpDefault(),
+  }
+}
+
+/** The Calls page and the lines that depend on it: the Settings list, Privacy's row. */
+function renderCalls(): void {
+  const input = callPathInput()
+  const view = callPathView(input)
+  setIfChanged($('callsHead'), view.head)
+  setIfChanged($('callsBody'), view.body)
+  setIfChanged($('callsFailure'), view.failure ?? '')
+  setShown($('callsFailure'), !!view.failure)
+  setIfChanged($('callsSubSpry'), view.rows.spry)
+  setIfChanged($('callsSubServer'), view.rows.server)
+  setIfChanged($('callsSubPublic'), view.rows.public)
+  setIfChanged($('callsSubAdvanced'), view.rows.advanced)
+  setIfChanged($('settingsSubcalls'), view.rootSub)
+  setIfChanged($('privacyHideIpState'), input.hideIp ? 'On' : 'Off')
+  ;($('privacyHideIp') as HTMLInputElement).checked = input.hideIp
+}
+
+/** The whole of the call settings, drawn afresh (entering Settings, a new account). */
 function renderCallRelay(): void {
-  cancelCallRelayActions()
-  $('spryAccountSync').hidden = !nostrSession?.signer.nip44
-  if (!$('spryAccountSyncStatus').textContent) $('spryAccountSyncStatus').textContent = nostrSession
-    ? 'Pairing while signed in is shared, encrypted, with your other Nostr devices. Choose Sync Spry to share an existing local pairing or retry.'
-    : 'This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices.'
+  renderSpryPage()
+  renderRelayServer()
+  renderCalls()
+}
+
+/** Your Spry node: the form to pair, or the pairing that is held. */
+function renderSpryPage(): void {
+  const signedIn = !!nostrSession
+  setIfChanged($('spryAccountNote'), signedIn
+    ? 'Your pairing is shared, encrypted, with your other devices signed in to this Nostr account.'
+    : 'The pairing stays on this device. Sign in with Nostr first to share it with your other devices.')
+  $('spryExcl').hidden = !relayPage
+  let state: 'none' | 'paired' | 'unreadable' = 'none'
+  let head = ''
+  let fact = ''
   try {
     const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
-    $('spryPairingStatus').textContent = pairing ? `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}. Your calls use it everywhere. It is shared automatically in rooms you make; in other rooms, turn it on in Privacy and connection.` : 'Install Spry, then choose Pair with KithMoot.'
-    $('spryPairingRemove').hidden = !pairing
-  } catch { $('spryPairingStatus').textContent = 'The Spry pairing is unavailable. Remove it and pair again.'; $('spryPairingRemove').hidden = false }
+    if (pairing) {
+      state = 'paired'
+      head = `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}`
+      fact = "Your calls use it everywhere. Rooms you make share it. In other rooms, turn on Share my call relay here in the room's Privacy and connection."
+    }
+  } catch {
+    state = 'unreadable'
+    head = "Your Spry pairing can't be read"
+    fact = 'Unpair it, then pair again.'
+  }
+  $('spryUnpaired').hidden = state !== 'none'
+  $('sprySet').hidden = state === 'none'
+  setIfChanged($('spryOnHead'), head)
+  setIfChanged($('spryOnFact'), fact)
+  const failure = state === 'paired' && spryFailedAt !== undefined ? spryFailureLine(spryFailedAt, hideIpDefault()) : ''
+  setIfChanged($('spryFailure'), failure)
+  setShown($('spryFailure'), !!failure)
+  $('spryPairingRemove').hidden = state === 'none'
+  $('spryAccountSync').hidden = state !== 'paired' || !nostrSession?.signer.nip44
+}
+
+/** Relay server: fills the fields from the saved login and shows only the buttons that apply. */
+function renderRelayServer(status = ''): void {
+  cancelCallRelayActions()
+  clearCallRelayErrors()
+  let state: 'none' | 'saved' | 'unreadable' = 'none'
   try {
     const relay = loadCallRelay(localStorage)
     ;($('callRelayUrls') as HTMLInputElement).value = relay?.urls.join(', ') ?? ''
     ;($('callRelayUsername') as HTMLInputElement).value = relay?.username ?? ''
     ;($('callRelayPassword') as HTMLInputElement).value = relay?.credential ?? ''
-    $('callRelayStatus').textContent = relay ? 'A call relay is saved on this device.' : 'No call relay is saved.'
-  } catch { $('callRelayStatus').textContent = 'The saved call relay could not be read. Save it again or remove it.' }
+    if (relay) { state = 'saved'; setIfChanged($('callRelayHead'), `Set up: ${addressHost(relay.urls[0])}`) }
+  } catch {
+    state = 'unreadable'
+    status = "The saved relay server can't be read. Save it again or remove it."
+  }
+  setShown($('callRelayOn'), state === 'saved')
+  setShown($('callRelayReopen'), state === 'saved')
+  setShown($('callRelayCheck'), state === 'saved')
+  setShown($('callRelayRemove'), state !== 'none')
+  $('callRelayStatus').textContent = status
+}
+
+const CALL_RELAY_FIELDS = ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']
+function clearCallRelayErrors(): void {
+  for (const id of CALL_RELAY_FIELDS) $(id).removeAttribute('aria-invalid')
+  $('callRelayFieldError').textContent = ''
+}
+/** A refused entry: the parser's message beside the fields, and the fields it is about marked. */
+function showCallRelayError(message: string): void {
+  const addressesOnly = message.startsWith('Use turn:')
+  for (const id of CALL_RELAY_FIELDS) {
+    if (!addressesOnly || id === 'callRelayUrls') $(id).setAttribute('aria-invalid', 'true')
+    else $(id).removeAttribute('aria-invalid')
+  }
+  $('callRelayFieldError').textContent = message
 }
 
 $('spryPairingRemove').addEventListener('click', async () => {
@@ -18573,15 +18700,19 @@ $('spryPairingRemove').addEventListener('click', async () => {
   try {
     const account = nostrSession
     const participant = currentIdentity().pubkey
-    const pair = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    let pair: ReturnType<typeof loadSpryPairing>
+    try { pair = loadSpryPairing(localStorage, currentIdentity().pubkey) } catch { pair = undefined }
     if (account && spryAccountSync && !await confirmAction({ title: 'Unpair Spry for your account?', message: 'This revokes this pairing for every device that loaded it from your Nostr account. Existing call access can take up to five minutes to expire.', confirmLabel: 'Unpair Spry', danger: true, isCurrent: () => nostrSession === account && currentIdentity().pubkey === participant })) return
     if (pair) await spryRequest(pair.endpoint, '/v1/pairings/remove-self', { id: pair.id }, pair.secretKey)
     if (nostrSession !== account || currentIdentity().pubkey !== participant) return
     removeSpryPairing(localStorage)
+    spryFailedAt = undefined
     if (account) await spryAccountSync?.save(null)
     for (const active of [session, dockedCall?.session]) if (active) { closeSpryRoom(active); spryRooms.delete(active); relayOutsideTests.delete(active) }
     renderSpryShareChoice()
-    renderCallRelay()
+    renderSpryPage()
+    renderCalls()
+    $('spryPairingStatus').textContent = ''
     setStatus('Spry unpaired. Existing relay access expires within five minutes.')
   } catch { setStatus('Spry could not be unpaired. Check your connection and try again, or remove the pairing on your node.') }
   finally { button.disabled = false }
@@ -18592,9 +18723,11 @@ $('spryPairingAdd').addEventListener('click', () => {
   try {
     const hash = parseSpryPairingInput(input.value)
     input.value = ''
+    input.removeAttribute('aria-invalid')
     void pairSpryOnThisDevice(hash, true)
   } catch {
     $('spryPairingStatus').textContent = 'That pairing link is invalid or expired. Copy a fresh link from Spry, including the part after #.'
+    input.setAttribute('aria-invalid', 'true')
     input.focus()
   }
 })
@@ -18618,24 +18751,28 @@ $('spryAccountSync').addEventListener('click', async () => {
 
 $('callRelaySave').addEventListener('click', () => {
   cancelCallRelayActions()
+  clearCallRelayErrors()
   try {
     const relay = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
       ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
     saveCallRelay(localStorage, relay)
-    $('callRelayStatus').textContent = relay ? 'Call relay saved. Leave and reopen the room to use it.' : 'Call relay removed. Leave and reopen the room to apply this.'
+    renderRelayServer(relay ? 'Saved. Leave and reopen a room to use it.' : 'Removed. Leave and reopen a room to stop using it.')
+    renderCalls()
   } catch (error) {
     const message = error instanceof Error ? error.message : ''
-    $('callRelayStatus').textContent = message.startsWith('Enter a TURN') || message.startsWith('Use turn:')
-      ? message : 'The call relay could not be saved. Check browser storage and try again.'
+    if (message.startsWith('Enter a TURN') || message.startsWith('Use turn:')) showCallRelayError(message)
+    else $('callRelayStatus').textContent = 'The relay server could not be saved. Check browser storage and try again.'
   }
 })
-$('callRelayRemove').addEventListener('click', () => {
+$('callRelayRemove').addEventListener('click', async () => {
   cancelCallRelayActions()
+  if (!await confirmAction({ title: 'Remove this relay server?', message: 'Its address and login are deleted from this device. Your calls stop using it the next time you open a room.', confirmLabel: 'Remove', danger: true })) return
   try {
     saveCallRelay(localStorage, undefined)
-    renderCallRelay()
-    $('callRelayStatus').textContent = 'Call relay removed. Leave and reopen the room to apply this.'
-  } catch { $('callRelayStatus').textContent = 'The call relay could not be removed. Check browser storage and try again.' }
+    renderRelayServer('Removed. Leave and reopen a room to stop using it.')
+    renderCalls()
+    ;($('callRelayUrls') as HTMLInputElement).focus()
+  } catch { $('callRelayStatus').textContent = 'The relay server could not be removed. Check browser storage and try again.' }
 })
 
 $('callRelayImport').addEventListener('click', () => ($('callRelayFile') as HTMLInputElement).click())
@@ -18649,15 +18786,16 @@ $('callRelayFile').addEventListener('change', async () => {
     if (file.size > CALL_RELAY_PROFILE_LIMIT) throw new Error()
     const relay = parseCallRelayProfile(await file.text())
     if (generation !== callRelayActionGeneration) return
+    clearCallRelayErrors()
     ;($('callRelayUrls') as HTMLInputElement).value = relay.urls.join(', ')
     ;($('callRelayUsername') as HTMLInputElement).value = relay.username
     ;($('callRelayPassword') as HTMLInputElement).value = relay.credential
-    $('callRelayStatus').textContent = 'File imported for review. Check the addresses, then save. Importing has made no connection and has not saved the login.'
+    $('callRelayStatus').textContent = 'File imported. Check the addresses, then save. Nothing has been sent or saved yet.'
   } catch {
     if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = INVALID_CALL_RELAY_PROFILE
   }
 })
-for (const id of ['callRelayUrls', 'callRelayUsername', 'callRelayPassword']) $(id).addEventListener('input', cancelCallRelayActions)
+for (const id of CALL_RELAY_FIELDS) $(id).addEventListener('input', cancelCallRelayActions)
 $('callRelayCheck').addEventListener('click', async () => {
   cancelCallRelayActions()
   const generation = callRelayActionGeneration
@@ -18665,17 +18803,17 @@ $('callRelayCheck').addEventListener('click', async () => {
   callRelayCheckAbort = controller
   try {
     const relay = loadCallRelay(localStorage)
-    if (!relay) { $('callRelayStatus').textContent = 'Save a call relay before testing it.'; return }
+    if (!relay) { $('callRelayStatus').textContent = 'Save a relay server before testing it.'; return }
     const reviewed = parseCallRelay(($('callRelayUrls') as HTMLInputElement).value,
       ($('callRelayUsername') as HTMLInputElement).value, ($('callRelayPassword') as HTMLInputElement).value)
     if (JSON.stringify(reviewed) !== JSON.stringify(relay)) {
-      $('callRelayStatus').textContent = 'Save the changes before testing, so the test uses the addresses shown here.'
+      $('callRelayStatus').textContent = 'Save your changes first, so the test uses the addresses shown here.'
       return
     }
     ;($('callRelayCheck') as HTMLButtonElement).disabled = true
-    $('callRelayStatus').textContent = 'Testing the saved relay with temporary connections…'
+    $('callRelayStatus').textContent = 'Testing your relay…'
     await checkCallRelay(relay, controller.signal)
-    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your saved relay. This checks this device, not a call with someone else.'
+    if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = 'Test data passed through your relay. This checks this device, not a call with someone else.'
   } catch {
     if (generation === callRelayActionGeneration) $('callRelayStatus').textContent = CALL_RELAY_CHECK_FAILED
   } finally {
@@ -18773,6 +18911,7 @@ function renderPublicRelays(): void {
   }))
   ;($('publicRelaysCheck') as HTMLButtonElement).disabled = !selected || !listed.some(entry => entry.key === selected) || !!publicRelayCheckAbort
   $('publicRelaysForget').hidden = !publicCallRelays.lastGood && !publicCallRelays.selected
+  renderCalls()
 }
 /** One discovery query when the picker opens or is asked to look again. */
 function findPublicRelays(trigger: PublicRelayDiscoveryTrigger = 'automatic'): Promise<void> {
@@ -18826,8 +18965,15 @@ $('publicRelaysCheck').addEventListener('click', async () => {
 
 /** Shows this device's own STUN choice; blank means the default. */
 function renderCallStun(): void {
-  ;($('callStun') as HTMLInputElement).value = loadCallStun(localStorage)?.join(', ') ?? ''
-  $('callStunStatus').textContent = ''
+  let urls: string[] | undefined
+  try { urls = loadCallStun(localStorage) } catch { urls = undefined }
+  ;($('callStun') as HTMLInputElement).value = urls?.join(', ') ?? ''
+  $('callStun').removeAttribute('aria-invalid')
+  $('callStunStatus').textContent = stunUsing(urls)
+  renderCalls()
+}
+function stunUsing(urls: string[] | undefined): string {
+  return urls?.length ? `Using your STUN server: ${addressHost(urls[0])}.` : "Using Cloudflare's public STUN server."
 }
 
 $('callStun').addEventListener('change', () => {
@@ -18849,9 +18995,8 @@ $('callStun').addEventListener('change', () => {
     return
   }
   input.value = urls?.join(', ') ?? ''
-  status.textContent = urls
-    ? 'Saved. Calls use it from the next room you open.'
-    : 'Cleared. Calls use Cloudflare’s public STUN server from the next room you open.'
+  status.textContent = stunUsing(urls)
+  renderCalls()
 })
 
 function enterSettings(): void {
@@ -18888,18 +19033,34 @@ document.addEventListener('shell:destination', event => {
 settingsPane.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(row => {
   row.addEventListener('click', () => showSettingsPage(row.dataset.settingsOpen!, row))
 })
+/** The page each sub-page goes back to; a page not listed goes back to the list. */
+const SETTINGS_PARENT: Readonly<Record<string, string>> = {
+  files: 'privacy', callRelay: 'calls', callSpry: 'calls', callServer: 'calls', callPublic: 'calls', callAdvanced: 'calls',
+}
 $('settingsBack').addEventListener('click', () => {
-  // Where files go sits under Privacy, so back goes there, not to the list.
-  if (settingsPage === 'files') showSettingsPage('privacy', $('settingsRowprivacy'))
-  else if (settingsPage === 'callRelay') showSettingsPage('connections', $('settingsRowconnections'))
-  else if (settingsPage !== 'main') showSettingsPage('main')
-  else openDestination('chats')
+  if (settingsPage === 'main') { openDestination('chats'); return }
+  const parent = SETTINGS_PARENT[settingsPage] ?? 'main'
+  const opener = settingsPane.querySelector<HTMLElement>(`[data-settings-open="${settingsPage}"]`)
+  if (parent === 'main') {
+    // Focus goes back to the row on the list that opened this page, wherever it was entered from.
+    settingsRow = document.getElementById(`settingsRow${settingsPage}`) ?? settingsRow
+    showSettingsPage('main')
+  } else {
+    showSettingsPage(parent, undefined, false)
+    opener?.focus({ preventScroll: true })
+  }
 })
 ONE_PANE_SETTINGS.addEventListener('change', () => { if (!settingsPane.hidden) $('settingsBack').hidden = settingsPage === 'main' && !ONE_PANE_SETTINGS.matches })
 $('privacyHideIp').addEventListener('change', event => {
   const on = (event.target as HTMLInputElement).checked
   try { if (on) localStorage.setItem(HIDE_IP_KEY, '1'); else localStorage.removeItem(HIDE_IP_KEY) } catch { /* Still applies to this page. */ }
   ;($('joinRelayOnly') as HTMLInputElement).checked = on
+  renderCalls()
+})
+// Privacy keeps a row of the same name; the control itself lives on Calls.
+$('privacyHideIpRow').addEventListener('click', () => {
+  showSettingsPage('calls', $('settingsRowcalls'), false)
+  $('privacyHideIp').focus({ preventScroll: true })
 })
 $('privacyProfiles').addEventListener('click', () => openProfileSettings($('privacyProfiles')))
 /** The dialogs Settings opens sit over it and give it back when they close:
@@ -22998,6 +23159,7 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
   spryPairingInFlight = true
   const button = $('spryPairingAdd') as HTMLButtonElement
   button.disabled = true
+  $('spryPairingStatus').textContent = 'Pairing with your Spry node…'
   try {
     await identityReady
     const participant = currentIdentity().pubkey
@@ -23008,14 +23170,16 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
     }), fetch, isCurrent)
     if (paired) {
       if (currentIdentity().pubkey !== participant) return
-      renderCallRelay()
+      $('spryPairingStatus').textContent = ''
+      renderSpryPage()
+      renderCalls()
       const pair = loadSpryPairing(localStorage, participant)
       if (pair) for (const active of [session, dockedCall?.session]) if (active?.participant === participant) spryRooms.get(active)?.setPairing(pair)
       renderSpryShareChoice()
       const synced = pair && nostrSession?.pubkey === participant ? await spryAccountSync?.save(pair) : undefined
       if (currentIdentity().pubkey !== participant) return
       setStatus(synced === true ? 'Spry paired for your Nostr account. Your other signed-in devices can load it.'
-        : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays; use Sync Spry in Connections to retry.'
+        : synced === false ? 'Spry paired on this device. Account sync needs your signer and relays. To retry, choose Sync to my other devices in Settings › Calls › Your Spry node.'
         : 'Spry paired on this device. Your calls use it, and it is shared automatically in rooms you make.')
     }
   } catch {

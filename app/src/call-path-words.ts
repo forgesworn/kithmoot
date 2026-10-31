@@ -77,6 +77,11 @@ export function addressHost(address: string | undefined): string {
   return rest.split(':')[0] ?? ''
 }
 
+/** CS6. */
+export function spryFailureLine(at: number, hideIp: boolean): string {
+  return `Your Spry node didn't answer at ${clockText(at)}, so ${hideIp ? "that call couldn't start" : 'that call had no relay'}. Check that Spry is running on your node.`
+}
+
 export function callPathView(input: CallPathInput): CallPathView {
   const { builtIn, spry, server, publicRelays, hideIp } = input
   const builtInRunning = builtIn?.running === true
@@ -111,10 +116,7 @@ export function callPathView(input: CallPathInput): CallPathView {
     body = `Calls connect device to device when they can. When they can't, they go through ${name}.`
   }
 
-  let failure: string | undefined
-  if (winner === 'spry' && spry.failedAt !== undefined) {
-    failure = `Your Spry node didn't answer at ${clockText(spry.failedAt)}, so ${hideIp ? "that call couldn't start" : 'that call had no relay'}. Check that Spry is running on your node.`
-  }
+  const failure = winner === 'spry' && spry.failedAt !== undefined ? spryFailureLine(spry.failedAt, hideIp) : undefined
 
   const spryRow = spry.state === 'unreadable' ? "Can't be read · pair again"
     : spry.state === 'none' ? 'Not paired'
