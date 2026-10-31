@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.119",
+  "currentRelease": "0.1.120",
   "releases": [
     {
-      "version": "0.1.119",
+      "version": "0.1.120",
       "updateTo": {
-        "version": "0.1.119",
-        "pub_date": "2026-10-31T15:45:00Z",
-        "notes": "Starts a call with fewer messages to each relay, and keeps a silent device listed for 100 seconds ready for a quieter heartbeat.",
-        "name": "0.1.119",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.119/KithMoot-0.1.119-mac-arm64.zip",
-        "sha256": "1b90d8f030462a00623f462502092ba90b6e5d83d6c3c525e78c13519fcb2c68",
-        "size": 192974280
+        "version": "0.1.120",
+        "pub_date": "2026-10-31T22:45:00Z",
+        "notes": "Settings splits into Calls and Relays, and offers a call relay on this computer, off until you turn it on.",
+        "name": "0.1.120",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.120/KithMoot-0.1.120-mac-arm64.zip",
+        "sha256": "e9fa321763c4249aa78120a67961f9e5f924420040d1f41611bc6a1b3d22f8b9",
+        "size": 192979115
       }
     }
   ]
