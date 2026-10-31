@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.119 starts a call with fewer messages to each relay: the opening offer and its answer carry the network addresses found in their first fifth of a second, instead of each address going out on its own. A device that falls silent now stays listed for 100 seconds rather than 75, ready for a slower heartbeat in a later version. Version 0.1.118 put rooms on a few shared connections to each relay instead of one each.
+Version 0.1.120 splits Settings into Calls and Relays, with one line saying how your calls connect, and offers a call relay on this computer: off until you turn it on, it carries calls for your own rooms when people cannot connect directly. A relay server you set up now comes before a Spry pairing, as on Android. Version 0.1.119 started calls with fewer messages to each relay.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.119 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.120 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
