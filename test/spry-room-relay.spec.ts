@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { createRoom, join, open, newDeviceContext, openRoomInfoPage, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, join, open, newDeviceContext, openRoomInfoPage, openSettings, turnOnMedia, SYNTHETIC_MIC } from './browser.js'
 import { RELAY_ONLY_NO_RELAY } from '../app/src/relay-only.js'
 import { SHARED_RELAY_UNAVAILABLE } from '../src/spry.js'
 
@@ -35,7 +35,7 @@ interface Device { context: BrowserContext; page: Page; denied: string[]; spryPo
 
 /** A fresh browser profile: no pairing, no relay settings, no imported file.
  *  Hide my IP address is on unless `hideIp` is false. */
-async function device(browser: Browser, baseURL: string, hideIp = true): Promise<Device> {
+async function device(browser: Browser, baseURL: string, hideIp = true, storage: Record<string, string> = {}): Promise<Device> {
   const context = await newDeviceContext(browser, baseURL, { viewport: { width: 1280, height: 800 } })
   const denied: string[] = []
   const allowed = [...LOOPBACK, HOST]
@@ -49,11 +49,12 @@ async function device(browser: Browser, baseURL: string, hideIp = true): Promise
     socket.connectToServer()
   })
   await context.addInitScript(SYNTHETIC_MIC)
-  await context.addInitScript(hide => {
+  await context.addInitScript(({ hide, extra }) => {
     // Hide my IP address on calls: relay-only ICE, chosen on this device.
     if (hide) localStorage.setItem('kithmoot.hide-ip.v1', '1')
     localStorage.setItem('kithmoot.profiles.enabled', 'false')
-  }, hideIp)
+    for (const [key, value] of Object.entries(extra)) localStorage.setItem(key, value)
+  }, { hide: hideIp, extra: storage })
   const page = await context.newPage()
   const spryPosts = new Map<string, number>()
   // Who signed each Spry request: a credential request's signer is the
@@ -460,4 +461,81 @@ test('a Hide my IP guest who says Not now is not sent to a member\'s https relay
     expect(await stored(c.page, 'kithmoot.spry-consent.v1')).toBeNull()
     expect([...a.denied, ...b.denied, ...c.denied]).toEqual([])
   } finally { await Promise.all([a, b, c].map(d => d.context.close())) }
+})
+
+/** Every ICE server a page's peer connections were built with, as a call's own configuration. */
+const iceServersOf = (page: Page) => page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+  .flatMap(pc => (pc.getConfiguration().iceServers ?? []).map(server => ({ urls: [server.urls].flat(), username: server.username }))))
+
+// Settings > Calls: a relay server a person saved comes before their Spry for their own calls, as on
+// Android, while their pairing is still shared with the room (design-connections-calls, O1).
+const OWN_SERVER = { urls: ['turn:own-relay.example:3478'], username: 'own-user', credential: 'own-password' }
+const OWN_SERVER_STORE = { 'kithmoot.call-relay.v1': JSON.stringify(OWN_SERVER) }
+
+test('with a relay server saved beside Spry, a member\'s own calls use the relay server and the pairing is still shared in rooms they make', async ({ browser, baseURL, request }) => {
+  const a = await device(browser, baseURL!, false, OWN_SERVER_STORE), b = await device(browser, baseURL!, false)
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(a.page, baseURL!, request)
+    const link = await createRoom(a.page, baseURL!)
+    await turnOnMedia(a.page)
+    await open(b.page, link, 'Rowan')
+    await join(b.page)
+    await turnOnMedia(b.page)
+    // The guest redeems the creator's published Spry offer: the pairing is still shared.
+    await expect.poll(async () => (await iceServersOf(b.page)).some(server => server.urls.some(url => TURN_URL.test(url))), { timeout: 60_000 }).toBe(true)
+    // The creator's own calls are built from the relay server, never from the Spry credential.
+    await expect.poll(async () => (await iceServersOf(a.page)).length, { timeout: 60_000 }).toBeGreaterThan(0)
+    const own = await iceServersOf(a.page)
+    expect(own.flatMap(server => server.urls)).toContain('turn:own-relay.example:3478')
+    for (const server of own) {
+      for (const url of server.urls) expect(url).not.toMatch(TURN_URL)
+      expect(server.username ?? '').not.toMatch(SPRY_USERNAME)
+    }
+    expect(own.some(server => server.username === 'own-user')).toBe(true)
+  } finally { await Promise.all([a, b].map(d => d.context.close())) }
+})
+
+test('with a relay server saved beside Spry, a room made by someone else still gets the pairing once Share my call relay here is on', async ({ browser, baseURL, request }) => {
+  const [maker, paired, guest] = await Promise.all([0, 1, 2].map(i => device(browser, baseURL!, false, i === 1 ? OWN_SERVER_STORE : {})))
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(paired.page, baseURL!, request)
+    const link = await createRoom(maker.page, baseURL!)
+    await open(paired.page, link, 'Rowan'); await join(paired.page)
+    await openRoomInfoPage(paired.page, 'Privacy and connection')
+    const toggle = paired.page.locator('#spryShareRow').getByRole('button', { name: 'Share my call relay here' })
+    await expect(toggle).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await open(guest.page, link, 'Sam'); await join(guest.page)
+    await Promise.all([turnOnMedia(paired.page), turnOnMedia(guest.page)])
+    await expect.poll(async () => (await iceServersOf(guest.page)).some(server => server.urls.some(url => TURN_URL.test(url))), { timeout: 60_000 }).toBe(true)
+    const own = await iceServersOf(paired.page)
+    expect(own.flatMap(server => server.urls)).toContain('turn:own-relay.example:3478')
+    for (const server of own) for (const url of server.urls) expect(url).not.toMatch(TURN_URL)
+  } finally { await Promise.all([maker, paired, guest].map(d => d.context.close())) }
+})
+
+test('a Spry node that does not answer is reported on Settings > Calls for that run of the app only', async ({ browser, baseURL, request }) => {
+  const a = await device(browser, baseURL!, false)
+  expect((await request.post(`${FACADE}/fixture/reset`)).ok()).toBe(true)
+  try {
+    await pairThisBrowser(a.page, baseURL!, request)
+    expect((await request.post(`${FACADE}/fixture/stop-node`)).ok()).toBe(true)
+    await createRoom(a.page, baseURL!)
+    await openSettings(a.page, 'Calls')
+    await expect(a.page.locator('#callsSubSpry')).toHaveText(/^Paired · no answer at \d\d:\d\d$/, { timeout: 60_000 })
+    await expect(a.page.locator('#callsHead')).toHaveText('Direct, or through your Spry node')
+    await expect(a.page.locator('#callsFailure')).toHaveText(/^Your Spry node didn't answer at \d\d:\d\d, so that call had no relay\. Check that Spry is running on your node\.$/)
+    // A restart forgets it: nothing was stored.
+    expect((await request.post(`${FACADE}/fixture/start-node`)).ok()).toBe(true)
+    await a.page.goto(baseURL!)
+    await openSettings(a.page, 'Calls')
+    await expect(a.page.locator('#callsSubSpry')).toHaveText('Paired')
+    await expect(a.page.locator('#callsFailure')).toBeHidden()
+  } finally {
+    await request.post(`${FACADE}/fixture/start-node`)
+    await a.context.close()
+  }
 })

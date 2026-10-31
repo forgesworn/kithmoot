@@ -98,7 +98,7 @@ test('a saved relay server names itself, outranks public relays, and is removed 
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).not.toBeNull()
     await page.getByRole('button', { name: 'Remove…', exact: true }).click()
     await page.locator('#actionConfirm').click()
-    expect(await page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('kithmoot.call-relay.v1'))).toBeNull()
     await page.locator('#settingsBack').click()
     await expect(page.locator('#callsSubServer')).toHaveText('Not set up')
   } finally { await close() }
