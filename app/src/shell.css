@@ -547,6 +547,7 @@ html[data-destination='settings'] main:has(#settingsPane) #workspaceContent { ov
 .callsPage[data-settings-page='calls'] .callsAdvanced { margin-top: var(--s5); }
 .callsPage label:not(.checkboxRow) { display: block; margin: var(--s4) 0 var(--s1); font-weight: 600; }
 .callsPage .note { margin: var(--s1) 0 var(--s2); }
+@media (any-pointer: coarse) { .callsPage input:not([type='checkbox']):not([type='radio']):not([type='file']) { min-height: 44px; } }
 .callsPage input[type='checkbox'] { flex: none; width: 1.25rem; height: 1.25rem; margin: 0; accent-color: var(--accent); }
 .relayPage details { margin: 0 0 var(--s5); }
 .relayPage summary { padding: var(--s3) 0; cursor: pointer; }
