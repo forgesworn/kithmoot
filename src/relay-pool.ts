@@ -7,6 +7,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils'
 import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
+import type { SharedRelaySockets } from './shared-relay-sockets.js'
 import { doublingBackoff, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
@@ -27,6 +28,14 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
   probeQuietMs?: number
   /** Uniform in [0, 1), for the jitter above and the resend backoff. */
   random?: () => number
+  /** Real sockets shared with other pools (shared-relay-sockets.ts). Used
+   *  only while this pool holds no relay authentication, outside Tor-only
+   *  mode, and never by a `publishGuarded` carrier. */
+  sharedSockets?: SharedRelaySockets
+  /** Checked before every frame any socket of this pool, or of its guarded
+   *  carriers, writes. Applied above a shared socket, so it gates this
+   *  pool's frames only. */
+  sendGuard?: () => boolean
 }
 
 /** The transport seam shared by real relays and the in-process simulator. */
@@ -252,6 +261,8 @@ export class NostrRelayPool implements RelayTransport {
   readonly #random: () => number
   readonly #reconnectJitterMs: number
   readonly #probeQuietMs: number
+  /** Whether the current generation rides shared sockets. */
+  #sharing = false
 
   constructor(relays: readonly (string | RelayConfig)[], private readonly circleAtUse?: (url: string) => boolean, private readonly options: NostrRelayPoolOptions = {}) {
     this.#relays = normaliseRelayConfig(relays, this.options.profile)
@@ -356,7 +367,14 @@ export class NostrRelayPool implements RelayTransport {
     }
     const current = (url: string) => !this.#closed && generation === this.#generation && !this.#authError(url)
     const refusedUpgrade = (url: string) => { try { this.#dials.refusedUpgrade(normalizeURL(url)) } catch { /* Not a relay URL. */ } }
-    const configured = this.options.websocketImplementation && handshakeObservedWebSocket(this.options.websocketImplementation, refusedUpgrade)
+    // Innermost the socket itself, shared or not, then this pool's guard,
+    // then the observers below. A shared socket watches its own upgrade.
+    const raw = this.options.websocketImplementation ?? globalThis.WebSocket
+    this.#sharing = !!(this.options.sharedSockets && raw && this.#authentication.size === 0 && this.options.profile !== 'tor')
+    const transport = this.#sharing ? this.options.sharedSockets!.socketClass : this.options.websocketImplementation
+    const guard = this.options.sendGuard
+    const own = transport && guard ? guardedWebSocket(transport, guard) : transport ?? (guard && raw ? guardedWebSocket(raw, guard) : undefined)
+    const configured = own && (this.#sharing ? own : handshakeObservedWebSocket(own, refusedUpgrade))
     const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket, refusedUpgrade))
     const websocketImplementation = this.#authentication.size
       ? authenticatedWebSocket(base, url => this.#authentication.get(url) ?? undefined, current, (url, reason) => {
@@ -441,6 +459,25 @@ export class NostrRelayPool implements RelayTransport {
   }
 
   #heard(url: string): void { this.#heardAt.set(url, Date.now()) }
+
+  /** When this pool's socket to `url` last heard the relay. A shared socket
+   *  also hears for every other pool on it. */
+  #lastHeard(url: string): number {
+    const own = this.#heardAt.get(url) ?? 0
+    return this.#sharing ? Math.max(own, this.options.sharedSockets!.lastHeard(url)) : own
+  }
+
+  /** Closing this pool's connection to a shared socket would only rejoin the
+   *  same socket. One that has heard nothing since `since` is closed for
+   *  every pool on it, so they all reconnect. */
+  #condemn(url: string, since: number): void {
+    if (!this.#sharing) return
+    // A pool whose own guard dropped its frames heard nothing for its own
+    // reasons; that says nothing about the socket.
+    const guard = this.options.sendGuard
+    try { if (guard && !guard()) return } catch { return }
+    this.options.sharedSockets!.condemnQuiet(url, since)
+  }
 
   #grants(entries: readonly RelayAuthentication[]): Map<string, AuthenticationGrant | null> {
     if (this.options.profile === 'tor' && entries.length !== 0) throw new Error('Tor-only mode does not use relay authentication')
@@ -635,8 +672,12 @@ export class NostrRelayPool implements RelayTransport {
     if (!Base) throw new Error('A guarded WebSocket carrier is unavailable.')
     const authentication = [...this.#authentication].map(([url, grant]) => ({ url,
       identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null }))
-    const carrier = new NostrRelayPool(this.#relays, this.circleAtUse, { ...this.options,
-      authentication, websocketImplementation: guardedWebSocket(Base, current) })
+    // Its own sockets, never shared ones: closing the carrier after the first
+    // acknowledgement has to end its writes everywhere, and the pool's guard
+    // still applies on top of the decision's own.
+    const parent = this.options.sendGuard
+    const carrier = new NostrRelayPool(this.#relays, this.circleAtUse, { ...this.options, sharedSockets: undefined, sendGuard: undefined,
+      authentication, websocketImplementation: guardedWebSocket(Base, parent ? () => parent() && current() : current) })
     // Cancellation closes a stalled handshake as well as preventing its
     // eventual queued write. This carrier publishes an already signed decision.
     const timer = setInterval(() => { if (!current()) carrier.close() }, 25)
@@ -703,6 +744,7 @@ export class NostrRelayPool implements RelayTransport {
    *  never retried here. */
   async #publishToRelay(url: string, event: Event, generation: number, start: number): Promise<void> {
     for (let attempt = 0; ; attempt++) {
+      const attemptStartedAt = Date.now()
       try {
         if (this.#dials.writeHeld(url)) throw new Error(WRITE_HELD)
         await this.#pool.publish([url], event, { abort: this.#abort.signal })[0]
@@ -746,6 +788,7 @@ export class NostrRelayPool implements RelayTransport {
         // which is the one dial the gate lets through.
         if (!heldBack) {
           if (generation === this.#generation) this.#mark(url, { state: 'disconnected' })
+          this.#condemn(url, attemptStartedAt)
           this.#pool.close([url])
           this.#attempted.set(url, Date.now())
           for (const sub of this.#subscriptions) if (sub.bindings.has(url)) this.#startRelay(sub, url)
@@ -923,11 +966,12 @@ export class NostrRelayPool implements RelayTransport {
     // `PROBE_QUIET_MS`: one that delivered anything lately is plainly alive,
     // and every probe is a `REQ` a relay counts against this address.
     const connected = [...this.#pool.listConnectionStatus().entries()].filter(([url, ok]) => ok &&
-      now - (this.#heardAt.get(url) ?? 0) >= this.#probeQuietMs && !this.#dials.readHeld(url)).map(([url]) => url)
+      now - this.#lastHeard(url) >= this.#probeQuietMs && !this.#dials.readHeld(url)).map(([url]) => url)
     await Promise.all(connected.map(url => this.#probeRelay(url, timeoutMs, generation)))
   }
 
   async #probeRelay(url: string, timeoutMs: number, generation: number): Promise<void> {
+    const askedAt = Date.now()
     const alive = await new Promise<'alive' | 'dropped' | 'silent'>(resolve => {
       let settled = false
       let handle: { close(): void } | undefined, timer: ReturnType<typeof setTimeout> | undefined
@@ -968,6 +1012,7 @@ export class NostrRelayPool implements RelayTransport {
     // the dial backoff is concerned, or every pool that woke from sleep
     // together would redial a relay at once.
     if (alive === 'silent') this.#dials.failed(url)
+    this.#condemn(url, askedAt)
     this.#pool.close([url])
     this.#reconnectSoon(url)
   }

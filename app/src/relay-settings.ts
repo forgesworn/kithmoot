@@ -1,5 +1,7 @@
 import type { AccountNetwork } from './account-network.js'
-import { guardedWebSocket } from '../../src/guarded-websocket.js'
+import { SimplePool } from 'nostr-tools/pool'
+import { relayDials } from '../../src/relay-dial-gate.js'
+import { SharedRelaySockets } from '../../src/shared-relay-sockets.js'
 import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, READ_EVIDENCE_RANK, type ReadEvidence, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
@@ -8,6 +10,15 @@ import { withRoomRelays } from '../../src/room-relays.js'
 
 import type { ManagedRelayPool } from './browser-room-pool.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
+
+/** Pools for one room, a room being looked up, or a link being opened. */
+const ROOM_SCOPE = /^(?:room|lookup|link):[a-f0-9]{64}$/
+
+/** The WebSocket nostr-tools itself dials with: the browser's, unless a
+ *  test has given it another. */
+function librarySocket(): typeof WebSocket | undefined {
+  return (new SimplePool({ enablePing: false }) as unknown as { _WebSocket?: typeof WebSocket })._WebSocket ?? globalThis.WebSocket
+}
 
 const STORAGE_KEY = 'kithmoot.relays.v1'
 /** The relays this person has marked as boxes of their own circle, by hand:
@@ -52,6 +63,16 @@ export interface FixedRoomRelays { c: string[]; signed: boolean }
  */
 export class RelayConnections {
   #accountNetwork?: AccountNetwork
+  #roomSockets?: SharedRelaySockets
+  #roomSocketsBase?: typeof WebSocket
+  /** The real sockets every room pool here shares, over `Base`. */
+  #sharedRoomSockets(Base: typeof WebSocket): SharedRelaySockets {
+    if (!this.#roomSockets || this.#roomSocketsBase !== Base) {
+      this.#roomSocketsBase = Base
+      this.#roomSockets = new SharedRelaySockets(Base, { refusedUpgrade: url => { try { relayDials.refusedUpgrade(url) } catch { /* not a relay url */ } } })
+    }
+    return this.#roomSockets
+  }
   accountNetwork(policy: AccountNetwork): void {
     if (this.#pools.size) throw new Error('Account policy must precede public pools.')
     this.#accountNetwork = policy
@@ -299,8 +320,14 @@ export class RelayConnections {
     if (!pool) {
       const configuration = this.configuration(scope, hints)
       const Base = globalThis.WebSocket
+      // Rooms share real sockets to a relay, a few between them rather than
+      // one each; the account's own pools keep theirs, so no connection
+      // carries both. A pool holding relay authentication never shares.
+      const Socket = ROOM_SCOPE.test(scope) ? librarySocket() : undefined
+      const rooms = Socket ? this.#sharedRoomSockets(Socket) : undefined
       pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration), ...this.#poolTiming,
-        ...(guard && Base ? { websocketImplementation: guardedWebSocket(Base, guard) } : {}) })
+        ...(guard && Base ? { websocketImplementation: Base, sendGuard: guard } : {}),
+        ...(rooms ? { sharedSockets: rooms } : {}) })
       const owner: PoolOwner = { scope, hints, key, holders: 0 }
       this.#pools.set(pool, owner)
       this.#shared.set(key, pool)
