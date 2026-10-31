@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.118",
+  "currentRelease": "0.1.119",
   "releases": [
     {
-      "version": "0.1.118",
+      "version": "0.1.119",
       "updateTo": {
-        "version": "0.1.118",
-        "pub_date": "2026-10-31T13:30:00Z",
-        "notes": "Rooms share a few connections to each public relay instead of one each, so relays see far fewer connections from your computer.",
-        "name": "0.1.118",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.118/KithMoot-0.1.118-mac-arm64.zip",
-        "sha256": "08089d727c0b0af1968a8bdddaa6d5f6bc58bc1226bebf9468e1016ddcbeb53b",
-        "size": 192973933
+        "version": "0.1.119",
+        "pub_date": "2026-10-31T15:45:00Z",
+        "notes": "Starts a call with fewer messages to each relay, and keeps a silent device listed for 100 seconds ready for a quieter heartbeat.",
+        "name": "0.1.119",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.119/KithMoot-0.1.119-mac-arm64.zip",
+        "sha256": "1b90d8f030462a00623f462502092ba90b6e5d83d6c3c525e78c13519fcb2c68",
+        "size": 192974280
       }
     }
   ]
