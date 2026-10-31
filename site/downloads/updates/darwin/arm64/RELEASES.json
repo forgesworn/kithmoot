@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.117",
+  "currentRelease": "0.1.118",
   "releases": [
     {
-      "version": "0.1.117",
+      "version": "0.1.118",
       "updateTo": {
-        "version": "0.1.117",
-        "pub_date": "2026-10-30T15:00:00Z",
-        "notes": "Gentler with public Nostr relays: one connection per relay instead of one per message, waits when a relay is busy, new default relays.",
-        "name": "0.1.117",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.117/KithMoot-0.1.117-mac-arm64.zip",
-        "sha256": "9dbe4f5b6776752a3a62a0a1999460fa0cf757b060bcbcc29fe39408254c274e",
-        "size": 192972973
+        "version": "0.1.118",
+        "pub_date": "2026-10-31T13:30:00Z",
+        "notes": "Rooms share a few connections to each public relay instead of one each, so relays see far fewer connections from your computer.",
+        "name": "0.1.118",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.118/KithMoot-0.1.118-mac-arm64.zip",
+        "sha256": "08089d727c0b0af1968a8bdddaa6d5f6bc58bc1226bebf9468e1016ddcbeb53b",
+        "size": 192973933
       }
     }
   ]
