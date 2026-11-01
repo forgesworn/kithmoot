@@ -299,7 +299,9 @@ async function turnOnMedia(page: Page): Promise<void> {
   }
   await expect(page.locator('#deviceControls')).toBeVisible()
   await page.locator('#toggleCamera').click()
-  await page.locator('#toggleMic').click()
+  // Joining switches the microphone on since 1 November 2026; press it only if it is still off.
+  await page.waitForTimeout(1500)
+  if (await page.locator('#toggleMic').getAttribute('data-on') !== 'true') await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
   await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
 }
