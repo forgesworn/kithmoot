@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.131",
-  "versionCode": 154,
+  "versionName": "0.6.132",
+  "versionCode": 155,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74027596,
-  "apkSha256": "e7c9337f2cf291c54fee5379575a4235c0fa35939d045b95c8d92e63f3e162fe",
+  "apkBytes": 74031692,
+  "apkSha256": "e6f1e80f9070b72f113624cc1b44c7ded8bc0847f20ab738673142b4a357eaed",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.131-production.apk",
+  "downloadFilename": "kithmoot-0.6.132-production.apk",
   "releaseNotes": [
-    "An unsent message stops being resent by itself after a day; Retry sends it as a new message, and a Retry press is never lost.",
-    "Calls start with fewer messages to the relays, and a call with a browser no longer ends with no video when offers cross."
+    "Calls work again: ForgeSworn's call relay is the default, with Google's STUN, and phones on one network connect directly.",
+    "Start call and Join call turn your microphone on, asking first; relay.trotters.cc is the first relay again."
   ]
 }
