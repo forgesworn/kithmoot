@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.120",
+  "currentRelease": "0.1.121",
   "releases": [
     {
-      "version": "0.1.120",
+      "version": "0.1.121",
       "updateTo": {
-        "version": "0.1.120",
-        "pub_date": "2026-10-31T22:45:00Z",
-        "notes": "Settings splits into Calls and Relays, and offers a call relay on this computer, off until you turn it on.",
-        "name": "0.1.120",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.120/KithMoot-0.1.120-mac-arm64.zip",
-        "sha256": "e9fa321763c4249aa78120a67961f9e5f924420040d1f41611bc6a1b3d22f8b9",
-        "size": 192979115
+        "version": "0.1.121",
+        "pub_date": "2026-11-01T12:00:00Z",
+        "notes": "Stops resending an unsent message by itself after a day (Retry sends it as new), and fixes a call that could end with no video when offers crossed.",
+        "name": "0.1.121",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.121/KithMoot-0.1.121-mac-arm64.zip",
+        "sha256": "a1d5adc1692727160d32181652dc0efa0ba211e4460de5814a20fff1e5a4765b",
+        "size": 192980533
       }
     }
   ]
