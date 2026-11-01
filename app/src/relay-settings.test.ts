@@ -92,6 +92,40 @@ describe('device relay preferences', () => {
   })
 })
 
+describe('address-banned public relays', () => {
+  const banned = 'wss://relay.damus.io/'
+  const roomId = 'a'.repeat(64)
+
+  it('drop out of device hints and saved choices while another route remains', () => {
+    const saved = storage()
+    const connections = new RelayConnections(saved, defaults)
+    expect(connections.configuration(room, [banned, 'wss://hint.test']).map(relay => relay.url)).toEqual(['wss://hint.test/'])
+    connections.save(room, [{ url: banned, read: true, write: true }, { url: 'wss://mine.test/', read: true, write: true }])
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual(['wss://mine.test/'])
+    expect(connections.personal(room).map(relay => relay.url)).toEqual(['wss://mine.test/'])
+    // The saved choice itself is not rewritten; the prune is at use time.
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!)[room]).toHaveLength(2)
+  })
+
+  it('drop out of a room\'s own relays when another shared relay survives', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.setRoomRelays(roomId, { fixed: [banned, 'wss://shared.test/'], signed: true })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual(['wss://shared.test/', 'wss://default.test/'])
+  })
+
+  it('stay when they are the room\'s only shared relay', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.setRoomRelays(roomId, { fixed: [banned], signed: true })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([banned, 'wss://default.test/'])
+  })
+
+  it('stay when removing them would leave nothing writable', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const hints = [{ url: banned, read: true, write: true }, { url: 'wss://watcher.test/', read: true, write: false }]
+    expect(connections.configuration(room, hints).some(relay => relay.url === banned)).toBe(true)
+  })
+})
+
 describe('a room\'s own relays', () => {
   const roomId = 'a'.repeat(64)
   const fixed = ['wss://room-a.test/', 'wss://room-b.test/']

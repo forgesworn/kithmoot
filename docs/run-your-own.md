@@ -99,7 +99,6 @@ room, whatever else they have set.
 | nostr.oxtr.dev | 0xtr relay | Yes | 21 October 2026 |
 | relay.ditto.pub | Ditto Relay | Yes | 21 October 2026 |
 | offchain.pub | offchain.pub | No | 21 October 2026 |
-| relay.damus.io | damus.io | No | 21 October 2026 |
 
 The first three are the defaults. All are free, name a contact, support
 NIP-40 expiry and held KithMoot's room messages when read on 21 October

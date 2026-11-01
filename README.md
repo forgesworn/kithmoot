@@ -594,7 +594,7 @@ open; coming back within the twelve hours reuses the last).
   could.
 - **Public-profile lookup is on by default.** Settings, Privacy offers a
   switch remembered on this device. Looking profiles up gives a fixed set
-  of public aggregator relays (purplepag.es, relay.damus.io and
+  of public aggregator relays (purplepag.es and
   relay.primal.net) the keys of the people in your rooms, your private
   chats list, People and the invitations you know the sender of, in
   plaintext queries. The relays of the room you have open are asked as

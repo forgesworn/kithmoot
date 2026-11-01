@@ -3507,11 +3507,13 @@ let myDeviceId = ''
  * for almost everybody is the public relays. Asked only on the room's
  * relays, a person who signed in with a real Nostr account still showed as
  * a short code beside their name. purplepag.es exists to aggregate exactly
- * this kind; the rest are the big general relays. Only ever read from, and
+ * this kind; relay.primal.net is the one big general relay still listed.
+ * relay.damus.io was removed on 1 November 2026: see src/public-relays.ts.
+ * Only ever read from, and
  * only while the "show public profiles" switch is on: that switch is what
  * decides whether participant keys leave the room's relays at all.
  */
-const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.damus.io', 'wss://relay.primal.net']
+const PROFILE_RELAYS = ['wss://purplepag.es', 'wss://relay.primal.net']
 
 // Signing in selects whose own metadata to read. The directory preference
 // controls other people's profiles, and cannot erase the account's own name.

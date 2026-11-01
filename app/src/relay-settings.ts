@@ -45,6 +45,30 @@ export function currentRoomRelayHints(hints: RelayHints): RelayHints {
   return [...relays, { url: PUBLIC_FALLBACK_RELAY, read: true, write: true }]
 }
 
+/** Public relays that answer this client's read/write pattern with per-address
+ *  escalation: relay.damus.io refused the upgrade with HTTP 503 on 30 October
+ *  2026, then refused writes outright with "banned: too many rate-limit
+ *  violations" until the caller changed network address (1 November 2026).
+ *  Taking it off the suggestion list is not enough: saved device choices,
+ *  invitation hints and room snapshot relays all keep dialling it, and each
+ *  dial from a shared address deepens the ban everyone on that address
+ *  carries. */
+const ADDRESS_BANNED_PUBLIC_RELAYS = new Set(['wss://relay.damus.io/'])
+
+/** Drop address-banned public relays from `relays`, unless that would leave
+ *  nothing readable or nothing writable, or, for a room, no relay it still
+ *  shares with its members. A configuration pinned to a banned relay alone
+ *  stays on it: an empty pool fails every time, a relay that sometimes
+ *  answers does not. `shared` is the room's own relay URLs, so the prune can
+ *  tell which members' routes survive. */
+export function pruneAddressBannedRelays(relays: RelayConfig[], shared: readonly string[] = []): RelayConfig[] {
+  const pruned = relays.filter(relay => !ADDRESS_BANNED_PUBLIC_RELAYS.has(relay.url))
+  if (pruned.length === relays.length) return relays
+  const stillUsable = pruned.some(relay => relay.read) && pruned.some(relay => relay.write)
+  const stillShared = shared.length === 0 || pruned.some(relay => shared.includes(relay.url))
+  return stillUsable && stillShared ? pruned : relays
+}
+
 /** A room's own relays, as this device holds them. */
 export interface FixedRoomRelays { c: string[]; signed: boolean }
 
@@ -184,12 +208,12 @@ export class RelayConnections {
   /** Every relay this device uses for `scope`: the room's own first, then
    *  this device's own for it. */
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
-    return this.#marked(this.#withRoomRelays(scope, this.#configuration(scope, hints)))
+    return this.#marked(pruneAddressBannedRelays(this.#withRoomRelays(scope, this.#configuration(scope, hints)), this.#roomRelayUrls(scope)))
   }
   /** This device's own relays for `scope`, before the room's are put
    *  ahead of them: what the relay settings edit and save. */
   personal(scope: string, hints: RelayHints = []): RelayConfig[] {
-    return this.#marked(this.#configuration(scope, hints))
+    return this.#marked(pruneAddressBannedRelays(this.#configuration(scope, hints)))
   }
 
   /** Whether this device took a snapshot of its defaults for the room when
