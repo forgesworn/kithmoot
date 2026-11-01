@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.122",
+  "currentRelease": "0.1.123",
   "releases": [
     {
-      "version": "0.1.122",
+      "version": "0.1.123",
       "updateTo": {
-        "version": "0.1.122",
-        "pub_date": "2026-11-01T14:00:00Z",
-        "notes": "Fixes turning on the call relay on this computer, which froze the app with a spinner.",
-        "name": "0.1.122",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.122/KithMoot-0.1.122-mac-arm64.zip",
-        "sha256": "5f52a68a6ba76b5874c93a7ffadf184caa94fc2a7edaa1279250d71e4ae6c537",
-        "size": 192981728
+        "version": "0.1.123",
+        "pub_date": "2026-11-01T16:00:00Z",
+        "notes": "The call relay on this computer runs through a VPN that forwards ports, such as Proton.",
+        "name": "0.1.123",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.123/KithMoot-0.1.123-mac-arm64.zip",
+        "sha256": "af3ec27068e66c9b9dfc2b8aa0e7fd0bf5f4bdc0235e3a13cbe5cdf7af26dbd0",
+        "size": 192984093
       }
     }
   ]
