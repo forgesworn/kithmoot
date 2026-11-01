@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.121",
+  "currentRelease": "0.1.122",
   "releases": [
     {
-      "version": "0.1.121",
+      "version": "0.1.122",
       "updateTo": {
-        "version": "0.1.121",
-        "pub_date": "2026-11-01T12:00:00Z",
-        "notes": "Stops resending an unsent message by itself after a day (Retry sends it as new), and fixes a call that could end with no video when offers crossed.",
-        "name": "0.1.121",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.121/KithMoot-0.1.121-mac-arm64.zip",
-        "sha256": "a1d5adc1692727160d32181652dc0efa0ba211e4460de5814a20fff1e5a4765b",
-        "size": 192980533
+        "version": "0.1.122",
+        "pub_date": "2026-11-01T14:00:00Z",
+        "notes": "Fixes turning on the call relay on this computer, which froze the app with a spinner.",
+        "name": "0.1.122",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.122/KithMoot-0.1.122-mac-arm64.zip",
+        "sha256": "5f52a68a6ba76b5874c93a7ffadf184caa94fc2a7edaa1279250d71e4ae6c537",
+        "size": 192981728
       }
     }
   ]
