@@ -1,4 +1,4 @@
-import { createECDH, randomBytes } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { isIP } from 'node:net'
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -31,13 +31,61 @@ const messages = {
 }
 export function identityError(code) { return Object.assign(new Error(messages[code]), { code }) }
 
+// secp256k1, worked out here rather than asked of node:crypto: Electron's
+// BoringSSL has no such curve, so createECDH('secp256k1') throws in the app
+// (it only works under plain Node, where the unit tests run). The desktop main
+// process has no bundled libraries, hence these few lines.
+const P = 2n ** 256n - 2n ** 32n - 977n
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
+const G = [0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n,
+  0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n, 1n]
+const mod = value => { const r = value % P; return r < 0n ? r + P : r }
+function power(base, exponent) {
+  let result = 1n
+  for (base = mod(base); exponent > 0n; exponent >>= 1n, base = base * base % P) if (exponent & 1n) result = result * base % P
+  return result
+}
+/** Jacobian doubling and addition (a = 0); Z = 0 is the point at infinity. */
+function double([x, y, z]) {
+  if (z === 0n || y === 0n) return [0n, 1n, 0n]
+  const a = x * x % P, b = y * y % P, c = b * b % P
+  const d = mod(2n * (mod((x + b) ** 2n) - a - c)), e = 3n * a % P
+  const x3 = mod(e * e - 2n * d)
+  return [x3, mod(e * (d - x3) - 8n * c), 2n * y * z % P]
+}
+function add(p, q) {
+  if (p[2] === 0n) return q
+  if (q[2] === 0n) return p
+  const z1z1 = p[2] * p[2] % P, z2z2 = q[2] * q[2] % P
+  const u1 = p[0] * z2z2 % P, u2 = q[0] * z1z1 % P
+  const s1 = p[1] * q[2] % P * z2z2 % P, s2 = q[1] * p[2] % P * z1z1 % P
+  const h = mod(u2 - u1), r = mod(s2 - s1)
+  if (h === 0n) return r === 0n ? double(p) : [0n, 1n, 0n]
+  const hh = h * h % P, hhh = h * hh % P, v = u1 * hh % P
+  const x3 = mod(r * r - hhh - 2n * v)
+  return [x3, mod(r * (v - x3) - s1 * hhh), h * p[2] % P * q[2] % P]
+}
+/** The same add and double for every bit of the key (a Montgomery ladder),
+ *  so the work done does not follow the secret's bits. */
+function multiply(k) {
+  let r0 = [0n, 1n, 0n], r1 = G
+  for (let i = 255n; i >= 0n; i--) {
+    const bit = (k >> i) & 1n
+    const sum = add(r0, r1)
+    if (bit) { r0 = sum; r1 = double(r1) } else { r1 = sum; r0 = double(r0) }
+  }
+  return r0
+}
+
 /** The x-only public key (64 hex) of a secp256k1 secret, or a throw for a
  *  secret that is not one (zero, or not below the curve order). */
 export function pairingPublicKey(secret) {
   if (typeof secret !== 'string' || !HEX64.test(secret)) throw identityError('ERR_CONFIG')
-  const ecdh = createECDH('secp256k1')
-  try { ecdh.setPrivateKey(Buffer.from(secret, 'hex')) } catch { throw identityError('ERR_CONFIG') }
-  return ecdh.getPublicKey('hex', 'compressed').slice(2)
+  const k = BigInt(`0x${secret}`)
+  if (k === 0n || k >= N) throw identityError('ERR_CONFIG')
+  const [x, , z] = multiply(k)
+  const zInverse = power(z, P - 2n)
+  return (x * zInverse % P * zInverse % P).toString(16).padStart(64, '0')
 }
 
 /** 1 to 4 distinct `wss://` URLs on DNS names, as spry-node's
@@ -79,11 +127,14 @@ export function createRelayIdentity({ dir, safeStorage, platform = process.platf
     } catch { available = false }
     if (!available) throw identityError('ERR_NO_KEYCHAIN')
   }
+  /** Out of range is about a 2^-128 chance, so a few draws is plenty; the
+   *  cap means a fault gives an error on the page, never a hung app. */
   function newSecret() {
-    for (;;) {
+    for (let draw = 0; draw < 8; draw++) {
       const secret = random(32).toString('hex')
       try { pairingPublicKey(secret); return secret } catch { /* Out of range: draw again. */ }
     }
+    throw identityError('ERR_CONFIG')
   }
   /** The saved identity, undefined if none was made, or a throw if one
    *  exists but cannot be read (another build's keychain entry, a damaged file). */
