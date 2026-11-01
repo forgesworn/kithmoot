@@ -1,5 +1,5 @@
 import { normaliseHex } from './hex.js'
-import { hideLocalAddressesInSignal } from './local-address-filter.js'
+import { hideLocalAddressesInSignal, HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, type SdpSession } from './sdp-shape.js'
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
@@ -590,7 +590,7 @@ export class Peer implements NegotiatingPeer {
     this.#onSignal = opts.revealLocalAddresses
       ? opts.onSignal
       : (body) => {
-          const safe = hideLocalAddressesInSignal(body)
+          const safe = hideLocalAddressesInSignal(body, HIDE_HOST_CANDIDATES)
           if (safe) opts.onSignal(safe)
         }
     this.#onTrack = opts.onTrack

@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshSession } from './mesh.js'
@@ -545,7 +546,8 @@ describe('the mesh hands a profile-2 peer its two health callbacks', () => {
   })
 })
 
-describe('no local network address reaches the wire', () => {
+// Runs only while calls hide host candidates (off since 1 November 2026).
+describe.skipIf(!HIDE_HOST_CANDIDATES)('no local network address reaches the wire', () => {
   // What a desktop on a VPN, Tailscale and a mesh gathers. Documentation
   // and private ranges only.
   const PRIVATE = /192\.168\.|100\.101\.|fd7a:|fe80:|10\.2\.0\./

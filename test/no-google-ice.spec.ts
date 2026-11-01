@@ -199,7 +199,7 @@ test('a STUN server saved in Calls › Advanced is the only STUN its own calls u
     const status = pageB.locator('#callStunStatus')
     // No example in the field: it would look like a value. The example is in the note.
     await expect(field).not.toHaveAttribute('placeholder', /.+/)
-    await expect(status).toHaveText("Using Cloudflare's public STUN server.")
+    await expect(status).toHaveText("Using Google's and Cloudflare's public STUN servers.")
 
     // A relay address is refused here, said why, and nothing is saved.
     await field.fill('turn:relay.example:3478')
@@ -236,7 +236,7 @@ test('a STUN server saved in Calls › Advanced is the only STUN its own calls u
     await expect(field).toHaveValue('stun:home.example:3478')
     await field.fill('')
     await field.press('Enter')
-    await expect(status).toHaveText("Using Cloudflare's public STUN server.")
+    await expect(status).toHaveText("Using Google's and Cloudflare's public STUN servers.")
     expect(await pageB.evaluate(() => localStorage.getItem('kithmoot.call-stun.v1'))).toBeNull()
   } finally {
     await contextA.close()

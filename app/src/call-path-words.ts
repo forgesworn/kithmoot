@@ -130,7 +130,7 @@ export function callPathView(input: CallPathInput): CallPathView {
     : own ? 'On · not used: you have your own relay'
     : publicRelays.chosen ? 'On · one chosen'
     : 'On · none chosen'
-  const advanced = `STUN server: ${input.stun ? addressHost(input.stun) || 'set' : 'Cloudflare'}`
+  const advanced = `STUN server: ${input.stun ? addressHost(input.stun) || 'set' : 'Google, Cloudflare'}`
 
   const rows: CallPathView['rows'] = { spry: spryRow, server: serverRow, public: publicRow, advanced }
   if (builtIn) rows.builtIn = builtIn.rowSub

@@ -46,19 +46,19 @@ describe('browserDefaultTurnUrls', () => {
 })
 
 describe('originStunGuess', () => {
-  it("names Cloudflare's public STUN server for a non-loopback https origin, never the origin itself", () => {
-    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.cloudflare.com:3478'])
-    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.forgesworn.dev' })).toEqual(['stun:stun.cloudflare.com:3478'])
+  it("names Google's then Cloudflare's public STUN servers for a non-loopback https origin, never the origin itself", () => {
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'])
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.forgesworn.dev' })).toEqual(['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'])
   })
 
-  it('names no Google host and no ForgeSworn host', () => {
-    for (const url of DEFAULT_STUN_URLS) expect(url).not.toMatch(/google|forgesworn/i)
+  it('names no ForgeSworn host', () => {
+    for (const url of DEFAULT_STUN_URLS) expect(url).not.toMatch(/forgesworn/i)
   })
 
   it('returns a fresh list each time, so a caller cannot change the default', () => {
     const first = originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })
     first.push('stun:changed.example:3478')
-    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.cloudflare.com:3478'])
+    expect(originStunGuess({ protocol: 'https:', hostname: 'kithmoot.example' })).toEqual(['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'])
     expect(Object.isFrozen(DEFAULT_STUN_URLS)).toBe(true)
   })
 

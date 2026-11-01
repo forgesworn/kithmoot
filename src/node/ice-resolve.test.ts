@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { resolveNodeIceServers } from './ice-resolve.js'
+import { DEFAULT_STUN_URLS } from '../ice-defaults.js'
 
 /** A fake `fetch` that answers exactly one way, and records what it was
  *  called with - a plain function rather than a mocking library, since
@@ -27,7 +28,7 @@ describe('resolveNodeIceServers', () => {
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
     expect(calls).toHaveLength(0)
     expect(result.turn).toBeUndefined()
-    expect(result.iceUrls).toEqual(['stun:stun.cloudflare.com:3478'])
+    expect(result.iceUrls).toEqual([...DEFAULT_STUN_URLS])
   })
 
   it('fetches <origin>/turn and derives STUN alongside the returned TURN urls and credential', async () => {
@@ -55,7 +56,7 @@ describe('resolveNodeIceServers', () => {
   it('falls back to the public STUN stand-in, not the origin, when /turn answers with something unusable', async () => {
     const { fn } = fakeFetch(() => new Response('not found', { status: 404 }))
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
-    expect(result).toEqual({ iceUrls: ['stun:stun.cloudflare.com:3478'] })
+    expect(result).toEqual({ iceUrls: [...DEFAULT_STUN_URLS] })
   })
 
   it('falls back the same way when the fetch itself throws', async () => {
@@ -63,13 +64,13 @@ describe('resolveNodeIceServers', () => {
       throw new Error('ECONNREFUSED')
     }) as typeof fetch
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
-    expect(result).toEqual({ iceUrls: ['stun:stun.cloudflare.com:3478'] })
+    expect(result).toEqual({ iceUrls: [...DEFAULT_STUN_URLS] })
   })
 
   it('falls back the same way when the credential body is missing required fields', async () => {
     const { fn } = fakeFetch(() => new Response(JSON.stringify({ urls: [], username: '', credential: '' }), { status: 200 }))
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
-    expect(result).toEqual({ iceUrls: ['stun:stun.cloudflare.com:3478'] })
+    expect(result).toEqual({ iceUrls: [...DEFAULT_STUN_URLS] })
   })
 
   it('names nothing at all on a localhost origin, even when /turn is unreachable', async () => {
@@ -93,7 +94,7 @@ describe('resolveNodeIceServers', () => {
         })) as typeof fetch
       const promise = resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', turnEndpoint: '/turn', fetchImpl: fn })
       await vi.runAllTimersAsync()
-      expect(await promise).toEqual({ iceUrls: ['stun:stun.cloudflare.com:3478'] })
+      expect(await promise).toEqual({ iceUrls: [...DEFAULT_STUN_URLS] })
     } finally {
       vi.useRealTimers()
     }
