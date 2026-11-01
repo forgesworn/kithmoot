@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.124 puts calls back as they were two weeks ago: ForgeSworn's call relay (TURN) by default, Google's then Cloudflare's STUN, relay.trotters.cc as the first default relay, local network addresses sent so two people on one network connect directly, and the microphone on when you start or join a call. Version 0.1.123 ran the call relay on this computer through a VPN that forwards ports.
+Version 0.1.125 shows Tap to hear whenever the browser blocks remote sound and adds remote-audio mute state to call diagnostics. Version 0.1.124 puts calls back as they were two weeks ago: ForgeSworn's call relay (TURN) by default, Google's then Cloudflare's STUN, relay.trotters.cc as the first default relay, local network addresses sent so two people on one network connect directly, and the microphone on when you start or join a call. Version 0.1.123 ran the call relay on this computer through a VPN that forwards ports.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.124 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.125 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
