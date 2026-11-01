@@ -375,7 +375,7 @@ import { facePrivacyMode } from '../../src/face-privacy.js'
 import type { FacePrivacyState } from './face-privacy.js'
 import type { MicPipeline, MicState } from './voice-pipeline.js'
 import {
-  loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadVoicePreset,
+  loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadMicOnJoin, loadVoicePreset,
   storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
   loadFacePrivacyMode, storeFacePrivacyMode,
 } from './call-prefs.js'
@@ -5678,7 +5678,7 @@ async function joinCall(): Promise<void> {
   // Joining switches the microphone on (1 November 2026): people sat in
   // silent calls, never asked for the microphone, unable to find the button.
   // A refusal leaves them in the call with the blocked-microphone notice.
-  if (!micTrack && session === s && s.call) await toggleMic().catch((err) => setStatus(describeError(err)))
+  if (loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) await toggleMic().catch((err) => setStatus(describeError(err)))
 }
 
 /** Everything of this device's that was live, off, and the previews with it.

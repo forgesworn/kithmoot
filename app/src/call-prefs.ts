@@ -39,6 +39,13 @@ const BLUR_STRENGTH_KEY = 'kithmoot.call.blurStrength'
 const VOICE_PRESET_KEY = 'kithmoot.call.voicePreset'
 const CAMERA_DEVICE_KEY = 'kithmoot.call.cameraDeviceId'
 const MIC_DEVICE_KEY = 'kithmoot.call.micDeviceId'
+const MIC_ON_JOIN_KEY = 'kithmoot.call.micOnJoin'
+
+/** Whether joining a call switches the microphone on. On unless this device
+ *  saved 'off' (the acceptance suite does, to start from a silent call). */
+export function loadMicOnJoin(store: DeviceStore): boolean {
+  return readString(store, MIC_ON_JOIN_KEY) !== 'off'
+}
 
 const EFFECT_MODES: readonly EffectMode[] = ['off', 'blur', 'replace']
 const VOICE_PRESETS: readonly VoicePreset[] = ['off', 'lower', 'higher', 'neutral', 'deep', 'bright']
