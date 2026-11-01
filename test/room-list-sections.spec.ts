@@ -50,7 +50,11 @@ async function homeWith(browser: Browser, baseURL: string, count: number, withHi
   await expect(page.locator('#roomList .roomRow').first()).toBeVisible()
   if (withHistory) {
     await expect(page.locator('#roomList .roomPreview', { hasText: 'Signed history' })).toHaveCount(count <= 8 ? count : 7)
-    await expect(page.locator('#roomList .roomSection', { hasText: 'Other rooms' })).toHaveCount(0)
+    // A room whose history has not arrived has no activity yet, so it sits
+    // under Chats (there is no Other rooms heading in this list) and the
+    // count in Older is short by one until its history lands. Wait for the
+    // list to settle, or a heading read straight after sees a half-loaded list.
+    if (count > 8) await expect(page.locator('#roomList .sectionFold[data-section="older"]')).toHaveText(`Older · ${count - 7}`)
   }
   return { page, ids: rooms.map(r => r.id), names: rooms.map(r => r.name) }
 }
@@ -81,7 +85,6 @@ test('a long list is in sections, and Older folds away and stays folded', async 
     await page.mouse.move(0, 0)
     await page.reload()
     await expect(page.locator('#roomList .roomPreview', { hasText: 'Signed history' })).toHaveCount(12)
-    await expect(page.locator('#roomList .roomSection', { hasText: 'Other rooms' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /Older$/ })).toHaveAttribute('aria-expanded', 'true')
     await expect(page.locator('#roomList .roomRow')).toHaveCount(12)
 
