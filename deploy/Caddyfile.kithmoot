@@ -128,11 +128,9 @@ kithmoot.forgesworn.dev {
 	# with this line never reached. Inside a handle block of its own, placed
 	# before the catch-all, it is part of the same mutually exclusive group
 	# and wins on the more specific path.
-	# Switched off on 22 October 2026: ForgeSworn runs no call relay for
-	# others. A group runs its own TURN server and its rooms carry it.
+	# Back on 1 November 2026 at the owner's say-so: calls default to our own TURN again.
 	handle /turn {
-		header Cache-Control no-store
-		respond "KithMoot no longer runs a call relay. Set your group's own call server under Settings, Connections, Call servers." 410
+		reverse_proxy 127.0.0.1:8089
 	}
 
 	# Meeting codes (server/meeting-codes.mjs, installed as

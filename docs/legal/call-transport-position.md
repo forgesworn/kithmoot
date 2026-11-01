@@ -12,9 +12,48 @@ means an unresolved interpretation. Neither mark is legal advice. The
 section "The built-in call relay" was first written against kithmoot
 `12e62ebd` on 30 October 2026 and updated on 31 October 2026 against
 kithmoot `a47682e2` and kithmoot-android `9216ac47`, for the owner's decision
-to release the relay to everyone, off by default.
+to release the relay to everyone, off by default. The section "1 November
+2026: calls back on ForgeSworn's relay" was written against kithmoot
+`3b17e473` and the host's report of 1 November 2026; where it and older
+sections disagree, it governs.
 
-## What exists today
+## 1 November 2026: calls back on ForgeSworn's relay
+
+The owner reversed the 22 October 2026 switch-off after calls failed for
+people. From about 22:00 UTC on 1 November 2026:
+
+| What | Fact | Evidence |
+| --- | --- | --- |
+| Public TURN | coturn on `kithmoot.forgesworn.dev`, 3478 UDP/TCP and 5349 TLS, relay ports 49152 to 49299 UDP. Log output discarded, Docker log driver none. 1 Mbit/s per session; quotas 32 per user, 250 in all | `deploy/coturn/turnserver.conf` for logging and quotas; ports and the Docker driver are the host's report |
+| Credential issuer | `GET /turn`, anonymous, no account; HMAC time-limited logins, TTL 3600 s; per-IP rate limit held in memory and pruned after about ten minutes | `server/turn-credentials.mjs`; that `/turn` is live is the host's report: `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
+| Who uses it | Web, desktop from 0.1.124, Android from 0.6.132, for rooms on default ICE settings without a device relay; Hide my IP too | `app/src/main.ts` `TURN_CREDENTIAL_ENDPOINT`, `app/src/ice-resolve.ts`, `app/src/relay-only.ts`; Android is the host's report |
+| Default STUN | Google (`stun.l.google.com:19302`), then Cloudflare (`stun.cloudflare.com:3478`), unless the device sets its own; when `/turn` answers, the web app derives STUN from the minted TURN URL | `src/ice-defaults.ts:55`, `app/src/ice-resolve.ts:106-116` |
+| Default Nostr relays | `relay.trotters.cc` (ForgeSworn's strfry) first, then relay.primal.net, relay.ditto.pub, offchain.pub. Open to anyone for reads and writes, no authentication. Retention: kinds 1, 6, 7, 9735 after a day; strangers' private messages and media on each clean-up run; app data, reports and deletions after 90 days; the rest after 7 days. No IP addresses in the write policy; Caddy access logs off | `data/public-relays.json:3`; access, retention and logging are the host's report |
+| Host candidates | Sent to peers again; raddr/rport of reflexive and relay candidates stay redacted | `src/local-address-filter.ts` `HIDE_HOST_CANDIDATES` |
+| Microphone | Joining a call switches it on, prompting for permission then | `app/src/main.ts` `joinCall`, `app/src/call-prefs.ts` `loadMicOnJoin` |
+| Still closed | Blossom, meeting codes, `/drops`, uploads (410) | `deploy/Caddyfile.kithmoot`; host's report |
+
+**Inventory question 7.** A keeper (`deploy/keeper@.service`) would hold a
+room key; none runs on the box (closure record, section 3). Neither coturn,
+the credential issuer nor relay.trotters.cc is given a room or media key.
+
+**Position today.** ForgeSworn is no longer a publisher with defaults
+pointing only at other people's servers. It runs default transport for
+anyone (infrastructure operator, note 2.11, `[U]` in application) and a
+Nostr relay on which one stranger's events can reach another. The inbox
+reading recorded for that relay in the closure record (note 2.12) no
+longer fits: 2.12 holds only while nothing from one stranger may reach
+another, and 2.1 then applies in full `[U]`. Every condition listed under
+"Position" in the built-in relay section below as keeping ForgeSworn a
+publisher (no ForgeSworn relay, control relay default or credential issuer)
+has now changed, so that section's ForgeSworn paragraph describes the
+position before 1 November 2026. Because the built-in relay takes control
+requests over the person's own relay list, a member's relay on the default
+list now receives them through relay.trotters.cc too.
+
+The sections below are kept as written on their dates.
+
+## What exists today (23 October 2026; superseded in part above)
 
 ForgeSworn publishes the public app and update files. The public TURN
 credential endpoint returns 410 (`deploy/Caddyfile.kithmoot:133`); the web
@@ -485,7 +524,8 @@ device key. It names no addresses (`app/src/relay-outside-test.ts`).
 
 ### Position
 
-**ForgeSworn, today.** For the public distribution, publisher with defaults,
+**ForgeSworn, 31 October 2026** (superseded on 1 November 2026, see the
+section of that date). For the public distribution, publisher with defaults,
 as above and still `[U]` (note 2.2). Its own servers are closed and for its
 own use. The built-in relay adds software that other people run, not a
 service ForgeSworn runs. Somebody who installs and runs the software
