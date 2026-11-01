@@ -187,6 +187,16 @@ describe('details (6.7), never an address or a people count (acceptance 8)', () 
     const text = JSON.stringify(shown)
     expect(text).not.toMatch(/\d+ people|\bpeople now\b|spry:|turn:|\b\d{1,3}(\.\d{1,3}){3}\b|[0-9a-f]{64}/)
   })
+  it('behind a VPN with port forwarding, the lines name the VPN and say callers see its address', () => {
+    const shown = view({ ...running, via: 'vpn', mapping: { method: 'natpmp', allocationPorts: 8, requested: 10, permanent: false, restored: 0 } })
+    expect(shown.details.slice(0, 3)).toEqual([
+      "Runs through your VPN's port forwarding. People reach it at the VPN's address, not your home's.",
+      'VPN: opened automatically using NAT-PMP',
+      'Openings on your VPN: 8 of 10',
+    ])
+    expect(JSON.stringify(shown)).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/)
+    expect(view(running).details.some(line => line.includes('VPN'))).toBe(false)
+  })
   it('Check shows only while running with someone to check from', () => {
     expect(view(running, { canCheck: true }).check).toEqual({ label: 'Check from another device…', disabled: false })
     expect(view(running, { canCheck: false }).check).toBeUndefined()

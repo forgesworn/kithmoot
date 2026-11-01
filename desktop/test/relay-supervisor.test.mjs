@@ -50,6 +50,11 @@ test('the command line is supervised standard mode with router mapping and the o
   assert.equal(value('--max-tcp-connections'), '16')
   assert.equal(value('--bytes-per-second'), '125000')
   assert.equal(args.includes(secret), false, 'the TURN secret never goes on the command line')
+  assert.equal(args.includes('--gateway'), false, 'the home router is found by the node itself')
+  const vpn = supervisedArgs({ ...options, bind: '10.2.0.2', gateway: '10.2.0.1' })
+  assert.equal(vpn[vpn.indexOf('--gateway') + 1], '10.2.0.1')
+  assert.ok(vpn.indexOf('--gateway') > vpn.indexOf('--map-ports'))
+  for (const gateway of ['127.0.0.1', '0.0.0.0', 'router.lan', '']) assert.throws(() => supervisedArgs({ ...options, gateway }), { code: 'ERR_CONFIG' })
   for (const bad of [{ bind: '127.0.0.1' }, { bind: '0.0.0.0' }, { bind: '169.254.1.2' }, { listenPort: 80 }, { controlRelays: [] },
     { controlRelays: ['ws://relay.example/'] }, { stateFile: 'relative.json' }, { pairingPublicKey: 'B'.repeat(64) }]) {
     assert.throws(() => supervisedArgs({ ...options, ...bad }), { code: 'ERR_CONFIG' })

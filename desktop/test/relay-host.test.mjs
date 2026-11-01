@@ -53,7 +53,7 @@ function harness(options = {}) {
   const supervisors = fakeSupervisors()
   const changes = []
   const host = createRelayHost({ enabled: true, identity: store, executable: async () => '/app/resources/spry/spry-node',
-    createSupervisor: supervisors.create, localAddress: async () => '192.168.1.20',
+    createSupervisor: supervisors.create, localAddress: async () => '192.168.1.20', classify: async () => ({ kind: 'direct' }),
     changed: state => changes.push(state), ...settings })
   if (context) host.setContext(context)
   return { host, supervisors, changes, created }
@@ -475,4 +475,45 @@ test('the relay is offered unless KITHMOOT_DESKTOP_RELAY is off', () => {
   assert.equal(relayEnabled({ KITHMOOT_DESKTOP_RELAY: 'on' }), true)
   assert.equal(relayEnabled({ KITHMOOT_DESKTOP_RELAY: 'off' }), false)
   assert.equal(relayEnabled(undefined), true)
+})
+
+test('behind a VPN that forwards ports the relay maps them at the VPN gateway and says so', async () => {
+  const asked = []
+  const { host, supervisors } = harness({ localAddress: async () => '10.2.0.2',
+    classify: async ({ bind }) => { asked.push(bind); return { kind: 'vpn-forwarding', gateway: '10.2.0.1', publicAddress: '84.252.115.7' } } })
+  const starting = host.start()
+  await tick()
+  assert.deepEqual(asked, ['10.2.0.2'])
+  const supervisor = supervisors.made[0]
+  assert.equal(supervisor.started.gateway, '10.2.0.1')
+  assert.equal(supervisor.started.bind, '10.2.0.2')
+  supervisor.ready()
+  await starting
+  assert.equal(host.state().status, 'running')
+  assert.equal(host.state().via, 'vpn')
+  await host.stop()
+  assert.equal(host.state().via, undefined)
+})
+
+test('on a normal network the relay starts without a gateway and without the VPN mark', async () => {
+  const { host, supervisors } = harness()
+  const starting = host.start()
+  await tick()
+  assert.equal('gateway' in supervisors.made[0].started, false)
+  supervisors.made[0].ready()
+  await starting
+  assert.equal(host.state().via, undefined)
+  await host.stop()
+})
+
+test('behind a VPN without port forwarding nothing starts and the page says a VPN is on', async () => {
+  const { host, supervisors } = harness({ localAddress: async () => '10.2.0.2', classify: async () => ({ kind: 'vpn' }) })
+  await host.start({ person: true })
+  assert.equal(supervisors.made.length, 0)
+  const state = host.state()
+  assert.equal(state.status, 'cannot-host')
+  assert.equal(state.reason, 'vpn')
+  assert.equal(state.reasonText, CANNOT_HOST_TEXT.vpn)
+  assert.equal(state.wanted, true, 'still wanted, so a network change tries again')
+  await host.stop()
 })

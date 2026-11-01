@@ -1,6 +1,7 @@
 import { createSocket } from 'node:dgram'
 import { isIPv4 } from 'node:net'
 import { controlRelayList, pairingPublicKey } from './relay-identity.mjs'
+import { classifyNetwork } from './relay-network.mjs'
 import { createRelaySupervisor } from './relay-supervisor.mjs'
 import { DAILY_LIMIT_BYTES, defaultSettings, localDay } from './relay-settings.mjs'
 
@@ -98,7 +99,7 @@ export function sanitiseRelayContext(value) {
 }
 
 export function createRelayHost({ enabled, identity, settings, executable, createSupervisor = createRelaySupervisor,
-  localAddress = defaultRouteAddress, changed = () => {}, now = () => new Date(), timers = globalThis,
+  localAddress = defaultRouteAddress, classify = classifyNetwork, changed = () => {}, now = () => new Date(), timers = globalThis,
   crashRestartMs = 10_000, networkPollMs = 15_000, wakeWaitMs = 120_000, dailyLimit = DAILY_LIMIT_BYTES }) {
   const available = enabled === true
   let supervisor
@@ -121,12 +122,15 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
   let openTried = false
   let prefs
   let runBytes = 0
+  // 'vpn' while this run maps its ports at a VPN's gateway, not the home router.
+  let via
   let savedAt = 0
   const visible = () => {
     const { status: phase, error, reason, mapping, counts, control, urls, allocationPorts, local } = status
     return { status: phase, ...(error ? { error } : {}), ...(reason ? { reason, reasonText: CANNOT_HOST_TEXT[reason] } : {}),
       ...(mapping ? { mapping } : {}), ...(counts ? { counts } : {}), ...(control ? { control } : {}),
-      ...(urls ? { urls } : {}), ...(allocationPorts !== undefined ? { allocationPorts } : {}), ...(local ? { local } : {}) }
+      ...(urls ? { urls } : {}), ...(allocationPorts !== undefined ? { allocationPorts } : {}), ...(local ? { local } : {}),
+      ...(via && ['starting', 'running'].includes(phase) ? { via } : {}) }
   }
   const today = () => {
     const day = localDay(now())
@@ -269,13 +273,19 @@ export function createRelayHost({ enabled, identity, settings, executable, creat
         try { path = await executable() } catch { throw hostError('ERR_HELPER') }
         const bind = await localAddress()
         lastAddress = bind
+        // Behind a VPN the home router cannot be reached: run at the VPN's
+        // port forwarding if it offers it, else say why the relay can't run.
+        const network = await classify({ bind })
         if (token !== generation || blocked) { publish({ status: 'off' }); return }
+        if (network.kind === 'vpn') { via = undefined; publish({ status: 'cannot-host', reason: 'vpn' }); return }
+        via = network.kind === 'vpn-forwarding' ? 'vpn' : undefined
         owner = saved
         runBytes = 0
         active = createSupervisor({ executable: path, onState: next => onRunState(active, next) })
         supervisor = active
         await active.start({ turnSecret: saved.turnSecret, pairingPublicKey: pairingPublicKey(saved.pairingSecret),
-          stateFile: identity.stateFile, controlRelays: saved.controlRelays, bind, listenPort: saved.listenPort })
+          stateFile: identity.stateFile, controlRelays: saved.controlRelays, bind, listenPort: saved.listenPort,
+          ...(network.kind === 'vpn-forwarding' ? { gateway: network.gateway } : {}) })
         if (token !== generation || blocked) await halt()
       } catch (error) {
         if (!active) {

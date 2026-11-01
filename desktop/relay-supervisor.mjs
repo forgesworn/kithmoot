@@ -49,12 +49,14 @@ function usableBind(value) {
 }
 
 /** The command line for one run. Every network value is explicit. */
-export function supervisedArgs({ pairingPublicKey, stateFile, controlRelays, bind, listenPort }) {
+export function supervisedArgs({ pairingPublicKey, stateFile, controlRelays, bind, listenPort, gateway }) {
   if (typeof pairingPublicKey !== 'string' || !HEX64.test(pairingPublicKey) || typeof stateFile !== 'string' || !isAbsolute(stateFile)
     || !Array.isArray(controlRelays) || controlRelays.length < 1 || controlRelays.length > 4
     || !controlRelays.every(url => typeof url === 'string' && url.startsWith('wss://'))
-    || !usableBind(bind) || !validPort(listenPort)) throw supervisorError('ERR_CONFIG')
-  return ['supervised', '--exit-on-stdin-close', '--map-ports',
+    || !usableBind(bind) || !validPort(listenPort) || (gateway !== undefined && !usableBind(gateway))) throw supervisorError('ERR_CONFIG')
+  // A named gateway is a VPN's port forwarding (relay-network.mjs); without
+  // one, spry-node finds the home router from the route table.
+  return ['supervised', '--exit-on-stdin-close', '--map-ports', ...(gateway ? ['--gateway', gateway] : []),
     '--pairing-key', pairingPublicKey, '--state-file', stateFile,
     ...controlRelays.flatMap(url => ['--control-relay', url]),
     '--bind', bind, '--listen-port', String(listenPort),
