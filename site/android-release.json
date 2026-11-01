@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.130",
-  "versionCode": 153,
+  "versionName": "0.6.131",
+  "versionCode": 154,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74015308,
-  "apkSha256": "3516024bd602348b08b85edb6b2df519b98c73969204bf14b88b9721c46ee22d",
+  "apkBytes": 74027596,
+  "apkSha256": "e7c9337f2cf291c54fee5379575a4235c0fa35939d045b95c8d92e63f3e162fe",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.130-production.apk",
+  "downloadFilename": "kithmoot-0.6.131-production.apk",
   "releaseNotes": [
-    "Settings splits into Calls and Relays, with one line saying how your calls connect.",
-    "A call relay on this phone, off until you turn it on, carries calls for your own rooms."
+    "An unsent message stops being resent by itself after a day; Retry sends it as a new message, and a Retry press is never lost.",
+    "Calls start with fewer messages to the relays, and a call with a browser no longer ends with no video when offers cross."
   ]
 }
