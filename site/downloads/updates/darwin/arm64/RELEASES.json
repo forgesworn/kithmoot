@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.123",
+  "currentRelease": "0.1.124",
   "releases": [
     {
-      "version": "0.1.123",
+      "version": "0.1.124",
       "updateTo": {
-        "version": "0.1.123",
-        "pub_date": "2026-11-01T16:00:00Z",
-        "notes": "The call relay on this computer runs through a VPN that forwards ports, such as Proton.",
-        "name": "0.1.123",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.123/KithMoot-0.1.123-mac-arm64.zip",
-        "sha256": "af3ec27068e66c9b9dfc2b8aa0e7fd0bf5f4bdc0235e3a13cbe5cdf7af26dbd0",
-        "size": 192984093
+        "version": "0.1.124",
+        "pub_date": "2026-11-01T23:00:00Z",
+        "notes": "Calls work again: ForgeSworn's call relay and Google STUN by default, direct calls on one network, and the microphone on when you join.",
+        "name": "0.1.124",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.124/KithMoot-0.1.124-mac-arm64.zip",
+        "sha256": "71d9670257dcb19e89655ed65fb4f3655db20f47369ee70c9e6163857232e0a3",
+        "size": 192984325
       }
     }
   ]
