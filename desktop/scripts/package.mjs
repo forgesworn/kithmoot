@@ -37,7 +37,7 @@ const isHelper = file => file.endsWith('/Contents/Resources/spry/spry-node')
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '123', icon, overwrite: true, asar: true, extraResource: [helper.dir],
+  appVersion: version, buildVersion: '124', icon, overwrite: true, asar: true, extraResource: [helper.dir],
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
