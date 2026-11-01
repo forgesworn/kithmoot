@@ -35,7 +35,7 @@ try {
   }))
   expect(state.secure).toBe(true)
   expect(state.node).toBe('undefined'); expect(state.process).toBe('undefined')
-  expect(state.bridge).toEqual(['titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments']); expect(state.workers).toBe(0)
+  expect(state.bridge).toEqual(['titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'setRelayContext', 'relayState', 'relayStart', 'relayStop', 'relaySetStartOnOpen', 'relayRemoveKeys', 'onRelayState', 'updateState', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments']); expect(state.workers).toBe(0)
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')

@@ -1,0 +1,76 @@
+{
+  "version": "0.1.125",
+  "preparedAt": "2026-11-01T23:40:14.206458+00:00",
+  "sourceCommit": "5984baf729d279100d6bc12833b1b6440f83954e",
+  "includesFixPullRequest": 657,
+  "files": [
+    {
+      "filename": "KithMoot-0.1.125-mac-arm64.zip",
+      "version": "0.1.125",
+      "bytes": 192984800,
+      "sha256": "065509c57382660ac67894c616d1c815ae93840dccdba1eb2bf5a8b118c45cd8"
+    },
+    {
+      "filename": "KithMoot-0.1.125-linux-arm64.tar.gz",
+      "version": "0.1.125",
+      "bytes": 187312472,
+      "sha256": "545354f2ad6d1c66361e0f97d88cf0f08c5f958eac3cf2fa0d8eda9705161147"
+    },
+    {
+      "filename": "KithMoot-0.1.125-linux-x64.tar.gz",
+      "version": "0.1.125",
+      "bytes": 186338930,
+      "sha256": "0fb41df52dece981cbe52addd41fa38d06c7360d331857a8c6ff585df6a7ba8f"
+    },
+    {
+      "filename": "KithMoot-0.1.125-windows-x64.zip",
+      "version": "0.1.125",
+      "bytes": 221512511,
+      "sha256": "229052e6ba85603e00cb9556eb004c4dd94bfb612add2a2652effab34b25c401"
+    },
+    {
+      "filename": "kithmoot_0.1.125_amd64.deb",
+      "version": "0.1.125",
+      "bytes": 151050432,
+      "sha256": "3ab85e246fabe6276945893739057a9f73b9c72a4db420e73ec61eb5518fb8c6"
+    },
+    {
+      "filename": "kithmoot_0.1.125_arm64.deb",
+      "version": "0.1.125",
+      "bytes": 145467400,
+      "sha256": "eab668228bcc122e212d2fa9f4de92d2c2a42b086b60faa59ee1830961b77c4c"
+    }
+  ],
+  "mac": {
+    "developerIdSigned": true,
+    "notarisation": {
+      "id": "9e7721ea-69df-423a-aa47-f23e236aad7a",
+      "status": "Accepted",
+      "message": "Processing complete"
+    },
+    "stapledAndValidated": true,
+    "gatekeeperAccepted": true,
+    "bundledMainAsset": "main-Bi4mgYSK.js",
+    "packagedReleaseSmoke": "passed: bundled UI, secure context, bridge surface, no Node exposure, CSP, traversal denial, service-worker exclusion, notification availability and profile persistence across restart",
+    "fullSmoke": "blocked at native display-capture gesture waiting for macOS permission; native capture acceptance remains pending"
+  },
+  "checks": {
+    "libraryBuild": "passed on M4",
+    "autoplayRegressionTests": 16,
+    "desktopTests": {
+      "passed": 302,
+      "skipped": 1,
+      "failed": 0
+    },
+    "packagedVersionsAndWebMainBytes": "verified for Mac, Linux x64/arm64 and Windows x64",
+    "debianAppPayloads": "verified against their packaged Linux app.asar for both architectures",
+    "liveTurn": {
+      "baseUrl": "https://kithmoot.forgesworn.dev/j/",
+      "udp": "passed: relay/relay pairs and bidirectional audio/video",
+      "tcpTls": "passed: relay/relay pairs and bidirectional audio/video"
+    }
+  },
+  "physicalDeviceAcceptance": false,
+  "installedUpgradeAcceptance": false,
+  "publication": "Candidate archives staged on download host; signed feed activation and GitHub publication occur after merge."
+}
