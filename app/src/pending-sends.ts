@@ -36,11 +36,20 @@
  * when a relay acknowledges it, so it never disappears before the message
  * it stands for is on screen.
  *
+ * Except after a day. A message is never published by itself once
+ * `UNSENT_AUTO_RETRY_LIMIT_SECONDS` have passed since it was written (its
+ * `created_at`), whatever asks: a timer, a connection coming back, a room
+ * opening again, a reload. It stays, saying it was not sent, and Retry then
+ * signs it again as a new event, written now, in place of the old one, which
+ * is dropped in the same write and can never go out later (`renew`). A
+ * message that cannot be signed again from here says so and offers no Retry.
+ * One a relay has acknowledged is sent, and is never signed again.
+ *
  * No DOM, so it can be tested without a browser.
  */
 import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
-import { CONVERSATION_MOVED } from '../../src/chat.js'
+import { CONVERSATION_MOVED, type ChatMessage, type SendOptions } from '../../src/chat.js'
 import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 
 /** Thrown by a publisher that cannot put a message's files on the group's storage and will not be able to by waiting. Its message is what the row says. */
@@ -85,13 +94,35 @@ export interface PendingSend {
   holdUntil?: number
   /** A relay acknowledged it; it leaves once the chat shows it. */
   acknowledged?: boolean
-  /** It was tried `MAX_AUTO_ATTEMPTS` times without a relay taking it: it
-   *  is not tried again until the person presses Retry. */
+  /** It was tried `MAX_AUTO_ATTEMPTS` times without a relay taking it, or it
+   *  is past `UNSENT_AUTO_RETRY_LIMIT_SECONDS`: it is not tried again until
+   *  the person presses Retry. */
   gaveUp?: boolean
+  /** Retry can sign it again as a new message once it is past
+   *  `UNSENT_AUTO_RETRY_LIMIT_SECONDS`. */
+  renewable?: boolean
 }
 
-export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck' | 'gaveUp'> & { publish?: (event: Event) => Promise<void> }
-type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held'> & { publish?: (event: Event) => Promise<void> }
+/** The same message signed again, now, to stand in for an unsent one past
+ *  `UNSENT_AUTO_RETRY_LIMIT_SECONDS`. Keeps the old row's room, conversation,
+ *  and whether it is kept across a reload. */
+export interface RenewedSend {
+  id: string
+  event: Event
+  text: string
+  files?: string[]
+  artwork?: ChatArtwork[]
+  publish: (event: Event) => Promise<void>
+}
+
+/** Signs an unsent message again as a new event. `'acknowledged'` when a
+ *  relay is now known to have taken the old one (it is sent, and is not
+ *  signed again); undefined when nothing was done (the reason already
+ *  shown to the person). */
+export type RenewSend = (item: PendingSend) => Promise<RenewedSend | 'acknowledged' | undefined>
+
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck' | 'gaveUp' | 'renewable'> & { publish?: (event: Event) => Promise<void>; renew?: RenewSend }
+type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held' | 'renewable'> & { publish?: (event: Event) => Promise<void>; renew?: RenewSend }
 
 export interface PendingSendsOptions {
   store?: DeviceStore
@@ -125,6 +156,15 @@ export const RETRY_SECONDS = [5, 15, 30, 60]
 export const MAX_AUTO_ATTEMPTS = 8
 /** How often a message waiting for a connection looks for one. */
 export const CONNECT_POLL_MS = 1_000
+/**
+ * How long after it was written (its `created_at`) an unsent message may
+ * still be published by itself, as the event it was. After this only Retry
+ * sends it, signed again as a new event. Android's chat catch-up after a
+ * relay reconnect asks each relay from the last `created_at` it saw minus a
+ * skew, and that skew depends on this: no event of ours reaches a relay
+ * later than this after its `created_at`. Raise it and the skew must grow.
+ */
+export const UNSENT_AUTO_RETRY_LIMIT_SECONDS = 24 * 60 * 60
 const PREFIX = 'kithmoot.pending.'
 /** A reload keeps this many unsent messages a room, newest last. */
 export const MAX_KEPT = 50
@@ -148,6 +188,33 @@ export function stateAfter(error: unknown): PendingState {
 
 export interface KeptPendingSend { id: string; channel: string; text: string; files: string[]; artwork?: ChatArtwork[]; event: Event; state: PendingState; editable?: boolean }
 
+/** Whether an unsent message is past `UNSENT_AUTO_RETRY_LIMIT_SECONDS` and
+ *  may no longer be published as the event it was. `now` in milliseconds. */
+export function pastAutoRetryLimit(item: { event: Pick<Event, 'created_at'>; acknowledged?: boolean }, now: number): boolean {
+  return !item.acknowledged && Math.floor(now / 1000) - item.event.created_at >= UNSENT_AUTO_RETRY_LIMIT_SECONDS
+}
+
+/** What a message asked for beyond its text, so that it can be signed again
+ *  as a new message saying the same: the same reply, files, stickers,
+ *  mentions, edit, retraction or reaction. Undefined for one that is more
+ *  than a message (an invitation, a room logo, shared work), which is not
+ *  signed again from here. */
+export function renewOptions(message: ChatMessage): SendOptions | undefined {
+  if (message.invite !== undefined || message.roomLogo !== undefined || message.assignment !== undefined) return undefined
+  const opts: SendOptions = {}
+  if (message.reaction) opts.reaction = message.reaction
+  if (message.kind === 'transcript' && message.speaker) opts.transcriptOf = message.speaker
+  else if (message.kind === 'directive') opts.directive = true
+  if (message.attachments?.length) opts.attachments = message.attachments
+  if (message.artwork?.length) opts.artwork = message.artwork
+  // `prepare` keeps the thread it is given, so the answer stays in the same one.
+  if (message.reply) opts.replyTo = { id: message.reply.messageId, participant: message.reply.participant, ...(message.thread ? { thread: message.thread } : {}) }
+  if (message.replaces !== undefined) opts.replaces = message.replaces
+  if (message.retracts !== undefined) opts.retracts = message.retracts
+  if (message.mentions?.length) opts.mentions = message.mentions
+  return opts
+}
+
 /** States in which nothing of the message has reached any relay, so taking
  *  it back leaves no trace. */
 export function neverLeft(item: PendingSend): boolean {
@@ -161,6 +228,7 @@ export class PendingSends {
   readonly #versions = new Map<string, number>()
   readonly #attempting = new Map<string, Promise<void>>()
   readonly #blocked = new Set<string>()
+  readonly #renewing = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
   readonly #timers = new Set<ReturnType<typeof setTimeout>>()
   #closed = false
@@ -212,13 +280,19 @@ export class PendingSends {
   #notify(): void { try { this.#opts.onChange() } catch { /* Rendering is not a custody receipt. */ } }
   #privateItems(roomId?: string): PrivatePendingSend[] { return [...this.#items.values()].filter(item => roomId === undefined || item.roomId === roomId) }
   #snapshot(item: PrivatePendingSend): PendingSend {
-    const { publish, ...value } = item
-    const snapshot = structuredClone({ ...value, ready: !!publish, held: this.#blocked.has(item.id) })
+    const { publish, renew, ...value } = item
+    const snapshot = structuredClone({ ...value, ready: !!publish, held: this.#blocked.has(item.id), ...(renew ? { renewable: true } : {}) })
     for (const tag of snapshot.event.tags) Object.freeze(tag)
     Object.freeze(snapshot.event.tags); Object.freeze(snapshot.event); Object.freeze(snapshot.files)
     for (const art of snapshot.artwork ?? []) Object.freeze(art)
     if (snapshot.artwork) Object.freeze(snapshot.artwork)
     return Object.freeze(snapshot)
+  }
+  #past(item: PrivatePendingSend): boolean { return pastAutoRetryLimit(item, this.#opts.now()) }
+  /** Past the limit: never published by itself again. Said once, not on every look. */
+  #expire(item: PrivatePendingSend): void {
+    if (item.gaveUp && item.retryAt === undefined) return
+    item.gaveUp = true; item.retryAt = undefined; this.#notify()
   }
   #hold(error: unknown): void { try { this.#opts.onStorageHold?.(error) } catch { /* The hold cannot be waived by an observer. */ } }
   items(roomId?: string): PendingSend[] { return this.#privateItems(roomId).map(item => this.#snapshot(item)) }
@@ -271,13 +345,52 @@ export class PendingSends {
   }
   async retry(id: string): Promise<void> {
     const item = this.#items.get(id)
-    if (!item || item.state === 'sending' || item.state === 'moved' || !item.publish) return
+    if (!item || item.state === 'sending' || item.state === 'moved') return
+    // Past the limit the old event never goes, even when asked: Retry signs it again.
+    if (this.#past(item)) { await this.#renew(item); return }
+    if (!item.publish) return
     this.#blocked.delete(id)
     if (item.state === 'holding') { await this.#release(item); return }
     item.retryAt = undefined
     // Retry starts the count again: the person asked for it.
     item.gaveUp = undefined; item.attempts = 0
     await this.#attempt(item, true)
+  }
+  /** Sign a message past the limit again, now, and put the new event in the
+   *  old one's place in a single write, so neither a crash nor a reload can
+   *  lose it or leave both. The old event is never published afterwards. */
+  async #renew(item: PrivatePendingSend): Promise<void> {
+    if (!item.renew || item.acknowledged || this.#renewing.has(item.id) || this.#attempting.has(item.id)) return
+    const version = this.#version(item.roomId)
+    const unchanged = (): boolean => !this.#closed && this.#version(item.roomId) === version && this.#items.get(item.id) === item &&
+      !item.acknowledged && item.state !== 'sending' && item.state !== 'moved' && !this.#attempting.has(item.id)
+    this.#renewing.add(item.id)
+    let fresh: RenewedSend | 'acknowledged' | undefined
+    try { fresh = await item.renew(this.#snapshot(item)) } finally { this.#renewing.delete(item.id) }
+    if (!fresh || !unchanged()) return
+    if (fresh === 'acknowledged') {
+      // A relay took the old event after all: it is sent, as it was.
+      await this.#change(item.roomId, items => {
+        const saved = items.get(item.id); if (!saved || saved.acknowledged) return false
+        // As a publish that a relay acknowledged leaves it.
+        saved.state = 'sending'; saved.acknowledged = true; saved.durable = false; saved.gaveUp = undefined; saved.retryAt = undefined; return true
+      }, version)
+      if (this.#items.get(item.id) === item && item.acknowledged) { try { this.#opts.onAcknowledged?.(this.#snapshot(item)) } catch { /* Rendering is not a custody receipt. */ } }
+      return
+    }
+    if (!fresh.id || fresh.id === item.id || fresh.event.id === item.event.id || this.#items.has(fresh.id)) throw new Error('a message signed again must be a new message')
+    const next: PrivatePendingSend = { id: fresh.id, roomId: item.roomId, channel: item.channel, text: fresh.text, files: [...(fresh.files ?? item.files)],
+      ...(fresh.artwork?.length ? { artwork: structuredClone(fresh.artwork) } : {}), event: structuredClone(fresh.event), state: 'waiting', attempts: 0,
+      durable: item.durable, ...(item.editable ? { editable: true } : {}), publish: fresh.publish, renew: item.renew }
+    await this.#change(item.roomId, items => {
+      const saved = items.get(item.id)
+      if (!saved || saved.acknowledged || saved.state === 'sending' || saved.state === 'moved' || items.has(next.id)) return false
+      items.delete(item.id); items.set(next.id, next); return true
+    }, version)
+    const installed = this.#items.get(next.id)
+    if (!installed || this.#items.has(item.id)) return
+    this.#blocked.delete(item.id)
+    await this.#attempt(installed, true)
   }
   async dismiss(id: string): Promise<PendingSend | undefined> {
     const old = this.#items.get(id); if (!old) return undefined
@@ -314,6 +427,7 @@ export class PendingSends {
       const kept = [...durable.map(value => ({ value, durable: true })), ...transient.map(value => ({ value, durable: false }))]
       if (kept.length > MAX_KEPT || new Set(kept.map(k => k.value?.id)).size !== kept.length) throw new Error('pending-message storage is unreadable')
       const restored: PrivatePendingSend[] = []
+      const now = this.#opts.now()
       for (const entry of kept) {
         const k = entry.value
         if (!k || typeof k.id !== 'string' || !k.id || typeof k.channel !== 'string' || typeof k.text !== 'string' ||
@@ -329,16 +443,22 @@ export class PendingSends {
         if (!artwork || artwork.some((art: unknown) => !art)) throw new Error('pending-message storage is unreadable')
         if (existing) continue
         restored.push({ id: k.id, roomId, channel: k.channel, text: k.text, files: [...k.files], event: structuredClone(k.event), state, durable: entry.durable, attempts: 0,
-          ...(k.editable === true ? { editable: true } : {}), ...(artwork.length ? { artwork } : {}) })
+          ...(k.editable === true ? { editable: true } : {}), ...(artwork.length ? { artwork } : {}),
+          // Kept by any build, it is past the limit if its own time says so: it never goes by itself again.
+          ...(pastAutoRetryLimit(k, now) ? { gaveUp: true } : {}) })
       }
       for (const item of restored) this.#items.set(item.id, item)
       if (restored.length) this.#notify()
       return restored.map(item => this.#snapshot(item))
     })
   }
-  resume(id: string, publish: (event: Event) => Promise<void>): void {
+  /** Attach a restored message's publisher, and what can sign it again once
+   *  it is past the limit. Past the limit, it is not published. */
+  resume(id: string, publish: (event: Event) => Promise<void>, renew?: RenewSend): void {
     const item = this.#items.get(id); if (!item || item.publish || this.#closed) return
-    item.publish = publish; this.#notify(); void this.#attempt(item)
+    item.publish = publish
+    if (renew) item.renew = renew
+    this.#notify(); void this.#attempt(item)
   }
   async strand(id: string): Promise<void> {
     const item = this.#items.get(id); if (!item) return
@@ -349,6 +469,8 @@ export class PendingSends {
     const existing = this.#attempting.get(item.id); if (existing) return existing
     if (!item.publish || item.state === 'holding' || item.state === 'sending' || item.state === 'moved' ||
       this.#items.get(item.id) !== item || !this.#here(item) || this.#blocked.has(item.id)) return Promise.resolve()
+    // From every path, timer, wake, reload or Retry alike: past the limit the old event never goes.
+    if (this.#past(item)) { this.#expire(item); return Promise.resolve() }
     if (!asked && !this.#opts.connected()) {
       item.retryAt = this.#opts.now() + CONNECT_POLL_MS; this.#scheduleRetry(item, CONNECT_POLL_MS); return Promise.resolve()
     }
@@ -364,9 +486,16 @@ export class PendingSends {
     } catch (error) { this.#hold(error); return Promise.resolve() }
   }
   async #send(item: PrivatePendingSend, version: number): Promise<void> {
-    await this.#change(item.roomId, items => { const saved = items.get(item.id); if (!saved || saved.state === 'moved') return false; saved.state = 'sending'; saved.attempts++; saved.stuck = undefined; return true }, version)
+    let going = false
+    await this.#change(item.roomId, items => {
+      const saved = items.get(item.id); if (!saved || saved.state === 'moved') return false
+      // Checked again at the last moment before it goes: saving can take time.
+      if (pastAutoRetryLimit(saved, this.#opts.now())) return false
+      saved.state = 'sending'; saved.attempts++; saved.stuck = undefined; going = true; return true
+    }, version)
     this.#check(item.roomId, version)
     if (this.#items.get(item.id) !== item || !this.#here(item)) return
+    if (!going) { if (this.#past(item)) this.#expire(item); return }
     let error: unknown, failed = false
     try { await item.publish!(structuredClone(item.event)) } catch (caught) { failed = true; error = caught }
     this.#check(item.roomId, version)
@@ -398,6 +527,8 @@ export class PendingSends {
     this.#schedule(() => {
       if (this.#items.get(item.id) !== item || !this.#here(item) || !item.publish || this.#blocked.has(item.id) || item.gaveUp ||
           (item.state !== 'waiting' && item.state !== 'refused' && item.state !== 'unknown')) return
+      // Past the limit a connection poll does not spin on it every second.
+      if (this.#past(item)) { this.#expire(item); return }
       const remaining = (item.retryAt ?? 0) - this.#opts.now()
       if (remaining > 0) this.#scheduleRetry(item, remaining)
       else void this.#attempt(item)
