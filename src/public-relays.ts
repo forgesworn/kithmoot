@@ -56,6 +56,14 @@ import { isForgeSwornHost } from './forgesworn-hosts.js'
  * offchain.pub is a default from 30 October 2026 but not marked for quiet
  * rooms: it refused a stranger's gift wrap on 25 September 2026, and the
  * write test decides.
+ *
+ * relay.damus.io is removed on 1 November 2026: after refusing the home line
+ * with HTTP 503 on 30 October it escalated to banning writes from the address
+ * outright ("banned: too many rate-limit violations"), clearing only when the
+ * caller changed network address. A suggestion list cannot point at a relay
+ * that bans the read/write pattern the list is for (criteria 3 and 5). The
+ * app also stops asking it for profiles and prunes it from saved device
+ * choices and room hints at use time; see app/src/relay-settings.ts.
  */
 export interface PublicRelay {
   /** Canonical, `wss://host/`. */
@@ -79,7 +87,6 @@ const ENTRIES: PublicRelay[] = [
   { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-30' },
   { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: true, quietRooms: false, test: 'read', checked: '2026-10-30' },
   { url: 'wss://nostr.oxtr.dev/', operator: '0xtr relay', default: false, quietRooms: true, test: 'read', checked: '2026-10-21' },
-  { url: 'wss://relay.damus.io/', operator: 'damus.io', default: false, quietRooms: false, test: 'read', checked: '2026-10-21' },
 ]
 
 export const PUBLIC_RELAYS: readonly PublicRelay[] = Object.freeze(ENTRIES.map(relay => Object.freeze(relay)))

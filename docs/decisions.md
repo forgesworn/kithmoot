@@ -2499,3 +2499,42 @@ Found on the way and fixed first (#558): New link gave the room's link a
 fresh inviter key, which split the room, since the creator then signed with
 a key no member had pinned. New link now keeps the inviter and changes only
 the bearer.
+
+## relay.damus.io leaves the suggested and dialled lists (1 November 2026)
+
+On 30 October relay.damus.io refused this machine's WebSocket upgrade with
+HTTP 503; on 1 November it refused this machine's writes outright, "banned:
+too many rate-limit violations", and the refusal cleared only when the
+caller changed network address. It was still a listed suggestion, profile
+lookup still asked it, and every saved choice, invitation hint and room
+snapshot that named it kept dialling it: each dial from a shared address
+deepens the ban that everyone on that address then carries.
+
+**What changes.** damus leaves the curated list in `src/public-relays.ts`
+(the list rules still hold: four entries, three defaults from three
+operators on three hosts, at least two quiet-rooms entries one of them a
+default). Profile lookups ask purplepag.es and relay.primal.net only. In
+`app/src/relay-settings.ts` a guarded prune drops address-banned relays
+from the configuration a pool is built on (saved device choices, link and
+invitation hints, inherited snapshots and a room's own relays alike), but
+never when that would leave nothing readable or nothing writable, and never
+when it would take a room's only shared relay. A room pinned to damus alone
+stays on it.
+
+**The divergence.** The 21 October entry said saved choices are untouched.
+This change prunes them at use time. Storage is not rewritten: the saved
+list still holds damus, it is simply not dialled, and it would come back
+into use only if it left the address-ban set. That is a deliberate policy
+change, recorded here: the dial gate in `src/relay-dial-gate.ts` already
+carries an address ban as the failure the whole relay client exists to
+avoid, and a suggestion list that names a relay known to ban this client's
+pattern is working against it.
+
+**Evidence.** `src/relay-dial-gate.ts` names the same refusal message from
+the earlier incident. The 1 November write refusal was reproduced with a
+single pre-expired event from a throwaway key and cleared by changing
+network address, which fixes it to a per-address rate-limit ban rather
+than a blocked key. The privacy notice and the connections page now say
+two profile relays, with release-dating so installed releases that still
+carry the old list are not contradicted. The Android client is its own
+repository and keeps its own list until it makes the same change.
