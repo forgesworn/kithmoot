@@ -49,7 +49,8 @@ for (const colour of ['light', 'dark'] as const) {
     try {
       await page.goto('https://site.kithmoot.test/')
       await expect(page.getByRole('heading', { level: 1 })).toHaveText('A workspace nobody owns.')
-      await expect(page.locator('.hero .primary')).toHaveAttribute('href', 'j/')
+      await expect(page.locator('.dev-notice')).toContainText('under development')
+      await expect(page.locator('.hero .primary')).toHaveAttribute('href', '#download')
       await expect(page.getByRole('link', { name: 'Sign in with Nostr' })).toHaveAttribute('href', 'j/?signin=nostr')
       await expect(page.locator('#android')).toContainText('Production release')
       for (const width of [320, 390, 768, 1440]) {
