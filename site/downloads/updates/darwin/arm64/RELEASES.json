@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.124",
+  "currentRelease": "0.1.125",
   "releases": [
     {
-      "version": "0.1.124",
+      "version": "0.1.125",
       "updateTo": {
-        "version": "0.1.124",
-        "pub_date": "2026-11-01T23:00:00Z",
-        "notes": "Calls work again: ForgeSworn's call relay and Google STUN by default, direct calls on one network, and the microphone on when you join.",
-        "name": "0.1.124",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.124/KithMoot-0.1.124-mac-arm64.zip",
-        "sha256": "71d9670257dcb19e89655ed65fb4f3655db20f47369ee70c9e6163857232e0a3",
-        "size": 192984325
+        "version": "0.1.125",
+        "pub_date": "2026-11-01T23:37:46Z",
+        "notes": "Tap to hear appears whenever the browser blocks call sound, including after earlier gestures; call diagnostics show remote-audio mute state.",
+        "name": "0.1.125",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.125/KithMoot-0.1.125-mac-arm64.zip",
+        "sha256": "065509c57382660ac67894c616d1c815ae93840dccdba1eb2bf5a8b118c45cd8",
+        "size": 192984800
       }
     }
   ]

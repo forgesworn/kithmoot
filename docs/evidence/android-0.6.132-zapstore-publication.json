@@ -1,0 +1,40 @@
+{
+  "verifiedAt": "2026-11-01T23:32:09.954Z",
+  "relay": "wss://relay.zapstore.dev",
+  "eoseReceived": true,
+  "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+  "packageId": "dev.forgesworn.kithmoot",
+  "version": "0.6.132",
+  "versionCode": 155,
+  "channel": "main",
+  "applicationEventId": "f8d4fc674ef3897caf67e734fbc154890e0458268823dd34910fd1293fec39fb",
+  "releaseEventId": "7c0f9d2d2f770dd435453cc44602c4ff3f7548dabf534ad6d030b2c15ef37d89",
+  "assetEventId": "43de7de239a3d2e676a4bd614190b23add4b731ea6312466776ab7fe70654ed1",
+  "releaseCreatedAt": "2026-11-01T23:30:38.000Z",
+  "nostrSignaturesVerified": true,
+  "releaseReferencesVerifiedAsset": true,
+  "apk": {
+    "url": "https://kithmoot.app/apk/kithmoot-0.6.132-production.apk",
+    "bytes": 74031692,
+    "sha256": "e6f1e80f9070b72f113624cc1b44c7ded8bc0847f20ab738673142b4a357eaed",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "publicDownloadVerified": true,
+    "downloads": [
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.132-production.apk",
+        "bytes": 74031692,
+        "sha256": "e6f1e80f9070b72f113624cc1b44c7ded8bc0847f20ab738673142b4a357eaed",
+        "publicDownloadVerified": true
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.132/kithmoot-0.6.132-production.apk",
+        "bytes": 74031692,
+        "sha256": "e6f1e80f9070b72f113624cc1b44c7ded8bc0847f20ab738673142b4a357eaed",
+        "publicDownloadVerified": true
+      }
+    ]
+  },
+  "published": true,
+  "physicalAndroidAcceptance": false,
+  "zapstoreClientAcceptance": false
+}
