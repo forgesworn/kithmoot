@@ -1205,12 +1205,22 @@ export class Peer implements NegotiatingPeer {
     // nothing, and on a real connection it is a second negotiation with all
     // the risk that carries - which is why this used to fall through, throw
     // out of `setRemoteDescription`, and vanish into the mesh's `catch`.
+    //
+    // The same holds on the polite side while an offer of our own is out. The
+    // far end re-sent an offer it made before our answer reached it, and our
+    // offer was made after that answer: the copy is not glare. Rolling ours
+    // back to answer the copy afresh throws away a negotiation the far end may
+    // already have answered and re-applies a stale offer; between a browser
+    // and the Android client that ended with no video either way. The answer
+    // already sent still answers the copy, and our offer, which carries
+    // whatever changed since, stays out and is asked about again until it is
+    // answered. A different offer crossing ours is still a collision.
     if (
       sdp !== undefined &&
       sameShape(sdp, this.#lastRemoteOfferSdp) &&
       this.#lastAnswerSdp !== undefined &&
       !this.#makingOffer &&
-      this.#pc.signalingState === 'stable'
+      (this.#pc.signalingState === 'stable' || (this.polite && this.#pc.signalingState === 'have-local-offer'))
     ) {
       this.#lastAnswerReplyTo = seq
       this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp,

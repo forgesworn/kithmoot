@@ -727,6 +727,56 @@ describe('Peer', () => {
     expect(signalsFromHigh.filter((s) => s.type === 'answer')).toHaveLength(0)
   })
 
+  it('answers a re-sent copy of an answered offer from store while its own offer is out, instead of rolling back', async () => {
+    // The far end offers, we answer; then we offer something of our own, and
+    // a copy of the far end's first offer (re-sent before our answer reached
+    // it) arrives while ours is outstanding. That copy is not glare.
+    const factory = createFakeFactory({ structuredSdp: true }), signals: SignalBody[] = []
+    const remote = createFakeFactory({ structuredSdp: true })()
+    remote.addTrack(fakeAudioTrack())
+    const offer = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 0, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      expect(peer.polite).toBe(true)
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      const answers = () => signals.filter(body => body.type === 'answer')
+      expect(answers()).toHaveLength(1)
+      await peer.start([fakeMediaTrack('video')]); await settle()
+      const pc = factory.instances[0]!
+      expect(pc.signalingState).toBe('have-local-offer')
+      const ours = signals.filter(body => body.type === 'offer')
+      expect(ours).toHaveLength(1)
+
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      expect(pc.calls.some(c => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback')).toBe(false)
+      expect(answers()).toHaveLength(2)
+      expect(answers()[1]!.sdp).toBe(answers()[0]!.sdp)
+      expect(pc.signalingState).toBe('have-local-offer')
+      // Our own offer is still the one outstanding, so its retry carries it.
+      peer.retransmitNow(); await settle()
+      expect(signals.filter(body => body.type === 'offer').at(-1)!.seq).toBe(ours[0]!.seq)
+    } finally { peer.close() }
+  })
+
+  it('still rolls back for a different offer crossing its own', async () => {
+    const factory = createFakeFactory({ structuredSdp: true }), signals: SignalBody[] = []
+    const remote = createFakeFactory({ structuredSdp: true })()
+    remote.addTrack(fakeAudioTrack())
+    const first = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 0, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: first.sdp, seq: 1 })
+      await remote.setLocalDescription(first)
+      remote.addTrack(fakeMediaTrack('video'))
+      const second = await remote.createOffer()
+      await peer.start([fakeMediaTrack('video')]); await settle()
+      const pc = factory.instances[0]!
+      expect(pc.signalingState).toBe('have-local-offer')
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: second.sdp, seq: 2 })
+      expect(pc.calls.some(c => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback')).toBe(true)
+    } finally { peer.close() }
+  })
+
   describe('an offer that goes unanswered', () => {
     // The signalling channel is an ephemeral event on a public relay: it
     // reaches whoever is subscribed when it arrives and nobody later. An
@@ -1521,12 +1571,14 @@ describe('Peer', () => {
    * sent audio and the other's transceiver said it was not receiving any, for
    * the rest of the call, with nothing left to renegotiate it.
    */
-  it('BUG: a second, different answer to the same offer is a disagreement to repair, not a duplicate to drop', async () => {
+  it('a re-sent offer crossing the answerer\'s own offer is answered from store, and the answerer\'s offer carries its microphone across', async () => {
     const structured = { structuredSdp: true }
     const fromOfferer: SignalBody[] = []
     const fromAnswerer: SignalBody[] = []
-    // HIGH offers, LOW answers: the answerer is the polite side, so it is the
-    // one that rolls back and answers again.
+    // HIGH offers, LOW answers: the answerer is the polite side. It used to
+    // roll its own offer back and answer the copy again, differently, which
+    // left the pair repairing; between a browser and the Android client that
+    // ended with no video either way.
     const offererFactory = createFakeFactory(structured)
     const answererFactory = createFakeFactory(structured)
     const offerer = new Peer({
@@ -1563,29 +1615,31 @@ describe('Peer', () => {
     expect(audio.currentDirection, 'the answer said recvonly, so this side only sends').toBe('sendonly')
 
     // The microphone arrives. The answerer offers, and the offerer's retry
-    // crosses it, so the same offer is answered a second time - this time
-    // with something to send.
+    // of its first offer crosses it.
     await answerer.start([fakeAudioTrack()])
     await settle()
-    expect(answererFactory.instances[0]!.signalingState).toBe('have-local-offer')
+    const answererPc = answererFactory.instances[0]!
+    expect(answererPc.signalingState).toBe('have-local-offer')
     await answerer.handleSignal(offer)
     await settle()
     const answers = fromAnswerer.filter((s) => s.type === 'answer')
-    expect(answers, 'the rolled-back answerer answered the offer again').toHaveLength(2)
-    expect(answers[1]!.sdp, 'and its answer changed, because its media did').not.toBe(answers[0]!.sdp)
+    expect(answers, 'the copy is answered').toHaveLength(2)
+    expect(answers[1]!.sdp, 'with the answer already sent').toBe(answers[0]!.sdp)
+    expect(answererPc.calls.some((c) => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback'),
+      'the answerer keeps its own offer').toBe(false)
+    expect(answererPc.signalingState).toBe('have-local-offer')
 
-    // Which reaches a connection that is already stable.
+    // The repeat reaches a connection that already holds that answer.
     await offerer.handleSignal(answers[1]!)
     await settle()
 
-    // The repair is an ordinary renegotiation, so the answerer has to be
-    // given the offer it prompts and its answer handed back.
-    for (const body of fromOfferer.filter((s) => s.type === 'offer').slice(1)) {
-      await answerer.handleSignal(body)
+    // The answerer's own offer carries the microphone across.
+    for (const body of fromAnswerer.filter((s) => s.type === 'offer')) {
+      await offerer.handleSignal(body)
       await settle()
     }
-    for (const body of fromAnswerer.filter((s) => s.type === 'answer').slice(2)) {
-      await offerer.handleSignal(body)
+    for (const body of fromOfferer.filter((s) => s.type === 'answer')) {
+      await answerer.handleSignal(body)
       await settle()
     }
 
