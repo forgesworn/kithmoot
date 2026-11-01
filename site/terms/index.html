@@ -19,7 +19,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Terms of use</h1>
-<p class="dated">Draft published for review. Last updated 23 October 2026.</p>
+<p class="dated">Draft published for review. Last updated 1 November 2026.</p>
 <div class="draft-note">
 <p><strong>This page is a draft.</strong> It has not been reviewed by a lawyer and it is not final. It is published here so it can be checked against how KithMoot actually works, not because it is in force.</p>
 </div>
@@ -35,13 +35,18 @@
 <li>the web app, this website and the downloads as static files;</li>
 <li>the update information the desktop app checks for.</li>
 </ul>
-<p>Until 22 October 2026 we also ran a call relay (TURN), a file store, a message-drop service and meeting codes for anyone using the app, and until September 2026 one of the default relays was ours. Those are closed. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
-<p>The former public STUN listener stopped on 23 October 2026. A separate authenticated private relay remains for an arranged personal call; it is not a public app default or a public credential issuer. Private deployments have separate operator and access arrangements, described in the <a href="/privacy/">privacy notice</a>, section 4.5.</p>
+<p>Since 1 November 2026 we also run, for anyone using the app:</p>
+<ul>
+<li>a public call relay (TURN), with a login service that needs no account, which the apps use by default when a call cannot connect directly;</li>
+<li>a Nostr relay, relay.trotters.cc, which is the first relay the apps use by default and which anybody can read from and write to.</li>
+</ul>
+<p>What each sees and keeps is in the <a href="/privacy/">privacy notice</a>, sections 4.5 and 7. Until 22 October 2026 we also ran a file store, a message-drop service and meeting codes. Those are closed, and our call relay was closed from 22 October to 1 November 2026. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
+<p>A separate authenticated private relay remains for an arranged personal call. Private deployments have separate operator and access arrangements, described in the <a href="/privacy/">privacy notice</a>, section 4.5.</p>
 
 <h2>3. Who runs your rooms</h2>
 <ul>
-<li>Rooms travel over Nostr relays run by other people. The app suggests public relays by default; a room's creator can choose others.</li>
-<li>Calls use the STUN and TURN settings chosen by the device, room or installed build. Recent client source names Cloudflare STUN by default; desktop through 0.1.101 and Android through 0.6.105 may still name the retired listener. Desktop 0.1.102 and Android 0.6.106 use Cloudflare for that default. You can configure a relay supplied by an independent provider or one you run yourself. From desktop 0.1.120 and Android 0.6.130 you can also run a call relay on your own computer or phone; it is off until you turn it on, you run it, not us, and only you can stop it.</li>
+<li>Rooms travel over Nostr relays. The app suggests four by default: relay.trotters.cc, which we run, and three public relays run by other people. A room's creator can choose others.</li>
+<li>Calls use the STUN and TURN settings chosen by the device, room or installed build. From desktop 0.1.124 and Android 0.6.132, and in the web app, the defaults are Google's and Cloudflare's STUN servers and our call relay. You can set your own STUN server, and a relay supplied by an independent provider or one you run yourself, which replace ours. From desktop 0.1.120 and Android 0.6.130 you can also run a call relay on your own computer or phone; it is off until you turn it on, you run it, not us, and only you can stop it.</li>
 <li>In the web app and the desktop app, files you send go by default to a public file server run by somebody else (section 4), or to a server you choose.</li>
 <li>A room's link is its access control. Whoever creates a room decides who to send it to.</li>
 <li>Operators are responsible for what they run under the laws and agreements that apply to their deployment. Using a bundled app, running one login or forwarding encrypted packets does not by itself settle its legal classification. Transport infrastructure and control of the underlying communications service need separate analysis.</li>

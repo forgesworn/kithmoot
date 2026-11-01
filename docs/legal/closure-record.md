@@ -15,6 +15,11 @@ public services' closure history is preserved. See
 [`call-transport-position.md`](call-transport-position.md) for the current
 deployment and the future design; those are separate from the closures below.
 
+Updated 1 November 2026: the public call relay, the STUN listener and the
+relay ForgeSworn runs are open to the public again (section 7). Sections 1
+to 6 are kept as written; where they say those surfaces are closed, section
+7 governs.
+
 ## 1. What ForgeSworn ran
 
 From 24 August 2026 ForgeSworn ran default infrastructure on
@@ -110,7 +115,9 @@ settled).
 about data ForgeSworn still holds, such as a request to delete a stored
 file by its hash. It is not a reporting route for a live service.
 
-## 4. Where ForgeSworn stands now
+## 4. Where ForgeSworn stood, 23 October 2026
+
+Superseded on 1 November 2026 (section 7).
 
 **Aimed at: a publisher of software, with defaults that point only at
 servers other people run.** The apps' default relays and default public
@@ -179,3 +186,32 @@ default.
 
 Revisit this record before shipping any default, or starting to run
 anything others can reach (law note 2.2).
+
+## 7. 1 November 2026: reopened
+
+Section 6's trigger has fired. After calls failed for people, the owner
+reopened, from about 22:00 UTC on 1 November 2026:
+
+| Surface | Now | Evidence |
+| --- | --- | --- |
+| TURN credentials, `GET /turn`, and the TURN server | Open to anyone, no account; hour-long logins; coturn on 3478 and 5349 with logs discarded, 1 Mbit/s per session. Used by default by the web app, desktop 0.1.124 and Android 0.6.132 | `server/turn-credentials.mjs`, `deploy/coturn/turnserver.conf`, `app/src/main.ts`; that `/turn` answers is the host's report, as `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
+| STUN | coturn answers STUN on 3478 again, so older clients that name it (Android through 0.6.105, desktop through 0.1.101) reach it. New default STUN is Google's, then Cloudflare's | `src/ice-defaults.ts`; host's report |
+| The relay ForgeSworn runs, `relay.trotters.cc` | First default relay again, for new installs and rooms. Reads and writes open to anyone, no authentication. The allowlist now only sets retention: strangers' private messages and media deleted on each clean-up run, app data, reports and deletions after 90 days, the rest after 7 days; public kinds 1, 6, 7 and 9735 after a day for everyone | `data/public-relays.json`; access and retention are the host's report |
+
+Still closed: the file store (uploads and reads), meeting codes and
+`/drops` (410). Section 3's deletions stand.
+
+Consequences for this record:
+
+- Section 3's account of the relay, "closed to keys held for project work"
+  and "treated as the project's inbox" (note 2.12), no longer describes it.
+  Strangers' events can now reach other strangers, which is where 2.12 says
+  the inbox reading falls away and 2.1 applies `[U]`.
+- Section 5's reading that a service which stops before its deadline owes
+  no assessment does not fit a service that reopens before that deadline.
+  Whether the three-month period (note 2.4, `[P]`) runs from 24 August 2026
+  or restarts on 1 November 2026 is not covered by the note `[U]`. Counted
+  from 24 August 2026, the cautious reading, both assessments fall due on
+  24 November 2026.
+- See `call-transport-position.md`, section "1 November 2026", for the
+  position this puts ForgeSworn in and the evidence for each fact.
