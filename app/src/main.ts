@@ -13887,9 +13887,12 @@ async function collectDiagnostics(): Promise<string> {
       role: tileRole(key),
       inDocument: a.el.isConnected,
       paused: a.el.paused,
+      muted: a.el.muted,
       currentTime: Number(a.el.currentTime.toFixed(2)),
       track: `${a.track.readyState}${a.track.muted ? ':muted' : ''}`,
     })),
+    // Why this device's speaker might be silent on purpose.
+    soundHere: { monitorHere: cachedMonitorHere, leftCall, besideAnotherDevice },
     // A count, never the keys or the levels themselves - which people have
     // been turned up or down is nobody's business but this browser's.
     volume: { customLevels: volumeLevelCount(deviceStore), gainAvailable: remoteVolume.gainAvailable },

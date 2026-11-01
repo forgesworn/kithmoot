@@ -28,8 +28,8 @@ describe('isAutoplayBlock', () => {
     expect(isAutoplayBlock(new DOMException('blocked', 'NotAllowedError'), activation(false))).toBe(true)
   })
 
-  it('does not trust a rejection once the page has had a gesture - some other problem', () => {
-    expect(isAutoplayBlock(new DOMException('blocked', 'NotAllowedError'), activation(true))).toBe(false)
+  it('offers the tap even after the page has had a gesture, as Safari still refuses sound then', () => {
+    expect(isAutoplayBlock(new DOMException('blocked', 'NotAllowedError'), activation(true))).toBe(true)
   })
 })
 
