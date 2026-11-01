@@ -1,5 +1,5 @@
 import { confirmAction } from './confirm-action.js'
-import { neverLeft, type PendingSend, type PendingSends } from './pending-sends.js'
+import { neverLeft, pastAutoRetryLimit, type PendingSend, type PendingSends } from './pending-sends.js'
 import { artworkCards, artworkMessageText } from './chat-artwork.js'
 import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 
@@ -54,9 +54,10 @@ export class Outbox {
     // Undo/Send now entirely, even when focus is restored to its replacement.
     // Include every presentation field and permission; event bytes are already
     // identified by their signed id and do not need serialising on each tick.
+    const now = Date.now()
     const modelKey = JSON.stringify([roomId, items.map(item => {
       const { event, ...presentation } = item
-      return [presentation, event.id, this.canEdit(item), this.doomed(item)]
+      return [presentation, event.id, this.canEdit(item), this.doomed(item), pastAutoRetryLimit(item, now)]
     })])
     if (modelKey === this.#modelKey && this.#root.children.length === items.length &&
       items.every((item, index) => this.#root.children[index]?.getAttribute('data-pending-id') === item.id)) {
@@ -127,7 +128,9 @@ export class Outbox {
       row.append(actions)
       return row
     }
-    if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') && item.ready) {
+    // Past a day Retry signs it again as a new message, so it is offered only where that can be done.
+    if (!item.acknowledged && (item.state === 'waiting' || item.state === 'refused' || item.state === 'unknown') &&
+      (pastAutoRetryLimit(item, Date.now()) ? item.renewable : item.ready)) {
       actions.append(this.#button('Retry', 'retry', () => this.queue.retry(item.id)))
     }
     // Edit and Delete only where nothing has left this device, so neither
@@ -202,6 +205,17 @@ export function pendingStatusWords(item: PendingSend, sending: string, now: numb
       return `Sending in ${seconds} s${where}`
     }
     case 'sending': return sending
+  }
+  // Past a day it is not sent by itself any more; Retry, where offered, sends it as a new message.
+  if (item.state !== 'moved' && pastAutoRetryLimit(item, now)) {
+    if (!item.renewable) return item.files.length
+      ? `Not sent${where}: it waited more than a day. Copy its text into the conversation to send it, and add its files again.`
+      : `Not sent${where}: it waited more than a day. Copy it into the conversation to send it.`
+    return item.state === 'unknown'
+      ? `Not confirmed${where}: no relay answered, and it is now more than a day old. Press Retry to send it again.`
+      : `Not sent${where}: it waited more than a day. Press Retry to send it now.`
+  }
+  switch (item.state) {
     case 'waiting':
       // A storage problem waiting will not mend says so in its own words; otherwise a message that has tried and has files for the group's storage is waiting for that.
       if (item.storage && item.stuck) return item.stuck

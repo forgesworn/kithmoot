@@ -77,7 +77,7 @@ import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends, StorageStuckError, type PendingSend } from './pending-sends.js'
+import { PendingSends, StorageStuckError, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
@@ -542,6 +542,8 @@ async function queueSend(prepared: PreparedSend, channel: string, opts: { files?
       if (JSON.stringify(retained) !== JSON.stringify(prepared.event)) throw new Error('The prepared message changed while it was being saved.')
       await (opts.publish ?? prepared.publish)()
     }, durable: opts.durable ?? false,
+    // Past a day, Retry signs it again: only a main-chat message sent the ordinary way, not a quiet room's or one with a publisher of its own.
+    ...(sendingSession && channel === 'Chat' && !opts.publish && !opts.storage && !quietTransport ? { renew: unsentRenewer(sendingSession) } : {}),
     ...(opts.editable ? { editable: true } : {}),
     ...(opts.storage ? { storage: true as const } : {}),
   }, (opts.holdSeconds ?? 0) * 1000)
@@ -3410,9 +3412,51 @@ async function requeueQuiet(s: RoomSession): Promise<void> {
   }
   persistQuiet()
 }
+/** What Retry runs for a main-chat message past `UNSENT_AUTO_RETRY_LIMIT_SECONDS`:
+ *  the same message signed again, now, under the current epoch and
+ *  credential, renewing the credential as Send does. One a relay is now
+ *  known to have acknowledged is sent, and is not signed again. */
+function unsentRenewer(s: RoomSession): RenewSend {
+  return async old => {
+    if (session !== s || currentRoomId() !== old.roomId || quietTransport) return undefined
+    // An acknowledgement that came after the outbox stopped waiting for one.
+    if (sessionTransport?.publishEvidence(old.event.id)?.relays.some(relay => relay.acked)) return 'acknowledged'
+    const root = s.epochKeys()
+    const { roomKey } = deriveRoom(roomSecret)
+    const msg = decodeChatEvent(old.event, { roomId: old.roomId, roomKey, now: nowSeconds(), policy: roomPolicy, ...(root.epoch > 0 ? { epoch: { id: root.id, key: root.key } } : {}) })
+    const sendOpts = msg && msg.id === old.id && msg.participant === s.participant ? renewOptions(msg) : undefined
+    if (!msg || !sendOpts) {
+      setStatus('This message cannot be sent again from here. Copy it into the conversation to send it.')
+      return undefined
+    }
+    let prepared: PreparedSend
+    try {
+      prepared = await prepareFresh(s, () => s.chat.prepare(msg.text, sendOpts), () => {
+        if (session === s) setStatus(SIGNER_SLOW_WORDS, 'progress')
+      })
+    } catch (err) {
+      if (session === s && !(err instanceof CredentialRenewalError && err.reason === 'left')) setStatus(sendFailureWords(err))
+      return undefined
+    }
+    if ($('status').textContent === SIGNER_SLOW_WORDS) setStatus('')
+    if (session !== s) return undefined
+    // The tick follows the new event; the old one is never sent.
+    tickIds.delete(old.id)
+    if (isTickMessage(prepared.message)) tickIds.add(prepared.message.id)
+    return {
+      id: prepared.message.id, event: prepared.event, text: prepared.message.text, files: [...old.files],
+      ...(prepared.message.artwork?.length ? { artwork: prepared.message.artwork } : {}),
+      publish: async retained => {
+        if (JSON.stringify(retained) !== JSON.stringify(prepared.event)) throw new Error('The prepared message changed while it was being saved.')
+        await prepared.publish()
+      },
+    }
+  }
+}
 /** Send again what a reload left unsent in this room's main chat. Each goes
  *  as the event it was, so a relay that already took it keeps one copy; one
- *  written under a key the room has since left is said so, not sent. */
+ *  written under a key the room has since left is said so, not sent. One
+ *  written more than a day ago is not sent by itself: Retry signs it again. */
 async function resumePending(s: RoomSession): Promise<void> {
   const roomId = currentRoomId()
   const transport = sessionTransport
@@ -3431,7 +3475,7 @@ async function resumePending(s: RoomSession): Promise<void> {
     pendingSends.resume(item.id, async retained => {
       if (session !== s || s.epochKeys().epoch !== root.epoch) throw new Error(CONVERSATION_MOVED)
       await transport.publish(retained)
-    })
+    }, unsentRenewer(s))
   }
 }
 let meParticipant = ''

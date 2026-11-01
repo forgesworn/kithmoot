@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import { memoryDeviceStore } from './device-store.js'
-import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, MAX_AUTO_ATTEMPTS, type PendingSend } from './pending-sends.js'
+import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, MAX_AUTO_ATTEMPTS, UNSENT_AUTO_RETRY_LIMIT_SECONDS, pastAutoRetryLimit, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
+import type { ChatMessage } from '../../src/chat.js'
 import { pendingStatusWords } from './outbox.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
 
 const ROOM = 'a'.repeat(64)
-const event = (id: string) => ({ id, kind: 1, pubkey: 'p', created_at: 1, tags: [], content: id, sig: 's' }) as Event
+// Written now: an unsent message stops going by itself a day after its created_at.
+const WRITTEN = Math.floor(Date.now() / 1000)
+const event = (id: string) => ({ id, kind: 1, pubkey: 'p', created_at: WRITTEN, tags: [], content: id, sig: 's' }) as Event
 
 function harness(connected = true) {
   const store = memoryDeviceStore()
@@ -505,5 +508,223 @@ describe('telling the page a relay acknowledged a message', () => {
     const base = { id: 'x', roomId: ROOM, channel: 'Chat', text: 't', files: [], event: event('x'), durable: true, attempts: MAX_AUTO_ATTEMPTS }
     expect(pendingStatusWords({ ...base, state: 'unknown', gaveUp: true }, 'Sending', 0)).toBe('Not confirmed: no relay answered in time. Press Retry to try again.')
     expect(pendingStatusWords({ ...base, state: 'unknown' }, 'Sending', 0)).toBe('Not confirmed: no relay answered in time. Trying again shortly.')
+  })
+})
+
+describe('an unsent message more than a day old', () => {
+  const DAY_MS = UNSENT_AUTO_RETRY_LIMIT_SECONDS * 1000
+  const WRITTEN_MS = 1_800_000_000_000
+  const written = (id: string, at = WRITTEN_MS / 1000) => ({ id: `event-${id}`, kind: 1, pubkey: 'p', created_at: at, tags: [], content: id, sig: 's' }) as Event
+  function clocked(connected = false, store = memoryDeviceStore(), opts: { onAcknowledged?: (item: PendingSend) => void } = {}) {
+    let clock = WRITTEN_MS
+    const timers: Array<{ at: number; run: () => void }> = []
+    const state = { connected }
+    const pending = new PendingSends({ store, connected: () => state.connected, now: () => clock,
+      schedule: (run, ms) => { timers.push({ at: clock + ms, run }) }, ...opts })
+    const advance = async (ms: number) => {
+      clock += ms
+      for (const timer of timers.splice(0).filter(t => { if (t.at <= clock) return true; timers.push(t); return false })) timer.run()
+      await flush()
+    }
+    return { store, pending, state, advance, timers, now: () => clock, at: (ms: number) => { clock = ms } }
+  }
+  const input = (id: string, publish: (event: Event) => Promise<void>, renew?: RenewSend) =>
+    ({ id, roomId: ROOM, channel: 'Chat', text: `text ${id}`, files: [], event: written(id), publish, durable: true, editable: true, ...(renew ? { renew } : {}) })
+  /** Signs the message again at the harness's current time, as main.ts does through the chat log. */
+  const resigner = (now: () => number, publish: (event: Event) => Promise<void>, seen: PendingSend[] = []): RenewSend => async old => {
+    seen.push(old)
+    const id = `${old.id}-again`
+    return { id, event: written(id, Math.floor(now() / 1000)), text: old.text, files: [...old.files], publish }
+  }
+
+  it('counts the day from when it was written, not from when it first failed', () => {
+    expect(pastAutoRetryLimit({ event: written('a') }, WRITTEN_MS + DAY_MS - 1000)).toBe(false)
+    expect(pastAutoRetryLimit({ event: written('a') }, WRITTEN_MS + DAY_MS)).toBe(true)
+    expect(pastAutoRetryLimit({ event: written('a'), acknowledged: true }, WRITTEN_MS + 2 * DAY_MS)).toBe(false)
+    expect(UNSENT_AUTO_RETRY_LIMIT_SECONDS).toBe(24 * 60 * 60)
+  })
+
+  it('still goes by itself a moment before the day is up', async () => {
+    const h = clocked(false)
+    const publish = vi.fn(async () => {})
+    await h.pending.add(input('one', publish))
+    await h.advance(DAY_MS - 2000)
+    h.state.connected = true
+    await h.advance(CONNECT_POLL_MS)
+    expect(publish).toHaveBeenCalledOnce()
+    expect(publish.mock.calls[0]).toEqual([written('one')])
+  })
+
+  it('stops going by itself at the day, whatever asks, and says Retry', async () => {
+    const h = clocked(false)
+    const publish = vi.fn(async () => {})
+    await h.pending.add(input('one', publish, resigner(h.now, async () => {})))
+    await h.advance(DAY_MS)
+    h.state.connected = true
+    // The connection poll, the browser coming online, the group storage waking.
+    await h.advance(CONNECT_POLL_MS)
+    h.pending.wake(); h.pending.wakeStorage()
+    await h.advance(60 * 60_000)
+    expect(publish).not.toHaveBeenCalled()
+    const item = h.pending.items(ROOM)[0]!
+    expect(item.gaveUp).toBe(true)
+    expect(item.state).toBe('waiting')
+    // No timer is left spinning on it.
+    expect(h.timers).toHaveLength(0)
+    expect(pendingStatusWords(item, 'Sending', h.now())).toBe('Not sent: it waited more than a day. Press Retry to send it now.')
+  })
+
+  it('stops a message that is still being retried on a back-off', async () => {
+    const h = clocked(true)
+    const publish = vi.fn(async () => { throw new Error('no relay could be reached in time (wss://a: timeout)') })
+    await h.pending.add(input('one', publish))
+    await flush()
+    const before = publish.mock.calls.length
+    expect(before).toBe(1)
+    h.at(WRITTEN_MS + DAY_MS)
+    await h.advance(RETRY_SECONDS[1]! * 1000)
+    expect(publish).toHaveBeenCalledTimes(before)
+    expect(h.pending.items(ROOM)[0]!.gaveUp).toBe(true)
+  })
+
+  it('does not publish a message kept by an older build that is already past the day, on reload or room open', async () => {
+    const store = memoryDeviceStore()
+    // As an older build kept it: no flag says it is old, only its created_at.
+    store.set(`kithmoot.pending.${ROOM}`, JSON.stringify([{ id: 'old', channel: 'Chat', text: 'from yesterday', files: [], event: written('old'), state: 'unknown' }]))
+    const h = clocked(true, store)
+    h.at(WRITTEN_MS + DAY_MS + 5000)
+    const [restored] = await h.pending.restore(ROOM)
+    expect(restored?.gaveUp).toBe(true)
+    const publish = vi.fn(async () => {})
+    h.pending.resume('old', publish, resigner(h.now, async () => {}))
+    h.pending.wake()
+    await h.advance(60 * 60_000)
+    expect(publish).not.toHaveBeenCalled()
+    const item = h.pending.items(ROOM)[0]!
+    expect(item.renewable).toBe(true)
+    expect(pendingStatusWords(item, 'Sending', h.now())).toBe('Not confirmed: no relay answered, and it is now more than a day old. Press Retry to send it again.')
+    // Still kept, as it was, for the next reload.
+    expect(JSON.parse(store.get(`kithmoot.pending.${ROOM}`)!)[0].event).toEqual(written('old'))
+  })
+
+  it('on Retry signs it again with a new created_at, sends that, and drops the old event for good', async () => {
+    const h = clocked(true)
+    const oldPublish = vi.fn(async () => { throw new Error('every relay rejected the event (wss://a: blocked)') })
+    const freshPublish = vi.fn(async () => {})
+    const seen: PendingSend[] = []
+    await h.pending.add(input('one', oldPublish, resigner(h.now, freshPublish, seen)))
+    await flush()
+    const tried = oldPublish.mock.calls.length
+    h.at(WRITTEN_MS + DAY_MS + 60_000)
+    await h.pending.retry('one')
+    expect(oldPublish).toHaveBeenCalledTimes(tried)
+    expect(seen.map(item => item.event.id)).toEqual(['event-one'])
+    expect(freshPublish).toHaveBeenCalledOnce()
+    const sent = (freshPublish.mock.calls[0] as unknown as [Event])[0]
+    expect(sent.id).toBe('event-one-again')
+    expect(sent.created_at).toBe(Math.floor((WRITTEN_MS + DAY_MS + 60_000) / 1000))
+    // One row, the new one: the old is not shown beside it.
+    expect(h.pending.items(ROOM).map(item => item.id)).toEqual(['one-again'])
+    expect(h.pending.items(ROOM)[0]!.editable).toBe(true)
+    // A reload finds nothing of the old event to send.
+    const reloaded = new PendingSends({ store: h.store, connected: () => true, now: h.now, schedule: () => {} })
+    expect((await reloaded.restore(ROOM)).map(item => item.event.id)).not.toContain('event-one')
+  })
+
+  it('replaces the old event in the same write, so a failure to save leaves the old row and sends nothing', async () => {
+    let fail = false
+    const kept: Array<string | null> = []
+    const storage = {
+      load: async () => ({ durable: kept.at(-1) ?? null, transient: null }),
+      retain: async (_room: string, durable: string | null) => { if (fail) throw new Error('disk full'); kept.push(durable) },
+    }
+    let clock = WRITTEN_MS
+    const pending = new PendingSends({ storage, connected: () => false, now: () => clock, schedule: () => {} })
+    const freshPublish = vi.fn(async () => {})
+    await pending.add(input('one', async () => {}, async old => ({ id: 'two', event: written('two', Math.floor(clock / 1000)), text: old.text, publish: freshPublish })))
+    clock += DAY_MS
+    const writes = kept.length
+    fail = true
+    await expect(pending.retry('one')).rejects.toThrow('disk full')
+    expect(kept).toHaveLength(writes)
+    expect(pending.items(ROOM).map(item => item.id)).toEqual(['one'])
+    expect(freshPublish).not.toHaveBeenCalled()
+    fail = false
+    await pending.retry('one')
+    // The one write that swaps them holds the new event and not the old.
+    expect((JSON.parse(kept[writes]!) as Array<{ id: string }>).map(item => item.id)).toEqual(['two'])
+    expect(freshPublish).toHaveBeenCalledOnce()
+  })
+
+  it('does not sign again a message a relay acknowledged', async () => {
+    const h = clocked(true)
+    const renew = vi.fn<RenewSend>(async () => undefined)
+    await h.pending.add(input('one', async () => {}, renew))
+    await flush()
+    expect(h.pending.items(ROOM)[0]!.acknowledged).toBe(true)
+    h.at(WRITTEN_MS + 2 * DAY_MS)
+    await h.pending.retry('one')
+    expect(renew).not.toHaveBeenCalled()
+    expect(pendingStatusWords(h.pending.items(ROOM)[0]!, 'Sending', h.now())).toBe('Sending')
+  })
+
+  it('treats an acknowledgement learned at Retry as sent, without signing again', async () => {
+    const acknowledged: string[] = []
+    const h = clocked(true, memoryDeviceStore(), { onAcknowledged: item => acknowledged.push(item.event.id) })
+    const publish = vi.fn(async () => { throw new Error('no relay could be reached in time (wss://a: timeout)') })
+    await h.pending.add(input('one', publish, async () => 'acknowledged'))
+    await flush()
+    h.at(WRITTEN_MS + DAY_MS)
+    await h.pending.retry('one')
+    const item = h.pending.items(ROOM)[0]!
+    expect(item.acknowledged).toBe(true)
+    expect(item.id).toBe('one')
+    expect(acknowledged).toEqual(['event-one'])
+    expect(h.store.get(`kithmoot.pending.${ROOM}`)).toBeNull()
+  })
+
+  it('sends nothing when the row was deleted while it was being signed again', async () => {
+    const h = clocked(false)
+    let release!: () => void
+    const freshPublish = vi.fn(async () => {})
+    await h.pending.add(input('one', async () => {}, async old => {
+      await new Promise<void>(resolve => { release = resolve })
+      return { id: 'two', event: written('two', Math.floor(h.now() / 1000)), text: old.text, publish: freshPublish }
+    }))
+    h.at(WRITTEN_MS + DAY_MS)
+    const retried = h.pending.retry('one')
+    await flush()
+    await h.pending.dismiss('one')
+    release()
+    await retried
+    expect(freshPublish).not.toHaveBeenCalled()
+    expect(h.pending.items(ROOM)).toEqual([])
+  })
+
+  it('offers no Retry words where it cannot be signed again from here', async () => {
+    const h = clocked(false)
+    await h.pending.add({ ...input('one', async () => {}), files: ['notes.pdf'] })
+    await h.pending.add(input('two', async () => {}))
+    h.at(WRITTEN_MS + DAY_MS)
+    await h.pending.retry('two')
+    const [one, two] = h.pending.items(ROOM)
+    expect(two!.id).toBe('two')
+    expect(pendingStatusWords(one!, 'Sending', h.now())).toBe('Not sent: it waited more than a day. Copy its text into the conversation to send it, and add its files again.')
+    expect(pendingStatusWords(two!, 'Sending', h.now())).toBe('Not sent: it waited more than a day. Copy it into the conversation to send it.')
+  })
+
+  it('signs again what the message said: the reply, its thread, files, stickers and mentions', () => {
+    const base = { id: 'm', participant: 'p', device: 'd', credential: {} as ChatMessage['credential'], text: 'hello', sentAt: 1 }
+    const reply = { messageId: 'r', participant: 'q' }, thread = { messageId: 't', participant: 'q' }
+    const attachments = [{ url: 'https://x/y', key: 'k', sha256: 'a'.repeat(64) }] as ChatMessage['attachments']
+    const artwork = [{ pack: 'kithmoot-original-v1', id: 'coffee', kind: 'gif' as const, sha256: 'a'.repeat(64), label: 'Coffee' }]
+    expect(renewOptions({ ...base, reply, thread, attachments, artwork, mentions: ['b'.repeat(64)] })).toEqual({
+      replyTo: { id: 'r', participant: 'q', thread }, attachments, artwork, mentions: ['b'.repeat(64)] })
+    expect(renewOptions({ ...base, replaces: 'x' })).toEqual({ replaces: 'x' })
+    expect(renewOptions({ ...base, retracts: 'x' })).toEqual({ retracts: 'x' })
+    expect(renewOptions({ ...base, kind: 'directive' })).toEqual({ directive: true })
+    expect(renewOptions({ ...base, kind: 'transcript', speaker: 'c'.repeat(64) })).toEqual({ transcriptOf: 'c'.repeat(64) })
+    expect(renewOptions(base)).toEqual({})
+    expect(renewOptions({ ...base, invite: {} as NonNullable<ChatMessage['invite']> })).toBeUndefined()
   })
 })
