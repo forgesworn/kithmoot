@@ -1025,7 +1025,9 @@ const ICE_REFRESH_MS = 40 * 60 * 1000
 // the room never asked for would be handing it out to somebody else's
 // infrastructure. And if this endpoint is down, joining still works - see
 // resolveIceServers, which falls back to plain STUN rather than failing.
-const TURN_CREDENTIAL_ENDPOINT: string | undefined = import.meta.env.VITE_TURN_CREDENTIAL_ENDPOINT || undefined
+// Back on 1 November 2026: ForgeSworn's own TURN mint is the default again
+// (kithmoot.forgesworn.dev/turn, same origin for the web and desktop apps).
+const TURN_CREDENTIAL_ENDPOINT: string | undefined = import.meta.env.VITE_TURN_CREDENTIAL_ENDPOINT ?? '/turn'
 
 // Shared hosting is suggested in the opt-in form, never used by default.
 // A private Bothy adapter must verify access-controlled reads and writes;
@@ -5608,7 +5610,7 @@ $('callTabNoticeTake').addEventListener('click', () => {
 })
 
 /** Start a call, or join the one that is on. The same act: say which call
- *  this device is on. Nothing is switched on by joining; the controls are. */
+ *  this device is on. Joining switches the microphone on; the camera waits for its button. */
 async function joinCall(): Promise<void> {
   if (roomUsesBothy) throw new Error('Calls and media are unavailable on this text-only Bothy route.')
   // One call at a time: the room on screen beside a docked call is for
@@ -5673,6 +5675,10 @@ async function joinCall(): Promise<void> {
   }
   renderCallTabNotice()
   updateUi()
+  // Joining switches the microphone on (1 November 2026): people sat in
+  // silent calls, never asked for the microphone, unable to find the button.
+  // A refusal leaves them in the call with the blocked-microphone notice.
+  if (!micTrack && session === s && s.call) await toggleMic().catch((err) => setStatus(describeError(err)))
 }
 
 /** Everything of this device's that was live, off, and the previews with it.
@@ -19017,7 +19023,7 @@ function renderCallStun(): void {
   renderCalls()
 }
 function stunUsing(urls: string[] | undefined): string {
-  return urls?.length ? `Using your STUN server: ${addressHost(urls[0])}.` : "Using Cloudflare's public STUN server."
+  return urls?.length ? `Using your STUN server: ${addressHost(urls[0])}.` : "Using Google's and Cloudflare's public STUN servers."
 }
 
 $('callStun').addEventListener('change', () => {

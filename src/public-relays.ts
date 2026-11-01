@@ -75,6 +75,7 @@ export interface PublicRelay {
 }
 
 const ENTRIES: PublicRelay[] = [
+  { url: 'wss://relay.trotters.cc/', operator: 'ForgeSworn relay', default: true, quietRooms: true, test: 'round-trip', checked: '2026-11-01' },
   { url: 'wss://relay.primal.net/', operator: 'Primal Public Relay', default: true, quietRooms: true, keeps: 'under-a-day', test: 'read', checked: '2026-10-30' },
   { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-30' },
   { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: true, quietRooms: false, test: 'read', checked: '2026-10-30' },

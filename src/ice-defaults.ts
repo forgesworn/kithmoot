@@ -52,7 +52,7 @@ export const LEGACY_DEFAULT_ICE_URLS: string[] = ['stun:stun.l.google.com:19302'
  * needs no account. It tells a device its own public address and carries
  * no content. Named on the privacy page; see the module comment above.
  */
-export const DEFAULT_STUN_URLS: readonly string[] = Object.freeze(['stun:stun.cloudflare.com:3478'])
+export const DEFAULT_STUN_URLS: readonly string[] = Object.freeze(['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'])
 
 /**
  * This app's own ICE default: no host named at all. A room that has never

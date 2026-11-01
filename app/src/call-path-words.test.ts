@@ -86,7 +86,7 @@ describe('row second lines (section 6.2)', () => {
     expect(view({ publicRelays: { enabled: true, chosen: false }, builtIn: running }).rows.public).toBe('On · not used: you have your own relay')
   })
   it('Advanced', () => {
-    expect(view().rows.advanced).toBe('STUN server: Cloudflare')
+    expect(view().rows.advanced).toBe('STUN server: Google, Cloudflare')
     expect(view({ stun: 'stun:stun.example.org:3478' }).rows.advanced).toBe('STUN server: stun.example.org')
   })
   it('the built-in row carries the relay page\'s own words, and is absent without it', () => {

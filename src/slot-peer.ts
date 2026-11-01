@@ -27,7 +27,7 @@
  */
 
 import { normaliseHex } from './hex.js'
-import { hideLocalAddressesInSignal, hideLocalCandidateJson, type AddressCarryingSignal } from './local-address-filter.js'
+import { hideLocalAddressesInSignal, hideLocalCandidateJson, type AddressCarryingSignal, HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { SignalChannel } from './signal-channel.js'
 import type { ChannelClock, ChannelSignal } from './signal-channel.js'
 import {
@@ -429,7 +429,7 @@ export class SlotPeer implements NegotiatingPeer {
       // Filtered here, before the channel numbers it: a candidate dropped
       // after it had a sequence number would leave a gap the far end reads
       // as loss. See src/local-address-filter.ts.
-      const candidate = hideLocalCandidateJson(JSON.stringify(event.candidate))
+      const candidate = hideLocalCandidateJson(JSON.stringify(event.candidate), HIDE_HOST_CANDIDATES)
       if (candidate === null) return
       this.#channel?.send({ type: 'ice', candidate })
     }
@@ -741,7 +741,7 @@ export class SlotPeer implements NegotiatingPeer {
     // then (`SignalChannel`'s `#current`), with every candidate gathered
     // since. Candidates were filtered before they were numbered, so this
     // never drops a numbered signal; a batch only loses entries.
-    const safe = hideLocalAddressesInSignal(body as AddressCarryingSignal) as ChannelSignal | null
+    const safe = hideLocalAddressesInSignal(body as AddressCarryingSignal, HIDE_HOST_CANDIDATES) as ChannelSignal | null
     if (safe) this.#opts.onSignal({ roomId: '', ...safe } as unknown as SignalBody)
   }
 

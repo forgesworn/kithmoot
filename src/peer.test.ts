@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { Peer, MAX_PENDING_CANDIDATES, tuneShareSender } from './peer.js'
 import { createFakeFactory, FakeRTCPeerConnection, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
@@ -76,7 +77,8 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
-describe('Peer: local network addresses', () => {
+// Runs only while calls hide host candidates (off since 1 November 2026).
+describe.skipIf(!HIDE_HOST_CANDIDATES)('Peer: local network addresses', () => {
   const PRIVATE = /192\.168\.|fd7a:/
 
   it('re-sends localDescription without the addresses gathered since the first copy', async () => {

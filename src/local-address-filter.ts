@@ -34,6 +34,15 @@
  * go out byte for byte as they were written.
  */
 
+/**
+ * Whether calls hide host candidates. False since 1 November 2026: with LAN
+ * addresses hidden, two devices on one network could only meet through the
+ * router or a relay, and calls failed. The raddr redaction stays. Each rule
+ * function still takes `hideHost` (default true) so the rule itself is kept
+ * and tested; the call sites pass this.
+ */
+export const HIDE_HOST_CANDIDATES = false
+
 const ZERO_ADDRESS = '0.0.0.0'
 const ZERO_PORT = '0'
 const CANDIDATE_TYPES = new Set(['host', 'srflx', 'prflx', 'relay'])
@@ -72,7 +81,7 @@ interface FilteredCandidate {
  * The rule on one candidate attribute (`candidate:...`, no `a=`). Null when
  * it must not be sent.
  */
-function filterCandidateAttribute(attribute: string): FilteredCandidate | null {
+function filterCandidateAttribute(attribute: string, hideHost = true): FilteredCandidate | null {
   if (!attribute.startsWith('candidate:')) return null
   const parts = attribute.slice('candidate:'.length).split(' ')
   // foundation component transport priority address port typ <type> [...]
@@ -83,7 +92,7 @@ function filterCandidateAttribute(attribute: string): FilteredCandidate | null {
   if (!CANDIDATE_TYPES.has(type)) return null
   if (!/^\d+$/.test(parts[1]!) || !/^\d+$/.test(parts[3]!) || !/^\d+$/.test(parts[5]!)) return null
 
-  if (type === 'host') {
+  if (type === 'host' && hideHost) {
     if (!(isMdnsName(address) || ((isIpv4Literal(address) || isIpv6Literal(address)) && isLoopback(address)))) return null
   }
 
@@ -104,9 +113,9 @@ function filterCandidateAttribute(attribute: string): FilteredCandidate | null {
  * Returns the attribute to send, or null to send nothing. The empty string -
  * end of candidates - comes back unchanged.
  */
-export function hideLocalCandidate(candidate: string): string | null {
+export function hideLocalCandidate(candidate: string, hideHost = true): string | null {
   if (candidate === '') return ''
-  return filterCandidateAttribute(candidate)?.line ?? null
+  return filterCandidateAttribute(candidate, hideHost)?.line ?? null
 }
 
 /**
@@ -115,7 +124,7 @@ export function hideLocalCandidate(candidate: string): string | null {
  * `sdpMLineIndex`, `usernameFragment`) are kept as they were. Null to send
  * nothing, including for anything that is not such an object.
  */
-export function hideLocalCandidateJson(json: string): string | null {
+export function hideLocalCandidateJson(json: string, hideHost = true): string | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(json)
@@ -125,7 +134,7 @@ export function hideLocalCandidateJson(json: string): string | null {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
   const init = parsed as Record<string, unknown>
   if (typeof init.candidate !== 'string') return null
-  const candidate = hideLocalCandidate(init.candidate)
+  const candidate = hideLocalCandidate(init.candidate, hideHost)
   if (candidate === null) return null
   if (candidate === init.candidate) return json
   return JSON.stringify({ ...init, candidate })
@@ -142,14 +151,14 @@ const RTCP = /^a=rtcp:(\d+) IN IP[46] (\S+)$/
  * the connection address of a candidate still present. Line endings are
  * preserved; every other line is untouched.
  */
-export function hideLocalAddressesInSdp(sdp: string): string {
+export function hideLocalAddressesInSdp(sdp: string, hideHost = true): string {
   const lines = sdp.split('\n')
   const kept = new Set<string>()
   const out: (string | null)[] = lines.map((raw) => {
     const crlf = raw.endsWith('\r')
     const line = crlf ? raw.slice(0, -1) : raw
     if (!line.startsWith('a=candidate:')) return raw
-    const filtered = filterCandidateAttribute(line.slice(2))
+    const filtered = filterCandidateAttribute(line.slice(2), hideHost)
     if (!filtered) return null
     kept.add(filtered.address.toLowerCase())
     return `a=${filtered.line}${crlf ? '\r' : ''}`
@@ -182,20 +191,20 @@ export interface AddressCarryingSignal {
  * candidate and any batch of candidates. Null when the signal existed only to
  * carry a candidate that must not be sent. Every other field is unchanged.
  */
-export function hideLocalAddressesInSignal<T extends AddressCarryingSignal>(body: T): T | null {
+export function hideLocalAddressesInSignal<T extends AddressCarryingSignal>(body: T, hideHost = true): T | null {
   let next: T = body
   if (typeof body.sdp === 'string') {
-    const sdp = hideLocalAddressesInSdp(body.sdp)
+    const sdp = hideLocalAddressesInSdp(body.sdp, hideHost)
     if (sdp !== body.sdp) next = { ...next, sdp }
   }
   if (Array.isArray(body.candidates)) {
     const candidates = body.candidates
-      .map((candidate) => (typeof candidate === 'string' ? hideLocalCandidateJson(candidate) : null))
+      .map((candidate) => (typeof candidate === 'string' ? hideLocalCandidateJson(candidate, hideHost) : null))
       .filter((candidate): candidate is string => candidate !== null)
     next = { ...next, candidates }
   }
   if (typeof body.candidate === 'string') {
-    const candidate = hideLocalCandidateJson(body.candidate)
+    const candidate = hideLocalCandidateJson(body.candidate, hideHost)
     if (candidate === null) {
       if (!Array.isArray(body.candidates)) return null
       const { candidate: _dropped, ...rest } = next
