@@ -25,6 +25,8 @@ export interface RelayHostState {
   mapping?: { method?: string; allocationPorts?: number; requested?: number; permanent?: boolean; restored?: number }
   counts?: { allocations: number; bytesRelayed: number; lastAllocation?: number | null }
   control?: { relays: number }
+  /** 'vpn' while the relay runs at a VPN's port forwarding, not the home router. */
+  via?: 'vpn'
   /** Only in a development run with a preview switch: the check to show. */
   preview?: { check?: string }
 }
@@ -253,8 +255,10 @@ const METHODS: Record<string, string> = { upnp: 'UPnP', pcp: 'PCP', natpmp: 'NAT
 export function detailLines(state: RelayHostState, check: RelayCheckResult | undefined, now: Date = new Date()): string[] {
   const lines: string[] = []
   const { mapping, control, counts } = state
-  if (mapping?.method && Object.hasOwn(METHODS, mapping.method)) lines.push(`Router: opened automatically using ${METHODS[mapping.method]}`)
-  if (mapping && Number.isFinite(mapping.allocationPorts) && Number.isFinite(mapping.requested)) lines.push(`Openings on your router: ${mapping.allocationPorts} of ${mapping.requested}`)
+  const vpn = state.via === 'vpn'
+  if (vpn) lines.push(`Runs through your VPN's port forwarding. People reach it at the VPN's address, not your home's.`)
+  if (mapping?.method && Object.hasOwn(METHODS, mapping.method)) lines.push(`${vpn ? 'VPN' : 'Router'}: opened automatically using ${METHODS[mapping.method]}`)
+  if (mapping && Number.isFinite(mapping.allocationPorts) && Number.isFinite(mapping.requested)) lines.push(`Openings on your ${vpn ? 'VPN' : 'router'}: ${mapping.allocationPorts} of ${mapping.requested}`)
   if (mapping?.permanent) lines.push('Your router only offers permanent openings. If KithMoot crashes they stay open until it next starts, when it removes them.')
   if (mapping?.restored && mapping.restored > 0) lines.push(`Your router dropped ${mapping.restored} ${mapping.restored === 1 ? 'opening' : 'openings'}; the relay put ${mapping.restored === 1 ? 'it' : 'them'} back.`)
   if (control) lines.push(`Nostr relays: ${control.relays > 0 ? 'connected' : 'not connected yet'}`)
