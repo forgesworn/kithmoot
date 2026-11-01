@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.121 stops resending an unsent message by itself a day after it was written: it stays in the box as not sent, and Retry sends it as a new message. It also fixes a call that could end with no video when two offers crossed on a slow relay. Version 0.1.120 split Settings into Calls and Relays and offered a call relay on this computer.
+Version 0.1.122 fixes turning on the call relay on this computer, which froze the app with a spinner in 0.1.120 and 0.1.121. Version 0.1.121 stopped resending an unsent message by itself a day after it was written, and fixed a call that could end with no video when two offers crossed.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.121 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.122 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
