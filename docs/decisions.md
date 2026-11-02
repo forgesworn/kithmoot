@@ -2538,3 +2538,59 @@ than a blocked key. The privacy notice and the connections page now say
 two profile relays, with release-dating so installed releases that still
 carry the old list are not contradicted. The Android client is its own
 repository and keeps its own list until it makes the same change.
+
+## Draft: default relay divergence across clients (2 November 2026) [DECISION]
+
+**The fork to settle.** The web app's documented rule for its suggestion
+list (`src/public-relays.ts`, entry criterion 1) is that every entry is run
+by someone other than ForgeSworn. As committed today, both clients lead
+with the project's own relay: the Android client (main since 1 November)
+starts a new device on four default public relays led by
+`relay.trotters.cc` (`PublicRelays.kt`, test-pinned in `PublicRelaysTest`),
+and since commit `4aa6be8f` of 1 November (21:49 UTC, in the open window)
+the web list's first default is also `relay.trotters.cc`, mirrored in
+`data/public-relays.json`. The position note's trigger is therefore already
+touched on both clients. One of these moves; under (a) or (b) the web
+list's 1 November entry is reverted whatever else is chosen.
+
+**The relay's own position, today.** relay.trotters.cc closed again at
+00:33 on 2 November after the recorded open window of 1-2 November (~21:40
+UTC to 00:33 UTC, just under three hours): reads and ordinary writes sit
+behind NIP-42 sign-in with allowlisted keys, which a stock KithMoot client
+cannot answer; the only unauthenticated writes are sealed messages and
+signer requests addressed to allowlisted keys. The project legal position
+note names this exact trigger: revisit before "using the relay as a
+public or default relay for any app…" (the bullet continues "…or letting
+strangers read or write anything else", not at issue here).
+
+**The choices.**
+
+- (a) Bless the divergence, recorded: Android leads with our relay because
+  the client is under development and its own test fleet holds the
+  allowlisted keys; the web app's 1 November default entry is reverted,
+  restoring its documented third-party-only rule for strangers. The
+  divergence is then a documented design state, not drift, and this trigger
+  stays answered only while all three hold: the Android client stays marked
+  in development; the allowlisted keys its test fleet holds stay held for,
+  and used only in, project work; and the relay's closed posture holds (the
+  position note's conditions 1 to 4). If the client ships publicly, or any
+  of the three lapses, this entry lapses and the question returns to the
+  owner.
+- (b) Revert Android to the web rule: third-party defaults everywhere,
+  ours as opt-in (the way `isForgeSwornRelay` marks known hosts for
+  attribution without suggesting them). The position note's trigger is
+  then never tripped by shipping code.
+- (c) Change the relay, not the lists: reopen public read/write so the
+  default works for everyone. That is the 22 October position reversed
+  standing, which the legal review of 1 November already returned NO-GO
+  for, with the conditions needed for it; see the position note's
+  in-and-out record.
+
+**Held as true either way.** Our own signers reach the relay: the T-Display
+signs in by NIP-42 (heartwood-esp32#251, proven live on 2 November), bray's
+clients auto-auth (#134), the bridge tier has the merged support
+(heartwood#24). The user's working software does not need the default.
+
+[DECISION: owner picks a, b or c; the entry is then finalised, and the
+losing side's code changes with it — under (a) or (b) that includes
+reverting the web list's 1 November default entry (`4aa6be8f`).]
