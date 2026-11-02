@@ -145,7 +145,7 @@ test('Advanced reports which STUN server is used, and the Calls row follows', as
   const { page, close } = await visit(browser, baseURL!)
   try {
     await openCallSettings(page, 'Advanced')
-    await expect(page.locator('#callStunStatus')).toHaveText("Using Google's and Cloudflare's public STUN servers.")
+    await expect(page.locator('#callStunStatus')).toHaveText("Using Cloudflare's public STUN server.")
     const field = page.getByLabel('Your STUN server')
     await field.fill('stun:stun.example.org:3478')
     await field.press('Enter')

@@ -19094,7 +19094,7 @@ function renderCallStun(): void {
   renderCalls()
 }
 function stunUsing(urls: string[] | undefined): string {
-  return urls?.length ? `Using your STUN server: ${addressHost(urls[0])}.` : "Using Google's and Cloudflare's public STUN servers."
+  return urls?.length ? `Using your STUN server: ${addressHost(urls[0])}.` : "Using Cloudflare's public STUN server."
 }
 
 $('callStun').addEventListener('change', () => {
