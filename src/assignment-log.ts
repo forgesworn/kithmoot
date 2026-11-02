@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { nip44 } from 'nostr-tools'
 import { getPublicKey, type Event } from 'nostr-tools/pure'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils'
@@ -29,7 +30,7 @@ export interface AssignmentLogOptions {
   now?: () => number
   /** A conference room's end: every envelope published carries it as an
    *  expiration. See `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 /** Navigation can observe work in an already admitted room without a signer,
  * presence announcement or permission to execute it. The bounded replay is

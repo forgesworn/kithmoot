@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
@@ -24,7 +25,7 @@ export interface EncodeRosterOptions {
   epoch?: { id: string; key: Uint8Array }
   /** A conference room's end, in unix seconds: carried as a NIP-40
    *  expiration (see `withExpiration`). Omit for a room with no end. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
   /** Reader-first privacy codec only. Older clients cannot read envelope 2;
    * sessions keep writing the legacy envelope until a separate rollout. */
   envelope?: 2

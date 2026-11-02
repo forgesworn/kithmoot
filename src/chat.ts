@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { privateAttachmentLocation } from './private-attachment.js'
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import type { ProtocolExecution } from './protocol-execution.js'
@@ -366,7 +367,7 @@ export interface EncodeChatOptions {
   epoch?: EpochRoot
   /** A conference room's end, in unix seconds: carried as a NIP-40
    *  expiration (see `withExpiration`). Omit for a room with no end. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
   /** `2` signs the event with a key made for this message alone and moves
    *  the device's signature inside the encryption (`CHAT_ENVELOPE_2`), so a
    *  relay's history no longer says which device wrote what. A reader older
@@ -880,7 +881,10 @@ export interface ChatLogOptions {
   archive?: EventArchive
   /** A conference room's end: every message, reaction, edit and retraction
    *  this log sends carries it as an expiration. See `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
+  /** Node v1 has no file service. Refuse sends and hide received shares
+   * before any attachment consumer sees them. Ordinary logs omit this. */
+  files?: 'off'
   /** Delivery receipts (kind 1465) on this log's streams. Given, the log's
    *  one subscription asks for receipts too, under a filter of their own so
    *  they never displace chat history, and hands each one that passes
@@ -1383,6 +1387,7 @@ export class ChatLog {
     return this.#prepareOwned(text, sendOpts, this.#opts.protocol)
   }
   #prepareOwned(text: string, sendOpts: SendOptions, execution: ProtocolExecution | undefined): PreparedSend {
+    if (this.#opts.files === 'off' && sendOpts.attachments?.length) throw new Error('Files are not available in this node room')
     this.#opts.protocol?.check('chat-preparation')
     if (this.#opts.protocol && typeof text !== 'string') throw new Error('chat text must be a string')
     if (this.#opts.protocol) { sendOpts = captureProtocolData(sendOpts); this.#opts.protocol.check('chat-preparation') }
@@ -1603,6 +1608,7 @@ export class ChatLog {
       ...(epoch ? { epoch } : {}),
     })
     if (!msg || this.#blocked(msg.participant) || (msg.speaker && this.#blocked(msg.speaker))) return false
+    if (this.#opts.files === 'off') delete msg.attachments
     if (past && this.#removed(msg.participant)) return false
     // An archived event has no relay to name, and the lane it once took is
     // not recorded, so it claims none until a relay's copy arrives.

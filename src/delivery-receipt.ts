@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { hkdf } from '@noble/hashes/hkdf'
@@ -94,7 +95,7 @@ export interface EncodeDeliveryReceiptOptions {
    *  flush splits. Feeds the outer key, so two receipts never share one. */
   index?: number
   /** A conference room's end, in unix seconds, which lowers the expiration. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 
 export interface DecodeDeliveryReceiptOptions {

@@ -115,7 +115,13 @@
   "supervisor": {
     "unitAndRecoveryTests": 19,
     "libraryBuild": "passed",
-    "status": "unreleased-candidate"
+    "status": "unreleased-candidate",
+    "pr": 671,
+    "merge": "8fef15752536dcfd2131be8c837482fb937a35ae",
+    "mainCi": {
+      "run": 41444906633,
+      "result": "browser failures under triage; stale STUN assertions fixed in PR672, Link rerun and Firefox pending"
+    }
   },
   "actualBackendIntegration": {
     "schema": "kithmoot-node-backends/1",
@@ -159,5 +165,46 @@
     "named-screen-review-pack-and-explicit-maintainer-approval",
     "owner-decision-on-shelter-publication",
     "source-backed-release-legal-pages"
-  ]
+  ],
+  "sharedWire": {
+    "package": "@forgesworn/fold-kit",
+    "version": "0.16.0",
+    "prs": [
+      30,
+      31
+    ],
+    "releaseRun": 41446662145,
+    "npmReadback": "passed",
+    "integrity": "sha512-wpa9jnpCoOar8PcHEqLhKJnWU1aZFa9mxsVhMwj+OSYsoOeW5aYIWXThtbuvuzIZMhafQv3zf7iBgsvOm1x+WQ==",
+    "androidVectorReplay": "pending"
+  },
+  "grantProfile": {
+    "repository": "wildbloom-node",
+    "pr": 96,
+    "merge": "5bd286bba64cf9cb29d61181589848d58d987b85",
+    "ciRun": 41445039271,
+    "result": "all eight checks passed",
+    "runtimeChanged": false
+  },
+  "clientLibrary": {
+    "status": "candidate; no UI integration enabled",
+    "tests": [
+      "pinned HTTP/NIP98 and four TURN URLs",
+      "scoped NIP42 over real WebSockets",
+      "durable keeper admission and lost-ack retry",
+      "five devices and terminal member removal",
+      "durable device revocations/reset ordering",
+      "ask-door guest journey over real WebSockets",
+      "retained Session rolling expiry after31days",
+      "node file boundary and foreign transport refusal",
+      "RTC-double retained credential refresh and in-flight withdrawal"
+    ],
+    "internetMedia": false,
+    "nativeClientJourney": false,
+    "uiAcceptance": "pending",
+    "focusedTests": 196,
+    "libraryBuild": "passed",
+    "typecheck": "passed",
+    "fullUnitSuite": "fresh frozen-revision run pending"
+  }
 }

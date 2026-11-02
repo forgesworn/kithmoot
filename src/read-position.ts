@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { hkdf } from '@noble/hashes/hkdf'
@@ -86,7 +87,7 @@ export interface EncodeReadPositionOptions {
   createdAt: number
   /** A conference room's end: the marker lapses with the room. Signed by
    *  the account, but it is about this one room. See `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 
 /** The plaintext, in the one canonical shape both implementations write. */

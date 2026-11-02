@@ -42,7 +42,8 @@ export function requestFreshRootEpoch(opts: FreshEpochOptions): Promise<Grant> {
       if (settled) return false
       try {
         const at = opts.now()
-        if (!Number.isSafeInteger(at) || at < wall || (opts.expiresAt !== undefined && at >= opts.expiresAt)) {
+        const expiration = typeof opts.expiresAt === 'function' ? opts.expiresAt() : opts.expiresAt
+        if (!Number.isSafeInteger(at) || at < wall || (opts.expiresAt !== undefined && (!Number.isSafeInteger(expiration) || at >= expiration!))) {
           finish(new Error('epoch admission expired or clock moved backwards')); return false
         }
         wall = at

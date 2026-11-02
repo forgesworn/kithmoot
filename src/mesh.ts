@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import type { Event } from 'nostr-tools/pure'
 import { Peer } from './peer.js'
 import type { NegotiatingPeer, PeerFactory } from './peer.js'
@@ -224,7 +225,7 @@ export interface MeshOptions {
   relay?: PeerRelay
   /** A conference room's end: every signal wrap this mesh publishes is
    *  lowered to it if it would outlive it. See `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
   /**
    * Whether this device is, right now, advertising an offer to relay.
    *

@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { KINDS } from './kinds.js'
@@ -18,7 +19,7 @@ export interface EncodeDescriptorOptions {
   epoch?: { id: string; key: Uint8Array }
   /** A conference room's end, in unix seconds: carried as a NIP-40
    *  expiration (see `withExpiration`). Omit for a room with no end. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 
 /**

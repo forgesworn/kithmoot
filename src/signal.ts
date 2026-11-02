@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, generateSecretKey, getPublicKey, getEventHash, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { verifyEventUncached as verifyEvent } from './verify.js'
@@ -133,7 +134,7 @@ export interface WrapOptions {
   /** A conference room's end: the wrap already lapses within a minute, and
    *  is lowered to the end only if the room ends sooner. See
    *  `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 
 /**
