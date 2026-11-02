@@ -13,6 +13,30 @@ platform?
 
 ## New physical-test feedback
 
+### Accepted comparison lessons — 26 October 2026
+
+The [Anagram gap review](anagram-gap-review-2026-10-26.md) and
+[call source assessment](research/anagram-iroh-20261026.md) now feed the existing
+product goals and execution phases. All additions remain open.
+
+| Phase | Accepted work | Product goals |
+| --- | --- | --- |
+| P1 | Audio-first diagnostics, bounded queues, independent media recovery, native resource cleanup and efficient group publication | G7, G10, G12 |
+| P2 | Protected ordinary storage, fresh-device recovery, bounded history/search, existing notification qualification and independent-client NIP-17 messaging | G1–G3, G18 |
+| P3 | Typed agent choices/actions with version, expiry and authority checks | G9 |
+
+Improve the current KithMoot/Sapflow/RelaySwarm/Spry stack. No Iroh integration
+or comparison experiment is planned. Ordinary website/Android calls and the
+experimental realtime SDK have separate evidence; do not infer product
+integration from the SDK release. New engine selection needs ordinary-call,
+cross-client and physical acceptance, including no-Play GrapheneOS.
+
+Begin with a measured baseline, reuse existing implementations, and declare
+quality budgets before qualification. Diagnostics use synthetic media and
+aggregate evidence, subject to the existing [no-call-records requirement](research/call-independence-requirements.md#no-call-records-from-the-calling-stack).
+Independent operators remain replaceable; this adds no ForgeSworn-operated
+calling service. Existing P0/P4 and platform acceptance gates retain priority.
+
 ### Product roadmap additions — 9 October 2026
 
 Accepted and open in [product goals G10–G17](product-goals.md#g10--battery-optimisation-backed-by-physical-measurements):
@@ -315,9 +339,12 @@ release gate.
 
 ## Immediate next work
 
-1. Repeat the physical desktop/iPhone room check against production release
-   `20260915T055605Z` and record the result.
-2. Convert every failure from that check into a P1 regression or an explicit
-   platform limitation.
-3. Run the P1 matrix before starting an Electron, SwiftUI or additional
-   Android feature lane.
+1. Identify the current candidate and latest acceptance receipts. Carry forward
+   unresolved P0 physical checks onto that revision; the September release
+   record above is historical and does not identify today's candidate.
+2. Complete the missing desktop/iPhone room checks and turn failures into P1
+   regressions or explicit platform limitations. Baseline audio and group-media
+   costs through execution packages P1.5/P1.6 before tuning them.
+3. Run the P1 browser/physical matrix against the supported call envelope, then
+   deliver the P2 custody/history/interoperability and P3 agent slices. Existing
+   PWA and cross-client gates still govern wider platform expansion.
