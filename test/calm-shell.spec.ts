@@ -1353,8 +1353,9 @@ test('a refused microphone says so in the call, with what to do', async ({ brows
     })
     await startCall(page)
     await page.locator('#toggleMic').click()
-    await expect(page.locator('#mediaBlockedNote')).toHaveText('Microphone blocked. Allow it in your browser settings.')
+    await expect(page.locator('#mediaBlockedMessage')).toHaveText('Microphone blocked. Allow it in your browser settings.')
     await expect(page.locator('#mediaBlockedNote')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Try microphone again', exact: true })).toBeVisible()
   } finally { await context.close() }
 })
 
@@ -2048,8 +2049,8 @@ test('Hide my IP address on calls is a checkbox on Settings › Calls kept as on
     await expect(page.locator('[data-settings-page="calls"]')).toContainText('so people on the call don\'t see your IP address')
     await toggle.check()
     expect(await page.evaluate(() => localStorage.getItem('kithmoot.hide-ip.v1'))).toBe('1')
-    await expect(page.locator('#callsHead')).toHaveText('No relay for calls')
-    await expect(page.locator('#settingsSubcalls')).toHaveText('Hide my IP is on · no relay')
+    await expect(page.locator('#callsHead')).toHaveText('Always through the default call relay')
+    await expect(page.locator('#settingsSubcalls')).toHaveText('Always through the default call relay')
     await page.reload()
     await openSettings(page, 'Calls')
     await expect(toggle).toBeChecked()

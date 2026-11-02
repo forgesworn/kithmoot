@@ -287,7 +287,8 @@ complete daily-call journey and does not declare platform parity complete.
   refusal through every restart. Reload, leave, cancellation and late async
   results must release owned tracks, workers, handles and pending sends.
 - Qualify ordinary browsers, installed desktop clients and physical no-Play
-  GrapheneOS separately, including a 45-minute call and network transitions.
+  GrapheneOS separately, including five-minute calls and network transitions
+  (owner's immediate reliability target, 2 November 2026).
   The published SDK preview is not the normal call engine. Its integration
   requires the same product and cross-client acceptance, rather than replacing
   the ordinary path on the strength of a synthetic benchmark.

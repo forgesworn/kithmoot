@@ -1086,20 +1086,41 @@ function mediaBlocked(err: unknown): boolean {
 }
 
 /**
- * A banner in the call for a refused microphone or camera, with what to do
- * about it (design-calm-shell 8, Permission denied); any other failure keeps
- * the page's one status line. `kind` undefined puts the banner away.
+ * Keep capture failures and their retry beside the call controls, including
+ * permission refusal, a busy device and a disconnected microphone/camera.
+ * `kind` undefined puts the banner away.
  */
+let blockedMediaKind: 'Microphone' | 'Camera' | undefined
 function noteMediaBlocked(kind: 'Microphone' | 'Camera' | undefined, err?: unknown): void {
   const note = $('mediaBlockedNote')
-  if (kind && err !== undefined && mediaBlocked(err)) {
-    note.textContent = `${kind} blocked. Allow it in your browser settings.`
+  if (kind && err !== undefined) {
+    blockedMediaKind = kind
+    const name = err && typeof err === 'object' && 'name' in err ? String(err.name) : ''
+    $('mediaBlockedMessage').textContent = mediaBlocked(err) ? `${kind} blocked. Allow it in your browser settings.`
+      : name === 'NotReadableError' ? `${kind} could not start. Close other apps using it, then try again.`
+      : name === 'NotFoundError' ? `No ${kind.toLowerCase()} was found. Check that it is connected, then try again.`
+      : `${kind} could not start. Check your device and browser settings, then try again.`
+    $('retryBlockedMedia').textContent = `Try ${kind.toLowerCase()} again`
     note.hidden = false
     return
   }
+  blockedMediaKind = undefined
   note.hidden = true
-  if (kind && err !== undefined) setStatus(describeError(err))
 }
+
+$('retryBlockedMedia').addEventListener('click', async () => {
+  const kind = blockedMediaKind
+  if (!kind || !onCall()) return
+  const button = $('retryBlockedMedia') as HTMLButtonElement
+  button.disabled = true
+  try {
+    if (kind === 'Microphone' && !micTrack?.enabled) await toggleMic()
+    else if (kind === 'Camera' && !cameraTrack) await toggleCamera()
+    noteMediaBlocked(undefined)
+  } catch (error) {
+    noteMediaBlocked(kind, error)
+  } finally { button.disabled = false }
+})
 
 /** The share error the status line is showing, if any; see `showShareError`. */
 let shownShareError: string | undefined
@@ -3275,6 +3296,8 @@ const spryRoomMadeHere = new WeakMap<RoomSession, boolean>()
 /** Sessions whose own calls use the relay server saved on this device, which Spry then does not carry. */
 const sessionHasRelayServer = new WeakSet<RoomSession>()
 const callPresenceReadyAt = new WeakMap<RoomSession, number>()
+/** Retry a failed default relay lookup when a person actually needs a call. */
+const sessionIcePrepare = new WeakMap<RoomSession, () => Promise<void>>()
 /** Recording signatures always use the originating session's device key. */
 const recordingDeviceKeys = new WeakMap<RoomSession, Uint8Array>()
 let joining = false
@@ -5620,6 +5643,10 @@ async function joinCall(): Promise<void> {
   if (docked()) return
   const s = session
   if (!s || s.call) return
+  // Open audio while this call still has the tap's browser activation.
+  // Relay preparation and presence can take seconds; Safari may refuse a
+  // context first resumed after those awaits.
+  resumeBlockedAudio()
   // A relay-only call waits a few seconds for the room's owner to register
   // this device before it refuses; an ordinary call starts and upgrades.
   const relayOnlyCall = sessionRelayOnly.get(s) === true
@@ -5643,6 +5670,8 @@ async function joinCall(): Promise<void> {
   // Below the room's own TURN or Spry offer, above the default: a relay
   // the person chose from public adverts, asked for a login now.
   await publicRelayRoutes.get(s)?.start().catch(() => {})
+  if (session !== s) return
+  await sessionIcePrepare.get(s)?.()
   if (session !== s) return
   await waitForExistingCall(s, callPresenceReadyAt.get(s) ?? 0)
   if (session !== s || s.closed) return
@@ -5680,7 +5709,9 @@ async function joinCall(): Promise<void> {
   // Joining switches the microphone on (1 November 2026): people sat in
   // silent calls, never asked for the microphone, unable to find the button.
   // A refusal leaves them in the call with the blocked-microphone notice.
-  if (loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) await toggleMic().catch((err) => setStatus(describeError(err)))
+  if (loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) {
+    await toggleMic().then(() => noteMediaBlocked(undefined)).catch(err => noteMediaBlocked('Microphone', err))
+  }
 }
 
 /** Everything of this device's that was live, off, and the previews with it.
@@ -5698,6 +5729,7 @@ function stopLocalMedia(): void {
   pendingMedia.clear()
   mic = camera = undefined
   $('mediaRecoveryNote').hidden = true
+  noteMediaBlocked(undefined)
   $('voiceFailureNotice').hidden = true
   noteRelayMissing(false)
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
@@ -6572,13 +6604,17 @@ async function recoverCallMedia(): Promise<void> {
   adoptMicTrack()
   const failed = results.some(result => result.status === 'rejected')
   $('mediaRecoveryNote').hidden = !failed
-  if (failed) $('mediaRecoveryNote').textContent = 'Call media was interrupted. Tap Resume call media in More. If it still fails, switch the affected microphone or camera off and on.'
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void recoverCallMedia() })
 window.addEventListener('pageshow', () => { void recoverCallMedia() })
 window.addEventListener('focus', () => { void recoverCallMedia() })
+window.addEventListener('online', () => {
+  const s = mediaSession()
+  if (s?.call) void sessionIcePrepare.get(s)?.()
+})
 $('resumeCallMedia').addEventListener('click', () => { void recoverCallMedia() })
+$('retryCallMedia').addEventListener('click', () => { void recoverCallMedia() })
 
 function onMicEnded(): void {
   // A fallback raw track may end while the OS owns the microphone. Keep
@@ -14142,18 +14178,23 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     let beforePublicRelay: RTCIceServer[] | undefined
     const roomTurn = !isDefaultIceUrls(roomIceUrls) && roomIceUrls.some(url => /^turns?:/i.test(url))
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
-    const refreshIce = (): void => {
-      if (spryActive) return
+    let pendingIceRefresh: Promise<void> | undefined
+    const refreshIce = (): Promise<void> => {
+      if (spryActive) return Promise.resolve()
       if (publicCall) {
         // Renewal runs only while this session has a call.
         if (publicCall.active && created?.call) void publicCall.renew(ICE_REFRESH_MS)
-        return
+        return Promise.resolve()
       }
-      resolveIceServers(roomIceUrls, deviceRelay)
+      if (pendingIceRefresh) return pendingIceRefresh
+      pendingIceRefresh = resolveIceServers(roomIceUrls, deviceRelay)
         .then((resolved) => {
           if (!alive()) return
           if (spryActive || publicCall) return
           const fresh = withDeviceStun(resolved, deviceStun)
+          // A transient mint failure must not discard a still-valid relay
+          // credential, including for an ordinary call behind restrictive NAT.
+          if (!hasRelay(fresh) && hasRelay(resolvedIceServers)) return
           // Do not replace a working relay-only allocation list with a STUN
           // fallback after a credential refresh failure. Keeping the last
           // good credential is safe until it expires; replacing it would
@@ -14162,10 +14203,27 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           resolvedIceServers = fresh
           stunOnly = withoutTurn(fresh)
           turnRelayConfigured = hasRelay(fresh)
+          if (created) sessionRelayBlocked.set(created, relayOnly && !turnRelayConfigured)
+          if (turnRelayConfigured && created === mediaSession()) noteRelayMissing(false)
+          // A retry may finish after the TURN rung was created without a
+          // login. Give that rung the newly available relay and restart its
+          // gathering; healthy direct media is left alone.
+          for (const key of ownConnections) {
+            if (!relayOnly && !key.startsWith('turn:')) continue
+            const pc = openConnections.get(key)
+            if (!pc || pc.signalingState === 'closed') continue
+            try {
+              const config = pc.getConfiguration()
+              callRelaySetConfiguration(pc, relayOnly ? { ...config, ...relayOnlyIceConfiguration(fresh) } : { ...config, iceServers: fresh })
+              if (pc.connectionState !== 'connected') pc.restartIce()
+            } catch { /* A later route attempt uses the fresh list. */ }
+          }
         })
         .catch(() => {})
+        .finally(() => { pendingIceRefresh = undefined })
+      return pendingIceRefresh
     }
-    if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) refreshIce()
+    if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) void refreshIce()
     const ownConnections = new Set<string>()
     const factory: PeerFactory = (context?: PeerContext) => {
       const available = liveIceServers(resolvedIceServers)
@@ -14370,6 +14428,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     }
     session = s
     created = s
+    sessionIcePrepare.set(s, async () => {
+      if (!hasRelay(resolvedIceServers) && !deviceRelay && isDefaultIceUrls(roomIceUrls)) await refreshIce()
+      if (alive()) sessionRelayBlocked.set(s, relayOnly && !hasRelay(resolvedIceServers))
+    })
     recordingDeviceKeys.set(s, deviceSk)
     sessionConnections.set(s, ownConnections)
     // Said in the call's More menu, so the person can see what they chose at
@@ -18652,6 +18714,7 @@ function callPathInput(): CallPathInput {
     spry, server, ...(stun ? { stun } : {}),
     publicRelays: { enabled: publicCallRelays.enabled, chosen: !!(publicCallRelays.selected ?? publicCallRelays.lastGood?.key) },
     hideIp: hideIpDefault(),
+    defaultRelay: !!TURN_CREDENTIAL_ENDPOINT,
   }
 }
 

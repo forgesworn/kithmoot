@@ -1,0 +1,241 @@
+{
+  "recordedAt": "2026-11-02T00:56:43.030326+00:00",
+  "scope": "Browser call recovery and five-minute media qualification",
+  "baselineProductionRevision": "1d4144719fafd84696f1615fd02cdecf6ef0c4b1",
+  "syntheticCapture": true,
+  "sourceChecks": {
+    "typecheck": "passed",
+    "unit": {
+      "passed": 8704,
+      "skipped": 8
+    },
+    "focusedUnitPassed": 82,
+    "controlsAndSettingsBrowserPassed": 13,
+    "groupAutoplayFirefoxRecoveryBrowserPassed": 7,
+    "iceAndUpdateBrowserPassed": 12,
+    "regressionsObservedBeforeFix": [
+      "automatic microphone refusal lacked call notice",
+      "relay-only call failed after temporary credential lookup failure"
+    ]
+  },
+  "fiveMinuteBaselineRoutes": [
+    {
+      "mode": "direct",
+      "durationSeconds": 300,
+      "sampleCount": 30,
+      "candidatePairs": [
+        [
+          {
+            "localType": "host",
+            "remoteType": "host",
+            "relayProtocol": "udp",
+            "bytesReceived": 33871
+          }
+        ],
+        [
+          {
+            "localType": "host",
+            "remoteType": "host",
+            "relayProtocol": "udp",
+            "bytesReceived": 104665
+          }
+        ]
+      ],
+      "firstSample": {
+        "seconds": 10,
+        "media": [
+          {
+            "framesDecoded": 220,
+            "audioEnergy": 1.0386862267757504,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 234,
+            "audioEnergy": 1.271178093036948,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "seconds": 300,
+        "media": [
+          {
+            "framesDecoded": 5970,
+            "audioEnergy": 27.40955808168161,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5977,
+            "audioEnergy": 27.79802776430779,
+            "videoStreams": 1
+          }
+        ]
+      }
+    },
+    {
+      "mode": "turn-udp",
+      "durationSeconds": 300,
+      "sampleCount": 30,
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "udp",
+            "bytesReceived": 5056
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "udp",
+            "bytesReceived": 5059
+          }
+        ]
+      ],
+      "firstSample": {
+        "seconds": 10,
+        "media": [
+          {
+            "framesDecoded": 205,
+            "audioEnergy": 0.9280980499328174,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 203,
+            "audioEnergy": 0.9207832543929853,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "seconds": 300,
+        "media": [
+          {
+            "framesDecoded": 5980,
+            "audioEnergy": 27.412125262915783,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5963,
+            "audioEnergy": 27.4103620838834,
+            "videoStreams": 1
+          }
+        ]
+      }
+    },
+    {
+      "mode": "turn-tls",
+      "durationSeconds": 300,
+      "sampleCount": 30,
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "bytesReceived": 51457
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "bytesReceived": 59853
+          }
+        ]
+      ],
+      "firstSample": {
+        "seconds": 10,
+        "media": [
+          {
+            "framesDecoded": 219,
+            "audioEnergy": 1.00603109796346,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 221,
+            "audioEnergy": 1.0124198802810742,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "seconds": 300,
+        "media": [
+          {
+            "framesDecoded": 6011,
+            "audioEnergy": 27.49154499848587,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5820,
+            "audioEnergy": 27.494739463870996,
+            "videoStreams": 1
+          }
+        ]
+      }
+    },
+    {
+      "mode": "android-chrome-turn-tls",
+      "durationSeconds": 300,
+      "sampleCount": 30,
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "bytesReceived": 33325
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "bytesReceived": 39326
+          }
+        ]
+      ],
+      "firstSample": {
+        "seconds": 10,
+        "media": [
+          {
+            "framesDecoded": 219,
+            "audioEnergy": 1.0116472234491154,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 218,
+            "audioEnergy": 0.9975952726101424,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "seconds": 300,
+        "media": [
+          {
+            "framesDecoded": 5876,
+            "audioEnergy": 27.929368304602203,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5843,
+            "audioEnergy": 27.31181472265817,
+            "videoStreams": 1
+          }
+        ]
+      }
+    }
+  ],
+  "limits": [
+    "Android 35 emulator Chrome with synthetic capture; no physical Android or GrapheneOS acceptance",
+    "TLS transport is tested, but no actual VPN application or physical mobile-data transition is qualified",
+    "TLS uses port 5349. Port-443 configuration validates but needs DNS and backward-compatible credential delivery for pinned native Android 0.6.132",
+    "These long calls exercised the previously deployed runtime; final deployment readback belongs in the shipping handover"
+  ]
+}

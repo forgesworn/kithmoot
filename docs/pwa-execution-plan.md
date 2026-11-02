@@ -201,7 +201,9 @@ Complete P1.5/P1.6 baseline and recovery checks before signing off this matrix.
 - Android Chrome/PWA as a compatibility client.
 - Two-person, three-person, same-person/two-device and late-join rooms.
 - Camera, microphone, share, annotation, backgrounding and route transitions.
-- One 45-minute soak with repeated state changes.
+- Five-minute calls with repeated state changes, covering desktop and Android
+  web, direct connections and relay fallback over UDP and TLS. This is the
+  owner's 2 November acceptance target; longer soaks are follow-up work.
 
 Model: **Terra Medium** for deterministic execution. Return to **Sol High** for
 any cross-browser, media or state failure that is not immediately local.
@@ -236,7 +238,7 @@ Added 26 October; extends P1.1/P1.3 and precedes P1.4 sign-off.
 
 Exit: before/after evidence meets predeclared budgets and the affected browser,
 desktop or Android path passes its own lifecycle gate. Synthetic results do
-not close physical no-Play GrapheneOS or 45-minute P1.4 acceptance. The SDK is
+not close physical no-Play GrapheneOS or five-minute P1.4 acceptance. The SDK is
 not selected for normal calls by this work package alone.
 
 ### P1.6 Group media efficiency

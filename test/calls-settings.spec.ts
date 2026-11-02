@@ -9,7 +9,7 @@ import { testRelays } from './relays.js'
  * relays page asks any Nostr relay for adverts.
  */
 
-const FRESH_BODY = 'Calls connect device to device. Some networks block that, so a call may not connect. Set up a relay below to carry those calls.'
+const FRESH_BODY = 'Calls try a direct connection, then use the default call relay when the network needs it. You do not need to set anything up. A relay you choose below takes priority.'
 const SERVER = { 'kithmoot.call-relay.v1': JSON.stringify({ urls: ['turn:relay.example.org:3478'], username: 'user', credential: 'password' }) }
 
 async function visit(browser: Parameters<typeof newDeviceContext>[0], baseURL: string, storage: Record<string, string> = {}, viewport = { width: 1280, height: 860 }): Promise<{ close(): Promise<void>; page: Page }> {
@@ -22,15 +22,15 @@ async function visit(browser: Parameters<typeof newDeviceContext>[0], baseURL: s
   return { page, close: () => context.close() }
 }
 
-test('the list has Calls after Messages and Relays where Connections was, and a fresh device says Direct only', async ({ browser, baseURL }) => {
+test('the list has Calls after Messages and a fresh device explains automatic relay fallback', async ({ browser, baseURL }) => {
   const { page, close } = await visit(browser, baseURL!)
   try {
     await openSettings(page)
     await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help'])
     await expect(page.getByRole('button', { name: /Connections/ })).toHaveCount(0)
-    await expect(page.locator('#settingsSubcalls')).toHaveText('Direct only')
+    await expect(page.locator('#settingsSubcalls')).toHaveText('Direct, with automatic relay fallback')
     await openSettings(page, 'Calls')
-    await expect(page.locator('#callsHead')).toHaveText('Direct only')
+    await expect(page.locator('#callsHead')).toHaveText('Direct, with automatic relay fallback')
     await expect(page.locator('#callsBody')).toHaveText(FRESH_BODY)
     // A browser has no built-in relay: three rows, in order.
     const rows = page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden]) .infoRowTitle')
