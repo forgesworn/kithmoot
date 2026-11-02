@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
 import { NodeRefusal, type NodeRoom } from './ledger.js'
 import { NodeSupervisor, type CloseRequest } from './supervisor.js'
+import { NODE_VERSION } from './version.js'
 
 const digest = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex')
 function object(value: unknown, fields: string[]): asserts value is Record<string, unknown> {
@@ -10,7 +11,8 @@ function object(value: unknown, fields: string[]): asserts value is Record<strin
 }
 /** Only the local CLI creates a code; the daemon never prints pairing secrets. */
 export function preparePairing(supervisor: NodeSupervisor): { code: string; expiresAt: number } {
-  if (supervisor.ledger.meta('owner')) throw new NodeRefusal(409, 'node-already-paired')
+  // A fresh local code also lets the existing owner reconnect another device.
+  // The claim endpoint never transfers ownership to a different signer.
   const code = randomBytes(32).toString('base64url'), expiresAt = supervisor.now() + 360
   supervisor.ledger.setMeta('pairing', JSON.stringify({ digest: digest(code), expiresAt }))
   return { code, expiresAt }
@@ -52,10 +54,10 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     }
     const path = request.url ?? ''
     const reply = (value: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(value)) }
-    if (request.method === 'GET' && path === '/node/v1/info') return reply({ v: 1, profile: 'kithmoot-node/1', origin: options.origin,
+    if (request.method === 'GET' && path === '/node/v1/info') return reply({ v: 1, profile: 'kithmoot-node/1', version: NODE_VERSION, origin: options.origin,
       serviceKey: options.serviceKey, relay: `wss://${audience.host}/events`, files: 'off', calls: 'relay-only' })
     if (request.method === 'GET' && path === '/node/v1/status') return reply(supervisor.status())
-    if (request.method !== 'POST' || !['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation'].includes(path)) throw new NodeRefusal(404, 'not-found')
+    if (request.method !== 'POST' || !['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/node/v1/status'].includes(path)) throw new NodeRefusal(404, 'not-found')
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '') || request.headers['content-encoding']) throw new NodeRefusal(415, 'json-required')
     const limit = path === '/groups/v1/events' ? 16384 : path === '/node/v1/close' ? 1024 * 1024 : 65536
     const chunks: Buffer[] = []; let bytes = 0
@@ -65,14 +67,20 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     try { value = JSON.parse(body.toString('utf8')) } catch { throw new NodeRefusal(400, 'invalid-json') }
     const owner = (): void => { if (supervisor.ledger.meta('owner') !== actor) throw new NodeRefusal(403, 'owner-required') }
     switch (path) {
+      case '/node/v1/status': {
+        owner(); object(value, [])
+        return reply({ ...await supervisor.ownerStatus(), serviceKey: options.serviceKey })
+      }
       case '/node/v1/claim': {
         object(value, ['code'])
-        if (supervisor.ledger.meta('owner')) throw new NodeRefusal(409, 'node-already-paired')
+        const heldOwner = supervisor.ledger.meta('owner')
+        if (heldOwner && heldOwner !== actor) throw new NodeRefusal(409, 'node-already-paired')
         const pairing = supervisor.ledger.meta('pairing')
         const state = pairing ? JSON.parse(pairing) as { digest: string; expiresAt: number } : undefined
         if (typeof value.code !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value.code) || !state || state.expiresAt <= supervisor.now()
           || !timingSafeEqual(Buffer.from(state.digest, 'hex'), Buffer.from(digest(value.code), 'hex'))) throw new NodeRefusal(403, 'pairing-expired')
-        supervisor.ledger.claimOwner(actor); supervisor.ledger.setMeta('pairing', '')
+        if (!heldOwner) supervisor.ledger.claimOwner(actor)
+        supervisor.ledger.setMeta('pairing', '')
         return reply({ paired: true })
       }
       case '/node/v1/enrol': {
