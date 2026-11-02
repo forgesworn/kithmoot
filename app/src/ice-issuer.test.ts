@@ -8,6 +8,24 @@ const response = (body: unknown = profile) => new Response(JSON.stringify(body),
 afterEach(() => vi.restoreAllMocks())
 
 describe('independent issuer boundary', () => {
+  for (const urls of [[], ['stun:stun.l.google.com:19302']]) {
+    for (const failure of ['missing endpoint', 'refused', 'malformed', 'network error'] as const) {
+      it(`uses only Cloudflare after ${failure}, including retired default links (${urls.length})`, async () => {
+        const send = vi.fn(async () => {
+          if (failure === 'network error') throw new Error('offline')
+          if (failure === 'malformed') return response({ urls: [] })
+          return new Response('', { status: 404 })
+        })
+        const servers = await resolveIceServers(urls, {
+          endpoint: failure === 'missing endpoint' ? undefined : '/turn',
+          location: { protocol: 'https:', hostname: 'caller.example' }, fetch: send,
+        })
+        expect(servers).toEqual([{ urls: 'stun:stun.cloudflare.com:3478' }])
+        expect(send).toHaveBeenCalledTimes(failure === 'missing endpoint' ? 0 : 1)
+      })
+    }
+  }
+
   it('requests extended TURN URLs only when the deployment explicitly opts in', async () => {
     const send = vi.fn(async () => response())
     expect(await fetchTurnCredential('/turn', { fetch: send, extendedUrls: true })).toBeDefined()

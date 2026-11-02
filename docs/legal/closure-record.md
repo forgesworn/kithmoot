@@ -282,3 +282,16 @@ Consequences for this record:
   2026: default call transport for anyone (note 2.11, `[U]` in
   application). The position and its bounds are recorded in
   `call-transport-position.md` (section of 2 November 2026).
+
+## 9. 2 November 2026: web STUN fallback corrected
+
+The automatic fallback in `src/ice-defaults.ts` again names Cloudflare only.
+The default public `/turn` issuer and coturn remain available. Browser and
+agent resolution derive STUN from a successful plain TURN URL and use the
+fallback when no login is available. No server, retention policy, admission
+rule or key holder changes in this correction. Installed desktop and Android
+builds retain their own defaults until separately updated; the privacy and
+terms pages distinguish them. Sections 7 and 8 remain dated records of the
+reopening and relay closure, rather than a current-web STUN inventory. The
+law note is still the one verified 28 September 2026; no new legal conclusion
+is made here.

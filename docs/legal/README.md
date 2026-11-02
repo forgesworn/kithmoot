@@ -16,7 +16,9 @@ store, meeting codes and message-drop service stay closed. A separate
 authenticated private call relay is recorded below.
 
 - [`call-transport-position.md`](call-transport-position.md) opens with
-  the 2 November 2026 section: the relay closed again, the default-relay
+  the 2 November 2026 correction removing Google from the automatic web STUN
+  fallback while retaining public TURN and the older-client disclosures.
+  The next section of that date records the relay closing again, the default-relay
   divergence settled as decision (a), and the position this leaves. Its
   1 November 2026 section records the reopening as written on that date;
   where they disagree, the newer section governs. It then distinguishes
@@ -37,7 +39,7 @@ authenticated private call relay is recorded below.
   what would bring KithMoot back into scope. Section 7 records the
   reopening on 1 November 2026, which is such a change; section 8 records
   the relay closing again on 2 November 2026 and the default-relay
-  decision of that date.
+  decision of that date. Section 9 records the web STUN fallback correction.
 
 It is a draft for the owner to check. It is not legal advice, and no lawyer
 has read it. The law is in jurisdiction-kit's `law/gb/online-services.md`.

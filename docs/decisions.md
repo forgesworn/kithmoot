@@ -2212,6 +2212,36 @@ A stale name grants nothing, since tiers and checks have gone, and a label
 the owner changed in Signet is shown, marked, for at most 30 days past
 expiry. This is D2 of the Signet contacts plan of 3 October, as recommended.
 
+## Calls restored on 1 November; Google STUN fallback removed on 2 November 2026
+
+Commit `4aa6be8f` restored the same-origin `/turn` credential endpoint as the
+web default, added Google alongside Cloudflare in `DEFAULT_STUN_URLS`, and
+enabled host candidates again. Those runtime changes contradicted the
+19 and 23 October entries below. The public TURN service remains running;
+the Nostr relay default divergence is recorded separately on 2 November.
+
+The 2 November correction removes Google from the automatic STUN fallback,
+retaining Cloudflare and the working default TURN path. Without a device
+relay or explicit room ICE settings, a successful mint supplies its own TURN
+URLs and STUN derived from a plain TURN URL. When no login is available,
+the fallback is `stun:stun.cloudflare.com:3478`. The array's order does not
+promise an order of network requests. A legacy link naming only the retired
+Google default is still recognised as a default and receives the corrected
+behaviour. Explicit room and device choices keep their existing precedence.
+
+The shared correction applies to newly built web, desktop and agent code;
+it does not update an installed desktop app or Android's separate codebase.
+Desktop 0.1.124/0.1.125 and Android from 0.6.132 can retain Google until those
+clients are separately updated. The privacy and terms pages retain that
+distinction. Removing Google neither shuts down `/turn` nor qualifies the
+proposed KithMoot node. Its implementation and any migration off the public
+TURN default have their own acceptance gates.
+
+Regression checks exercise production HTTPS origins, missing/refused/malformed
+issuers, network failure and retired-default links. The source guard still
+allows the Google literal for legacy parsing, but now also inspects the
+active default values so that exception cannot hide another default reversal.
+
 ## Nothing goes to Google, 19 October 2026
 
 The owner's rule: KithMoot does not contact Google, by default or through a
