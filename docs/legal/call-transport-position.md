@@ -20,6 +20,27 @@ written against this branch, the operator's relay position note as corrected
 on 2 November 2026, and the decision record of that date; where it and any
 older section disagree, it governs.
 
+## 2 November 2026: Google removed from the web STUN fallback
+
+The shared library's automatic fallback now names only
+`stun:stun.cloudflare.com:3478` (`src/ice-defaults.ts`). The browser resolver
+uses it when no credential endpoint is configured or a request fails, and
+derives STUN from a successful plain TURN URL (`app/src/ice-resolve.ts`).
+The agent shares that fallback (`src/node/ice-resolve.ts`). The legacy Google
+constant only recognises old room links; explicit device and room settings
+keep their existing behaviour. Browser and agent regressions cover failed
+issuance and retired-default links. The production-source guard now also
+checks the active defaults inside the module it exempts for legacy parsing.
+
+This changes no server admission, retention or content-key handling. The
+public TURN service and credential issuer remain the default. A keeper would
+still hold a room key if deployed; this change adds none. Installed desktop
+0.1.124/0.1.125 and Android from 0.6.132 are not updated by a web deployment
+and can retain the Google fallback. The privacy and terms pages distinguish
+those builds. The earlier dated sections remain historical records; this
+section supersedes their current-web STUN rows. It adds no new legal
+classification to the existing note, verified 28 September 2026.
+
 ## 2 November 2026: the relay closed again; the default-relay divergence settled
 
 relay.trotters.cc's open window ended at 00:33 UTC on 2 November 2026, just

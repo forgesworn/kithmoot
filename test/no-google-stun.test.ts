@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { DEFAULT_STUN_URLS, LEGACY_DEFAULT_ICE_URLS } from '../src/ice-defaults.js'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,6 +53,11 @@ function walk(dir: string): string[] {
 }
 
 describe('no default STUN server outside this origin', () => {
+  it('allows the retired Google URL for recognition without permitting it in active defaults', () => {
+    expect(LEGACY_DEFAULT_ICE_URLS).toEqual(['stun:stun.l.google.com:19302'])
+    expect(DEFAULT_STUN_URLS.some(url => url.toLowerCase().includes(FORBIDDEN))).toBe(false)
+  })
+
   it('never names stun.l.google.com in shipped source (app/src, src, server), except the one retired-default constant', () => {
     const offenders: string[] = []
     for (const root of SCAN_ROOTS) {

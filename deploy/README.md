@@ -73,9 +73,11 @@ this project and don't want to run TURN at all, set
 `TURN_CREDENTIAL_ENDPOINT` back to `undefined` in `app/src/main.ts` and
 rooms fall back to STUN only. That STUN is Cloudflare's public server
 (`DEFAULT_STUN_URLS` in `src/ice-defaults.ts`), the same stand-in the public
-app uses since 23 October 2026, because the publisher runs no default
-servers. While your `/turn` answers, STUN comes from your own coturn
-instead, derived from the relay it mints. There is no TURN URL to remove alongside it:
+app uses again from 2 November 2026, after Google was temporarily added on
+1 November. ForgeSworn's public `/turn` and coturn are still the default call
+transport, restored on 1 November; removing Google from the STUN fallback
+does not switch them off. While your `/turn` answers, STUN comes from your
+own coturn instead, derived from the relay it mints. There is no TURN URL to remove alongside it:
 the URLs arrive from the credential endpoint, already carrying the
 credential they need, precisely because a `turn:` entry without one makes
 the `RTCPeerConnection` constructor throw.

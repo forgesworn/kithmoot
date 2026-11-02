@@ -3,8 +3,9 @@
 KithMoot can use an authenticated TURN relay chosen on each device. This
 works in existing rooms; you do not need a new invitation. Each person
 enters their relay address, username and password in **Settings →
-Connections → Call relay (TURN)**, saves, then leaves and reopens the room.
-The web app has these fields on Connections; Android opens a dialog there.
+Calls → Relay server**, saves, then leaves and reopens the room.
+These are the current web and desktop settings names; Android opens its
+call-relay dialog from Settings → Calls.
 
 Each device keeps its own login. It is never added to a room invitation or
 published to Nostr. On Android it is encrypted using the Android Keystore

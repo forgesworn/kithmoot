@@ -9,12 +9,12 @@
  *
  * Until 2026-09-13 that stand-in was `stun:stun.l.google.com:19302`. It was
  * then derived from the origin that served the app, which on the public
- * host meant ForgeSworn's own STUN server. Since 2026-10-23 the publisher
- * runs no default servers of its own (docs/decisions.md, 2026-10-23), so
- * the stand-in is Cloudflare's public STUN server: `DEFAULT_STUN_URLS`.
- * Any STUN server learns the IP address and timing of a call attempt, so
- * the choice is named on the privacy page; Google stays out under the
- * 2026-10-19 rule.
+ * host meant ForgeSworn's own STUN server. On 2026-10-23 the fallback moved
+ * to Cloudflare. The 2026-11-01 calls change restored the publisher's default
+ * TURN service and also added Google to this fallback. On 2026-11-02 the
+ * fallback returns to Cloudflare only, retaining default TURN; see
+ * docs/decisions.md. Any STUN server learns the IP address and timing of a
+ * call attempt, so the choice is named on the privacy page.
  *
  * A deployment that mints its own TURN credential still uses its own
  * servers: when its `/turn` answers, STUN is derived from the minted TURN
@@ -52,7 +52,7 @@ export const LEGACY_DEFAULT_ICE_URLS: string[] = ['stun:stun.l.google.com:19302'
  * needs no account. It tells a device its own public address and carries
  * no content. Named on the privacy page; see the module comment above.
  */
-export const DEFAULT_STUN_URLS: readonly string[] = Object.freeze(['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'])
+export const DEFAULT_STUN_URLS: readonly string[] = Object.freeze(['stun:stun.cloudflare.com:3478'])
 
 /**
  * This app's own ICE default: no host named at all. A room that has never
@@ -127,8 +127,9 @@ export function browserDefaultTurnUrls(urls: string[]): string[] {
  * when no TURN credential could be minted to derive one from with
  * stunFromTurnUrl: the public host has no `/turn`, or a deployment runs
  * without one. Returns DEFAULT_STUN_URLS, somebody else's server, never a
- * guess at a server on the origin itself: the publisher runs no default
- * servers (docs/decisions.md, 2026-10-23). The name is historical.
+ * guess at a server on the origin itself. The publisher's default TURN
+ * service remains available through `/turn`; this is the fallback when it
+ * cannot supply a credential (docs/decisions.md, 2026-11-02).
  *
  * A loopback origin gets nothing, on purpose: two processes on the same
  * machine connect on host candidates alone, and naming a public STUN host

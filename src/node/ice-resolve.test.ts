@@ -23,6 +23,12 @@ const credentialBody = {
 }
 
 describe('resolveNodeIceServers', () => {
+  it('never restores Google when the configured issuer is unavailable', async () => {
+    const { fn } = fakeFetch(() => new Response('', { status: 503 }))
+    expect(await resolveNodeIceServers({ origin: 'https://caller.example', turnEndpoint: '/turn', fetchImpl: fn }))
+      .toEqual({ iceUrls: ['stun:stun.cloudflare.com:3478'] })
+  })
+
   it('asks no credential service when no endpoint is named, and uses the public STUN stand-in, not the origin', async () => {
     const { fn, calls } = fakeFetch(() => new Response(JSON.stringify(credentialBody), { status: 200 }))
     const result = await resolveNodeIceServers({ origin: 'https://kithmoot.example/j/', fetchImpl: fn })
