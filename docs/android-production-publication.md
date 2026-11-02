@@ -6,6 +6,14 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Website placeholder, 2 November 2026
+
+The homepage now shows Coming soon. Android publication copy and its
+version/channel checks live on `site/downloads/index.html`. The verifier uses
+that page by default; keep its `data-android-*` attributes, version and download
+label in sync with `site/android-release.json` when publishing an APK. APK,
+signing-lineage and manifest verification are unchanged.
+
 ## Android 0.6.120 message replay, 27 October 2026
 
 Version **0.6.120**, code **143**, fixes receive-buffer overflow that could

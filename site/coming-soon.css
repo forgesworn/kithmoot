@@ -1,0 +1,56 @@
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-var-latin.woff2') format('woff2');
+}
+
+:root {
+  color-scheme: light dark;
+  --background: #F3F8FA;
+  --text: #102A43;
+  --muted: #475D72;
+  --accent: #073B7A;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #081923;
+    --text: #F3F8FA;
+    --muted: #A3B6C4;
+    --accent: #00BFC5;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  padding: 3rem 1.5rem;
+  background: var(--background);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+main { width: min(100%, 36rem); }
+
+.brand { display: block; }
+.brand img { display: block; width: min(100%, 237px); height: auto; margin-inline: auto; }
+.divider { width: 2.5rem; height: 3px; margin: 2.5rem auto; border-radius: 2px; background: var(--accent); }
+
+h1 {
+  margin: 0 0 1.25rem;
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.04em;
+}
+
+p { margin: 0; color: var(--muted); font-size: 1.125rem; line-height: 1.7; }

@@ -13,7 +13,7 @@ function fail(message) {
 
 const options = {
   manifest: resolve('site/android-release.json'),
-  site: resolve('site/index.html'),
+  site: resolve('site/downloads/index.html'),
   apk: undefined,
 }
 for (let index = 2; index < process.argv.length; index += 1) {
@@ -107,8 +107,8 @@ if (!article.includes(`Version ${versionName}`)) fail('site copy does not name t
 const requiredLabel = channel === 'production' ? 'Production release.' : 'Debug-signed preview.'
 const requiredDownload = channel === 'production' ? 'Download Android' : 'Download Android preview'
 if (!article.includes(`<strong>${requiredLabel}</strong>`)) fail(`site copy must say ${requiredLabel}`)
-if (!article.includes(`>${requiredDownload}</a>`)) fail(`site download label must say ${requiredDownload}`)
-if (!article.includes('href="apk/kithmoot-latest.apk?download=1"')) fail('site download must use the stable APK URL')
+if (![requiredDownload, `${requiredDownload} ${versionName}`].some(label => article.includes(`>${label}</a>`))) fail(`site download label must say ${requiredDownload}`)
+if (!/href="\/?apk\/kithmoot-latest\.apk\?download=1"/.test(article)) fail('site download must use the stable APK URL')
 
 if (!options.apk) {
   console.log(`Verified Android publication metadata: ${channel} ${versionName} (code ${versionCode})`)

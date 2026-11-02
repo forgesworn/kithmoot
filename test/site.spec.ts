@@ -23,15 +23,11 @@ async function website(context: BrowserContext, failed: string[] = []): Promise<
   })
 }
 
-// The homepage links straight to the desktop installers. A release that
-// updates the downloads page and forgets the homepage would leave it offering
-// an older version, so every installer it names must be on the downloads page.
-test('the homepage offers the same installers as the downloads page', async () => {
+// The public homepage is a placeholder while the product is in development.
+// Existing installers remain available at their direct URLs.
+test('the homepage does not promote downloads or open the app', async () => {
   const home = await readFile(new URL('../site/index.html', import.meta.url), 'utf8')
-  const downloads = await readFile(new URL('../site/downloads/index.html', import.meta.url), 'utf8')
-  const installers = [...home.matchAll(/href="apk\/(desktop\/[^"]+)"/g)].map(match => match[1])
-  expect(installers.length).toBeGreaterThan(0)
-  for (const installer of installers) expect(downloads, installer).toContain(`href="/apk/${installer}"`)
+  expect(home).not.toMatch(/<a\b|<form\b|<script\b/i)
 })
 
 test('the home page no longer offers a room-code form, since meeting codes are gone', async () => {
@@ -48,11 +44,10 @@ for (const colour of ['light', 'dark'] as const) {
     const page = await context.newPage()
     try {
       await page.goto('https://site.kithmoot.test/')
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('A workspace nobody owns.')
-      await expect(page.locator('.dev-notice')).toContainText('under development')
-      await expect(page.locator('.hero .primary')).toHaveAttribute('href', '#download')
-      await expect(page.getByRole('link', { name: 'Sign in with Nostr' })).toHaveAttribute('href', 'j/?signin=nostr')
-      await expect(page.locator('#android')).toContainText('Production release')
+      await expect(page).toHaveTitle('KithMoot — Coming soon')
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('Coming soon')
+      await expect(page.getByRole('main')).toContainText("We're getting things ready.")
+      await expect(page.getByRole('img', { name: 'KithMoot', exact: true })).toBeVisible()
       for (const width of [320, 390, 768, 1440]) {
         await page.setViewportSize({ width, height: 900 })
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `page overflow at ${width}px`).toBe(true)
@@ -63,21 +58,7 @@ for (const colour of ['light', 'dark'] as const) {
           .map(img => img.getAttribute('src'))), { message: 'all website images must load after resizing' }).toEqual([])
         await page.screenshot({ path: info.outputPath(`site-${colour}-${width}.png`), fullPage: width === 1440 })
       }
-      await page.goto('https://site.kithmoot.test/')
-      // macOS WebKit uses Option-Tab to include links in keyboard navigation.
-      // https://support.apple.com/guide/safari/cpsh003/mac
-      await page.keyboard.press(process.platform === 'darwin' && browser.browserType().name() === 'webkit' ? 'Alt+Tab' : 'Tab')
-      await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
-      await page.keyboard.press('Enter')
-      const help = page.locator('summary', { hasText: "Why won't my invitation open?" })
-      await help.focus()
-      await page.keyboard.press('Enter')
-      await expect(help.locator('..')).toHaveAttribute('open', '')
-      await expect(help.locator('..')).toContainText('current link')
-      const missingAnchors = await page.locator('a[href^="#"]').evaluateAll(links => links
-        .map(link => link.getAttribute('href')!.slice(1)).filter(id => !document.getElementById(id)))
-      expect(missingAnchors).toEqual([])
-      // Large text must reflow instead of clipping calls to action.
+      // Large text must reflow instead of clipping the placeholder.
       await page.setViewportSize({ width: 390, height: 844 })
       await page.evaluate(() => document.documentElement.style.fontSize = '200%')
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
