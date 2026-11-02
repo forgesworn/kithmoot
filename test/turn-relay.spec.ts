@@ -63,6 +63,7 @@ interface RelayEvidence {
   localType: string
   remoteType: string
   relayProtocol: string
+  turnUrl: string
   bytesReceived: number
 }
 
@@ -100,8 +101,7 @@ async function forceRelayOnly(context: BrowserContext): Promise<void> {
     const iceServerLog: RTCIceServer[][] = []
     ;(window as unknown as { __kithmootIceServers: RTCIceServer[][] }).__kithmootIceServers = iceServerLog
 
-    function Patched(this: unknown, config?: RTCConfiguration) {
-      iceServerLog.push((config?.iceServers ?? []) as RTCIceServer[])
+    function constrained(config?: RTCConfiguration): RTCConfiguration {
       const iceServers = transport === 'tcp-tls'
         ? (config?.iceServers ?? []).map(server => ({
             ...server,
@@ -111,7 +111,19 @@ async function forceRelayOnly(context: BrowserContext): Promise<void> {
             ),
           })).filter(server => server.urls.length > 0)
         : config?.iceServers
-      const pc = new Native({ ...(config ?? {}), iceServers, iceTransportPolicy: direct ? 'all' : 'relay' })
+      return { ...(config ?? {}), iceServers, iceTransportPolicy: direct ? 'all' : 'relay' }
+    }
+
+    function Patched(this: unknown, config?: RTCConfiguration) {
+      iceServerLog.push((config?.iceServers ?? []) as RTCIceServer[])
+      const pc = new Native(constrained(config))
+      // Credential refresh must obey the same restriction as construction:
+      // otherwise setConfiguration could quietly reintroduce another port.
+      const setConfiguration = pc.setConfiguration.bind(pc)
+      pc.setConfiguration = next => {
+        iceServerLog.push((next?.iceServers ?? []) as RTCIceServer[])
+        setConfiguration(constrained(next))
+      }
       pc.addEventListener('track', event => trackEvents.push({ kind: event.track.kind, id: event.track.id }))
       created.push(pc)
       return pc
@@ -127,7 +139,7 @@ async function forceRelayOnly(context: BrowserContext): Promise<void> {
 async function readRelayEvidence(page: Page): Promise<RelayEvidence[]> {
   return page.evaluate(async () => {
     const pcs = (window as unknown as { __kithmootPcs: RTCPeerConnection[] }).__kithmootPcs ?? []
-    const out: { localType: string; remoteType: string; relayProtocol: string; bytesReceived: number }[] = []
+    const out: { localType: string; remoteType: string; relayProtocol: string; turnUrl: string; bytesReceived: number }[] = []
     for (const pc of pcs) {
       const report = await pc.getStats()
       const all: Record<string, unknown>[] = []
@@ -154,6 +166,7 @@ async function readRelayEvidence(page: Page): Promise<RelayEvidence[]> {
         localType: String(local?.candidateType ?? 'unknown'),
         remoteType: String(remote?.candidateType ?? 'unknown'),
         relayProtocol: String(local?.relayProtocol ?? local?.protocol ?? 'unknown'),
+        turnUrl: String(local?.url ?? ''),
         bytesReceived,
       })
     }
@@ -486,6 +499,10 @@ test(`desktop and mobile web carry two-way media for ${durationSeconds}s over ${
           expect(pair.localType, `device ${label} bypassed TURN locally`).toBe('relay')
           expect(pair.remoteType, `device ${label} bypassed TURN remotely`).toBe('relay')
           if (process.env.TURN_E2E_TRANSPORT === 'tcp-tls') expect(pair.relayProtocol).toBe('tls')
+          if (tlsPort !== undefined) {
+            const port = /^turns?:(?:\[[^\]]+\]|[^:?]+)(?::(\d+))?(?:\?|$)/.exec(pair.turnUrl)?.[1]
+            expect(Number(port), `device ${label} selected a different TURN port: ${pair.turnUrl}`).toBe(tlsPort)
+          }
         }
       }
     }
@@ -520,7 +537,8 @@ test(`desktop and mobile web carry two-way media for ${durationSeconds}s over ${
       desktopViewport: pageA.viewportSize(), mobileViewport: pageB.viewportSize(),
       androidDevice: process.env.TURN_E2E_ANDROID_SERIAL ?? null, tlsPort: tlsPort ?? null,
       expectedScript: process.env.TURN_E2E_EXPECT_SCRIPT ?? null,
-      userAgents: await Promise.all(pages.map(page => page.evaluate(() => navigator.userAgent))), samples,
+      userAgents: await Promise.all(pages.map(page => page.evaluate(() => navigator.userAgent))),
+      candidatePairs: await Promise.all(pages.map(readRelayEvidence)), samples,
     }, null, 2))
     await test.info().attach('five-minute-media.json', { path: evidencePath, contentType: 'application/json' })
     for (const [name, page] of [['desktop', pageA], ['mobile', pageB]] as const) {

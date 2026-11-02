@@ -1,0 +1,297 @@
+{
+  "recordedAt": "2026-11-02T03:07:20.805871+00:00",
+  "scope": "Public website TURN TLS/443 with a trusted IP certificate",
+  "productionRevision": "9f6db2758a65f81779f63923d1811899841b7c55",
+  "productionEntry": "index-DurU1RQ_.js",
+  "productionEntrySha256": "610fb61f3875baddb85c8eaf2d5f20dd0c5831c149d6b4b72eccdce408e976a7",
+  "testSourceSha256": "b8c39600a84c14894e6e04c1089c756f42c8bc12a0034948f2a9b0b40fe8cf2b",
+  "syntheticCapture": true,
+  "credentialInjection": false,
+  "route": "turns:62.238.98.53:443",
+  "legacyNativeUrlsUnchanged": true,
+  "browserCapability": "X-KithMoot-Turn-Urls: extended-v1",
+  "assertions": [
+    "relay candidates at both endpoints",
+    "TLS relay protocol and selected TURN URL port 443",
+    "port restriction preserved on setConfiguration",
+    "video frames and audio energy advance in both directions every interval",
+    "playing, unmuted remote audio sinks throughout",
+    "expected deployed website bundle loaded without clearing identity/rooms"
+  ],
+  "infrastructure": {
+    "trustedIpCertificate": {
+      "issuer": "Lets Encrypt",
+      "profile": "shortlived",
+      "expiresAt": "2026-11-08T17:19:59Z",
+      "renewal": "Caddy automatic renewal configured; first renewal not yet observed"
+    },
+    "existingNamedHttpHostGroupsUnchanged": 101,
+    "rtmpsTrustedTlsHandshake": "passed",
+    "coturnRestartPolicy": "unless-stopped",
+    "hostnameCertificateExpiresAt": "2027-01-21T12:18:19Z",
+    "hostnameCertificateSyncTimer": "enabled and active",
+    "backendRestartedAt": "2026-11-02T02:33:52.333803608Z"
+  },
+  "fiveMinuteRoutes": [
+    {
+      "case": "final-ip443-mobile",
+      "durationSeconds": 300,
+      "elapsedMs": 300026,
+      "samples": 30,
+      "androidEmulator": false,
+      "userAgents": [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"
+      ],
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 18967758
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 20056180
+          }
+        ]
+      ],
+      "firstSample": {
+        "elapsedSeconds": 10,
+        "current": [
+          {
+            "framesDecoded": 207,
+            "audioEnergy": 0.9506865649987369,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 206,
+            "audioEnergy": 0.9396700652201831,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "elapsedSeconds": 300,
+        "current": [
+          {
+            "framesDecoded": 5957,
+            "audioEnergy": 27.436414608398863,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5928,
+            "audioEnergy": 27.45925284975805,
+            "videoStreams": 1
+          }
+        ]
+      }
+    },
+    {
+      "case": "final-ip443-android",
+      "durationSeconds": 300,
+      "elapsedMs": 300032,
+      "samples": 30,
+      "androidEmulator": true,
+      "userAgents": [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+      ],
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 23902112
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 20331849
+          }
+        ]
+      ],
+      "firstSample": {
+        "elapsedSeconds": 10,
+        "current": [
+          {
+            "framesDecoded": 205,
+            "audioEnergy": 0.9524968828011415,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 207,
+            "audioEnergy": 0.9400849037283705,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "elapsedSeconds": 300,
+        "current": [
+          {
+            "framesDecoded": 5873,
+            "audioEnergy": 27.88675258422227,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 6003,
+            "audioEnergy": 27.3048029088862,
+            "videoStreams": 1
+          }
+        ]
+      }
+    },
+    {
+      "case": "post-maintenance-ip443-android",
+      "durationSeconds": 300,
+      "elapsedMs": 300034,
+      "samples": 30,
+      "androidEmulator": true,
+      "userAgents": [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+      ],
+      "candidatePairs": [
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 24257439
+          }
+        ],
+        [
+          {
+            "localType": "relay",
+            "remoteType": "relay",
+            "relayProtocol": "tls",
+            "turnUrl": "turns:62.238.98.53:443?transport=tcp",
+            "bytesReceived": 19188704
+          }
+        ]
+      ],
+      "firstSample": {
+        "elapsedSeconds": 10,
+        "current": [
+          {
+            "framesDecoded": 215,
+            "audioEnergy": 1.0038838331839146,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 216,
+            "audioEnergy": 0.9878798633225659,
+            "videoStreams": 1
+          }
+        ]
+      },
+      "lastSample": {
+        "elapsedSeconds": 300,
+        "current": [
+          {
+            "framesDecoded": 5948,
+            "audioEnergy": 27.941286812882236,
+            "videoStreams": 1
+          },
+          {
+            "framesDecoded": 5981,
+            "audioEnergy": 27.34443919192226,
+            "videoStreams": 1
+          }
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Android 35 emulator Chrome 124, not physical GrapheneOS",
+    "forced relay/TLS route, not an actual VPN app or restrictive WiFi",
+    "no cellular handover or TLS-intercepting proxy qualification",
+    "synthetic camera/microphone and clocked audio sink; no physical speaker/microphone acceptance",
+    "Android CDP screenshots were black; native adb screenshot independently verified rendered call controls and video"
+  ],
+  "sourceTypecheck": "passed",
+  "postMaintenanceLegacyTls5349Smoke": "passed, 20 seconds, selected actual URL port 5349",
+  "liveFixtureNote": "Live runs preceded the shared local-suite mic helper correction. The live spec has its own device/media helpers; its imported capture and measurement functions are unchanged.",
+  "senderStartupRecovery": {
+    "observed": "One negotiated live enabled audio sender never samples or sends while its video and the same microphone on another pair work.",
+    "sourceCountersBeforeRepair": {
+      "totalSamplesDuration": 0,
+      "packetsSent": 0
+    },
+    "controlledProbe": {
+      "stalledSenders": 2,
+      "repair": "replaceTrack(null), then the same processed track",
+      "observationSecondsAfterRepair": 3,
+      "missingReceiveDirectionsBefore": [
+        {
+          "videoFrames": 605,
+          "audioEnergy": 0
+        },
+        {
+          "videoFrames": 596,
+          "audioEnergy": 0
+        }
+      ],
+      "sameDirectionsAfter": [
+        {
+          "videoFrames": 666,
+          "audioEnergy": 0.2669878167906526
+        },
+        {
+          "videoFrames": 657,
+          "audioEnergy": 0.26950135142641646
+        }
+      ],
+      "originalTestAssertion": "failed and retained; the probe was diagnostic, not an acceptance pass"
+    },
+    "implementation": {
+      "startupGraceMs": 6000,
+      "maximumAttemptsPerSender": 1,
+      "newCapture": false,
+      "newSdp": false,
+      "rawTrackFallback": false,
+      "peerSourceSha256": "a469d36c9dfb1066f859d851614b6a8e0b153dd3b8f8f3f697d4bbbc9c498e84",
+      "unitTestSourceSha256": "d654fde1d7538719ef3a8cfe07a6667fef6e80f8f8a0326d44359bb45839df0a"
+    },
+    "sourceChecks": {
+      "unitNode24": {
+        "passed": 8719,
+        "skipped": 8
+      },
+      "focusedPeerNode24": {
+        "passed": 88,
+        "skipped": 3
+      },
+      "typecheck": "passed",
+      "independentCallServers": "2 passed: all group directions, stopped provider replacement, three further reconnects",
+      "automaticCallServers": "5 passed",
+      "publisherAndProtectedShare": "5 passed",
+      "defaultAndSavedOffDeviceJourneys": "5 passed",
+      "focusedPeerNode22": {
+        "passed": 88,
+        "skipped": 3
+      },
+      "defaultAndGuardedAdmin2Distributions": "passed"
+    },
+    "regressionsObservedBeforeFix": [
+      "shared test helper mutes the automatically opened microphone",
+      "real group join/rejoin leaves one audio sender with no source samples or RTP packets"
+    ],
+    "productionEvidence": "The fiveMinuteRoutes above qualify the prior deployed revision. Repeat live qualification after publishing this sender fix; retain exact release and bundle readback in the private handover."
+  }
+}

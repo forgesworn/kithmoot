@@ -526,7 +526,10 @@ export async function open(page: Page, url: string, name: string): Promise<void>
 }
 
 export async function newDeviceContext(browser: Browser, baseURL: string, options?: BrowserContextOptions): Promise<BrowserContext> {
-  const context = await browser.newContext(options)
+  // Manually created contexts do not inherit Playwright's fixture storage.
+  // Honour the suite's saved device preferences, with explicit fresh-device
+  // storage taking precedence (for example, the default mic-on-join tests).
+  const context = await browser.newContext({ storageState: test.info().project.use.storageState, ...options })
   // Playwright's Firefox has no camera or microphone permission to grant -
   // it throws "Unknown permission: camera" - and the specs that run there
   // put nobody on camera, so there is nothing to grant. The other browsers
@@ -687,10 +690,9 @@ export async function join(page: Page): Promise<void> {
  * joining is not a thing the app offers, so a helper that did it was not
  * walking the product - it was walking a page that no longer exists.
  *
- * This is the only order there is now, which means every spec joining "with
- * media" is really joining with nothing and adding tracks a moment later.
- * That path is renegotiation rather than a first offer, and it is the one
- * the app has.
+ * Joining a call now switches the microphone on unless the device saved
+ * that preference off. Adding a camera afterwards still exercises media
+ * renegotiation on the existing call.
  */
 export async function joinWithMedia(page: Page, url: string, name: string): Promise<void> {
   await open(page, url, name)
@@ -725,10 +727,14 @@ export async function openCall(page: Page): Promise<void> {
  *  the room, so this is only ever called after joining. */
 export async function turnOnMedia(page: Page): Promise<void> {
   await openCall(page)
-  await page.locator('#toggleCamera').click()
-  await page.locator('#toggleMic').click()
+  if (await page.locator('#toggleCamera').getAttribute('data-on') !== 'true') await page.locator('#toggleCamera').click()
+  // Default devices open the microphone asynchronously as the call starts.
+  // Wait for that path: a second click would mute an already-open mic or
+  // race capture startup. Suites which saved mic-on-join off enable it here.
+  const automaticMic = await page.evaluate(() => localStorage.getItem('kithmoot.call.micOnJoin') !== 'off')
+  if (!automaticMic && await page.locator('#toggleMic').getAttribute('data-on') !== 'true') await page.locator('#toggleMic').click()
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
-  await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+  await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true', { timeout: 30_000 })
 }
 
 /**

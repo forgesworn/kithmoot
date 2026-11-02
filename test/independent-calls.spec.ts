@@ -65,7 +65,7 @@ async function media(page: Page, peers: number, relay: CallRelay): Promise<void>
   }
   await expect.poll(async () => (await page.evaluate(inbound)).videoStreams, { timeout: 60_000 }).toBeGreaterThanOrEqual(peers)
   await expect.poll(async () => (await page.evaluate(inbound)).framesDecoded).toBeGreaterThan(5 * peers)
-  await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy).toBeGreaterThan(0)
+  await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy, { timeout: 30_000 }).toBeGreaterThan(0)
   await expect.poll(async () => (await pairs(page)).filter(pair => pair.bytes > 0).length).toBeGreaterThanOrEqual(peers)
   await expect.poll(async () => (await pairs(page)).filter(pair => pair.frames > 5 && pair.audioEnergy > 0).length,
     { timeout: 30_000, message: 'each remote participant must supply decoded video and audio energy' }).toBeGreaterThanOrEqual(peers)
@@ -199,8 +199,16 @@ test('participants use separate TLS call servers, group-call and replace a faile
     await test.info().attach('bounded-failure-state', { contentType: 'application/json', body: JSON.stringify({ phase, completedPhases,
       peers: await Promise.all(pages.map(async page => ({
         pairs: await pairs(page),
-        states: await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => ({
+        source: await page.evaluate(() => {
+          const source = (window as unknown as { __syntheticMic?: { ctx: AudioContext } }).__syntheticMic
+          return source ? { state: source.ctx.state, time: source.ctx.currentTime } : null
+        }),
+        states: await page.evaluate(async () => Promise.all((window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(async pc => ({
           connection: pc.connectionState, ice: pc.iceConnectionState, signalling: pc.signalingState,
+          audioStats: [...(await pc.getStats()).values()].filter(stat =>
+            stat.kind === 'audio' && ['media-source', 'outbound-rtp', 'inbound-rtp'].includes(stat.type))
+            .map(stat => Object.fromEntries(['type', 'kind', 'packetsSent', 'bytesSent', 'packetsReceived', 'bytesReceived',
+              'totalAudioEnergy', 'totalSamplesDuration', 'audioLevel'].filter(key => stat[key] !== undefined).map(key => [key, stat[key]]))),
           sending: pc.getSenders().map(s => ({ kind: s.track?.kind, state: s.track?.readyState, enabled: s.track?.enabled })),
           receiving: pc.getReceivers().map(r => ({ kind: r.track.kind, state: r.track.readyState, muted: r.track.muted,
             sinks: [...document.querySelectorAll<HTMLMediaElement>('video,audio')].filter(el => el.srcObject instanceof MediaStream && el.srcObject.getTracks().includes(r.track))
@@ -212,7 +220,7 @@ test('participants use separate TLS call servers, group-call and replace a faile
               })),
           })),
           transceivers: pc.getTransceivers().map(t => ({ mid: t.mid, direction: t.direction, currentDirection: t.currentDirection })),
-        }))),
+        })))),
       })).map(promise => promise.catch(() => ({ unavailable: true })))),
     }, null, 2) })
     throw error
