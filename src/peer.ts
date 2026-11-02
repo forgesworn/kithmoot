@@ -100,7 +100,11 @@ export interface RTCPeerConnectionLike {
   /** What this connection is currently sending. Optional alongside
    *  `removeTrack`: a device that never turns anything off never needs
    *  either, and a test double is free to model neither. */
-  getSenders?(): readonly { readonly track: MediaStreamTrack | null }[]
+  getSenders?(): readonly {
+    readonly track: MediaStreamTrack | null
+    getStats?(): Promise<StatsReportLike>
+    replaceTrack?(track: MediaStreamTrack | null): Promise<void>
+  }[]
   removeTrack?(sender: { readonly track: MediaStreamTrack | null }): void
   /** Gather fresh candidates on the connection that exists, rather than
    *  building a new one. Optional: a double that never models a network
@@ -499,6 +503,8 @@ export class Peer implements NegotiatingPeer {
   #restarted = false
   #graceTimer?: ReturnType<typeof setTimeout>
   #giveUpTimer?: ReturnType<typeof setTimeout>
+  #audioSenderStartTimer?: ReturnType<typeof setTimeout>
+  readonly #reboundAudioSenders = new WeakSet<object>()
   readonly #retryMs: number
   readonly #maxRetryMs: number
   readonly #jitter: number
@@ -671,6 +677,7 @@ export class Peer implements NegotiatingPeer {
         this.#clearRestartTimers()
         this.#everConnected = true
         this.#restarted = false
+        this.#armAudioSenderStartCheck()
       }
       if (state === 'disconnected') {
         opts.onConnectionState?.(state)
@@ -698,6 +705,58 @@ export class Peer implements NegotiatingPeer {
       // about it rather than inferring it from a peer that has gone quiet.
       opts.onConnectionState?.(state)
       if (state === 'failed' || state === 'closed') this.close()
+    }
+  }
+
+  #armAudioSenderStartCheck(): void {
+    if (this.#closed || !this.#everConnected || this.#audioSenderStartTimer !== undefined) return
+    if (!this.#pc.getSenders || !this.#pc.getTransceivers) return
+    this.#audioSenderStartTimer = this.#after(6_000, () => {
+      this.#audioSenderStartTimer = undefined
+      void this.#enqueue(() => this.#checkAudioSenderStart()).catch(() => {})
+    })
+  }
+
+  /** A live track can be attached to a negotiated audio sender which never
+   * starts sampling it. Measured during group joins/rejoins: video flows,
+   * but this sender reports zero source samples and zero outbound packets
+   * indefinitely while the same microphone works on another pair. Rebinding
+   * that exact track starts it without new capture, SDP or a peer rebuild.
+   *
+   * Probe after startup grace, using sender-scoped stats. Missing stats,
+   * normal silence (which still samples), muted/ended tracks and receive-only
+   * sections are not this fault. One attempt per sender prevents a loop. */
+  async #checkAudioSenderStart(): Promise<void> {
+    if (this.#closed || this.#pc.connectionState !== 'connected' || this.#pc.signalingState !== 'stable') return
+    for (const sender of this.#pc.getSenders?.() ?? []) {
+      const track = sender.track
+      if (track?.kind !== 'audio' || !track.enabled || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
+      if (!sender.getStats || !sender.replaceTrack || this.#reboundAudioSenders.has(sender)) continue
+      const direction = this.#pc.getTransceivers?.().find(t => t.sender === sender)?.currentDirection
+      if (direction !== 'sendrecv' && direction !== 'sendonly') continue
+      try {
+        let samples: unknown, packets: unknown
+        ;(await sender.getStats()).forEach(stat => {
+          if (stat.kind !== 'audio') return
+          if (stat.type === 'media-source') samples = stat.totalSamplesDuration
+          if (stat.type === 'outbound-rtp') packets = stat.packetsSent
+        })
+        if (samples !== 0 || packets !== 0 || this.#closed || this.#pc.connectionState !== 'connected' ||
+            sender.track !== track || !track.enabled || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
+        this.#reboundAudioSenders.add(sender)
+        await sender.replaceTrack(null)
+        if (this.#closed || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
+        await sender.replaceTrack(track)
+      } catch {
+        // Stats or a refused detach leave the original sender intact. A
+        // failed reattach has emptied it: let the existing route recovery
+        // replace this pair rather than report a permanently silent success.
+        if (!this.#closed && sender.track === null && this.#addedTracks.has(track)) {
+          this.#opts.onConnectionState?.('failed')
+          this.close()
+          return
+        }
+      }
     }
   }
 
@@ -803,6 +862,7 @@ export class Peer implements NegotiatingPeer {
       }
       if (sender !== undefined) tuneShareSender(track, sender)
       this.#addedTracks.add(track)
+      if (track.kind === 'audio') this.#armAudioSenderStartCheck()
     }
 
     // Anything dropped from the published set stops being sent. Silence is
@@ -1121,6 +1181,7 @@ export class Peer implements NegotiatingPeer {
       this.#clearNegotiationTimers()
       this.#hasRemoteDescription = true
       await this.#drainCandidates()
+      this.#armAudioSenderStartCheck()
     } else if (body.type === 'ice') {
       await this.#handleIce(body.candidate)
     }
@@ -1306,6 +1367,7 @@ export class Peer implements NegotiatingPeer {
     })
 
     await this.#drainCandidates()
+    this.#armAudioSenderStartCheck()
 
     /**
      * The same offer, answered twice, differently.
@@ -1419,6 +1481,8 @@ export class Peer implements NegotiatingPeer {
   close(): void {
     if (this.#closed) return
     this.#closed = true
+    if (this.#audioSenderStartTimer !== undefined) clearTimeout(this.#audioSenderStartTimer)
+    this.#audioSenderStartTimer = undefined
     this.#clearRestartTimers()
     this.#clearNegotiationTimers()
     this.#gatherDone?.()
