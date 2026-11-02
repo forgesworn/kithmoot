@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const verifier = join(root, 'deploy/verify-android-publication.mjs')
-const site = join(root, 'site/index.html')
+const site = join(root, 'site/downloads/index.html')
 const original = JSON.parse(readFileSync(join(root, 'site/android-release.json'), 'utf8'))
 let directory
 
@@ -19,13 +19,13 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true })
 })
 
-function verify(releaseNotes, include = true) {
+function verify(releaseNotes, include = true, sitePath = site) {
   const publication = { ...original }
   if (include) publication.releaseNotes = releaseNotes
   else delete publication.releaseNotes
   const manifest = join(directory, 'android-release.json')
   writeFileSync(manifest, JSON.stringify(publication, null, 2) + '\n')
-  return spawnSync(process.execPath, [verifier, '--manifest', manifest, '--site', site], { cwd: root, encoding: 'utf8' })
+  return spawnSync(process.execPath, [verifier, '--manifest', manifest, '--site', sitePath], { cwd: root, encoding: 'utf8' })
 }
 
 describe('Android publication release notes', () => {
@@ -57,4 +57,18 @@ describe('Android publication release notes', () => {
       expect(verify(notes).status).toBe(1)
     })
   }
+})
+
+describe('Android publication page', () => {
+  it('uses the downloads page by default while the homepage is a placeholder', () => {
+    const result = spawnSync(process.execPath, [verifier], { cwd: root, encoding: 'utf8' })
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+  })
+
+  it('refuses a placeholder as proof of Android publication copy', () => {
+    const result = verify(undefined, false, join(root, 'site/index.html'))
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('site has no Android publication article')
+  })
 })
