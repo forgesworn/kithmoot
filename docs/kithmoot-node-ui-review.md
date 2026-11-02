@@ -1,7 +1,8 @@
 # KithMoot node UI candidate: maintainer review pack
 
-Status: implementation candidate, not approved or deployed. The final source
-commit will be recorded here after the frozen unit suite finishes.
+Status: implementation candidate, not approved or deployed. Tested UI source
+revision: `5707837cfcb9e10baa78976d016348d4b6490bef`. This pack and its evidence metadata are recorded in a
+following documentation-only commit.
 
 **Maintainer must review and approve UI work on KithMoot's Settings → Calls →
 Your KithMoot node, New room → Host on my node, the node room's ask and waiting

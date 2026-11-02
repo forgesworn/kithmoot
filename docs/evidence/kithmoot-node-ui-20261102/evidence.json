@@ -2,7 +2,7 @@
   "date": "2026-11-02",
   "status": "candidate-zat-pending",
   "baseCommit": "9ad88c65f9fc5c9851ce2193bca2612a34d2cf30",
-  "sourceCommit": null,
+  "sourceCommit": "5707837cfcb9e10baa78976d016348d4b6490bef",
   "sourceManifestSha256": "27ca3be4b3cfe4b7f22deff3bd07fdf06f8d0d49a5af3546c522419123676ec7",
   "webBuild": {
     "asset": "main-BqYTAYt5.js",
