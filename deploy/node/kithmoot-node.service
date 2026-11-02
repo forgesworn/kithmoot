@@ -1,0 +1,36 @@
+[Unit]
+Description=Keeper-controlled KithMoot node
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=kithmoot-node
+Group=kithmoot-node
+WorkingDirectory=/var/lib/kithmoot-node
+ExecStart=/opt/kithmoot-node/node/bin/node /opt/kithmoot-node/bin/kithmoot-node.mjs run --state /var/lib/kithmoot-node
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/kithmoot-node
+LimitNOFILE=4096
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

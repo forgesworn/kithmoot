@@ -475,7 +475,10 @@ In this order, with a durable operation on the desk:
 1. **End chat?** dialog with the promise (3.7). Cancel is the default.
 2. The app signs the closing rekey (1462, `closed: true`, `destruct`),
    retirement (1461, `ended: true`) and kind 27541 reset. It sends these with
-   an authority-signed close instruction and unique operation id to the desk.
+   an explicit authority-signed kind 27543 closure statement and unique
+   operation id to the desk. The canonical statement binds the room, node
+   host and operation, and expires after 30 days. A grant reset alone is not
+   permission to delete a device's room data.
    The desk verifies them and durably records the operation and deadline
    before acknowledging acceptance. N3 defines the close envelope and vectors.
    No room key or signing key is sent to the node.
@@ -500,8 +503,10 @@ In this order, with a durable operation on the desk:
 
 A device offline at the close learns it when it next connects: Shelter refuses
 its sign-in with a distinct reason, "room closed", for the tombstone period
-below, and the app runs the tidy-up. A refusal for a revoked grant says
-"access removed" instead.
+below. The app retrieves and verifies the keeper's signed closure statement
+before running the tidy-up. A server refusal alone is not authority to wipe.
+A refusal for a revoked grant says "access removed" instead; the existing
+keeper-signed removal/rekey flow supplies the device deletion authority.
 
 ### 3.3 Purge semantics on Shelter
 
@@ -518,6 +523,14 @@ of room R:
 - keeps one tombstone row: a salted hash of the room id and the close time,
   for 30 days [decision], so late devices are told the room closed. No
   content, keys or addresses.
+
+The desk retains an opaque anti-replay marker for the longest possible grant
+lifetime plus clock skew. For 30 days it also retains the closure statement's
+signature, event hash, creation/expiry times and random operation id. A device
+reconstructs the statement using its pinned room authority, room id and node
+host. No raw room id, member key or closing ciphertext remains in that proof.
+The completion receipt is signed by the node service key as kind 27544 and
+contains the operation id, child results and counts, without room identifiers.
 
 Deletion of the database rows and overwriting of freed pages is what the
 software does. It does not reach SSD wear levelling, filesystem snapshots,

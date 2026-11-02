@@ -138,7 +138,8 @@
   "bin": {
     "kithmoot-context": "./bin/kithmoot-context.mjs",
     "kithmoot-forwarder": "./server/forwarder.mjs",
-    "kithmoot-agent": "./bin/kithmoot-agent.mjs"
+    "kithmoot-agent": "./bin/kithmoot-agent.mjs",
+    "kithmoot-node": "./bin/kithmoot-node.mjs"
   },
   "workspaces": [
     "packages/context",
