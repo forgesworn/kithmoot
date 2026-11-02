@@ -6,7 +6,7 @@ import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { spryHash } from './spry.js'
 import { nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
-  nodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
+  nodeCallFactory, nodeKeeperInbox, assertNodeRoomTransport, type NodeDeviceAccess } from './kithmoot-node.js'
 
 const NOW = 1_900_000_000
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
@@ -23,6 +23,19 @@ function fixture() {
 }
 const response = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
 describe('pinned KithMoot node client', () => {
+  it('keeps the inviter ask inbox separate from a granted device room transport', async () => {
+    const f = fixture(), opened = vi.fn()
+    class Socket { constructor() { opened() } }
+    const options = { now: () => NOW, websocketImplementation: Socket as unknown as typeof WebSocket }
+    expect(() => nodeKeeperInbox(f.node, f.identity, options)).toThrow()
+    const inbox = nodeKeeperInbox(f.node, localIdentity(f.authority), options)
+    try {
+      expect(inbox.describe?.()).toEqual([{ url: f.node.relay, read: true, write: true }])
+      expect(() => assertNodeRoomTransport(inbox, f.node, getPublicKey(f.authority))).toThrow('pinned')
+      await expect(inbox.publish(finalizeEvent({ kind: 1, created_at: NOW, content: 'fixture', tags: [['expiration', String(NOW + 60)]] }, f.authority))).rejects.toMatchObject({ reason: 'invalid' })
+      expect(opened).not.toHaveBeenCalled()
+    } finally { inbox.close() }
+  })
   it('accepts four own-node TURN URLs, including TLS443, with body-bound device proof and no fallback', async () => {
     const f = fixture()
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

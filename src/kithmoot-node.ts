@@ -1,6 +1,6 @@
 import { base64urlnopad } from '@scure/base'
 import { randomBytes } from '@noble/hashes/utils'
-import { readNodeRoom, recoverNodeClosure, readNodeCloseReceipt, verifyNodeRoomGrant,
+import { readNodeRoom, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
   type NodeRoomRecord, type NodeCloseReceipt } from '@forgesworn/fold-kit/node-room'
 import type { Event } from 'nostr-tools/pure'
 import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
@@ -16,7 +16,11 @@ export class KithmootNodeError extends Error {
   }
 }
 export interface NodeClientOptions { fetcher?: typeof fetch; now?: () => number; signal?: AbortSignal; allowed?: () => boolean }
+export interface NodeRelayOptions { websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean }
 export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string }
+export type NodeClosePhase = 'publishing' | 'draining' | 'teardown' | 'erasing' | 'done'
+export interface NodeCloseInstruction { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }
+export interface NodeCloseStatus { phase: NodeClosePhase; receipt?: NodeCloseReceipt }
 export interface NodePairingLink { origin: string; code: string; expiresAt: number }
 export type NodeDeviceAccess =
   | { state: 'active'; grant: ParsedGrant; offer: SpryOffer }
@@ -152,14 +156,25 @@ export async function nodeTurnCredentials(record: NodeRoomRecord, access: Extrac
     || Number(value.accessExpiresAt) > Math.min(access.grant.expiration, node.endsAt ?? Infinity)) return invalid()
   return { urls: value.urls as string[], username: value.username, credential: value.credential, expiresAt: Number(value.expiresAt), accessExpiresAt: Number(value.accessExpiresAt) }
 }
-export async function closeNodeRoom(record: NodeRoomRecord, instruction: { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }, authority: ParticipantIdentity,
-  options: NodeClientOptions = {}): Promise<{ phase: string; receipt?: NodeCloseReceipt }> {
+export async function closeNodeRoom(record: NodeRoomRecord, instruction: NodeCloseInstruction, authority: ParticipantIdentity,
+  options: NodeClientOptions = {}): Promise<NodeCloseStatus> {
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
   if (authority.pubkey !== node.authority) return invalid()
   const result = await request(node.origin, '/node/v1/close', { room: node.room, ...instruction }, authority, options)
   if (result.operation !== instruction.operation || !['publishing', 'draining', 'teardown', 'erasing', 'done'].includes(String(result.phase))) return invalid()
-  if (result.phase !== 'done') return { phase: String(result.phase) }
+  if (result.phase !== 'done') return { phase: result.phase as NodeClosePhase }
   const receipt = readNodeCloseReceipt((result.result as Record<string, unknown>)?.receipt, node, instruction.operation, now)
+  return receipt ? { phase: 'done', receipt } : invalid()
+}
+/** Owner-only status polling after the room and its authority key have been
+ * deleted. No room id, descriptor or member grant is sent or retained. */
+export async function queryNodeCloseOperation(pair: PairedKithmootNode, operation: string, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeCloseStatus> {
+  if (pair.v !== 1 || pair.owner !== owner.pubkey || !KEY.test(pair.serviceKey) || pair.serviceKey === owner.pubkey || !/^[a-f0-9]{32}$/.test(operation)) return invalid()
+  const result = await request(pair.origin, '/node/v1/operation', { operation }, owner, options)
+  if (result.operation !== operation || !['publishing', 'draining', 'teardown', 'erasing', 'done'].includes(String(result.phase))) return invalid()
+  if (result.phase !== 'done') return { phase: result.phase as NodeClosePhase }
+  const receipt = readNodeOperationReceipt((result.result as Record<string, unknown>)?.receipt, pair.serviceKey, operation,
+    (options.now ?? (() => Math.floor(Date.now() / 1000)))())
   return receipt ? { phase: 'done', receipt } : invalid()
 }
 const transports = new WeakMap<RelayTransport, string>()
@@ -172,9 +187,7 @@ export function assertNodeCallFactory(factory: PeerFactory, node: NodeRoomRecord
 }
 /** One partition and one signing identity. There is no account-relay merge,
  * peer relay, public discovery, alternate issuer or shared socket fallback. */
-export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, mode: 'room' | 'ask', options: {
-  websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean
-} = {}): RelayTransport {
+export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, mode: 'room' | 'ask', options: NodeRelayOptions = {}): RelayTransport {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   if (mode === 'room' && [node.authority, node.serviceKey].includes(identity.pubkey)) return invalid()
   let closed = false
@@ -208,6 +221,15 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
   }
   if (mode === 'room') transports.set(transport, `${node.event.id}:${identity.pubkey}`)
   return transport
+}
+
+/** The inviter's separate, restricted ask inbox. Room-device grants confer
+ * no access to this namespace; the keeper signs its own scoped NIP-42 proof.
+ * This transport cannot be used as a RoomSession's admitted room door. */
+export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantIdentity, options: NodeRelayOptions = {}): RelayTransport {
+  const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
+  if (authority.pubkey !== node.authority) return invalid()
+  return nodeRoomTransport(node, authority, 'ask', options)
 }
 
 /** Relay-only browser connections with fresh TURN credentials before the old

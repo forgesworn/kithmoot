@@ -78,6 +78,12 @@
           "sha256": "c1906c385122dc6d9b0acf7edb57c9bd3ab3cc18bff92402e10fb93a9f6110e0"
         }
       ]
+    },
+    "browserAssertionFollowup": {
+      "pr": 672,
+      "merge": "b3149655ef2c2aada2be71cb491b4848116bcd08",
+      "qualifyingCi": "all five passed",
+      "chromiumSavedStunJourney": "passed"
     }
   },
   "spry": {
@@ -148,15 +154,23 @@
       "other room TURN refresh survives",
       "signed closing event delivery",
       "scoped purge",
-      "durable close retry"
+      "durable close retry",
+      "SDK keeper grant journal",
+      "SDK guest ask door",
+      "SDK fresh root epoch admission",
+      "SDK encrypted chat",
+      "SDK durable close",
+      "SDK self-destruct rekey delivery",
+      "SDK public owner completion reference",
+      "SDK signed closure proof after purge"
     ],
-    "revocationAcknowledgementToClosedStreamsMs": 64,
+    "revocationAcknowledgementToClosedStreamsMs": 63,
     "internetNode": false,
     "physicalGrapheneOS": false,
     "tls443PublicRoute": false
   },
   "remaining": [
-    "shared-wire-and-android-vectors",
+    "android-node-vector-replay",
     "web-desktop-android-node-journeys",
     "signed-install-and-uninstall",
     "outside-network-qualification",
@@ -168,15 +182,17 @@
   ],
   "sharedWire": {
     "package": "@forgesworn/fold-kit",
-    "version": "0.16.0",
+    "version": "0.16.1",
     "prs": [
       30,
-      31
+      31,
+      32
     ],
-    "releaseRun": 41446662145,
+    "releaseRun": 41457196894,
     "npmReadback": "passed",
-    "integrity": "sha512-wpa9jnpCoOar8PcHEqLhKJnWU1aZFa9mxsVhMwj+OSYsoOeW5aYIWXThtbuvuzIZMhafQv3zf7iBgsvOm1x+WQ==",
-    "androidVectorReplay": "pending"
+    "integrity": "sha512-e9iQEtXnx6C5tJKNzowvlYSy2NaaPrQeBu8m1ADM+wxL3dHZicBdiWfEUsjOOA8VCPIVpBcp41XtT9VP62w8tA==",
+    "androidVectorReplay": "pending",
+    "tests": 1140
   },
   "grantProfile": {
     "repository": "wildbloom-node",
@@ -205,6 +221,28 @@
     "focusedTests": 196,
     "libraryBuild": "passed",
     "typecheck": "passed",
-    "fullUnitSuite": "fresh frozen-revision run pending"
+    "fullUnitSuite": {
+      "passed": 8772,
+      "skipped": 8,
+      "failed": 0
+    },
+    "pr": 673,
+    "merge": "f24f6e167db393253829b3730ab9dcebdf9d7a89",
+    "qualifyingCi": "all five passed after realtime 8-participant qualification rerun"
+  },
+  "clientClose": {
+    "status": "candidate",
+    "checks": [
+      "prepare without publishing",
+      "persist before HTTP",
+      "same-byte lost-ack retry",
+      "public-only completion reference",
+      "complete service receipt required",
+      "cold expired-grant closure recovery",
+      "actual inviter ask namespace and fresh root epoch"
+    ],
+    "appSelfDestructJourney": "pending",
+    "focusedTests": 81,
+    "typecheck": "passed"
   }
 }

@@ -16,10 +16,20 @@ import { nodeHttp, preparePairing } from '../dist/src/node/kithmoot-node/http.js
 import { SpryBackend, ShelterBackend } from '../dist/src/node/kithmoot-node/backends.js'
 import { buildGrant, buildRevocation, buildReset, parseGroupEvent } from '../dist/src/group-grants.js'
 import { turnWire } from './node-turn-wire.mjs'
+import { signNodeRoom, readNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { deriveRoom } from '../dist/src/room.js'
+import { localIdentity } from '../dist/src/identity.js'
+import { createDeviceCredential } from '../dist/src/credential.js'
+import { hostRoomEpoch } from '../dist/src/epoch.js'
+import { RoomSession } from '../dist/src/session.js'
+import { enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, queryNodeAccess, queryNodeCloseOperation } from '../dist/src/kithmoot-node.js'
+import { openNodeKeeperAdmissions, beginNodeJoin } from '../dist/src/node-admission.js'
+import { openNodeDeviceAccess } from '../dist/src/node-device-access.js'
+import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../dist/src/node-room-close.js'
 
 const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
 if (!spry || !shelter) throw Error('Set E2E_NODE_SPRY_BINARY and E2E_NODE_SHELTER_BINARY to the locally built executables')
-const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-backends-')), children = [], sockets = [], turnClients = []
+const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-backends-')), children = [], sockets = [], turnClients = [], sdkCleanups = []
 let ledger, http, supervisor
 const port = async () => {
   const listener = createServer(); await new Promise(r => listener.listen(0, '127.0.0.1', r))
@@ -129,14 +139,102 @@ try {
   assert.equal((await relay.status()).rooms, 1)
   assert.equal(JSON.stringify(supervisor.operation(operation)).includes(rooms[1]), false)
   assert.equal((await (await signed(desk, '/node/v1/close', close, authority)).json()).phase, 'done')
+  // The SDK uses production pins. Only the fixture maps those public URLs
+  // onto loopback endpoints; signed HTTP/relay audiences remain unchanged.
+  const sdkFetch = (url, init) => {
+    const target = new URL(String(url)); assert.equal(target.origin, origin)
+    return fetch((target.pathname === '/v1/credentials' ? `http://127.0.0.1:${spryPort}` : desk) + target.pathname, init)
+  }
+  const sdkFrames = []
+  class SdkSocket extends WebSocket {
+    constructor(url) {
+      assert.equal(String(url), 'wss://node.example/events'); super(`ws://127.0.0.1:${relayPort}/events`); sockets.push(this)
+      this.on('message', data => {
+        const frame = JSON.parse(String(data))
+        sdkFrames.push({ type: frame[0], ...(frame[0] === 'OK' ? { accepted: frame[2], reason: frame[3] } : {}),
+          ...(frame[0] === 'EVENT' ? { kind: frame[2]?.kind } : {}), ...(frame[0] === 'CLOSED' ? { reason: frame[2] } : {}) })
+        if (sdkFrames.length > 40) sdkFrames.shift()
+      })
+    }
+  }
+  const root = generateSecretKey(), keeperKey = generateSecretKey(), keeperDevice = generateSecretKey(), guestDevice = generateSecretKey()
+  const keeperPerson = localIdentity(generateSecretKey()), guestPerson = localIdentity(generateSecretKey()), guestIdentity = localIdentity(guestDevice)
+  const sdkRoom = deriveRoom(root).roomId, sdkNow = () => Math.floor(Date.now() / 1000)
+  const node = readNodeRoom(signNodeRoom({ authoritySk: keeperKey, room: sdkRoom, serviceKey, origin, now: sdkNow() }), sdkNow())
+  const pair = { v: 1, origin, serviceKey, owner: getPublicKey(owner) }, ownerIdentity = localIdentity(owner), options = { fetcher: sdkFetch }
+  await enrolNodeRoom(pair, node, ownerIdentity, options)
+  let journal
+  const keeper = await openNodeKeeperAdmissions({ ...options, node, authoritySk: keeperKey, roomSecret: root, keeperParticipant: keeperPerson.pubkey,
+    epochHint: () => 0, store: { load: async () => journal, save: async value => { journal = structuredClone(value) } } })
+  sdkCleanups.push(() => keeper.close())
+  const keeperCredential = await createDeviceCredential({ identity: keeperPerson, devicePubkey: getPublicKey(keeperDevice), roomId: sdkRoom, expiresAt: sdkNow() + 86400 })
+  await keeper.authoriseKeeperDevice(keeperCredential)
+  const keeperTransport = nodeRoomTransport(node, localIdentity(keeperDevice), 'room', { websocketImplementation: SdkSocket })
+  sdkCleanups.push(() => keeperTransport.close())
+  const keeperInbox = nodeKeeperInbox(node, localIdentity(keeperKey), { websocketImplementation: SdkSocket })
+  sdkCleanups.push(() => keeperInbox.close())
+  const rootKeys = deriveRoom(root)
+  const epochDesk = hostRoomEpoch({ transport: keeperTransport, roomId: sdkRoom, authoritySk: keeperKey, roomKey: rootKeys.roomKey,
+    current: () => ({ epoch: 0, secret: root }), removed: () => new Set(), members: () => [keeperPerson.pubkey, guestPerson.pubkey],
+    replyDelayMs: [0, 0], expiresAt: () => sdkNow() + 30 * 86400 })
+  sdkCleanups.push(() => { epochDesk.close(); rootKeys.roomKey.fill(0) })
+  let admitted, admissionError, asksReady = false, asksSeen = 0
+  const offAsks = keeperInbox.subscribe([{ kinds: [1059], '#p': [node.authority] }], event => {
+    asksSeen++
+    if (!keeper.inspect(event)) return
+    void keeper.admit(event, true).then(answer => keeperInbox.publish(answer)).catch(error => { admissionError = error })
+  }, () => { asksReady = true })
+  sdkCleanups.push(offAsks)
+  await until(() => asksReady, 'SDK keeper ask subscription authenticated')
+  const guestCredential = await createDeviceCredential({ identity: guestPerson, devicePubkey: guestIdentity.pubkey, roomId: sdkRoom, expiresAt: sdkNow() + 86400 })
+  const attempt = beginNodeJoin({ node, deviceSk: guestDevice, credential: guestCredential, signal: AbortSignal.timeout(12000), websocketImplementation: SdkSocket })
+  sdkCleanups.push(() => attempt.cancel())
+  try { admitted = await attempt.result }
+  catch (error) { throw Error(`SDK join: ${error.reason}; keeper error=${admissionError?.reason ?? 'none'}; asks=${asksSeen}; frames=${JSON.stringify(sdkFrames)}`) }
+  assert.notEqual(admitted, 'denied'); assert.equal(admissionError, undefined)
+  assert.deepEqual(admitted.secret, root)
+  let deviceState
+  const deviceAccess = await openNodeDeviceAccess(node, guestIdentity, admitted.grant,
+    { load: async () => deviceState, save: async value => { deviceState = structuredClone(value) } }, options)
+  sdkCleanups.push(() => deviceAccess.close()); await deviceAccess.refresh(); assert.equal(deviceAccess.allowed(), true)
+  const guestTransport = nodeRoomTransport(node, guestIdentity, 'room', { websocketImplementation: SdkSocket, allowed: deviceAccess.allowed })
+  sdkCleanups.push(() => guestTransport.close())
+  let closedNotice
+  const session = new RoomSession({ node, authority: node.authority, transport: guestTransport, identity: guestPerson, deviceSk: guestDevice,
+    secret: admitted.secret, name: 'Guest', expectedEpoch: 0, requireFreshEpoch: true, announceJitterMs: 0, epochSettleMs: 0,
+    onClosed: notice => { closedNotice = notice } })
+  sdkCleanups.push(() => session.leave())
+  await session.join([], {}); await session.chat.send('encrypted SDK fixture')
+  assert.ok(session.chat.messages().some(message => message.text === 'encrypted SDK fixture'))
+  const resetFloor = keeper.close(), current = session.currentEpoch()
+  let instruction
+  try { instruction = prepareNodeRoomClose({ node, authoritySk: keeperKey, roomSecret: root, current, resetFloor, now: sdkNow(), drainSeconds: 1 }) }
+  finally { current.secret.fill(0) }
+  const pending = pendingNodeRoomClose(pair, node, instruction, sdkNow())
+  let pendingStored, reference
+  const closeStore = { stage: async value => { pendingStored = structuredClone(value); reference = structuredClone(value.reference) },
+    forgetRoom: async value => { pendingStored = undefined; reference = structuredClone(value) } }
+  const sdkClose = await submitPendingNodeRoomClose(pending, localIdentity(keeperKey), closeStore, options)
+  assert.ok(['draining', 'done'].includes(sdkClose.phase)); assert.equal(pendingStored, undefined)
+  await until(() => closedNotice?.destruct === true, 'SDK closing rekey delivered to guest')
+  await delay(1100); await supervisor.tick()
+  keeperKey.fill(0); root.fill(0)
+  const finished = await queryNodeCloseOperation(reference.node, reference.operation, ownerIdentity, options)
+  assert.equal(finished.phase, 'done'); assert.equal(finished.receipt.callsRevoked, true); assert.equal(finished.receipt.relayPurged, true)
+  assert.equal(JSON.stringify(reference).includes(sdkRoom), false)
+  assert.equal((await queryNodeAccess(node, admitted.grant.tags.find(t => t[0] === 'grant')[1], guestIdentity, options)).state, 'closed')
+  assert.equal(ledger.room(sdkRoom), undefined); assert.equal((await relay.status()).rooms, 1)
   console.log(JSON.stringify({ schema: 'kithmoot-node-backends/1', result: 'passed', loopbackOnly: true,
     binaryHashes: { spry: hash(readFileSync(spry)), shelter: hash(readFileSync(shelter)) },
     checks: ['owner pairing', 'authority grants', 'both child acknowledgements', 'four TURN URLs', 'signed expiry clamp', 'room partition isolation',
       'rotating event author', 'removed WebSocket closure', 'removed credential refusal', 'UDP/TCP/TLS allocations', 'cached UDP Allocate/Refresh refused', 'cached TCP/TLS Allocate refused',
-      'active TCP/TLS removal under one second', 'other room TURN refresh survives', 'signed closing event delivery', 'scoped purge', 'durable close retry'],
+      'active TCP/TLS removal under one second', 'other room TURN refresh survives', 'signed closing event delivery', 'scoped purge', 'durable close retry',
+      'SDK keeper grant journal', 'SDK guest ask door', 'SDK fresh root epoch admission', 'SDK encrypted chat', 'SDK durable close',
+      'SDK self-destruct rekey delivery', 'SDK public owner completion reference', 'SDK signed closure proof after purge'],
     revocationAcknowledgementToClosedStreamsMs: revocationMs,
     internetNode: false, physicalGrapheneOS: false, tls443PublicRoute: false }))
 } finally {
+  for (const cleanup of sdkCleanups.reverse()) try { await cleanup() } catch {}
   for (const client of turnClients) client.close()
   for (const socket of sockets) socket.terminate()
   if (supervisor) await supervisor.stop()

@@ -29,6 +29,7 @@ export async function openNodeDeviceAccess(record: NodeRoomRecord, device: Parti
   const initial = parseGroupEvent(initialGrant)
   if (!node || !initial.ok || initial.parsed.type !== 'grant'
     || !verifyNodeRoomGrant(initialGrant, node, device.pubkey, Math.min(now(), initial.parsed.expiration - 1))) throw new KithmootNodeError(0, 'invalid')
+  const initialId = initial.parsed.grantId
   const binding = { authority: node.authority, roomId: node.room, device: device.pubkey }, host = new URL(node.origin).hostname
   let snapshot: NodeDeviceSnapshot | undefined
   try { snapshot = await store.load() } catch { throw new KithmootNodeError(0, 'unavailable') }
@@ -83,9 +84,11 @@ export async function openNodeDeviceAccess(record: NodeRoomRecord, device: Parti
       const own = receiver.snapshot().events.map(e => parseGroupEvent(e)).flatMap(p => p.ok && p.parsed.type === 'grant'
         && p.parsed.device === device.pubkey && p.parsed.server === host ? [p.parsed] : []).sort((a, b) => b.createdAt - a.createdAt)
       const grant: ParsedGrant | undefined = own[0]
-      if (!grant) throw new KithmootNodeError(403, 'refused')
       let next: NodeDeviceAccess
-      try { next = await queryNodeAccess(node, grant.grantId, device, { ...options,
+      // The receiver drops expired grants after a week. The original id
+      // remains a query handle for a later explicit closure proof, without
+      // reviving access or retaining any expired TURN credential.
+      try { next = await queryNodeAccess(node, grant?.grantId ?? initialId, device, { ...options,
         allowed: live, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }) }
       catch (error) {
         if (error instanceof KithmootNodeError && error.reason !== 'unavailable') access = undefined
