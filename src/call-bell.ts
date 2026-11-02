@@ -1,3 +1,4 @@
+import type { ExpirationDeadline } from './expiration.js'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
 import { hkdf } from '@noble/hashes/hkdf'
@@ -96,7 +97,7 @@ export interface EncodeCallBellOptions {
   createdAt: number
   /** A conference room's end: a bell that would outlive the room's end is
    *  lowered to it. See `withExpiration`. */
-  expiresAt?: number
+  expiresAt?: ExpirationDeadline
 }
 
 /** Build a bell, signed by a key minted here and discarded. */

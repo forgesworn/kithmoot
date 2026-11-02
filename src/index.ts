@@ -1,4 +1,7 @@
 export { KINDS } from './kinds.js'
+export * from './kithmoot-node.js'
+export * from './node-device-access.js'
+export * from './node-admission.js'
 export { assertV3OnionHostname, normaliseTorRelayUrl, assertTorRoomTransport, requireFreshAnonymousPersona } from './anonymous.js'
 export type { NetworkProfile } from './anonymous.js'
 export { verifyEventUncached } from './verify.js'

@@ -8,3 +8,4 @@
 // With no end, `withExpiration` hands back the very same tags, so a room
 // that never ends signs exactly the bytes it always did.
 export { withExpiration, isRoomEnds, requireRoomEnds, MAX_ROOM_ENDS_SECONDS } from '@forgesworn/fold-kit'
+export type { ExpirationDeadline } from '@forgesworn/fold-kit'

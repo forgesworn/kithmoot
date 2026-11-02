@@ -1,0 +1,280 @@
+import { base64urlnopad } from '@scure/base'
+import { randomBytes } from '@noble/hashes/utils'
+import { readNodeRoom, recoverNodeClosure, readNodeCloseReceipt, verifyNodeRoomGrant,
+  type NodeRoomRecord, type NodeCloseReceipt } from '@forgesworn/fold-kit/node-room'
+import type { Event } from 'nostr-tools/pure'
+import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
+import { verifyEventUncached } from './verify.js'
+import { parseGroupEvent, type GroupEvent, type ParsedGrant, type ParsedReset } from './group-grants.js'
+import { spryHash, type SpryCredential, type SpryOffer } from './spry.js'
+import { NostrRelayPool, type RelayTransport } from './relay-pool.js'
+import type { PeerFactory, RTCPeerConnectionLike } from './peer.js'
+
+export class KithmootNodeError extends Error {
+  constructor(readonly status: number, readonly reason: 'unavailable' | 'refused' | 'invalid' | 'expired') {
+    super(reason === 'unavailable' ? 'Your KithMoot node cannot be reached.' : reason === 'expired' ? 'Your access to this node has expired.' : reason === 'refused' ? 'Your KithMoot node refused this request.' : 'Your KithMoot node returned invalid information.')
+  }
+}
+export interface NodeClientOptions { fetcher?: typeof fetch; now?: () => number; signal?: AbortSignal; allowed?: () => boolean }
+export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string }
+export interface NodePairingLink { origin: string; code: string; expiresAt: number }
+export type NodeDeviceAccess =
+  | { state: 'active'; grant: ParsedGrant; offer: SpryOffer }
+  | { state: 'removed'; grant: ParsedGrant }
+  | { state: 'reset'; reset: ParsedReset }
+  | { state: 'closed'; closure: Event }
+  | { state: 'ended' }
+const KEY = /^[a-f0-9]{64}$/
+const paths = new Set(['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/v1/credentials'])
+function invalid(): never { throw new KithmootNodeError(0, 'invalid') }
+function nodeOrigin(raw: unknown): string {
+  if (typeof raw !== 'string') return invalid()
+  const url = new URL(raw)
+  if (url.protocol !== 'https:' || url.origin !== raw || url.port || !url.hostname.includes('.') || /^[0-9.]+$/.test(url.hostname)
+    || /\.(localhost|local|internal|home|invalid)$/.test(url.hostname)) return invalid()
+  return url.origin
+}
+function pinned(node: NodeRoomRecord, now: number): NodeRoomRecord {
+  const value = readNodeRoom(node.event, Math.min(now, node.endsAt === undefined ? now : node.endsAt - 1), node.authority)
+  return value ?? invalid()
+}
+async function body(response: Response, limit = 65536): Promise<Record<string, unknown>> {
+  if (!/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '') || !response.body) return invalid()
+  const reader = response.body.getReader(), chunks: Uint8Array[] = []; let length = 0
+  try {
+    for (;;) { const { done, value } = await reader.read(); if (done) break; length += value.length; if (length > limit) return invalid(); chunks.push(value) }
+  } finally { await reader.cancel().catch(() => {}) }
+  const bytes = new Uint8Array(length); let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+  const result: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return invalid()
+  return result as Record<string, unknown>
+}
+/** Exact signed request to one pinned HTTPS origin. Never sends cookies,
+ * follows redirects, or tries another service after refusal. */
+async function request(origin: string, path: string, value: unknown, identity: ParticipantIdentity, options: NodeClientOptions = {}): Promise<Record<string, unknown>> {
+  if (options.signal?.aborted || options.allowed?.() === false) throw new KithmootNodeError(403, 'refused')
+  if (!paths.has(path) || !KEY.test(identity.pubkey)) return invalid()
+  const url = nodeOrigin(origin) + path, content = JSON.stringify(value), now = (options.now ?? (() => Math.floor(Date.now() / 1000)))()
+  const unsigned: UnsignedEvent = { kind: 27235, created_at: now, content: '', tags: [['u', url], ['method', 'POST'], ['payload', spryHash(content)], ['nonce', base64urlnopad.encode(randomBytes(32))]] }
+  const expected = JSON.stringify(unsigned)
+  let signed: Event
+  try { signed = await identity.signEvent(unsigned) }
+  catch { throw new KithmootNodeError(403, 'refused') }
+  if (!signed || typeof signed !== 'object') return invalid()
+  const template: UnsignedEvent = JSON.parse(expected)
+  const signedAt = (options.now ?? (() => Math.floor(Date.now() / 1000)))()
+  const proof: Event = { ...template, created_at: signed.created_at, pubkey: signed.pubkey, id: signed.id, sig: signed.sig }
+  if (signed.pubkey !== identity.pubkey || signed.kind !== template.kind || !Number.isSafeInteger(signed.created_at) || signed.created_at < signedAt - 60 || signed.created_at > signedAt + 30 || signed.content !== ''
+    || JSON.stringify(signed.tags) !== JSON.stringify(template.tags) || !verifyEventUncached(proof)) return invalid()
+  if (options.signal?.aborted || options.allowed?.() === false) throw new KithmootNodeError(403, 'refused')
+  let status = 0
+  try {
+    const response = await (options.fetcher ?? fetch)(url, { method: 'POST', body: content,
+      headers: { 'Content-Type': 'application/json', Authorization: `Nostr ${btoa(JSON.stringify(proof))}` },
+      credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000) })
+    status = response.status
+    if (!response.ok) throw new KithmootNodeError(status, 'refused')
+    return await body(response)
+  } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(status, status ? 'invalid' : 'unavailable') }
+}
+export function parseKithmootNodePairingLink(fragment: string, now = Math.floor(Date.now() / 1000)): NodePairingLink {
+  try {
+    if (!fragment.startsWith('#kithmoot-node=') || fragment.length > 2048) return invalid()
+    const raw = JSON.parse(new TextDecoder().decode(base64urlnopad.decode(fragment.slice(15))))
+    if (Object.keys(raw).length !== 4 || raw.v !== 1 || !/^[A-Za-z0-9_-]{43}$/.test(raw.code) || !Number.isSafeInteger(raw.expiresAt)
+      || raw.expiresAt <= now || raw.expiresAt > now + 360) throw new KithmootNodeError(0, 'expired')
+    return { origin: nodeOrigin(raw.node), code: raw.code, expiresAt: raw.expiresAt }
+  } catch (error) { if (error instanceof KithmootNodeError) throw error; return invalid() }
+}
+export async function claimKithmootNode(link: NodePairingLink, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<PairedKithmootNode> {
+  if (options.signal?.aborted || options.allowed?.() === false) throw new KithmootNodeError(403, 'refused')
+  const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))()
+  if (link.expiresAt <= now || link.expiresAt > now + 360 || !/^[A-Za-z0-9_-]{43}$/.test(link.code)) throw new KithmootNodeError(0, 'expired')
+  const origin = nodeOrigin(link.origin)
+  let info: Record<string, unknown>
+  try {
+    const response = await (options.fetcher ?? fetch)(origin + '/node/v1/info', { credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store', signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000) })
+    if (!response.ok) throw new KithmootNodeError(response.status, 'refused')
+    info = await body(response)
+  } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(0, 'unavailable') }
+  if (info.v !== 1 || info.profile !== 'kithmoot-node/1' || info.origin !== origin || typeof info.serviceKey !== 'string' || !KEY.test(info.serviceKey)
+    || info.serviceKey === owner.pubkey || info.relay !== `wss://${new URL(origin).host}/events` || info.calls !== 'relay-only' || info.files !== 'off') return invalid()
+  const result = await request(origin, '/node/v1/claim', { code: link.code }, owner, options)
+  if (result.paired !== true) return invalid()
+  return { v: 1, origin, serviceKey: info.serviceKey, owner: owner.pubkey }
+}
+export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRecord, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
+  const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
+  if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey) return invalid()
+  const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
+  if (result.enrolled !== true) return invalid()
+}
+export async function postNodeGrant(record: NodeRoomRecord, event: GroupEvent, authority: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
+  const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
+  const parsed = parseGroupEvent(event, { now, keepers: [node.authority], servers: [new URL(node.origin).hostname] })
+  if (!parsed.ok || parsed.parsed.roomId !== node.room || event.pubkey !== authority.pubkey) return invalid()
+  if (parsed.parsed.type === 'grant' && parsed.parsed.scopes.some(s => !['turn', 'relay-read', 'relay-write'].includes(s))) return invalid()
+  const result = await request(node.origin, '/groups/v1/events', event, authority, options)
+  if (result.accepted !== true) return invalid()
+}
+export async function queryNodeAccess(record: NodeRoomRecord, grantId: string, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeDeviceAccess> {
+  const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
+  if (node.endsAt !== undefined && node.endsAt <= now) return { state: 'ended' }
+  if (!/^[a-f0-9]{32}$/.test(grantId)) return invalid()
+  const value = await request(node.origin, '/node/v1/access', { room: node.room, grant: grantId }, device, options)
+  if (value.state === 'closed') {
+    const closure = recoverNodeClosure(value.proof, node, now)
+    return closure ? { state: 'closed', closure } : invalid()
+  }
+  const parsed = parseGroupEvent(value.event, { now, keepers: [node.authority], servers: [new URL(node.origin).hostname] })
+  if (!parsed.ok || parsed.parsed.roomId !== node.room) return invalid()
+  const grant = parsed.parsed
+  if (value.state === 'reset' && grant.type === 'reset') return { state: 'reset', reset: grant }
+  if (grant.type !== 'grant' || grant.device !== device.pubkey || grant.grantId !== grantId) return invalid()
+  if (value.state === 'removed' && grant.status === 'revoked') return { state: 'removed', grant }
+  const offer = value.offer as Partial<SpryOffer> | undefined
+  if (value.state !== 'active' || !verifyNodeRoomGrant(value.event, node, device.pubkey, now) || !offer || offer.v !== 1 || offer.endpoint !== node.origin
+    || typeof offer.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(offer.token) || !Number.isSafeInteger(offer.expiresAt)
+    || offer.expiresAt! <= now || offer.expiresAt! > now + 30 * 86400 + 30) return invalid()
+  return { state: 'active', grant, offer: { v: 1, endpoint: node.origin, token: offer.token, expiresAt: offer.expiresAt! } }
+}
+/** Four TURN URLs are accepted only for the keeper-signed node record.
+ * Existing Spry issuers retain their independent URL rules. */
+export async function nodeTurnCredentials(record: NodeRoomRecord, access: Extract<NodeDeviceAccess, { state: 'active' }>, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<SpryCredential> {
+  const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
+  if (!verifyNodeRoomGrant(access.grant.event, node, device.pubkey, now) || access.offer.endpoint !== node.origin || access.offer.expiresAt <= now) return invalid()
+  const value = await request(node.origin, '/v1/credentials', { grant: access.offer.token }, device, options)
+  if (!Array.isArray(value.urls) || !value.urls.length || value.urls.length > 4 || new Set(value.urls).size !== value.urls.length || value.urls.some(url => !node.turnUrls.includes(url))
+    || typeof value.username !== 'string' || !/^[0-9]{1,12}:[a-f0-9]{24}$/.test(value.username) || typeof value.credential !== 'string' || !/^[A-Za-z0-9+/]{27}=$/.test(value.credential)
+    || !Number.isSafeInteger(value.expiresAt) || Number(value.expiresAt) <= now || Number(value.expiresAt) > now + 300
+    || Number(value.username.split(':')[0]) !== value.expiresAt || !Number.isSafeInteger(value.accessExpiresAt) || Number(value.accessExpiresAt) < Number(value.expiresAt)
+    || Number(value.accessExpiresAt) > Math.min(access.grant.expiration, node.endsAt ?? Infinity)) return invalid()
+  return { urls: value.urls as string[], username: value.username, credential: value.credential, expiresAt: Number(value.expiresAt), accessExpiresAt: Number(value.accessExpiresAt) }
+}
+export async function closeNodeRoom(record: NodeRoomRecord, instruction: { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }, authority: ParticipantIdentity,
+  options: NodeClientOptions = {}): Promise<{ phase: string; receipt?: NodeCloseReceipt }> {
+  const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
+  if (authority.pubkey !== node.authority) return invalid()
+  const result = await request(node.origin, '/node/v1/close', { room: node.room, ...instruction }, authority, options)
+  if (result.operation !== instruction.operation || !['publishing', 'draining', 'teardown', 'erasing', 'done'].includes(String(result.phase))) return invalid()
+  if (result.phase !== 'done') return { phase: String(result.phase) }
+  const receipt = readNodeCloseReceipt((result.result as Record<string, unknown>)?.receipt, node, instruction.operation, now)
+  return receipt ? { phase: 'done', receipt } : invalid()
+}
+const transports = new WeakMap<RelayTransport, string>()
+const factories = new WeakMap<PeerFactory, string>()
+export function assertNodeRoomTransport(transport: RelayTransport, node: NodeRoomRecord, device: string): void {
+  if (transports.get(transport) !== `${node.event.id}:${device}`) throw new Error('A node room needs its pinned, authenticated relay transport.')
+}
+export function assertNodeCallFactory(factory: PeerFactory, node: NodeRoomRecord, device: string): void {
+  if (factories.get(factory) !== `${node.event.id}:${device}`) throw new Error('A node room needs its relay-only call factory.')
+}
+/** One partition and one signing identity. There is no account-relay merge,
+ * peer relay, public discovery, alternate issuer or shared socket fallback. */
+export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, mode: 'room' | 'ask', options: {
+  websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean
+} = {}): RelayTransport {
+  const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
+  if (mode === 'room' && [node.authority, node.serviceKey].includes(identity.pubkey)) return invalid()
+  let closed = false
+  const allowed = () => !closed && (node.endsAt === undefined || node.endsAt > now()) && (options.allowed?.() ?? true)
+  if (!allowed() || !['room', 'ask'].includes(mode)) throw new KithmootNodeError(403, 'refused')
+  const pool = new NostrRelayPool([node.relay], undefined, { websocketImplementation: options.websocketImplementation,
+    authentication: [{ url: node.relay, identity, node: { room: node.room, mode } }], sendGuard: allowed })
+  const checkEvent = (event: Event): void => {
+      if (!allowed() || [27541, 27542, 27543, 27544].includes(event.kind)) throw new KithmootNodeError(403, 'refused')
+      const expiration = event.tags.filter(t => t[0] === 'expiration')
+      if (expiration.length !== 1 || expiration[0]!.length !== 2 || !/^[1-9][0-9]*$/.test(expiration[0]![1]!)
+        || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
+        || mode === 'ask' && event.kind !== 1059) return invalid()
+  }
+  const transport: RelayTransport = {
+    async publish(event) { checkEvent(event); await pool.publish(event) },
+    async publishGuarded(event, current, settings) {
+      checkEvent(event)
+      await pool.publishGuarded(event, () => allowed() && current(), settings)
+    },
+    subscribe(filters, onEvent, onEose) {
+      if (!allowed()) throw new KithmootNodeError(403, 'refused')
+      return pool.subscribe(filters, (event, via) => { if (allowed()) onEvent(event, via) }, () => { if (allowed()) onEose?.() })
+    },
+    close() { closed = true; pool.close() },
+    describe: () => [{ url: node.relay, read: true, write: true }],
+    setRelays(entries) {
+      if (entries.length !== 1 || (typeof entries[0] === 'string' ? entries[0] : entries[0]?.url) !== node.relay
+        || typeof entries[0] !== 'string' && (entries[0]?.read !== true || entries[0]?.write !== true)) throw new Error('This room uses its KithMoot node relay.')
+    },
+  }
+  if (mode === 'room') transports.set(transport, `${node.event.id}:${identity.pubkey}`)
+  return transport
+}
+
+/** Relay-only browser connections with fresh TURN credentials before the old
+ * username expires. A failed refresh never changes the transport policy. */
+export async function nodeCallFactory(record: NodeRoomRecord, device: ParticipantIdentity, access: () => Promise<NodeDeviceAccess>, options: NodeClientOptions & {
+  PeerConnection?: typeof RTCPeerConnection; onUnavailable?: (error: KithmootNodeError) => void
+} = {}): Promise<{ factory: PeerFactory; close(): void }> {
+  const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
+  const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
+  if (!Base) throw new KithmootNodeError(0, 'unavailable')
+  const peers = new Set<RTCPeerConnection>(), controller = new AbortController()
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined
+  let credential: SpryCredential
+  const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
+  const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
+  const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
+  const close = () => {
+    if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer)
+    options.signal?.removeEventListener('abort', close)
+    for (const peer of peers) peer.close()
+    peers.clear()
+  }
+  const obtain = async (): Promise<SpryCredential> => {
+    const value = await access()
+    if (!allowed() || value.state !== 'active') throw new KithmootNodeError(403, 'refused')
+    return nodeTurnCredentials(node, value, device, requestOptions)
+  }
+  const notify = (error: KithmootNodeError) => { try { options.onUnavailable?.(error) } catch {} }
+  const schedule = (seconds: number) => { clearTimeout(timer); timer = setTimeout(() => { void renew() }, Math.max(1000, seconds * 1000)) }
+  const renew = async (): Promise<void> => {
+    if (!allowed()) { close(); return }
+    try {
+      const next = await obtain()
+      if (!allowed()) { close(); return }
+      const changed = credential.username !== next.username
+      credential = next
+      if (changed) for (const peer of peers) {
+        if (peer.signalingState === 'closed') { peers.delete(peer); continue }
+        try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
+      }
+      // A grant near its own end cannot extend this username. Give the
+      // keeper a chance to renew at the end without a per-second mint loop.
+      const left = credential.expiresAt - now()
+      schedule(left <= 60 ? left : left - 60)
+    } catch (error) {
+      if (!allowed()) { close(); return }
+      const failure = error instanceof KithmootNodeError ? error : new KithmootNodeError(0, 'unavailable')
+      notify(failure)
+      if (failure.reason === 'refused' || credential.expiresAt <= now()) close()
+      else schedule(Math.min(5, credential.expiresAt - now()))
+    }
+  }
+  credential = await obtain()
+  if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
+  schedule(credential.expiresAt - now() <= 60 ? credential.expiresAt - now() : credential.expiresAt - now() - 60)
+  options.signal?.addEventListener('abort', close, { once: true })
+  const factory: PeerFactory = () => {
+      if (!allowed() || credential.expiresAt <= now()) { close(); throw new KithmootNodeError(0, 'expired') }
+      const peer = new Base(configuration()), end = peer.close.bind(peer)
+      peer.close = () => { peers.delete(peer); end() }
+      // Native RTCTrackEvent includes every field Peer reads. Its DOM
+      // callback type is narrower than the portable adapter declaration.
+      peers.add(peer); return peer as unknown as RTCPeerConnectionLike
+    }
+  factories.set(factory, `${node.event.id}:${device.pubkey}`)
+  return {
+    factory,
+    close,
+  }
+}

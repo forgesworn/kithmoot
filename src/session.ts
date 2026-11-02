@@ -1,4 +1,7 @@
 import { getPublicKey } from 'nostr-tools/pure'
+import { readNodeRoom, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
+import { assertNodeRoomTransport, assertNodeCallFactory } from './kithmoot-node.js'
+import type { ExpirationDeadline } from './expiration.js'
 import type { SpryOffer } from './spry.js'
 import type { ProtocolExecution } from './protocol-execution.js'
 import { captureProtocolData, protocolTask } from './protocol-execution.js'
@@ -191,6 +194,8 @@ export interface EpochConflict {
 }
 
 export interface RoomSessionBaseOptions {
+  /** Keeper-signed node policy. Requires its scoped transport and call factory. */
+  node?: NodeRoomRecord
   /** Fresh local safety decision. Does not remove a participant from anybody
    * else's room or revoke their room key. Exceptions refuse the remote peer. */
   isBlocked?: (participant: string) => boolean
@@ -933,6 +938,14 @@ export class RoomSession {
     }
     const { roomId, roomKey } = deriveRoom(opts.secret)
     allocatedRoomKey = roomKey
+    if (opts.node) {
+      const node = readNodeRoom(opts.node.event, (opts.now ?? (() => Math.floor(Date.now() / 1000)))(), opts.authority)
+      if (!node || node.room !== roomId || opts.authority !== node.authority || opts.endsAt !== undefined && opts.endsAt !== node.endsAt) throw new Error('Node room policy does not match this room')
+      assertNodeRoomTransport(this.#admissionTransport, node, getPublicKey(opts.deviceSk))
+      if (opts.factory) assertNodeCallFactory(opts.factory, node, getPublicKey(opts.deviceSk))
+      if (opts.relay || opts.assist || opts.forwarders?.length || opts.forwarderMedia || opts.forwarderMediaPipeline || opts.preferForwarder || opts.uplink || opts.peerAssist === true) throw new Error('Node rooms use only their own call relay')
+      opts = { ...opts, node, endsAt: node.endsAt, peerAssist: false }
+    }
     this.roomId = roomId
     this.#roomKey = roomKey
     this.#opts = opts
@@ -1491,7 +1504,7 @@ export class RoomSession {
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
         assist: () => this.#opts.peerAssist !== false,
-        expiresAt: this.#opts.endsAt,
+        expiresAt: this.#eventExpiration(),
         // Consent, checked at the moment of the request rather than at
         // construction: a person who has revoked stops carrying people at
         // once, and one who never opted in is never asked to start.
@@ -1532,6 +1545,7 @@ export class RoomSession {
         }
       })
       this.#mesh.onRelayTest((message) => {
+        if (this.#opts.node) return
         for (const cb of [...this.#relayTestListeners]) {
           try {
             cb(message)
@@ -1593,7 +1607,8 @@ export class RoomSession {
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
       ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
-      expiresAt: this.#opts.endsAt,
+      expiresAt: this.#eventExpiration(),
+      ...(this.#opts.node ? { files: 'off' as const } : {}),
       protocol: this.#opts.protocol,
     })
     }
@@ -1645,6 +1660,15 @@ export class RoomSession {
    *  that runs until somebody ends it. */
   get endsAt(): number | undefined {
     return this.#opts.endsAt
+  }
+
+  #eventExpiration(): ExpirationDeadline | undefined {
+    if (!this.#opts.node) return this.#opts.endsAt
+    return () => {
+      const now = this.#now(), ends = this.#opts.endsAt
+      if (ends !== undefined && ends <= now) throw new Error('This room has ended')
+      return Math.min(now + 30 * 86400, ends ?? Infinity)
+    }
   }
 
   #credentialTtl(): number {
@@ -1921,7 +1945,7 @@ export class RoomSession {
           authority: this.#opts.authority!, deviceSk: this.#opts.deviceSk, roomKey: this.#roomKey,
           credential: this.#self!.credential, proof: this.#opts.proof, now: this.#now, floor,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
-          expiresAt: this.#opts.endsAt, sealSks: () => this.#sealSks(),
+          expiresAt: this.#eventExpiration(), sealSks: () => this.#sealSks(),
           signals: [this.#admissionAbort.signal, ...(this.#opts.admissionSignal ? [this.#opts.admissionSignal] : [])], protocol: execution })
         execution?.retain(pending); void pending.catch(() => {})
         return { pending }
@@ -2121,7 +2145,7 @@ export class RoomSession {
           proof: this.#opts.proof,
           now: this.#now,
           timeoutMs: this.#opts.epochRequestTimeoutMs ?? DEFAULT_EPOCH_REQUEST_TIMEOUT_MS,
-          expiresAt: this.#opts.endsAt,
+          expiresAt: this.#eventExpiration(),
           onUnknown: () => {
             this.#unknownHere = true
           },
@@ -2175,6 +2199,7 @@ export class RoomSession {
    *  cannot be built (a credential that no longer verifies), which leaves
    *  the authority's answer as the only one. */
   #memberSource(credential: DeviceCredential, authority: string): MemberEpochSource | undefined {
+    if (this.#opts.node) return undefined
     try {
       return memberEpochSource({
         transport: this.#opts.transport,
@@ -2189,7 +2214,7 @@ export class RoomSession {
         expected: () => this.#highestKnownEpoch(),
         sealSks: () => this.#sealSks(),
         now: this.#now,
-        expiresAt: this.#opts.endsAt,
+        expiresAt: this.#eventExpiration(),
       })
     } catch {
       return undefined
@@ -2256,6 +2281,7 @@ export class RoomSession {
    * whenever this device is not itself in step.
    */
   #openMemberDesk(): void {
+    if (this.#opts.node) return
     if (this.#memberDesk || this.#opts.memberEpochDesk === false) return
     if (!this.#unsub || this.#left || this.#closed || this.#epoch.epoch === 0) return
     const authority = this.#opts.authority
@@ -2289,7 +2315,7 @@ export class RoomSession {
         policy: this.#opts.policy,
         now: this.#now,
         ...(this.#opts.memberEpochJitterMs !== undefined ? { jitterMs: this.#opts.memberEpochJitterMs } : {}),
-        expiresAt: this.#opts.endsAt,
+        expiresAt: this.#eventExpiration(),
       })
     } catch {
       // A malformed authority or key: this device simply does not answer.
@@ -2495,7 +2521,7 @@ export class RoomSession {
       // key (#207).
       members,
       now,
-      expiresAt: this.#opts.endsAt,
+      expiresAt: this.#eventExpiration(),
     })
     // Only a scheduled rekey is cut: one for a removal is sealed to the
     // roster alone, as it always was.
@@ -2744,6 +2770,7 @@ export class RoomSession {
    * republishes.
    */
   async setAssist(next: (() => AssistOffer | null) | AssistOffer | null): Promise<void> {
+    if (this.#opts.node && next !== null) throw new Error('Node rooms do not offer peer assistance')
     if (!this.canCarry) return
     this.#assist = typeof next === 'function' ? next : () => next
     // Stops carrying anybody before announcing that we no longer will, so
@@ -2815,6 +2842,7 @@ export class RoomSession {
   }
   async #publishOwnedDescriptor(config: { forwarders?: ForwarderRef[]; iceServers?: IceServerRef[]; spry?: SpryOffer; updatedAt?: number },
     execution: ProtocolExecution | undefined): Promise<void> {
+    if (this.#opts.node && (config.forwarders?.length || config.iceServers?.length || config.spry)) throw new Error('Node rooms use only their own call relay')
     if (this.#opts.protocol) config = captureProtocolData(config)
     const prepare = () => {
     this.#opts.protocol?.check('descriptor-preparation')
@@ -2833,7 +2861,7 @@ export class RoomSession {
         ...(config.spry ? { spry: config.spry } : {}),
         updatedAt: config.updatedAt ?? this.#now(),
       },
-      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#opts.endsAt },
+      { roomId: this.roomId, roomKey: this.#roomKey, deviceSk: this.#opts.deviceSk, ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}), expiresAt: this.#eventExpiration() },
     )
     return event
     }
@@ -2852,6 +2880,7 @@ export class RoomSession {
    *  a timestamp past clock skew. */
   #ingestDescriptor(event: Event): void {
     this.#opts.protocol?.check('descriptor-ingress')
+    if (this.#opts.node) return
     const descriptor = decodeDescriptorEvent(event, {
       roomId: this.roomId,
       roomKey: this.#roomKey,
@@ -3038,7 +3067,7 @@ export class RoomSession {
       roomKey: this.#roomKey,
       deviceSk: this.#opts.deviceSk,
       ...(this.#epochRoot() ? { epoch: this.#epochRoot() } : {}),
-      expiresAt: this.#opts.endsAt,
+      expiresAt: this.#eventExpiration(),
     })
     let pending: Promise<void> | undefined
     if (execution && !allowed) {
@@ -3286,7 +3315,7 @@ export class RoomSession {
       const prepare = () => {
         this.#opts.protocol?.check('call-bell-preparation')
         if (this.#ended() || this.#left) return undefined
-        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#opts.endsAt })
+        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#eventExpiration() })
       }
       const event = this.#opts.protocol ? await this.#opts.protocol.run('call-bell-preparation', prepare) : prepare()
       if (!event) return
@@ -3465,6 +3494,7 @@ export class RoomSession {
    *  through encrypted signalling (see `relay-test.ts`). False, and nothing
    *  sent, when there is no call layer or that device is not in the roster. */
   sendRelayTest(device: string, message: { type: 'relay-test'; relayTest: RelayTestRequest } | { type: 'relay-test-result'; relayTest: RelayTestResult }): boolean {
+    if (this.#opts.node) return false
     return this.#mesh?.sendRelayTest(device, message) ?? false
   }
 
@@ -3504,7 +3534,7 @@ export class RoomSession {
       deviceSk: this.#opts.deviceSk, identity: this.#opts.identity,
       credential: () => this.#self?.credential, name: this.#name,
       policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
-      now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#opts.endsAt,
+      now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#eventExpiration(),
     })
     this.#assignments = log
     this.#assignmentsOpening = log.open().then(() => log).catch(e => {
@@ -3540,7 +3570,8 @@ export class RoomSession {
       ...(this.#opts.archive ? { archive: this.#opts.archive } : {}),
       ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
       ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
-      expiresAt: this.#opts.endsAt,
+      expiresAt: this.#eventExpiration(),
+      ...(this.#opts.node ? { files: 'off' as const } : {}),
       protocol: this.#opts.protocol,
     })
     this.#channels.set(name, log)
@@ -3730,6 +3761,7 @@ export class RoomSession {
    * included once its own entry has echoed back.
    */
   spryRoster(): SpryRosterEntry[] {
+    if (this.#opts.node) return []
     const rows = new Map<string, SpryRosterEntry>()
     for (const entry of this.#presentEntries(true)) {
       if (this.#removed.has(entry.participant)) continue

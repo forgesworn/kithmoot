@@ -9,6 +9,8 @@ export interface RelayAuthentication {
   url: string
   /** null keeps this endpoint disconnected after consent is withdrawn. */
   identity: ParticipantIdentity | null
+  /** Explicit keeper-controlled node partition; never inferred from a URL. */
+  node?: { room: string; mode: 'room' | 'ask' }
 }
 export interface RelayPoolOptions {
   authentication?: readonly RelayAuthentication[]
@@ -21,6 +23,7 @@ export const AUTH_TIMEOUT_MS = 30_000
 export interface AuthenticationGrant {
   readonly pubkey: string
   readonly sign: ParticipantIdentity['signEvent']
+  readonly node?: Readonly<{ room: string; mode: 'room' | 'ask' }>
 }
 
 /** Adapt the callback interface consumed by nostr-tools. Delay its `open`
@@ -119,7 +122,7 @@ export function authenticatedWebSocket(
       const grant = this.#grant!
       const template: UnsignedEvent = {
         kind: 22242, created_at: Math.floor(Date.now() / 1000), content: '',
-        tags: [['relay', this.url], ['challenge', challenge]],
+        tags: [['relay', this.url], ['challenge', challenge], ...(grant.node ? [['room', grant.node.room], ['mode', grant.node.mode]] : [])],
       }
       const expected = JSON.stringify(template)
       try {
@@ -128,7 +131,7 @@ export function authenticatedWebSocket(
         // Keep only canonical event fields. Extra signer properties and a
         // cached verification verdict must never cross this wire boundary.
         const statement: UnsignedEvent = JSON.parse(expected)
-        const sameTags = Array.isArray(signed.tags) && signed.tags.length === 2 && signed.tags.every((tag, i) =>
+        const sameTags = Array.isArray(signed.tags) && signed.tags.length === statement.tags.length && signed.tags.every((tag, i) =>
           Array.isArray(tag) && tag.length === 2 && tag[0] === statement.tags[i]![0] && tag[1] === statement.tags[i]![1])
         const event: Event = { ...statement, id: signed.id, pubkey: signed.pubkey, sig: signed.sig }
         if (signed.pubkey !== grant.pubkey || signed.kind !== statement.kind || signed.created_at !== statement.created_at ||

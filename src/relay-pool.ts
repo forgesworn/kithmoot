@@ -491,7 +491,11 @@ export class NostrRelayPool implements RelayTransport {
       if (!/^[a-f0-9]{64}$/.test(entry.identity?.pubkey) || typeof entry.identity?.signEvent !== 'function') {
         throw new Error('Authentication needs an explicit signing identity')
       }
-      grants.set(url, { pubkey: entry.identity.pubkey, sign: entry.identity.signEvent.bind(entry.identity) })
+      if (entry.node && (Object.keys(entry.node).length !== 2 || !/^[a-f0-9]{64}$/.test(entry.node.room) || !['room', 'ask'].includes(entry.node.mode))) {
+        throw new Error('Node authentication needs an explicit room and door')
+      }
+      grants.set(url, { pubkey: entry.identity.pubkey, sign: entry.identity.signEvent.bind(entry.identity),
+        ...(entry.node ? { node: Object.freeze({ ...entry.node }) } : {}) })
     }
     return grants
   }
@@ -671,7 +675,7 @@ export class NostrRelayPool implements RelayTransport {
     const Base = this.options.websocketImplementation ?? globalThis.WebSocket
     if (!Base) throw new Error('A guarded WebSocket carrier is unavailable.')
     const authentication = [...this.#authentication].map(([url, grant]) => ({ url,
-      identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null }))
+      identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null, ...(grant?.node ? { node: { ...grant.node } } : {}) }))
     // Its own sockets, never shared ones: closing the carrier after the first
     // acknowledgement has to end its writes everywhere, and the pool's guard
     // still applies on top of the decision's own.
