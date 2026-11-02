@@ -15,6 +15,10 @@ describe('the curated public relays', () => {
     }
     expect(isForgeSwornRelay('wss://relay2.forgesworn.dev/')).toBe(true)
     expect(isForgeSwornRelay('wss://box.kithmoot.app/')).toBe(true)
+    // The project's own relay is outside the domain check but inside the
+    // documented rule; pinned after it rode in with an unrelated calls fix
+    // on 1 November 2026 (decision record, 2 November 2026).
+    expect(PUBLIC_RELAYS.map(relay => relay.url)).not.toContain('wss://relay.trotters.cc/')
   })
 
   it('uses canonical wss:// URLs, once each', () => {
@@ -30,9 +34,9 @@ describe('the curated public relays', () => {
 
   it('keeps to the list rules', () => {
     expect(PUBLIC_RELAYS.length).toBeLessThanOrEqual(6)
-    expect(DEFAULT_PUBLIC_RELAYS).toHaveLength(4)
-    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => relay.operator)).size).toBe(4)
-    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => new URL(relay.url).host)).size).toBe(4)
+    expect(DEFAULT_PUBLIC_RELAYS).toHaveLength(3)
+    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => relay.operator)).size).toBe(3)
+    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => new URL(relay.url).host)).size).toBe(3)
     const quiet = PUBLIC_RELAYS.filter(relay => relay.quietRooms)
     expect(quiet.length).toBeGreaterThanOrEqual(2)
     expect(quiet.some(relay => relay.default)).toBe(true)

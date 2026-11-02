@@ -16,9 +16,12 @@ public services' closure history is preserved. See
 deployment and the future design; those are separate from the closures below.
 
 Updated 1 November 2026: the public call relay, the STUN listener and the
-relay ForgeSworn runs are open to the public again (section 7). Sections 1
-to 6 are kept as written; where they say those surfaces are closed, section
-7 governs.
+relay ForgeSworn runs were opened to the public again (section 7). Updated
+2 November 2026: the relay closed again at 00:33 UTC and the owner settled
+the default-relay divergence (section 8); the public call relay and the
+STUN listener stay open. Sections 1 to 6 are kept as written; where they
+say a surface whose later history changed is open or closed, the later
+sections govern.
 
 ## 1. What ForgeSworn ran
 
@@ -214,4 +217,68 @@ Consequences for this record:
   from 24 August 2026, the cautious reading, both assessments fall due on
   24 November 2026.
 - See `call-transport-position.md`, section "1 November 2026", for the
-  position this puts ForgeSworn in and the evidence for each fact.
+  position this put ForgeSworn in and the evidence for each fact, and its
+  section of 2 November 2026 for the position that now stands.
+
+## 8. 2 November 2026: the relay closed again; the default-relay decision
+
+The open window ended before its own deadline. By owner decision of
+2 November 2026 the rehearsed relock ran at 00:33 UTC: the sign-in gates
+were restored, the 1,347 events the open period admitted were purged with
+verification (none remaining; the inbox-door and allowlisted records kept),
+and the nightly backup resumed against the closed state. Verified from
+outside: a stranger's write is refused, an anonymous read gets the
+authentication challenge, and the relay information again says writes are
+restricted (the operator's relay position note, correction entry of
+2 November 2026).
+
+The same day the owner settled the divergence the window created in the
+apps' default relay lists, taking option (a) of the decision record
+(`docs/decisions.md`, 2 November 2026):
+
+- The web app returns to its documented rule: every suggested relay is run
+  by someone other than ForgeSworn (`src/public-relays.ts`,
+  `data/public-relays.json`), and a test now pins relay.trotters.cc out of
+  the list so it cannot ride in with an unrelated change again
+  (`src/public-relays.test.ts`).
+- The in-development Android client keeps relay.trotters.cc first: the
+  client is under development and its test fleet holds the allowlisted
+  keys. The blessing holds only while the decision record's three
+  conditions hold; if the client ships publicly, or any condition lapses,
+  the question returns to the owner.
+- The released desktop 0.1.124 and 0.1.125 bundles still name the relay
+  first (their release tags); desktop releases after 0.1.125 follow the
+  web list.
+
+The relay therefore stands again as section 3 of this record described it:
+closed to keys held for project work, with the one door for sealed messages
+and signer requests addressed to those keys, and treated as the project's
+inbox, not a service to the public (law note 2.12, `[U]`). The operator's
+relay position note holds the four conditions that keep that reading, and
+the reassessment this record asks for before any change to defaults or
+open surfaces (section 6) happened: this section is its record.
+
+Consequences for this record:
+
+- Section 7's relay row described the window only; it stopped being true at
+  00:33 UTC on 2 November 2026, and its retention schedule fell with the
+  window. The closed-posture retention stands as the position note records
+  it: sealed messages addressed to the allowlisted keys expire within
+  30 days, and what strangers send is held for a shorter window.
+- Section 7's first consequence is reversed: strangers' events can no
+  longer reach other strangers, so the inbox reading (note 2.12) again
+  describes the relay. The open hours of 1-2 November 2026 were a temporary
+  in-scope period the law note does not cover; the position note records
+  that gap as deliberately unfilled.
+- Section 7's second consequence stands for the surfaces that stayed open:
+  the public call relay and the STUN listener. The timetable reading given
+  there (both assessments due on 24 November 2026 on the cautious count
+  from 24 August 2026; the deadline `[P]`, the start-date question `[U]`)
+  continues to apply to them. For the relay, which closed again before the
+  date, section 5's reading returns: a service that stops before its
+  deadline owes no assessment for it `[U]`, subject to the temporary-window
+  gap above.
+- The call surfaces that stayed open keep their footing from 1 November
+  2026: default call transport for anyone (note 2.11, `[U]` in
+  application). The position and its bounds are recorded in
+  `call-transport-position.md` (section of 2 November 2026).

@@ -2,15 +2,24 @@
 
 ForgeSworn publishes KithMoot's software. Since 1 November 2026 it again
 runs a public call relay (TURN) with an anonymous credential issuer, used
-by the apps by default, and relay.trotters.cc, a Nostr relay open to anyone,
-first among the apps' default relays. Its file store, meeting codes and
-message-drop service stay closed. A separate authenticated private call
-relay is recorded below.
+by the apps by default. relay.trotters.cc, the Nostr relay ForgeSworn runs
+for the project's own work, closed again at 00:33 UTC on 2 November 2026
+after the recorded open window of 1-2 November 2026: reads and ordinary
+writes need a sign-in with a key on its list, and from anyone else it
+accepts only sealed messages and signer requests addressed to those keys,
+as recorded in the operator's relay position note. The web app's suggested
+relays are third-party only (relay.primal.net, relay.ditto.pub,
+offchain.pub); the in-development Android client leads with
+relay.trotters.cc, a divergence the owner blessed on 2 November 2026
+(docs/decisions.md, decision (a), bounded by three conditions). Its file
+store, meeting codes and message-drop service stay closed. A separate
+authenticated private call relay is recorded below.
 
 - [`call-transport-position.md`](call-transport-position.md) opens with
-  the 1 November 2026 reopening: what ForgeSworn runs again, the evidence
-  for each fact, and why the publisher-with-defaults position no longer
-  holds. It then distinguishes
+  the 2 November 2026 section: the relay closed again, the default-relay
+  divergence settled as decision (a), and the position this leaves. Its
+  1 November 2026 section records the reopening as written on that date;
+  where they disagree, the newer section governs. It then distinguishes
   the current private deployment, the public software and the planned choice
   of independent providers or self-hosting. It records the service and
   infrastructure distinction, the open operator-capacity input, and what is
@@ -26,7 +35,9 @@ relay is recorded below.
   and 22 October 2026, the deletion of the stored files and their archive
   copies on 22 and 23 October, the historical assessment timetable, and
   what would bring KithMoot back into scope. Section 7 records the
-  reopening on 1 November 2026, which is such a change.
+  reopening on 1 November 2026, which is such a change; section 8 records
+  the relay closing again on 2 November 2026 and the default-relay
+  decision of that date.
 
 It is a draft for the owner to check. It is not legal advice, and no lawyer
 has read it. The law is in jurisdiction-kit's `law/gb/online-services.md`.
