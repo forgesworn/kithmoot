@@ -14,10 +14,66 @@ section "The built-in call relay" was first written against kithmoot
 kithmoot `a47682e2` and kithmoot-android `9216ac47`, for the owner's decision
 to release the relay to everyone, off by default. The section "1 November
 2026: calls back on ForgeSworn's relay" was written against kithmoot
-`3b17e473` and the host's report of 1 November 2026; where it and older
-sections disagree, it governs.
+`3b17e473` and the host's report of 1 November 2026. The section "2 November
+2026: the relay closed again; the default-relay divergence settled" was
+written against this branch, the operator's relay position note as corrected
+on 2 November 2026, and the decision record of that date; where it and any
+older section disagree, it governs.
 
-## 1 November 2026: calls back on ForgeSworn's relay
+## 2 November 2026: the relay closed again; the default-relay divergence settled
+
+relay.trotters.cc's open window ended at 00:33 UTC on 2 November 2026, just
+under three hours after it began: the sign-in gates were restored, the
+1,347 events the window admitted were purged with verification (none left;
+the inbox-door and allowlisted records kept), and the nightly backup resumed
+against the closed state (the operator's relay position note, correction
+entry of 2 November 2026; the relay's configuration is not in this
+repository). The owner took decision (a) of the decision record
+(docs/decisions.md, 2 November 2026) the same day.
+
+| What | Fact | Evidence |
+| --- | --- | --- |
+| The relay | Closed. Reads and ordinary writes need sign-in (NIP-42) with an allowlisted key, which a stock client cannot answer. The only unauthenticated writes are sealed messages (kind 1059) and signer requests (kind 24133) addressed to allowlisted keys; a stranger can never address another stranger. No access logs. Sealed messages addressed to allowlisted recipients expire within 30 days; what strangers send is held for a shorter window | Position note, 23 October 2026, as corrected 2 November 2026; closure verified from outside (refused write, authentication challenge, restricted writes in the relay information) |
+| Web app defaults | Third-party only again: relay.primal.net, relay.ditto.pub, offchain.pub. A test pins relay.trotters.cc out of the list | `src/public-relays.ts`, `data/public-relays.json`, `src/public-relays.test.ts`, `src/default-relays.test.ts` on this branch |
+| Desktop 0.1.124 and 0.1.125 | The released bundles still name relay.trotters.cc first; releases after 0.1.125 follow the web list | Release tags `v0.1.124` and `v0.1.125`; `desktop/package.json` on this branch |
+| Android from 0.6.132 | Still leads with relay.trotters.cc, deliberately: the client is in development and the test fleet holds the allowlisted keys | Decision record, 2 November 2026; the Android list is not in this repository |
+| Public call relay and STUN | Unchanged by this section: the TURN relay and its anonymous credential issuer stay open as the calls default, and default STUN stays Google's, then Cloudflare's | The section of 1 November 2026; `deploy/coturn/turnserver.conf`, `src/ice-defaults.ts` |
+
+**Inventory question 7.** Unchanged from the section of 1 November 2026: a
+keeper (`deploy/keeper@.service`) would hold a room key; none runs on the
+box (closure record, section 3). Neither coturn, the credential issuer nor
+relay.trotters.cc is given a room or media key.
+
+**Decision (a)'s bounds.** The divergence is blessed only while all three
+hold: the Android client stays marked in development; the allowlisted keys
+its test fleet holds stay held for, and used only in, project work; and the
+relay's closed posture holds, which is the position note's conditions 1 to
+4 (every allowlisted key held for project work; the keys used for ForgeSworn
+work, not as a personal social inbox; strangers write nothing but sealed
+messages and signer requests addressed only to allowlisted keys, and read
+nothing; no stranger content ever shown to anyone outside the allowlist).
+If the client ships publicly, or any condition lapses, the question returns
+to the owner (decision record, 2 November 2026).
+
+**Position today.** For the public web distribution ForgeSworn is again a
+publisher whose Nostr-relay defaults point only at servers other people
+run (note 2.2, `[U]`; the privacy notice still owes an account of the
+third parties the defaults contact, note 3.2). It continues to run default
+call transport for anyone: infrastructure operator, note 2.11, `[U]` in
+application, unchanged from 1 November 2026. relay.trotters.cc again stands
+as the project's inbox under note 2.12 (first and third rows, `[U]`): while
+its four conditions hold, a stranger's content can reach nobody who counts
+as another user, and the section 227(3) exclusions `[P]` hold only while
+the operator and the people working for the project act in that capacity.
+The desktop 0.1.124 and 0.1.125 bundles naming a closed relay first is a
+stale default on those installs, not an open service; it decides what fails
+there, not the relay's scope. The open window of 1-2 November 2026 was a
+temporary in-scope period; the law note does not cover such periods, a gap
+the position note records as deliberately unfilled.
+
+The sections below are kept as written on their dates.
+
+## 1 November 2026: calls back on ForgeSworn's relay (the relay row and the position paragraph are superseded in part on 2 November 2026, above)
 
 The owner reversed the 22 October 2026 switch-off after calls failed for
 people. From about 22:00 UTC on 1 November 2026:
@@ -28,7 +84,7 @@ people. From about 22:00 UTC on 1 November 2026:
 | Credential issuer | `GET /turn`, anonymous, no account; HMAC time-limited logins, TTL 3600 s; per-IP rate limit held in memory and pruned after about ten minutes | `server/turn-credentials.mjs`; that `/turn` is live is the host's report: `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
 | Who uses it | Web, desktop from 0.1.124, Android from 0.6.132, for rooms on default ICE settings without a device relay; Hide my IP too | `app/src/main.ts` `TURN_CREDENTIAL_ENDPOINT`, `app/src/ice-resolve.ts`, `app/src/relay-only.ts`; Android is the host's report |
 | Default STUN | Google (`stun.l.google.com:19302`), then Cloudflare (`stun.cloudflare.com:3478`), unless the device sets its own; when `/turn` answers, the web app derives STUN from the minted TURN URL | `src/ice-defaults.ts:55`, `app/src/ice-resolve.ts:106-116` |
-| Default Nostr relays | `relay.trotters.cc` (ForgeSworn's strfry) first, then relay.primal.net, relay.ditto.pub, offchain.pub. Open to anyone for reads and writes, no authentication. Retention: kinds 1, 6, 7, 9735 after a day; strangers' private messages and media on each clean-up run; app data, reports and deletions after 90 days; the rest after 7 days. No IP addresses in the write policy; Caddy access logs off | `data/public-relays.json:3`; access, retention and logging are the host's report |
+| Default Nostr relays | `relay.trotters.cc` (ForgeSworn's strfry) first, then relay.primal.net, relay.ditto.pub, offchain.pub. Open to anyone for reads and writes, no authentication. Retention: kinds 1, 6, 7, 9735 after a day; strangers' private messages and media on each clean-up run; app data, reports and deletions after 90 days; the rest after 7 days. No IP addresses in the write policy; Caddy access logs off | `data/public-relays.json:3`; access, retention and logging are the host's report. True until 00:33 UTC on 2 November 2026 only; the section of that date governs |
 | Host candidates | Sent to peers again; raddr/rport of reflexive and relay candidates stay redacted | `src/local-address-filter.ts` `HIDE_HOST_CANDIDATES` |
 | Microphone | Joining a call switches it on, prompting for permission then | `app/src/main.ts` `joinCall`, `app/src/call-prefs.ts` `loadMicOnJoin` |
 | Still closed | Blossom, meeting codes, `/drops`, uploads (410) | `deploy/Caddyfile.kithmoot`; host's report |
@@ -37,7 +93,9 @@ people. From about 22:00 UTC on 1 November 2026:
 room key; none runs on the box (closure record, section 3). Neither coturn,
 the credential issuer nor relay.trotters.cc is given a room or media key.
 
-**Position today.** ForgeSworn is no longer a publisher with defaults
+**Position today, as written on 1 November 2026** (superseded in part on
+2 November 2026: the relay closed again and left the web defaults; the
+position paragraph in the section of that date governs). ForgeSworn is no longer a publisher with defaults
 pointing only at other people's servers. It runs default transport for
 anyone (infrastructure operator, note 2.11, `[U]` in application) and a
 Nostr relay on which one stranger's events can reach another. The inbox

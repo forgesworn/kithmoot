@@ -64,6 +64,13 @@ import { isForgeSwornHost } from './forgesworn-hosts.js'
  * that bans the read/write pattern the list is for (criteria 3 and 5). The
  * app also stops asking it for profiles and prunes it from saved device
  * choices and room hints at use time; see app/src/relay-settings.ts.
+ *
+ * relay.trotters.cc's entry of 1 November 2026 is removed the next day under
+ * the recorded divergence decision (docs/decisions.md, 2 November 2026): it
+ * rode in with an unrelated calls fix and broke criterion 1 and the
+ * three-default rule, and it is the project's own relay however the host is
+ * named. The in-development Android client leads with it instead; that
+ * divergence is bounded by the conditions recorded there.
  */
 export interface PublicRelay {
   /** Canonical, `wss://host/`. */
@@ -83,7 +90,6 @@ export interface PublicRelay {
 }
 
 const ENTRIES: PublicRelay[] = [
-  { url: 'wss://relay.trotters.cc/', operator: 'ForgeSworn relay', default: true, quietRooms: true, test: 'round-trip', checked: '2026-11-01' },
   { url: 'wss://relay.primal.net/', operator: 'Primal Public Relay', default: true, quietRooms: true, keeps: 'under-a-day', test: 'read', checked: '2026-10-30' },
   { url: 'wss://relay.ditto.pub/', operator: 'Ditto Relay', default: true, quietRooms: true, test: 'read', checked: '2026-10-30' },
   { url: 'wss://offchain.pub/', operator: 'offchain.pub', default: true, quietRooms: false, test: 'read', checked: '2026-10-30' },
