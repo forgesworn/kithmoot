@@ -8,6 +8,13 @@ Roadmap additions recorded 2026-10-09: G10–G17 cover battery use, recording,
 room capacity, persistent call surfaces, room/project identity, shorter invites
 and admission/UI polish. All eight remain open.
 
+Additions accepted 2026-10-26 from the [Anagram comparison](anagram-gap-review-2026-10-26.md):
+strengthen G1–G3, G7, G9, G10 and G12 with local custody, recovery, bounded history,
+audio continuity, efficient group media and typed agent interactions; add G18
+for ordinary Nostr messaging. Improve the existing stack. Iroh integration and
+a transport comparison experiment are outside the current plan. These additions
+remain open and make no new runtime or release claim.
+
 The [client roadmap](client-roadmap.md) sequences this work: finish and
 physically accept the PWA before desktop shells or further native-client
 expansion become the primary delivery lane.
@@ -87,6 +94,14 @@ Acceptance:
   failed sends remain visible and retry without duplicate messages.
 - Recover on a replacement device using an explicitly saved recovery method;
   explain what cannot be recovered when the person has not saved one.
+- Exercise identity, room admission, ownership, history and file recovery
+  separately with the original device unavailable. Explain what each backup
+  holder can read or control, and identify missing ciphertext or lost authority.
+- Complete the existing protected-storage work for ordinary room secrets and
+  private metadata. Inventory production writers, qualify coherent migration,
+  restart, backup and coordinated forgetting, and preserve original data on
+  refusal. Qualify desktop key custody separately. An external signer or a
+  non-extractable browser key alone does not close local-profile protection.
 - Document any browser permission or home-screen installation requirement per
   feature. A required external signer app must not be hidden inside a claim
   that no native app is needed.
@@ -109,6 +124,11 @@ Acceptance:
 - Keep message contents and room keys out of push infrastructure. Disclose
   remaining metadata and any browser/OS push-provider dependency. An owned
   nudger alone is not proof of independence from platform push services.
+- Qualify the existing native Android listener on physical GrapheneOS without
+  Google Play: locked phone, Doze, reboot, Wi-Fi/mobile transition, rekey,
+  removed membership, mute and duplicate suppression. Measure battery use;
+  distinguish first-contact invitations from established-room alerts. Keep
+  native Android evidence separate from browser/iPhone delivery limits.
 
 This extends the existing M5 optional nudger direction. Open-tab notifications
 or a Nostr nudge alone do not close this goal.
@@ -127,7 +147,14 @@ Let a person find and recover their conversations beyond the current
 Acceptance:
 
 - Recover and search a conversation older than 90 days containing more than
-  500 messages on a fresh browser, including replies and file references.
+  10,000 messages on a fresh browser, including replies and file references.
+- Page local and remote history without loading the whole conversation at
+  startup or for each page/search. Bound memory and work, commit ingestion
+  before advancing per-source cursors, and handle tied timestamps, duplicates,
+  interrupted reads and restart without skipping messages.
+- State coverage separately for the active conversation, imported account
+  history and encrypted archive. Exercise missing keys and unavailable copies;
+  incomplete coverage must not appear as an empty or complete history.
 - Verify archive data before use and enforce membership/epoch access rules;
   a storage host must not receive plaintext messages or room keys.
 - Restore after loss of an archive node from an independently held copy,
@@ -240,6 +267,36 @@ Acceptance:
 Existing foundations include [agents](agents.md), per-participant agent media
 access, transcription, minutes and approval cards. This goal concerns the
 complete daily-call journey and does not declare platform parity complete.
+
+### Call quality and continuity — added 26 October 2026
+
+- Establish audio-first baselines for the ordinary WebRTC call and the separate
+  realtime SDK. Measure actual decoded/playout audio, longest gaps, delay,
+  duplicate playback and recovery time under burst loss, reordering, constrained
+  upload, a slow receiver and Wi-Fi/mobile/VPN changes. Declare pass budgets
+  before qualification; connection state and packet counts alone are insufficient.
+- Keep speech and mute/leave controls responsive during camera/share overload
+  and recovery. Bound capture, worker/native bridge, transport, decoder and
+  playback work; prefer current media over accumulating stale frames. Classify
+  deliberate expiry, network loss, decoder recovery and playback underruns
+  separately in synthetic diagnostics. Tune jitter, FEC/concealment and media
+  deadlines where our engine owns them; do not replace browser WebRTC policy
+  with unqualified copied constants.
+- Recover only the failed media source where possible. Negotiate supported
+  capabilities and preserve protected capture, room/media keys and relay-only
+  refusal through every restart. Reload, leave, cancellation and late async
+  results must release owned tracks, workers, handles and pending sends.
+- Qualify ordinary browsers, installed desktop clients and physical no-Play
+  GrapheneOS separately, including a 45-minute call and network transitions.
+  The published SDK preview is not the normal call engine. Its integration
+  requires the same product and cross-client acceptance, rather than replacing
+  the ordinary path on the strength of a synthetic benchmark.
+
+Use synthetic/consented qualification media and privacy-safe aggregate results.
+The [no-call-records requirement](research/call-independence-requirements.md#no-call-records-from-the-calling-stack)
+still applies: no persistent/exported records of real calls or automatic
+telemetry. This work adds no publisher service dependency. Technical references
+and the deferred Iroh comparison remain in the [source assessment](research/anagram-iroh-20261026.md).
 
 ## G8 — Anonymous temporary meetings with automatic teardown
 
@@ -457,6 +514,15 @@ execution bridge and native Android work controls, unified project/attention
 surfaces, durable session integration and graph retrieval. This is not a new
 task-engine proposal.
 
+### Typed agent interactions — added 26 October 2026
+
+Extend existing cards with bounded choices, callbacks, copy and safe-link
+actions where they improve a real workspace task, with readable text fallback.
+Bind actions to the card version, account, room, membership and expiry; exercise
+retries, concurrent devices, edits and revocation. Distinguish personal responses
+from shared results. Navigation and ordinary choices grant no execution authority;
+principal-only approvals and exact-result acceptance retain their existing rules.
+
 ## G10 — Battery optimisation backed by physical measurements
 
 Make KithMoot practical for long conversations and calls on laptops and phones.
@@ -543,6 +609,15 @@ Acceptance:
   packet loss. Record join success/time, audio gaps, video frame rate/freezes,
   speaking-indicator delay, UI responsiveness, CPU/memory, client bandwidth and
   forwarding bandwidth. Set pass thresholds before qualifying a release.
+- Reuse one encoder per equivalent source/quality profile where supported,
+  isolate a slow recipient and bound per-recipient pending work. Measure actual
+  publisher upload as receiver count grows: shared encoding alone does not
+  remove mesh copies. Qualify the SDK's encrypted single-publication forwarding
+  separately before considering normal-call integration.
+- Exercise audio and control continuity during camera/share congestion and
+  video dependency recovery. Record queue residence, stale drops, picture age,
+  audio gaps and teardown as well as throughput. Compare like media profiles
+  and routes; count forwarding bandwidth and relay costs explicitly.
 - Add usable gallery paging with visible page/count controls, keyboard and
   touch navigation, readable tiles and stable ordering during joins/leaves.
   Show who is speaking even when they are off-page; speaker view may follow
@@ -704,6 +779,30 @@ Acceptance:
   coaching. Record time, wrong turns and uncertainty, fix the findings, and
   repeat alongside the existing physical-feedback register.
 
+## G18 — Ordinary Nostr messages with existing clients
+
+Let a person exchange ordinary encrypted Nostr messages with someone using an
+independent client, without requiring the other person to join a KithMoot room.
+This is separate from the external-network connectors in G5.
+
+Acceptance:
+
+- Qualify the [existing ordinary-message candidate](ordinary-nostr-message.md)
+  from an exact built revision, then prove NIP-17 text and reply exchange in both
+  directions with an independent client and an actual supported external signer.
+  Record sender/recipient versions, inbox-relay behaviour and restart recovery.
+- Keep this lane separate from room invitations, membership, keys, files and
+  agent context. No automatic fallback from a private room route is permitted.
+- Exercise missing or changed inbox lists, signer refusal/account changes,
+  relay rejection, partial acknowledgement and exact-envelope retries without
+  duplicate messages or stale authority. Relay acceptance is not recipient delivery.
+- Publish the supported subset and unsupported signer/client behaviour.
+  Application-specific edits, groups and bot controls require their own
+  interoperability evidence; they are not implied by NIP-17 text support.
+
+The source-preparation document explicitly leaves build/runtime qualification
+open. Existing contact-to-room invitations do not close this goal.
+
 ## Delivery and evidence
 
 The [guest admission preview](guest-admission-preview.md) provides the browser
@@ -731,6 +830,14 @@ establish call continuity and attributed popouts (G14/G13), finish recording
 each journey. Measurements may change this order; existing release blockers
 retain priority. Re-run performance qualification with the completed gallery,
 popouts and recording enabled, since those features change the workload.
+
+The 26 October additions fit the existing phases: audio continuity, lifecycle
+and bounded group media in P1 (G7/G10/G12); custody, recovery, history,
+notifications and ordinary Nostr qualification in P2 (G1–G3/G18); typed agent
+interactions in P3 (G9). Reuse existing components before adding parallel
+implementations. Pins/forwarding, public-community discovery, a recovery-master
+key schedule and forward-secrecy changes remain separate proposals, not accepted
+work from this comparison.
 
 Preserve the existing protocol, archive, search and push dependencies described
 in the README. G1 spans those releases; G4 integrates them into an owned deployment.

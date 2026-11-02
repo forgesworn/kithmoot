@@ -6,6 +6,12 @@ It is an execution checklist, not a claim that a phase is complete. The
 [day-end handover](2026-09-15-pwa-day-end.md) records the exact release and
 the remaining named physical checks.
 
+Accepted scope additions recorded 26 October 2026 extend P1–P3 below using the
+[Anagram comparison](anagram-gap-review-2026-10-26.md). They improve the existing
+stack; no Iroh integration or transport comparison experiment is planned.
+The dated September delivery record remains historical, not current-release
+acceptance. The added work packages are open.
+
 Desktop packaging and new native Apple work remain outside this plan. Android
 browser behaviour is included where it provides PWA compatibility evidence;
 native Android product work keeps its own release gate.
@@ -188,6 +194,8 @@ Model: switch back to **Sol High**.
 
 ### P1.4 Run the browser and physical matrix
 
+Complete P1.5/P1.6 baseline and recovery checks before signing off this matrix.
+
 - Chrome and Safari on macOS and Firefox on desktop.
 - Ordinary Safari and installed PWA on a physical iPhone.
 - Android Chrome/PWA as a compatibility client.
@@ -200,6 +208,59 @@ any cross-browser, media or state failure that is not immediately local.
 
 Exit: supported PWA call claims have named physical evidence and no person can
 be stranded without a visible recovery action.
+
+### P1.5 Audio continuity, queues and resource ownership
+
+Added 26 October; extends P1.1/P1.3 and precedes P1.4 sign-off.
+
+1. Baseline ordinary WebRTC and the separate SDK under matching media profiles
+   and network impairments. Use decoded/playout synthetic audio and changing
+   pictures, not connection-state assertions. Set audio-gap, delay, recovery,
+   queue and resource budgets before qualification.
+2. Identify the actual owner of capture, encoding, queueing, native IPC,
+   transport, decoder and playback at each boundary. Add bounded synthetic
+   counters for deliberate expiry, loss, FEC/concealment and underruns. Keep
+   production transient state bounded and clear it on teardown; collect no
+   persistent/exported real-call records or automatic telemetry under the
+   [existing requirement](research/call-independence-requirements.md#no-call-records-from-the-calling-stack).
+3. Bound pending work and isolate audio/control from camera/share overload.
+   Evaluate jitter/FEC, stale-media deadlines and video dependency recovery
+   only where our engine owns that policy. Avoid a native IPC round trip per
+   audio frame where profiling demonstrates it stalls the pipeline; a shared
+   native-core rewrite is not a prerequisite.
+4. Exercise burst loss, reordering, low upload, stalled video, one slow peer,
+   late join, sleep/wake and Wi-Fi/mobile/VPN changes. Video recovery must
+   preserve speech, capture protection and chosen peer-IP privacy.
+5. Verify cancellation, reload, leave, permission withdrawal and stale async
+   results release tracks, workers, handles, pending operations and buffers.
+
+Exit: before/after evidence meets predeclared budgets and the affected browser,
+desktop or Android path passes its own lifecycle gate. Synthetic results do
+not close physical no-Play GrapheneOS or 45-minute P1.4 acceptance. The SDK is
+not selected for normal calls by this work package alone.
+
+### P1.6 Group media efficiency
+
+Added 26 October; supports G10/G12. The baseline and acceptance of the supported
+call envelope precede P1.4 sign-off; higher-capacity claims keep their G12 gate.
+
+- Measure matching 2/4/8-device calls, then the wider G12 capacity sequence,
+  with camera/share congestion and one slow receiver. Record actual decoded
+  media, audio gaps, picture age, per-publisher upload, aggregate relay bytes,
+  queue residence, CPU/memory and teardown.
+- Reuse encoders for equivalent source/profile recipients where supported;
+  keep per-recipient work bounded. Compare mesh and the existing encrypted
+  single-publication SDK forwarding separately. Preserve application media
+  encryption, admission, participant/device identity and protected capture.
+- Repeat on independent client networks and selected independent operators,
+  including blocked UDP and the supported TURN/TLS path. Record unsupported
+  backend paths explicitly; the SDK native TURN/UDP result does not prove TLS
+  fallback or ordinary-client integration.
+
+Exit: publish the measured client/route/media envelope and first bottleneck.
+Shared encoders are not proof of constant upload, and configured capacity is
+not accepted headcount. Any normal-call engine change requires separate product
+integration, cross-client and physical-device evidence.
 
 ## P2 — make messaging, updates and recovery trustworthy
 
@@ -220,6 +281,15 @@ Model: **Sol High**.
 - Update the service worker without losing a draft, acknowledged message,
   unfinished file or active call.
 - Audit IndexedDB, local storage, caches and logs against the privacy claim.
+- Finish the existing ordinary protected-storage integration from its
+  [writer inventory](ordinary-storage-inventory.md), including coherent
+  migration/version fencing, retention before effects, failure recovery and
+  coordinated forgetting. Hold original data intact on validation/refusal;
+  qualify desktop custody separately. Do not infer protection from the signer.
+- With the original device unavailable, restore identity, room admission,
+  ownership, history and referenced files separately. Explain missing copies
+  and the authority of each backup holder. Keep recovery and key-erasure policy
+  explicit rather than introducing a recovery master through a storage change.
 
 Model: remain on **Sol High**.
 
@@ -228,11 +298,41 @@ Model: remain on **Sol High**.
 - Give encrypted file transfer visible progress, failure and recovery.
 - State the search/history window honestly.
 - Add restrained, consented notifications and verify their lock-screen text.
+- Complete G3 with paged local/remote encrypted history and indexed search:
+  older than 90 days and over 10,000 messages, without whole-conversation
+  hydration per page. Advance per-source cursors only after completed reads
+  and committed ingestion; exercise tied timestamps, duplicates and restart.
+- Expose history coverage and missing keys/replicas separately for the active
+  window, imported history and archive; test deletion, independent-copy restore
+  and bounded memory/work using synthetic histories.
+- Qualify existing notification paths rather than adding a duplicate listener.
+  Native Android's separate gate uses physical no-Play GrapheneOS, locked/Doze,
+  reboot, rekey, removed rooms, first contact, duplicates and battery use.
+  State browser/iPhone delivery limits independently.
 
 Model: **Terra Medium** once the P2 state and recovery rules are fixed.
 
-Exit: the complete G1 phone journey, failure injection and fresh-browser
-recovery all pass physically.
+P2.1–P2.3 exit: the complete G1 phone journey, failure injection and fresh-browser
+recovery all pass physically; G2/G3 retain their additional acceptance checks.
+
+### P2.4 Ordinary Nostr interoperability
+
+Added 26 October for G18; qualify the
+[existing candidate](ordinary-nostr-message.md) rather than treating room
+invitations as ordinary messaging.
+
+- Build and qualify the exact candidate, then exchange text/replies in both
+  directions with an independent client and actual supported external signer.
+- Exercise inbox changes/refusal, restart, signer/account changes, partial
+  acknowledgements and exact-envelope retries. Keep sender history separate
+  from delivery claims and preserve private-room route/data isolation.
+- Record the supported client/signer subset and unsupported cases before
+  enabling it. Candidate source and simulated provider checks alone do not
+  close independent-client acceptance.
+
+Exit: retain a reproducible consenting interoperability receipt, including
+exact revisions, sender/recipient applications and restart behaviour. This
+does not add external-network bridges or a new private-group protocol.
 
 ## P3 — make it a daily workspace
 
@@ -254,7 +354,12 @@ Implement and physically accept one complete slice at a time:
 2. Projects to conversation with scoped files, people and agents;
 3. conversation assignment to visible task progress and returned result;
 4. phone approval or answer reflected in the originating desktop project;
-5. host reconnect without duplicate execution.
+5. host reconnect without duplicate execution;
+6. typed agent choices/callbacks where a real task needs them, using existing
+   cards and readable text fallback; test version/expiry, edited cards,
+   concurrent devices, account changes, revoked membership and personal versus
+   shared results. Navigation grants no execution authority; principal-only
+   approvals and exact-result review continue to hold.
 
 Model: **Terra Medium** for each agreed slice. Use **Sol High** for state or
 protocol failures crossing slices.
@@ -297,8 +402,10 @@ desktop shell or new native Apple client become the primary product lane.
 
 ## Next session
 
-P0.1 is already merged and deployed. Start on **Sol High** with P0.2's
-desktop/iPhone room check against production release `20260915T055605Z`.
-Record each result as a physical pass, an actionable defect, or an explicit
-platform limitation. There is no new product candidate to deploy until that
-check identifies one.
+Identify the current candidate and latest physical receipts before choosing a
+build; the September release above is historical. Carry unresolved P0.2 checks
+forward and record a physical pass, actionable defect or explicit platform limit.
+For P1, establish the P1.5/P1.6 baseline and predeclare budgets before tuning
+audio, queues or group publication, then repeat the affected browser and
+physical matrix. P2/P3 additions follow the existing phase order. This planning
+update does not select a new call engine or authorise a deployment.
