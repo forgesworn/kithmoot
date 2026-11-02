@@ -286,7 +286,8 @@
         "passed": 88,
         "skipped": 3
       },
-      "defaultAndGuardedAdmin2Distributions": "passed"
+      "defaultAndGuardedAdmin2Distributions": "passed",
+      "desktopRelaySummary": "3 passed: automatic fallback, built-in/server priority and focus preservation"
     },
     "regressionsObservedBeforeFix": [
       "shared test helper mutes the automatically opened microphone",

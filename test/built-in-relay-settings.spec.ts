@@ -154,12 +154,12 @@ test('Calls: with a relay server saved the summary names it and the relay page s
   } finally { await context.close() }
 })
 
-test('Calls: starting leaves the summary at Direct only, and running updates it in place without moving focus', async ({ browser, baseURL }) => {
+test('Calls: starting retains automatic relay fallback, and running updates it in place without moving focus', async ({ browser, baseURL }) => {
   const { context, page } = await launch(browser, baseURL!, { state: { ...off, wanted: true, status: 'starting' } })
   try {
     await openSettings(page, 'Calls')
     const head = page.locator('#callsHead')
-    await expect(head).toHaveText('Direct only')
+    await expect(head).toHaveText('Direct, with automatic relay fallback')
     await expect(head).toHaveAttribute('aria-live', 'polite')
     await expect(page.locator('#settingsSubCallRelay')).toHaveText('Starting…')
     await page.locator('#callsRowSpry').focus()
@@ -168,7 +168,7 @@ test('Calls: starting leaves the summary at Direct only, and running updates it 
     await expect(page.locator('#settingsSubCallRelay')).toHaveText('On')
     await expect(page.locator('#callsRowSpry')).toBeFocused()
     await push(page, off)
-    await expect(head).toHaveText('Direct only')
+    await expect(head).toHaveText('Direct, with automatic relay fallback')
   } finally { await context.close() }
 })
 
