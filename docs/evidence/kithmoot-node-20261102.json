@@ -1,0 +1,163 @@
+{
+  "schema": "kithmoot-node-delivery/1",
+  "date": "2026-11-02",
+  "status": "implementation-in-progress",
+  "design": {
+    "pr": 668,
+    "merge": "0227a1e1d50a94e3e6245ab57d04e220c4c62bf8"
+  },
+  "automaticStun": {
+    "pr": 669,
+    "merge": "3900e435b7616d57bb4f3d7bef95d0f0dc107987",
+    "mainCi": {
+      "run": 41427764296,
+      "passed": 47,
+      "skipped": 1,
+      "failed": 0
+    },
+    "realtimeCi": {
+      "run": 41427764265,
+      "result": "passed"
+    },
+    "webRelease": "20261102T102425Z",
+    "publicReadback": {
+      "hosts": [
+        "kithmoot.forgesworn.dev",
+        "kithmoot.app"
+      ],
+      "asset": "/j/assets/main-BHxEqTd-.js",
+      "bytes": 2016024,
+      "sha256": "a8a3ff965087b27695ac478596298b2c6da3cbc42e4a4889775cf82e5236b717",
+      "automaticFallback": [
+        "stun:stun.cloudflare.com:3478"
+      ]
+    },
+    "existingTurnService": "retained",
+    "olderNativeClientsUpdated": false,
+    "settingsDescriptionFollowup": {
+      "pr": 670,
+      "merge": "11d1b81e0bb6c406a805edf035e7cb88aca18d19",
+      "chromiumChecks": 7,
+      "deployment": "passed",
+      "webRelease": "20261102T120704Z",
+      "publicReadback": [
+        {
+          "host": "kithmoot.app",
+          "asset": "/j/assets/index-C_PMELgs.js",
+          "bytes": 5199,
+          "sha256": "56442e86bd3644a63a1553d82737ab6d50e6163bcf3bd181974732f0e44481e7"
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "asset": "/j/assets/index-C_PMELgs.js",
+          "bytes": 5199,
+          "sha256": "56442e86bd3644a63a1553d82737ab6d50e6163bcf3bd181974732f0e44481e7"
+        },
+        {
+          "host": "kithmoot.app",
+          "asset": "/j/assets/index-C3idSRMd.css",
+          "bytes": 116762,
+          "sha256": "696d00f1bf6cf29afd3e670c66cd39d6b97a21723dfdb22e75656557c5be5db9"
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "asset": "/j/assets/index-C3idSRMd.css",
+          "bytes": 116762,
+          "sha256": "696d00f1bf6cf29afd3e670c66cd39d6b97a21723dfdb22e75656557c5be5db9"
+        },
+        {
+          "host": "kithmoot.app",
+          "asset": "/j/assets/main-DWJRhu13.js",
+          "bytes": 2016010,
+          "sha256": "c1906c385122dc6d9b0acf7edb57c9bd3ab3cc18bff92402e10fb93a9f6110e0"
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "asset": "/j/assets/main-DWJRhu13.js",
+          "bytes": 2016010,
+          "sha256": "c1906c385122dc6d9b0acf7edb57c9bd3ab3cc18bff92402e10fb93a9f6110e0"
+        }
+      ]
+    }
+  },
+  "spry": {
+    "pr": 33,
+    "merge": "ff94a5c1c13c3fade49474cb9df3a9cc0ff308b3",
+    "mainCi": {
+      "run": 41438035281,
+      "result": "passed"
+    },
+    "checks": [
+      "workspace-all-features",
+      "clippy",
+      "minimal-features",
+      "41-tls-interop",
+      "17-kithmoot-configuration",
+      "docs",
+      "changed-source-secret-scan"
+    ]
+  },
+  "shelter": {
+    "commit": "5e40efe2bc6db6672203b69e8911a3c12e32e697",
+    "visibility": "private",
+    "sourcePublished": false,
+    "binariesPublished": false,
+    "checks": {
+      "coreTests": 681,
+      "daemonTests": 40,
+      "localWebSocketAndUnixControl": "passed",
+      "clippy": "passed",
+      "fullPrePush": "passed; push succeeded after SSH keepalive reconnect"
+    },
+    "pr": 134,
+    "merge": "611a150d1ec2185c97b7f54c3739e91a18623204"
+  },
+  "supervisor": {
+    "unitAndRecoveryTests": 19,
+    "libraryBuild": "passed",
+    "status": "unreleased-candidate"
+  },
+  "actualBackendIntegration": {
+    "schema": "kithmoot-node-backends/1",
+    "result": "passed",
+    "loopbackOnly": true,
+    "binaryHashes": {
+      "spry": "f5869083848953b30f4cbe123e8cfc9f1d6ece05ae4b02c52e80356c5f3df43c",
+      "shelter": "a7059d6c2cd3bd19bcc997bf614015501d9a09c2e6889ffba2e5868d23a3990a"
+    },
+    "checks": [
+      "owner pairing",
+      "authority grants",
+      "both child acknowledgements",
+      "four TURN URLs",
+      "signed expiry clamp",
+      "room partition isolation",
+      "rotating event author",
+      "removed WebSocket closure",
+      "removed credential refusal",
+      "UDP/TCP/TLS allocations",
+      "cached UDP Allocate/Refresh refused",
+      "cached TCP/TLS Allocate refused",
+      "active TCP/TLS removal under one second",
+      "other room TURN refresh survives",
+      "signed closing event delivery",
+      "scoped purge",
+      "durable close retry"
+    ],
+    "revocationAcknowledgementToClosedStreamsMs": 64,
+    "internetNode": false,
+    "physicalGrapheneOS": false,
+    "tls443PublicRoute": false
+  },
+  "remaining": [
+    "shared-wire-and-android-vectors",
+    "web-desktop-android-node-journeys",
+    "signed-install-and-uninstall",
+    "outside-network-qualification",
+    "physical-grapheneos",
+    "archy-package",
+    "named-screen-review-pack-and-explicit-maintainer-approval",
+    "owner-decision-on-shelter-publication",
+    "source-backed-release-legal-pages"
+  ]
+}
