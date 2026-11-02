@@ -31,3 +31,12 @@ it('refuses remote targets, collisions and unrelated profile settings before exp
     expect(() => readFrontConfiguration(file)).toThrow()
   }
 })
+
+it('accepts a separate node port range and refuses control-port and allocation collisions in that profile', () => {
+  const { file, configuration } = fixture()
+  const custom = { ...configuration, turnPorts: { udpTcp: 34790, tls: 53499 }, relayPortFirst: 49192 }
+  writeFileSync(file, JSON.stringify(custom)); expect(readFrontConfiguration(file)).toEqual(custom)
+  for (const patch of [{ deskPort: 34790 }, { shelterPort: 53499 }, { spryPort: 49200 }, { relayPortFirst: 65505 }, { turnPorts: { udpTcp: 443, tls: 53499 } }]) {
+    writeFileSync(file, JSON.stringify({ ...custom, ...patch })); expect(() => readFrontConfiguration(file)).toThrow()
+  }
+})

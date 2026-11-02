@@ -8,6 +8,7 @@ import { doctorNode } from '../dist/src/node/kithmoot-node/doctor.js'
 import { runFront } from '../dist/src/node/kithmoot-node/front-runtime.js'
 import { initialise, localControl, readConfiguration, runNode } from '../dist/src/node/kithmoot-node/runtime.js'
 
+const declaredSecrets = configuration => configuration.tlsGate ? { serviceKey: process.env.KITHMOOT_NODE_SERVICE_KEY, turnSecret: process.env.KITHMOOT_NODE_TURN_SECRET, stateSalt: process.env.KITHMOOT_NODE_STATE_SALT } : undefined
 const [command, ...args] = process.argv.slice(2)
 async function main() {
 if (['install', 'resume', 'update', 'uninstall', 'certificates'].includes(command)) return operatorCommand(command, args, fileURLToPath(new URL('../', import.meta.url)))
@@ -34,10 +35,11 @@ try {
   const directory = resolve(options.get('--state'))
   if (command === 'init' || command === 'resume-init') {
     if (!options.has('--configuration')) throw Error('--configuration is required')
-    initialise(directory, JSON.parse(readFileSync(options.get('--configuration'), 'utf8')), command === 'resume-init')
+    const configuration = JSON.parse(readFileSync(options.get('--configuration'), 'utf8'))
+    initialise(directory, configuration, command === 'resume-init', declaredSecrets(configuration))
     console.log('Private node state prepared. Start its unprivileged service, then run pair locally.')
   } else if (command === 'run') {
-    const node = await runNode(directory)
+    const node = await runNode(directory, declaredSecrets(readConfiguration(directory)))
     let stopping = false
     const stop = async () => { if (stopping) return; stopping = true; try { await node.close() } catch { process.exitCode = 1 } }
     process.once('SIGTERM', stop); process.once('SIGINT', stop)

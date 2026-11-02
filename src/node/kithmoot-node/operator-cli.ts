@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
 import { createInterface } from 'node:readline/promises'
 import { resolve, join } from 'node:path'
-import { installSystemNode, updateSystemNode, uninstallSystemNode, refreshSystemCertificates, resumeSystemNode, operationLock, assertNewSystemInstall, acmeName, manageAcme, checkManagedFirewall, manageFirewall } from './operator.js'
+import { installSystemNode, updateSystemNode, uninstallSystemNode, refreshSystemCertificates, resumeSystemNode, operationLock, assertNewSystemInstall, acmeName, manageAcme, nodeFirewallRules, checkManagedFirewall, manageFirewall } from './operator.js'
 import { validateConfiguration } from './runtime.js'
 import { verifyRelease } from './release.js'
 
@@ -83,7 +83,7 @@ export async function operatorCommand(command: string, args: string[], bundle: s
     input = validateConfiguration({ ...input, spryBinary: '/opt/kithmoot-node/current/bin/spry-node', shelterBinary: '/opt/kithmoot-node/current/bin/bothyd',
       certificate: '/etc/kithmoot-node/tls/fullchain.pem', certificateKey: '/etc/kithmoot-node/tls/privkey.pem' }) as unknown as Record<string, unknown>
     console.log('Whoever deploys it runs it. The node must be on a rented server or hosted Archy, never a home connection.')
-    console.log('Required inbound IPv4 ports: TCP 443, TCP/UDP 3478, TCP 5349, UDP 49160–49191. DNS must name this server for both hostnames.')
+    console.log('Required inbound IPv4 rules: ' + nodeFirewallRules(input as unknown as import('./runtime.js').NodeConfiguration).join(', ') + '. DNS must name this server for both hostnames.')
     const firewall = await ask('--firewall', 'Host firewall (ufw or external)', 'external')
     if (!['ufw', 'external'].includes(firewall)) throw Error('Choose ufw or external firewall management')
     if (firewall === 'ufw') checkManagedFirewall()

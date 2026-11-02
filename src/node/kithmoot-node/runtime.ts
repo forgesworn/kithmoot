@@ -9,6 +9,7 @@ import { NodeLedger, NodeRefusal } from './ledger.js'
 import { NodeSupervisor } from './supervisor.js'
 import { SpryBackend, ShelterBackend } from './backends.js'
 import { nodeHttp, preparePairing } from './http.js'
+import { readNodeTurnPorts, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { NODE_VERSION } from './version.js'
 
 export interface NodeConfiguration {
@@ -24,13 +25,16 @@ export interface NodeConfiguration {
   origins: string[]
   spryBinary: string
   shelterBinary: string
-  certificate: string
-  certificateKey: string
+  certificate?: string
+  certificateKey?: string
+  tlsGate?: true
+  turnPorts?: NodeTurnPorts
+  relayPortFirst?: number
   deskPort: number
   spryPort: number
   shelterPort: number
 }
-const fields = ['v', 'host', 'hosting', 'relayIp', 'publicIp', 'aggregateBytesPerSecond', 'maxBytes', 'minFreeBytes', 'maxRooms', 'origins', 'spryBinary', 'shelterBinary', 'certificate', 'certificateKey', 'deskPort', 'spryPort', 'shelterPort']
+const fields = ['v', 'host', 'hosting', 'relayIp', 'publicIp', 'aggregateBytesPerSecond', 'maxBytes', 'minFreeBytes', 'maxRooms', 'origins', 'spryBinary', 'shelterBinary', 'certificate', 'certificateKey', 'deskPort', 'spryPort', 'shelterPort', 'tlsGate', 'turnPorts', 'relayPortFirst']
 function publicV4(value: unknown): boolean {
   if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(value)) return false
   const [a, b, c] = value.split('.').map(Number)
@@ -41,7 +45,8 @@ function publicV4(value: unknown): boolean {
 }
 export function validateConfiguration(value: unknown): NodeConfiguration {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !fields.includes(k))) throw Error('Invalid node configuration')
-  const c = value as NodeConfiguration
+  const c = value as NodeConfiguration, ports = readNodeTurnPorts(c.turnPorts), first = c.relayPortFirst ?? 49160
+  if (!ports) throw Error('Invalid node TURN ports')
   const integer = (v: unknown, min: number, max: number): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max
   if (c.v !== 1 || typeof c.host !== 'string' || !isHostName(c.host) || !c.host.includes('.') || c.host.endsWith('.local')
     || !['rented', 'archy'].includes(c.hosting) || typeof c.relayIp !== 'string'
@@ -49,13 +54,15 @@ export function validateConfiguration(value: unknown): NodeConfiguration {
     || !integer(c.aggregateBytesPerSecond, 1, 67108864) || !integer(c.maxBytes, 1048576, Number.MAX_SAFE_INTEGER)
     || !integer(c.minFreeBytes, 1048576, Number.MAX_SAFE_INTEGER) || !integer(c.maxRooms, 1, 64)
     || ![c.deskPort, c.spryPort, c.shelterPort].every(p => integer(p, 1024, 65535))
-    || new Set([c.deskPort, c.spryPort, c.shelterPort, 3478, 5349, ...Array.from({ length: 32 }, (_, i) => 49160 + i)]).size !== 37
+    || new Set([c.deskPort, c.spryPort, c.shelterPort, ports.udpTcp, ports.tls, ...Array.from({ length: 32 }, (_, i) => first + i)]).size !== 37
+    || !integer(first, 1024, 65504) || c.tlsGate !== undefined && c.tlsGate !== true
+    || c.tlsGate && (c.hosting !== 'archy' || c.certificate !== undefined || c.certificateKey !== undefined)
     || !Array.isArray(c.origins) || c.origins.length > 16) throw Error('Invalid node configuration')
   // The native backend parses/binds the actual interface. Never guess it from
   // a third-party IP service, hostname lookup or the operator's home router.
   if (!/^[0-9.]+$/.test(c.relayIp) || c.relayIp.split('.').length !== 4 || c.relayIp.split('.').some(p => !/^\d{1,3}$/.test(p) || Number(p) > 255)) throw Error('Invalid relay interface')
   for (const origin of c.origins) { const url = new URL(origin); if (url.protocol !== 'https:' || url.origin !== origin) throw Error('Invalid browser origin') }
-  for (const path of [c.spryBinary, c.shelterBinary, c.certificate, c.certificateKey]) if (typeof path !== 'string' || !isAbsolute(path)) throw Error('Node paths must be explicit absolute paths')
+  for (const path of [c.spryBinary, c.shelterBinary, ...(c.tlsGate ? [] : [c.certificate, c.certificateKey])]) if (typeof path !== 'string' || !isAbsolute(path)) throw Error('Node paths must be explicit absolute paths')
   return structuredClone(c)
 }
 function privateDirectory(path: string): void {
@@ -70,8 +77,16 @@ function privateRead(path: string): string {
     return readFileSync(fd, 'utf8')
   } finally { closeSync(fd) }
 }
-export function initialise(directory: string, value: unknown, resume = false): void {
+export interface InitialNodeSecrets { serviceKey: string; turnSecret: string; stateSalt: string }
+function checkedSecrets(value: InitialNodeSecrets | undefined): InitialNodeSecrets {
+  if (!value || Object.keys(value).length !== 3 || Object.keys(value).some(key => !['serviceKey', 'turnSecret', 'stateSalt'].includes(key)) || ![value.serviceKey, value.turnSecret, value.stateSalt].every(v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v))
+    || new Set([value.serviceKey, value.turnSecret, value.stateSalt]).size !== 3) throw Error('Three independent manifest-declared node secrets are required')
+  try { getPublicKey(new Uint8Array(Buffer.from(value.serviceKey, 'hex'))) } catch { throw Error('Invalid manifest service key') }
+  return value
+}
+export function initialise(directory: string, value: unknown, resume = false, declared?: InitialNodeSecrets): void {
   const configuration = validateConfiguration(value)
+  const imported = configuration.tlsGate || declared ? checkedSecrets(declared) : undefined
   mkdirSync(directory, { mode: 0o700, recursive: true }); privateDirectory(directory)
   if (!resume) {
     try { lstatSync(join(directory, 'node.json')); throw Error('Node state already exists') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
@@ -82,15 +97,16 @@ export function initialise(directory: string, value: unknown, resume = false): v
   else { const fd = openSync(marker, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); closeSync(fd) }
   for (const [name, contents] of [
     ['node.json', JSON.stringify(configuration, null, 2)],
-    ['service.key', Buffer.from(generateSecretKey()).toString('hex')],
-    ['turn.secret', randomBytes(32).toString('hex')],
-    ['state.salt', randomBytes(32).toString('hex')],
+    ['service.key', imported?.serviceKey ?? Buffer.from(generateSecretKey()).toString('hex')],
+    ['turn.secret', imported?.turnSecret ?? randomBytes(32).toString('hex')],
+    ['state.salt', imported?.stateSalt ?? randomBytes(32).toString('hex')],
   ]) {
     const path = join(directory, name!)
     if (resume) {
       try {
         const existing = privateRead(path).trim()
         if (name === 'node.json' ? JSON.stringify(validateConfiguration(JSON.parse(existing))) !== JSON.stringify(configuration) : !/^[a-f0-9]{64}$/.test(existing)) throw Error('Partial node state does not match this installation')
+        if (imported && name !== 'node.json' && existing !== contents) throw Error('Manifest secrets differ from existing node state')
         continue
       } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
     }
@@ -107,20 +123,24 @@ export function readConfiguration(directory: string): NodeConfiguration {
 }
 /** Children are restarted here; their fail-closed leases cover desk death.
  * stdout/stderr are deliberately disconnected, including native diagnostics. */
-export async function runNode(directory: string): Promise<{ supervisor: NodeSupervisor; close(): Promise<void> }> {
+export async function runNode(directory: string, declared?: InitialNodeSecrets): Promise<{ supervisor: NodeSupervisor; close(): Promise<void> }> {
   if (process.getuid?.() === 0) throw Error('Run the node as its unprivileged service user')
-  const c = readConfiguration(directory), origin = `https://${c.host}`
+  const c = readConfiguration(directory), origin = `https://${c.host}`, ports = readNodeTurnPorts(c.turnPorts)!
   for (const binary of [c.spryBinary, c.shelterBinary]) {
     const info = lstatSync(binary)
     if (!info.isFile() || info.mode & 0o022 || !(info.mode & 0o111)) throw Error('Backend executables must be regular, executable and not writable by other users')
   }
   const rawKey = privateRead(join(directory, 'service.key')).trim(), secret = privateRead(join(directory, 'turn.secret')).trim(), salt = privateRead(join(directory, 'state.salt')).trim()
+  if (c.tlsGate || declared) {
+    const imported = checkedSecrets(declared)
+    if (rawKey !== imported.serviceKey || secret !== imported.turnSecret || salt !== imported.stateSalt) throw Error('Manifest secrets differ from existing node state')
+  }
   if (![rawKey, secret, salt].every(v => /^[0-9a-f]{64}$/.test(v))) throw Error('Invalid private node state')
   const key = new Uint8Array(Buffer.from(rawKey, 'hex')), serviceKey = getPublicKey(key)
   const ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: c.host, serviceKey, salt, maxRooms: c.maxRooms })
   const relaySocket = join(directory, 'shelter.sock'), controlSocket = join(directory, 'node.sock')
   const supervisor = new NodeSupervisor(ledger, new SpryBackend({ local: `http://127.0.0.1:${c.spryPort}`, origin, key, turnSecret: secret }), new ShelterBackend(relaySocket), c.host, key)
-  const http = nodeHttp(supervisor, { origin, origins: c.origins, serviceKey })
+  const http = nodeHttp(supervisor, { origin, origins: c.origins, serviceKey, turnPorts: c.turnPorts })
   const children = new Set<ChildProcess>(), timers = new Set<ReturnType<typeof setTimeout>>()
   let closing = false
   const launch = (binary: string, args: string[], environment: NodeJS.ProcessEnv, failures = 0): void => {
@@ -183,7 +203,8 @@ export async function runNode(directory: string): Promise<{ supervisor: NodeSupe
     launch(c.spryBinary, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: secret,
       SPRY_ROOM_SEAL: 'required', SPRY_PUBLIC: 'false', SPRY_RELAY_IP: c.relayIp, ...(c.publicIp ? { SPRY_PUBLIC_IP: c.publicIp } : {}),
       SPRY_HTTP_BIND: '127.0.0.1', SPRY_HTTP_PORT: String(c.spryPort), SPRY_STATE_FILE: join(directory, 'spry.json'),
-      SPRY_TLS_CERT_FILE: c.certificate, SPRY_TLS_KEY_FILE: c.certificateKey, SPRY_TLS_443: 'true',
+      ...(c.tlsGate ? { SPRY_TLS_GATE: 'true' } : { SPRY_TLS_CERT_FILE: c.certificate, SPRY_TLS_KEY_FILE: c.certificateKey }), SPRY_TLS_443: 'true',
+      SPRY_TURN_PORT: String(ports.udpTcp), SPRY_TLS_PORT: String(ports.tls), SPRY_RELAY_PORTS: `${c.relayPortFirst ?? 49160}:${(c.relayPortFirst ?? 49160) + 31}`,
       SPRY_AGGREGATE_BYTES_PER_SECOND: String(c.aggregateBytesPerSecond), SPRY_ALLOWED_ORIGINS: c.origins.join(',') })
     launch(c.shelterBinary, ['room-relay', '--data', join(directory, 'rooms'), '--control', relaySocket, '--listen', `127.0.0.1:${c.shelterPort}`,
       '--url', `wss://${c.host}/events`, '--max-bytes', String(c.maxBytes), '--min-free-bytes', String(c.minFreeBytes), '--max-rooms', String(c.maxRooms)], {})
