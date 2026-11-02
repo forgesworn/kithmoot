@@ -563,11 +563,17 @@
             <!-- The browser or the system has refused the microphone or camera:
                  said in the call, with what to do. Filled by `noteMediaBlocked`
                  in app/src/main.ts. -->
-            <p id="mediaBlockedNote" class="indicator broken" role="status" hidden></p>
+            <div id="mediaBlockedNote" class="indicator broken" role="status" hidden>
+              <span id="mediaBlockedMessage"></span>
+              <button id="retryBlockedMedia" type="button" class="quiet">Try again</button>
+            </div>
             <!-- No TURN relay is configured, or the credential mint failed. Set by
                  `noteRelayMissing` in app/src/main.ts. Calls still try peer to peer. -->
             <p id="relayMissingNote" class="indicator" role="status" hidden></p>
-            <p id="mediaRecoveryNote" class="indicator" role="status" hidden></p>
+            <div id="mediaRecoveryNote" class="indicator" role="status" hidden>
+              <span>Call media was interrupted. Resume it here. If it still fails, turn the affected microphone or camera off and on.</span>
+              <button id="retryCallMedia" type="button" class="quiet">Resume call media</button>
+            </div>
             <p id="voiceFailureNotice" class="indicator broken" role="status" hidden></p>
             <!-- Shown only while a screen share is live and the browser gave
                  no audio track: Firefox, Safari, a window share, or the box

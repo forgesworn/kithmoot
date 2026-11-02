@@ -171,9 +171,14 @@ Acceptance matrix:
   late joiner, camera plus screen share, and screen-share audio where the
   platform offers it;
 - home Wi-Fi, a Wi-Fi/mobile-data transition and the supported VPN path;
-- at least one 45-minute call with repeated camera, microphone, annotation and
+- five-minute calls with repeated camera, microphone, annotation and
   screen-share changes and no unrecovered black, frozen, silent or duplicated
   media.
+
+The owner set five minutes as the immediate call acceptance target on
+2 November 2026, prioritising working website calls on desktop and Android
+across ordinary and restrictive networks. Longer endurance runs remain
+follow-up work, rather than a gate for these reliability fixes.
 
 For every row, record client versions, device/OS versions, chosen route,
 permissions, observed outcome and any unsupported capability.

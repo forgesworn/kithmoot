@@ -8,6 +8,12 @@ const response = (body: unknown = profile) => new Response(JSON.stringify(body),
 afterEach(() => vi.restoreAllMocks())
 
 describe('independent issuer boundary', () => {
+  it('requests extended TURN URLs only when the deployment explicitly opts in', async () => {
+    const send = vi.fn(async () => response())
+    expect(await fetchTurnCredential('/turn', { fetch: send, extendedUrls: true })).toBeDefined()
+    const init = (send.mock.calls[0] as unknown as [string, RequestInit])[1]
+    expect(init.headers).toEqual({ 'X-KithMoot-Turn-Urls': 'extended-v1' })
+  })
   it('sends no cookies, authorisation, referrer, body or room information and refuses redirects', async () => {
     const send = vi.fn(async () => response())
     expect(await fetchTurnCredential('https://issuer.example/turn', { fetch: send })).toEqual({

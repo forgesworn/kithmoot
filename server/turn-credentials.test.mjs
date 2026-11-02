@@ -38,6 +38,12 @@ async function startServer(configOverrides = {}) {
 }
 
 describe('loadConfigFromEnv', () => {
+  it('keeps separate browser URLs out of the legacy URL list', () => {
+    const config = loadConfigFromEnv({ TURN_SECRET: 'shh', TURN_URLS: 'turn:old.example:3478',
+      TURN_WEB_URLS: 'turn:old.example:3478, turns:new.example:443' })
+    expect(config.urls).toEqual(['turn:old.example:3478'])
+    expect(config.webUrls).toEqual(['turn:old.example:3478', 'turns:new.example:443'])
+  })
   it('refuses to start without TURN_SECRET', () => {
     expect(() => loadConfigFromEnv({ TURN_URLS: 'turn:x:3478' })).toThrow(/TURN_SECRET/)
   })
@@ -76,6 +82,28 @@ describe('the process, run directly', () => {
 })
 
 describe('GET /turn', () => {
+  it('keeps pinned native clients on legacy URLs while an updated browser opts into web URLs', async () => {
+    const urls = ['turn:kithmoot.forgesworn.dev:3478', 'turns:kithmoot.forgesworn.dev:5349']
+    const webUrls = [...urls, 'turns:call-relay.kithmoot.forgesworn.dev:443']
+    const { baseUrl } = await startServer({ urls, webUrls })
+    const legacy = await fetch(`${baseUrl}/turn`).then(response => response.json())
+    const browser = await fetch(`${baseUrl}/turn`, { headers: { 'X-KithMoot-Turn-Urls': 'extended-v1' } }).then(response => response.json())
+    const unknown = await fetch(`${baseUrl}/turn`, { headers: { 'X-KithMoot-Turn-Urls': 'unknown' } }).then(response => response.json())
+    expect(legacy.urls).toEqual(urls)
+    expect(unknown.urls).toEqual(urls)
+    expect(browser.urls).toEqual(webUrls)
+    for (const body of [legacy, browser, unknown]) {
+      expect(body.credential).toBe(createHmac('sha1', 'test-secret').update(body.username).digest('base64'))
+      expect(Object.keys(body).sort()).toEqual(['credential', 'ttl', 'urls', 'username'])
+    }
+  })
+
+  it('an updated browser still works when its operator has no separate web URLs', async () => {
+    const { baseUrl, config } = await startServer()
+    const response = await fetch(`${baseUrl}/turn`, { headers: { 'X-KithMoot-Turn-Urls': 'extended-v1' } })
+    expect((await response.json()).urls).toEqual(config.urls)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+  })
   it('returns a well-formed credential whose username expiry is in the future', async () => {
     const { baseUrl } = await startServer({ ttlSeconds: 120 })
     const before = Math.floor(Date.now() / 1000)
@@ -148,6 +176,17 @@ describe('GET /healthz', () => {
 })
 
 describe('CORS', () => {
+  it('allows the browser capability header only for an already allowed origin', async () => {
+    const { baseUrl } = await startServer()
+    const response = await fetch(`${baseUrl}/turn`, { method: 'OPTIONS', headers: {
+      Origin: 'https://kithmoot.example', 'Access-Control-Request-Headers': 'X-KithMoot-Turn-Urls',
+    } })
+    expect(response.status).toBe(204)
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://kithmoot.example')
+    expect(response.headers.get('access-control-allow-headers')).toBe('X-KithMoot-Turn-Urls')
+    const denied = await fetch(`${baseUrl}/turn`, { method: 'OPTIONS', headers: { Origin: 'https://other.example' } })
+    expect(denied.status).toBe(403)
+  })
   it('allows a listed origin and echoes it back', async () => {
     const { baseUrl } = await startServer({ allowedOrigins: ['https://kithmoot.example'] })
     const res = await fetch(`${baseUrl}/turn`, { headers: { origin: 'https://kithmoot.example' } })

@@ -8,6 +8,14 @@ const view = (change: Partial<CallPathInput> = {}) => callPathView({ ...none, ..
 const running = { running: true, rowSub: 'On · in use now' }
 
 describe('how calls connect (section 6.1)', () => {
+  it('explains automatic fallback when this website supplies a default relay', () => {
+    const v = view({ defaultRelay: true })
+    expect(v.head).toBe('Direct, with automatic relay fallback')
+    expect(v.body).toContain('You do not need to set anything up')
+    expect(view({ defaultRelay: true, hideIp: true }).head).toBe('Always through the default call relay')
+    expect(view({ defaultRelay: true, server: { state: 'saved', host: 'my.example' } }).winner).toBe('server')
+    expect(view({ defaultRelay: true, server: { state: 'unreadable' } }).head).toBe('Direct only')
+  })
   it('CS1: nothing set up', () => {
     const v = view()
     expect(v.head).toBe('Direct only')
