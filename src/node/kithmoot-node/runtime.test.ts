@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -47,8 +47,25 @@ it('runs a private local control socket and cleans up its children, socket and w
   try {
     expect(statSync(join(directory, 'node.sock')).mode & 0o777).toBe(0o600)
     expect(await localControl(directory, 'status')).toMatchObject({ ok: true, result: { ready: false, rooms: 0, paired: false } })
+    expect(await localControl(directory, 'info')).toMatchObject({ ok: true, result: { v: 1, version: '0.1.0-rc.1', origin: 'https://node.example', serviceKey: expect.stringMatching(/^[a-f0-9]{64}$/) } })
     expect(await localControl(directory, 'pair')).toMatchObject({ ok: true, result: { code: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) } })
     await expect(runNode(directory)).rejects.toThrow('already in use')
   } finally { await node.close() }
   expect(existsSync(join(directory, 'node.sock'))).toBe(false)
+})
+
+it('recovers interrupted first-time setup without changing existing service identity or accepting changed configuration', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-resume-')); paths.push(directory)
+  initialise(directory, configuration())
+  const original = readFileSync(join(directory, 'service.key'), 'utf8')
+  writeFileSync(join(directory, 'initialising'), '', { mode: 0o600 })
+  unlinkSync(join(directory, 'turn.secret')); unlinkSync(join(directory, 'state.salt'))
+  expect(() => initialise(directory, { ...configuration(), maxRooms: 7 }, true)).toThrow('does not match')
+  expect(existsSync(join(directory, 'turn.secret'))).toBe(false)
+  initialise(directory, configuration(), true)
+  expect(readFileSync(join(directory, 'service.key'), 'utf8')).toBe(original)
+  expect(readFileSync(join(directory, 'turn.secret'), 'utf8').trim()).toMatch(/^[a-f0-9]{64}$/)
+  expect(readConfiguration(directory)).toEqual(configuration())
+  expect(existsSync(join(directory, 'initialising'))).toBe(false)
+  expect(() => initialise(directory, configuration(), true)).toThrow()
 })

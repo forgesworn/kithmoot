@@ -1,0 +1,235 @@
+{
+  "schema": "kithmoot-node-installer/1",
+  "date": "2026-11-02",
+  "sourceCommit": "faceadc731978846491f3fea576a53a9a81810d5",
+  "distribution": "private-candidate",
+  "publicRelease": false,
+  "platform": "linux-arm64",
+  "version": "0.1.0-rc.1",
+  "manifestSha256": "492266c7ba8b882d5e6e59e3fb6d097155ddbc1d877ffb970cc1af1607f0bbe9",
+  "files": [
+    {
+      "path": "bin/bothyd",
+      "bytes": 11308112,
+      "sha256": "e8e35774dd590c7f9722cdc2e876fa52d80f6d14e339c9156fe16e7ffe5fa03e",
+      "executable": true
+    },
+    {
+      "path": "bin/spry-node",
+      "bytes": 4592688,
+      "sha256": "e55b171375edcc5ed412c8e0944a23f6028fe0479e87a6df4a1c0b1b274cf80c",
+      "executable": true
+    },
+    {
+      "path": "deploy/kithmoot-node-front.service",
+      "bytes": 1006,
+      "sha256": "1d5aecda8c06c1943726ffc5a1169387b1897817f594e718be3b15b04a00b6e9",
+      "executable": false
+    },
+    {
+      "path": "deploy/kithmoot-node.service",
+      "bytes": 881,
+      "sha256": "0eee909794312f306954f63f73bd7f4d4ca08d240e32a57ef5c68898355607e8",
+      "executable": false
+    },
+    {
+      "path": "kithmoot-node",
+      "bytes": 172,
+      "sha256": "427d7f652da018bd89b513e1686e93222e56512a4421726ac29d28111a76146a",
+      "executable": true
+    },
+    {
+      "path": "lib/kithmoot-node.mjs",
+      "bytes": 226749,
+      "sha256": "1ef0ea81f02d2d2c775f701398c678910a929d74ac2dc027b3e7a91b0e08d8a0",
+      "executable": true
+    },
+    {
+      "path": "licenses/Node-LICENSE.txt",
+      "bytes": 157609,
+      "sha256": "5888dbb9a1d2b18f2c3e6c5f6af1b39de658372b402a0577b002777f14c62ace",
+      "executable": false
+    },
+    {
+      "path": "licenses/NOTICE.txt",
+      "bytes": 13434,
+      "sha256": "0a1a89f674788db4e53a6e819c16e3ffe5189a59f65b58b687510b41bf5d2a94",
+      "executable": false
+    },
+    {
+      "path": "licenses/Shelter-LICENSE.txt",
+      "bytes": 1080,
+      "sha256": "0e3862bf4927437b964c00625c29722df2d22c9f2ba81087e97da02d7a211ea0",
+      "executable": false
+    },
+    {
+      "path": "licenses/Spry-LICENSE.txt",
+      "bytes": 1072,
+      "sha256": "627b590d5f2a254711c3d5e0824677169f1d4758613e41120c600b50d2a8e08a",
+      "executable": false
+    },
+    {
+      "path": "runtime/bin/node",
+      "bytes": 123378856,
+      "sha256": "b4855de8c4781130b722ceaec9718fed77cca3eed2e5cfc5455e267c0b9ee3b0",
+      "executable": true
+    }
+  ],
+  "dependencies": [
+    {
+      "name": "node",
+      "revision": "24.22.2",
+      "visibility": "public",
+      "provenance": "Official Node Docker image sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c"
+    },
+    {
+      "name": "spry",
+      "revision": "f9823b74da4f6ec51649fe725f4e2c200e17283d",
+      "visibility": "public",
+      "provenance": "Local offline Linux ARM64 build, pinned Rust image sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b"
+    },
+    {
+      "name": "shelter",
+      "revision": "611a150d1ec2185c97b7f54c3739e91a18623204",
+      "visibility": "private",
+      "provenance": "Local offline Linux ARM64 build with locked Git dependencies; private input, no publisher release attestation"
+    }
+  ],
+  "fixture": {
+    "os": "Debian 12 bookworm",
+    "systemd": "252.39",
+    "node": "24.22.2",
+    "baseImage": "node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c",
+    "rustBuilder": "rust:1-bookworm@sha256:9181b56c2a21ab1d5e73cffe04fc762426d30aa7fac3c91141dd033f49a7fc8b",
+    "offlineDuringChecks": true,
+    "assignedSyntheticAddress": "1.2.3.4/32 on loopback",
+    "tls": "Generated SAN-bearing fixture certificate; client-process trust only; normal hostname verification",
+    "privilegedDisposableContainer": true,
+    "publishedHostPorts": false
+  },
+  "checks": {
+    "unitTests": 49,
+    "unitFiles": 11,
+    "frontAfterTypeAnnotationChange": 4,
+    "typecheck": "npm run typecheck passed, library and app",
+    "libraryBuild": "npm run build:lib passed",
+    "changedCodeSecretScan": "no leaks",
+    "doctorLocalChecks": 9,
+    "installedJourney": {
+      "schema": "kithmoot-node-installed/1",
+      "result": "passed",
+      "isolatedLinux": true,
+      "ownerPairing": true,
+      "manualAdmission": true,
+      "freshRoot": true,
+      "encryptedChat": true,
+      "activeUninstallRefused": true,
+      "liveUpdate": false,
+      "authenticatedTurn": [
+        "udp3478",
+        "tcp3478",
+        "tls5349",
+        "tls443"
+      ],
+      "cachedAccessRevoked": true,
+      "closeDelivered": true,
+      "callsRevoked": true,
+      "relayPurged": true,
+      "signedCompletion": true,
+      "coldPublicProof": true,
+      "counts": {
+        "v": 1,
+        "ready": true,
+        "paired": true,
+        "rooms": 0,
+        "devices": 0,
+        "pending": 0
+      }
+    },
+    "liveUpdateJourney": {
+      "schema": "kithmoot-node-installed/1",
+      "result": "passed",
+      "isolatedLinux": true,
+      "ownerPairing": true,
+      "manualAdmission": true,
+      "freshRoot": true,
+      "encryptedChat": true,
+      "activeUninstallRefused": true,
+      "liveUpdate": true,
+      "authenticatedTurn": [
+        "udp3478",
+        "tcp3478",
+        "tls5349",
+        "tls443"
+      ],
+      "cachedAccessRevoked": true,
+      "closeDelivered": true,
+      "callsRevoked": true,
+      "relayPurged": true,
+      "signedCompletion": true,
+      "coldPublicProof": true,
+      "counts": {
+        "v": 1,
+        "ready": true,
+        "paired": true,
+        "rooms": 0,
+        "devices": 0,
+        "pending": 0
+      }
+    },
+    "lifecycle": {
+      "schema": "kithmoot-node-install-lifecycle/1",
+      "result": "passed",
+      "isolatedLinux": true,
+      "modifiedUnitPreserved": true,
+      "killedUpdateRecovered": true,
+      "ownerAndIdentityRetained": true,
+      "normalUpdate": true,
+      "cleanUninstall": true,
+      "freshInstall": true,
+      "interruptedInitialisationResumed": true,
+      "originalServiceIdentityPreserved": true,
+      "finalUninstall": true
+    },
+    "backendRegression": {
+      "passed": true,
+      "revocationAcknowledgementToClosedStreamsMs": 31
+    },
+    "ufw": {
+      "realActiveFirewallInFixture": true,
+      "addedTaggedRules": [
+        "3478/tcp",
+        "3478/udp",
+        "5349/tcp",
+        "49160:49191/udp"
+      ],
+      "preservedExistingRules": [
+        "22/tcp with fixture-existing-ssh",
+        "443/tcp with fixture-existing-https"
+      ],
+      "uninstallRemovedOnlyTaggedRules": true
+    }
+  },
+  "logHashes": {
+    "kithmoot-node-installed-journey-final-20261102.log": "34080a9216a7d94da4655575850ea288374e6d90269ea196a1450760983b7af7",
+    "kithmoot-node-installed-live-update-20261102.log": "64e524f277dc14d1603ed1abb3e5e3ae68d8ea95bcd9c3b5f037462387912c82",
+    "kithmoot-node-install-lifecycle-20261102.log": "2f4af6b376345ede5b10536f29a7a1bc8c05711b5ae897d2d04a044abcc4f711",
+    "kithmoot-node-linux-doctor-20261102.json": "3a4e983976776134c826080cc0ed87f06f16a690e0fe733dd3543d75ed5f3174",
+    "kithmoot-node-ufw-before-uninstall-20261102.txt": "ba3444c0f7ecde08a804060adfc38826d19eb021e69d7d25f49d8f070357349e",
+    "kithmoot-node-ufw-after-uninstall-20261102.txt": "d2193659e4ab8e9033ed0eb576a7f8c720cdb89592f3f5ad512a15f5a0d1b6ac",
+    "kithmoot-node-installer-all-tests-20261102.log": "8e679fa70c7b7ee6f41b31948154cbb820c42df358745f1e691393952c394040",
+    "kithmoot-node-installer-typecheck-20261102.log": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042",
+    "kithmoot-node-installer-front-tests-20261102.log": "5bfb127209915f36a8014029e89395b9a4de9436c33fd95617acedf7cb3640a3",
+    "kithmoot-node-installer-backends-20261102.log": "0212ea380e64cf7cab239e0827da333eba2a527b7236a9b0f50a699b4a0d2fb4",
+    "kithmoot-node-installer-secret-scan-20261102.log": "51974ff249d92ebcdd73a360229346879a750dce02692286ab5c480c907c229f"
+  },
+  "remaining": [
+    "Public signed dependency/source/licence distribution approval, including private Shelter",
+    "Public ACME issuance and renewal timer execution against the CA",
+    "Independent DNS, public certificate trust and host/provider firewall reachability",
+    "Independent NAT and mobile-data relay media, forced TLS443 across clients and capacity",
+    "Physical GrapheneOS without Google Play acceptance",
+    "Reviewed-revision maintainer approval for client and Archy UI; ZAT pending",
+    "Archy package/app-gate/port coexistence qualification"
+  ]
+}

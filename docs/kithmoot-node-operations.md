@@ -3,9 +3,10 @@
 The design is [the node specification](design/2026-11-02-kithmoot-node.md).
 This implementation is being delivered in stages. The current backend can
 pair an owner, enrol rooms, project signed grants, remove devices and recover
-interrupted room closure. It is not yet a public node release. The web,
-desktop and Android node journeys, signed installer dependencies, external
-network qualification and applicable UI acceptance remain required.
+interrupted room closure. The private Linux installer and client implementations are available for
+review. This is not a public node release: signed dependencies, external
+network qualification and applicable UI acceptance remain required. See the
+[installer guide](kithmoot-node-install.md) and the web and Android UI review packs.
 
 ## Local operator commands
 
@@ -40,17 +41,17 @@ in the service's control group, so a killed supervisor cannot leave orphan
 children holding its ports and state locks through a restart. Use that
 lifecycle on Linux. A manually launched foreground process has graceful
 SIGTERM/SIGINT cleanup; killing it without its process group is not a
-substitute for the systemd crash/restart boundary. The unit is a candidate
-template, not evidence of installation on a fresh Linux machine.
+substitute for the systemd crash/restart boundary. The unit has been exercised on a disposable Debian systemd installation.
+That local proof does not establish outside reachability or a production deployment.
 
 Run `pair --state DIRECTORY` in a local terminal to print a single-use,
 six-minute owner link. Its code is in the fragment and is not logged by the
 service. The node stores only the code's digest. A new local pairing command
-invalidates the previous code. The client pairing handler is part of the
-remaining client implementation, so this candidate does not yet offer a
-complete install-and-pair journey. `status` returns counts; `doctor` checks
-local readiness and explicitly leaves DNS, certificate trust, outside TURN
-reachability and mobile-network acceptance to external checks.
+invalidates the previous code. The client pairing handlers are in the UI
+review candidates. `status` returns counts; `doctor` checks local service
+identity, DNS, certificate trust, storage, the four STUN transports and the
+relay authentication challenge. It explicitly leaves outside reachability,
+authenticated relay media and mobile-network acceptance to external checks.
 
 ## Public API behind the TLS front
 
@@ -72,7 +73,8 @@ codes. Unknown request fields and routes fail closed.
 * `GET /node/v1/info` returns the node service key and fixed node profile,
   sole relay, files-off and relay-only policy. The keeper's signed descriptor
   must pin these before a client trusts them.
-* `GET /node/v1/status` returns readiness and counts only.
+* `GET /node/v1/status` returns readiness and counts only. Its NIP-98
+  authenticated POST form returns the paired owner's detailed node status.
 * `POST /node/v1/claim` takes the local code, and pairs the signing public key
   as owner. It cannot replace an existing owner.
 * `POST /node/v1/enrol` takes `room`, `authority`, `inviter` and optional

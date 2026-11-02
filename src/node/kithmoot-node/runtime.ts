@@ -9,6 +9,7 @@ import { NodeLedger, NodeRefusal } from './ledger.js'
 import { NodeSupervisor } from './supervisor.js'
 import { SpryBackend, ShelterBackend } from './backends.js'
 import { nodeHttp, preparePairing } from './http.js'
+import { NODE_VERSION } from './version.js'
 
 export interface NodeConfiguration {
   v: 1
@@ -69,20 +70,31 @@ function privateRead(path: string): string {
     return readFileSync(fd, 'utf8')
   } finally { closeSync(fd) }
 }
-export function initialise(directory: string, value: unknown): void {
+export function initialise(directory: string, value: unknown, resume = false): void {
   const configuration = validateConfiguration(value)
   mkdirSync(directory, { mode: 0o700, recursive: true }); privateDirectory(directory)
-  try { lstatSync(join(directory, 'node.json')); throw Error('Node state already exists') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  if (!resume) {
+    try { lstatSync(join(directory, 'node.json')); throw Error('Node state already exists') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  }
   // Exclusive creation preserves an existing installation or partial attempt.
   const marker = join(directory, 'initialising')
-  const fd = openSync(marker, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); closeSync(fd)
+  if (resume) privateRead(marker)
+  else { const fd = openSync(marker, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600); closeSync(fd) }
   for (const [name, contents] of [
     ['node.json', JSON.stringify(configuration, null, 2)],
     ['service.key', Buffer.from(generateSecretKey()).toString('hex')],
     ['turn.secret', randomBytes(32).toString('hex')],
     ['state.salt', randomBytes(32).toString('hex')],
   ]) {
-    const file = openSync(join(directory, name!), constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+    const path = join(directory, name!)
+    if (resume) {
+      try {
+        const existing = privateRead(path).trim()
+        if (name === 'node.json' ? JSON.stringify(validateConfiguration(JSON.parse(existing))) !== JSON.stringify(configuration) : !/^[a-f0-9]{64}$/.test(existing)) throw Error('Partial node state does not match this installation')
+        continue
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    }
+    const file = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
     try { writeFileSync(file, contents! + '\n'); fsyncSync(file) } finally { closeSync(file) }
   }
   const parent = openSync(directory, constants.O_RDONLY)
@@ -146,7 +158,7 @@ export async function runNode(directory: string): Promise<{ supervisor: NodeSupe
     socket.on('end', () => {
       try {
         const value = JSON.parse(body)
-        const result = value.op === 'pair' ? preparePairing(supervisor) : value.op === 'status' ? supervisor.status() : undefined
+        const result = value.op === 'pair' ? preparePairing(supervisor) : value.op === 'status' ? supervisor.status() : value.op === 'info' ? { v: 1, version: NODE_VERSION, origin, serviceKey } : undefined
         if (!result) throw Error('invalid operation')
         socket.end(JSON.stringify({ ok: true, result }))
       } catch (error) { socket.end(JSON.stringify({ ok: false, error: error instanceof NodeRefusal ? error.code : 'invalid-local-request' })) }
@@ -179,7 +191,7 @@ export async function runNode(directory: string): Promise<{ supervisor: NodeSupe
     return { supervisor, close }
   } catch (error) { await close(); throw error }
 }
-export function localControl(directory: string, op: 'pair' | 'status'): Promise<unknown> {
+export function localControl(directory: string, op: 'pair' | 'status' | 'info'): Promise<unknown> {
   privateDirectory(directory)
   return new Promise((resolve, reject) => {
     const socket = connect(join(directory, 'node.sock')); let result = ''

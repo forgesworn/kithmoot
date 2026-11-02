@@ -30,9 +30,9 @@ function parse(raw, key) {
   }
   return { type: raw.readUInt16BE(), attributes, signed }
 }
-export async function turnWire({ protocol, port, ca }) {
+export async function turnWire({ protocol, port, ca, host = '127.0.0.1', servername = 'node.example' }) {
   const socket = protocol === 'udp' ? createSocket('udp4') : protocol === 'tls'
-    ? tlsConnect({ host: '127.0.0.1', port, servername: 'node.example', ca, rejectUnauthorized: true }) : connect(port, '127.0.0.1')
+    ? tlsConnect({ host, port, servername, ca, rejectUnauthorized: true }) : connect(port, host)
   const queue = [], waiters = []; let buffer = Buffer.alloc(0), closed = false
   const deliver = frame => { const waiter = waiters.shift(); if (waiter) waiter(frame); else queue.push(frame) }
   socket.on('error', () => {})
@@ -48,7 +48,7 @@ export async function turnWire({ protocol, port, ca }) {
     await new Promise((resolve, reject) => { socket.once(protocol === 'tls' ? 'secureConnect' : 'connect', resolve); socket.once('error', reject) })
   }
   async function exchange(bytes) {
-    if (protocol === 'udp') socket.send(bytes, port, '127.0.0.1'); else socket.write(bytes)
+    if (protocol === 'udp') socket.send(bytes, port, host); else socket.write(bytes)
     let timer
     try { return await Promise.race([queue.length ? queue.shift() : new Promise(r => waiters.push(r)), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('TURN response timed out')), 2000) })]) }
     finally { clearTimeout(timer) }
