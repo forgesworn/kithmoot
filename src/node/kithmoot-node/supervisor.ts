@@ -3,6 +3,7 @@ import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure'
 import { parseGroupEvent, type GroupEvent } from '../../group-grants.js'
 import { NodeLedger, NodeRefusal, type NodeOperation, type NodeRoom } from './ledger.js'
 import { type CallBackend, type RelayBackend, type NodeOffer, type SpryState } from './backends.js'
+import { NODE_VERSION } from './version.js'
 
 export interface CloseRequest {
   operation: string
@@ -74,6 +75,16 @@ export class NodeSupervisor {
   status(): { v: 1; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number } {
     return { v: 1, ready: this.#ready, paired: !!this.ledger.meta('owner'), rooms: this.ledger.rooms().length,
       devices: this.ledger.devices().length, pending: this.ledger.operations().length }
+  }
+  async ownerStatus(): Promise<ReturnType<NodeSupervisor['status']> & {
+    version: string; turnReady: boolean; relayReady: boolean; storeBytes?: number
+  }> {
+    const [calls, relay] = await Promise.allSettled([this.calls.status(), this.relay.status()])
+    const state = this.status()
+    const turnReady = calls.status === 'fulfilled' && calls.value.ready && (state.devices === 0 || calls.value.leaseActive)
+    const relayReady = relay.status === 'fulfilled' && (state.rooms === 0 || relay.value.leaseActive)
+    return { ...state, version: NODE_VERSION, ready: state.ready && turnReady && relayReady, turnReady, relayReady,
+      ...(relay.status === 'fulfilled' ? { storeBytes: relay.value.usedBytes } : {}) }
   }
   operation(id: string): OperationStatus {
     const operation = this.ledger.operation(id)
