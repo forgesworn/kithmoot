@@ -17,7 +17,7 @@ class Relay {
   readonly events: Event[] = []
   readonly subscriptions = new Map<WebSocket, Map<string, Filter[]>>()
   challenge?: unknown
-  constructor(readonly keeper: string, readonly required = true) {
+  constructor(readonly keeper: string, readonly required = true, readonly node?: { room: string; mode: 'room' | 'ask' }) {
     this.server.on('connection', socket => {
       const challenge = this.challenge ?? getPublicKey(generateSecretKey())
       this.challenges.push(String(challenge))
@@ -32,7 +32,7 @@ class Relay {
         if (frame[0] === 'AUTH') {
           const auth = frame[1] as Event
           authenticated = auth.kind === 22242 && auth.pubkey === this.keeper && verifyEventUncached(auth) &&
-            JSON.stringify(auth.tags) === JSON.stringify([['relay', this.url], ['challenge', challenge]])
+            JSON.stringify(auth.tags) === JSON.stringify([['relay', this.url], ['challenge', challenge], ...(this.node ? [['room', this.node.room], ['mode', this.node.mode]] : [])])
           socket.send(JSON.stringify(['OK', auth.id, authenticated, authenticated ? '' : 'restricted: keeper required']))
         } else if (frame[0] === 'EVENT') {
           const event = frame[1] as Event
@@ -84,6 +84,30 @@ afterEach(async () => {
 })
 
 describe('explicit relay authentication over real WebSockets', () => {
+  it('signs only the configured node room and door, including a guarded publication', async () => {
+    const identity = localIdentity(generateSecretKey()), node = { room: '01'.repeat(32), mode: 'room' as const }
+    const relay = await new Relay(identity.pubkey, true, node).start()
+    const p = new NostrRelayPool([relay.url], undefined, { websocketImplementation: sockets, authentication: [{ url: relay.url, identity, node }] }); pools.push(p)
+    const complete = vi.fn(), off = p.subscribe([{ kinds: [1] }], () => {}, complete)
+    await wait(() => expect(complete).toHaveBeenCalled())
+    await p.publishGuarded(note(), () => true)
+    const proofs = relay.frames.filter(f => f[0] === 'AUTH').map(f => f[1] as Event)
+    expect(proofs).toHaveLength(2)
+    for (const proof of proofs) expect(proof.tags.slice(2)).toEqual([['room', node.room], ['mode', 'room']])
+    expect(relay.events).toHaveLength(1); off()
+  })
+  it('refuses malformed node scopes and a signer substituting the ask door', async () => {
+    const key = generateSecretKey(), identity = localIdentity(key), node = { room: '01'.repeat(32), mode: 'room' as const }
+    const relay = await new Relay(identity.pubkey, true, node).start()
+    for (const invalid of [{ room: 'bad', mode: 'room' }, { room: node.room, mode: 'other' }, { ...node, fallback: 'ask' }]) {
+      expect(() => new NostrRelayPool([relay.url], undefined, { authentication: [{ url: relay.url, identity, node: invalid as typeof node }] })).toThrow('explicit room and door')
+    }
+    const p = new NostrRelayPool([relay.url], undefined, { websocketImplementation: sockets, authentication: [{ url: relay.url, node,
+      identity: { pubkey: identity.pubkey, signEvent: async template => finalizeEvent({ ...template, tags: template.tags.map(t => t[0] === 'mode' ? ['mode', 'ask'] : t) }, key) } }] }); pools.push(p)
+    const off = p.subscribe([{ kinds: [1] }], () => {})
+    await wait(() => expect(p.health()[0]?.authentication).toBe('failed'))
+    expect(relay.frames).toEqual([]); off()
+  })
   it('waits for a keeper AUTH acknowledgement before subscribing or publishing, without identifying to another relay', async () => {
     const key = generateSecretKey(), identity = localIdentity(key)
     const keeper = await new Relay(identity.pubkey).start()
