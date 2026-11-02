@@ -1,6 +1,7 @@
 # KithMoot node: calls and chat for invited guests, on a server the keeper runs
 
-Design, 2 November 2026. No implementation. Covers KithMoot web and desktop
+Design baseline, 2 November 2026. Implementation status is recorded below.
+Covers KithMoot web and desktop
 (`forgesworn/kithmoot`), KithMoot Android (`forgesworn/kithmoot-android`), Spry
 (`forgesworn/spry-turn`), Shelter (the event shelter in `forgesworn/bothy-node`,
 a private repository), the group grant contract (`forgesworn/wildbloom-node`)
@@ -37,6 +38,24 @@ Owner decisions, 2 November 2026:
 Tags: **[unverified]** marks a claim not checked against source, documentation
 or a running system for this design. **[decision]** marks an owner decision,
 listed at the end.
+
+Implementation update, 2 November 2026: Spry's standard node profile (PR 33),
+Shelter's private room relay (private PR 134), Fold's node wire format
+(0.16.1), the node supervisor (KithMoot PR 671) and client SDK (PRs 673 and
+674) are merged. The web and desktop UI candidate has a real-browser,
+three-process admission, encrypted chat, removal and closure test. Its UI
+remains unapproved. Android, the installer, Archy integration and external
+media qualification still require work. This is not a public node release.
+See [operations](../kithmoot-node-operations.md),
+[client integration](../kithmoot-node-clients.md) and the
+[UI review pack](../kithmoot-node-ui-review.md).
+
+The source comparisons in section 0 record the original design audit.
+PRs 669, 670 and 672 subsequently corrected automatic STUN to Cloudflare
+only, refreshed publisher/operator facts and fixed stale browser assertions.
+Ordinary rooms retain the existing default TURN service; no shutdown or new
+live node deployment has been authorised. Shelter publication and maintainer
+UI acceptance remain separate owner and maintainer decisions.
 
 ## Summary
 
@@ -344,10 +363,10 @@ services behind the scopes move. wildbloom-node `docs/GROUP-GRANTS.md` section
 
 | Carrier | What it says | Who reads it |
 |---|---|---|
-| Link fragment | `r`: `["wss://<node>/events"]`, `i`: `["stun:<node>:3478"]`, and a new link version for node rooms (2.4) | Anyone holding the link |
-| Signed invitation, new `node` key | `{host, relay, stun}`, authority-signed with the room's relays, the same pattern as the `storage` key and op (`docs/protocol.md`, "Room storage nodes") | Members |
-| Control-channel op `node` | The same record for members already in the room, versioned and signed like `storage` | Members |
-| Descriptor (20465) | The Spry offer for the node, as today | Members |
+| Link fragment | Version 6: `{v:6,node:event}`. The signed record derives the sole relay, own STUN and four TURN URLs; no room key or access token | Anyone holding the link |
+| Signed node record (27542) | Room, authority, HTTPS origin, service key, node profile, relay-only calls, files off and optional room end, as specified by Fold 0.16.1 | Members and link holders |
+| Control-channel op `node` | `{op:"node",event}` repeats that signed record inside the encrypted channel. Receivers verify room and authority. This first profile pins one record; an announcement does not authorise automatic migration | Members |
+| Descriptor (20465) | No alternate Spry offers or peer relays in node rooms. Each admitted device obtains its own node offer through authenticated access and mints short-lived credentials there | Members |
 | Grants (27541) | The device's own access, one per device | That device and the node |
 
 A link holder learns the node's address, which they need to ask. They learn no

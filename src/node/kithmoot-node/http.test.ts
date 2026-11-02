@@ -15,7 +15,11 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   const nodeKey = generateSecretKey(), serviceKey = getPublicKey(nodeKey), now = Math.floor(Date.now() / 1000)
   const ledger = new NodeLedger(join(path, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: 'fixture' }); cleanup.push(() => ledger.close())
   const calls = { status: async () => ({ ready: true, leaseActive: true }), offer: async () => ({ v: 1 as const, endpoint: 'https://node.example', token: 'A'.repeat(43), expiresAt: now + 3600 }), register: async () => {}, remove: async () => {}, lease: async () => {} }
-  const relay = { sync: async () => {}, publish: async () => {}, purge: async () => 0, status: async () => ({ rooms: 0, devices: 0, usedBytes: 0, leaseActive: true }) }
+  let relayUnavailable = false, relayLease = false
+  const relay = { sync: async () => {}, publish: async () => {}, purge: async () => 0, status: async () => {
+    if (relayUnavailable) throw Error('private child path must never be returned')
+    return { rooms: 0, devices: 0, usedBytes: 4096, leaseActive: relayLease }
+  } }
   const supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', nodeKey)
   const server = nodeHttp(supervisor, { origin: 'https://node.example', origins: ['https://app.example'], serviceKey })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); cleanup.push(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
@@ -33,11 +37,29 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   expect((await post('/node/v1/claim', body, auth)).status).toBe(200)
   expect(ledger.meta('pairing')).toBe('')
   expect((await post('/node/v1/claim', body, auth)).status).toBe(409)
+  await supervisor.tick()
+  expect(await supervisor.ownerStatus()).toMatchObject({ ready: true, relayReady: true, rooms: 0 })
   const room = JSON.stringify({ room: '01'.repeat(32), authority: getPublicKey(generateSecretKey()) })
   const roomBody = JSON.stringify({ ...JSON.parse(room), inviter: JSON.parse(room).authority })
   expect((await post('/node/v1/enrol', roomBody, proof('/node/v1/enrol', roomBody, foreign))).status).toBe(403)
   expect((await post('/node/v1/enrol', roomBody, proof('/groups/v1/events', roomBody))).status).toBe(401)
   expect((await post('/node/v1/enrol', roomBody, proof('/node/v1/enrol', roomBody))).status).toBe(200)
+  expect(await supervisor.ownerStatus()).toMatchObject({ ready: false, relayReady: false, rooms: 1 })
+  relayLease = true
   const status = JSON.stringify(await (await fetch(base + '/node/v1/status')).json())
   expect(status).not.toContain(JSON.parse(roomBody).room); expect(status).not.toContain(getPublicKey(owner))
+  const statusBody = '{}'
+  expect((await post('/node/v1/status', statusBody, proof('/node/v1/status', statusBody, foreign))).status).toBe(403)
+  const detailed = await (await post('/node/v1/status', statusBody, proof('/node/v1/status', statusBody))).json()
+  expect(detailed).toMatchObject({ v: 1, version: '0.1.0-rc.1', paired: true, rooms: 1, devices: 0, storeBytes: 4096, turnReady: true, relayReady: true })
+  expect(JSON.stringify(detailed)).not.toContain(JSON.parse(roomBody).room); expect(JSON.stringify(detailed)).not.toContain(getPublicKey(owner))
+  relayUnavailable = true
+  const partial = await (await post('/node/v1/status', statusBody, proof('/node/v1/status', statusBody))).json()
+  expect(partial).toMatchObject({ ready: false, relayReady: false }); expect(partial).not.toHaveProperty('storeBytes')
+  expect(JSON.stringify(partial)).not.toContain('private child path')
+  const reconnect = JSON.stringify({ code: preparePairing(supervisor).code })
+  expect((await post('/node/v1/claim', reconnect, proof('/node/v1/claim', reconnect, foreign))).status).toBe(409)
+  expect((await post('/node/v1/claim', reconnect, proof('/node/v1/claim', reconnect))).status).toBe(200)
+  expect(ledger.meta('owner')).toBe(getPublicKey(owner)); expect(ledger.rooms()).toHaveLength(1)
+  expect((await post('/node/v1/claim', reconnect, proof('/node/v1/claim', reconnect))).status).toBe(403)
 })

@@ -1,0 +1,76 @@
+{
+  "date": "2026-11-02",
+  "status": "candidate-zat-pending",
+  "baseCommit": "9ad88c65f9fc5c9851ce2193bca2612a34d2cf30",
+  "sourceCommit": null,
+  "sourceManifestSha256": "27ca3be4b3cfe4b7f22deff3bd07fdf06f8d0d49a5af3546c522419123676ec7",
+  "webBuild": {
+    "asset": "main-BqYTAYt5.js",
+    "sha256": "fc4451ca88b487ac08b14af4350397e24e2918dc9542f9139da43fff67b5bd46",
+    "reviewUrl": "https://localhost:4517/j/"
+  },
+  "screenshots": {
+    "node-settings.png": "08d0ba6d925f9f58b9506f3c52d157b34ae288d678650c14b48f4226a6763e56",
+    "node-settings-phone.png": "aa5f682cbf00844f59e43eba06c2eb649703e734eedf1dc2dc4ba01c090183ed",
+    "node-hosted-on.png": "514e8d92746fd1b27c1293e89aff3f1e2b53b72df1ab166e0a2cf1e3e0aab269"
+  },
+  "binaries": {
+    "spry": "f5869083848953b30f4cbe123e8cfc9f1d6ece05ae4b02c52e80356c5f3df43c",
+    "shelter": "a7059d6c2cd3bd19bcc997bf614015501d9a09c2e6889ffba2e5868d23a3990a"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "build": "passed",
+    "focusedNodeAndControlTests": {
+      "passed": 66
+    },
+    "custodyAndHttpTests": {
+      "passed": 67
+    },
+    "apiAndControlTests": {
+      "passed": 34
+    },
+    "chromium": {
+      "passed": 8,
+      "actualBackends": true,
+      "scope": [
+        "pairing-before-requests consent",
+        "owner status",
+        "durable room creation",
+        "guest ask and admission without typing",
+        "encrypted chat",
+        "local unpair during room",
+        "removal and local wipe with room retained",
+        "silent decline",
+        "whole closure and partition purge",
+        "owner and guest local wipes",
+        "signed completion check after owner wipe and local unpair",
+        "390px layout without horizontal overflow"
+      ]
+    },
+    "frozenFullUnits": {
+      "passed": 8789,
+      "skipped": 8,
+      "failed": 0,
+      "filesPassed": 506,
+      "filesSkipped": 1,
+      "seconds": 865.26,
+      "sourceManifestVerifiedUnchanged": true
+    }
+  },
+  "notQualified": [
+    "native node media",
+    "public TURN TLS443 listener",
+    "internet deployment",
+    "physical GrapheneOS",
+    "Android node UI",
+    "signed public installer",
+    "Archy integration",
+    "maintainer approval"
+  ],
+  "publication": {
+    "shelterSourceAndSignedRelease": "owner decision required",
+    "newLiveNode": "not deployed",
+    "existingPublicTurn": "retained"
+  }
+}

@@ -32,13 +32,13 @@ test('the list has Calls after Messages and a fresh device explains automatic re
     await openSettings(page, 'Calls')
     await expect(page.locator('#callsHead')).toHaveText('Direct, with automatic relay fallback')
     await expect(page.locator('#callsBody')).toHaveText(FRESH_BODY)
-    // A browser has no built-in relay: three rows, in order.
+    // A browser has no built-in relay: five rows, in order.
     const rows = page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden]) .infoRowTitle')
-    await expect(rows).toHaveText(['Your Spry node', 'Relay server', 'Public call relays', 'Advanced'])
+    await expect(rows).toHaveText(['Your KithMoot node', 'Your Spry node', 'Relay server', 'Public call relays', 'Advanced'])
     await expect(page.locator('#callsSubSpry')).toHaveText('Not paired')
     await expect(page.locator('#callsSubServer')).toHaveText('Not set up')
     await expect(page.locator('#callsSubPublic')).toHaveText('Off')
-    await expect(page.locator('#callsSubAdvanced')).toHaveText('STUN server: Google, Cloudflare')
+    await expect(page.locator('#callsSubAdvanced')).toHaveText('STUN server: Cloudflare')
     await expect(page.locator('#callsHead')).toHaveAttribute('aria-live', 'polite')
     // No bordered boxes from the old page: the only fieldsets are Display's and Where files go.
     const fieldsets = await page.evaluate(() => ({
@@ -49,11 +49,11 @@ test('the list has Calls after Messages and a fresh device explains automatic re
   } finally { await close() }
 })
 
-test('the same three rows on a phone', async ({ browser, baseURL }) => {
+test('the same five rows on a phone', async ({ browser, baseURL }) => {
   const { page, close } = await visit(browser, baseURL!, {}, { width: 390, height: 844 })
   try {
     await openSettings(page, 'Calls')
-    await expect(page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden]) .infoRowTitle')).toHaveText(['Your Spry node', 'Relay server', 'Public call relays', 'Advanced'])
+    await expect(page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden]) .infoRowTitle')).toHaveText(['Your KithMoot node', 'Your Spry node', 'Relay server', 'Public call relays', 'Advanced'])
     await expect(page.locator('#settingsRowCallRelay')).toBeHidden()
   } finally { await close() }
 })

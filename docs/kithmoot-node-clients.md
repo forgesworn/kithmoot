@@ -1,8 +1,10 @@
 # KithMoot node client integration
 
 The library implements the pinned node transport, admission journal and device
-access receiver. The web, desktop and Android screens still need integration
-and acceptance. These APIs do not enable a node for an ordinary room.
+access receiver. The web and desktop integration is an unapproved candidate;
+its [review pack](kithmoot-node-ui-review.md) records the build and browser
+evidence. Android integration and applicable maintainer acceptance remain.
+These APIs do not enable a node for an ordinary room.
 
 The wire format comes from `@forgesworn/fold-kit/node-room`, version 0.16.1.
 Version 6 links contain a signed node record and permit an admission request.
@@ -146,6 +148,23 @@ be disabled before a node room is offered in the UI.
 
 ## Remaining acceptance
 
+The browser candidate stores pairing metadata by account and private node
+room state by account and room. Creation saves keeper custody before enrolment.
+A v6 link asks through the node's separate ask door; an admitted guest enters
+without typing. The runtime owns the device access receiver, authenticated
+room pool, keeper inbox, root epoch desk and managed relay-only call factory.
+Files, alternate relays, peer forwarding and automatic public profile lookups
+are disabled in this room path. Local unpairing leaves existing rooms running
+and does not prevent their keeper closing them.
+
+Signed `node` announcements repeat the pinned room record and do not migrate
+an existing room. Signed `node-grant` controls pass through the persisted
+device receiver. Default decline is silent. Removal revokes device grants
+before rekeying and wipes the removed device's local room data. Whole closure
+uses durable intent, node purge and the existing local self-destruct, without
+opening ordinary public NIP-09 deletion sockets. Only the public operation
+reference survives, for the owner's verified completion check.
+
 Real WebSocket tests cover guest admission and a retained session after
 thirty-one days. Unit tests cover durable grant replay, failure and renewal;
 the credential rotation tests use an RTC double. These do not qualify browser
@@ -154,6 +173,6 @@ fixture independently exercises the actual Spry and Shelter processes.
 
 Maintainer must review and approve UI work on KithMoot's Settings → Calls →
 Your KithMoot node and Room details → Hosted on before merging or approval.
-ZAT pending. Prepare the exact build and named-screen review pack when those
-screens are implemented. The Archy install, launch, pairing hand-off,
+ZAT pending. The candidate's build and named-screen review pack must be
+refreshed after material UI changes. The Archy install, launch, pairing hand-off,
 delete-everything and status screens have the same gate.

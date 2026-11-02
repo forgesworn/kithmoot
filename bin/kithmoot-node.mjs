@@ -2,8 +2,10 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { initialise, localControl, readConfiguration, runNode } from '../dist/src/node/kithmoot-node/runtime.js'
+import { NODE_VERSION } from '../dist/src/node/kithmoot-node/version.js'
 
 const [command, ...args] = process.argv.slice(2)
+if (command === '--version') { console.log(NODE_VERSION); process.exit(0) }
 const options = new Map()
 for (let i = 0; i < args.length; i += 2) {
   if (!['--state', '--configuration'].includes(args[i]) || !args[i + 1] || options.has(args[i])) throw Error('Use --state DIRECTORY and, for init, --configuration FILE')

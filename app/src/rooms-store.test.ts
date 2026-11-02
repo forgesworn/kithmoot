@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { generateSecretKey } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { signNodeRoom, encodeNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { loadKeptAdmission, memoryDeviceStore, storeKeptAdmission } from './device-store.js'
 import {
   ROOM_PREFIX,
@@ -26,6 +27,17 @@ const NOW = 1_800_000_000
 const BASE = 'https://example.test/j/'
 const ROOM_A = 'a'.repeat(64)
 const ROOM_B = 'b'.repeat(64)
+
+it('keeps an ask-only node link bound to its signed room without making it a legacy invitation', () => {
+  const store = memoryDeviceStore()
+  const event = signNodeRoom({ authoritySk: generateSecretKey(), room: ROOM_A, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW })
+  const link = encodeNodeRoomLink(BASE, event, NOW)
+  expect(() => parseRoomLink(link)).toThrow()
+  expect(rememberRoom(store, { roomId: ROOM_A, link, openedAt: NOW, destruct: true })).toMatchObject({ keep: true, destruct: true, link })
+  expect(() => rememberRoom(store, { roomId: ROOM_B, link, openedAt: NOW })).toThrow('another room')
+  expect(setKeepRoom(store, ROOM_A, false)).toBe(true)
+  expect(knownRoom(store, ROOM_A)?.keep).toBe(false)
+})
 const SELF = 'c'.repeat(64)
 const SENDER = 'd'.repeat(64)
 const CRED = { kind: 20460, created_at: 0, tags: [], content: '', pubkey: '', id: '', sig: '' }

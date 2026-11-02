@@ -7,7 +7,7 @@ import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { parseGroupEvent, type GroupEvent, type ParsedGrant, type ParsedReset } from './group-grants.js'
 import { spryHash, type SpryCredential, type SpryOffer } from './spry.js'
-import { NostrRelayPool, type RelayTransport } from './relay-pool.js'
+import { NostrRelayPool, type RelayTransport, type RelayPoolClient } from './relay-pool.js'
 import type { PeerFactory, RTCPeerConnectionLike } from './peer.js'
 
 export class KithmootNodeError extends Error {
@@ -18,6 +18,10 @@ export class KithmootNodeError extends Error {
 export interface NodeClientOptions { fetcher?: typeof fetch; now?: () => number; signal?: AbortSignal; allowed?: () => boolean }
 export interface NodeRelayOptions { websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean }
 export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string }
+export interface NodeOwnerStatus {
+  v: 1; version: string; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number
+  turnReady: boolean; relayReady: boolean; storeBytes?: number
+}
 export type NodeClosePhase = 'publishing' | 'draining' | 'teardown' | 'erasing' | 'done'
 export interface NodeCloseInstruction { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }
 export interface NodeCloseStatus { phase: NodeClosePhase; receipt?: NodeCloseReceipt }
@@ -29,7 +33,7 @@ export type NodeDeviceAccess =
   | { state: 'closed'; closure: Event }
   | { state: 'ended' }
 const KEY = /^[a-f0-9]{64}$/
-const paths = new Set(['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/v1/credentials'])
+const paths = new Set(['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/node/v1/status', '/v1/credentials'])
 function invalid(): never { throw new KithmootNodeError(0, 'invalid') }
 function nodeOrigin(raw: unknown): string {
   if (typeof raw !== 'string') return invalid()
@@ -114,6 +118,17 @@ export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRe
   const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
   if (result.enrolled !== true) return invalid()
 }
+export async function queryKithmootNodeStatus(pair: PairedKithmootNode, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeOwnerStatus> {
+  if (pair.v !== 1 || pair.owner !== owner.pubkey || !KEY.test(pair.serviceKey) || pair.serviceKey === owner.pubkey) return invalid()
+  const value = await request(pair.origin, '/node/v1/status', {}, owner, options)
+  if (value.v !== 1 || value.serviceKey !== pair.serviceKey || typeof value.version !== 'string' || !/^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(value.version)
+    || ['ready', 'paired', 'turnReady', 'relayReady'].some(k => typeof value[k] !== 'boolean')
+    || ['rooms', 'devices', 'pending'].some(k => !Number.isSafeInteger(value[k]) || Number(value[k]) < 0)
+    || value.storeBytes !== undefined && (!Number.isSafeInteger(value.storeBytes) || Number(value.storeBytes) < 0)) return invalid()
+  return { v: 1, version: value.version, ready: value.ready as boolean, paired: value.paired as boolean, rooms: Number(value.rooms),
+    devices: Number(value.devices), pending: Number(value.pending), turnReady: value.turnReady as boolean, relayReady: value.relayReady as boolean,
+    ...(value.storeBytes === undefined ? {} : { storeBytes: Number(value.storeBytes) }) }
+}
 export async function postNodeGrant(record: NodeRoomRecord, event: GroupEvent, authority: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
   const parsed = parseGroupEvent(event, { now, keepers: [node.authority], servers: [new URL(node.origin).hostname] })
@@ -187,7 +202,7 @@ export function assertNodeCallFactory(factory: PeerFactory, node: NodeRoomRecord
 }
 /** One partition and one signing identity. There is no account-relay merge,
  * peer relay, public discovery, alternate issuer or shared socket fallback. */
-export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, mode: 'room' | 'ask', options: NodeRelayOptions = {}): RelayTransport {
+export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, mode: 'room' | 'ask', options: NodeRelayOptions = {}): RelayPoolClient {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   if (mode === 'room' && [node.authority, node.serviceKey].includes(identity.pubkey)) return invalid()
   let closed = false
@@ -202,7 +217,7 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
         || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
         || mode === 'ask' && event.kind !== 1059) return invalid()
   }
-  const transport: RelayTransport = {
+  const transport: RelayPoolClient = {
     async publish(event) { checkEvent(event); await pool.publish(event) },
     async publishGuarded(event, current, settings) {
       checkEvent(event)
@@ -214,6 +229,26 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
     },
     close() { closed = true; pool.close() },
     describe: () => [{ url: node.relay, read: true, write: true }],
+    configuration: () => [{ url: node.relay, read: true, write: true }],
+    health: () => pool.health(),
+    get closed() { return closed },
+    get publishing() { return pool.publishing },
+    settled: timeout => pool.settled(timeout),
+    publishEvidence: id => pool.publishEvidence(id),
+    askBack: id => { if (allowed()) pool.askBack(id) },
+    // A node's authenticated room door is its reachability proof. The
+    // ordinary public-relay probe is unnecessary and has different kinds.
+    probe: async () => { if (!allowed()) throw new KithmootNodeError(403, 'refused') },
+    reconnect: () => { if (allowed()) pool.reconnect() },
+    setAuthentication: () => { throw new Error('This room uses its pinned device authentication.') },
+    async query(url, filters, timeout, maxEvents) {
+      if (!allowed() || url !== node.relay) throw new KithmootNodeError(403, 'refused')
+      return pool.query(url, filters, timeout, maxEvents)
+    },
+    async publishQuietly(url, event) {
+      if (url !== node.relay) throw new KithmootNodeError(403, 'refused')
+      checkEvent(event); await pool.publishQuietly(url, event)
+    },
     setRelays(entries) {
       if (entries.length !== 1 || (typeof entries[0] === 'string' ? entries[0] : entries[0]?.url) !== node.relay
         || typeof entries[0] !== 'string' && (entries[0]?.read !== true || entries[0]?.write !== true)) throw new Error('This room uses its KithMoot node relay.')

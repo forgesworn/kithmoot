@@ -6,7 +6,7 @@ import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { spryHash } from './spry.js'
 import { nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
-  nodeCallFactory, nodeKeeperInbox, assertNodeRoomTransport, type NodeDeviceAccess } from './kithmoot-node.js'
+  nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, type NodeDeviceAccess } from './kithmoot-node.js'
 
 const NOW = 1_900_000_000
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
@@ -23,6 +23,17 @@ function fixture() {
 }
 const response = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
 describe('pinned KithMoot node client', () => {
+  it('checks the paired service key on owner status and projects only counts and availability', async () => {
+    const f = fixture(), owner = localIdentity(f.authority), pair = { v: 1 as const, owner: owner.pubkey, origin: f.node.origin, serviceKey: f.node.serviceKey }
+    const status = { v: 1, serviceKey: pair.serviceKey, version: '0.1.0-rc.1', ready: true, paired: true, rooms: 1, devices: 2, pending: 0,
+      turnReady: true, relayReady: true, storeBytes: 2048 }
+    const fetcher = vi.fn(async () => response({ ...status, roomsPrivate: ['not exposed'] })) as unknown as typeof fetch
+    expect(await queryKithmootNodeStatus(pair, owner, { fetcher, now: () => NOW })).toEqual({ v: 1, version: '0.1.0-rc.1', ready: true, paired: true,
+      rooms: 1, devices: 2, pending: 0, turnReady: true, relayReady: true, storeBytes: 2048 })
+    for (const change of [{ serviceKey: getPublicKey(generateSecretKey()) }, { rooms: -1 }, { storeBytes: 'unknown' }]) {
+      await expect(queryKithmootNodeStatus(pair, owner, { now: () => NOW, fetcher: async () => response({ ...status, ...change }) })).rejects.toMatchObject({ reason: 'invalid' })
+    }
+  })
   it('keeps the inviter ask inbox separate from a granted device room transport', async () => {
     const f = fixture(), opened = vi.fn()
     class Socket { constructor() { opened() } }
@@ -96,6 +107,11 @@ describe('pinned KithMoot node client', () => {
     try {
       expect(transport.describe?.()).toEqual([{ url: f.node.relay, read: true, write: true }])
       expect(() => transport.setRelays?.(['wss://public.example'])).toThrow('node relay')
+      expect(() => transport.setAuthentication([])).toThrow('pinned device')
+      await expect(transport.query('wss://public.example', [{ kinds: [1] }])).rejects.toMatchObject({ reason: 'refused' })
+      await expect(transport.publishQuietly('wss://public.example', f.grant)).rejects.toMatchObject({ reason: 'refused' })
+      await expect(transport.publishQuietly(f.node.relay, f.grant)).rejects.toMatchObject({ reason: 'refused' })
+      await expect(transport.publishQuietly(f.node.relay, finalizeEvent({ kind: 1, created_at: NOW, content: 'fixture', tags: [] }, f.device))).rejects.toMatchObject({ reason: 'invalid' })
       await expect(transport.publish(finalizeEvent({ kind: 1, created_at: NOW, content: 'fixture', tags: [] }, f.device))).rejects.toMatchObject({ reason: 'invalid' })
       expect(opened).not.toHaveBeenCalled()
     } finally { transport.close() }
