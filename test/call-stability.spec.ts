@@ -800,6 +800,34 @@ test.describe('call stability', () => {
         const wynHears = !c.dead.some(d => d.startsWith('Wyn <-') && d.includes('cannot hear'))
         checkpoints.push({ ...c, ok: c.ok || (!wynHears && cs.prompts.length > 0), label: `${c.label}${!wynHears && cs.prompts.length > 0 ? ' (prompt shown)' : ''}` })
 
+        // One successful play must not dismiss the help for another person's
+        // blocked audio. Force the refusal to settle before the success:
+        // this is the ordering the old per-element success handler missed.
+        await cpage.evaluate(() => {
+          const audios = [...document.querySelectorAll<HTMLAudioElement>('#room .participant audio')]
+          if (audios.length < 2) throw new Error('The autoplay check needs both remote audio sinks')
+          const [first, second] = audios as [HTMLAudioElement, HTMLAudioElement]
+          const playFirst = first.play.bind(first), playSecond = second.play.bind(second)
+          first.pause(); second.pause()
+          const state = window as unknown as { __audioRetryFinished: boolean; __restoreAudioRetry: () => void }
+          state.__audioRetryFinished = false
+          first.play = async () => {
+            await playFirst()
+            await new Promise(resolve => setTimeout(resolve, 100))
+            state.__audioRetryFinished = true
+          }
+          second.play = () => Promise.reject(new DOMException('Still blocked', 'NotAllowedError'))
+          state.__restoreAudioRetry = () => { first.play = playFirst; second.play = playSecond }
+        })
+        await cpage.locator('#autoplayBannerButton').click()
+        await expect.poll(() => cpage.evaluate(() => (window as unknown as { __audioRetryFinished: boolean }).__audioRetryFinished)).toBe(true)
+        await expect(cpage.locator('#autoplayBanner')).toBeVisible({ timeout: 1_000 })
+        await cpage.evaluate(() => (window as unknown as { __restoreAudioRetry: () => void }).__restoreAudioRetry())
+        await cpage.locator('#autoplayBannerButton').click()
+        await expect(cpage.locator('#autoplayBanner')).toBeHidden()
+        checkpoints.push(await waitForMatrix([...people, control], 'tap resumes both remote voices', 30_000,
+          (_o, sender) => sender === 'Wyn' ? { see: false, hear: false } : { see: true, hear: true }))
+
         verdict(checkpoints)
       } finally {
         for (const c of contexts) await c.close()

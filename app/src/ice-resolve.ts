@@ -30,6 +30,8 @@ export interface IceResolveOptions {
   location: Pick<Location, 'protocol' | 'hostname'>
   fetch?: (input: string, init?: RequestInit) => Promise<Response>
   timeoutMs?: number
+  /** Explicit capability for this deployment's own mint. Off for independent issuers. */
+  extendedUrls?: boolean
 }
 
 const toUrlList = (urls: string | string[]): string[] => typeof urls === 'string' ? [urls] : urls
@@ -38,7 +40,7 @@ const toUrlList = (urls: string | string[]): string[] => typeof urls === 'string
  *  a network error, malformed JSON, or no answer inside the bound. Never
  *  throws, and never waits longer than `timeoutMs` even if the fetch ignores
  *  its abort signal. */
-export async function fetchTurnCredential(endpoint: string, options: Pick<IceResolveOptions, 'fetch' | 'timeoutMs'> = {}): Promise<RTCIceServer | undefined> {
+export async function fetchTurnCredential(endpoint: string, options: Pick<IceResolveOptions, 'fetch' | 'timeoutMs' | 'extendedUrls'> = {}): Promise<RTCIceServer | undefined> {
   // This is deployment configuration, never a room link or account API key.
   // Relative paths are same-origin; absolute endpoints must use HTTPS.
   try {
@@ -58,7 +60,8 @@ export async function fetchTurnCredential(endpoint: string, options: Pick<IceRes
   const attempt = (async (): Promise<RTCIceServer | undefined> => {
     try {
       const res = await send(endpoint, { signal: controller.signal, credentials: 'omit',
-        redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store', mode: 'cors' })
+        redirect: 'error', referrerPolicy: 'no-referrer', cache: 'no-store', mode: 'cors',
+        ...(options.extendedUrls ? { headers: { 'X-KithMoot-Turn-Urls': 'extended-v1' } } : {}) })
       if (controller.signal.aborted || !res.ok || res.redirected ||
           !/^application\/json(?:\s*;|$)/i.test(res.headers.get('content-type') ?? '') || !res.body) return undefined
       const declared = res.headers.get('content-length')

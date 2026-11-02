@@ -71,6 +71,14 @@ export function loadConfigFromEnv(env = process.env) {
     )
   }
 
+  // Older native releases pin the legacy host and ports and reject a login
+  // containing any unfamiliar URL. An updated browser explicitly opts into
+  // this separate list; changing it must never change the legacy response.
+  const webUrls = splitCsv(env.TURN_WEB_URLS)
+  if (webUrls.length > 8 || webUrls.some(url => url.length > 512 || !/^turns?:[^\s@#]+$/i.test(url))) {
+    throw new Error('TURN_WEB_URLS must contain at most eight TURN URLs, without embedded logins or fragments.')
+  }
+
   const ttlSeconds = env.TURN_TTL_SECONDS ? Number(env.TURN_TTL_SECONDS) : DEFAULT_TTL_SECONDS
   if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
     throw new Error(`TURN_TTL_SECONDS must be a positive number of seconds, got "${env.TURN_TTL_SECONDS}".`)
@@ -89,7 +97,7 @@ export function loadConfigFromEnv(env = process.env) {
     ? Number(env.RATE_LIMIT_REFILL_MS)
     : DEFAULT_RATE_LIMIT_REFILL_MS
 
-  return { secret, urls, ttlSeconds, port, host, allowedOrigins, rateLimitBurst, rateLimitRefillMs }
+  return { secret, urls, ...(webUrls.length ? { webUrls } : {}), ttlSeconds, port, host, allowedOrigins, rateLimitBurst, rateLimitRefillMs }
 }
 
 function splitCsv(raw) {
@@ -229,7 +237,8 @@ function handleRequest(req, res, config, rateLimiter) {
   }
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, { 'access-control-allow-methods': 'GET, HEAD, OPTIONS' })
+    res.writeHead(204, { 'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+      'access-control-allow-headers': 'X-KithMoot-Turn-Urls' })
     res.end()
     return
   }
@@ -246,7 +255,9 @@ function handleRequest(req, res, config, rateLimiter) {
 
   const now = Math.floor(Date.now() / 1000)
   const { username, credential } = mintTurnCredential(config.secret, config.ttlSeconds, now, mintName())
-  const body = { urls: config.urls, username, credential, ttl: config.ttlSeconds }
+  const extended = req.headers['x-kithmoot-turn-urls'] === 'extended-v1'
+  const body = { urls: extended && config.webUrls?.length ? config.webUrls : config.urls, username, credential, ttl: config.ttlSeconds }
+  res.setHeader('Vary', [res.getHeader('Vary'), 'X-KithMoot-Turn-Urls'].filter(Boolean).join(', '))
 
   if (req.method === 'HEAD') {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })

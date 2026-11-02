@@ -1,13 +1,14 @@
 {
-  "recordedAt": "2026-11-02T00:56:43.030326+00:00",
+  "recordedAt": "2026-11-02T01:26:57.515028+00:00",
   "scope": "Browser call recovery and five-minute media qualification",
   "baselineProductionRevision": "1d4144719fafd84696f1615fd02cdecf6ef0c4b1",
   "syntheticCapture": true,
   "sourceChecks": {
     "typecheck": "passed",
     "unit": {
-      "passed": 8704,
-      "skipped": 8
+      "passed": 8709,
+      "skipped": 8,
+      "node": 24
     },
     "focusedUnitPassed": 82,
     "controlsAndSettingsBrowserPassed": 13,
@@ -15,8 +16,29 @@
     "iceAndUpdateBrowserPassed": 12,
     "regressionsObservedBeforeFix": [
       "automatic microphone refusal lacked call notice",
-      "relay-only call failed after temporary credential lookup failure"
-    ]
+      "relay-only call failed after temporary credential lookup failure",
+      "one successful audio play hid help while another remote voice remained blocked"
+    ],
+    "node22ReleaseChecks": {
+      "outcome": "passed",
+      "sourceCommit": "097288f56441f9758c5ade70cb7f051638265432",
+      "checks": [
+        "production dependency audit",
+        "typecheck",
+        "8704 unit tests, 8 skipped",
+        "desktop notification/security boundaries",
+        "Android publication metadata",
+        "PWA build and telemetry check",
+        "context packages",
+        "packaged library/agent entry points"
+      ]
+    },
+    "finalFocusedBoundaryTests": {
+      "node22Passed": 89,
+      "node24Passed": 89
+    },
+    "defaultAndGuardedAdmin2Distributions": "passed",
+    "groupAudioRetry": "passed: help remains while one remote voice is blocked; retry restores both"
   },
   "fiveMinuteBaselineRoutes": [
     {
@@ -235,7 +257,7 @@
   "limits": [
     "Android 35 emulator Chrome with synthetic capture; no physical Android or GrapheneOS acceptance",
     "TLS transport is tested, but no actual VPN application or physical mobile-data transition is qualified",
-    "TLS uses port 5349. Port-443 configuration validates but needs DNS and backward-compatible credential delivery for pinned native Android 0.6.132",
+    "TLS transport uses port 5349. Port-443 routing validates and backwards-compatible browser/native credential negotiation is implemented and tested; the dedicated DNS record is required before activation.",
     "These long calls exercised the previously deployed runtime; final deployment readback belongs in the shipping handover"
   ]
 }

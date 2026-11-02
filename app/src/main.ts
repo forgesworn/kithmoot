@@ -5083,7 +5083,8 @@ async function pairWithPrimary(code: Uint8Array): Promise<void> {
  *  missing or failing credential endpoint (the open mint is being retired)
  *  returns plain STUN within a short bound and never throws. */
 function resolveIceServers(urls: string[], relay?: CallRelay): Promise<RTCIceServer[]> {
-  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location, relay, fetch: (input, init) => accountNetwork.fetch(input, init) })
+  return resolveIceServersFor(urls, { endpoint: TURN_CREDENTIAL_ENDPOINT, location, relay,
+    extendedUrls: TURN_CREDENTIAL_ENDPOINT === '/turn', fetch: (input, init) => accountNetwork.fetch(input, init) })
 }
 
 /** An RTCIceServer's `urls` is a string or a list of them. */
@@ -13138,17 +13139,19 @@ function reportAutoplayBlock(error: unknown): void {
 function resumeBlockedAudio(): void {
   remoteVolume.resume()
   speakingMonitor.resume()
+  const attempts: Promise<void>[] = []
   for (const { el } of remoteAudios.values()) {
     if (!el.paused) continue
-    void el.play().then(
-      () => { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() },
-      (err) => reportAutoplayBlock(err),
-    )
+    attempts.push(el.play().catch(err => reportAutoplayBlock(err)))
   }
-  // Nothing was paused - a track arriving just as this was pressed, say.
-  // The tap still counts as a gesture and the banner still has no reason
-  // left to be up.
-  if ([...remoteAudios.values()].every(({ el }) => !el.paused)) { autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner() }
+  // One person's successful play must not hide another person's refusal.
+  // Check every current sink after all attempts settle, including tracks
+  // which arrived during the tap. Rejections still show help immediately.
+  void Promise.all(attempts).then(() => {
+    if ([...remoteAudios.values()].every(({ el }) => !el.paused)) {
+      autoplayBanner.resumed(); callTimeline.record('autoplay-resumed'); renderAutoplayBanner()
+    }
+  })
 }
 
 $('autoplayBannerButton').addEventListener('click', resumeBlockedAudio)

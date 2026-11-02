@@ -257,6 +257,21 @@ async function readAppDiagnostics(page: Page): Promise<string> {
   })
 }
 
+/** A returning Android browser may still have the old PWA. Exercise its
+ * update control, preserving identity/rooms, then prove which bundle ran. */
+async function expectCurrentBuild(page: Page): Promise<void> {
+  const expected = process.env.TURN_E2E_EXPECT_SCRIPT
+  if (!expected) return
+  const loaded = () => page.locator('script[type="module"][src]').evaluateAll((scripts, name) =>
+    scripts.some(script => (script as HTMLScriptElement).src.endsWith(`/assets/${name}`)), expected)
+  if (!await loaded()) {
+    await page.evaluate(async () => { await (await navigator.serviceWorker.getRegistration())?.update() })
+    await expect(page.locator('#updateApp'), 'the returning PWA did not offer its new build').toBeVisible()
+    await Promise.all([page.waitForEvent('load'), page.locator('#updateApp').click()])
+  }
+  await expect.poll(loaded, { message: `the browser did not load ${expected}` }).toBe(true)
+}
+
 async function newDeviceContext(browser: Browser, baseURL: string, credential?: object, mobile = false): Promise<BrowserContext> {
   // Android-sized touch browser. This covers the responsive web journey;
   // it does not stand in for a physical Android device or its WebRTC stack.
@@ -286,6 +301,7 @@ async function newDeviceContext(browser: Browser, baseURL: string, credential?: 
 
 async function createRoom(page: Page, baseURL: string, name: string): Promise<string> {
   await page.goto(baseURL)
+  await expectCurrentBuild(page)
   // This spec has no local relay process: its default target is the live
   // deployment, so the ordinary Playwright helper's loopback default would
   // be blocked by the deployed CSP and make the test fail before TURN was
@@ -315,6 +331,7 @@ async function createRoom(page: Page, baseURL: string, name: string): Promise<st
  *  so turning them on is `turnOnMedia`, after the join. */
 async function prepareDevice(page: Page, url: string, name: string): Promise<void> {
   await page.goto(url)
+  await expectCurrentBuild(page)
   await page.locator('#displayName').fill(name)
   await expect(page.locator('#join')).toBeVisible({ timeout: 60_000 })
   await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
@@ -502,6 +519,7 @@ test(`desktop and mobile web carry two-way media for ${durationSeconds}s over ${
       durationSeconds, elapsedMs: Date.now() - started, direct, transport: process.env.TURN_E2E_TRANSPORT ?? 'any',
       desktopViewport: pageA.viewportSize(), mobileViewport: pageB.viewportSize(),
       androidDevice: process.env.TURN_E2E_ANDROID_SERIAL ?? null, tlsPort: tlsPort ?? null,
+      expectedScript: process.env.TURN_E2E_EXPECT_SCRIPT ?? null,
       userAgents: await Promise.all(pages.map(page => page.evaluate(() => navigator.userAgent))), samples,
     }, null, 2))
     await test.info().attach('five-minute-media.json', { path: evidencePath, contentType: 'application/json' })
