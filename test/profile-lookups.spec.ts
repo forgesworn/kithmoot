@@ -91,7 +91,7 @@ test('the signed-in account keeps its own kind-0 name with directory lookups off
   } finally { await context.close() }
 })
 
-const PUBLIC_PROFILE_HOSTS = ['purplepag.es', 'relay.damus.io', 'relay.primal.net']
+const PUBLIC_PROFILE_HOSTS = ['purplepag.es', 'relay.primal.net']
 
 type Frame = { url: string; frame: unknown[] }
 
