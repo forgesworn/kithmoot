@@ -14,7 +14,7 @@ async function device(browser: Browser, baseURL: string) {
     const Native = window.WebSocket
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by test')
         super(target, protocols)
@@ -148,7 +148,7 @@ test('relay-only network privacy joins the room without a TURN allocation and re
     })
     await other.locator('#callToggle').click()
     await expect(other.locator('#status')).toContainText('no usable TURN relay')
-    await expect(other.locator('#status')).toContainText('No call relay (TURN) is set up on this device')
+    await expect(other.locator('#status')).toContainText('No call relay is set up on this device')
     await expect(other.locator('#relayMissingNote')).not.toHaveAttribute('hidden', /.*/)
     const configs = await other.evaluate(() => (window as unknown as { __iceConfigs: unknown[] }).__iceConfigs)
     // Nothing was built without relay-only; a built one has no non-relay server.

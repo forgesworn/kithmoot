@@ -301,7 +301,7 @@ async function ordinaryDoorDiagnostics() {
 async function settings() {
   for (let i=0;i<30;i++) { if(await page.locator('#settingsPane').isVisible()) break; await page.locator('#openAppSettings').evaluate(e=>e.click()); await page.waitForTimeout(100) }
   if(await page.locator('#settingsPane').getAttribute('data-page') !== 'main') await page.locator('#settingsBack').click()
-  await page.locator('#settingsPane .infoRow').filter({has:page.locator('.infoRowTitle',{hasText:/^Connections$/})}).click()
+  await page.locator('#settingsPane .infoRow').filter({has:page.locator('.infoRowTitle',{hasText:/^Relays$/})}).click()
 }
 async function openPanel(kind) {
   await page.bringToFront()

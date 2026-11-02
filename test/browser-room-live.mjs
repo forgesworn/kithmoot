@@ -81,7 +81,7 @@ const setup=async key=>{
   const context=await createContext(key)
   const page=await context.newPage();attach(page)
   await page.goto(app+'?signin=nostr');await page.getByRole('button',{name:/Browser extension/}).click()
-  await page.locator('#openAppSettings').click();await page.locator('#settingsRowconnections').click()
+  await page.locator('#openAppSettings').click();await page.locator('#settingsRowrelays').click()
   await page.locator('#bothySettingsOpen').click();await page.locator('#bothyRelays').fill(linkRelay)
   await page.getByRole('button',{name:'Connect or resume',exact:true}).click()
   await page.getByText('Ready to pair. Paste a current code from your Bothy.',{exact:true}).waitFor()

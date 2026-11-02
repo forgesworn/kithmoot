@@ -6,7 +6,9 @@ import { Outbox, pendingStatusWords } from './outbox.js'
 import { GROUP_STORAGE_MESSAGES, GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 
 const ROOM = 'a'.repeat(64)
-const event = (id: string) => ({ id, kind: 1, pubkey: 'p', created_at: 1, tags: [], content: id, sig: 's' }) as Event
+// Written now: an unsent message stops going by itself a day after its created_at.
+const WRITTEN = Math.floor(Date.now() / 1000)
+const event = (id: string) => ({ id, kind: 1, pubkey: 'p', created_at: WRITTEN, tags: [], content: id, sig: 's' }) as Event
 const flush = async () => { for (let i = 0; i < 60; i++) await Promise.resolve() }
 const base = (over: Partial<PendingSend>): PendingSend => ({
   id: 'one', roomId: ROOM, channel: 'Chat', text: 'hello', files: [], event: event('one'), state: 'waiting', durable: false, attempts: 0, ...over,

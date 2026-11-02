@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.127",
-  "versionCode": 150,
+  "versionName": "0.6.132",
+  "versionCode": 155,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71070208,
-  "apkSha256": "e99e2b110b78dc26586071510c3bd0878d09289e1caecee9fe74ecf5872ac867",
+  "apkBytes": 74031692,
+  "apkSha256": "e6f1e80f9070b72f113624cc1b44c7ded8bc0847f20ab738673142b4a357eaed",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.127-production.apk",
+  "downloadFilename": "kithmoot-0.6.132-production.apk",
   "releaseNotes": [
-    "Testing a member's built-in call relay from outside now reports a working relay as working.",
-    "Two ticks once another person's device has received your message; never whether they read it."
+    "Calls work again: ForgeSworn's call relay is the default, with Google's STUN, and phones on one network connect directly.",
+    "Start call and Join call turn your microphone on, asking first; relay.trotters.cc is the first relay again."
   ]
 }

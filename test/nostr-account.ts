@@ -65,7 +65,7 @@ export async function accountDevice(browser: Browser, baseURL: string, secret = 
     const NativeWebSocket = window.WebSocket
     window.WebSocket = class extends NativeWebSocket {
       constructor(url: string | URL, protocols?: string | string[]) {
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
         if (!defaults.includes(String(url).replace(/\/$/, '')) && String(url) !== relay) throw new Error('External relay blocked by acceptance test')
         super(defaults.includes(String(url).replace(/\/$/, '')) ? relay : url, protocols)
       }
@@ -81,7 +81,7 @@ export async function configureAccountTestRelay(page: Page, baseURL: string): Pr
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await page.goto(baseURL)
   await expect(page.locator('html[data-ordinary-startup=ready]')).toBeVisible()
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#defaultRelaySettings').click()
   await page.locator('#relayScope').selectOption('default')
   const remove = page.locator('#relayList button[aria-label^="Remove "]')

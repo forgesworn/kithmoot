@@ -598,10 +598,19 @@ function credentialExpiresAt(credential: DeviceCredential): number {
  * rendered, and still holds a `Mesh` peer connection that will never connect.
  * Comfortably more than three heartbeats, so one dropped relay message does
  * not evict a device that is plainly still here.
+ *
+ * 100 seconds, up from 75, so that heartbeats can later slow to one every
+ * 30 seconds and still leave room for two to be lost. The lapse is the
+ * reader's half and the interval the sender's: every client already out
+ * there evicts at 75, so the interval only changes once readers have moved.
+ * The Android client keeps the same number in `SessionTiming`.
  */
-export const PRESENCE_TTL_SECONDS = 75
+export const PRESENCE_TTL_SECONDS = 100
 
-/** How often a device restates that it is still here. */
+/** How often a device restates that it is still here. Stays at 20 seconds
+ *  while clients that lapse presence at 75 are still in use; see
+ *  `PRESENCE_TTL_SECONDS`. Every heartbeat is a roster event to every write
+ *  relay, so this is the largest steady cost a room puts on its relays. */
 export const HEARTBEAT_INTERVAL_MS = 20_000
 
 /** How often lapsed entries are swept. */

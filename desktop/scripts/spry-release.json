@@ -1,31 +1,31 @@
 {
-  "version": "0.4.0",
-  "release": "https://github.com/forgesworn/spry-turn/releases/download/v0.4.0/",
-  "sourceCommit": "656235b4de6d34d1b897a55e03c9bd4f19241b5b",
+  "version": "0.4.1",
+  "release": "https://github.com/forgesworn/spry-turn/releases/download/v0.4.1/",
+  "sourceCommit": "8db0f6e1da2748949df0b7e31f7cecb8a46b13a3",
   "helpers": {
     "darwin-arm64": {
-      "archive": "spry-turn-v0.4.0-aarch64-apple-darwin.tar.gz",
-      "archiveSha256": "289c9c1217cd276217c4504323e828b53a430e688792a0b2286ddb8052b2fc86",
-      "binary": "spry-turn-v0.4.0-aarch64-apple-darwin/bin/spry-node",
-      "binarySha256": "49d7fc03d9fe3d2f1fe74c1bb8b65007eec7a94663e98e2fed0d9dc911da7ed0"
+      "archive": "spry-turn-v0.4.1-aarch64-apple-darwin.tar.gz",
+      "archiveSha256": "25beca29110be536cee5b1cc26c713d030ca55991714489322ae80247532420e",
+      "binary": "spry-turn-v0.4.1-aarch64-apple-darwin/bin/spry-node",
+      "binarySha256": "741dfc74a71095dd9eb2ee6520489952334e27285f71f81c1e19789fab5c1075"
     },
     "linux-x64": {
-      "archive": "spry-turn-v0.4.0-x86_64-unknown-linux-gnu.tar.gz",
-      "archiveSha256": "728594bf2803f808f709ca353b204e3650efaa2f26aaacf2770af89c2a6817ba",
-      "binary": "spry-turn-v0.4.0-x86_64-unknown-linux-gnu/bin/spry-node",
-      "binarySha256": "13f7d8c9649b266a5b0048a1c3134c178f7d8bec70a485558f4c67ef5a03a7be"
+      "archive": "spry-turn-v0.4.1-x86_64-unknown-linux-gnu.tar.gz",
+      "archiveSha256": "e40ac1382a6a1e099a0449983a0aee00482a74a99792cd7fd99bddb0f141bc56",
+      "binary": "spry-turn-v0.4.1-x86_64-unknown-linux-gnu/bin/spry-node",
+      "binarySha256": "08b91b9ad5b6aeef4d56cfb2070cf4bf0f9d350797ff9f9ab94f71e08832fbc4"
     },
     "linux-arm64": {
-      "archive": "spry-turn-v0.4.0-aarch64-unknown-linux-gnu.tar.gz",
-      "archiveSha256": "a3b81f7f0cefc877ba3c9652987d6c1c4bf7bafb651ef4cb8b741653aec9efda",
-      "binary": "spry-turn-v0.4.0-aarch64-unknown-linux-gnu/bin/spry-node",
-      "binarySha256": "0f910504771912e8581b806615dfd320bfb9018e03bd52d248d49e3081e3b563"
+      "archive": "spry-turn-v0.4.1-aarch64-unknown-linux-gnu.tar.gz",
+      "archiveSha256": "5af075f4db1b520438343af6bfb9cd1e834b6f7da6424d8b5ec2e02220bc7136",
+      "binary": "spry-turn-v0.4.1-aarch64-unknown-linux-gnu/bin/spry-node",
+      "binarySha256": "c54ac1607886fc74ba59febbf7c5db579906231789b37a209fb214e61bf75a9c"
     },
     "win32-x64": {
-      "archive": "spry-turn-v0.4.0-x86_64-pc-windows-msvc.zip",
-      "archiveSha256": "87bb40a93a691446732b3e6adc8d70707f5f9437a6fb117a728fdf5ad6d1befa",
-      "binary": "spry-turn-v0.4.0-x86_64-pc-windows-msvc/bin/spry-node.exe",
-      "binarySha256": "54b5d83ef6be62c42c53881d6b2d3d0fb3811e21ec5172941caa0f9e9ab9e8f3"
+      "archive": "spry-turn-v0.4.1-x86_64-pc-windows-msvc.zip",
+      "archiveSha256": "661aae74d9a365411061ffd80810fe221dc2fffccaa8d113aed363a55b2800d2",
+      "binary": "spry-turn-v0.4.1-x86_64-pc-windows-msvc/bin/spry-node.exe",
+      "binarySha256": "639ce5dbd5d383a59eac10301ec94c1d1e5821fadf2436bc25a12799e6fcefb4"
     }
   }
 }

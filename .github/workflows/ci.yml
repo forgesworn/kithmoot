@@ -28,8 +28,47 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Decides whether the browser suites run. Pull requests run only the quick
+  # checks (unit, type, desktop, distributions); run the browser suites
+  # locally before merging (npm run test:e2e and the npm run test:* suites
+  # below), or dispatch this workflow on the branch for the full set. Pushes
+  # to main run everything unless the change touches only the desktop main
+  # process or prose, which no browser suite loads. A dispatch always runs
+  # everything.
+  changes:
+    name: Which suites this change needs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      heavy: ${{ steps.scope.outputs.heavy }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          heavy=true
+          if [ "$EVENT" = pull_request ]; then
+            heavy=false
+          elif [ "$EVENT" = push ] && [ -n "$BEFORE" ] && ! printf '%s' "$BEFORE" | grep -qE '^0+$' \
+            && files=$(git diff --name-only "$BEFORE" "$AFTER"); then
+            # desktop/*.mjs, desktop/scripts and desktop/package*.json are the
+            # Electron main process and its packaging; the browser suites
+            # serve app/ and site/ and never load them.
+            light='^(desktop/[^/]+\.mjs|desktop/test/[^/]+\.test\.mjs|desktop/test/[^/]+-electron\.mjs|desktop/scripts/.*|desktop/package(-lock)?\.json|desktop/\.gitignore|docs/.*|[^/]+\.md)$'
+            if ! printf '%s\n' "$files" | grep -vE "$light" | grep -q .; then heavy=false; fi
+          fi
+          echo "heavy=$heavy" | tee -a "$GITHUB_OUTPUT"
+
   independent-call-connectivity:
     name: Independent call servers over TLS and participant replacement
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,6 +86,8 @@ jobs:
 
   publisher-boundary:
     name: Browser protected sharing and local publisher independence
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -63,6 +104,8 @@ jobs:
 
   private-call-relay:
     name: Private call relay (Chromium and WebKit)
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -263,6 +306,8 @@ jobs:
   # line logs retain test identities if a later timeout interrupts the job.
   ordinary-startup:
     name: protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:
@@ -410,6 +455,8 @@ jobs:
   # Run that same suite in two disjoint shards; vault and Link still run once.
   browser-regressions:
     name: browser regressions (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:
@@ -500,6 +547,8 @@ jobs:
   # specs, so Playwright's own `--shard` halves them well enough.
   acceptance:
     name: acceptance (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.heavy == 'true'
     runs-on: ubuntu-24.04
     # Browsers and OS libraries are immutable; do not spend the test budget on apt.
     container:

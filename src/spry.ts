@@ -162,6 +162,24 @@ export const SHARED_RELAY_UNAVAILABLE = 'The call relay shared in this room is n
 export interface SpryCredentialOptions {
   /** Local acceptance builds only: see `isSpryStandardTurnUrls`. */
   loopbackTurn?: boolean
+  /**
+   * This computer's own built-in relay, as its listener on the local network.
+   * Many home routers have no NAT loopback: what a device sends to its own
+   * public address never comes back. So this device's calls use the local
+   * listener in place of the public URLs the node answers with. Applied only
+   * to this device's own standard `spry:` pairing; another member's offer
+   * always keeps the node's own answer.
+   */
+  localTurn?: { host: string; port: number }
+}
+
+/** The TURN URLs for this computer's own relay on its local network, or a
+ *  throw for an address that cannot be one. */
+export function localTurnUrls(local: { host: string; port: number }): string[] {
+  const parts = typeof local?.host === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(local.host) ? local.host.split('.').map(Number) : []
+  if (parts.length !== 4 || parts.some(part => part > 255) || parts[0] === 0 || parts[0] === 127 || parts[0]! >= 224 ||
+    (parts[0] === 169 && parts[1] === 254) || !Number.isInteger(local.port) || local.port < 1024 || local.port > 65535) throw new Error('Invalid Spry relay answer.')
+  return [`turn:${local.host}:${local.port}?transport=udp`, `turn:${local.host}:${local.port}?transport=tcp`]
 }
 
 export async function spryCredentials(offer: SpryOffer, secretKey: string, fetcher: typeof fetch = fetch, own?: SpryPairing,
@@ -196,7 +214,10 @@ export async function spryCredentials(offer: SpryOffer, secretKey: string, fetch
     !Number.isSafeInteger(value.expiresAt) || Number(value.expiresAt) <= Date.now() / 1000 || Number(value.expiresAt) > Date.now() / 1000 + 360 ||
     Number(value.username.split(':')[0]) !== value.expiresAt || !Number.isSafeInteger(value.accessExpiresAt) ||
     Number(value.accessExpiresAt) < Number(value.expiresAt) || Number(value.accessExpiresAt) > Date.now() / 1000 + SPRY_GRANT_SECONDS + 60) throw new Error('Invalid Spry relay answer.')
-  return { ...(node ? { node } : {}), urls: value.urls as string[], username: value.username, credential: value.credential, expiresAt: value.expiresAt as number, accessExpiresAt: value.accessExpiresAt as number }
+  // The node's own answer is checked above either way; only then does this
+  // device's own built-in relay swap in its local listener.
+  const urls = !shared && standard && options.localTurn ? localTurnUrls(options.localTurn) : value.urls as string[]
+  return { ...(node ? { node } : {}), urls, username: value.username, credential: value.credential, expiresAt: value.expiresAt as number, accessExpiresAt: value.accessExpiresAt as number }
 }
 
 const KEY = /^[0-9a-f]{64}$/

@@ -7,20 +7,19 @@
  * remote video that plays (muted, so the autoplay policy allows it) and
  * remote audio that silently does not. `NotAllowedError` is Chromium and
  * Firefox's name for the rejection; Safari has used the same name for
- * years, so no separate case is carried for it. `navigator.userActivation`,
- * where a browser has it, adds the second half of the check the error name
- * alone cannot: a `NotAllowedError` after this page really has seen a
- * gesture is some other permission problem, and the fix a fresh tap offers
- * cannot be trusted to work, so it is only ever shown for a rejection this
- * page's own history explains.
+ * years, so no separate case is carried for it.
+ *
+ * Shown for every such rejection, gesture or not (1 November 2026). Safari
+ * refuses sound outside a fresh tap even after earlier clicks when the
+ * microphone is off, and hiding the banner then left people in a call
+ * hearing nothing with nothing to press. A tap that does not help costs
+ * one tap; silence costs the call.
  */
-export function isAutoplayBlock(error: unknown, activation?: UserActivation): boolean {
+export function isAutoplayBlock(error: unknown, _activation?: UserActivation): boolean {
   const name = error instanceof DOMException ? error.name
     : typeof error === 'object' && error !== null && 'name' in error ? String((error as { name: unknown }).name)
     : undefined
-  if (name !== 'NotAllowedError') return false
-  if (!activation) return true
-  return !activation.hasBeenActive
+  return name === 'NotAllowedError'
 }
 
 /**

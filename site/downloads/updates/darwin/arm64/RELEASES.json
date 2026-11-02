@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.116",
+  "currentRelease": "0.1.125",
   "releases": [
     {
-      "version": "0.1.116",
+      "version": "0.1.125",
       "updateTo": {
-        "version": "0.1.116",
-        "pub_date": "2026-10-30T07:30:00Z",
-        "notes": "The outside test of a member's built-in call relay now checks the connection actually in use.",
-        "name": "0.1.116",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.116/KithMoot-0.1.116-mac-arm64.zip",
-        "sha256": "aac41cec13f78f17ad68017b305c3c8cea24c66ee4a719d9b3ce244f93502879",
-        "size": 190136823
+        "version": "0.1.125",
+        "pub_date": "2026-11-01T23:37:46Z",
+        "notes": "Tap to hear appears whenever the browser blocks call sound, including after earlier gestures; call diagnostics show remote-audio mute state.",
+        "name": "0.1.125",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.125/KithMoot-0.1.125-mac-arm64.zip",
+        "sha256": "065509c57382660ac67894c616d1c815ae93840dccdba1eb2bf5a8b118c45cd8",
+        "size": 192984800
       }
     }
   ]

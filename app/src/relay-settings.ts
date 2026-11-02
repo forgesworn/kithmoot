@@ -1,4 +1,7 @@
 import type { AccountNetwork } from './account-network.js'
+import { SimplePool } from 'nostr-tools/pool'
+import { relayDials } from '../../src/relay-dial-gate.js'
+import { SharedRelaySockets } from '../../src/shared-relay-sockets.js'
 import { NostrRelayPool, normaliseRelayConfig, MAX_POOL_RELAYS, READ_EVIDENCE_RANK, type ReadEvidence, type RelayConfig, type RelayHealth, type RelayAuthentication } from '../../src/relay-pool.js'
 import { KINDS } from '../../src/kinds.js'
 import { MAX_RELAY_HINTS } from '../../src/network-hints.js'
@@ -7,6 +10,15 @@ import { withRoomRelays } from '../../src/room-relays.js'
 
 import type { ManagedRelayPool } from './browser-room-pool.js'
 import type { ParticipantIdentity } from '../../src/identity.js'
+
+/** Pools for one room, a room being looked up, or a link being opened. */
+const ROOM_SCOPE = /^(?:room|lookup|link):[a-f0-9]{64}$/
+
+/** The WebSocket nostr-tools itself dials with: the browser's, unless a
+ *  test has given it another. */
+function librarySocket(): typeof WebSocket | undefined {
+  return (new SimplePool({ enablePing: false }) as unknown as { _WebSocket?: typeof WebSocket })._WebSocket ?? globalThis.WebSocket
+}
 
 const STORAGE_KEY = 'kithmoot.relays.v1'
 /** The relays this person has marked as boxes of their own circle, by hand:
@@ -19,7 +31,7 @@ const CIRCLE_KEY = 'kithmoot.circle.v1'
  *  device made the room) rather than a link's unsigned hints. */
 const ROOM_RELAYS_KEY = 'kithmoot.room-relays-fixed.v1'
 const LEGACY_PUBLIC_RELAYS = new Set(['wss://nos.lol/', 'wss://relay.primal.net/'])
-const PUBLIC_FALLBACK_RELAY = 'wss://nostr.oxtr.dev/'
+const PUBLIC_FALLBACK_RELAY = 'wss://relay.ditto.pub/'
 type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
 type RelayHints = (string | RelayConfig)[]
 
@@ -31,6 +43,30 @@ export function currentRoomRelayHints(hints: RelayHints): RelayHints {
   try { relays = normaliseRelayConfig(hints) } catch { return hints }
   if (relays.length !== LEGACY_PUBLIC_RELAYS.size || !relays.every(relay => relay.read && relay.write && LEGACY_PUBLIC_RELAYS.has(relay.url))) return hints
   return [...relays, { url: PUBLIC_FALLBACK_RELAY, read: true, write: true }]
+}
+
+/** Public relays that answer this client's read/write pattern with per-address
+ *  escalation: relay.damus.io refused the upgrade with HTTP 503 on 30 October
+ *  2026, then refused writes outright with "banned: too many rate-limit
+ *  violations" until the caller changed network address (1 November 2026).
+ *  Taking it off the suggestion list is not enough: saved device choices,
+ *  invitation hints and room snapshot relays all keep dialling it, and each
+ *  dial from a shared address deepens the ban everyone on that address
+ *  carries. */
+const ADDRESS_BANNED_PUBLIC_RELAYS = new Set(['wss://relay.damus.io/'])
+
+/** Drop address-banned public relays from `relays`, unless that would leave
+ *  nothing readable or nothing writable, or, for a room, no relay it still
+ *  shares with its members. A configuration pinned to a banned relay alone
+ *  stays on it: an empty pool fails every time, a relay that sometimes
+ *  answers does not. `shared` is the room's own relay URLs, so the prune can
+ *  tell which members' routes survive. */
+export function pruneAddressBannedRelays(relays: RelayConfig[], shared: readonly string[] = []): RelayConfig[] {
+  const pruned = relays.filter(relay => !ADDRESS_BANNED_PUBLIC_RELAYS.has(relay.url))
+  if (pruned.length === relays.length) return relays
+  const stillUsable = pruned.some(relay => relay.read) && pruned.some(relay => relay.write)
+  const stillShared = shared.length === 0 || pruned.some(relay => shared.includes(relay.url))
+  return stillUsable && stillShared ? pruned : relays
 }
 
 /** A room's own relays, as this device holds them. */
@@ -51,6 +87,16 @@ export interface FixedRoomRelays { c: string[]; signed: boolean }
  */
 export class RelayConnections {
   #accountNetwork?: AccountNetwork
+  #roomSockets?: SharedRelaySockets
+  #roomSocketsBase?: typeof WebSocket
+  /** The real sockets every room pool here shares, over `Base`. */
+  #sharedRoomSockets(Base: typeof WebSocket): SharedRelaySockets {
+    if (!this.#roomSockets || this.#roomSocketsBase !== Base) {
+      this.#roomSocketsBase = Base
+      this.#roomSockets = new SharedRelaySockets(Base, { refusedUpgrade: url => { try { relayDials.refusedUpgrade(url) } catch { /* not a relay url */ } } })
+    }
+    return this.#roomSockets
+  }
   accountNetwork(policy: AccountNetwork): void {
     if (this.#pools.size) throw new Error('Account policy must precede public pools.')
     this.#accountNetwork = policy
@@ -74,13 +120,20 @@ export class RelayConnections {
   #shared = new Map<string, NostrRelayPool>()
   readonly #probeIntervalMs: number
   readonly #visible: () => boolean
+  /** Pool timing a test may shorten; production uses the pool's defaults. */
+  readonly #poolTiming: { probeQuietMs?: number; reconnectJitterMs?: number }
   /** `circle` says whether a relay URL is a box of the person's own circle,
    *  verified from current signed box status; such a relay is marked on every
    *  configuration handed out, which is what lets a message to it show as
    *  sheltered (`src/lane.ts`). The mark is a fact about the relay, not a
    *  preference, so it is not saved and cannot be edited into place. */
-  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false, probing: { intervalMs?: number; visible?: () => boolean } = {}) {
+  constructor(private storage: StorageLike, private defaults: string[], private circle: (url: string) => boolean = () => false,
+    probing: { intervalMs?: number; visible?: () => boolean; quietMs?: number; reconnectJitterMs?: number; probeAllMinMs?: number; random?: () => number } = {}) {
     this.#probeIntervalMs = probing.intervalMs ?? 30_000
+    this.#poolTiming = { ...(probing.quietMs !== undefined ? { probeQuietMs: probing.quietMs } : {}),
+      ...(probing.reconnectJitterMs !== undefined ? { reconnectJitterMs: probing.reconnectJitterMs } : {}) }
+    this.#probeAllMinMs = probing.probeAllMinMs ?? PROBE_ALL_MIN_MS
+    this.#random = probing.random ?? Math.random
     // `document` is absent outside a browser tab (a Node test, an agent
     // host); nothing there is ever hidden, so a probe is never skipped for
     // it. Injectable so a test can pretend the tab just went to the
@@ -155,12 +208,12 @@ export class RelayConnections {
   /** Every relay this device uses for `scope`: the room's own first, then
    *  this device's own for it. */
   configuration(scope: string, hints: RelayHints = []): RelayConfig[] {
-    return this.#marked(this.#withRoomRelays(scope, this.#configuration(scope, hints)))
+    return this.#marked(pruneAddressBannedRelays(this.#withRoomRelays(scope, this.#configuration(scope, hints)), this.#roomRelayUrls(scope)))
   }
   /** This device's own relays for `scope`, before the room's are put
    *  ahead of them: what the relay settings edit and save. */
   personal(scope: string, hints: RelayHints = []): RelayConfig[] {
-    return this.#marked(this.#configuration(scope, hints))
+    return this.#marked(pruneAddressBannedRelays(this.#configuration(scope, hints)))
   }
 
   /** Whether this device took a snapshot of its defaults for the room when
@@ -278,16 +331,27 @@ export class RelayConnections {
     return this.#publicPool(scope, hints)
   }
   #publicPool(scope: string, hints: RelayHints): NostrRelayPool {
-    if (this.#accountNetwork) return this.#accountNetwork.publicTransport(() => this.#unrestrictedPublicPool(scope, hints))
+    const network = this.#accountNetwork
+    if (network) return network.publicTransport(guard => this.#unrestrictedPublicPool(scope, hints, guard, network.generation))
     return this.#unrestrictedPublicPool(scope, hints)
   }
-  #unrestrictedPublicPool(scope: string, hints: RelayHints): NostrRelayPool {
+  /** `guard`, from the account network, is checked before every frame any
+   *  socket of the pool writes; pools are shared only within its generation. */
+  #unrestrictedPublicPool(scope: string, hints: RelayHints, guard?: () => boolean, generation?: number): NostrRelayPool {
     this.#prune()
-    const key = poolKey(scope, hints)
+    const key = guard ? `${poolKey(scope, hints)}#${generation ?? 0}` : poolKey(scope, hints)
     let pool = this.#shared.get(key)
     if (!pool) {
       const configuration = this.configuration(scope, hints)
-      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration) })
+      const Base = globalThis.WebSocket
+      // Rooms share real sockets to a relay, a few between them rather than
+      // one each; the account's own pools keep theirs, so no connection
+      // carries both. A pool holding relay authentication never shares.
+      const Socket = ROOM_SCOPE.test(scope) ? librarySocket() : undefined
+      const rooms = Socket ? this.#sharedRoomSockets(Socket) : undefined
+      pool = new NostrRelayPool(configuration, url => this.isCircle(url), { authentication: this.#grants(scope, configuration), ...this.#poolTiming,
+        ...(guard && Base ? { websocketImplementation: Base, sendGuard: guard } : {}),
+        ...(rooms ? { sharedSockets: rooms } : {}) })
       const owner: PoolOwner = { scope, hints, key, holders: 0 }
       this.#pools.set(pool, owner)
       this.#shared.set(key, pool)
@@ -350,9 +414,30 @@ export class RelayConnections {
    *  the app's own "we might be back" signals: tab foregrounded, `pageshow`
    *  from the back-forward cache, and the network coming back. */
   async probeAll(timeoutMs?: number): Promise<void> {
-    this.#prune()
-    await Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {})))
+    // Foregrounding, `pageshow` and `online` often come together, and a tab
+    // flicked back and forth fires them over and over: each used to probe
+    // every pool at once. Now one run at most every `PROBE_ALL_MIN_MS`, a
+    // later call inside that window folding into one run at its end, and
+    // each run starts after a random moment so the pools of several tabs
+    // or windows do not probe together.
+    const now = Date.now()
+    if (this.#probeAllRun) return this.#probeAllRun
+    const wait = Math.max(0, this.#lastProbeAll + this.#probeAllMinMs - now) + Math.floor(this.#random() * PROBE_ALL_JITTER_MS)
+    this.#probeAllRun = new Promise<void>(resolve => {
+      const timer = setTimeout(() => {
+        this.#lastProbeAll = Date.now()
+        this.#probeAllRun = undefined
+        this.#prune()
+        void Promise.all([...this.#pools.keys()].map(pool => pool.probe(timeoutMs).catch(() => {}))).then(() => resolve())
+      }, wait)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+    })
+    return this.#probeAllRun
   }
+  #probeAllRun?: Promise<void>
+  #lastProbeAll = -Infinity
+  readonly #probeAllMinMs: number
+  readonly #random: () => number
   health(scope: string, hints: RelayHints = []): RelayHealth[] {
     this.#prune()
     return this.configuration(scope, hints).map(relay => {
@@ -388,6 +473,10 @@ export class RelayConnections {
     }
   }
 }
+
+/** At most one `probeAll` run in this long, and the random wait before each. */
+export const PROBE_ALL_MIN_MS = 10_000
+export const PROBE_ALL_JITTER_MS = 2_000
 
 interface PoolOwner { scope: string; hints: RelayHints; key: string; holders: number; probeTimer?: ReturnType<typeof setTimeout> }
 

@@ -365,7 +365,7 @@ export async function leaveRoom(page: Page, { tidy = false }: { tidy?: boolean }
 }
 
 /** The pages of Settings. */
-export type SettingsPage = 'Account' | 'Profile' | 'Notifications' | 'Messages' | 'Display' | 'Privacy' | 'Connections' | 'Keyboard shortcuts' | 'Updates' | 'About and help'
+export type SettingsPage = 'Account' | 'Profile' | 'Notifications' | 'Messages' | 'Display' | 'Privacy' | 'Calls' | 'Relays' | 'Keyboard shortcuts' | 'Updates' | 'About and help'
 
 /** Settings, on the page named (or its list). It is the main pane, one click
  *  from the rail; a row that opens a dialog (Profile, Keyboard shortcuts) has no
@@ -377,14 +377,23 @@ export async function openSettings(page: Page, name?: SettingsPage): Promise<voi
     if (!(await pane.isVisible())) await page.locator('#openAppSettings').evaluate(button => (button as HTMLButtonElement).click())
     await expect(pane).toBeVisible({ timeout: 1_000 })
   }).toPass({ timeout: 30_000 })
-  if ((await pane.getAttribute('data-page')) !== 'main') {
-    await page.locator('#settingsBack').click()
-    await expect(pane).toHaveAttribute('data-page', 'main')
-  }
+  // A page under Calls or Privacy takes more than one Back to reach the list.
+  for (let step = 0; step < 4 && (await pane.getAttribute('data-page')) !== 'main'; step++) await page.locator('#settingsBack').click()
+  await expect(pane).toHaveAttribute('data-page', 'main')
   if (name && !['Profile', 'Keyboard shortcuts', 'Updates'].includes(name)) {
     await pane.locator('.infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
     await expect(page.locator('#settingsTitle')).toHaveText(name)
   }
+}
+
+/** A page under Calls (the row on Calls that opens it). */
+export type CallSettingsPage = 'Your Spry node' | 'Relay server' | 'Public call relays' | 'Advanced'
+
+/** Settings › Calls › the page named. */
+export async function openCallSettings(page: Page, name: CallSettingsPage): Promise<void> {
+  await openSettings(page, 'Calls')
+  await page.locator('#settingsPane').locator('.infoRow', { has: page.locator('.infoRowTitle', { hasText: new RegExp(`^${name}$`) }) }).click()
+  await expect(page.locator('#settingsTitle')).toHaveText(name)
 }
 
 /** Out of Settings, back to the chats and the room that was open. */

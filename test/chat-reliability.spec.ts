@@ -159,6 +159,62 @@ test('a message written with no relay reachable waits as pending, survives a rel
   } finally { await context.close() }
 })
 
+test('a message unsent for more than a day is not sent by itself, and Retry sends it as a new message', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!)
+  const relay = testRelay(baseURL!)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const chatEvents: NostrEvent[] = []
+  const live = new Set<{ close: () => void }>()
+  let blocked = false
+  await context.routeWebSocket(relay, ws => {
+    if (blocked) { ws.close(); return }
+    live.add(ws)
+    const upstream = ws.connectToServer()
+    ws.onMessage(raw => {
+      const frame = JSON.parse(String(raw))
+      if (frame[0] === 'EVENT' && frame[1].kind === 1460 && frame[1].tags.some((tag: string[]) => tag[0] === 'd' && tag[1] === roomId)) chatEvents.push(frame[1])
+      upstream.send(raw)
+    })
+    upstream.onMessage(raw => ws.send(raw))
+  })
+  try {
+    const page = await context.newPage()
+    await join(page, encodeJoinUrl(baseURL!, secret, [relay]), 'Ada')
+    blocked = true
+    for (const ws of live) ws.close()
+    live.clear()
+    const writtenAt = Math.floor(Date.now() / 1000)
+    await page.locator('#chatInput').fill('Written before the weekend')
+    await page.locator('#chatInput').press('Enter')
+    await expect(page.locator('#outbox .pendingMsg')).toContainText('Pending: will send when you are connected.')
+    expect(chatEvents).toEqual([])
+    // A day and an hour later, by the wall clock, with the relay back.
+    await context.addInitScript(() => {
+      const real = Date.now.bind(Date)
+      Date.now = () => real() + 25 * 60 * 60 * 1000
+    })
+    blocked = false
+    await page.reload()
+    const joinButton = page.locator('#join')
+    await expect.poll(async () => await joinButton.isVisible() || await page.locator('#roomArea').isVisible()).toBe(true)
+    if (await joinButton.isVisible()) await joinButton.click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const row = page.locator('#outbox .pendingMsg')
+    await expect(row).toContainText('Written before the weekend')
+    await expect(row).toContainText('Not sent: it waited more than a day. Press Retry to send it now.')
+    // Opening the room again did not send the old event.
+    await page.waitForTimeout(2_000)
+    expect(chatEvents).toEqual([])
+    await row.getByRole('button', { name: 'Retry' }).click()
+    await expect(page.locator('#outbox')).toBeHidden()
+    await expect(page.locator('#chatLog .msg', { hasText: 'Written before the weekend' })).toHaveCount(1)
+    expect(chatEvents).toHaveLength(1)
+    // Signed again, now: not the event written a day ago.
+    expect(chatEvents[0]!.created_at).toBeGreaterThanOrEqual(writtenAt + 24 * 60 * 60)
+  } finally { await context.close() }
+})
+
 test('an unsent message can be edited or deleted before it leaves, without a trace', async ({ browser, baseURL }) => {
   const context = await contextFor(browser, baseURL!)
   const relay = testRelay(baseURL!)

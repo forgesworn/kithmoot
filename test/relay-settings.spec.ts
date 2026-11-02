@@ -12,7 +12,7 @@ import { createRumor, createSeal } from 'nostr-tools/nip59'
 import { Relay } from 'nostr-tools/relay'
 import { verifyEventUncached } from '../src/verify.js'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
-import { openNewRoomForm, openRoomInfoPage, openSettings, nameCreator, join as joinDoor } from './browser.js'
+import { openCallSettings, openNewRoomForm, openRoomInfoPage, openSettings, nameCreator, join as joinDoor } from './browser.js'
 import { TEST_RELAY_WS } from './relays.js'
 
 // The same signed kind-21236 response inside a kind-29999 gift wrap that
@@ -308,7 +308,7 @@ test('relay identity permission is explicit, names the chosen account and is wit
     expect(signed.filter(event => event.kind === 22242)).toHaveLength(0)
     await openSettings(page, 'Account')
     await expect(page.locator('#signOut')).toBeVisible()
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Relays')
     await page.locator('#defaultRelaySettings').click()
     const row = page.locator('.relayRow').filter({ hasText: keeper })
     await row.getByRole('button', { name: `Use signed-in account with ${keeper}` }).click()
@@ -333,7 +333,7 @@ test('relay identity permission is explicit, names the chosen account and is wit
     await openSettings(page, 'Account')
     await page.locator('#signOut').click()
     await expect(page.locator('#signOut')).toBeHidden()
-    await openSettings(page, 'Connections')
+    await openSettings(page, 'Relays')
     await page.locator('#defaultRelaySettings').click()
     await expect(row.locator('.relayHealth')).toContainText('permission withdrawn')
     await expect(row.getByRole('button', { name: `Use signed-in account with ${keeper}` })).toBeDisabled()
@@ -350,10 +350,9 @@ test('relay identity permission is explicit, names the chosen account and is wit
 
 test('the call relay password has an eye button that shows and hides it', async ({ page, baseURL }) => {
   await page.goto(baseURL!)
-  await openSettings(page, 'Connections')
-  await page.getByText('Other call relays', { exact: true }).click()
+  await openCallSettings(page, 'Relay server')
   // Found by its exact label: the eye sits beside the field, not inside its name.
-  const password = page.getByLabel('Relay password', { exact: true })
+  const password = page.getByLabel('Password', { exact: true })
   const eye = page.getByRole('button', { name: 'Show relay password', exact: true })
   await password.fill('synthetic-relay-password')
   await expect(password).toHaveAttribute('type', 'password')

@@ -54,12 +54,26 @@ test('issuer requests omit cookies and room information while fresh guests recei
     pages[0].on('response', response => {
       if (response.status() >= 400) note({ kind: 'http-error', resource: response.request().resourceType(), status: response.status() })
     })
+    // "Hide my IP address" is on, so a room is opened only after its credential
+    // request has been answered, and a refusal (the issuer's rate limit, say)
+    // leaves the call button refused with no relay. Without this the failure
+    // reads as "#deviceControls hidden" five seconds later and names nothing.
+    const issuerStatus: (number | undefined)[] = [undefined, undefined]
+    pages.forEach((page, index) => page.on('response', response => {
+      if (response.url().startsWith(`${issuer}/turn`)) issuerStatus[index] ??= response.status()
+    }))
+    const issuerAnswered = async (index: number) => {
+      await expect.poll(() => issuerStatus[index], { message: `guest ${index + 1} credential request answered`, timeout: 15_000 }).toBeDefined()
+      expect(issuerStatus[index], `issuer status for guest ${index + 1}'s credential request`).toBe(200)
+    }
     let link: string
     try { link = await createRoom(pages[0], baseURL!) }
     catch (error) { return await rethrowStartupFailure(error, pages[0], startupIssues) }
+    await issuerAnswered(0)
     await turnOnMedia(pages[0])
     await open(pages[1], link, 'Rowan'); await join(pages[1])
     await expect(pages[1].locator('#roomArea')).toBeVisible()
+    await issuerAnswered(1)
     // Publish media on both sides: an idle/chat-only guest need not request
     // its own transport allocation yet.
     await turnOnMedia(pages[1])

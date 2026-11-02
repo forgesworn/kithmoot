@@ -22,9 +22,40 @@
 declare const dialLease: unique symbol
 export interface RelayDialLease { readonly [dialLease]: true }
 interface DialState { failures: number; after: number; lease: number; owner?: RelayDialLease }
+/** A doubling hold: how many times in a row it was set, and until when. */
+interface Hold { strikes: number; until: number }
+
+/**
+ * The machine-readable prefix of a relay's `OK false`, `CLOSED` or `NOTICE`
+ * reason, lower case and without its colon: `rate-limited`, `blocked`,
+ * `restricted`, `pow`, `auth-required`, `invalid`, `error` and so on, or
+ * undefined when the reason has none. strfry puts `ERROR: ` in front of
+ * every `CLOSED` reason (RelayServer.h), so that is taken off first: without
+ * it a strfry refusal could never be told apart from any other close.
+ */
+export function relayReason(reason: string): string | undefined {
+  const bare = reason.replace(/^ERROR: ?/, '')
+  return /^([a-z][a-z-]*):/i.exec(bare)?.[1]?.toLowerCase()
+}
+
+/** Whether a relay's `NOTICE` asks this client to slow down: rate limiting by
+ *  any wording, or strfry's "too many concurrent REQs" for a connection past
+ *  its subscription cap. */
+export function noticeThrottles(message: string): boolean {
+  return /\brate\b|rate[- ]?limit|too many/i.test(message)
+}
+
+/** `start` doubled `strikes - 1` times, at most `max`. */
+export function doublingBackoff(strikes: number, start: number, max: number): number {
+  return Math.min(start * 2 ** Math.max(0, Math.min(strikes - 1, 30)), max)
+}
 
 export class RelayDialGate {
   readonly #relays = new Map<string, DialState>()
+  /** Relays that said we write too fast: nothing more is written to them until the hold ends. */
+  readonly #writes = new Map<string, Hold>()
+  /** Relays that refused a read with `rate-limited:`: no subscription is resent to them until the hold ends. */
+  readonly #reads = new Map<string, Hold>()
   readonly #leases = new WeakMap<RelayDialLease, { url: string; state?: DialState }>()
   readonly #now: () => number
 
@@ -108,9 +139,71 @@ export class RelayDialGate {
    *  event. That, not an open socket, is what ends its backoff. */
   answered(url: string): void { this.#relays.delete(url) }
 
+  /**
+   * `url` asked this client to slow down: `rate-limited:` in an `OK false` or
+   * a `CLOSED`, or a `NOTICE` about rates or too many requests. Nothing more
+   * is written to it, from any pool in the process, for 30 s, doubling with
+   * each further complaint to at most an hour. Several pools hearing the same
+   * complaint at once count it once: a further one counts only after the
+   * hold it caused has ended. A relay that has said nothing of the kind for
+   * an hour after its last hold ended starts again from 30 s.
+   */
+  throttled(url: string): void { this.#hold(this.#writes, url, WRITE_HOLD_MS, WRITE_HOLD_MAX_MS) }
+
+  /** Whether writes to `url` are held because it asked us to slow down. */
+  writeHeld(url: string): boolean { return this.writeHeldUntil(url) > this.#now() }
+
+  /** When writes to `url` may start again: now or earlier when not held. */
+  writeHeldUntil(url: string): number { return this.#writes.get(url)?.until ?? 0 }
+
+  /**
+   * `url` refused a subscription with `rate-limited:`. No subscription is
+   * sent to it again, from any pool, for 60 s, doubling to at most 30
+   * minutes. Resending a refused `REQ` every few seconds is exactly the
+   * stream of "rate-limit violations" that relays ban an address for.
+   */
+  readRateLimited(url: string): void { this.#hold(this.#reads, url, READ_HOLD_MS, READ_HOLD_MAX_MS) }
+
+  /** Whether subscriptions to `url` are held after a `rate-limited:` refusal. */
+  readHeld(url: string): boolean { return this.readHeldUntil(url) > this.#now() }
+
+  /** When a subscription may be sent to `url` again. */
+  readHeldUntil(url: string): number { return this.#reads.get(url)?.until ?? 0 }
+
+  /** The relay refused the WebSocket upgrade itself with 429 or 503. That is
+   *  a relay telling this address to go away for a while, not a network
+   *  failure: writes are held, and so is the next dial, until the hold ends. */
+  refusedUpgrade(url: string): void {
+    this.throttled(url)
+    const relay = this.#relays.get(url) ?? { failures: 0, after: 0, lease: 0 }
+    relay.failures = Math.max(relay.failures, 1)
+    relay.after = Math.max(relay.after, this.writeHeldUntil(url))
+    this.#relays.set(url, relay)
+  }
+
+  #hold(holds: Map<string, Hold>, url: string, start: number, max: number): void {
+    const now = this.#now()
+    const held = holds.get(url)
+    // One complaint per hold: pools hearing it together do not double it.
+    if (held && now < held.until) return
+    // Quiet for as long as the longest hold since the last one ended: start again.
+    const strikes = held && now - held.until < max ? held.strikes + 1 : 1
+    holds.set(url, { strikes, until: now + doublingBackoff(strikes, start, max) })
+  }
+
   /** Forget every relay. For tests. */
-  clear(): void { this.#relays.clear() }
+  clear(): void { this.#relays.clear(); this.#writes.clear(); this.#reads.clear() }
 }
+
+/** How long writes to a relay that asked us to slow down are held: 30 s,
+ *  doubling to an hour. */
+export const WRITE_HOLD_MS = 30_000
+export const WRITE_HOLD_MAX_MS = 60 * 60_000
+
+/** How long subscriptions to a relay that refused one with `rate-limited:`
+ *  are held: 60 s, doubling to 30 minutes. */
+export const READ_HOLD_MS = 60_000
+export const READ_HOLD_MAX_MS = 30 * 60_000
 
 /** Dial backoff after a failure: doubling from 1 s to at most 8 s. A
  *  publish keeps trying for 20 s (`PUBLISH_RETRY_BUDGET_MS`), so a relay that

@@ -30,9 +30,9 @@ describe('the curated public relays', () => {
 
   it('keeps to the list rules', () => {
     expect(PUBLIC_RELAYS.length).toBeLessThanOrEqual(6)
-    expect(DEFAULT_PUBLIC_RELAYS).toHaveLength(3)
-    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => relay.operator)).size).toBe(3)
-    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => new URL(relay.url).host)).size).toBe(3)
+    expect(DEFAULT_PUBLIC_RELAYS).toHaveLength(4)
+    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => relay.operator)).size).toBe(4)
+    expect(new Set(DEFAULT_PUBLIC_RELAYS.map(relay => new URL(relay.url).host)).size).toBe(4)
     const quiet = PUBLIC_RELAYS.filter(relay => relay.quietRooms)
     expect(quiet.length).toBeGreaterThanOrEqual(2)
     expect(quiet.some(relay => relay.default)).toBe(true)

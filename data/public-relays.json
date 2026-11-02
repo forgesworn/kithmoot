@@ -1,20 +1,20 @@
 [
   {
+    "url": "wss://relay.trotters.cc/",
+    "operator": "ForgeSworn relay",
+    "default": true,
+    "quietRooms": true,
+    "test": "round-trip",
+    "checked": "2026-11-01"
+  },
+  {
     "url": "wss://relay.primal.net/",
     "operator": "Primal Public Relay",
     "default": true,
     "quietRooms": true,
     "keeps": "under-a-day",
     "test": "read",
-    "checked": "2026-10-21"
-  },
-  {
-    "url": "wss://nostr.oxtr.dev/",
-    "operator": "0xtr relay",
-    "default": true,
-    "quietRooms": true,
-    "test": "read",
-    "checked": "2026-10-21"
+    "checked": "2026-10-30"
   },
   {
     "url": "wss://relay.ditto.pub/",
@@ -22,21 +22,21 @@
     "default": true,
     "quietRooms": true,
     "test": "read",
-    "checked": "2026-10-21"
+    "checked": "2026-10-30"
   },
   {
     "url": "wss://offchain.pub/",
     "operator": "offchain.pub",
-    "default": false,
+    "default": true,
     "quietRooms": false,
     "test": "read",
-    "checked": "2026-10-21"
+    "checked": "2026-10-30"
   },
   {
-    "url": "wss://relay.damus.io/",
-    "operator": "damus.io",
+    "url": "wss://nostr.oxtr.dev/",
+    "operator": "0xtr relay",
     "default": false,
-    "quietRooms": false,
+    "quietRooms": true,
     "test": "read",
     "checked": "2026-10-21"
   }

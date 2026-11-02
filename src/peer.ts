@@ -1,5 +1,5 @@
 import { normaliseHex } from './hex.js'
-import { hideLocalAddressesInSignal } from './local-address-filter.js'
+import { hideLocalAddressesInSignal, HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, type SdpSession } from './sdp-shape.js'
 import type { SignalBody } from './signal.js'
 import type { TrackRole } from './types.js'
@@ -109,6 +109,9 @@ export interface RTCPeerConnectionLike {
   close(): void
   readonly signalingState: RTCSignalingState
   readonly localDescription: RTCSessionDescriptionInit | null
+  /** Whether candidates are still being gathered. Optional: a double without
+   *  it is treated as having nothing to wait for. See `CANDIDATE_GATHER_MS`. */
+  readonly iceGatheringState?: RTCIceGatheringState
   readonly connectionState: RTCPeerConnectionState
   /** `transceiver` is how a profile-2 receiver learns which slot a track
    *  arrived in: `event.transceiver.mid` against the generation-opening
@@ -278,6 +281,25 @@ export const MAX_OFFER_RETRY_MS = 8_000
 export const OFFER_RETRY_JITTER = 0.2
 
 /**
+ * How long a first offer or answer waits for candidates before it is sent.
+ *
+ * Every trickled candidate is its own signal, and every signal is a gift
+ * wrap published to each of the room's relays. A fresh connection gathers
+ * its candidates within a few milliseconds of `setLocalDescription` (host
+ * candidates at once, a configured TURN server's within a round trip), so
+ * holding the description back that long lets it carry them in its own
+ * `a=candidate` lines and saves a signal per candidate per relay. Every
+ * client already applies candidates written into a description: an offer
+ * re-sent from `localDescription` has always carried them.
+ *
+ * Short, because the wait is call set-up time and widens the window in
+ * which two first offers can cross. Candidates that arrive later trickle as
+ * they always did. Only paid while the connection is gathering: a
+ * renegotiation on a connection whose ICE is done sends at once.
+ */
+export const CANDIDATE_GATHER_MS = 200
+
+/**
  * How long the impolite side sits in `have-local-offer` with no answer before
  * it rolls its own offer back.
  *
@@ -387,6 +409,12 @@ export interface PeerOptions {
    */
   offerRetry?: { intervalMs?: number; maxIntervalMs?: number; jitter?: number; wedgeMs?: number }
   /**
+   * How long a first offer or answer waits for candidates to write into it.
+   * Defaults to `CANDIDATE_GATHER_MS`; 0 sends at once and trickles every
+   * candidate.
+   */
+  candidateGatherMs?: number
+  /**
    * Where the retransmission jitter comes from. Defaults to `Math.random`.
    * A test pins it so a backoff schedule can be asserted exactly rather than
    * within a window.
@@ -476,6 +504,12 @@ export class Peer implements NegotiatingPeer {
   readonly #jitter: number
   readonly #wedgeMs: number
   readonly #random: () => number
+  readonly #gatherMs: number
+  /** Candidates held while a description waits to carry them. Defined only
+   *  inside `#gather`. */
+  #heldCandidates?: RTCIceCandidateInit[]
+  /** Ends the wait in `#gather` early: gathering finished, or the peer closed. */
+  #gatherDone?: () => void
   /** Armed whenever an offer goes out, and cleared by the answer to it. See
    *  `OFFER_RETRY_MS`. */
   #retryTimer?: ReturnType<typeof setTimeout>
@@ -539,6 +573,7 @@ export class Peer implements NegotiatingPeer {
     this.#maxRetryMs = Math.max(this.#retryMs, opts.offerRetry?.maxIntervalMs ?? MAX_OFFER_RETRY_MS)
     this.#jitter = opts.offerRetry?.jitter ?? OFFER_RETRY_JITTER
     this.#wedgeMs = opts.offerRetry?.wedgeMs ?? WEDGE_BREAK_MS
+    this.#gatherMs = Math.max(0, opts.candidateGatherMs ?? CANDIDATE_GATHER_MS)
     this.#random = opts.random ?? Math.random
     // Normalised here, once, because this decides politeness and the two
     // sides of a connection MUST land on opposite answers - see the class
@@ -555,7 +590,7 @@ export class Peer implements NegotiatingPeer {
     this.#onSignal = opts.revealLocalAddresses
       ? opts.onSignal
       : (body) => {
-          const safe = hideLocalAddressesInSignal(body)
+          const safe = hideLocalAddressesInSignal(body, HIDE_HOST_CANDIDATES)
           if (safe) opts.onSignal(safe)
         }
     this.#onTrack = opts.onTrack
@@ -617,7 +652,14 @@ export class Peer implements NegotiatingPeer {
     }
 
     this.#pc.onicecandidate = (event) => {
-      if (!event.candidate) return
+      if (!event.candidate) {
+        this.#gatherDone?.()
+        return
+      }
+      if (this.#heldCandidates) {
+        this.#heldCandidates.push(event.candidate)
+        return
+      }
       this.#onSignal({ type: 'ice', roomId: '', candidate: JSON.stringify(event.candidate) })
     }
 
@@ -672,6 +714,55 @@ export class Peer implements NegotiatingPeer {
       this.#opts.onConnectionState?.('failed')
       this.close()
     })
+  }
+
+  /**
+   * Apply a local description, give a gathering connection up to
+   * `#gatherMs` to find candidates, and send the description with whatever
+   * it found written into it. See `CANDIDATE_GATHER_MS`.
+   *
+   * Candidates raised meanwhile are held, not sent. Once the description is
+   * out, any held candidate it does not already carry is trickled after it,
+   * so the description always goes first and nothing is lost: a connection
+   * whose `localDescription` does not accrue candidates (werift, a test
+   * double) ends up sending exactly what it did before. Held candidates are
+   * released on every path, including a failure, so a refused description
+   * cannot leave the next one holding candidates for ever.
+   */
+  async #gather(apply: () => Promise<void>, written: string | undefined, send: (sdp: string | undefined) => void): Promise<void> {
+    if (this.#gatherMs <= 0) {
+      await apply()
+      send(written)
+      return
+    }
+    const held: RTCIceCandidateInit[] = []
+    this.#heldCandidates = held
+    let sent: string | undefined
+    try {
+      await apply()
+      const state = this.#pc.iceGatheringState
+      if (!this.#closed && (state === 'new' || state === 'gathering')) {
+        await new Promise<void>((resolve) => {
+          const timer = this.#after(this.#gatherMs, () => this.#gatherDone?.())
+          this.#gatherDone = () => {
+            clearTimeout(timer)
+            this.#gatherDone = undefined
+            resolve()
+          }
+        })
+      }
+      const sdp = this.#pc.localDescription?.sdp ?? written
+      send(sdp)
+      sent = sdp
+    } finally {
+      this.#gatherDone = undefined
+      if (this.#heldCandidates === held) this.#heldCandidates = undefined
+      for (const candidate of held) {
+        if (sent !== undefined && typeof candidate.candidate === 'string' && candidate.candidate !== ''
+          && sent.includes(`a=${candidate.candidate}`)) continue
+        this.#onSignal({ type: 'ice', roomId: '', candidate: JSON.stringify(candidate) })
+      }
+    }
   }
 
   #after(ms: number, run: () => void): ReturnType<typeof setTimeout> {
@@ -776,10 +867,11 @@ export class Peer implements NegotiatingPeer {
     this.#clearNegotiationTimers()
     try {
       const offer = await this.#pc.createOffer()
-      await this.#pc.setLocalDescription(offer)
-      if (this.#offerSeq === Number.MAX_SAFE_INTEGER) throw new Error('call offer identifiers exhausted')
-      this.#outstandingOfferSeq = ++this.#offerSeq
-      this.#onSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: this.#outstandingOfferSeq })
+      await this.#gather(() => this.#pc.setLocalDescription(offer), offer.sdp, (sdp) => {
+        if (this.#offerSeq === Number.MAX_SAFE_INTEGER) throw new Error('call offer identifiers exhausted')
+        this.#outstandingOfferSeq = ++this.#offerSeq
+        this.#onSignal({ type: 'offer', roomId: '', sdp, seq: this.#outstandingOfferSeq })
+      })
     } finally {
       this.#makingOffer = false
     }
@@ -1113,12 +1205,22 @@ export class Peer implements NegotiatingPeer {
     // nothing, and on a real connection it is a second negotiation with all
     // the risk that carries - which is why this used to fall through, throw
     // out of `setRemoteDescription`, and vanish into the mesh's `catch`.
+    //
+    // The same holds on the polite side while an offer of our own is out. The
+    // far end re-sent an offer it made before our answer reached it, and our
+    // offer was made after that answer: the copy is not glare. Rolling ours
+    // back to answer the copy afresh throws away a negotiation the far end may
+    // already have answered and re-applies a stale offer; between a browser
+    // and the Android client that ended with no video either way. The answer
+    // already sent still answers the copy, and our offer, which carries
+    // whatever changed since, stays out and is asked about again until it is
+    // answered. A different offer crossing ours is still a collision.
     if (
       sdp !== undefined &&
       sameShape(sdp, this.#lastRemoteOfferSdp) &&
       this.#lastAnswerSdp !== undefined &&
       !this.#makingOffer &&
-      this.#pc.signalingState === 'stable'
+      (this.#pc.signalingState === 'stable' || (this.polite && this.#pc.signalingState === 'have-local-offer'))
     ) {
       this.#lastAnswerReplyTo = seq
       this.#onSignal({ type: 'answer', roomId: '', sdp: this.#lastAnswerSdp,
@@ -1196,11 +1298,12 @@ export class Peer implements NegotiatingPeer {
     // answer that is never emitted wedges the connection silently for good,
     // where a candidate that is never applied costs one path.
     const answer = await this.#pc.createAnswer()
-    await this.#pc.setLocalDescription(answer)
-    this.#lastAnswerSdp = answer.sdp
-    this.#lastAnswerReplyTo = seq
-    this.#onSignal({ type: 'answer', roomId: '', sdp: answer.sdp,
-      ...(seq !== undefined ? { re: seq } : {}) })
+    await this.#gather(() => this.#pc.setLocalDescription(answer), answer.sdp, (sdp) => {
+      this.#lastAnswerSdp = sdp
+      this.#lastAnswerReplyTo = seq
+      this.#onSignal({ type: 'answer', roomId: '', sdp,
+        ...(seq !== undefined ? { re: seq } : {}) })
+    })
 
     await this.#drainCandidates()
 
@@ -1318,6 +1421,7 @@ export class Peer implements NegotiatingPeer {
     this.#closed = true
     this.#clearRestartTimers()
     this.#clearNegotiationTimers()
+    this.#gatherDone?.()
     this.#pc.close()
   }
 }

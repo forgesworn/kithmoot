@@ -27,6 +27,8 @@ export interface SpryRoomOptions {
    * its own calls and registers its own key. Defaults to true.
    */
   share?: boolean
+  /** Told the time (milliseconds) whenever this device's own node refuses or does not answer a credential request. Never stored. */
+  ownFailure?: (at: number) => void
   /** Test seam for the vouch delay, in milliseconds. */
   jitter?: () => number
   /**
@@ -43,6 +45,11 @@ export interface SpryRoomOptions {
   /** Local acceptance builds only (`VITE_E2E_SPRY_LOOPBACK_TURN`): a
    *  standard node may answer with 127.0.0.1. */
   loopbackTurn?: boolean
+  /** This computer's own built-in relay's local listener, read at each
+   *  credential request for the pairing in use, given its endpoint; undefined
+   *  for any pairing that is not that relay (see
+   *  `SpryCredentialOptions.localTurn`). */
+  localTurn?: (endpoint: string) => { host: string; port: number } | undefined
 }
 
 /**
@@ -75,6 +82,9 @@ export class SpryRoom {
   #pairRevision = 0
   #peerUpdatePending = false
   #peerRevision = Date.now()
+  /** The peer list last told to the paired node, and under which pairing:
+   *  told again only when it changes. It went every 30 s per room. */
+  #peersSent?: { list: string; pairing: number }
   #timer: ReturnType<typeof setInterval>
   #unsub: Array<() => void> = []
   #roster = ''
@@ -86,6 +96,7 @@ export class SpryRoom {
   #jitter: () => number
   #mayUse: (host: string | undefined) => boolean
   #loopbackTurn: boolean
+  #localTurn: (endpoint: string) => { host: string; port: number } | undefined
   /** Tokens this device withdrew; never republished. */
   #withdrawn = new Set<string>()
   // Registrar state for the grant `#registeredFor`, this session only.
@@ -105,6 +116,7 @@ export class SpryRoom {
   #vouchTimers = new Set<ReturnType<typeof setTimeout>>()
   // Early retry after a refusal.
   #windowStart = 0
+  #onOwnFailure: (at: number) => void
   #retryStep = 0
   #retryTimer?: ReturnType<typeof setTimeout>
   /** Status of the last refused redemption of another member's relay. */
@@ -117,7 +129,9 @@ export class SpryRoom {
     this.#share = options.share ?? true
     this.#jitter = options.jitter ?? (() => 1000 + Math.floor(Math.random() * 4000))
     this.#mayUse = options.mayUse ?? (() => true)
+    this.#onOwnFailure = options.ownFailure ?? (() => {})
     this.#loopbackTurn = options.loopbackTurn === true
+    this.#localTurn = options.localTurn ?? (() => undefined)
     // A saved offer from this device's own node is its own old grant: not
     // reused or republished while it does not share here.
     this.#offer = saved
@@ -244,7 +258,7 @@ export class SpryRoom {
     if (this.#closed || !offer || !this.#usable(offer)) throw new Error(SHARED_RELAY_UNAVAILABLE)
     const held = this.#credentials.get(offer.endpoint + ':' + offer.token)
     if (held && held.expiresAt - Date.now() / 1000 > 60) return held
-    return spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
+    return spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn, localTurn: this.pairing ? this.#localTurn(this.pairing.endpoint) : undefined })
   }
   /** A paired device always holds its room grant, for its own calls. */
   #asksOwnNode(): boolean { return !!this.pairing }
@@ -297,7 +311,15 @@ export class SpryRoom {
       const old = peers.get(node.pubkey)
       if (!old || node.created_at > old.created_at || node.created_at === old.created_at && node.id > old.id) peers.set(node.pubkey, node)
     }
-    await spryPeers(pair, this.session.roomId, this.#key, [...peers.values()].sort((a, b) => a.pubkey.localeCompare(b.pubkey)).slice(0, 8), this.fetcher, ++this.#peerRevision)
+    const list = [...peers.values()].sort((a, b) => a.pubkey.localeCompare(b.pubkey)).slice(0, 8)
+    // A card is re-signed when its node renews it, so its id changing is a
+    // change worth telling: the node keeps only cards that have not expired.
+    const fingerprint = list.map(node => `${node.pubkey}:${node.id}`).join(',')
+    const pairing = this.#pairRevision
+    if (this.#peersSent?.list === fingerprint && this.#peersSent.pairing === pairing) return
+    this.#peersSent = undefined
+    await spryPeers(pair, this.session.roomId, this.#key, list, this.fetcher, ++this.#peerRevision)
+    if (pairing === this.#pairRevision) this.#peersSent = { list: fingerprint, pairing }
   }
   /** One registration request, retried once with a fresh revision when the
    *  node says it is out of date. Every answer re-decides the seal. */
@@ -430,7 +452,7 @@ export class SpryRoom {
         this.#offer = this.#own = own
         this.retain(own)
         await this.publish().catch(() => {})
-      } catch (error) { failure = ownFailure = error }
+      } catch (error) { failure = ownFailure = error; this.#onOwnFailure(Date.now()) }
     }
     // Registered before the first redemption, so a node that seals every
     // grant still serves this device from its first call.
@@ -446,7 +468,7 @@ export class SpryRoom {
       if ((this.#credentials.get(id)?.expiresAt ?? 0) - now > 90) continue
       const mine = this.#own?.token === offer.token && this.#own.endpoint === offer.endpoint
       try {
-        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn })
+        const credential = await spryCredentials(offer, this.#key, this.fetcher, this.pairing, { loopbackTurn: this.#loopbackTurn, localTurn: this.pairing ? this.#localTurn(this.pairing.endpoint) : undefined })
         if (this.#closed || revision !== this.#pairRevision) return
         this.#credentials.set(id, credential)
         this.#redeemedAt.set(id, Date.now())
@@ -462,6 +484,7 @@ export class SpryRoom {
         failure = error
         if (mine) {
           ownFailure = error
+          this.#onOwnFailure(Date.now())
           // The grant was removed or lapsed on the node: ask again next time.
           if (error instanceof SpryRequestError && error.status === 403) this.#own = undefined
         } else if (error instanceof SpryRequestError && error.status === 403) {

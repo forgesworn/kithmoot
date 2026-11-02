@@ -1,5 +1,6 @@
 import { finalizeEvent, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { getConversationKey, encrypt, decrypt } from 'nostr-tools/nip44'
+import { noticeThrottles, relayDials, relayReason, type RelayDialGate } from './relay-dial-gate.js'
 
 export interface SpryControlEndpoint { publicKey: string; relays: string[] }
 const hex = /^[a-f0-9]{64}$/
@@ -79,34 +80,72 @@ export function spryStandardCard(value: unknown, now = Math.floor(Date.now() / 1
  *  the node could not be reached or its answer could not be read. The message
  *  is the pairing hint; callers redeeming another member's relay replace it. */
 export class SpryRequestError extends Error {
-  constructor(readonly status = 0, message = 'Spry could not connect. Check the pairing in Connections and try again.') {
+  constructor(readonly status = 0, message = "Spry couldn't connect. Check the pairing in Settings › Calls and try again.") {
     super(message)
     this.name = 'SpryRequestError'
   }
 }
 
-/** Signed NIP-44 control, pinned to the node identity selected during pairing. */
+/** The least time between two control requests through one relay. */
+export const SPRY_CONTROL_SPACING_MS = 1_000
+/** When each control relay may carry the next request, process-wide. */
+const controlTurns = new Map<string, number>()
+
+/** Take the next turn on `relay`: how long to wait before using it. Turns
+ *  are at least `SPRY_CONTROL_SPACING_MS` apart, however many rooms ask. */
+export function spryControlTurn(relay: string, now = Date.now()): number {
+  const at = Math.max(now, controlTurns.get(relay) ?? 0)
+  controlTurns.set(relay, at + SPRY_CONTROL_SPACING_MS)
+  if (controlTurns.size > 64) for (const [url, next] of controlTurns) if (next <= now) controlTurns.delete(url)
+  return at - now
+}
+
+/** Forget every relay's turn. For tests. */
+export function resetSpryControlTurns(): void { controlTurns.clear() }
+
+/** Signed NIP-44 control, pinned to the node identity selected during pairing.
+ *  Each relay carries at most one request a second from this process, and a
+ *  relay that says `rate-limited:` (in an `OK`, a `CLOSED` or a `NOTICE`) is
+ *  left alone, with every pool's writes to it, until its hold ends. */
 export async function spryControlRequest(endpoint: string, path: string, body: object, secret: string,
-  now = Math.floor(Date.now() / 1000), socketFactory = (url: string): WebSocket => new WebSocket(url)): Promise<Record<string, unknown>> {
+  now = Math.floor(Date.now() / 1000), socketFactory = (url: string): WebSocket => new WebSocket(url), gate: RelayDialGate = relayDials): Promise<Record<string, unknown>> {
   const target = parseSpryControl(endpoint)
   if (!hex.test(secret) || JSON.stringify(body).length > 8192) throw new Error('Invalid Spry request.')
   const key = keyBytes(secret), pubkey = getPublicKey(key), conversation = getConversationKey(key, target.publicKey)
   const request = finalizeEvent({ kind: 24181, created_at: now, tags: [['p', target.publicKey], ['expiration', String(now + 30)]],
     content: encrypt(JSON.stringify({ v: 1, path, body }), conversation) }, key)
+  const usable = target.relays.filter(relay => !gate.writeHeld(relay))
+  // Every relay asked us to slow down: as busy as a node answering 429.
+  if (!usable.length) throw new SpryRequestError(429)
   return new Promise((resolve, reject) => {
     const sockets: WebSocket[] = []
-    let finished = false
+    const waits = new Set<ReturnType<typeof setTimeout>>()
+    let finished = false, live = usable.length
     const timer = setTimeout(() => finish(undefined), 10000)
     function finish(value: Record<string, unknown> | undefined, status = 0): void {
       if (finished) return
       finished = true; clearTimeout(timer)
+      for (const wait of waits) clearTimeout(wait)
       for (const socket of sockets) { socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null; socket.close() }
       if (value) resolve(value)
       else reject(new SpryRequestError(status))
     }
-    for (const relay of target.relays) {
+    /** This relay asked us to slow down: hold it and stop using it. */
+    function throttled(relay: string, socket: WebSocket): void {
+      gate.throttled(relay)
+      socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null
+      socket.close()
+      if (--live === 0) finish(undefined, 429)
+    }
+    for (const relay of usable) {
+      const wait = spryControlTurn(relay)
+      if (wait <= 0) open(relay)
+      else { const handle = setTimeout(() => { waits.delete(handle); if (!finished) open(relay) }, wait); waits.add(handle) }
+    }
+    function open(relay: string): void {
+      if (gate.writeHeld(relay)) { if (--live === 0) finish(undefined, 429); return }
       let socket: WebSocket
-      try { socket = socketFactory(relay) } catch { continue }
+      try { socket = socketFactory(relay) } catch { return }
       sockets.push(socket)
       let count = 0, auth: string | undefined, challenges = 0, publications = 0
       const subscribe = () => socket.send(JSON.stringify(['REQ', 'spry-reply', { kinds: [24182], '#p': [pubkey], '#e': [request.id], since: now - 60, limit: 8 }]))
@@ -118,6 +157,11 @@ export async function spryControlRequest(endpoint: string, path: string, body: o
           if (frame[0] === 'AUTH' && typeof frame[1] === 'string' && frame[1].length <= 256 && ++challenges <= 4) {
             const proof = finalizeEvent({ kind: 22242, created_at: Math.floor(Date.now() / 1000), content: '', tags: [['relay', relay], ['challenge', frame[1]]] }, key)
             auth = proof.id; socket.send(JSON.stringify(['AUTH', proof])); return
+          }
+          if (frame[0] === 'NOTICE' && typeof frame[1] === 'string' && noticeThrottles(frame[1])) { throttled(relay, socket); return }
+          if ((frame[0] === 'CLOSED' && typeof frame[2] === 'string' && relayReason(frame[2]) === 'rate-limited') ||
+            (frame[0] === 'OK' && frame[1] === request.id && frame[2] === false && typeof frame[3] === 'string' && relayReason(frame[3]) === 'rate-limited')) {
+            throttled(relay, socket); return
           }
           if (frame[0] === 'OK' && frame[1] === auth && frame[2] === true) { auth = undefined; subscribe(); return }
           if (frame[0] === 'EOSE' && frame[1] === 'spry-reply' && !auth && ++publications <= 4) { socket.send(JSON.stringify(['EVENT', request])); return }

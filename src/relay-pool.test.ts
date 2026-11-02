@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
 import { finalizeEvent, generateSecretKey, type Event } from 'nostr-tools/pure'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
-import { NostrRelayPool } from './relay-pool.js'
+import { NostrRelayPool, PROBE_QUIET_MS } from './relay-pool.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays, type FakeRelayServer } from '../test/fake-socket.js'
 import { boundedEventVerifier } from './verify.js'
-import { RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
+import { RelayDialGate, relayDials, type RelayDialLease } from './relay-dial-gate.js'
 
 // Must happen before any pool is constructed: SimplePool reads the websocket
 // implementation once, in its constructor.
@@ -34,9 +34,12 @@ describe('NostrRelayPool', () => {
 
   beforeEach(() => {
     resetFakeRelays()
+    // The gate outlives every pool, and fake clocks move it about.
+    relayDials.clear()
     a = fakeRelay(URL_A)
     b = fakeRelay(URL_B)
-    pool = new NostrRelayPool([URL_A, URL_B])
+    // Redials wait no random moment here; the jitter has tests of its own.
+    pool = new NostrRelayPool([URL_A, URL_B], undefined, { reconnectJitterMs: 0 })
   })
 
   afterEach(() => {
@@ -199,7 +202,7 @@ describe('NostrRelayPool', () => {
     vi.useFakeTimers()
     const missing = 'wss://later.test'
     pool.close()
-    pool = new NostrRelayPool([URL_A, missing])
+    pool = new NostrRelayPool([URL_A, missing], undefined, { reconnectJitterMs: 0 })
     const seen: string[] = []
     pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
     await vi.advanceTimersByTimeAsync(1)
@@ -215,7 +218,7 @@ describe('NostrRelayPool', () => {
   it('recovers after a disconnected relay stalls its next handshake and delivers missed same-second events once', async () => {
     vi.useFakeTimers()
     pool.close()
-    pool = new NostrRelayPool([URL_A, URL_B])
+    pool = new NostrRelayPool([URL_A, URL_B], undefined, { reconnectJitterMs: 0 })
     const first = evt(), missed = evt()
     expect(first.created_at).toBe(missed.created_at)
     a.seed(first); b.seed(first)
@@ -767,6 +770,8 @@ describe('NostrRelayPool', () => {
     const seen: string[] = []
     pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
     await vi.advanceTimersByTimeAsync(1)
+    // Only a socket that has been quiet for a while is probed.
+    await vi.advanceTimersByTimeAsync(PROBE_QUIET_MS)
     a.silent = true
     const missed = evt()
     a.seed(missed)
@@ -778,6 +783,10 @@ describe('NostrRelayPool', () => {
     a.silent = false
     await vi.advanceTimersByTimeAsync(200)
     await probed
+    // The silence counted as a failed connection, so the redial waits out
+    // the first step of the dial backoff.
+    expect(seen).toEqual([])
+    await vi.advanceTimersByTimeAsync(1_000)
     // The reconnect resubscribes, and a fresh `REQ` replays whatever the
     // relay holds - including what arrived while the old socket sat silent.
     expect(seen).toEqual([missed.id])
@@ -787,7 +796,7 @@ describe('NostrRelayPool', () => {
     vi.useFakeTimers()
     const seen: string[] = []
     pool.subscribe([{ kinds: [20461] }], event => seen.push(event.id))
-    await vi.advanceTimersByTimeAsync(1)
+    await vi.advanceTimersByTimeAsync(PROBE_QUIET_MS)
     const healthyRequests = b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ').length
     a.silent = true
     const probed = pool.probe(3_000)

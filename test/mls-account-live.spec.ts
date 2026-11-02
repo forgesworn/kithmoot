@@ -7,7 +7,7 @@ import { witnessDaemon } from './mls-witness-daemon.js'
 const binary = process.env.BOTHYD, relay = process.env.LAB_RELAY
 test.skip(!binary || !relay, 'Set BOTHYD and LAB_RELAY for the disposable full-app lab.')
 async function settings(page: Page) {
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#mlsWitnessSettingsOpen').click()
 }
 test('full app creates and manages a witnessed device, survives reload, holds offline and switches accounts', async ({ context, page, baseURL }) => {
@@ -25,7 +25,7 @@ test('full app creates and manages a witnessed device, survives reload, holds of
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         const text = String(url), local = `wss://${location.host}`
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
         const target = defaults.includes(text.replace(/\/$/, '')) ? `${local}/__test-relay` : text
         if (!target.startsWith(local + '/') && target !== relayUrl) throw new Error('External relay blocked by lab')
         super(target, protocols)

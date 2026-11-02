@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { Peer, MAX_PENDING_CANDIDATES, tuneShareSender } from './peer.js'
 import { createFakeFactory, FakeRTCPeerConnection, fakeTrack as fakeMediaTrack } from '../test/fake-rtc.js'
 import type { SignalBody } from './signal.js'
@@ -76,7 +77,8 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 8; i++) await Promise.resolve()
 }
 
-describe('Peer: local network addresses', () => {
+// Runs only while calls hide host candidates (off since 1 November 2026).
+describe.skipIf(!HIDE_HOST_CANDIDATES)('Peer: local network addresses', () => {
   const PRIVATE = /192\.168\.|fd7a:/
 
   it('re-sends localDescription without the addresses gathered since the first copy', async () => {
@@ -122,6 +124,114 @@ describe('Peer: local network addresses', () => {
       factory.instances[0]!.emitCandidate({ candidate: 'candidate:1 1 udp 2122260223 203.0.113.7 61144 typ host', sdpMid: '0', sdpMLineIndex: 0 })
       expect(signals.filter(body => body.type === 'ice')).toHaveLength(1)
     } finally { peer.close() }
+  })
+})
+
+describe('Peer: candidates written into the first description', () => {
+  /** A connection that gathers the way a real one does: `iceGatheringState`
+   *  reads `gathering` once a description is set, two candidates arrive a
+   *  turn later, and then the end-of-candidates marker unless told not to. */
+  function gathering(factory: ReturnType<typeof createFakeFactory>, opts: { finish?: boolean } = {}): FakeRTCPeerConnection {
+    const pc = factory.instances.at(-1)!
+    Object.assign(pc, { iceGatheringState: 'new' })
+    const apply = pc.setLocalDescription.bind(pc)
+    let gathered = false
+    pc.setLocalDescription = async (description) => {
+      await apply(description)
+      if (gathered) return
+      gathered = true
+      Object.assign(pc, { iceGatheringState: 'gathering' })
+      setTimeout(() => {
+        pc.emitCandidate(); pc.emitCandidate()
+        if (opts.finish !== false) {
+          Object.assign(pc, { iceGatheringState: 'complete' })
+          pc.onicecandidate?.({ candidate: null })
+        }
+      }, 0)
+    }
+    return pc
+  }
+  const lines = (sdp: string | undefined) => (sdp ?? '').split(/\r?\n/).filter(line => line.startsWith('a=candidate:'))
+
+  it('carries the candidates gathered before the offer goes, and trickles only the later ones', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      const pc = gathering(factory)
+      await peer.start([fakeAudioTrack()])
+      // The end-of-candidates marker ends the wait, not the minute-long window.
+      await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+      expect(lines(signals[0]!.sdp)).toHaveLength(2)
+      pc.emitCandidate()
+      expect(signals.map(body => body.type)).toEqual(['offer', 'ice'])
+    } finally { peer.close() }
+  })
+
+  it('trickles every held candidate after the offer when the description does not carry them', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory)
+      await peer.start([fakeAudioTrack()])
+      await vi.waitFor(() => expect(signals).toHaveLength(3), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer', 'ice', 'ice'])
+    } finally { peer.close() }
+  })
+
+  it('sends after the window when gathering never says it is done', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 40, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory, { finish: false })
+      await peer.start([fakeAudioTrack()])
+      await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+      expect(lines(signals[0]!.sdp)).toHaveLength(2)
+    } finally { peer.close() }
+  })
+
+  it('answers with the gathered candidates, and replays that same answer', async () => {
+    const factory = createFakeFactory({ rewriteGatheredSdp: true, structuredSdp: true }), signals: SignalBody[] = []
+    const offerer = createFakeFactory({ structuredSdp: true })
+    const remote = offerer()
+    remote.addTrack(fakeAudioTrack())
+    const offer = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: HIGH, remoteDevice: LOW, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      gathering(factory)
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      const answers = () => signals.filter(body => body.type === 'answer')
+      expect(answers()).toHaveLength(1)
+      expect(lines(answers()[0]!.sdp)).toHaveLength(2)
+      expect(signals.filter(body => body.type === 'ice')).toHaveLength(0)
+      // The far end asks again with the same offer: the answer it gets is
+      // the one already sent, candidates and all.
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      expect(answers()).toHaveLength(2)
+      expect(answers()[1]!.sdp).toBe(answers()[0]!.sdp)
+    } finally { peer.close() }
+  })
+
+  it('sends at once on a connection that is not gathering', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      Object.assign(factory.instances[0]!, { iceGatheringState: 'complete' })
+      await peer.start([fakeAudioTrack()]); await settle()
+      expect(signals.map(body => body.type)).toEqual(['offer'])
+    } finally { peer.close() }
+  })
+
+  it('closing during the wait ends it', async () => {
+    const factory = createFakeFactory(), signals: SignalBody[] = []
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 60_000, onSignal: body => signals.push(body), onTrack: () => {} })
+    gathering(factory, { finish: false })
+    await peer.start([fakeAudioTrack()])
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(signals).toHaveLength(0)
+    peer.close()
+    await vi.waitFor(() => expect(signals.some(body => body.type === 'offer')).toBe(true), { timeout: 2_000 })
   })
 })
 
@@ -617,6 +727,56 @@ describe('Peer', () => {
     expect(impolitePc.calls.some((c) => c.method === 'setRemoteDescription')).toBe(false)
     expect(impolitePc.calls.some((c) => c.method === 'createAnswer')).toBe(false)
     expect(signalsFromHigh.filter((s) => s.type === 'answer')).toHaveLength(0)
+  })
+
+  it('answers a re-sent copy of an answered offer from store while its own offer is out, instead of rolling back', async () => {
+    // The far end offers, we answer; then we offer something of our own, and
+    // a copy of the far end's first offer (re-sent before our answer reached
+    // it) arrives while ours is outstanding. That copy is not glare.
+    const factory = createFakeFactory({ structuredSdp: true }), signals: SignalBody[] = []
+    const remote = createFakeFactory({ structuredSdp: true })()
+    remote.addTrack(fakeAudioTrack())
+    const offer = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 0, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      expect(peer.polite).toBe(true)
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      const answers = () => signals.filter(body => body.type === 'answer')
+      expect(answers()).toHaveLength(1)
+      await peer.start([fakeMediaTrack('video')]); await settle()
+      const pc = factory.instances[0]!
+      expect(pc.signalingState).toBe('have-local-offer')
+      const ours = signals.filter(body => body.type === 'offer')
+      expect(ours).toHaveLength(1)
+
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: offer.sdp, seq: 1 })
+      expect(pc.calls.some(c => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback')).toBe(false)
+      expect(answers()).toHaveLength(2)
+      expect(answers()[1]!.sdp).toBe(answers()[0]!.sdp)
+      expect(pc.signalingState).toBe('have-local-offer')
+      // Our own offer is still the one outstanding, so its retry carries it.
+      peer.retransmitNow(); await settle()
+      expect(signals.filter(body => body.type === 'offer').at(-1)!.seq).toBe(ours[0]!.seq)
+    } finally { peer.close() }
+  })
+
+  it('still rolls back for a different offer crossing its own', async () => {
+    const factory = createFakeFactory({ structuredSdp: true }), signals: SignalBody[] = []
+    const remote = createFakeFactory({ structuredSdp: true })()
+    remote.addTrack(fakeAudioTrack())
+    const first = await remote.createOffer()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, candidateGatherMs: 0, onSignal: body => signals.push(body), onTrack: () => {} })
+    try {
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: first.sdp, seq: 1 })
+      await remote.setLocalDescription(first)
+      remote.addTrack(fakeMediaTrack('video'))
+      const second = await remote.createOffer()
+      await peer.start([fakeMediaTrack('video')]); await settle()
+      const pc = factory.instances[0]!
+      expect(pc.signalingState).toBe('have-local-offer')
+      await peer.handleSignal({ type: 'offer', roomId: '', sdp: second.sdp, seq: 2 })
+      expect(pc.calls.some(c => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback')).toBe(true)
+    } finally { peer.close() }
   })
 
   describe('an offer that goes unanswered', () => {
@@ -1413,12 +1573,14 @@ describe('Peer', () => {
    * sent audio and the other's transceiver said it was not receiving any, for
    * the rest of the call, with nothing left to renegotiate it.
    */
-  it('BUG: a second, different answer to the same offer is a disagreement to repair, not a duplicate to drop', async () => {
+  it('a re-sent offer crossing the answerer\'s own offer is answered from store, and the answerer\'s offer carries its microphone across', async () => {
     const structured = { structuredSdp: true }
     const fromOfferer: SignalBody[] = []
     const fromAnswerer: SignalBody[] = []
-    // HIGH offers, LOW answers: the answerer is the polite side, so it is the
-    // one that rolls back and answers again.
+    // HIGH offers, LOW answers: the answerer is the polite side. It used to
+    // roll its own offer back and answer the copy again, differently, which
+    // left the pair repairing; between a browser and the Android client that
+    // ended with no video either way.
     const offererFactory = createFakeFactory(structured)
     const answererFactory = createFakeFactory(structured)
     const offerer = new Peer({
@@ -1455,29 +1617,31 @@ describe('Peer', () => {
     expect(audio.currentDirection, 'the answer said recvonly, so this side only sends').toBe('sendonly')
 
     // The microphone arrives. The answerer offers, and the offerer's retry
-    // crosses it, so the same offer is answered a second time - this time
-    // with something to send.
+    // of its first offer crosses it.
     await answerer.start([fakeAudioTrack()])
     await settle()
-    expect(answererFactory.instances[0]!.signalingState).toBe('have-local-offer')
+    const answererPc = answererFactory.instances[0]!
+    expect(answererPc.signalingState).toBe('have-local-offer')
     await answerer.handleSignal(offer)
     await settle()
     const answers = fromAnswerer.filter((s) => s.type === 'answer')
-    expect(answers, 'the rolled-back answerer answered the offer again').toHaveLength(2)
-    expect(answers[1]!.sdp, 'and its answer changed, because its media did').not.toBe(answers[0]!.sdp)
+    expect(answers, 'the copy is answered').toHaveLength(2)
+    expect(answers[1]!.sdp, 'with the answer already sent').toBe(answers[0]!.sdp)
+    expect(answererPc.calls.some((c) => c.method === 'setLocalDescription' && (c.args[0] as { type?: string } | undefined)?.type === 'rollback'),
+      'the answerer keeps its own offer').toBe(false)
+    expect(answererPc.signalingState).toBe('have-local-offer')
 
-    // Which reaches a connection that is already stable.
+    // The repeat reaches a connection that already holds that answer.
     await offerer.handleSignal(answers[1]!)
     await settle()
 
-    // The repair is an ordinary renegotiation, so the answerer has to be
-    // given the offer it prompts and its answer handed back.
-    for (const body of fromOfferer.filter((s) => s.type === 'offer').slice(1)) {
-      await answerer.handleSignal(body)
+    // The answerer's own offer carries the microphone across.
+    for (const body of fromAnswerer.filter((s) => s.type === 'offer')) {
+      await offerer.handleSignal(body)
       await settle()
     }
-    for (const body of fromAnswerer.filter((s) => s.type === 'answer').slice(2)) {
-      await offerer.handleSignal(body)
+    for (const body of fromOfferer.filter((s) => s.type === 'answer')) {
+      await answerer.handleSignal(body)
       await settle()
     }
 

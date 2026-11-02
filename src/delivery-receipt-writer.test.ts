@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import type { ChatMessage } from './chat.js'
 import { deliveryReceiptIdHash } from './delivery-receipt.js'
-import { DeliveryReceiptWriter, type ReceiptPublisher, type ReceiptWriterStore } from './delivery-receipt-writer.js'
+import { DeliveryReceiptWriter, MAX_RECEIPT_ATTEMPTS, type ReceiptPublisher, type ReceiptWriterStore } from './delivery-receipt-writer.js'
 
 const SELF = 'aa'.repeat(32)
 const OTHER = 'bb'.repeat(32)
@@ -145,6 +145,23 @@ describe('DeliveryReceiptWriter', () => {
     w.received(ctx, message('m1'), D, p)
     await vi.advanceTimersByTimeAsync(60_000)
     expect(calls).toHaveLength(2)
+  })
+
+  it('drops a receipt after eight failed tries in a visit, and says it again on the next', async () => {
+    const store = memoryStore()
+    const w = new DeliveryReceiptWriter({ store, random: () => 0 })
+    const { p, calls } = publisher({ fail: () => true })
+    w.received(ctx, message('m1'), D, p)
+    await vi.advanceTimersByTimeAsync(2_000 + 30 * 30_000)
+    expect(calls).toHaveLength(MAX_RECEIPT_ATTEMPTS)
+    expect(w.waiting('room')).toBe(0)
+    expect(store.data.get('kithmoot.delivery-acks.v1.room')).not.toContain(deliveryReceiptIdHash('m1'))
+    // A later visit sees the message again and acknowledges it.
+    const next = new DeliveryReceiptWriter({ store, random: () => 0 })
+    const ok = publisher()
+    next.received(ctx, message('m1'), D, ok.p)
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(ok.calls).toHaveLength(1)
   })
 
   it('sends nothing while the setting is off', async () => {

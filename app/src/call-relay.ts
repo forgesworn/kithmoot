@@ -31,7 +31,7 @@ export function loadCallRelay(store: Pick<Storage, 'getItem'>): CallRelay | unde
     const relay = parseCallRelay(value.urls.join(','), value.username, value.credential)
     if (!relay) throw new Error()
     return relay
-  } catch { throw new Error('The saved call relay could not be read. Open Connections and save it again or remove it.') }
+  } catch { throw new Error("The saved relay server can't be read. Open Settings › Calls › Relay server and save it again or remove it.") }
 }
 
 export function saveCallRelay(store: Pick<Storage, 'setItem' | 'removeItem'>, relay: CallRelay | undefined): void {

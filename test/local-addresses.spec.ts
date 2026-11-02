@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, expectToSeeAndHear, joinWithMedia, newDeviceContext } from './browser.js'
+import { HIDE_HOST_CANDIDATES } from '../src/local-address-filter.js'
 
 /**
  * What a call actually tells the far end about this device's network.
@@ -81,6 +82,7 @@ const read = (page: Page) => page.evaluate(() => {
 })
 
 test('a call hands the far end no local network address', async ({ browser, baseURL }) => {
+  test.skip(!HIDE_HOST_CANDIDATES, 'Calls send host candidates again since 1 November 2026.')
   test.setTimeout(240_000)
   const contexts = await Promise.all([newDeviceContext(browser, baseURL!), newDeviceContext(browser, baseURL!)])
   try {

@@ -56,7 +56,7 @@ add('private', `kithmoot\\.(?:box-discovery|history-recovery)\\.v1\\.${H}\\.${H}
 // The Spry pairing holds the pairing's authority key; saved Spry offers hold
 // room relay grants. Private service authority, like storage grants.
 names('private', ['kithmoot.spry-pairing.v1', 'kithmoot.spry-rooms.v1'])
-names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.facePrivacy'])
+names('media', ['kithmoot.call.effectMode', 'kithmoot.call.background', 'kithmoot.call.blurStrength', 'kithmoot.call.voicePreset', 'kithmoot.call.cameraDeviceId', 'kithmoot.call.micDeviceId', 'kithmoot.call.micOnJoin', 'kithmoot.call.facePrivacy'])
 names('media', ['kithmoot.callProfile'], ['browser', 'tab'])
 names('routing', ['kithmoot.call-stun.v1', 'kithmoot.spry-share.v1', 'kithmoot.spry-consent.v1'])
 add('routing', `kithmoot\\.(?:relays|circle|room-relays-fixed)\\.v1|kithmoot\\.(?:room-relays|room-storage)\\.v1\\.${H}`)

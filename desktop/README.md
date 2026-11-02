@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.116 fixes the outside test of a member's built-in call relay to check the connection actually in use. Version 0.1.115 asks before using any relay another member runs when Hide my IP is on, not only built-in ones.
+Version 0.1.125 shows Tap to hear whenever the browser blocks remote sound and adds remote-audio mute state to call diagnostics. Version 0.1.124 puts calls back as they were two weeks ago: ForgeSworn's call relay (TURN) by default, Google's then Cloudflare's STUN, relay.trotters.cc as the first default relay, local network addresses sent so two people on one network connect directly, and the microphone on when you start or join a call. Version 0.1.123 ran the call relay on this computer through a VPN that forwards ports.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.116 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.125 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
@@ -28,11 +28,23 @@ provider completion remain separate acceptance gates.
 
 ## Build and run
 
-The [optional Spry hosting preview](../docs/2026-10-26-desktop-spry-hosting.md)
-has development-only native Start/Stop controls behind an explicit owner
-configuration. It is Off on every launch. No native executable is bundled;
-packaged builds expose no hosting controls. Proton/public routing remains
-unqualified.
+The [built-in call relay](../docs/design/2026-10-28-built-in-relay.md) runs
+the bundled `spry-node` in supervised mode (`relay-host.mjs`,
+`relay-supervisor.mjs`, `relay-identity.mjs`). It is reached from Settings,
+Calls, Call relay on this computer (and File, Call relay on this
+computer…). It is released to everyone and is Off on every launch until the
+person turns it on; start the app with `KITHMOOT_DESKTOP_RELAY=off` to hide it. The page asks before Turn on and talks to the main
+process through `relay-ipc.mjs`.
+
+To see any state of that page without a router, run an unpackaged build with
+`KITHMOOT_DESKTOP_RELAY_PREVIEW=<state id>` (`S1`, `S4`, `S5`, `S7:double-nat`
+and so on; `relay-preview.mjs` lists them) and, for a check result,
+`KITHMOOT_DESKTOP_RELAY_PREVIEW_CHECK=reachable|same-network|inbound|allocate|declined|credentials|noanswer`.
+Start and Stop are logged and ignored, and a packaged build never reads either.
+
+An unpackaged run uses a helper staged by `scripts/spry-helper.mjs`, or the
+absolute path in `KITHMOOT_DESKTOP_SPRY_NODE`. It replaces the
+[earlier hosting preview](../docs/2026-10-26-desktop-spry-hosting.md).
 
 The separate [mapping diagnostic](../docs/2026-10-26-proton-mapping-diagnostic.md)
 validates an owner plan without network traffic by default. Its explicit live

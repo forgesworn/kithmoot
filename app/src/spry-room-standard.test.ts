@@ -132,3 +132,16 @@ it('a relay outside test names the host and the Hide my IP answer, and its login
     expect(apply).not.toHaveBeenCalled()
   } finally { broker.close(); vi.useRealTimers() }
 })
+
+it('another member\'s built-in relay keeps its public URLs: only this computer\'s own relay uses the local listener', async () => {
+  control.answer = credential
+  const { session } = room(offerWith())
+  const apply = vi.fn()
+  const localTurn = vi.fn(() => ({ host: '192.168.1.20', port: 30000 }))
+  const broker = new SpryRoom(session, undefined, apply, fetch, new Uint8Array(32).fill(9), undefined, () => {}, { share: false, localTurn })
+  try {
+    await broker.prepare(true)
+    expect(apply).toHaveBeenCalledWith([expect.objectContaining({ urls: credential().urls })])
+    expect(localTurn).not.toHaveBeenCalled()
+  } finally { broker.close() }
+})

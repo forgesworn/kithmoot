@@ -2,6 +2,7 @@ import { describe, expect, it, beforeAll, vi } from 'vitest'
 import { useWebSocketImplementation } from 'nostr-tools/pool'
 import { finalizeEvent, generateSecretKey } from 'nostr-tools/pure'
 import { currentRoomRelayHints, RelayConnections, profilePreference } from './relay-settings.js'
+import { NostrRelayPool } from '../../src/relay-pool.js'
 import { FakeWebSocket, fakeRelay, resetFakeRelays } from '../../test/fake-socket.js'
 
 beforeAll(() => {
@@ -20,12 +21,12 @@ describe('device relay preferences', () => {
     expect(currentRoomRelayHints(['wss://relay.primal.net', 'wss://nos.lol'])).toEqual([
       { url: 'wss://relay.primal.net/', read: true, write: true },
       { url: 'wss://nos.lol/', read: true, write: true },
-      { url: 'wss://nostr.oxtr.dev/', read: true, write: true },
+      { url: 'wss://relay.ditto.pub/', read: true, write: true },
     ])
   })
 
   it('adds nothing to a room fixed to the three current defaults', () => {
-    const current = ['wss://relay.primal.net/', 'wss://nostr.oxtr.dev/', 'wss://relay.ditto.pub/']
+    const current = ['wss://relay.primal.net/', 'wss://relay.ditto.pub/', 'wss://offchain.pub/']
     expect(currentRoomRelayHints(current)).toBe(current)
   })
 
@@ -88,6 +89,40 @@ describe('device relay preferences', () => {
       expect(profilePreference(saved)).toBe(false)
     }
     expect(profilePreference({ getItem() { throw new Error('storage unavailable') } })).toBe(false)
+  })
+})
+
+describe('address-banned public relays', () => {
+  const banned = 'wss://relay.damus.io/'
+  const roomId = 'a'.repeat(64)
+
+  it('drop out of device hints and saved choices while another route remains', () => {
+    const saved = storage()
+    const connections = new RelayConnections(saved, defaults)
+    expect(connections.configuration(room, [banned, 'wss://hint.test']).map(relay => relay.url)).toEqual(['wss://hint.test/'])
+    connections.save(room, [{ url: banned, read: true, write: true }, { url: 'wss://mine.test/', read: true, write: true }])
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual(['wss://mine.test/'])
+    expect(connections.personal(room).map(relay => relay.url)).toEqual(['wss://mine.test/'])
+    // The saved choice itself is not rewritten; the prune is at use time.
+    expect(JSON.parse(saved.getItem('kithmoot.relays.v1')!)[room]).toHaveLength(2)
+  })
+
+  it('drop out of a room\'s own relays when another shared relay survives', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.setRoomRelays(roomId, { fixed: [banned, 'wss://shared.test/'], signed: true })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual(['wss://shared.test/', 'wss://default.test/'])
+  })
+
+  it('stay when they are the room\'s only shared relay', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    connections.setRoomRelays(roomId, { fixed: [banned], signed: true })
+    expect(connections.configuration(room).map(relay => relay.url)).toEqual([banned, 'wss://default.test/'])
+  })
+
+  it('stay when removing them would leave nothing writable', () => {
+    const connections = new RelayConnections(storage(), defaults)
+    const hints = [{ url: banned, read: true, write: true }, { url: 'wss://watcher.test/', read: true, write: false }]
+    expect(connections.configuration(room, hints).some(relay => relay.url === banned)).toBe(true)
   })
 })
 
@@ -286,7 +321,7 @@ describe('scheduled liveness probing', () => {
     try {
       resetFakeRelays()
       const relay = fakeRelay(probeDefaults[0]!)
-      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => true })
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => true, quietMs: 0, reconnectJitterMs: 0 })
       const pool = connections.pool('default')
       try {
         const seen: string[] = []
@@ -313,7 +348,7 @@ describe('scheduled liveness probing', () => {
       resetFakeRelays()
       const relay = fakeRelay(probeDefaults[0]!)
       let hidden = true
-      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => !hidden })
+      const connections = new RelayConnections(storage(), probeDefaults, undefined, { intervalMs: 1_000, visible: () => !hidden, quietMs: 0, reconnectJitterMs: 0 })
       const pool = connections.pool('default')
       try {
         pool.subscribe([{ kinds: [1] }], () => {})
@@ -338,7 +373,7 @@ describe('scheduled liveness probing', () => {
       const relayA = fakeRelay('wss://probe-a.test')
       const relayB = fakeRelay('wss://probe-b.test')
       random.mockReturnValueOnce(0).mockReturnValueOnce(1)
-      const connections = new RelayConnections(storage(), [], undefined, { intervalMs: 1_000, visible: () => true })
+      const connections = new RelayConnections(storage(), [], undefined, { intervalMs: 1_000, visible: () => true, quietMs: 0, reconnectJitterMs: 0 })
       const poolA = connections.pool('default', ['wss://probe-a.test'])
       const poolB = connections.pool('room:' + 'a'.repeat(64), ['wss://probe-b.test'])
       try {
@@ -459,6 +494,31 @@ describe('pools shared by everyone asking for the same relays', () => {
     } finally { vi.useRealTimers() }
   })
 
+  it('puts thirty rooms on two sockets to a relay, apart from the account\'s own', async () => {
+    vi.useFakeTimers()
+    try {
+      resetFakeRelays()
+      const relay = fakeRelay(url)
+      const connections = new RelayConnections(storage(), [url], undefined, { intervalMs: 60_000, visible: () => true })
+      const account = connections.pool('default')
+      account.subscribe([{ kinds: [1] }], () => {})
+      const rooms = Array.from({ length: 30 }, (_, i) => connections.pool(`room:${i.toString(16).padStart(64, '0')}`, [url]))
+      const heard = rooms.map(() => 0)
+      rooms.forEach((pool, i) => pool.subscribe([{ kinds: [30_000 + i] }], () => { heard[i]!++ }))
+      await vi.advanceTimersByTimeAsync(10)
+      // Sixteen subscriptions a socket at most: thirty rooms need two.
+      expect(relay.connections).toBe(3)
+      await account.publish(finalizeEvent({ kind: 30_007, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, generateSecretKey()))
+      await account.publish(finalizeEvent({ kind: 30_023, created_at: Math.floor(Date.now() / 1000), tags: [], content: '' }, generateSecretKey()))
+      await vi.advanceTimersByTimeAsync(10)
+      expect(heard.flatMap((n, i) => n ? [i] : [])).toEqual([7, 23])
+      for (const pool of rooms) pool.close()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(relay.connections).toBe(1)
+      account.close()
+    } finally { vi.useRealTimers() }
+  })
+
   it('keeps a pool apart for another scope or other hints', async () => {
     vi.useFakeTimers()
     try {
@@ -469,7 +529,11 @@ describe('pools shared by everyone asking for the same relays', () => {
       for (const pool of pools) pool.subscribe([{ kinds: [1] }], () => {})
       await vi.advanceTimersByTimeAsync(10)
       // The last asks for the same relay as the second, written differently.
-      expect(relay.connections).toBe(3)
+      expect(new Set(pools.map(pool => pool.configuration().map(r => r.url).join()))).toHaveProperty('size', 2)
+      expect(pools[1]).not.toBe(pools[2])
+      // Three pools, but the rooms' ones share a socket; the account's
+      // default pool keeps its own.
+      expect(relay.connections).toBe(2)
       for (const pool of pools) pool.close()
     } finally { vi.useRealTimers() }
   })
@@ -495,5 +559,36 @@ describe('central room route selection', () => {
     const id = 'a'.repeat(64)
     for (const prefix of ['room','lookup','link']) expect(connections.pool(`${prefix}:${id}`)).toBe(held)
     expect(routed.mock.calls).toEqual([[id],[id],[id]])
+  })
+})
+
+describe('probeAll', () => {
+  it('runs at most once in ten seconds, after a random wait, folding later calls into one', async () => {
+    vi.useFakeTimers()
+    const probe = vi.spyOn(NostrRelayPool.prototype, 'probe').mockResolvedValue()
+    try {
+      resetFakeRelays()
+      fakeRelay('wss://probe-all.test')
+      let draw = 0.5
+      const connections = new RelayConnections(storage(), ['wss://probe-all.test'], undefined, { visible: () => true, random: () => draw })
+      const pool = connections.pool('default')
+      try {
+        // Foreground, pageshow and online, all at once.
+        void connections.probeAll(); void connections.probeAll(); void connections.probeAll()
+        // Half of the two-second jitter.
+        await vi.advanceTimersByTimeAsync(999)
+        expect(probe).toHaveBeenCalledTimes(0)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(probe).toHaveBeenCalledTimes(1)
+        // An alt-tab two seconds later waits for the window to close.
+        draw = 0
+        await vi.advanceTimersByTimeAsync(2_000)
+        void connections.probeAll(); void connections.probeAll()
+        await vi.advanceTimersByTimeAsync(7_999)
+        expect(probe).toHaveBeenCalledTimes(1)
+        await vi.advanceTimersByTimeAsync(1)
+        expect(probe).toHaveBeenCalledTimes(2)
+      } finally { pool.close() }
+    } finally { probe.mockRestore(); vi.useRealTimers() }
   })
 })

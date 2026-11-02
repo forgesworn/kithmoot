@@ -53,7 +53,7 @@ describe('Spry operator access', () => {
     await expect(spryCredentials({ ...offer, expiresAt: now - 1 }, newSpryKey())).rejects.toThrow(SHARED_RELAY_UNAVAILABLE)
   })
   it('bounds hostile response bodies and sanitises failure text', async () => {
-    await expect(spryRequest(endpoint, '/v1/credentials', {}, newSpryKey(), async () => new Response('a'.repeat(8193)))).rejects.toThrow(/could not connect/)
+    await expect(spryRequest(endpoint, '/v1/credentials', {}, newSpryKey(), async () => new Response('a'.repeat(8193)))).rejects.toThrow(/couldn't connect/)
     await expect(spryRequest(endpoint, '/v1/credentials', {}, newSpryKey(), async () => { throw new Error('private-token-and-address') })).rejects.not.toThrow(/private-token/)
   })
 })
@@ -66,7 +66,7 @@ describe('Spry refusal wording', () => {
     const error = await spryCredentials(offer(), newSpryKey(), async () => Response.json({ error: 'Call access has expired.' }, { status: 403 }), own).catch(e => e)
     expect(error).toBeInstanceOf(SpryRequestError)
     expect(error.status).toBe(403)
-    expect(error.message).toMatch(/Check the pairing in Connections/)
+    expect(error.message).toMatch(/Check the pairing in Settings › Calls/)
   })
   it('gives a guest using another member\'s relay no pairing hint, refused or unreachable', async () => {
     for (const fetcher of [async () => Response.json({ error: 'Call access has expired.' }, { status: 403 }), async () => { throw new TypeError('offline') }] as (typeof fetch)[]) {

@@ -8,6 +8,11 @@
  * and publishes when the device is ahead. It never publishes from a
  * device that is behind, so two devices converge on the furthest position
  * rather than fighting over the newest event.
+ *
+ * Every followed room is read in one subscription, its record ids together
+ * in `#d`: one `REQ` per room used to put a person with sixteen rooms past
+ * the 20-subscription cap of relays such as primal, ditto and offchain on
+ * the shared connection, which then went quiet on everything past it.
  */
 import type { Event } from 'nostr-tools/pure'
 import type { RelayTransport } from '../../src/relay-pool.js'
@@ -27,12 +32,17 @@ import {
  *  through a busy room is one record rather than fifty. */
 const PUBLISH_DELAY_MS = 4_000
 
+/** Record ids in one filter. The filters share one `REQ`; this only keeps
+ *  each filter's tag list a size every relay takes. */
+export const READ_POSITION_IDS_PER_FILTER = 100
+
 interface Followed {
   roomKey: Uint8Array
   /** A conference room's end: each record published lapses with the room. */
   expiresAt?: number
   positions: ReadPositions
-  off: () => void
+  /** The room's record id, its `d` tag. */
+  d: string
   timer?: ReturnType<typeof setTimeout>
   busy: boolean
   again: boolean
@@ -53,6 +63,10 @@ export class ReadPositionSync {
    *  nothing of its own is still on the way. */
   readonly #inFlight = new Set<Promise<void>>()
   #closed = false
+  /** Followed rooms by record id, to route what the one subscription hears. */
+  readonly #byD = new Map<string, string>()
+  #off?: () => void
+  #resubscribing = false
 
   constructor(
     private readonly identity: ParticipantIdentity,
@@ -66,12 +80,38 @@ export class ReadPositionSync {
   /** Follow one room's record, starting from what this device knows. */
   follow(roomId: string, roomKey: Uint8Array, local: ReadPositions, expiresAt?: number): void {
     if (this.#closed || this.#rooms.has(roomId)) return
-    const followed: Followed = { roomKey, positions: { ...local }, off: () => {}, busy: false, again: false, dropped: false, ...(expiresAt !== undefined ? { expiresAt } : {}) }
+    const d = readPositionId(roomKey)
+    const followed: Followed = { roomKey, d, positions: { ...local }, busy: false, again: false, dropped: false, ...(expiresAt !== undefined ? { expiresAt } : {}) }
     this.#rooms.set(roomId, followed)
-    followed.off = this.relay.subscribe(
-      [{ kinds: [READ_POSITION_KIND], authors: [this.identity.pubkey], '#d': [readPositionId(roomKey)], '#l': [READ_POSITION_LABEL] }],
-      (event) => { void this.#receive(roomId, event) },
-    )
+    this.#byD.set(d, roomId)
+    this.#resubscribe()
+  }
+
+  /** One subscription for every followed room, made again once the set has
+   *  changed. Coalesced in a microtask, since a page follows its rooms in a
+   *  loop at start; the new one is open before the old one closes, and a
+   *  record heard twice is merged twice to no effect. */
+  #resubscribe(): void {
+    if (this.#resubscribing) return
+    this.#resubscribing = true
+    queueMicrotask(() => {
+      this.#resubscribing = false
+      const old = this.#off
+      this.#off = undefined
+      const ids = [...this.#byD.keys()]
+      if (!this.#closed && ids.length) {
+        const filters = []
+        for (let i = 0; i < ids.length; i += READ_POSITION_IDS_PER_FILTER) {
+          filters.push({ kinds: [READ_POSITION_KIND], authors: [this.identity.pubkey], '#d': ids.slice(i, i + READ_POSITION_IDS_PER_FILTER), '#l': [READ_POSITION_LABEL] })
+        }
+        this.#off = this.relay.subscribe(filters, event => {
+          const d = event.tags.find(tag => tag[0] === 'd')?.[1]
+          const roomId = d === undefined ? undefined : this.#byD.get(d)
+          if (roomId !== undefined) void this.#receive(roomId, event)
+        })
+      }
+      old?.()
+    })
   }
 
   /** This device read to here. Merged, and published if it is ahead. */
@@ -96,14 +136,17 @@ export class ReadPositionSync {
     if (!followed) return
     followed.dropped = true
     followed.again = false
-    followed.off()
     if (followed.timer !== undefined) clearTimeout(followed.timer)
     this.#rooms.delete(roomId)
+    if (this.#byD.get(followed.d) === roomId) this.#byD.delete(followed.d)
+    this.#resubscribe()
   }
 
   close(): void {
     this.#closed = true
     for (const roomId of [...this.#rooms.keys()]) this.forget(roomId)
+    this.#off?.()
+    this.#off = undefined
   }
 
   /** Resolves when nothing this sync started is still on its way to a relay.

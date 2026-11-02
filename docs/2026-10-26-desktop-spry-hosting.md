@@ -1,5 +1,13 @@
 # Desktop Spry hosting: first implementation and acceptance
 
+**Superseded, 30 October 2026.** The preview described here (bare
+`spry-turn` from an owner JSON file, `desktop/spry-hosting.mjs` and
+`desktop/spry-hosting-controls.mjs`) has been replaced by the built-in call
+relay's supervisor, which runs the bundled `spry-node` in supervised mode with
+its own router mapping (stage K4 of
+[the built-in relay design](design/2026-10-28-built-in-relay.md)). The record
+below is kept as written.
+
 Owner direction, 26 October 2026: KithMoot desktop is the first app to explore
 optional Spry hosting. Privacy and performance are acceptance criteria. The
 initial environment uses a commercial Proton VPN, not a shared private mesh.

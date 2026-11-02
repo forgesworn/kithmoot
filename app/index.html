@@ -46,6 +46,7 @@
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
+        <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
         <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
     </nav>
@@ -145,6 +146,10 @@
             <span class="infoRowText"><span class="infoRowTitle">Messages</span><span class="infoRowSub" id="settingsSubmessages">Wait before sending</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
+          <button type="button" class="infoRow" id="settingsRowcalls" data-settings-open="calls">
+            <span class="infoRowText"><span class="infoRowTitle">Calls</span><span class="infoRowSub" id="settingsSubcalls">Direct only</span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
           <button type="button" class="infoRow" id="settingsRowdisplay" data-settings-open="display">
             <span class="infoRowText"><span class="infoRowTitle">Display</span><span class="infoRowSub" id="settingsSubdisplay">Text size</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
@@ -153,8 +158,8 @@
             <span class="infoRowText"><span class="infoRowTitle">Privacy</span><span class="infoRowSub" id="settingsSubprivacy">Profile pictures, files, IP address</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
-          <button type="button" class="infoRow" id="settingsRowconnections" data-settings-open="connections">
-            <span class="infoRowText"><span class="infoRowTitle">Connections</span><span class="infoRowSub" id="settingsSubconnections">Relays, Bothy, call servers</span></span>
+          <button type="button" class="infoRow" id="settingsRowrelays" data-settings-open="relays">
+            <span class="infoRowText"><span class="infoRowTitle">Relays</span><span class="infoRowSub" id="settingsSubrelays">Nostr relays and Bothy</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
           <button id="keyboardHelp" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="keyboardShortcuts" aria-keyshortcuts="Control+/ Meta+/">
@@ -238,8 +243,12 @@
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
         </div>
-        <label class="checkboxRow"><input id="privacyHideIp" type="checkbox" /> <span>Hide my IP address on calls</span></label>
-        <p class="note">Calls go through a relay server, so other people on the call don’t see your IP address. It can be slower.</p>
+        <div class="infoRows">
+          <button id="privacyHideIpRow" type="button" class="infoRow">
+            <span class="infoRowText"><span class="infoRowTitle">Hide my IP address on calls</span><span class="infoRowSub" id="privacyHideIpState"></span></span>
+            <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+          </button>
+        </div>
         <section id="blockedSection" class="blockedSection" aria-labelledby="blockedHeading" hidden>
           <h3 id="blockedHeading">Blocked on this device</h3>
           <p class="note">They can’t invite you or ask to join your rooms on this device. They aren’t told, and nothing is published. A private chat already open with them stays until you leave it.</p>
@@ -271,18 +280,18 @@
           <p class="note">Files are encrypted on this device before they leave. The server you choose sees your IP address, when files are uploaded and opened, and how big they are, and decides how long to keep them. Opening a file connects you to the server it’s on. Changing this doesn’t move or delete files you’ve already sent.</p>
           <p id="fileWhereBothy" class="note" hidden>Rooms that use Bothy keep their own file setting.</p>
         </section>
-        <section class="settingsPage" data-settings-page="connections" data-settings-title="Connections" hidden>
+        <section class="settingsPage" data-settings-page="relays" data-settings-title="Relays" hidden>
         <div class="infoRows">
                   <button id="defaultRelaySettings" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="relaySettings">
-                    <span class="infoRowText"><span class="infoRowTitle">Nostr relays</span></span>
+                    <span class="infoRowText"><span class="infoRowTitle">Nostr relays</span><span class="infoRowSub">The servers that pass on your rooms' encrypted messages</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="dmRelaySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>
-                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span></span>
+                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span><span class="infoRowSub">Where one-to-one chats with you are kept. This list is public.</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="bothySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothySettings">
-                    <span class="infoRowText"><span class="infoRowTitle">Bothy connection</span></span>
+                    <span class="infoRowText"><span class="infoRowTitle">Bothy connection</span><span class="infoRowSub">For people who run their own Bothy box</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="mlsWitnessSettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="mlsWitnessSettings" hidden>
@@ -290,56 +299,137 @@
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
         </div>
-        <label for="callStun">Your STUN server</label>
-        <p class="note" id="callStunNote">STUN tells your device its public address so a call can connect directly. Calls use Cloudflare’s public STUN server unless you enter your own. Kept on this device and never added to room links.</p>
-        <input id="callStun" placeholder="stun:stun.example.org:3478" autocomplete="off" spellcheck="false" aria-describedby="callStunNote callStunStatus" />
-        <p id="callStunStatus" class="note" role="status" aria-live="polite"></p>
-        <label for="iceServers">STUN servers for new rooms</label>
-        <p class="note">Optional addresses, separated by commas. Rooms you start share these addresses with everyone who joins. STUN helps devices connect directly.</p>
-        <input id="iceServers" />
-        <fieldset>
-          <legend>Spry</legend>
-          <p id="spryPairingStatus" class="note" role="status">Install Spry on your Archipelago node, then choose Pair with KithMoot.</p>
-          <label for="spryPairingInput">Spry pairing link</label>
-          <input id="spryPairingInput" type="text" placeholder="Paste the link copied from Spry" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" />
-          <button id="spryPairingAdd" type="button">Pair Spry</button>
-          <button id="spryPairingRemove" type="button" hidden>Unpair Spry</button>
-          <button id="spryAccountSync" type="button" hidden>Sync Spry</button>
+        </section>
+        <!-- Calls: how this device's calls connect, then the rows that change it. The summary head is the live
+             region and is present, empty, before the first render so the first change is announced. -->
+        <section class="settingsPage callsPage" data-settings-page="calls" data-settings-title="Calls" hidden>
+          <div class="relayFacts">
+            <p id="callsHead" class="relayHead" aria-live="polite"></p>
+            <p id="callsBody" class="relayFact"></p>
+            <p id="callsFailure" class="relayFact" hidden></p>
+          </div>
+          <h3 class="infoHead">Relays for your calls</h3>
+          <div class="infoRows">
+            <button id="settingsRowCallRelay" type="button" class="infoRow" data-settings-open="callRelay" hidden>
+              <span class="infoRowText"><span class="infoRowTitle">Call relay on this computer</span><span class="infoRowSub" id="settingsSubCallRelay"></span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
+            <button id="callsRowSpry" type="button" class="infoRow" data-settings-open="callSpry">
+              <span class="infoRowText"><span class="infoRowTitle">Your Spry node</span><span class="infoRowSub" id="callsSubSpry"></span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
+            <button id="callsRowServer" type="button" class="infoRow" data-settings-open="callServer">
+              <span class="infoRowText"><span class="infoRowTitle">Relay server</span><span class="infoRowSub" id="callsSubServer"></span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
+            <button id="callsRowPublic" type="button" class="infoRow" data-settings-open="callPublic">
+              <span class="infoRowText"><span class="infoRowTitle">Public call relays</span><span class="infoRowSub" id="callsSubPublic"></span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
+          </div>
+          <label class="checkboxRow"><input id="privacyHideIp" type="checkbox" aria-describedby="hideIpNote" /> <span>Hide my IP address on calls</span></label>
+          <p class="note" id="hideIpNote">Calls always go through a relay, so people on the call don't see your IP address. Calls can be slower, and KithMoot asks before using a relay someone in the room runs.</p>
+          <p class="note">Rooms can bring their own relay, named in the room's link or shared by a member. Your calls use it when none of yours is in use, and before any public relay.</p>
+          <div class="infoRows callsAdvanced">
+            <button id="callsRowAdvanced" type="button" class="infoRow" data-settings-open="callAdvanced">
+              <span class="infoRowText"><span class="infoRowTitle">Advanced</span><span class="infoRowSub" id="callsSubAdvanced"></span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
+          </div>
+        </section>
+        <section class="settingsPage callsPage" data-settings-page="callSpry" data-settings-title="Your Spry node" hidden>
+          <p class="note">Spry runs a call relay on your Archipelago node. Pair it once and your calls use it everywhere. Rooms you make share it with everyone in them.</p>
+          <div id="spryUnpaired">
+            <label for="spryPairingInput">Pairing link from Spry</label>
+            <input id="spryPairingInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" enterkeyhint="done" aria-describedby="spryPairingHint spryPairingStatus" />
+            <p class="note" id="spryPairingHint">In Spry, choose Pair with KithMoot, then copy the link.</p>
+            <div class="relayActions"><button id="spryPairingAdd" type="button" class="primary">Pair</button></div>
+          </div>
+          <div id="sprySet" class="relayFacts" hidden>
+            <p id="spryOnHead" class="relayHead"></p>
+            <p id="spryOnFact" class="relayFact"></p>
+            <p id="spryFailure" class="relayFact" hidden></p>
+          </div>
+          <p id="spryPairingStatus" class="note" role="status"></p>
+          <div class="relayActions">
+            <button id="spryAccountSync" type="button" hidden>Sync to my other devices</button>
+            <button id="spryPairingRemove" type="button" hidden>Unpair…</button>
+          </div>
+          <p id="spryAccountNote" class="note"></p>
+          <p id="spryExcl" class="note" hidden>While Spry is paired, the call relay on this computer stays off.</p>
           <p id="spryAccountSyncStatus" class="note" role="status"></p>
-        </fieldset>
-        <details><summary>Other call relays</summary><fieldset>
-          <legend>Call relay (TURN)</legend>
-          <p class="note">Use a relay you trust when devices cannot connect directly. Set it on each device that needs it. Saved in this browser; the password is never added to room links. After changing it, leave and reopen the room.</p>
-          <p class="note">Have a connection file from your provider or self-hosting operator? Import it, review the addresses, then save. The file contains a password: keep it private. Your chosen server can see connection metadata.</p>
-          <button id="callRelayImport" type="button">Import call relay file</button>
-          <input id="callRelayFile" type="file" accept=".json,application/json" aria-label="Call relay connection file" hidden />
-          <label for="callRelayUrls">Relay addresses</label>
-          <input id="callRelayUrls" placeholder="turn:relay.example:3478, turns:relay.example:5349" autocomplete="off" spellcheck="false" />
-          <label for="callRelayUsername">Relay username</label>
-          <input id="callRelayUsername" autocomplete="off" spellcheck="false" />
-          <label for="callRelayPassword">Relay password</label>
-          <input id="callRelayPassword" type="password" autocomplete="off" />
-          <button id="callRelaySave" type="button">Save call relay</button>
-          <button id="callRelayRemove" type="button">Remove call relay</button>
-          <p class="note" id="callRelayCheckNote">Testing contacts your saved relay and sends test data. The server sees your IP address and login. No camera or microphone is used.</p>
-          <button id="callRelayCheck" type="button" aria-describedby="callRelayCheckNote">Test saved call relay</button>
+        </section>
+        <section class="settingsPage callsPage" data-settings-page="callServer" data-settings-title="Relay server" hidden>
+          <div id="callRelayOn" class="relayFacts" hidden>
+            <p id="callRelayHead" class="relayHead"></p>
+            <p class="relayFact">Your calls use it when they can't connect directly.</p>
+          </div>
+          <p class="note">A call relay you run or rent, for calls that can't connect directly. Set it on each device that needs it.</p>
+          <div class="relayActions"><button id="callRelayImport" type="button">Import a connection file…</button></div>
+          <input id="callRelayFile" type="file" accept=".json,application/json" aria-label="Connection file" hidden />
+          <p class="note">The file holds a password. Keep it private.</p>
+          <label for="callRelayUrls">Addresses</label>
+          <input id="callRelayUrls" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callRelayUrlsHint callRelayFieldError" />
+          <p class="note" id="callRelayUrlsHint">They start with turn: or turns:. Separate them with commas.</p>
+          <label for="callRelayUsername">Username</label>
+          <input id="callRelayUsername" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callRelayFieldError" />
+          <label for="callRelayPassword">Password</label>
+          <input id="callRelayPassword" type="password" autocomplete="off" enterkeyhint="done" aria-describedby="callRelayFieldError" />
+          <p id="callRelayFieldError" class="note" role="alert"></p>
+          <div class="relayActions">
+            <button id="callRelaySave" type="button" class="primary">Save</button>
+            <button id="callRelayCheck" type="button" aria-describedby="callRelayCheckNote" hidden>Test</button>
+            <button id="callRelayRemove" type="button" hidden>Remove…</button>
+          </div>
           <p id="callRelayStatus" class="note" role="status" aria-live="polite"></p>
-        </fieldset>
-        <fieldset id="publicRelays">
-          <legend>Public call relays</legend>
-          <label><input id="publicRelaysOn" type="checkbox" aria-describedby="publicRelaysNote" /> Find public call relays on my Nostr relays</label>
-          <p class="note" id="publicRelaysNote">Off unless you turn it on. The app asks the Nostr relays in your Connections list for adverts that relay operators publish themselves; each of those relays learns your IP address, the time and that a search for call relays was made. Public call relays are run by strangers. KithMoot runs no list of them and does not check, rank or vouch for anyone listed. A relay you use sees your IP address and your call’s timing and volume, but not its content.</p>
-          <p id="publicRelaysBlocked" class="note" hidden>Your Spry pairing or your own call relay is used for calls, so public call relays are not looked up.</p>
+          <p class="note" id="callRelayCheckNote">Testing connects to your relay and sends test data. It sees your IP address and login. No camera or microphone is used.</p>
+          <p class="note">Saved on this device. The password never goes in room links. The relay sees your IP address and when and how much you call, not what's said.</p>
+          <p class="note" id="callRelayReopen" hidden>After a change, leave and reopen a room to use it.</p>
+        </section>
+        <section class="settingsPage callsPage" data-settings-page="callPublic" data-settings-title="Public call relays" hidden>
+          <label class="checkboxRow"><input id="publicRelaysOn" type="checkbox" aria-describedby="publicRelaysNote publicRelaysLooking" /> <span>Find public call relays on my Nostr relays</span></label>
+          <p class="note" id="publicRelaysNote">Public call relays are run by strangers. KithMoot keeps no list of them and doesn't check, rank or vouch for any. A relay you use sees your IP address and your call's timing and volume, not what's said.</p>
+          <p class="note" id="publicRelaysLooking">Looking asks your Nostr relays for adverts that operators publish. Each of those relays learns your IP address, the time and that you looked.</p>
+          <p id="publicRelaysBlocked" class="note" hidden>You have your own relay, so public call relays aren't looked up.</p>
+          <div id="publicRelays">
           <div id="publicRelaysPicker" hidden>
-            <button id="publicRelaysFind" type="button">Look again</button>
+            <div class="relayActions"><button id="publicRelaysFind" type="button">Look again</button></div>
             <p class="note">Region and notes are what each operator says about itself. Nothing here is checked.</p>
             <ul id="publicRelaysList" class="publicRelaysList" aria-label="Public call relays found"></ul>
-            <p class="note" id="publicRelaysCheckNote">Checking contacts only the relay you selected: its operator learns your IP address, the time and which web app asked, and issues an hour-long login kept on this device for that check and your next call. No camera or microphone is used.</p>
-            <button id="publicRelaysCheck" type="button" aria-describedby="publicRelaysCheckNote" disabled>Check and use the selected relay</button>
-            <button id="publicRelaysForget" type="button" hidden>Stop using a public relay</button>
+            <p class="note" id="publicRelaysCheckNote">Checking contacts only the relay you selected. Its operator learns your IP address, the time and which web app asked, and gives this device a login for an hour. No camera or microphone is used.</p>
+            <div class="relayActions">
+              <button id="publicRelaysCheck" type="button" class="primary" aria-describedby="publicRelaysCheckNote" disabled>Check and use</button>
+              <button id="publicRelaysForget" type="button" hidden>Stop using it</button>
+            </div>
           </div>
           <p id="publicRelaysStatus" class="note" role="status" aria-live="polite"></p>
-        </fieldset></details>
+          </div>
+        </section>
+        <section class="settingsPage callsPage" data-settings-page="callAdvanced" data-settings-title="Advanced" hidden>
+          <label for="callStun">Your STUN server</label>
+          <p class="note" id="callStunNote">STUN helps a call find a direct path. Calls use Google's and Cloudflare's public STUN servers unless you enter your own, for example stun:stun.example.org:3478. Kept on this device and never added to room links.</p>
+          <input id="callStun" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="callStunNote callStunStatus" />
+          <p id="callStunStatus" class="note" role="status" aria-live="polite"></p>
+          <label for="iceServers">STUN servers for new rooms</label>
+          <p class="note" id="iceServersNote">Rooms you start put these addresses in their link, so everyone who joins uses them. Separate addresses with commas.</p>
+          <input id="iceServers" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="iceServersNote" />
+        </section>
+        <!-- The built-in call relay. Every line is written by relay-settings-page.ts from relay-words.ts. The live
+             regions are here, empty, before the first render, or the first change would not be announced. -->
+        <section class="settingsPage relayPage" data-settings-page="callRelay" data-settings-title="Call relay on this computer" hidden>
+          <div class="relayFacts">
+            <p id="relayRunning" class="relayHead" role="status"></p>
+            <p id="relayReachable" class="relayFact" role="status"></p>
+            <p id="relayUse" class="relayFact" aria-live="off"></p>
+            <p id="relayOwn" class="relayFact" aria-live="off"></p>
+          </div>
+          <div class="relayActions">
+            <button id="relayToggle" type="button" hidden></button>
+            <button id="relayCheck" type="button" aria-describedby="relayReachable" hidden>Check from another device…</button>
+          </div>
+          <label class="checkboxRow" id="relayStartOnOpenRow" hidden><input id="relayStartOnOpen" type="checkbox" /> <span>Start it when KithMoot opens</span></label>
+          <details id="relayDetails" hidden><summary>Details</summary><div id="relayDetailsList"></div></details>
+          <p id="relayNote" class="note" hidden></p>
         </section>
         <section class="settingsPage" data-settings-page="about" data-settings-title="About and help" hidden>
         <p class="note">

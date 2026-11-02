@@ -15,7 +15,7 @@ test('the app exposes witness preparation only in development preview and retain
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         const text = String(url), local = `wss://${location.host}`
-        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub']
+        const defaults = ['wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
         const target = defaults.includes(text.replace(/\/$/, '')) ? `${local}/__test-relay` : text
         if (!target.startsWith(`${local}/`)) throw new Error('External relay blocked by acceptance test')
         super(target, protocols)
@@ -28,7 +28,7 @@ test('the app exposes witness preparation only in development preview and retain
   await page.goto(baseURL! + '?signin=nostr')
   await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await openSettings(page, 'Connections');
+  await openSettings(page, 'Relays');
   if (production) {
     await expect(page.locator('#mlsRoomDevelopmentOpen')).toHaveCount(0)
     await expect(page.locator('#mlsRoomDevelopment')).toHaveCount(0)
@@ -50,14 +50,14 @@ test('the app exposes witness preparation only in development preview and retain
   expect(await page.evaluate(() => indexedDB.databases())).toEqual(initialDatabases)
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsRoomDevelopment [data-close]').click()
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   await expect(page.locator('#mlsGrantDevelopment [data-account]')).toHaveText(`${pubkey.slice(0, 12)}…`)
   expect((await page.evaluate(() => indexedDB.databases())).some(database => database.name === 'kithmoot-vmls-grants-v1')).toBe(false)
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsGrantDevelopment [data-close]').click()
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#mlsWitnessSettingsOpen').click()
   await expect(page.locator('#mlsWitnessAccount')).toHaveText(pubkey)
   await expect(page.locator('#mlsWitnessPrepare')).toBeVisible()
@@ -70,7 +70,7 @@ test('the app exposes witness preparation only in development preview and retain
   await expect(page.locator('#status')).toContainText('Clear MLS keys and complete retirement for every account')
   await expect(page.locator('#actionDialog')).toHaveCount(0)
   // Forget this browser is on the Account page; the grant workflows are under Connections.
-  await openSettings(page, 'Connections')
+  await openSettings(page, 'Relays')
   await page.locator('#mlsGrantDevelopmentOpen').click()
   await expect(page.locator('#mlsGrantDevelopment')).toBeVisible()
   // Exercise the actual app's external account invalidation while the modal
@@ -86,7 +86,7 @@ test('the app exposes witness preparation only in development preview and retain
   expect(await page.locator('#mlsWitnessAccount').textContent()).toBe('')
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await openSettings(page, 'Connections'); await page.locator('#mlsRoomDevelopmentOpen').click()
+  await openSettings(page, 'Relays'); await page.locator('#mlsRoomDevelopmentOpen').click()
   await page.locator('#mlsRoomDevelopment [data-code]').fill('unsent-private-code')
   await page.locator('#mlsRoomDevelopment [data-create-name]').fill('unsent-private-room-name')
   await page.locator('#mlsRoomDevelopment [data-relays]').fill('wss://fixture.invalid/link')
@@ -110,7 +110,7 @@ test('the app exposes witness preparation only in development preview and retain
   expect((await page.evaluate(() => indexedDB.databases())).some(db => db.name?.startsWith('kithmoot-vmls-room-link-v1'))).toBe(false)
   await page.goto(baseURL! + '?signin=nostr'); await page.getByRole('button', { name: /Browser extension/ }).click()
   await expect(page.locator('#homeSignIn')).toBeHidden()
-  await openSettings(page, 'Connections'); await page.locator('#mlsWitnessSettingsOpen').click()
+  await openSettings(page, 'Relays'); await page.locator('#mlsWitnessSettingsOpen').click()
   await expect(page.locator('#mlsWitnessLocalStatus')).toContainText('Installation prepared locally')
   expect(mlsRequests).toEqual([])
   await page.locator('#mlsWitnessRecovery summary').click(); await page.locator('#mlsWitnessClear').click(); await page.locator('#actionConfirm').click()
