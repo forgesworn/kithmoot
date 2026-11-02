@@ -23,7 +23,9 @@ export interface NodeKeeperAdmissions {
   retry(): Promise<void>
   /** Renews signed grants with ten days left while this keeper is open. */
   renew(): Promise<void>
-  close(): void
+  /** Stops admission and clears held private keys. The returned signed
+   * second is the minimum reset floor for a whole-room close. */
+  close(): number
 }
 const KEY = /^[a-f0-9]{64}$/
 const MAX_DEVICES = 5, MAX_RECORDS = 4096
@@ -194,6 +196,9 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
         record.posted = false; await save(); await push(record)
       }
     }),
-    close() { stopped = true; authoritySk.fill(0); secret.fill(0) },
+    close() {
+      stopped = true; authoritySk.fill(0); secret.fill(0)
+      return state.grants.reduce((at, record) => Math.max(at, record.event.created_at), now())
+    },
   }
 }

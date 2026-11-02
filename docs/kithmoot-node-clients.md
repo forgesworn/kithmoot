@@ -4,7 +4,7 @@ The library implements the pinned node transport, admission journal and device
 access receiver. The web, desktop and Android screens still need integration
 and acceptance. These APIs do not enable a node for an ordinary room.
 
-The wire format comes from `@forgesworn/fold-kit/node-room`, version 0.16.0.
+The wire format comes from `@forgesworn/fold-kit/node-room`, version 0.16.1.
 Version 6 links contain a signed node record and permit an admission request.
 They contain no room key or usable relay or TURN grant. Older clients refuse
 them through the ordinary link parser. Version 5 remains the existing member
@@ -25,7 +25,10 @@ The journal is verified on restore and is never silently reset on read failure.
 - Bootstrap the keeper's room device with `authoriseKeeperDevice` and a valid
   participant-signed room credential. Use that device's key for relay AUTH
   and TURN requests, rather than the participant or room authority key.
-- Subscribe to kind 1059 addressed to the room authority on the authenticated
+- Open `nodeKeeperInbox(node, authorityIdentity)` for the inviter's restricted
+  ask door and subscribe there to kind 1059 addressed to the room authority.
+  Publish sealed answers on that same inbox. It signs a scoped NIP-42 proof
+  with the inviter key; its ask namespace is separate from the granted device's
   room transport. `inspect` verifies the request and supplies the admission
   card's participant, device and optional name.
 - Unknown people require the keeper's **Let them in** action, passed as
@@ -91,6 +94,35 @@ revocation or reset floor. An HTTP refusal, grant expiry or reset stops access;
 it does not authorise deletion. `onClosure` is invoked only for the explicit
 keeper-signed closure statement. Connect it to existing self-destruct and
 close the session, managed calls and access controller on teardown.
+
+## Closing a room
+
+Stop the keeper grant desk with `close`; its return value is the newest
+signed grant second. Pass that as `resetFloor` to `prepareNodeRoomClose`,
+along with the root secret, room authority and `session.currentEpoch()`.
+The preparation publishes nothing. It signs the grant reset and explicit
+closure statement, and encrypts the v6 retirement and self-destruct rekey.
+No new epoch secret is sealed to any member. Clear the caller's temporary
+current-epoch copy after preparation.
+
+`pendingNodeRoomClose` projects only signed events and public pairing fields.
+`submitPendingNodeRoomClose` calls `NodeRoomCloseStore.stage` before any HTTP
+request. The store must keep the public operation reference outside the
+room's self-destruct boundary, and the exact signed request inside it. On a
+lost acknowledgement, retry the same stored request without re-signing.
+
+After the node acknowledges its durable intent, `forgetRoom` deletes that
+request and descriptor. Also invoke it from verified self-destruct if the
+room closes before the HTTP response reaches the app. The existing room
+wiper deletes room secrets, message caches and the keeper/device journals.
+Only the paired node's public metadata and random operation id remain for
+`queryNodeCloseOperation`, signed by the paired owner account. A pending
+phase is not completion; `done` requires a complete receipt verified against
+the pinned public service key.
+
+A returning device can still fetch an explicit keeper closure after its old
+admission grant has been pruned. That old id is only a query handle. It cannot
+restore relay access or obtain a TURN credential.
 
 ## Enforced transport policy
 

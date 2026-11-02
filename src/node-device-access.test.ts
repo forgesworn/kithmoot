@@ -68,4 +68,18 @@ describe('durable node device access', () => {
     const restored = await openNodeDeviceAccess(f.node, f.device, f.grant, f.store, f.options)
     try { await restored.refresh(); expect(restored.allowed()).toBe(true) } finally { restored.close() }
   })
+  it('recovers a later signed close when the old admission grant has been pruned after a long absence', async () => {
+    const f = fixture(), controller = await openNodeDeviceAccess(f.node, f.device, f.grant, f.store, f.options)
+    controller.close(); f.advance(20 * 86400)
+    const closure = signNodeClosure({ node: f.node, authoritySk: f.authoritySk, operation: 'ab'.repeat(16), now: NOW + 19 * 86400 })
+    f.reply({ state: 'closed', proof: readNodeClosure(closure, f.node, NOW + 20 * 86400) })
+    const restored = await openNodeDeviceAccess(f.node, f.device, f.grant, f.store, f.options)
+    try {
+      expect(f.store.save.mock.calls.at(-1)?.[0].grants.events).toEqual([])
+      expect(restored.allowed()).toBe(false)
+      expect((await restored.refresh()).state).toBe('closed')
+      expect(f.options.onClosure).toHaveBeenCalledExactlyOnceWith(structuredClone(closure))
+      expect(restored.allowed()).toBe(false)
+    } finally { restored.close() }
+  })
 })
