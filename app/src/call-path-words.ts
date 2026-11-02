@@ -14,7 +14,7 @@
  * never the winner here.
  */
 
-export type CallWinner = 'builtin' | 'spry' | 'server' | 'public'
+export type CallWinner = 'builtin' | 'spry' | 'server' | 'public' | 'default'
 
 export interface CallPathInput {
   /** The built-in relay on this computer, absent where this device cannot host (a browser). */
@@ -27,6 +27,8 @@ export interface CallPathInput {
   /** The first address of the STUN server set on this device, if any. */
   stun?: string
   hideIp: boolean
+  /** This deployment offers automatic TURN credentials for default rooms. */
+  defaultRelay?: boolean
 }
 
 export interface CallPathView {
@@ -59,6 +61,7 @@ const NAMES: Record<CallWinner, string> = {
   spry: 'your Spry node',
   server: 'your relay server',
   public: 'a public relay',
+  default: 'the default call relay',
 }
 
 const pad = (value: number): string => String(value).padStart(2, '0')
@@ -92,6 +95,7 @@ export function callPathView(input: CallPathInput): CallPathView {
     : spry.state === 'paired' ? 'spry'
     : builtInRunning ? 'builtin'
     : publicRelays.enabled && publicRelays.chosen && !own ? 'public'
+    : input.defaultRelay && !own ? 'default'
     : undefined
   const name = winner ? NAMES[winner] : undefined
 
@@ -108,6 +112,9 @@ export function callPathView(input: CallPathInput): CallPathView {
   } else if (!winner) {
     head = 'Direct only'
     body = "Calls connect device to device. Some networks block that, so a call may not connect. Set up a relay below to carry those calls."
+  } else if (winner === 'default') {
+    head = 'Direct, with automatic relay fallback'
+    body = 'Calls try a direct connection, then use the default call relay when the network needs it. You do not need to set anything up. A relay you choose below takes priority.'
   } else if (winner === 'public') {
     head = 'Direct, or through a public relay'
     body = "Calls connect device to device when they can. When they can't, they go through the public call relay you chose, unless the room brings its own."

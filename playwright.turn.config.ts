@@ -28,10 +28,8 @@ if (!baseURL) {
 export default defineConfig({
   testDir: './test',
   testMatch: ['turn-relay.spec.ts'],
-  // A TURN allocation, a relay-only ICE gather and a real relay round trip
-  // for the roster, one after another. Generous on purpose: the answer to a
-  // slow network is patience, not a weaker assertion.
-  timeout: 240_000,
+  // Five minutes of sustained media, plus allocation and room admission.
+  timeout: 540_000,
   expect: { timeout: 30_000 },
   fullyParallel: false,
   retries: 0,

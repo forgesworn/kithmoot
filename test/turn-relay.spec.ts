@@ -1,6 +1,20 @@
 import { testRelays } from './relays.js'
-import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { fakeMicMakesSound, inbound, nameCreator, openNewRoomForm, remoteAudioCount, remotePictures } from './browser.js'
+import { test, expect, _android, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { writeFile } from 'node:fs/promises'
+import { SYNTHETIC_MIC, inbound, nameCreator, openNewRoomForm, remoteAudioCount, remotePictures } from './browser.js'
+
+const direct = process.env.TURN_E2E_ROUTE === 'direct'
+if (process.env.TURN_E2E_ROUTE && !['direct', 'relay'].includes(process.env.TURN_E2E_ROUTE)) {
+  throw new Error('TURN_E2E_ROUTE must be direct or relay')
+}
+const durationSeconds = Number(process.env.TURN_E2E_DURATION_SECONDS ?? 300)
+const tlsPort = process.env.TURN_E2E_TLS_PORT ? Number(process.env.TURN_E2E_TLS_PORT) : undefined
+if (tlsPort !== undefined && (!Number.isInteger(tlsPort) || tlsPort < 1 || tlsPort > 65535)) {
+  throw new Error('TURN_E2E_TLS_PORT must be a valid TCP port')
+}
+if (!Number.isInteger(durationSeconds) || durationSeconds < 1 || durationSeconds > 300) {
+  throw new Error('TURN_E2E_DURATION_SECONDS must be an integer from 1 to 300 (five minutes by default).')
+}
 
 /**
  * The regression test for the failure that made this whole TURN deployment
@@ -70,7 +84,7 @@ interface RelayEvidence {
  */
 async function forceRelayOnly(context: BrowserContext): Promise<void> {
   const transport = process.env.TURN_E2E_TRANSPORT === 'tcp-tls' ? 'tcp-tls' : 'any'
-  await context.addInitScript((transport) => {
+  await context.addInitScript(({ transport, direct, tlsPort }) => {
     const Native = window.RTCPeerConnection
     const created: RTCPeerConnection[] = []
     const trackEvents: { kind: string; id: string }[] = []
@@ -92,18 +106,19 @@ async function forceRelayOnly(context: BrowserContext): Promise<void> {
         ? (config?.iceServers ?? []).map(server => ({
             ...server,
             urls: (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(url =>
-              typeof url === 'string' && (url.startsWith('turns:') || url.includes('transport=tcp')),
+              typeof url === 'string' && url.startsWith('turns:') &&
+              (tlsPort === undefined || Number(/^turns:(?:\[[^\]]+\]|[^:?]+)(?::(\d+))?(?:\?|$)/.exec(url)?.[1] ?? 5349) === tlsPort),
             ),
           })).filter(server => server.urls.length > 0)
         : config?.iceServers
-      const pc = new Native({ ...(config ?? {}), iceServers, iceTransportPolicy: 'relay' })
+      const pc = new Native({ ...(config ?? {}), iceServers, iceTransportPolicy: direct ? 'all' : 'relay' })
       pc.addEventListener('track', event => trackEvents.push({ kind: event.track.kind, id: event.track.id }))
       created.push(pc)
       return pc
     }
     Patched.prototype = Native.prototype
     window.RTCPeerConnection = Patched as unknown as typeof RTCPeerConnection
-  }, transport)
+  }, { transport, direct, tlsPort })
 }
 
 /** Reads back the selected candidate pair and inbound byte count from every
@@ -160,11 +175,9 @@ async function expectLiveTurnMedia(page: Page, who: string): Promise<void> {
   await expect.poll(() => page.evaluate(remoteAudioCount), {
     message: `${who} has no remote audio sink`, timeout: 30_000,
   }).toBeGreaterThan(0)
-  if (await page.evaluate(fakeMicMakesSound)) {
-    await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy, {
-      message: `${who} received no audio energy through TURN`, timeout: 60_000,
-    }).toBeGreaterThan(0)
-  }
+  await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy, {
+    message: `${who} received no audio energy`, timeout: 60_000,
+  }).toBeGreaterThan(0)
 }
 
 /** Enough state to tell a dead transport from a negotiation that omitted
@@ -244,11 +257,30 @@ async function readAppDiagnostics(page: Page): Promise<string> {
   })
 }
 
-async function newDeviceContext(browser: Browser, baseURL: string, credential?: object): Promise<BrowserContext> {
-  const context = await browser.newContext()
+async function newDeviceContext(browser: Browser, baseURL: string, credential?: object, mobile = false): Promise<BrowserContext> {
+  // Android-sized touch browser. This covers the responsive web journey;
+  // it does not stand in for a physical Android device or its WebRTC stack.
+  let context: BrowserContext
+  const androidSerial = mobile ? process.env.TURN_E2E_ANDROID_SERIAL : undefined
+  if (androidSerial) {
+    const devices = await _android.devices()
+    const device = devices.find(device => device.serial() === androidSerial)
+    for (const other of devices) if (other !== device) await other.close()
+    if (!device) throw new Error(`The requested Android test device ${androidSerial} is not attached`)
+    device.setDefaultTimeout(45_000)
+    try {
+      context = await device.launchBrowser({ pkg: 'com.android.chrome', viewport: null, args: [
+        '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+      ] })
+    } catch (error) { await device.close(); throw error }
+    context.on('close', () => { void device.close() })
+  } else context = await browser.newContext(mobile ? {
+    viewport: { width: 393, height: 851 }, isMobile: true, hasTouch: true,
+  } : { viewport: { width: 1440, height: 900 } })
   if (credential) await context.route('**/turn', route => route.fulfill({ json: credential }))
   await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL).origin })
   await forceRelayOnly(context)
+  await context.addInitScript(SYNTHETIC_MIC)
   return context
 }
 
@@ -306,10 +338,11 @@ async function turnOnMedia(page: Page): Promise<void> {
   await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
 }
 
-test('a call connects and carries media with host and reflexive candidates excluded', async ({
+test(`desktop and mobile web carry two-way media for ${durationSeconds}s over ${direct ? 'a direct connection' : process.env.TURN_E2E_TRANSPORT === 'tcp-tls' ? 'TLS TURN' : 'TURN'}`, async ({
   browser,
   baseURL,
 }) => {
+  test.setTimeout((durationSeconds + 240) * 1000)
   const base = baseURL as string
 
   // Checked first and asserted, never skipped over. A skip here would be a
@@ -335,7 +368,7 @@ test('a call connects and carries media with host and reflexive candidates exclu
 
   const injectCredential = new URL(credentialUrl).origin === new URL(base).origin ? undefined : credential
   const contextA = await newDeviceContext(browser, base, injectCredential)
-  const contextB = await newDeviceContext(browser, base, injectCredential)
+  const contextB = await newDeviceContext(browser, base, injectCredential, true)
   try {
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
@@ -386,7 +419,7 @@ test('a call connects and carries media with host and reflexive candidates exclu
           }),
         )
       })
-    await expect
+    if (!direct) await expect
       .poll(sawTurn, { message: 'the app never put a turn: server into its ICE configuration', timeout: 60_000 })
       .toBe(true)
 
@@ -429,15 +462,53 @@ test('a call connects and carries media with host and reflexive candidates exclu
         // The assertion the whole file exists for. 'host' would mean the
         // policy did not take effect and this proved nothing; 'srflx' would
         // mean it connected via STUN and, again, proved nothing about TURN.
-        expect(
-          pair.localType,
-          `device ${label} used a '${pair.localType}' local candidate, not 'relay'`,
-        ).toBe('relay')
-        expect(
-          pair.remoteType,
-          `device ${label} used a '${pair.remoteType}' remote candidate, not 'relay'`,
-        ).toBe('relay')
+        if (direct) {
+          expect(pair.localType, `device ${label} unexpectedly used TURN`).not.toBe('relay')
+          expect(pair.remoteType, `device ${label} unexpectedly used TURN`).not.toBe('relay')
+        } else {
+          expect(pair.localType, `device ${label} bypassed TURN locally`).toBe('relay')
+          expect(pair.remoteType, `device ${label} bypassed TURN remotely`).toBe('relay')
+          if (process.env.TURN_E2E_TRANSPORT === 'tcp-tls') expect(pair.relayProtocol).toBe('tls')
+        }
       }
+    }
+
+    // Positive counters once only prove a call started. Sample throughout
+    // the requested five minutes and require BOTH decoded pictures and
+    // audio energy to advance in every interval, in both directions.
+    const pages = [pageA, pageB]
+    let previous = await Promise.all(pages.map(page => page.evaluate(inbound)))
+    const samples: unknown[] = []
+    const started = Date.now()
+    while (Date.now() - started < durationSeconds * 1000) {
+      await pageA.waitForTimeout(Math.min(10_000, durationSeconds * 1000 - (Date.now() - started)))
+      const current = await Promise.all(pages.map(page => page.evaluate(inbound)))
+      for (const [index, stats] of current.entries()) {
+        expect(stats.framesDecoded, `device ${index} video stopped during the call`).toBeGreaterThan(previous[index]!.framesDecoded)
+        expect(stats.audioEnergy, `device ${index} audio stopped during the call`).toBeGreaterThan(previous[index]!.audioEnergy)
+        const sinks = await pages[index]!.locator('#room .participant audio').evaluateAll(elements => elements.map(element => {
+          const audio = element as HTMLAudioElement
+          return { paused: audio.paused, muted: audio.muted, volume: audio.volume, time: audio.currentTime }
+        }))
+        expect(sinks.some(sink => !sink.paused && !sink.muted && sink.volume > 0 && sink.time > 0), `device ${index} has no playing remote sound`).toBe(true)
+      }
+      const elapsedSeconds = Math.round((Date.now() - started) / 1000)
+      samples.push({ elapsedSeconds, current })
+      console.log(`  continuous media ${elapsedSeconds}s: ${JSON.stringify(current)}`)
+      previous = current
+    }
+    const evidencePath = test.info().outputPath('five-minute-media.json')
+    await writeFile(evidencePath, JSON.stringify({
+      durationSeconds, elapsedMs: Date.now() - started, direct, transport: process.env.TURN_E2E_TRANSPORT ?? 'any',
+      desktopViewport: pageA.viewportSize(), mobileViewport: pageB.viewportSize(),
+      androidDevice: process.env.TURN_E2E_ANDROID_SERIAL ?? null, tlsPort: tlsPort ?? null,
+      userAgents: await Promise.all(pages.map(page => page.evaluate(() => navigator.userAgent))), samples,
+    }, null, 2))
+    await test.info().attach('five-minute-media.json', { path: evidencePath, contentType: 'application/json' })
+    for (const [name, page] of [['desktop', pageA], ['mobile', pageB]] as const) {
+      const path = test.info().outputPath(`${name}-call.png`)
+      await page.screenshot({ path })
+      await test.info().attach(`${name}-call.png`, { path, contentType: 'image/png' })
     }
   } finally {
     await contextA.close()

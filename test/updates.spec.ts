@@ -211,7 +211,8 @@ test('an update waits for drafts and calls, then returns to the room without a p
     await expect(page.locator('#roomArea')).toBeVisible()
     await page.locator('#callToggle').click()
     if (canUseSyntheticMic) {
-      await page.locator('#toggleMic').click()
+      // This fresh profile keeps the production default. Wait for Join call
+      // to open its microphone; another click can mute it while it opens.
       await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     }
     await expect(page.locator('#callToggle')).toHaveAttribute('data-live', 'true')
@@ -257,7 +258,7 @@ test('an update waits for drafts and calls, then returns to the room without a p
     // notice and must not be a prerequisite for updating.
     if (await page.locator('#callToggle').getAttribute('data-live') !== 'true') await page.locator('#callToggle').click()
     await expect(page.locator('#callToggle')).toHaveAttribute('data-live', 'true')
-    if (canUseSyntheticMic) await page.locator('#toggleMic').click()
+    if (canUseSyntheticMic) await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateApp')).toHaveText('Leave call and update')
