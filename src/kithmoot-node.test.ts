@@ -289,6 +289,35 @@ describe('pinned KithMoot node client', () => {
       expect(recovering).toHaveBeenCalledTimes(2)
     } finally { managed.close() }
   })
+  it('lets a planned credential rotation settle before treating its disconnect as another network failure', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(), recovering = vi.fn()
+    let clock = NOW, ticks = 0, issued = 0
+    const fetcher = vi.fn(async () => response(f.login(clock, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, monotonic: () => ticks, PeerConnection: Peer as unknown as typeof RTCPeerConnection, onRecovering: recovering })
+    try {
+      const first = managed.factory() as unknown as Peer, quiet = managed.factory() as unknown as Peer
+      first.state('connected'); quiet.state('connected')
+      clock += 240; ticks += 240000; await vi.advanceTimersByTimeAsync(240000)
+      expect(issued).toBe(2)
+      first.state('disconnected'); first.state('failed'); await vi.advanceTimersByTimeAsync(0)
+      expect(issued).toBe(2); expect(recovering).not.toHaveBeenCalled()
+      first.state('connected'); first.state('disconnected'); await vi.advanceTimersByTimeAsync(0)
+      expect(issued).toBe(3); expect(recovering).toHaveBeenCalledTimes(1)
+      // A browser may remain connected throughout the planned restart and
+      // emit no completion event. Its grace must still expire monotonically.
+      clock += 16; ticks += 16000; await vi.advanceTimersByTimeAsync(16000)
+      quiet.state('disconnected'); await vi.advanceTimersByTimeAsync(0)
+      expect(issued).toBe(4); expect(recovering).toHaveBeenCalledTimes(2)
+    } finally { managed.close() }
+  })
   it('ends a cached call within five monotonic minutes despite clock rollback and a stalled renewal', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW, ticks = 0, calls = 0, release!: (value: Response) => void
