@@ -13993,7 +13993,7 @@ async function collectDiagnostics(): Promise<string> {
       participant: short(mediaMe()),
       device: short(myDeviceId),
       publishing: currentAdverts().map((a) => a.role),
-      callProfile,
+      callProfile: s?.participants().find(view => view.participant === s.participant)?.callProfiles?.[s.device] ?? callProfile,
       agentsMayHear,
       effect: $('effectMode').textContent,
       camera: camera ? { playback: camera.playback, stats: camera.stats, totals: camera.totals } : undefined,
@@ -14451,6 +14451,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       ? { forwarderMedia: () => forwarderMedia.ready, forwarderMediaPipeline: forwarderMedia }
       : {}
     sessionAuthority = roomAuthority()
+    const roomCallProfile = roomNode ? readCallProfile(location.search, localStorage, sessionStorage, 2) : callProfile
     const s = credential
       ? new RoomSession({
           ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
@@ -14462,9 +14463,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
-          // Off unless the kill switch says otherwise, and a pair uses it
-          // only when the far end's roster entry says 2 as well.
-          callProfile,
+          // Node rooms use fixed media slots and pair recovery. An explicit
+          // off switch still wins; older peers negotiate their supported mode.
+          callProfile: roomCallProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
           // Peer assist is paused: nothing forwards a carried pair's frames, so a
@@ -14528,9 +14529,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           factory: roomUsesBothy ? undefined : factory,
           policy: roomPolicy,
           name,
-          // Off unless the kill switch says otherwise, and a pair uses it
-          // only when the far end's roster entry says 2 as well.
-          callProfile,
+          // Node rooms use fixed media slots and pair recovery. An explicit
+          // off switch still wins; older peers negotiate their supported mode.
+          callProfile: roomCallProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
           // Peer assist is paused: nothing forwards a carried pair's frames, so a
