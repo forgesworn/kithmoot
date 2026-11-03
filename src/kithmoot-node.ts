@@ -272,7 +272,7 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
 /** The inviter's separate, restricted ask inbox. Room-device grants confer
  * no access to this namespace; the keeper signs its own scoped NIP-42 proof.
  * This transport cannot be used as a RoomSession's admitted room door. */
-export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantIdentity, options: NodeRelayOptions = {}): RelayTransport {
+export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantIdentity, options: NodeRelayOptions = {}): RelayPoolClient {
   const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
   if (authority.pubkey !== node.authority) return invalid()
   return nodeRoomTransport(node, authority, 'ask', options)
