@@ -140,6 +140,9 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     }
     timer = setInterval(() => {
       if (!live()) { close(); return }
+      // A stalled HTTP request must not postpone the socket's own liveness
+      // check. The pool replaces a silent socket and restores subscriptions.
+      void Promise.all([pool.probe(), inbox?.probe()]).catch(unavailable)
       if (refreshing) return
       refreshing = true
       void refresh().then(() => keeper?.renew()).catch(unavailable).finally(() => { refreshing = false })

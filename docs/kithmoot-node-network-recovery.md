@@ -22,6 +22,12 @@ signalling socket before ICE restarts. A WebSocket can still report itself open
 after a route change while its offers go nowhere. Refreshing TURN alone cannot
 repair that socket. Concurrent recovery requests share the same reconnect.
 
+The browser also checks the authenticated room and admission sockets every five
+seconds, independently of the HTTP refresh. A socket that has heard nothing for
+five seconds gets a bounded read probe in its existing room partition. A silent
+socket is replaced and its subscriptions restored, even when no chat message is
+being sent and the HTTP endpoint remains reachable.
+
 Node connections also register with the browser's media receiver registry.
 Video tile binding and recovery use that registry when a browser omits a track
 notification during a rebuild. Registering each native peer through the pinned
@@ -44,6 +50,12 @@ stopped SSH tunnel must not be described as proof that the public room service
 or a call has failed.
 
 ## Verification
+
+- The [socket liveness regression](evidence/kithmoot-node-socket-liveness-20261103.json)
+  uses a real WebSocket server and device-signed NIP-42 authentication. It stops
+  answering the initial socket without closing it, then verifies reconnection,
+  reauthentication and resubscription without publishing an event. The previous
+  no-op probe fails this check.
 
 - Focused SDK/access/admission/closure tests cover temporary failure, retry,
   concurrent reconnection, retained relay-only peers, withdrawal and expiry.

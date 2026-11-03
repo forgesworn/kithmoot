@@ -40,11 +40,19 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
       const accountRelay = new URL('/__test-relay', baseURL!); accountRelay.protocol = 'wss:'
       await context.addInitScript(({ node, accountRelay }) => {
         const Native = window.WebSocket
+        const state = window as unknown as { __nodeSockets: Array<WebSocket & { dropFrames: boolean }> }
+        state.__nodeSockets = []
         window.WebSocket = class extends Native {
+          dropFrames = false
           constructor(url: string | URL, protocols?: string | string[]) {
             const value = String(url)
             super(value === 'wss://node.example/events' ? node : value.startsWith('wss://') && !value.includes('localhost') ? accountRelay : value, protocols)
+            if (value === 'wss://node.example/events') {
+              state.__nodeSockets.push(this)
+              this.addEventListener('message', event => { if (this.dropFrames) event.stopImmediatePropagation() })
+            }
           }
+          override send(data: Parameters<WebSocket['send']>[0]): void { if (!this.dropFrames) super.send(data) }
         }
       }, { node: fixture.websocket, accountRelay: accountRelay.href })
       await context.route('https://node.example/**', async route => {
@@ -119,6 +127,20 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
       await expect.poll(async () => (await page.evaluate(remotePictures)).length,
         { message: 'Node receiver recovery must restore a detached remote video sink', timeout: 15000 }).toBeGreaterThan(0)
     }
+    const beforeSilentSocket = await guest.evaluate(() => {
+      const sockets = (window as unknown as { __nodeSockets: Array<WebSocket & { dropFrames: boolean }> }).__nodeSockets
+      for (const socket of sockets) socket.dropFrames = true
+      return sockets.length
+    })
+    expect(beforeSilentSocket).toBeGreaterThan(0)
+    const socketRecoveryStarted = Date.now()
+    await expect.poll(() => guest.evaluate(() => (window as unknown as { __nodeSockets: WebSocket[] }).__nodeSockets.length),
+      { message: 'A silent signalling socket must be replaced while the node HTTP API stays reachable', timeout: 20000 }).toBeGreaterThan(beforeSilentSocket)
+    console.log(`Node signalling recovered after ${Date.now() - socketRecoveryStarted} ms`)
+    await guest.locator('#chatInput').fill('Signalling recovered without another admission')
+    await guest.locator('#chatInput').press('Enter')
+    await expect(keeper.locator('#chatLog')).toContainText('Signalling recovered without another admission')
+    for (const page of [keeper, guest]) await expect.poll(async () => (await page.evaluate(remotePictures)).length).toBeGreaterThan(0)
     for (const page of [keeper, guest]) await page.getByRole('button', { name: 'Leave call', exact: true }).click()
     await openCallSettings(keeper, 'Your KithMoot node')
     await keeper.locator('#nodeUnpair').click(); await keeper.locator('#actionConfirm').click()
