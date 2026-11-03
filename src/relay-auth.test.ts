@@ -17,6 +17,8 @@ class Relay {
   readonly events: Event[] = []
   readonly subscriptions = new Map<WebSocket, Map<string, Filter[]>>()
   challenge?: unknown
+  subscriptionLimit = Infinity
+  peakSubscriptions = 0
   constructor(readonly keeper: string, readonly required = true, readonly node?: { room: string; mode: 'room' | 'ask' }) {
     this.server.on('connection', socket => {
       const challenge = this.challenge ?? getPublicKey(generateSecretKey())
@@ -42,8 +44,12 @@ class Relay {
           socket.send(JSON.stringify(['OK', event.id, true, '']))
         } else if (frame[0] === 'REQ') {
           if (this.required && !authenticated) { socket.send(JSON.stringify(['CLOSED', frame[1], 'auth-required: keeper required'])); return }
+          if (subscriptions.size >= this.subscriptionLimit && !subscriptions.has(frame[1] as string)) {
+            socket.send(JSON.stringify(['CLOSED', frame[1], 'too many subscriptions'])); return
+          }
           const filters = frame.slice(2) as Filter[]
           subscriptions.set(frame[1] as string, filters)
+          this.peakSubscriptions = Math.max(this.peakSubscriptions, subscriptions.size)
           for (const event of this.events) if (matchFilters(filters, event)) socket.send(JSON.stringify(['EVENT', frame[1], event]))
           socket.send(JSON.stringify(['EOSE', frame[1]]))
         } else if (frame[0] === 'CLOSE') subscriptions.delete(frame[1] as string)
@@ -84,6 +90,26 @@ afterEach(async () => {
 })
 
 describe('explicit relay authentication over real WebSockets', () => {
+  it('opens only current readers after authentication outlasts two subscription retry periods', async () => {
+    const identity = localIdentity(generateSecretKey()), relay = await new Relay(identity.pubkey).start()
+    relay.subscriptionLimit = 16
+    let release!: () => void
+    const ready = new Promise<void>(resolve => { release = resolve })
+    const signEvent = vi.fn(async (event: UnsignedEvent) => { await ready; return identity.signEvent(event) })
+    const p = pool(relay, { pubkey: identity.pubkey, signEvent }, 20000)
+    const stops = Array.from({ length: 11 }, (_, i) => p.subscribe([{ kinds: [100 + i] }], () => {}))
+    try {
+      await wait(() => expect(signEvent).toHaveBeenCalledTimes(1))
+      stops[0]!()
+      await new Promise(resolve => setTimeout(resolve, 11000))
+      release()
+      await wait(() => expect(relay.frames.filter(frame => frame[0] === 'REQ').length).toBeGreaterThanOrEqual(10))
+      await new Promise(resolve => setTimeout(resolve, 50))
+      expect(relay.frames.filter(frame => frame[0] === 'REQ')).toHaveLength(10)
+      expect(relay.peakSubscriptions).toBe(10)
+      expect(relay.frames.some(frame => frame[0] === 'REQ' && (frame[2] as Filter).kinds?.includes(100))).toBe(false)
+    } finally { release(); stops.forEach(stop => stop()) }
+  }, 20000)
   it('signs only the configured node room and door, including a guarded publication', async () => {
     const identity = localIdentity(generateSecretKey()), node = { room: '01'.repeat(32), mode: 'room' as const }
     const relay = await new Relay(identity.pubkey, true, node).start()
