@@ -12,6 +12,7 @@ import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperAdmissions, typ
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../../src/node-room-close.js'
 import { nodeDeviceKeyFor, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
+import { watchNodeNetwork } from './node-network-recovery.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
@@ -73,8 +74,9 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let connectionLost = false
   const unavailable = () => { connectionLost = true; options.unavailable() }
   let reconnecting: Promise<void> | undefined
-  const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string; effectiveType?: string } }).connection
+  const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string } }).connection
   const connectivity = typeof window === 'undefined' ? undefined : window
+  let unwatchNetwork: (() => void) | undefined
   const live = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal, allowed: live }
   const notify = (value: NodeDeviceAccess) => {
@@ -94,8 +96,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   const close = () => {
     if (stopped) return
     stopped = true; controller.abort(); clearInterval(timer)
-    connectivity?.removeEventListener('online', reconnect)
-    network?.removeEventListener('change', networkChanged)
+    unwatchNetwork?.()
     desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
   }
   const reconnect = () => {
@@ -107,12 +108,6 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       pool.reconnect(); inbox?.reconnect()
       await calls?.reconnect()
     })().catch(unavailable).finally(() => { reconnecting = undefined })
-  }
-  let networkSignature = `${network?.type ?? ''}:${network?.effectiveType ?? ''}`
-  const networkChanged = () => {
-    const next = `${network?.type ?? ''}:${network?.effectiveType ?? ''}`
-    if (next === networkSignature) return
-    networkSignature = next; reconnect()
   }
   try {
     calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable })
@@ -147,8 +142,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       refreshing = true
       void refresh().then(() => keeper?.renew()).catch(unavailable).finally(() => { refreshing = false })
     }, 5000)
-    connectivity?.addEventListener('online', reconnect)
-    network?.addEventListener('change', networkChanged)
+    unwatchNetwork = watchNodeNetwork(connectivity, network, reconnect)
     return {
       state, pool, factory: calls.factory, allowed: () => live() && access!.allowed(), close,
       observe: (event: unknown) => access!.observe(event),

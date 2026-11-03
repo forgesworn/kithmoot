@@ -358,12 +358,16 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const factory: PeerFactory = () => {
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
+      let connected = false, recovering = false
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
         // A changed address can invalidate the old TURN allocation before its
         // credential expires. Fetch current credentials and regather on the
         // retained connection; the room and its admission remain unchanged.
-        if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') void renew(true)
+        if (peer.connectionState === 'connected') { connected = true; recovering = false }
+        else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
+          recovering = true; void renew(true)
+        }
       })
       // Native RTCTrackEvent includes every field Peer reads. Its DOM
       // callback type is narrower than the portable adapter declaration.

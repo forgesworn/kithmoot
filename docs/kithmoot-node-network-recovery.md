@@ -12,7 +12,10 @@ The browser now refreshes node credentials and restarts ICE on retained peers
 when their connection disconnects or fails. Returning online or changing the
 network type also reconnects the room relay and admission inbox. Concurrent
 refreshes share one request; a retry can restart ICE even if the issuer returns
-the same still-valid login. Changes to latency alone do not restart a call.
+the same still-valid login. Only physical network type changes trigger that watcher. Estimated effective
+connection type, latency and throughput do not restart a call. A peer that
+never connected cannot restart healthy calls; an established peer requests
+one refresh per failure episode.
 
 HTTP 408, 425, 429 and server failures are temporary unavailability. They do not
 revoke a valid signed admission. Explicit refusal, signed removal and closure
