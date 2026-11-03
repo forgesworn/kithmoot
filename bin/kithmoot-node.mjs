@@ -61,6 +61,10 @@ try {
     const result = await localControl(directory, 'status')
     console.log(JSON.stringify(result))
     if (!result.ok || !result.result.ready) process.exitCode = 1
+  } else if (command === 'prepare-delete' || command === 'cancel-delete') {
+    const result = await localControl(directory, command)
+    console.log(JSON.stringify(result))
+    if (!result.ok) process.exitCode = 1
   } else throw Error('Unknown command; use --help')
   }
 } catch (error) { console.error(error instanceof Error ? error.message : 'Node command failed'); process.exitCode = 1 }

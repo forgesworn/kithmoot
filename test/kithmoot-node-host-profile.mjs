@@ -35,9 +35,12 @@ async function wait(check, name) {
 }
 function command(program, args, options, timeout = 20000) {
   return new Promise((resolve, reject) => {
-    const value = spawn(program, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] })
+    const value = spawn(program, args, { ...options, detached: true, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = '', stderr = ''
-    const timer = setTimeout(() => { value.kill('SIGKILL'); reject(Error('Fixture client timed out')) }, timeout)
+    const timer = setTimeout(() => {
+      try { process.kill(-value.pid, 'SIGKILL') } catch {}
+      reject(Error('Fixture client timed out: ' + program + ' ' + args[0] + '\n' + stderr.slice(-2048)))
+    }, timeout)
     value.stdout.on('data', data => { stdout += data; if (stdout.length > 65536) value.kill('SIGKILL') })
     value.stderr.on('data', data => { stderr += data; if (stderr.length > 65536) value.kill('SIGKILL') })
     value.once('error', error => { clearTimeout(timer); reject(error) })

@@ -211,11 +211,13 @@ export async function updateSystemNode(bundle: string): Promise<void> {
 export function uninstallSystemNode(deleteEverything: boolean): void {
   requireOperator(); if (!deleteEverything) throw Error('Uninstall requires --delete-everything')
   const installed = readInstalled(), command = join(installed.directory, 'kithmoot-node')
-  const status = JSON.parse(service('kithmoot-node', command, ['status', '--state', paths.state]))
-  if (!status.ok || status.result?.rooms !== 0 || status.result?.devices !== 0 || status.result?.pending !== 0) throw Error('Close hosted rooms in KithMoot and check their completion before deleting the node')
   if (installed.phase !== 'ready') throw Error('Recover the interrupted installation before removing it')
   verifyRelease(installed.directory, installed.release); unchangedUnits(installed)
   account('kithmoot-node', paths.state); account('kithmoot-node-front', '/nonexistent'); tlsGroup()
+  let prepared: { ok?: boolean; result?: { deleteReady?: boolean } }
+  try { prepared = JSON.parse(service('kithmoot-node', command, ['prepare-delete', '--state', paths.state])) }
+  catch { throw Error('Start the node, close hosted rooms in KithMoot and check their completion before deleting the node') }
+  if (!prepared.ok || prepared.result?.deleteReady !== true) throw Error('Close hosted rooms in KithMoot before deleting the node')
   removeFirewall(installed)
   if (installed.acme) {
     if (installed.acme !== acmeName(installed.configuration.host)) throw Error('Invalid managed certificate metadata')

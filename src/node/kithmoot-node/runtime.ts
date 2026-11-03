@@ -169,16 +169,17 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
     unlinkSync(controlSocket)
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { ledger.close(); throw error } }
   let controls = 0
-  const control = netServer(socket => {
+  const control = netServer({ allowHalfOpen: true }, socket => {
     if (controls >= 8) { socket.destroy(); return }; controls++
     socket.once('close', () => { controls-- }); socket.setTimeout(3000, () => socket.destroy())
     let body = ''
     socket.on('data', chunk => { body += chunk.toString('utf8'); if (body.length > 256) socket.destroy() })
     socket.on('error', () => {})
-    socket.on('end', () => {
+    socket.on('end', async () => {
       try {
         const value = JSON.parse(body)
-        const result = value.op === 'pair' ? preparePairing(supervisor) : value.op === 'status' ? supervisor.status() : value.op === 'info' ? { v: 1, version: NODE_VERSION, origin, serviceKey } : undefined
+        const result = value.op === 'pair' ? preparePairing(supervisor) : value.op === 'status' ? supervisor.status() : value.op === 'info' ? { v: 1, version: NODE_VERSION, origin, serviceKey }
+          : value.op === 'prepare-delete' ? await supervisor.prepareDeletion() : value.op === 'cancel-delete' ? await supervisor.cancelDeletion() : undefined
         if (!result) throw Error('invalid operation')
         socket.end(JSON.stringify({ ok: true, result }))
       } catch (error) { socket.end(JSON.stringify({ ok: false, error: error instanceof NodeRefusal ? error.code : 'invalid-local-request' })) }
@@ -212,7 +213,7 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
     return { supervisor, close }
   } catch (error) { await close(); throw error }
 }
-export function localControl(directory: string, op: 'pair' | 'status' | 'info'): Promise<unknown> {
+export function localControl(directory: string, op: 'pair' | 'status' | 'info' | 'prepare-delete' | 'cancel-delete'): Promise<unknown> {
   privateDirectory(directory)
   return new Promise((resolve, reject) => {
     const socket = connect(join(directory, 'node.sock')); let result = ''

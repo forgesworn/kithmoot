@@ -119,5 +119,9 @@ it('launches the host-gated backend on separate ports without sending it host ce
     expect(readFileSync(capture, 'utf8').split('\n')).toEqual(['34790', '53499', '49192:49223', 'true', '', '', ''])
     const info = await (await fetch(`http://127.0.0.1:${ports[0]}/node/v1/info`)).json()
     expect(info.turnPorts).toEqual({ udpTcp: 34790, tls: 53499 })
+    // The client half-closes its request before the serial operation resolves.
+    // The server must keep its writable half open for the asynchronous reply.
+    await expect(localControl(directory, 'prepare-delete')).resolves.toEqual({ ok: false, error: 'node-reconciling' })
+    await expect(localControl(directory, 'cancel-delete')).resolves.toEqual({ ok: true, result: { deleteReady: false } })
   } finally { await node.close() }
 })

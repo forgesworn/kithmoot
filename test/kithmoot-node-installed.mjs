@@ -139,11 +139,36 @@ try {
   assert.equal((await queryNodeAccess(node, admitted.grant.tags.find(t => t[0] === 'grant')[1], guestIdentity, options)).state, 'closed')
   const counts = await (await fetch(origin + '/node/v1/status')).json()
   assert.equal(counts.rooms, 0); assert.equal(counts.devices, 0)
+  let deletionFreeze = false
+  if (hostProfile) {
+    console.error('Fixture: checking empty-node readiness')
+    await until(async () => (await (await fetch(origin + '/node/v1/status')).json()).ready, 'node reconciles closure before deletion')
+    const local = op => {
+      const result = spawnSync('/usr/sbin/runuser', ['--user', 'node', '--', '/opt/kithmoot-node/current/kithmoot-node', op, '--state', '/var/lib/kithmoot-node'], { encoding: 'utf8' })
+      assert.equal(result.status, 0, 'Local deletion control failed: ' + result.stdout + result.stderr)
+      return JSON.parse(result.stdout)
+    }
+    console.error('Fixture: preparing deletion')
+    assert.deepEqual(local('prepare-delete'), { ok: true, result: { deleteReady: true } })
+    console.error('Fixture: deletion prepared')
+    const frozen = await (await fetch(origin + '/node/v1/status')).json()
+    assert.equal(frozen.deleting, true); assert.equal(frozen.ready, false)
+    const nextKey = generateSecretKey()
+    try {
+      const next = readNodeRoom(signNodeRoom({ authoritySk: nextKey, room: getPublicKey(generateSecretKey()), serviceKey, origin, now: sdkNow(), turnPorts: pair.turnPorts }), sdkNow())
+      await assert.rejects(enrolNodeRoom(pair, next, ownerIdentity, options), error => error.status === 409)
+    } finally { nextKey.fill(0) }
+    assert.deepEqual(local('cancel-delete'), { ok: true, result: { deleteReady: false } })
+    console.error('Fixture: deletion cancelled')
+    await until(async () => (await (await fetch(origin + '/node/v1/status')).json()).ready, 'node resumes after local deletion cancellation')
+    deletionFreeze = true
+    console.error('Fixture: deletion checks complete')
+  }
   console.log(JSON.stringify({ schema: 'kithmoot-node-installed/1', result: 'passed', isolatedLinux: true,
     ownerPairing: true, manualAdmission: true, freshRoot: true, encryptedChat: true, activeUninstallRefused: hostProfile ? null : true, hostProfile, liveUpdate: Boolean(process.env.E2E_NODE_LIVE_UPDATE),
     authenticatedTurn: [`udp${ports.udpTcp}`, `tcp${ports.udpTcp}`, `tls${ports.tls}`, 'tls443'], cachedAccessRevoked: true,
     closeDelivered: true, callsRevoked: finished.receipt.callsRevoked, relayPurged: finished.receipt.relayPurged,
-    signedCompletion: true, coldPublicProof: true, counts }))
+    signedCompletion: true, coldPublicProof: true, deletionFreeze, counts }))
 
 } finally {
   for (const client of turnClients) client.close()
