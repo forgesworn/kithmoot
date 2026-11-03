@@ -8,14 +8,21 @@ Turning a VPN on or off, changing Wi-Fi and moving to mobile data must retain
 the room and recover its connection. Node rooms keep using their chosen node.
 They do not fall back to public relays or another TURN service.
 
-The browser refreshes node credentials and asks the room protocol to rebuild
-its connections when their route fails or their credentials renew. A native
-ICE restart can retain a TURN allocation tied to an earlier username, which
-then expires even while the app holds a newer login. Fresh native connections
-allocate with the installed credentials. Profile 2 keeps its generation history;
-legacy pairs restart on TURN. Returning online or changing the network type
-also reconnects the room relay and admission inbox. Concurrent refreshes share
-one request. Only physical network type changes trigger that watcher. Estimated effective
+The browser fetches fresh node credentials when an established connection
+loses its route and asks the room protocol to rebuild that participant pair.
+Other participants keep their healthy native connections. The original global
+rotation and oldest allocation expiry remain in force: a per-peer login must
+not postpone renewal for peers still using an older login. Scheduled renewal,
+explicit local network recovery and recovery near expiry rotate every pair.
+Concurrent failed pairs share one credential request; a failure during an
+in-flight renewal is retained, even if the issuer returns the same login.
+
+A native ICE restart can retain a TURN allocation tied to an earlier username,
+which then expires even while the app holds a newer login. Fresh native
+connections allocate with the installed credentials. Profile 2 keeps its
+generation history; legacy pairs restart on TURN. Returning online or changing
+the network type also reconnects the room relay and admission inbox. Only
+physical network type changes trigger that watcher. Estimated effective
 connection type, latency and throughput do not restart a call. A peer that
 never connected cannot restart healthy calls; an established peer requests
 one refresh per failure episode.
@@ -109,3 +116,26 @@ Two fresh production browsers then exchanged matched-pair video and audio for
 28 seconds without candidate interception.
 Independent mobile networks, commercial VPNs, physical GrapheneOS and capacity
 remain distinct evidence gates.
+
+
+The subsequent [scoped recovery run](evidence/kithmoot-node-scoped-recovery-tls443-20261103.json)
+checks source `44a923c9`. A three-browser native regression first shows that
+a failed pair closes while the healthy participant keeps the same native
+connection with increasing decoded video and received audio. The previous
+production source fails that check by closing the healthy connection. Both
+the complete native room journey and this regression pass with the correction.
+
+The public matched-pair run passed 459 seconds, including 312 seconds after
+final recovery across the prior login expiry. VPN recovery took 13 seconds on
+and 36 seconds off; recovery after the 12-second outage took 8 seconds. The
+25-second steady media-gap limit remained in force. Scheduled renewal retained
+the original allocation deadline despite earlier per-peer refreshes. There
+were no browser errors or subscription overflows; peak subscriptions were 13.
+A cached-login-only candidate had failed the VPN-off recovery gate and was
+replaced by this fresh-per-peer-login implementation before merge. These
+results do not establish instantaneous handoff or eliminate every visible pause.
+
+PR688 merged as `d7ce79ef`; release `20261103T221208Z` deploys the qualified
+main script (`57a1391e03c04fabed2636201e3ae8cccefbc8474b31147cd6fbcd10f323be0f`).
+The public index, entry script and main script match the local build byte for
+byte, with no diagnostic hook in the production renderer.

@@ -1,0 +1,206 @@
+{
+  "passed": true,
+  "mode": "controlled-vpn-roaming-tls443",
+  "clientSource": "44a923c9dcc0693ce51a637335c7d8f80f66eb06",
+  "productionWeb": false,
+  "candidateRendererWithProductionHeaders": true,
+  "realOwnerAdmission": true,
+  "mediaIsolatedToTestGuestPairByMutualDtlsFingerprint": true,
+  "requestedCallProfile": "default",
+  "handshakeOnly": false,
+  "nativeFakeMicrophone": true,
+  "publicCAValidated": true,
+  "mediaSeconds": 459,
+  "afterFinalRecoverySeconds": 312,
+  "firewall": "IPv4 media TCP443 only; IPv6 blocked; DNS and private encrypted carrier allowed",
+  "vpn": "WireGuard route for the node with client NAT, carried through private SSH; container routes only; underlying host VPN not changed",
+  "changedNodeRoute": true,
+  "returnedNodeRoute": true,
+  "transitions": [
+    {
+      "phase": "vpn-recovering",
+      "seconds": 21
+    },
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 13,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovering",
+      "seconds": 68
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 36
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 8
+    }
+  ],
+  "credentialIssuances": [
+    {
+      "guest": "Handoff test A",
+      "seconds": -11,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test B",
+      "seconds": -6,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test A",
+      "seconds": 27,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test B",
+      "seconds": 27,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test A",
+      "seconds": 29,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test A",
+      "seconds": 76,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test B",
+      "seconds": 76,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test A",
+      "seconds": 140,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test B",
+      "seconds": 140,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test A",
+      "seconds": 229,
+      "lifetime": 300
+    },
+    {
+      "guest": "Handoff test B",
+      "seconds": 235,
+      "lifetime": 300
+    }
+  ],
+  "roomLinkRecorded": false,
+  "credentialsRecorded": false,
+  "v": 1,
+  "date": "2026-11-03",
+  "rawReceiptSha256": "439dd117b99151a9aaf1d191d14b362e9e8eeb04218b2122194fe0046742a75c",
+  "mainFile": "main-Dm5h4PfM.js",
+  "mainSha256": "57a1391e03c04fabed2636201e3ae8cccefbc8474b31147cd6fbcd10f323be0f",
+  "steadyMediaGapLimitSeconds": 25,
+  "peakSubscriptions": 13,
+  "subscriptionOverflows": 0,
+  "pageErrors": [],
+  "phases": {
+    "baseline": {
+      "samples": 10,
+      "decodedVideoFrames": [
+        245,
+        229
+      ],
+      "audioPackets": [
+        991,
+        1001
+      ]
+    },
+    "vpn-recovering": {
+      "samples": 6,
+      "decodedVideoFrames": [
+        45,
+        48
+      ],
+      "audioPackets": [
+        119,
+        128
+      ]
+    },
+    "vpn-steady": {
+      "samples": 16,
+      "decodedVideoFrames": [
+        595,
+        559
+      ],
+      "audioPackets": [
+        1683,
+        1679
+      ]
+    },
+    "direct-recovering": {
+      "samples": 16,
+      "decodedVideoFrames": [
+        40,
+        41
+      ],
+      "audioPackets": [
+        111,
+        107
+      ]
+    },
+    "direct-steady": {
+      "samples": 10,
+      "decodedVideoFrames": [
+        399,
+        393
+      ],
+      "audioPackets": [
+        1043,
+        1047
+      ]
+    },
+    "outage": {
+      "samples": 6,
+      "decodedVideoFrames": [
+        6,
+        6
+      ],
+      "audioPackets": [
+        13,
+        10
+      ]
+    },
+    "outage-recovering": {
+      "samples": 4,
+      "decodedVideoFrames": [
+        40,
+        41
+      ],
+      "audioPackets": [
+        105,
+        108
+      ]
+    },
+    "renewal-soak": {
+      "samples": 141,
+      "decodedVideoFrames": [
+        4935,
+        4826
+      ],
+      "audioPackets": [
+        13978,
+        13973
+      ]
+    }
+  },
+  "limits": [
+    "Controlled node-route WireGuard with private SSH carrier; not an independent commercial VPN or mobile carrier",
+    "Synthetic camera and microphone; two Chromium processes on one container",
+    "Candidate renderer served under production headers against the real public node",
+    "No capacity, physical GrapheneOS or packaged-client release claim"
+  ]
+}
