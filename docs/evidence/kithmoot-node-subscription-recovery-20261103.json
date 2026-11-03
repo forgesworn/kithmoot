@@ -1,0 +1,59 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "codeSource": "8c553672cbb3dcad850a703a151e868a9446763a",
+  "before": {
+    "source": "e3b266b202e27422d4f6ea7d73a2e24d7faa61b1",
+    "fault": "11 second NIP-42 signing delay with eleven readers, one cancelled",
+    "requestsSent": 31,
+    "activeReaders": 10,
+    "isolatedRegressionRejected": true,
+    "liveOutageTrace": {
+      "normalSubscriptions": 11,
+      "peakQueuedSubscriptions": 33,
+      "relayLimit": 16
+    }
+  },
+  "after": {
+    "focusedTestsPassed": 141,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "realWebSocketAuthenticationRegressionPassed": true,
+    "requestsSent": 10,
+    "cancelledReaderNotSent": true,
+    "subscriptionLimitUnchanged": true,
+    "actualProcessBrowserJourneyPassed": true,
+    "browserJourneySeconds": 50.6,
+    "movingVideoAndSyntheticAudioBothDirections": true,
+    "silentSocketAndVideoSinkRecovery": true,
+    "admissionChatRemovalClosure": true,
+    "mainSha256": "bd3ba95fb885bc91c0e4dc9524995e1b9d9396f096e228ca5befc1e2603c89ee"
+  },
+  "limits": [
+    "Long controlled VPN, outage and renewal run for this source is in progress, not yet acceptance",
+    "The earlier 439 second outage-only run passed media and renewal but still observed the subscription burst; it did not switch the VPN",
+    "No protocol-default change, physical GrapheneOS or independent mobile handoff acceptance claimed"
+  ],
+  "logs": [
+    {
+      "name": "kithmoot-node-subscription-burst-red-20261103.log",
+      "sha256": "f072cf89a811acdc99fc3ea9bc7257e52b7c05fc8e5944baae3c6a8b9d5a131a"
+    },
+    {
+      "name": "kithmoot-node-subscription-burst-focused2-20261103.log",
+      "sha256": "ebf5094ccd677c01e70f5a4628255a7aada38c7aef970e11c7fc38ec1174199b"
+    },
+    {
+      "name": "kithmoot-node-subscription-burst-final-types-20261103.log",
+      "sha256": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042"
+    },
+    {
+      "name": "kithmoot-node-subscription-burst-final-build-20261103.log",
+      "sha256": "c48dc4fbcc0076434b2968027fa1073c1d733908076fd197ecb3662af0511d35"
+    },
+    {
+      "name": "kithmoot-node-subscription-burst-browser-20261103.log",
+      "sha256": "b9e844dbd1b848198927158548d1c435227a18e9eb7b25654b6bdc444254d395"
+    }
+  ]
+}
