@@ -220,7 +220,7 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
   const allowed = () => !closed && (node.endsAt === undefined || node.endsAt > now()) && (options.allowed?.() ?? true)
   if (!allowed() || !['room', 'ask'].includes(mode)) throw new KithmootNodeError(403, 'refused')
   const pool = new NostrRelayPool([node.relay], undefined, { websocketImplementation: options.websocketImplementation,
-    authentication: [{ url: node.relay, identity, node: { room: node.room, mode } }], sendGuard: allowed })
+    authentication: [{ url: node.relay, identity, node: { room: node.room, mode } }], sendGuard: allowed, probeQuietMs: 5000 })
   const checkEvent = (event: Event): void => {
       if (!allowed() || [27541, 27542, 27543, 27544].includes(event.kind)) throw new KithmootNodeError(403, 'refused')
       const expiration = event.tags.filter(t => t[0] === 'expiration')
@@ -247,9 +247,9 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
     settled: timeout => pool.settled(timeout),
     publishEvidence: id => pool.publishEvidence(id),
     askBack: id => { if (allowed()) pool.askBack(id) },
-    // A node's authenticated room door is its reachability proof. The
-    // ordinary public-relay probe is unnecessary and has different kinds.
-    probe: async () => { if (!allowed()) throw new KithmootNodeError(403, 'refused') },
+    // HTTP reachability cannot detect a half-open signalling stream. Probe
+    // this authenticated socket inside its pinned room partition.
+    probe: async () => { if (!allowed()) throw new KithmootNodeError(403, 'refused'); await pool.probe() },
     reconnect: () => { if (allowed()) pool.reconnect() },
     setAuthentication: () => { throw new Error('This room uses its pinned device authentication.') },
     async query(url, filters, timeout, maxEvents) {

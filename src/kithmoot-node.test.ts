@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WebSocket, WebSocketServer } from 'ws'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { signNodeRoom, readNodeRoom, signNodeClosure, readNodeClosure } from '@forgesworn/fold-kit/node-room'
 import { buildGrant, buildReset, parseGroupEvent } from './group-grants.js'
 import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
+import { RECONNECT_JITTER_MS } from './relay-pool.js'
 import { spryHash } from './spry.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
   nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
@@ -23,6 +25,53 @@ function fixture(turnPorts?: { udpTcp: number; tls: number }) {
 }
 const response = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
 describe('pinned KithMoot node client', () => {
+  it('probes and replaces an idle silent authenticated socket without waiting for a publish', async () => {
+    const f = fixture(), server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    let connections = 0, eoses = 0, silenceFirst = false
+    const proofs: Event[] = []
+    server.on('connection', socket => {
+      const first = ++connections === 1
+      let authenticated = false
+      socket.send(JSON.stringify(['AUTH', 'node-probe-fixture']))
+      socket.on('message', bytes => {
+        if (first && silenceFirst) return
+        const frame = JSON.parse(bytes.toString())
+        if (frame[0] === 'AUTH') {
+          const event = frame[1] as Event; proofs.push(event)
+          authenticated = verifyEventUncached(event) && event.pubkey === f.identity.pubkey && JSON.stringify(event.tags) === JSON.stringify([
+            ['relay', f.node.relay], ['challenge', 'node-probe-fixture'], ['room', f.room], ['mode', 'room'],
+          ])
+          socket.send(JSON.stringify(['OK', event.id, authenticated, '']))
+        } else if (frame[0] === 'REQ' && authenticated) {
+          eoses++; socket.send(JSON.stringify(['EOSE', frame[1]]))
+        }
+      })
+    })
+    await new Promise<void>(resolve => server.once('listening', resolve))
+    const port = (server.address() as { port: number }).port
+    class Socket extends WebSocket { constructor(_: string) { super(`ws://127.0.0.1:${port}`) } }
+    const transport = nodeRoomTransport(f.node, f.identity, 'room', { now: () => NOW, websocketImplementation: Socket as unknown as typeof globalThis.WebSocket })
+    let initialEose!: () => void
+    const initiallyReady = new Promise<void>(resolve => { initialEose = resolve })
+    const unsubscribe = transport.subscribe([{ kinds: [20462] }], () => {}, initialEose)
+    try {
+      await initiallyReady
+      silenceFirst = true
+      const realNow = Date.now.bind(Date)
+      vi.spyOn(Date, 'now').mockImplementation(() => realNow() + 6000)
+      await transport.probe()
+      // A failed socket deliberately spreads redials across the full jitter
+      // window. Observe that bound, including time for the local handshake.
+      await vi.waitFor(() => expect(connections).toBeGreaterThan(1), { timeout: RECONNECT_JITTER_MS + 2000 })
+      await vi.waitFor(() => expect(eoses).toBeGreaterThan(1))
+      expect(proofs.length).toBeGreaterThan(1)
+      expect(proofs.every(event => event.pubkey === f.identity.pubkey && event.tags.some(tag => tag[0] === 'room' && tag[1] === f.room))).toBe(true)
+    } finally {
+      unsubscribe(); transport.close()
+      for (const socket of server.clients) socket.terminate()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  }, 15000)
   it('checks the paired service key on owner status and projects only counts and availability', async () => {
     const f = fixture(), owner = localIdentity(f.authority), pair = { v: 1 as const, owner: owner.pubkey, origin: f.node.origin, serviceKey: f.node.serviceKey }
     const status = { v: 1, serviceKey: pair.serviceKey, version: '0.1.0-rc.1', ready: true, paired: true, rooms: 1, devices: 2, pending: 0,
