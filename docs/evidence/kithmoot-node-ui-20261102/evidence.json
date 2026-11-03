@@ -1,38 +1,47 @@
 {
-  "date": "2026-11-02",
+  "date": "2026-11-03",
   "status": "candidate-zat-pending",
-  "baseCommit": "9ad88c65f9fc5c9851ce2193bca2612a34d2cf30",
-  "sourceCommit": "5707837cfcb9e10baa78976d016348d4b6490bef",
-  "sourceManifestSha256": "27ca3be4b3cfe4b7f22deff3bd07fdf06f8d0d49a5af3546c522419123676ec7",
+  "baseCommit": "10de6eef7deef18658a0f576af163038e8006426",
+  "sourceCommit": "d18b0c57d8f97a6cac9789515143878b4fcbecff",
+  "sourceManifestSha256": "b96d597913aff461327ce7438b00460c5012b62ffbecee5c0415033ef83d97e5",
+  "sourceFiles": 1804,
   "webBuild": {
-    "asset": "main-BqYTAYt5.js",
-    "sha256": "fc4451ca88b487ac08b14af4350397e24e2918dc9542f9139da43fff67b5bd46",
-    "reviewUrl": "https://localhost:4517/j/"
+    "asset": "main-CflZEAWi.js",
+    "sha256": "b1ee62c2eb18aa3ebde24e232d73cb4d52006db6a9ec8c86fc71bd338aac70e0",
+    "deployed": false,
+    "reviewUrl": "https://localhost:4517/j/",
+    "reviewServerRunning": false
+  },
+  "desktopBuild": {
+    "asset": "main-CH21o3RQ.js",
+    "sha256": "4a4c7b7231c9ba25fb913e3007171aaa7917f3cc26b3b7d0219649ed41157612",
+    "deployed": false
   },
   "screenshots": {
     "node-settings.png": "08d0ba6d925f9f58b9506f3c52d157b34ae288d678650c14b48f4226a6763e56",
     "node-settings-phone.png": "aa5f682cbf00844f59e43eba06c2eb649703e734eedf1dc2dc4ba01c090183ed",
-    "node-hosted-on.png": "514e8d92746fd1b27c1293e89aff3f1e2b53b72df1ab166e0a2cf1e3e0aab269"
+    "node-hosted-on.png": "af83a8b25c191ebf2270fef5387e893825fef8aa7199893c8913659d03dfe698"
   },
   "binaries": {
-    "spry": "f5869083848953b30f4cbe123e8cfc9f1d6ece05ae4b02c52e80356c5f3df43c",
+    "spry": "0f8fcb4b0e7849fb713543a9e8c4c3e0ffe27e4df6c87ea8ee3391d32e1cbcfb",
     "shelter": "a7059d6c2cd3bd19bcc997bf614015501d9a09c2e6889ffba2e5868d23a3990a"
   },
   "checks": {
     "typecheck": "passed",
-    "build": "passed",
-    "focusedNodeAndControlTests": {
-      "passed": 66
-    },
-    "custodyAndHttpTests": {
-      "passed": 67
-    },
-    "apiAndControlTests": {
-      "passed": 34
+    "productionWebBuild": "passed",
+    "productionDesktopBuild": "passed",
+    "focusedNodeTests": {
+      "passed": 47,
+      "filesPassed": 7
     },
     "chromium": {
-      "passed": 8,
+      "passed": 1,
       "actualBackends": true,
+      "customPorts": {
+        "udpTcp": 34790,
+        "tls": 53499
+      },
+      "seconds": 35.6,
       "scope": [
         "pairing-before-requests consent",
         "owner status",
@@ -48,29 +57,79 @@
         "390px layout without horizontal overflow"
       ]
     },
-    "frozenFullUnits": {
-      "passed": 8789,
-      "skipped": 8,
-      "failed": 0,
-      "filesPassed": 506,
-      "filesSkipped": 1,
-      "seconds": 865.26,
-      "sourceManifestVerifiedUnchanged": true
+    "actualElectronRenderer": {
+      "schema": "kithmoot-node-desktop-origin/1",
+      "passed": true,
+      "electron": "44.9.3",
+      "origin": "https://kithmoot.forgesworn.dev",
+      "pairedPorts": {
+        "udpTcp": 34790,
+        "tls": 53499
+      },
+      "roomPorts": {
+        "udpTcp": 34790,
+        "tls": 53499
+      },
+      "phase": "active",
+      "rooms": 1,
+      "ready": true,
+      "webSecurity": true,
+      "observedPostOrigins": [
+        ""
+      ],
+      "actualRenderer": true,
+      "actualRoomRuntime": true,
+      "fixtureNetworkRouting": true,
+      "fixtureCertificateException": true,
+      "actualDesktopSignInUi": false
     }
   },
-  "notQualified": [
-    "native node media",
-    "public TURN TLS443 listener",
-    "internet deployment",
-    "physical GrapheneOS",
-    "Android node UI",
-    "signed public installer",
-    "Archy integration",
-    "maintainer approval"
+  "priorRevisionFullUnits": {
+    "sourceCommit": "5707837cfcb9e10baa78976d016348d4b6490bef",
+    "passed": 8789,
+    "skipped": 8,
+    "failed": 0,
+    "filesPassed": 506,
+    "filesSkipped": 1,
+    "seconds": 865.26,
+    "sourceManifestVerifiedUnchanged": true
+  },
+  "logs": [
+    {
+      "name": "kithmoot-node-web-refresh-types-20261103.log",
+      "sha256": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042"
+    },
+    {
+      "name": "kithmoot-node-web-refresh-focused-20261103.log",
+      "sha256": "14378631874117fd47848ac55038e3bdc37517863a92a5d58443ecee127b71e1"
+    },
+    {
+      "name": "kithmoot-node-web-custom-ports-browser-20261103.log",
+      "sha256": "be579ff176f4f7c61cc27105acaeb181f0288786cbf71109ac19ef710b44d2e4"
+    },
+    {
+      "name": "kithmoot-node-desktop-custom-ports-20261103.log",
+      "sha256": "453c73eed8579a796bdd403e85ac0c06d7887bb00e082354ff7a908dd0b4a4e7"
+    }
   ],
+  "notQualified": [
+    "Actual desktop account sign-in UI",
+    "Node media forced through TLS443 between clients",
+    "Public CA and separate-network reachability",
+    "Physical GrapheneOS",
+    "Android final port-aware UI",
+    "Maintainer approval"
+  ],
+  "separateArchyCandidate": "https://github.com/forgesworn/archipelago-apps/pull/53",
   "publication": {
     "shelterSourceAndSignedRelease": "owner decision required",
     "newLiveNode": "not deployed",
     "existingPublicTurn": "retained"
+  },
+  "cleanup": {
+    "browserAndElectronStopped": true,
+    "privateBackendFixturesStopped": true,
+    "temporaryDesktopModuleRemoved": true,
+    "reviewServerRunning": false
   }
 }

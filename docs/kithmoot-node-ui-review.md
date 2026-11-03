@@ -1,7 +1,7 @@
 # KithMoot node UI candidate: maintainer review pack
 
 Status: implementation candidate, not approved or deployed. Tested UI source
-revision: `5707837cfcb9e10baa78976d016348d4b6490bef`. This pack and its evidence metadata are recorded in a
+revision: `d18b0c57d8f97a6cac9789515143878b4fcbecff`. This pack and its evidence metadata are recorded in a
 following documentation-only commit.
 
 **Maintainer must review and approve UI work on KithMoot's Settings → Calls →
@@ -10,15 +10,17 @@ screens, Room details → Hosted on, member removal and room closure before
 merging or approval. ZAT pending.**
 
 The Archy catalogue/install, launch, pairing hand-off, delete-everything and
-status screens have a separate review pack once implemented. No maintainer
+status screens have a separate [private candidate and review pack](https://github.com/forgesworn/archipelago-apps/pull/53). No maintainer
 has been contacted. CI and this browser evidence do not replace acceptance.
 
 ## Build and setup
 
 The candidate uses the existing KithMoot components and styles. No new CSS or
 new design system is introduced. Local review URL: `https://localhost:4517/j/`.
-The source baseline is `9ad88c65f9fc5c9851ce2193bca2612a34d2cf30`; the
+The merged source baseline is `10de6eef7deef18658a0f576af163038e8006426`; the
 candidate's frozen source manifest is recorded in the evidence file below.
+No review server is left running. The web and desktop production asset hashes
+are recorded separately. The Fold protocol pin is 0.17.0.
 
 Run `npm ci`, `npm run typecheck` and `npm run build` from this checkout.
 Use the checked Spry and private Shelter candidate executables named by
@@ -36,7 +38,7 @@ screens. The test starts the actual supervisor, Spry and Shelter processes;
 it creates a synthetic account signer and independent guest browsers. Stop
 the run when finished; its `finally` blocks close the browsers, child
 processes, sockets and private temporary directory. It requires free TURN
-ports 3478 and 5349. Local TLS routing substitutes for public DNS, while
+ports 34790 and 53499. Local TLS routing substitutes for public DNS, while
 signed HTTP and relay audiences remain pinned to `node.example`.
 
 For the unattended check, omit `PWDEBUG=1`. The test is explicitly skipped if
@@ -60,7 +62,10 @@ hashes and build hash are in
 3. New room offers Host on my node only for the paired account. It explains
    admission, relay-only calls, files off and self-destruct. Keeper recovery
    is saved before enrolment; a lost response must leave the same room
-   recoverable. The room link contains no room key or usable grant.
+   recoverable. The room link contains no room key or usable grant. For an
+   Archy node, pairing, saved account state and the signed room retain TURN
+   ports 34790/53499; HTTPS and TURN over TLS on 443 remain fixed. Damaged saved
+   port profiles must refuse recovery rather than silently select defaults.
 4. A guest opens the v6 link and presses Ask to join. No name, address, password
    or server settings are required. The waiting screen can be cancelled and
    the request expires after ten minutes. Let in admits the guest only after
@@ -89,18 +94,34 @@ Archy surfaces remain separate acceptance checks.
 
 ## Evidence and limits
 
-The actual-process Chromium journey and seven existing Calls settings tests
-pass. It exercises pairing consent, owner status, creation, admission, chat,
+The refreshed actual-process Chromium journey passes using custom node ports.
+It exercises pairing consent, owner status, creation, admission, chat,
 local unpairing during a room, removal without room purge, silent decline,
 whole-room purge, device wipes and the owner's post-wipe completion check.
-Focused custody/control/access tests and full type checking pass. The frozen
-broad suite passed 8,789 tests with eight skipped across 506 passing files
-and one skipped file (865.26 seconds). The source manifest was checked
-unchanged after the run. The legacy captured-writer fixture now supplies
+Forty-seven focused custody/control/access/HTTP tests across seven files and
+full type checking pass. Web and desktop production builds pass. The earlier
+revision's broad suite passed 8,789 tests with eight skipped; that result is
+retained as prior-revision evidence, not attributed to this refreshed build.
+The legacy captured-writer fixture supplies
 `nodeRoom: undefined`; its byte-preservation assertions remain unchanged.
 
+The actual Electron 44.9.3 HTTPS renderer also paired, enrolled and created a
+room with the same signed custom ports through the production app runtime.
+Its origin remained `https://kithmoot.forgesworn.dev`, with web security enabled.
+Electron's existing HTTPS loader uses main-process `net.fetch`, which omitted
+Origin on these requests; body-bound NIP-98 proofs still applied. No CORS or
+production web-security settings were changed. This fixture uses a DNS mapping
+and a certificate exception for its self-signed local HTTPS/WSS bridge. It does
+not qualify the actual desktop account sign-in UI or public certificate trust.
+The temporary qualification module, Electron profile and processes were removed.
+
+To reproduce after building `desktop/web` and installing the pinned Electron
+runtime, run `npx playwright test --config desktop/playwright.config.ts
+kithmoot-node.spec.ts` with the same two checked backend binary variables.
+
 These tests do not qualify native media, a public TLS443 listener, an internet
-node, physical GrapheneOS, the Android UI, a signed public installer or Archy.
+node, physical GrapheneOS, the Android UI or a signed public installer. Archy
+has separate offline integration evidence in its held review pack.
 Those remain part of full node delivery.
 
 - [Desktop node settings](evidence/kithmoot-node-ui-20261102/node-settings.png)
