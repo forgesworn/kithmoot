@@ -21,9 +21,12 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
         // rebuild. The receiver still exists and must be recovered from the
         // connection registry, rather than leaving a permanently empty tile.
         const Base = window.RTCPeerConnection
+        const peers: RTCPeerConnection[] = []
+        ;(window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers = peers
         window.RTCPeerConnection = class extends Base {
           constructor(configuration?: RTCConfiguration) {
             super(configuration)
+            peers.push(this)
             this.addEventListener('track', event => { if (event.track.kind === 'video') event.stopImmediatePropagation() })
           }
         }
@@ -113,6 +116,9 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     await expect(keeper.locator('#chatLog')).toContainText('A private node message')
     await turnOnMedia(keeper); await turnOnMedia(guest)
     for (const page of [keeper, guest]) {
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers
+        .some(peer => peer.connectionState === 'connected' && peer.getTransceivers().length === 4)),
+        { message: 'An ordinary node invite must negotiate fixed media slots without a query switch', timeout: 20000 }).toBe(true)
       await expect.poll(async () => (await page.evaluate(remotePictures)).length,
         { message: 'Node call must attach a decoded remote video to its visible tile', timeout: 20000 }).toBeGreaterThan(0)
       const first = (await page.evaluate(remotePictures))[0]!

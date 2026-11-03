@@ -3,8 +3,9 @@
  * turns it off again.
  *
  * Profile 2 - fixed media slots, the reliable signal channel, pair
- * generations and the health ladder - is **off by default**, deliberately.
- * It changes how every pair of new clients negotiates, and the one thing a
+ * generations and the health ladder - is selected by node rooms. Other
+ * rooms retain profile 1 unless explicitly enabled. The switch still wins
+ * over the room's default. It changes how new clients negotiate, and the one thing a
  * call cannot afford is a change that can only be undone by shipping. So the
  * answer to a bad day is a reload: `?callProfile=1` in the address bar, or
  * `kithmoot.callProfile` in this browser's storage, and the device is back to
@@ -55,7 +56,7 @@ function parse(value: string | null | undefined): CallProfile | undefined {
  * Storage that throws (a private window, blocked site data) is simply
  * absent: the default is the safe one, so there is nothing to fall back to.
  */
-export function readCallProfile(search: string, storage?: CallProfileStorage, session?: CallProfileStorage): CallProfile {
+export function readCallProfile(search: string, storage?: CallProfileStorage, session?: CallProfileStorage, fallback: CallProfile = 1): CallProfile {
   const asked = ask(search)
 
   if (asked === 1) {
@@ -76,7 +77,7 @@ export function readCallProfile(search: string, storage?: CallProfileStorage, se
   // Nothing asked: an explicit off is durable, an on is only ever this page
   // session's.
   if (read(storage) === 1) return 1
-  return read(session) ?? 1
+  return read(session) ?? fallback
 }
 
 /** `localStorage` and `sessionStorage` both satisfy this, and so does a test

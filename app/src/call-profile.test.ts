@@ -26,6 +26,16 @@ function device(initial: Record<string, string> = {}) {
 }
 
 describe('which call profile this device advertises', () => {
+  it('lets a node room choose profile 2 without overriding an explicit off switch', () => {
+    const d = device()
+    expect(readCallProfile('', d.local, d.session, 2)).toBe(2)
+    expect(d.local.held.size).toBe(0)
+    expect(d.session.held.size).toBe(0)
+    expect(readCallProfile('', undefined, undefined, 2)).toBe(2)
+    expect(readCallProfile('?callProfile=1', d.local, d.session, 2)).toBe(1)
+    expect(readCallProfile('', d.local, d.session, 2)).toBe(1)
+    expect(readCallProfile('', storage(), storage({ [CALL_PROFILE_KEY]: '1' }), 2)).toBe(1)
+  })
   it('is profile 1 when nobody has said anything', () => {
     expect(readCallProfile('', storage())).toBe(1)
     expect(readCallProfile('?room=x', storage())).toBe(1)
