@@ -73,7 +73,17 @@
       "publicNetwork": false,
       "physicalGrapheneOS": false
     },
-    "allocationRange": "All authenticated allocations checked within49192:49223"
+    "allocationRange": "All authenticated allocations checked within49192:49223",
+    "firewallOwnership": {
+      "schema": "kithmoot-node-ufw/1",
+      "result": "passed",
+      "existingRules": 3,
+      "ownRules": 3,
+      "insertionPreservesComments": true,
+      "repeatIdempotent": true,
+      "removalPreservesExistingRules": true,
+      "actualInstallerRemoval": false
+    }
   },
   "logHashes": {
     "kithmoot-node-host-profile-proof-20261102.log": "80cf5a58415b2188707812479356d001dfdba51f1c5075da5fe189d3e5e9018e",
@@ -81,7 +91,8 @@
     "kithmoot-node-archy-support-types-20261102.log": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042",
     "kithmoot-node-archy-support-build-20261102.log": "358d1fa73291eac8f518d0908428cedbacdd74e00b5df49c941fc771bda4f3da",
     "kithmoot-node-archy-support-default-backends-20261102.log": "0212ea380e64cf7cab239e0827da333eba2a527b7236a9b0f50a699b4a0d2fb4",
-    "kithmoot-node-archy-support-secrets-20261102.log": "ed7f6f607ef51e6248d3bb015a543dc865e90ea11d734f527ac1188ef568983a"
+    "kithmoot-node-archy-support-secrets-20261102.log": "ed7f6f607ef51e6248d3bb015a543dc865e90ea11d734f527ac1188ef568983a",
+    "kithmoot-node-ufw-proof-20261102.log": "e2ff21be9db85520dc0f2012ba34ee9173a8a70f43a4084acea263118a7e9120"
   },
   "limits": [
     "Generated host TLS gates are not Archys real app gate or nginx ingress",

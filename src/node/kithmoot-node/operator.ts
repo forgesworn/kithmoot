@@ -271,7 +271,15 @@ export function manageFirewall(): void {
     if (lines.some(line => line === `ufw allow ${rule}` || line.startsWith(`ufw allow ${rule} comment `))) continue
     installed = { ...installed, firewall: [...new Set([...(installed.firewall ?? []), rule])] }
     saveInstalled(installed) // Journal before adding: recovery can identify our tagged rule.
-    run('ufw', ['allow', rule, 'comment', firewallComment])
+    // Plain `allow` can replace the comment on an equivalent existing rule.
+    // Insertion preserves that rule and its owner's comment instead.
+    run('ufw', ['insert', '1', 'allow', rule, 'comment', firewallComment])
+    if (!firewallAdded().includes(firewallLine(rule))) {
+      // UFW may recognise an equivalent rule whose spelling we did not.
+      // Its ownership stays with the operator, including during removal.
+      installed = { ...installed, firewall: installed.firewall!.filter(value => value !== rule) }
+      saveInstalled(installed)
+    }
   }
 }
 function removeFirewall(installed: InstalledNode): void {

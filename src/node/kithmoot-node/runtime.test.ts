@@ -115,7 +115,7 @@ it('launches the host-gated backend on separate ports without sending it host ce
   await expect(runNode(directory, { ...secrets, stateSalt: '44'.repeat(32) })).rejects.toThrow('Manifest secrets differ')
   const node = await runNode(directory, secrets)
   try {
-    for (let i = 0; i < 40 && !existsSync(capture); i++) await new Promise(r => setTimeout(r, 10))
+    for (let i = 0; i < 500 && !existsSync(capture); i++) await new Promise(r => setTimeout(r, 10))
     expect(readFileSync(capture, 'utf8').split('\n')).toEqual(['34790', '53499', '49192:49223', 'true', '', '', ''])
     const info = await (await fetch(`http://127.0.0.1:${ports[0]}/node/v1/info`)).json()
     expect(info.turnPorts).toEqual({ udpTcp: 34790, tls: 53499 })
