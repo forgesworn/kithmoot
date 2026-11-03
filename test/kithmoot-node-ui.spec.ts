@@ -1,16 +1,33 @@
-import { test, expect, type BrowserContext } from '@playwright/test'
+import { test, expect, chromium, type Browser, type BrowserContext } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC } from './browser.js'
 import { signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 
-test('a paired owner admits a guest without typing, exchanges encrypted chat and closes the node room', async ({ browser, baseURL }, info) => {
+test('a paired owner admits a guest without typing, exchanges chat and moving call media and closes the node room', async ({ baseURL, browserName }, info) => {
   test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked Spry and private Shelter candidate executables')
+  test.skip(browserName !== 'chromium', 'native node media qualification uses Chromium')
   const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { turnPorts: { udpTcp: 34790, tls: 53499 } }), contexts: BrowserContext[] = [], requests: string[] = []
+  let browser: Browser | undefined
   let failNextCredential = false
   try {
+    const mediaBrowser = browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+      '--autoplay-policy=no-user-gesture-required', '--host-resolver-rules=MAP node.example 127.0.0.1,MAP turn.node.example 127.0.0.1'] })
     async function device(owner = false) {
-      const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } }); contexts.push(context)
+      const context = await newDeviceContext(mediaBrowser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } }); contexts.push(context)
+      await context.addInitScript(SYNTHETIC_MIC)
+      await context.addInitScript(() => {
+        // A browser can omit the video track notification after a rapid
+        // rebuild. The receiver still exists and must be recovered from the
+        // connection registry, rather than leaving a permanently empty tile.
+        const Base = window.RTCPeerConnection
+        window.RTCPeerConnection = class extends Base {
+          constructor(configuration?: RTCConfiguration) {
+            super(configuration)
+            this.addEventListener('track', event => { if (event.track.kind === 'video') event.stopImmediatePropagation() })
+          }
+        }
+      })
       if (owner) {
         const key = generateSecretKey()
         await context.exposeFunction('nodeTestPublicKey', () => getPublicKey(key))
@@ -86,6 +103,23 @@ test('a paired owner admits a guest without typing, exchanges encrypted chat and
     await guest.locator('#chatInput').fill('A private node message')
     await guest.locator('#chatInput').press('Enter')
     await expect(keeper.locator('#chatLog')).toContainText('A private node message')
+    await turnOnMedia(keeper); await turnOnMedia(guest)
+    for (const page of [keeper, guest]) {
+      await expect.poll(async () => (await page.evaluate(remotePictures)).length,
+        { message: 'Node call must attach a decoded remote video to its visible tile', timeout: 20000 }).toBeGreaterThan(0)
+      const first = (await page.evaluate(remotePictures))[0]!
+      await page.waitForTimeout(2000)
+      await expect.poll(async () => (await page.evaluate(remotePictures))[0]?.hash,
+        { message: 'Node call must show moving remote pixels', timeout: 10000 }).not.toBe(first.hash)
+      await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy,
+        { message: 'Node call must play the synthetic remote microphone', timeout: 15000 }).toBeGreaterThan(0)
+      await page.locator('#room .participant').evaluateAll(tiles => {
+        for (const tile of tiles) if (!tile.querySelector('h3')?.textContent?.includes('(you)')) for (const video of tile.querySelectorAll('video')) video.remove()
+      })
+      await expect.poll(async () => (await page.evaluate(remotePictures)).length,
+        { message: 'Node receiver recovery must restore a detached remote video sink', timeout: 15000 }).toBeGreaterThan(0)
+    }
+    for (const page of [keeper, guest]) await page.getByRole('button', { name: 'Leave call', exact: true }).click()
     await openCallSettings(keeper, 'Your KithMoot node')
     await keeper.locator('#nodeUnpair').click(); await keeper.locator('#actionConfirm').click()
     await expect(keeper.locator('#nodeUnpaired')).toBeVisible()
@@ -130,5 +164,5 @@ test('a paired owner admits a guest without typing, exchanges encrypted chat and
     await expect(keeper.locator('#nodeOperations')).toContainText('Node confirmed: room access revoked and stored messages purged.')
     expect(await keeper.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.node-operation.v1.')).length)).toBe(0)
     expect(requests).not.toContain('/turn')
-  } finally { for (const context of contexts) await context.close(); await fixture.close() }
+  } finally { for (const context of contexts) await context.close(); await browser?.close(); await fixture.close() }
 })

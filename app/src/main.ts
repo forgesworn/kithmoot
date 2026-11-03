@@ -14218,10 +14218,26 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly) myDeviceId = deviceId
     const credential = loadCredential()
     const roomNode = nodeRoom
+    const ownConnections = new Set<string>()
+    // Receiver binding, video recovery and uplink sampling share this
+    // registry. Pinned node factories must register their peers here too.
+    const registerConnection = (pc: RTCPeerConnection, context?: PeerContext) => {
+      const key = peerAssist.connectionKey(context?.tier ?? 'direct', context?.remoteDevice ?? 'unknown')
+      openConnections.set(key, pc)
+      ownConnections.add(key)
+      pc.addEventListener('connectionstatechange', () => {
+        if (pc.connectionState === 'connected') { openConnections.set(key, pc); return }
+        if (!roomNode && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !turnRelayConfigured) noteRelayMissing(true)
+        if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
+        openConnections.delete(key)
+        peerAssist.forget(key)
+      })
+    }
     let created: RoomSession | undefined
     let nodeRuntime: BrowserNodeRuntime | undefined
     if (roomNode) {
       nodeRuntime = await openBrowserNodeRoom(deviceStore, roomNode, {
+        onPeer: registerConnection,
         allowed: () => currentParticipant() === roomNode.participant && (generation === roomGeneration || !!created && (session === created || dockedCall?.session === created)),
         blocked: contactIsBlocked,
         ask: request => askToLetIn({ request: request.id, device: request.device, participant: request.participant, verifiedParticipant: request.participant, name: request.name, expiresAt: request.expiresAt }, 'node'),
@@ -14365,7 +14381,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       return pendingIceRefresh
     }
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) void refreshIce()
-    const ownConnections = new Set<string>()
     const factory: PeerFactory = nodeRuntime?.factory ?? ((context?: PeerContext) => {
       const available = liveIceServers(resolvedIceServers)
       const configuration = relayOnly
@@ -14382,15 +14397,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       // unique to this connection rather than to its rung: the mesh opens a
       // fresh connection when it escalates, and the one being replaced lives
       // on until it closes itself.
-      const key = peerAssist.connectionKey(context?.tier ?? 'direct', context?.remoteDevice ?? 'unknown')
-      openConnections.set(key, pc)
-      ownConnections.add(key)
-      pc.addEventListener('connectionstatechange', () => {
-        if ((pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !turnRelayConfigured) noteRelayMissing(true)
-        if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
-        openConnections.delete(key)
-        peerAssist.forget(key)
-      })
+      registerConnection(pc, context)
       return pc as unknown as RTCPeerConnectionLike
     })
 

@@ -6,7 +6,7 @@ import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { spryHash } from './spry.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
-  nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, type NodeDeviceAccess } from './kithmoot-node.js'
+  nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
 
 const NOW = 1_900_000_000
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
@@ -201,6 +201,19 @@ describe('pinned KithMoot node client', () => {
       expect(peer.setConfiguration).toHaveBeenCalledWith(expect.objectContaining({ iceTransportPolicy: 'relay' }))
       managed.close(); await managed.reconnect()
       expect(fetcher).toHaveBeenCalledTimes(2); expect(peer.signalingState).toBe('closed')
+    } finally { managed.close() }
+  })
+  it('registers each native peer with its remote context while keeping the node factory pinned', async () => {
+    const f = fixture(), onPeer = vi.fn(), fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
+    class Peer { signalingState = 'stable'; constructor(public configuration: RTCConfiguration) {} close() { this.signalingState = 'closed' } }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection, onPeer })
+    try {
+      const context = { tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }
+      const peer = managed.factory(context)
+      expect(onPeer).toHaveBeenCalledExactlyOnceWith(peer, context)
+      expect(() => assertNodeCallFactory(managed.factory, f.node, f.identity.pubkey)).not.toThrow()
+      expect((peer as unknown as Peer).configuration.iceTransportPolicy).toBe('relay')
     } finally { managed.close() }
   })
   it('does not restart a healthy call for a peer which never connected and recovers each established failure only once', async () => {
