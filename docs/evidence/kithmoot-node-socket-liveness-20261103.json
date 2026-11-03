@@ -1,0 +1,62 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "codeSource": "bd636641bdb012681bed29ad4293bf636dbdfa3b",
+  "before": {
+    "source": "d809745b6fa8e39842e95812e8bcd03f0057f743",
+    "fault": "An authenticated WebSocket remains open but stops answering; no event is published",
+    "isolatedRegressionRejectsPreviousNoOp": true
+  },
+  "after": {
+    "focusedTestsPassed": 173,
+    "focusedTestsSkipped": 5,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "authenticatedRealSocketRegressionPassed": true,
+    "scopeChecked": [
+      "device signature",
+      "relay",
+      "challenge",
+      "room",
+      "mode"
+    ],
+    "actualProcessBrowserJourneyPassed": true,
+    "browserJourneySeconds": 52.6,
+    "browserSilentSocketRecoveryMs": 12157,
+    "movingVideoAndSyntheticAudioBothDirections": true,
+    "admissionChatRemovalClosure": true,
+    "mainSha256": "62e88a1f16ed384a7f299188d077ca1bdaf7ac3fc60c2facb35a773e5961e15a"
+  },
+  "limits": [
+    "The browser journey also passes the old renderer because outbound publication can independently redial; only the isolated no-publication regression establishes the probe-specific red",
+    "Browser fixture uses loopback TLS and real local Spry and Shelter processes; it does not qualify public TLS443, VPN changes or long credential renewal",
+    "Real restrictive-network roaming qualification remains open",
+    "No physical GrapheneOS or independent mobile handoff acceptance claimed"
+  ],
+  "logs": [
+    {
+      "name": "kithmoot-node-idle-socket-final-red-20261103.log",
+      "sha256": "c99d46b42849b64100494ec58f6b7ef3ecb2fbab863880284d20533df2d6d857"
+    },
+    {
+      "name": "kithmoot-node-idle-socket-green-20261103.log",
+      "sha256": "320bf4131e9a13a3717454e9acc24000c7d0ab87e323993d70f72b30ac1e77b5"
+    },
+    {
+      "name": "kithmoot-node-socket-probe-final2-20261103.log",
+      "sha256": "ce4de8b39f90a3b5d226ca62c32134fd0ea723b43427ac224bafb33760eee2cf"
+    },
+    {
+      "name": "kithmoot-node-socket-probe-types-20261103.log",
+      "sha256": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042"
+    },
+    {
+      "name": "kithmoot-node-socket-probe-build-20261103.log",
+      "sha256": "3dca74d7b9d26114b6cf12c520b57bbfe9c40ea41a5a334d5d8aa71ad0d59e88"
+    },
+    {
+      "name": "kithmoot-node-socket-probe-browser-green-20261103.log",
+      "sha256": "2c6acb96dcac8af8972b7c59297da557f780d92368d3a85f0aa6c91f80d8e403"
+    }
+  ]
+}
