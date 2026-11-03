@@ -19,6 +19,7 @@
  * so the rules are tested with no browser.
  */
 import { parseRoomLink } from '../../src/link.js'
+import { parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { deriveInvitationId } from '../../src/invitation.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import { isRoomEnds } from '../../src/expiration.js'
@@ -164,7 +165,9 @@ export function knownRooms(store: DeviceStore): KnownRoom[] {
  */
 export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   if (!ROOM_ID.test(visit.roomId)) throw new Error('a room id is 64 lowercase hex characters')
-  const link = parseRoomLink(visit.link)
+  const node = parseNodeRoomLink(visit.link, Math.floor(visit.openedAt))
+  if (node && node.room !== visit.roomId) throw Error('The hosted room link names another room')
+  const link: Partial<ReturnType<typeof parseRoomLink>> = node ? {} : parseRoomLink(visit.link)
   if (link.pairingCode) throw new Error('a pairing link is single-use and is never kept')
   const existing = readRoom(store, visit.roomId)
   const room: KnownRoom = {
@@ -177,7 +180,7 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   const name = sanitiseDisplayName(visit.name) ?? link.name ?? existing?.name
   if (name !== undefined) room.name = name
   if (existing?.keep !== undefined) room.keep = existing.keep
-  else if (link.invitation?.persistent) room.keep = true
+  else if (node || link.invitation?.persistent) room.keep = true
   if (existing?.endedAt !== undefined && existing.link === visit.link) room.endedAt = existing.endedAt
   // A conference room's end belongs to the room, not to one link to it: a
   // rotated link ends when the room does.
@@ -277,7 +280,7 @@ export function setKeepRoom(store: DeviceStore, roomId: string, keep: boolean): 
   const room = knownRoom(store, roomId)
   if (!room) return false
   const { keep: _was, ...rest } = room
-  const persistent = parseRoomLink(room.link).invitation?.persistent === true
+  const persistent = !!parseNodeRoomLink(room.link, Math.floor(room.openedAt)) || parseRoomLink(room.link).invitation?.persistent === true
   writeRoom(store, keep ? { ...rest, keep: true } : persistent ? { ...rest, keep: false } : rest)
   if (!keep) forgetKeptFor(store, room.link)
   return true

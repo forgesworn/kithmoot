@@ -1,10 +1,23 @@
 import { describe, it, expect } from 'vitest'
 import { decodeControl, encodeControl } from './control.js'
 import { GRANT_SCOPES, buildGrant, buildReset, buildRevocation, parseGroupEvent, type ParsedGrant } from './group-grants.js'
+import { signNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { getPublicKey } from 'nostr-tools/pure'
 
 const HOST = 'ab'.repeat(32)
 
 describe('control messages', () => {
+  it('accepts signed node announcements and refuses changed signatures, versions and extra fields', () => {
+    const event = signNodeRoom({ authoritySk: new Uint8Array(32).fill(3), room: '01'.repeat(32), origin: 'https://node.example',
+      serviceKey: getPublicKey(new Uint8Array(32).fill(4)), now: 1_900_000_000 })
+    expect(decodeControl(encodeControl({ op: 'node', event }))).toEqual(JSON.parse(encodeControl({ op: 'node', event })))
+    for (const value of [{ op: 'node', event: { ...event, content: event.content + ' ' } }, { op: 'node', event, extra: true },
+      { op: 'node', event: { ...event, extra: true } }, { op: 'node', event: { ...event, kind: 27543 } }]) expect(decodeControl(JSON.stringify(value))).toBeNull()
+    const grant = buildGrant({ authoritySk: new Uint8Array(32).fill(3), roomId: '01'.repeat(32), device: getPublicKey(new Uint8Array(32).fill(5)), server: 'node.example',
+      scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: 1_900_000_000, expiration: 1_900_086_400 })
+    expect(decodeControl(encodeControl({ op: 'node-grant', event: grant }))).toEqual({ op: 'node-grant', event: grant })
+    expect(decodeControl(JSON.stringify({ op: 'node-grant', event: { ...grant, extra: true } }))).toBeNull()
+  })
   it('round-trips every shape', () => {
     const shapes = [
       { op: 'catalogue?' as const },

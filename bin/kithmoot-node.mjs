@@ -7,9 +7,11 @@ import { operatorCommand, systemReadOnly } from '../dist/src/node/kithmoot-node/
 import { doctorNode } from '../dist/src/node/kithmoot-node/doctor.js'
 import { runFront } from '../dist/src/node/kithmoot-node/front-runtime.js'
 import { initialise, localControl, readConfiguration, runNode } from '../dist/src/node/kithmoot-node/runtime.js'
+import { NODE_VERSION } from '../dist/src/node/kithmoot-node/version.js'
 
 const declaredSecrets = configuration => configuration.tlsGate ? { serviceKey: process.env.KITHMOOT_NODE_SERVICE_KEY, turnSecret: process.env.KITHMOOT_NODE_TURN_SECRET, stateSalt: process.env.KITHMOOT_NODE_STATE_SALT } : undefined
 const [command, ...args] = process.argv.slice(2)
+if (command === '--version') { console.log(NODE_VERSION); process.exit(0) }
 async function main() {
 if (['install', 'resume', 'update', 'uninstall', 'certificates'].includes(command)) return operatorCommand(command, args, fileURLToPath(new URL('../', import.meta.url)))
 if (['pair', 'status', 'doctor'].includes(command) && !args.length && process.getuid?.() === 0) { process.exitCode = systemReadOnly(command); return }

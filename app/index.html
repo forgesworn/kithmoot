@@ -310,6 +310,10 @@
           </div>
           <h3 class="infoHead">Relays for your calls</h3>
           <div class="infoRows">
+            <button id="callsRowNode" type="button" class="infoRow" data-settings-open="callNode">
+              <span class="infoRowText"><span class="infoRowTitle">Your KithMoot node</span><span class="infoRowSub" id="callsSubNode">Host rooms and calls on your node</span></span>
+              <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
+            </button>
             <button id="settingsRowCallRelay" type="button" class="infoRow" data-settings-open="callRelay" hidden>
               <span class="infoRowText"><span class="infoRowTitle">Call relay on this computer</span><span class="infoRowSub" id="settingsSubCallRelay"></span></span>
               <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
@@ -336,6 +340,23 @@
               <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
             </button>
           </div>
+        </section>
+        <section class="settingsPage callsPage" data-settings-page="callNode" data-settings-title="Your KithMoot node" hidden>
+          <p class="note">Host a room’s encrypted messages and calls on a rented server or your Archipelago node. People ask to join; you decide who gets in. The node holds no room keys.</p>
+          <div id="nodeUnpaired">
+            <label for="nodePairingInput">Pairing link from your node</label>
+            <input id="nodePairingInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="4096" aria-describedby="nodePairingHint nodePairingStatus" />
+            <p id="nodePairingHint" class="note">Choose Pair with KithMoot on the node, then paste the link here.</p>
+            <div class="relayActions"><button id="nodePair" type="button" class="primary">Pair node</button></div>
+          </div>
+          <div id="nodePaired" class="relayFacts" hidden>
+            <p id="nodeHost" class="relayHead"></p><p id="nodeFacts" class="relayFact"></p>
+            <div class="relayActions"><button id="nodeCheck" type="button">Check status</button><button id="nodeUnpair" type="button">Unpair…</button></div>
+          </div>
+          <p id="nodeAccountNote" class="note"></p>
+          <p id="nodePairingStatus" class="note" role="status"></p>
+          <div id="nodeOperations"></div>
+          <p class="note">Calls in hosted rooms always use that node, so people in the room don’t see each other’s IP addresses. Files are off in these rooms.</p>
         </section>
         <section class="settingsPage callsPage" data-settings-page="callSpry" data-settings-title="Your Spry node" hidden>
           <p class="note">Spry runs a call relay on your Archipelago node. Pair it once and your calls use it everywhere. Rooms you make share it with everyone in them.</p>
@@ -1211,6 +1232,11 @@
     <!-- New room, and the two ways of opening a room somebody else made.
          Each is the form that used to sit on the start page, now a sheet the
          New menu opens from any screen, in a room or out of one. -->
+    <dialog id="nodeWaiting" class="profileSettings" aria-labelledby="nodeWaitingTitle">
+      <h2 id="nodeWaitingTitle">Waiting to be let in</h2>
+      <p class="note" role="status">The keeper needs to be online. Leave this open while they decide. The request expires after ten minutes.</p>
+      <form method="dialog"><button type="submit">Cancel request</button></form>
+    </dialog>
     <dialog id="newRoomDialog" class="profileSettings" aria-labelledby="newRoomHeading">
     <section id="setup">
       <!-- autocomplete off on the form itself: Firefox restores every control
@@ -1232,6 +1258,8 @@
         <p id="newRoomYourNameError" class="formError" hidden>Type the name people here will see.</p>
       </div>
       <label class="checkboxRow"><input id="roomAsk" type="checkbox" /> <span>Ask me before anyone joins</span></label>
+      <label id="roomOnNodeRow" class="checkboxRow" hidden><input id="roomOnNode" type="checkbox" aria-describedby="roomOnNodeHint" /> <span>Host on my node</span></label>
+      <p id="roomOnNodeHint" class="note" hidden>People always ask to join. Calls use your node, files are off, and the room self-destructs when closed.</p>
       <p id="roomAskHint" class="note" hidden>You let each person in yourself, so someone has to be in the room when they arrive.</p>
       <!-- A conference room: a group room that ends on a date and is
            wiped from relays then. Only for a group: a room that asks
@@ -1614,6 +1642,7 @@
             <span class="infoRowText"><span class="infoRowTitle">Notifications</span><span class="infoRowSub" id="infoSubNotifications"></span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
+          <div id="infoNodeHosted" class="infoRow" hidden><span class="infoRowText"><span class="infoRowTitle">Hosted on</span><span id="infoNodeHost" class="infoRowSub"></span></span></div>
           <button type="button" class="infoRow" id="infoRowPrivacy" data-info-open="privacy">
             <span class="infoRowText"><span class="infoRowTitle">Privacy and connection</span><span class="infoRowSub" id="infoSubPrivacy"></span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>

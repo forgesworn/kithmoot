@@ -20,6 +20,15 @@ written against this branch, the operator's relay position note as corrected
 on 2 November 2026, and the decision record of that date; where it and any
 older section disagree, it governs.
 
+## 3 November 2026: private hosted-node candidate
+
+The [node release gap check](kithmoot-node-release-gate.md) records the new
+optional supervisor, Spry and Shelter room profile and its held client and
+Archy UI candidates. No public signed node release or new live node is
+claimed. ForgeSworn's existing public TURN remains unchanged; an independent
+room node must be assessed against its actual operation and admission role.
+The privacy/terms drafts now distinguish that candidate from ordinary rooms.
+
 ## 2 November 2026: Google removed from the web STUN fallback
 
 The shared library's automatic fallback now names only

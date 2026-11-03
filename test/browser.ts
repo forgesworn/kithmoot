@@ -387,7 +387,7 @@ export async function openSettings(page: Page, name?: SettingsPage): Promise<voi
 }
 
 /** A page under Calls (the row on Calls that opens it). */
-export type CallSettingsPage = 'Your Spry node' | 'Relay server' | 'Public call relays' | 'Advanced'
+export type CallSettingsPage = 'Your KithMoot node' | 'Your Spry node' | 'Relay server' | 'Public call relays' | 'Advanced'
 
 /** Settings › Calls › the page named. */
 export async function openCallSettings(page: Page, name: CallSettingsPage): Promise<void> {

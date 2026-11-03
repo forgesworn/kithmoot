@@ -1,4 +1,9 @@
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
+import { NodeSettings } from './node-settings.js'
+import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
+import { loadPairedNode, loadNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { nodeRoomTransport } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
 import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
@@ -432,8 +437,14 @@ for (const [id, what] of [['callRelayPassword', 'relay password'], ['attachKey',
 // Resolve the product policy before signer restore or auxiliary construction.
 const accountNetwork = new AccountNetwork({ getItem: key => localStorage.getItem(key), setItem: (key, value) => localStorage.setItem(key, value) }, accountNetworkDefault(import.meta.env.VITE_ACCOUNT_NETWORK_DEFAULT))
 const spryPairingHash = location.hash.startsWith('#spry=') ? location.hash : undefined
+let nodePairingHash = location.hash.startsWith('#kithmoot-node=') ? location.hash : undefined
+let nodeSettings: NodeSettings | undefined
+let nodeRoom: BrowserNodeRoom | undefined
+let openingNodeRuntime: BrowserNodeRuntime | undefined
+let nodeAutoJoin = false
+const nodeRuntimes = new WeakMap<RoomSession, BrowserNodeRuntime>()
 let spryPairingInFlight = false
-if (spryPairingHash) history.replaceState(null, '', location.pathname + location.search)
+if (spryPairingHash || nodePairingHash) history.replaceState(null, '', location.pathname + location.search)
 let linkWords: { code: string; words: string } | undefined
 /** Invitations at the top of Chats (invitations.ts), made on first render.
  *  Declared this early because the list can render before People is set up. */
@@ -924,6 +935,12 @@ relayConnections.routeRooms((room, make) => browserRoomRoutes.pool(room, make))
 let RELAYS = relayConnections.configuration('default').map(relay => relay.url)
 let roomRelayScope = 'default'
 function configuredPool(urls: string[]): ManagedRelayPool {
+  if (nodeRoom) {
+    if (urls.length !== 1 || urls[0] !== nodeRoom.node.relay) throw Error('This room uses only its KithMoot node.')
+    const runtime = openingNodeRuntime ?? (session && nodeRuntimes.get(session))
+    if (!runtime) throw Error('Open this node room before using its relay.')
+    return nodeRoomTransport(nodeRoom.node, localIdentity(nodeRoom.deviceSk), 'room', { allowed: runtime.allowed })
+  }
   return relayConnections.pool(roomRelayScope, urls === relays ? roomRelayConfig : urls)
 }
 
@@ -1361,6 +1378,7 @@ let loginBusy = false
  *  keeps is keyed on it; before a room is known there is nothing to keep. */
 const derivedRoomIds = new WeakMap<Uint8Array, string>()
 function currentRoomId(): string | undefined {
+  if (nodeRoom) return nodeRoom.node.room
   const secret = roomSecret as Uint8Array | undefined
   if (!secret) return undefined
   const cached = derivedRoomIds.get(secret)
@@ -1463,6 +1481,7 @@ function forgetCredential(): void {
  *  different for every room, so a relay cannot follow one browser from room
  *  to room by the key that signs its roster entries. */
 function deviceKey(): Uint8Array {
+  if (nodeRoom) return nodeRoom.deviceSk
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to hold a device key for')
   return deviceKeyFor(deviceStore, roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
@@ -1538,7 +1557,7 @@ function joiningName(): string | undefined {
     const remembered = lastKnownProfileNames.get(nostrSession.pubkey)
     if (remembered) return remembered
   }
-  return typedName || undefined
+  return typedName || (nodeRoom ? 'Guest' : undefined)
 }
 
 /**
@@ -2252,6 +2271,7 @@ function safeIceUrls(urls: string[]): string[] {
 }
 
 function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
+  if (nodeRoom) throw Error('A hosted room shares only its ask-to-join link.')
   const relays = linkRelays(pool)
   // A member's own link names the room's authority beside its inviter, as
   // fold-kit's `encodeRoomLink` writes it; every other link is unchanged.
@@ -2276,6 +2296,7 @@ function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array)
 }
 
 function encodeRoomUrl(base: string, relays: string[], urls: string[]): string {
+  if (nodeRoom) return encodeNodeRoomLink(base, nodeRoom.node.event, nowSeconds())
   return `${base}#${encodePayload(relays, urls)}`
 }
 
@@ -2411,6 +2432,7 @@ let expectedEpoch: number | undefined
  *  by it moves this browser to the new epoch; a legacy secret link has none,
  *  and stays where it joined. */
 function roomAuthority(): string | undefined {
+  if (nodeRoom) return nodeRoom.node.authority
   return roomInvitationCapability ? invitationAuthority(roomInvitationCapability) : undefined
 }
 
@@ -2617,7 +2639,7 @@ function setKnock(roomId: string, on: boolean): void {
 interface Knock extends InvitationRequest {
   at: number
   roomId: string
-  kind: 'invitation' | 'member'
+  kind: 'invitation' | 'member' | 'node'
   state: 'waiting' | 'sending' | 'failed'
   declining?: boolean
   refusal?: InvitationRefusalAttempt
@@ -2631,7 +2653,7 @@ function knockLabel(knock: InvitationRequest): string {
   return knock.name ?? 'Somebody'
 }
 
-function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitation'): Promise<boolean> {
+function askToLetIn(request: InvitationRequest & { expiresAt?: number }, kind: Knock['kind'] = 'invitation'): Promise<boolean> {
   if (request.participant && contactIsBlocked(request.participant)) return Promise.resolve(false)
   // Somebody this device invited is not asked about: inviting them was
   // the answer. Anybody else with the link gets the card.
@@ -2651,7 +2673,7 @@ function askToLetIn(request: InvitationRequest, kind: Knock['kind'] = 'invitatio
       knocks.delete(knock.request)
       resolve(false)
       renderApprovals()
-    }, KNOCK_WAIT_MS)
+    }, kind === 'node' && request.expiresAt !== undefined ? Math.max(1, (request.expiresAt - nowSeconds()) * 1000) : KNOCK_WAIT_MS)
   })
 }
 
@@ -2677,7 +2699,7 @@ function answerKnock(knock: Knock, yes: boolean): void {
     void sendKnockRefusal(knock)
     return
   }
-  if (yes && knock.kind === 'invitation') knock.state = 'sending'
+  if (yes && (knock.kind === 'invitation' || knock.kind === 'node')) knock.state = 'sending'
   else {
     knocks.delete(knock.request)
     clearTimeout(knock.timer)
@@ -2732,7 +2754,7 @@ async function sendKnockRefusal(knock: Knock): Promise<void> {
  * and originating room before changing its pending card. */
 function finishKnockGrant(request: InvitationRequest, sent: boolean): boolean {
   const knock = knocks.get(request.request)
-  if (!knock || knock.kind !== 'invitation' || knock.state !== 'sending' || knock.roomId !== currentRoomId()) return false
+  if (!knock || !['invitation', 'node'].includes(knock.kind) || knock.state !== 'sending' || knock.roomId !== currentRoomId()) return false
   if (sent) {
     knocks.delete(knock.request)
     clearTimeout(knock.timer)
@@ -3134,6 +3156,7 @@ function stopInvitationHost(): void {
 
 function serveCurrentInvitation(): void {
   stopInvitationHost()
+  if (nodeRoom) return
   if (roomUsesBothy) return
   const invitation = roomInvitationCapability
   if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt, roomDestruct)
@@ -3612,6 +3635,7 @@ function isOwnAccount(pubkey: string): boolean {
  * real account, not one made here, and is asked about like the account.
  */
 function wantProfiles(pubkeys: string[], scope: LookupScope): void {
+  if (nodeRoom) return
   const own = nostrSession?.pubkey ?? expectedAccount
   accountProfiles.select(own, accountNetwork.nostr)
   if (!accountNetwork.nostr) return
@@ -3782,7 +3806,7 @@ interface Shown {
 
 /** Resolve everything a tile or a chat line needs to show one person. */
 function shownAs(pubkey: string, asserted?: string): Shown {
-  const profile: Profile | undefined = accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
+  const profile: Profile | undefined = !nodeRoom && accountNetwork.nostr ? accountProfiles.get(pubkey) ?? profiles.get(pubkey) : undefined
   // Only a published identity is asked about, so a per-device key is never
   // even looked up: there is nothing to attribute a payment to. Cheap on
   // every render by design - it does nothing for a total that is still
@@ -4200,6 +4224,7 @@ function renderBlockedList(): void {
   }))
 }
 function renderIdentity(): void {
+  nodeSettings?.render()
   grantedContactsPanel ??= new GrantedContactsPanel({ account: () => accountNetwork.nostr ? nostrSession : undefined,
     unavailable: () => accountNetwork.nostr ? undefined : NOSTR_MODE_REQUIRED,
     relays: () => relayConnections.configuration('default').filter(relay => relay.read && relay.write).map(relay => relay.url),
@@ -4354,7 +4379,7 @@ function renderDoorMode(): void {
   const join = $('join') as HTMLButtonElement
   const known = joiningName()
   const account = nostrSession?.pubkey ?? accountPassForRoom()?.pubkey ?? (mode === 'reconnect' || accountRestoring() ? expectedAccount : undefined)
-  const showField = mode === 'name' || (mode === 'signedIn' && known === undefined)
+  const showField = !nodeRoom && (mode === 'name' || (mode === 'signedIn' && known === undefined))
   $('doorName').hidden = !showField
   $('displayNameHint').hidden = !(showField && visitorChosen())
   if (showField && visitorChosen()) $('displayName').setAttribute('aria-describedby', 'displayNameHint')
@@ -4792,6 +4817,31 @@ function invitationFromLocation(url: string): RoomInvitation | undefined {
  */
 async function roomFromLocation(): Promise<boolean> {
   if (location.hash.length <= 1) return false
+  const node = parseNodeRoomLink(location.href, nowSeconds())
+  if (node) {
+    if (identityRestoring) await identityReady
+    const participant = currentIdentity(), generation = roomGeneration
+    const current = () => roomGeneration === generation && currentIdentity().pubkey === participant.pubkey
+    let held = loadNodeRoom(deviceStore, participant.pubkey, node.room)
+    if (held && held.node.event.id !== node.event.id) throw Error('This room link names a different node record. Ask the keeper for the current link.')
+    if (held?.phase === 'creating') {
+      const pair = loadPairedNode(deviceStore, participant.pubkey)
+      if (!pair) throw Error('Pair your node again to finish creating this room.')
+      await resumeBrowserNodeCreation(deviceStore, held, pair, participant, { allowed: current })
+    }
+    if (!held) {
+      if (!await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
+      const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
+      const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
+      try { held = await askBrowserNodeRoom(deviceStore, node, participant, { name: joiningName() ?? 'Guest', allowed: current, signal: controller.signal }) }
+      catch (error) { if (controller.signal.aborted) throw new AdmissionPreviewCancelled(true); throw error }
+      finally { waiting.removeEventListener('close', cancel); waiting.close() }
+      nodeAutoJoin = true
+    }
+    if (!current()) throw Error('The room or account changed while opening.')
+    adoptNodeRoom(held); rememberCurrentRoom(); return true
+  }
+  nodeRoom = undefined
   // One parser for every link the app opens, so the bounds it enforces -
   // fragment size, how many relays and ICE servers a link may name, and
   // that a public relay is wss - hold here as they do in the library.
@@ -5138,7 +5188,31 @@ const peerAssist = installPeerAssist({
  *  you are; only having been here when the room was made does. */
 let startedHere = false
 
+function adoptNodeRoom(held: BrowserNodeRoom): void {
+  stopInvitationHost()
+  nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = true
+  roomStartsAt = held.startsAt; roomName = held.name; roomPolicy = undefined; roomInvitationCapability = undefined
+  invitationAuthoritySk = held.authoritySk; invitationDelegation = []; admittedRoom = undefined; expectedEpoch = held.epochHint
+  startedHere = !!held.authoritySk; roomRelayScope = `room:${held.node.room}`
+  relays = [held.node.relay]; roomRelayConfig = [{ url: held.node.relay, read: true, write: true }]; roomRelayHints = []
+  iceUrls = []; roomUsesBothy = false
+}
+
 async function startNewRoom(): Promise<void> {
+  if (($('roomOnNode') as HTMLInputElement).checked) {
+    const owner = nostrSession?.signer, pair = owner && loadPairedNode(deviceStore, owner.pubkey)
+    if (!owner || !pair) throw Error('Pair your node under Settings → Calls → Your KithMoot node first.')
+    const choice = ($('roomEnds') as HTMLSelectElement).value
+    const endsAt = choice === 'duration' ? nowSeconds() + roomDurationSeconds() : conferenceEndsAt(Number(choice), nowSeconds())
+    if (choice === 'duration' && roomDurationSeconds() === 0) throw Error('Choose at least one minute for the room lifetime.')
+    const account = nostrSession
+    let held = nodeRoom?.phase === 'creating' && nodeRoom.participant === owner.pubkey && nodeRoom.node.serviceKey === pair.serviceKey ? nodeRoom : undefined
+    if (held) await resumeBrowserNodeCreation(deviceStore, held, pair, owner, { allowed: () => nostrSession === account })
+    else held = await createBrowserNodeRoom(deviceStore, pair, owner, { endsAt, name: sanitiseDisplayName(($('roomName') as HTMLInputElement).value), allowed: () => nostrSession === account,
+      prepared: pending => { adoptNodeRoom(pending); history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls)); rememberCurrentRoom() } })
+    adoptNodeRoom(held); history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls)); rememberCurrentRoom(); return
+  }
+  nodeRoom = undefined
   if (!requireNostrFeature()) return
   return withLegacyMessagesClosed(async () => {
     // "People ask, and somebody lets them in" is a temporary-style room: the
@@ -5281,6 +5355,11 @@ function renderShareControls(): void {
 /** What the invite page says about who lets newcomers in, and the button
  *  for a member's own link when this device can no longer answer the room's. */
 function renderInvitationAvailability(): void {
+  if (nodeRoom) {
+    $('ownLink').hidden = true
+    $('invitationAvailability').textContent = 'The keeper must have this room open to admit people. The link only lets somebody ask; the keeper signs each device’s access.'
+    return
+  }
   const lapsed = cannotAnswerRoomLink()
   ;($('ownLink') as HTMLButtonElement).hidden = !lapsed
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
@@ -6041,7 +6120,7 @@ function renderRoomInfo(): void {
   const agents = views.filter(view => view.agent).length
   const people = views.length - agents
   const who = views.length === 0 ? '' : `${people} ${people === 1 ? 'person' : 'people'}${agents ? `, ${agents} agent${agents === 1 ? '' : 's'}` : ''}`
-  const admits = peer ? 'Only members can join' : roomPolicy?.members?.length ? 'Only members can join' : 'Anyone with the link can join'
+  const admits = nodeRoom ? 'People ask to join' : peer ? 'Only members can join' : roomPolicy?.members?.length ? 'Only members can join' : 'Anyone with the link can join'
   $('infoWho').textContent = peer ? (isQuietPolicy(roomPolicy) ? 'Quiet chat · Only members can join' : 'Private chat · Only members can join') : [who, admits].filter(Boolean).join(' · ')
   // "Ends in 3 days · Self-destructs", from the header's own words.
   const ends = $('infoEnds')
@@ -6069,19 +6148,22 @@ function renderRoomInfo(): void {
   // a keeper can offer, so the row is there only then.
   $('infoRowNotifications').hidden = $('nudgeRow').hidden
   setInfoSub('infoSubNotifications', 'Nudge me when I am away')
-  const route = roomUsesBothy ? 'Bothy route' : 'public relays'
+  $('infoNodeHosted').hidden = !nodeRoom
+  $('infoNodeHost').textContent = nodeRoom ? new URL(nodeRoom.node.origin).hostname : ''
+  const route = nodeRoom ? 'KithMoot node · Calls through this node' : roomUsesBothy ? 'Bothy route' : 'public relays'
   setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
   renderRoomFilesLine()
   setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
   $('infoRowName').hidden = $('roomRename').hidden && $('roomLogoControls').hidden
   setInfoSub('infoSubPhone', '')
-  $('infoRowPhone').hidden = isPairedSecondary(deviceStore)
+  $('infoRowPhone').hidden = !!nodeRoom || isPairedSecondary(deviceStore)
+  $('openContext').hidden = !!nodeRoom
   setInfoSub('infoSubCards', contacts(deviceStore).length ? `${contacts(deviceStore).length} saved` : '')
   $('leave').textContent = peer ? 'Leave private chat…' : 'Leave room…'
-  $('roomRelaySettings').hidden = roomUsesBothy
+  $('roomRelaySettings').hidden = roomUsesBothy || !!nodeRoom
   // First activation must be reachable before a room has selected Bothy.
   // The panel still checks account, device, room scope and explicit consent.
-  $('roomBothySettings').hidden = !roomUsesBothy && !nostrSession
+  $('roomBothySettings').hidden = !!nodeRoom || !roomUsesBothy && !nostrSession
 }
 
 /** Show one page of the panel. The heading is the panel's title and takes the
@@ -8640,6 +8722,7 @@ function storeRoomRelayRecord(roomId: string, record: RoomRelayRecord): void {
 
 /** This device holds the key pinned in the link, not a delegated one. */
 function isRoomAuthority(): boolean {
+  if (nodeRoom) return !!nodeRoom.authoritySk
   return !!invitationAuthoritySk && invitationDelegation.length === 0 && roomAuthority() === getPublicKey(invitationAuthoritySk)
 }
 
@@ -8798,6 +8881,7 @@ const STORAGE_GRANT_ASK_MS = 10 * 60_000
 
 function startRoomGroup(s: RoomSession): void {
   stopRoomGroup()
+  if (nodeRoom) return
   const authority = roomAuthority()
   if (!authority) return
   const roomId = s.roomId
@@ -8900,6 +8984,7 @@ function logoForRoom(roomId: string): RoomLogoRecord | undefined {
 }
 
 function displayedRoomLogo(roomId: string, selected?: string) {
+  if (nodeRoom?.node.room === roomId) return undefined
   return inheritedRoomLogo(roomId, logoForRoom(roomId)?.image, sharedProjects.forRoom(roomId), selected)
 }
 
@@ -8930,7 +9015,7 @@ function renderCurrentRoomLogo(): void {
 
 function renderRoomLogoControls(): void {
   const s = session, me = meParticipant || currentParticipant()
-  const permitted = !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
+  const permitted = !nodeRoom && !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
   $('roomLogoControls').hidden = !permitted
   if (permitted) renderLogo($('roomLogoPreview'), displayedRoomLogo(s!.roomId, roomProjectContext), currentRoomLabel())
   else clearLogo($('roomLogoPreview'))
@@ -9111,6 +9196,7 @@ function renderRoomRename(): void {
 
 /** The authority: every member should use these relays too. */
 async function shareRoomRelays(urls: string[]): Promise<string> {
+  if (nodeRoom) throw Error('This hosted room uses only its pinned node relay.')
   const s = session, sk = invitationAuthoritySk
   if (!s || !sk || !isRoomAuthority()) throw new Error('Only the person who made this room can change its relays for everyone.')
   const relays = canonicalRoomRelays(urls)
@@ -10545,7 +10631,8 @@ function renderHost(): void {
   renderMeeting()
   renderRecording()
   const panel = $('hostPanel') as HTMLDetailsElement
-  const isAdmin = session !== undefined && admins.has(meParticipant)
+  const isAdmin = session !== undefined && (admins.has(meParticipant) || !!nodeRoom?.authoritySk)
+  $('closeRoom').hidden = !!nodeRoom
   panel.hidden = !isAdmin
   if (!isAdmin) return
   const list = $('hostList')
@@ -10572,6 +10659,7 @@ function renderHost(): void {
     }
     const mute = document.createElement('button')
     mute.type = 'button'
+    mute.hidden = !!nodeRoom
     mute.textContent = 'Mute'
     mute.title = 'Ask their app to switch their camera and microphone off. It is a request, and nothing here can make them.'
     mute.addEventListener('click', () => sendHostControl({ op: 'mute', participant: view.participant }, `Asked ${label} to mute.`))
@@ -10581,6 +10669,13 @@ function renderHost(): void {
     remove.textContent = 'Remove'
     remove.title = 'Move the room to a new key this person is not given.'
     remove.addEventListener('click', async () => {
+      if (nodeRoom) {
+        const runtime = session && nodeRuntimes.get(session)
+        if (!runtime || !await confirmRoomAction({ title: `Remove ${label}?`, message: 'This revokes their devices, ends their calls on this node and moves the room to a new key. Their app deletes its local room data when it learns of the removal. Copies they already kept elsewhere remain theirs.', confirmLabel: 'Remove from room', danger: true })) return
+        try { await runtime.remove(view.participant); setStatus(`${label} was removed from this room.`) }
+        catch { setStatus('Removal was not confirmed. Retry to finish revoking access and changing the room key.') }
+        return
+      }
       if (!await confirmRoomAction({ title: `Remove ${label}?`, message: 'The room will move to a new key that this person is not given. What they already read stays theirs. If they still have the invite link they can come back under a new name; replace the link as well when that matters.', confirmLabel: 'Remove from room', danger: true })) return
       // The keeper acts on a Remove up to a day after it was sent, so one
       // pressed while it is away (a restart, a deploy) waits for it.
@@ -10616,6 +10711,18 @@ function ingestControl(messages: ChatMessage[]): void {
     const control = decodeControl(m.text)
     if (!control) continue
     switch (control.op) {
+      case 'node-grant': {
+        const runtime = session && nodeRuntimes.get(session)
+        void runtime?.observe(control.event).catch(() => {})
+        break
+      }
+      case 'node': {
+        if (!nodeRoom) break
+        const record = readNodeRoom(control.event, nowSeconds(), nodeRoom.node.authority)
+        if (!record || record.room !== nodeRoom.node.room || record.event.created_at < nodeRoom.node.event.created_at) break
+        if (record.event.id !== nodeRoom.node.event.id) setStatus('The keeper announced a different node record. Ask for the current invite link. This room stays on its pinned node.')
+        break
+      }
       case 'catalogue': {
         // Sent by the host it names, or it is somebody else's claim.
         if (control.host !== m.participant) break
@@ -10755,7 +10862,7 @@ function renderInvites(): void {
   // agents' conversation was open, which after the move would have meant
   // switching to that conversation - closing the sheet - and opening the
   // sheet again to find this.
-  if (!session) {
+  if (!session || nodeRoom) {
     box.hidden = true
     return
   }
@@ -14084,8 +14191,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   try {
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
-    requireOpeningNetwork(roomUsesBothy)
-    if (!roomUsesBothy) accountNetwork.requireNostr()
+    requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
+    if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
@@ -14110,6 +14217,34 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const deviceId = getPublicKey(deviceSk)
     if (!chatOnly) myDeviceId = deviceId
     const credential = loadCredential()
+    const roomNode = nodeRoom
+    let created: RoomSession | undefined
+    let nodeRuntime: BrowserNodeRuntime | undefined
+    if (roomNode) {
+      nodeRuntime = await openBrowserNodeRoom(deviceStore, roomNode, {
+        allowed: () => currentParticipant() === roomNode.participant && (generation === roomGeneration || !!created && (session === created || dockedCall?.session === created)),
+        blocked: contactIsBlocked,
+        ask: request => askToLetIn({ request: request.id, device: request.device, participant: request.participant, verifiedParticipant: request.participant, name: request.name, expiresAt: request.expiresAt }, 'node'),
+        settled: (request, sent) => { if (generation === roomGeneration) finishKnockGrant({ request: request.id, device: request.device }, sent) },
+        withdrawn: reason => {
+          if (!created) {
+            if (generation === roomGeneration && ['closed', 'removed', 'ended'].includes(reason)) {
+              markRoomDestruct(roomNode.node.room); markEnded(deviceStore, roomNode.node.room, nowSeconds())
+              if (bookmarks) markEnded(bookmarks.rooms, roomNode.node.room, nowSeconds())
+              void runDueDestructs()
+            }
+            return
+          }
+          if (reason === 'closed' || reason === 'removed' || reason === 'ended') {
+            if (session === created) roomWasClosed({ destruct: true })
+            else if (dockedCall?.session === created) dockedRoomClosed(created.roomId, { destruct: true })
+          } else if (session === created) void leaveWithNotice('Room access has been reset. Ask the keeper for a fresh invitation.')
+        },
+        unavailable: () => { if (generation === roomGeneration) setStatus('Your KithMoot node is unavailable. Calls and messages stay on that node.') },
+      })
+      if (generation !== roomGeneration) { nodeRuntime.close(); return }
+      openingNodeRuntime = nodeRuntime
+    }
 
     // The design says the room names its own STUN and TURN - never an
     // operator's default baked into the app - so the ICE list comes from
@@ -14122,25 +14257,25 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // unless this device explicitly requires a relay before any media can
     // connect. Capture this room's URLs: a late fetch must not affect another.
     const roomIceUrls = [...iceUrls]
-    const spryPairing = ownSpryPairing(credential?.pubkey ?? currentIdentity().pubkey)
+    const spryPairing = roomNode ? undefined : ownSpryPairing(credential?.pubkey ?? currentIdentity().pubkey)
     // A relay server a person saved comes first, then their Spry; a pairing is
     // still shared in their rooms either way.
     let deviceRelay: CallRelay | undefined
-    try { deviceRelay = loadCallRelay(localStorage) } catch (error) { if (!spryPairing) throw error }
-    const relayOnly = ($('joinRelayOnly') as HTMLInputElement).checked
-    let resolvedIceServers = deviceRelay ? callRelayServers(deviceRelay) : relayOnly
+    try { if (!roomNode) deviceRelay = loadCallRelay(localStorage) } catch (error) { if (!spryPairing) throw error }
+    const relayOnly = !!roomNode || ($('joinRelayOnly') as HTMLInputElement).checked
+    let resolvedIceServers: RTCIceServer[] = roomNode ? [] : deviceRelay ? callRelayServers(deviceRelay) : relayOnly
       ? await resolveIceServers(roomIceUrls, deviceRelay)
       : (isDefaultIceUrls(roomIceUrls) ? originStunGuess(location) : roomIceUrls).map(urls => ({ urls }))
     if (generation !== roomGeneration) return
     // A STUN server chosen on this device replaces every other STUN address,
     // the default and the room's hints alike; relays are left as they are.
-    const deviceStun = loadCallStun(localStorage)
+    const deviceStun = roomNode ? undefined : loadCallStun(localStorage)
     resolvedIceServers = withDeviceStun(resolvedIceServers, deviceStun)
     // With no usable relay the room is still joined: chat and everything
     // that is not a call work. Only a call is refused (`joinCall`), and the
     // peer factory below still never builds a non-relay configuration.
-    const relayBlocked = relayOnly && !relayOnlyAvailable(resolvedIceServers)
-    turnRelayConfigured = hasRelay(resolvedIceServers)
+    const relayBlocked = !roomNode && relayOnly && !relayOnlyAvailable(resolvedIceServers)
+    turnRelayConfigured = !!roomNode || hasRelay(resolvedIceServers)
     // Never shown merely because no relay is configured: only when a
     // relay-only call is refused, or a connection fails with no relay.
     noteRelayMissing(false)
@@ -14169,7 +14304,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // refresh that fails leaves the last good list in place.
     // A docked call keeps refreshing its own credentials while another room
     // is on screen, so the guard is the session, not the screen.
-    let created: RoomSession | undefined
     let spryActive = false
     // A relay found over Nostr for this call (app/src/public-call-relays.ts).
     // While its call lasts it stands in for the default relay, so the
@@ -14183,6 +14317,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const alive = (): boolean => created ? session === created || dockedCall?.session === created : generation === roomGeneration
     let pendingIceRefresh: Promise<void> | undefined
     const refreshIce = (): Promise<void> => {
+      if (roomNode) return Promise.resolve()
       if (spryActive) return Promise.resolve()
       if (publicCall) {
         // Renewal runs only while this session has a call.
@@ -14228,7 +14363,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     }
     if (!chatOnly && !relayOnly && isDefaultIceUrls(roomIceUrls)) void refreshIce()
     const ownConnections = new Set<string>()
-    const factory: PeerFactory = (context?: PeerContext) => {
+    const factory: PeerFactory = nodeRuntime?.factory ?? ((context?: PeerContext) => {
       const available = liveIceServers(resolvedIceServers)
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(available)
@@ -14254,7 +14389,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         peerAssist.forget(key)
       })
       return pc as unknown as RTCPeerConnectionLike
-    }
+    })
 
     // A paired device joins on its credential alone. Only a device that
     // actually holds the participant key passes one.
@@ -14269,8 +14404,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       await browserLink.resume(nostrSession.pubkey)
       browserRoomRoutes.changed()
     }
-    requireOpeningNetwork(roomUsesBothy)
-    const pool = configuredPool(relays)
+    requireOpeningNetwork(roomUsesBothy || !!roomNode)
+    const pool = nodeRuntime?.pool ?? configuredPool(relays)
     sessionTransport = pool
     const poolCreatedAt = Date.now()
     // A quiet room's chat rides in drops: wrap the pool, and the session
@@ -14302,12 +14437,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // mesh then refuses promotion until that worker has received the epoch
     // key and can attach a transform to every forwarded endpoint.
     const forwarderMedia = new BrowserForwarderMediaPipeline()
-    const forwarderMediaOptions = forwarderMedia.available
+    const forwarderMediaOptions = !roomNode && forwarderMedia.available
       ? { forwarderMedia: () => forwarderMedia.ready, forwarderMediaPipeline: forwarderMedia }
       : {}
     sessionAuthority = roomAuthority()
     const s = credential
       ? new RoomSession({
+          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
           isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
@@ -14323,7 +14459,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           trackRole: activeTrackRole,
           // Peer assist is paused: nothing forwards a carried pair's frames, so a
           // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
-          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          ...(roomNode || chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           ...deliveryReceiptHooks(sessionRoomId, credential.pubkey, isQuietPolicy(roomPolicy)),
@@ -14341,6 +14477,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
+            if (roomNode && created && session === created) { roomWasClosed({ destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
@@ -14360,6 +14497,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
       : new RoomSession({
+          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
           isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
@@ -14387,7 +14525,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           trackRole: activeTrackRole,
           // Peer assist is paused: nothing forwards a carried pair's frames, so a
           // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
-          ...(chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          ...(roomNode || chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           ...deliveryReceiptHooks(sessionRoomId, currentIdentity().pubkey, isQuietPolicy(roomPolicy)),
@@ -14405,6 +14543,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
+            if (roomNode && created && session === created) { roomWasClosed({ destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
@@ -14431,7 +14570,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     }
     session = s
     created = s
+    if (nodeRuntime) { nodeRuntimes.set(s, nodeRuntime); nodeRuntime.attach(s); openingNodeRuntime = undefined }
     sessionIcePrepare.set(s, async () => {
+      if (roomNode) { if (!nodeRuntime?.allowed()) throw Error('Your KithMoot node access is unavailable.'); return }
       if (!hasRelay(resolvedIceServers) && !deviceRelay && isDefaultIceUrls(roomIceUrls)) await refreshIce()
       if (alive()) sessionRelayBlocked.set(s, relayOnly && !hasRelay(resolvedIceServers))
     })
@@ -14518,7 +14659,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       return !failed
     }
     if (deviceRelay) sessionHasRelayServer.add(s)
-    if (!roomUsesBothy && (!deviceRelay || spryPairing)) {
+    if (!roomNode && !roomUsesBothy && (!deviceRelay || spryPairing)) {
       let chosen = false
       try { chosen = loadSpryShare(localStorage, s.participant, s.roomId) } catch { /* Storage blocked: not shared. */ }
       const relay = new SpryRoom(s, spryPairing, servers => {
@@ -14563,7 +14704,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     }
     publicRelayRoutes.set(s, {
       start: async () => {
-        if (chatOnly || roomUsesBothy || spryActive || roomTurn || publicCall ||
+        if (roomNode || chatOnly || roomUsesBothy || spryActive || roomTurn || publicCall ||
             !publicRelaysMayRun({ enabled: publicCallRelays.enabled, spryPairing: !!spryPairing, handEntered: !!deviceRelay })) return
         const call = new PublicRelayCall(publicCallRelays, {
           apply: applyPublicRelay,
@@ -14716,6 +14857,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     void ingestChecks()
     const control = s.channel(CONTROL_CHANNEL)
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
+    if (roomNode?.authoritySk) void control.send(encodeControl({ op: 'node', event: roomNode.node.event })).catch(() => {})
     startRoomGroup(s)
     ingestControl(control.messages())
     followSharedRoomName(s)
@@ -14765,6 +14907,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (!chatOnly) await enableEntryMedia(requestedMedia)
   } catch (err) {
     const failed = session
+    openingNodeRuntime?.close(); openingNodeRuntime = undefined
+    if (failed) nodeRuntimes.get(failed)?.close()
     if (failed) { closeSpryRoom(failed); publicRelayRoutes.get(failed)?.end() }
     if (generation !== roomGeneration) return
     const failedTransport = sessionTransport
@@ -16246,12 +16390,14 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean; preserv
     openConnections.delete(key)
   }
   const finished = (recordingStop ? recordingStop.then(() => old?.leave()) : old?.leave() ?? Promise.resolve())
-    .finally(() => transport?.close())
+    .finally(() => { if (old) nodeRuntimes.get(old)?.close(); transport?.close() })
   if (options.backgroundFarewell) void finished.catch(() => {})
   else await finished
 }
 
 function resetRoomState(): void {
+  nodeRoom = undefined
+  openingNodeRuntime?.close(); openingNodeRuntime = undefined
   $('arrivalRoomBrand').hidden = true; clearLogo($('arrivalLogo')); $('arrivalRoomBrandName').textContent = ''
   roomProjectContext = undefined
   admissionController?.abort()
@@ -16469,7 +16615,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
   await boardsClosing
   if (reason === 'preempted') await c.session.farewellCall().catch(() => {})
   void (recordingStop ? recordingStop.then(() => c.session.leave()) : c.session.leave())
-    .finally(() => c.transport?.close()).catch(() => {})
+    .finally(() => { nodeRuntimes.get(c.session)?.close(); c.transport?.close() }).catch(() => {})
 }
 
 /** The call surface is a permanent sibling of the route panels. Navigation
@@ -16536,6 +16682,7 @@ new MutationObserver(renderDock).observe($('roomArea'), { attributes: true, attr
 /** What `resetRoomState` clears about the room on screen, kept for a docked
  *  call so coming back to its room needs no rejoin. */
 interface RoomUiState {
+  nodeRoom: BrowserNodeRoom | undefined
   catalogues: Map<string, Extract<ControlMessage, { op: 'catalogue' }> & { at: number }>
   controlSeen: Set<string>
   admins: Set<string>
@@ -16578,6 +16725,7 @@ interface RoomUiState {
 
 function captureRoomUi(): RoomUiState {
   return {
+    nodeRoom,
     catalogues: new Map(catalogues), controlSeen: new Set(controlSeen), admins, adminsAt, channelsAt, channels,
     channelLogs: new Map(channelLogs), channelCounts: new Map(channelCounts), conversationRead, currentChannel,
     keeperParticipant, agentParticipants: new Set(agentParticipants), agentDisplayNames: new Map(agentDisplayNames),
@@ -16589,6 +16737,7 @@ function captureRoomUi(): RoomUiState {
 }
 
 function restoreRoomUi(ui: RoomUiState): void {
+  nodeRoom = ui.nodeRoom
   const refill = <K, V>(into: Map<K, V>, from: Map<K, V>) => { into.clear(); for (const [k, v] of from) into.set(k, v) }
   const refillSet = <V>(into: Set<V>, from: Set<V>) => { into.clear(); for (const v of from) into.add(v) }
   refill(catalogues, ui.catalogues)
@@ -16643,6 +16792,8 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  forgetNodeRoom(deviceStore, roomId)
+  forgetNodeRoom(browserDeviceStore(sessionStorage), roomId)
   roomLogoCache.forget(roomId)
   if (session?.roomId === roomId) closeRoomLogo(session)
   if (dockedCall?.session.roomId === roomId) closeRoomLogo(dockedCall.session)
@@ -16924,6 +17075,8 @@ async function deliverIncomingCallAlert(content: NotificationContent, roomId: st
 /** Whether a link opens the room this page is already on. */
 function alreadyHere(url: string): boolean {
   try {
+    const node = parseNodeRoomLink(url, nowSeconds())
+    if (node) return nodeRoom?.node.event.id === node.event.id
     const link = parseRoomLink(url)
     if (link.invitation) {
       return roomInvitationCapability !== undefined && deriveInvitationId(link.invitation) === deriveInvitationId(roomInvitationCapability)
@@ -17312,7 +17465,7 @@ function roomMenuModel(): RoomMenuModel {
     open: Boolean(session && roomId) && !$('roomArea').hidden,
     room, peer,
     invite: !peer && !roomPolicy?.members?.length,
-    agent: Boolean(session) && !peer,
+    agent: Boolean(session) && !peer && !nodeRoom,
     task: Boolean(session),
     project: Boolean(room) && !peer,
     end: canEndRoom(),
@@ -18491,6 +18644,7 @@ let settingsPage = 'main'
 let settingsRow: HTMLElement | undefined
 let settingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
 const settingsPane = $('settingsPane')
+nodeSettings = new NodeSettings({ store: deviceStore, owner: () => nostrSession?.signer.capabilities.canSignEvents ? nostrSession.signer : undefined, changed: () => renderCalls() })
 const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 
 /** Public compatibility views belong to the ordinary Account page. A pane
@@ -18632,6 +18786,7 @@ function moveIntoSettings(el: HTMLElement, target: Element): { el: HTMLElement; 
  *  screen reader says where it is; the back arrow shows on a page, and on the
  *  list where the list is not beside it. */
 function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
+  if (name !== 'callNode') nodeSettings?.cancel()
   if (name !== 'callServer') cancelCallRelayActions()
   if (name !== 'callPublic') cancelPublicRelayCheck()
   if (name !== 'account') closeAccountMessageViews()
@@ -18647,6 +18802,7 @@ function showSettingsPage(name: string, row?: HTMLElement, focus = true): void {
   settingsPane.scrollTop = 0
   if (name === 'files') renderFilesSettings()
   if (name === 'calls') renderCalls()
+  if (name === 'callNode') nodeSettings?.render()
   if (name === 'callSpry') renderSpryPage()
   if (name === 'callServer') renderRelayServer()
   if (name === 'callAdvanced') renderCallStun()
@@ -18723,6 +18879,7 @@ function callPathInput(): CallPathInput {
 
 /** The Calls page and the lines that depend on it: the Settings list, Privacy's row. */
 function renderCalls(): void {
+  setIfChanged($('callsSubNode'), nodeSettings?.summary() ?? 'Host rooms and calls on your node')
   const input = callPathInput()
   const view = callPathView(input)
   setIfChanged($('callsHead'), view.head)
@@ -19136,6 +19293,8 @@ function enterSettings(): void {
 }
 
 function leaveSettings(): void {
+  nodeSettings?.cancel()
+  ;($('nodePairingInput') as HTMLInputElement).value = ''
   cancelCallRelayActions()
   // Do not keep a saved password in the hidden settings form.
   ;($('callRelayPassword') as HTMLInputElement).value = ''
@@ -19156,7 +19315,7 @@ settingsPane.querySelectorAll<HTMLElement>('[data-settings-open]').forEach(row =
 })
 /** The page each sub-page goes back to; a page not listed goes back to the list. */
 const SETTINGS_PARENT: Readonly<Record<string, string>> = {
-  files: 'privacy', callRelay: 'calls', callSpry: 'calls', callServer: 'calls', callPublic: 'calls', callAdvanced: 'calls',
+  files: 'privacy', callRelay: 'calls', callNode: 'calls', callSpry: 'calls', callServer: 'calls', callPublic: 'calls', callAdvanced: 'calls',
 }
 $('settingsBack').addEventListener('click', () => {
   if (settingsPage === 'main') { openDestination('chats'); return }
@@ -19327,7 +19486,7 @@ $('openRoomForm').addEventListener('submit', event => {
     if (!value) throw new Error('Paste the invite link you were sent.')
     const url = new URL(value)
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('unsupported scheme')
-    parseRoomLink(url.href)
+    if (!parseNodeRoomLink(url.href, nowSeconds())) parseRoomLink(url.href)
     // Open its room in this app. A valid invitation from another host
     // carries its relay and admission settings in the same fragment.
     history.replaceState(null, '', joinLinkBase() + url.hash)
@@ -19477,7 +19636,22 @@ function openSheet(dialog: HTMLDialogElement, field: string): void {
   $(field).focus()
 }
 const newRoomDialog = $('newRoomDialog') as HTMLDialogElement
+$('roomOnNode').addEventListener('change', () => {
+  const on = ($('roomOnNode') as HTMLInputElement).checked
+  $('roomOnNodeHint').hidden = !on
+  ;($('roomAsk') as HTMLInputElement).disabled = on
+  if (on) ($('roomAsk') as HTMLInputElement).checked = false
+  $('roomAsk').dispatchEvent(new Event('change'))
+  ;($('roomWhenEnds') as HTMLSelectElement).disabled = on
+  if (on) ($('roomWhenEnds') as HTMLSelectElement).value = 'destruct'
+})
 function openNewRoom(): void {
+  const owner = nostrSession?.pubkey, paired = owner && loadPairedNode(deviceStore, owner)
+  $('roomOnNodeRow').hidden = !paired
+  ;($('roomOnNode') as HTMLInputElement).checked = false
+  $('roomOnNodeHint').hidden = true
+  ;($('roomAsk') as HTMLInputElement).disabled = false
+  ;($('roomWhenEnds') as HTMLSelectElement).disabled = false
   // The name this device would go in under: asked here, once, when there is none.
   // A creator who will meet the door (an account to reconnect, an extension)
   // is asked there, so only the ones who go straight in are asked here.
@@ -19829,6 +20003,7 @@ let sessionAuthority: string | undefined
 let endingRoom = false
 
 function canEndRoom(): boolean {
+  if (nodeRoom) return !!session && !session.closed && !!nodeRoom.authoritySk
   if (roomUsesBothy || !session || session.closed || keeperParticipant !== undefined) return false
   if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0 || !sessionAuthority) return false
   return getPublicKey(invitationAuthoritySk) === sessionAuthority
@@ -19950,6 +20125,19 @@ async function copyMeetingCode(): Promise<void> {
 
 async function endRoomForEveryone(destruct = false): Promise<void> {
   if (!canEndRoom()) throw new Error('Only the browser that started this room can end it.')
+  if (nodeRoom) {
+    const runtime = session && nodeRuntimes.get(session)
+    // Local unpairing does not remove this room's authority or prevent its
+    // keeper closing it. Public receipt routing is already pinned here.
+    const pair = loadPairedNode(deviceStore, nodeRoom.participant) ?? { v: 1 as const, origin: nodeRoom.node.origin, serviceKey: nodeRoom.node.serviceKey, owner: nodeRoom.participant }
+    if (!runtime) throw Error('Open this node room before closing it.')
+    endingRoom = true
+    try {
+      await runtime.end(pair)
+      roomWasClosed({ destruct: true })
+    } catch (error) { endingRoom = false; throw error }
+    return
+  }
   const s = session!, invitation = roomInvitationCapability!, authoritySk = invitationAuthoritySk!
   const retirement = configuredPool(relays)
   try {
@@ -20938,6 +21126,37 @@ async function closeRoomNotifications(roomId: string): Promise<void> {
  */
 async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Promise<void> {
   const roomId = room.roomId
+  const hosted = parseNodeRoomLink(room.link, Math.floor(room.openedAt))
+  if (hosted) {
+    if (destructing.has(roomId)) return
+    destructing.add(roomId)
+    const here = currentRoomId() === roomId
+    const participant = currentParticipant(), held = here ? nodeRoom : participant ? loadNodeRoom(deviceStore, participant, roomId) : undefined
+    const root = held ? deriveRoom(held.secret) : undefined
+    const context: TidyUpContext = { roomId, roomRelays: [], deviceSk: held?.deviceSk ?? generateSecretKey(), canEnd: false,
+      ...(root ? { roomKey: root.roomKey } : {}), ...(here && session ? { chatStreams: session.chatStreams() } : {}) }
+    try {
+      await withRoomLock(roomId, async () => {
+        // The node owns the room partition. An admitted device never tries
+        // public NIP-09 deletion sockets after its private access was revoked.
+        if (endRoom) await endRoom()
+        discardRoomRecording(roomId)
+        await roomTabs?.leaveOthers(roomId)
+        stopReadPositions(roomId)
+        if (dockedCall?.session.roomId === roomId) await endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
+        if (here && session) { closeAllDrafts(); await closeRoomSession() }
+        try { await bookmarks?.removeAndConfirm(roomId) } catch { /* Local deletion still completes while account relays are offline. */ }
+        await clearRoomLocally(context, true)
+        addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
+        held?.secret.fill(0); held?.authoritySk?.fill(0); held?.deviceSk.fill(0)
+      })
+    } finally { root?.roomKey.fill(0); destructing.delete(roomId); renderRooms() }
+    if (here) {
+      try { sessionStorage.setItem(NOTICE_STORAGE_KEY, SELF_DESTRUCTED_MESSAGE) } catch { /* The room is still gone. */ }
+      history.replaceState(null, '', joinLinkBase()); approvedReload()
+    }
+    return
+  }
   if (destructing.has(roomId)) return
   destructing.add(roomId)
   discardRoomRecording(roomId)
@@ -22068,6 +22287,7 @@ function deviceFileDestination(): FileDestination {
  * for the places that route the `group` result.
  */
 function fileDestination(): FileDestination {
+  if (nodeRoom) return { kind: 'off', reason: 'chosen' }
   const record = roomStorageRecord()
   return resolveFileDestination({
     store: localStorage, roomUsesBothy,
@@ -22130,7 +22350,7 @@ function renderRoomFilesLine(): void {
   line.hidden = destination.kind === 'bothy'
   if (destination.kind === 'bothy') return
   line.textContent = destination.kind === 'off'
-    ? 'Files: you’ve turned uploads off on this device.'
+    ? nodeRoom ? 'Files are off in this hosted room.' : 'Files: you’ve turned uploads off on this device.'
     : destination.kind === 'group' ? 'Files in this room go to the group’s own storage.'
     : destination.kind === 'withdrawn' ? 'This group has no storage right now.'
     : `Files you send in this room go to ${fileHost(destination.origin)}.`
@@ -22275,6 +22495,7 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  * The key goes into the staged attachment and nowhere else.
  */
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string, settled?: (file: File) => void): Promise<void> {
+  if (nodeRoom) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   // A room that names its own storage never announces an upload as a bare kind
   // 1063, and never sends a file anywhere this device chose: its files go
@@ -22403,6 +22624,7 @@ const GROUP_STORAGE_OUT_OF_REACH = 'The group’s storage is not somewhere this 
  * waiting for anything that will change, so those say so in the tray instead.
  */
 async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, signal: AbortSignal, settled?: (file: File) => void): Promise<void> {
+  if (nodeRoom) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   const startGeneration = roomGeneration
   const record = roomStorageRecord()
@@ -22674,6 +22896,7 @@ function useLongText(draft: ConversationDraft, fullText: string): boolean {
  * device until a person acts.
  */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
+  if (nodeRoom) { setStatus('Files are off in this hosted room.'); return }
   const generation = roomGeneration, privateRoute = bothyFiles()
   const draft = captureDraft()
   if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
@@ -22874,6 +23097,7 @@ wireMenu($('attachToggle'), $('attachMenu'), {
   },
 })
 function renderAttachButton(destination: FileDestination): void {
+  $('attachToggle').hidden = !!nodeRoom
   const wanted = destination.kind === 'server' && destination.via !== 'default'
   if (wanted === attachMenuMode && $('attachToggle').hasAttribute('popovertarget') === wanted) return
   attachMenuMode = wanted
@@ -23074,8 +23298,9 @@ function showArrivalFailure(err: unknown): void {
   }
   const declined = err instanceof InvitationDeclinedError
   const reason = describeError(err)
-  let valid = false
-  try { parseRoomLink(location.href); valid = true } catch { /* Incomplete or malformed invitation. */ }
+  const nodeAtDoor = parseNodeRoomLink(location.href, nowSeconds())
+  let valid = !!nodeAtDoor
+  try { if (!valid) { parseRoomLink(location.href); valid = true } } catch { /* Incomplete or malformed invitation. */ }
   // Not a room link at all, but a contact card handed over as a link: the
   // door offers to keep it. Read only on the person's say-so, so a link
   // merely opened adds nobody.
@@ -23097,9 +23322,9 @@ function showArrivalFailure(err: unknown): void {
   const conference = reason.startsWith(CONFERENCE_ENDED_PREFIX)
   const ended = reason === ROOM_ENDED_MESSAGE || reason === SELF_DESTRUCTED_MESSAGE || conference
   const retired = ended || reason.includes('retired')
-  const persistent = valid && parseRoomLink(location.href).invitation?.persistent
+  const persistent = !nodeAtDoor && valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)
-  $('arrivalTitle').textContent = declined ? 'Your request was declined' : ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
+  $('arrivalTitle').textContent = declined ? 'Your request was declined' : ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : nodeAtDoor ? 'The node room has not answered' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
   $('arrivalLead').textContent = declined
     ? 'Someone in the room declined this request. Ask them before trying again. Your details are still on this device.'
     : conference
@@ -23108,6 +23333,8 @@ function showArrivalFailure(err: unknown): void {
     ? 'It was ended by the person who started it, so nobody can join it any more.'
     : retired
     ? 'Ask somebody in the room for its current invite link.'
+    : nodeAtDoor
+    ? `This room uses ${new URL(nodeAtDoor.origin).hostname}. The node and keeper need to be available to let you in. Check with the keeper, then try again. This room does not switch to public relays or another call server.`
     : valid
       ? persistent
         ? 'Its invitation was not on the link\u2019s relays or on yours. If you know a relay the room uses, add it and try again. Otherwise ask someone in the room for a fresh invite link.'
@@ -23118,7 +23345,7 @@ function showArrivalFailure(err: unknown): void {
   $('identityMore').hidden = true
   $('arrivalActions').hidden = false
   $('retryArrival').hidden = !valid || retired
-  $('arrivalRelays').hidden = !valid || retired || !persistent
+  $('arrivalRelays').hidden = !!nodeAtDoor || !valid || retired || !persistent
   setStatus('')
 }
 
@@ -23156,20 +23383,20 @@ function reconcileAccountNetwork(): void {
   // A late credential/signature cannot inherit a new public delegate.
   if (session && !roomUsesBothy) captureDraft()
   void retireAccountNetworkRooms([
-    ...(session ? [{ session, transport: sessionTransport, privateRoute: roomUsesBothy }] : []),
-    ...(dockedCall ? [{ session: dockedCall.session, transport: dockedCall.transport, privateRoute: dockedCall.ui.roomUsesBothy }] : []),
+    ...(session ? [{ session, transport: sessionTransport, privateRoute: roomUsesBothy || !!nodeRoom }] : []),
+    ...(dockedCall ? [{ session: dockedCall.session, transport: dockedCall.transport, privateRoute: dockedCall.ui.roomUsesBothy || !!dockedCall.ui.nodeRoom }] : []),
   ])
   const roomHold = enabled ? 'Account network changed. Reopen this room to reconnect. Drafts and pending changes are kept.' : PRIVATE_SYNC_PAUSED
   admissionController?.abort()
   cancelPublicRelayCheck()
-  if (joining && !session && !roomUsesBothy) {
+  if (joining && !session && !roomUsesBothy && !nodeRoom) {
     ++roomGeneration; joining = false; disarmStopOpening()
     sessionTransport?.close(); sessionTransport = undefined
     setStatus(roomHold)
   }
-  if (dockedCall && !dockedCall.ui.roomUsesBothy) closeSpryRoom(dockedCall.session)
-  if (dockedCall && !dockedCall.ui.roomUsesBothy) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
-  if (session && !roomUsesBothy) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
+  if (dockedCall && !dockedCall.ui.roomUsesBothy && !dockedCall.ui.nodeRoom) closeSpryRoom(dockedCall.session)
+  if (dockedCall && !dockedCall.ui.roomUsesBothy && !dockedCall.ui.nodeRoom) void endDockedCall('user', roomHold).catch(error => setStatus(describeError(error)))
+  if (session && !roomUsesBothy && !nodeRoom) void closeRoomSession({ backgroundFarewell: true, preservePrivate: true }).then(() => setStatus(roomHold)).catch(error => setStatus(describeError(error)))
   // Invalidate ordinary views before any asynchronous teardown can complete.
   nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close()
   stopSpryAccountSync()
@@ -23311,6 +23538,11 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
   finally { spryPairingInFlight = false; button.disabled = false }
 }
 if (spryPairingHash) void pairSpryOnThisDevice(spryPairingHash)
+if (nodePairingHash) void identityReady.finally(() => {
+  const fragment = nodePairingHash; nodePairingHash = undefined
+  openDestination('settings'); showSettingsPage('callNode')
+  if (fragment) nodeSettings?.arrival(fragment)
+})
 
 // A room this device has joined goes straight in, as the identity that joined
 // it; so does an explicit room switch or safe update in this tab. An
@@ -23329,6 +23561,7 @@ Promise.all([roomArrival, identityReady]).then(async ([found]) => {
   }
   const join = $('join') as HTMLButtonElement
   if (!found || session || joining || join.disabled || guestAdmissionPreview) { undo(); return }
+  if (nodeAutoJoin && nodeRoom) { nodeAutoJoin = false; provisionalOpening = false; await startSession(); return }
   const raw = pendingRoomSwitch
   if (raw) {
     const intent = JSON.parse(raw) as { hash?: string; account?: string | null; at?: number }

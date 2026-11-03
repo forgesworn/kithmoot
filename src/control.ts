@@ -7,6 +7,8 @@ import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 import { readRoomLogoOp, type RoomLogoOp } from './room-logo-payload.js'
 import { GROUP_GRANT_KIND, type GroupEvent } from './group-grants.js'
+import { readNodeRoom } from '@forgesworn/fold-kit/node-room'
+import type { Event } from 'nostr-tools/pure'
 
 /**
  * The channel a room's agent hosts and its people use to ask for agents.
@@ -146,6 +148,11 @@ export type ControlMessage =
    * bare: it travels only inside this encrypted channel and by HTTP to a node.
    */
   | { op: 'storage-grant'; event: GroupEvent }
+  /** Pinned node policy. Receivers also check their room and authority.
+   * This announcement never authorises automatic migration of a room. */
+  | { op: 'node'; event: Event }
+  /** Signed node grants travel inside the encrypted control channel. */
+  | { op: 'node-grant'; event: GroupEvent }
   /** Any member: keeper, send my storage grants again. The asker is the
    *  message's credential-bound device, as for `hand`, so it names nothing. */
   | { op: 'storage-grant?' }
@@ -431,6 +438,13 @@ export function decodeControl(text: string): ControlMessage | null {
       // Strict: the web app's snapshot custody refuses a control message whose
       // decoded form differs from what was sent, so nothing may be dropped.
       return Object.keys(m).length === 1 ? { op: 'storage-grant?' } : null
+    case 'node': {
+      if (Object.keys(m).length !== 2 || !m.event || typeof m.event !== 'object' || Array.isArray(m.event)) return null
+      const event = m.event as Event
+      if (Object.keys(event).length !== 7 || !readNodeRoom(event, event.created_at)) return null
+      return { op: 'node', event }
+    }
+    case 'node-grant':
     case 'storage-grant': {
       if (Object.keys(m).length !== 2) return null
       const e = m.event
@@ -439,7 +453,7 @@ export function decodeControl(text: string): ControlMessage | null {
       if (Object.keys(ev).length !== 7 || ev.kind !== GROUP_GRANT_KIND || typeof ev.id !== 'string' || typeof ev.pubkey !== 'string' ||
           typeof ev.sig !== 'string' || typeof ev.content !== 'string' || !Number.isSafeInteger(ev.created_at) ||
           !Array.isArray(ev.tags) || !ev.tags.every((t) => Array.isArray(t) && t.every((v) => typeof v === 'string'))) return null
-      return { op: 'storage-grant', event: ev as unknown as GroupEvent }
+      return { op: m.op, event: ev as unknown as GroupEvent }
     }
     case 'hand':
       if (typeof m.up !== 'boolean') return null

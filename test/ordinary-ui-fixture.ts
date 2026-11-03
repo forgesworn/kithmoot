@@ -27,9 +27,9 @@ export function uiFixture(mode: UiMode = 'browser-all') {
   }
   const all = mode === 'browser-all', kind: 'browser' | 'tab' = mode.startsWith('tab-') ? 'tab' : 'browser'
   if (kind === 'tab') {
-    const encodePayload = main('encodePayload',[],{linkRelays:(r:string[])=>r,roomInvitationCapability:undefined,
+    const encodePayload = main('encodePayload',[],{nodeRoom:undefined,linkRelays:(r:string[])=>r,roomInvitationCapability:undefined,
       base64urlnopad,roomSecret:new Uint8Array(32).fill(11),roomPolicy:undefined,roomName:'Library',bytesToHex,TextEncoder}) as unknown as (...args:unknown[])=>string
-    const encodeRoomUrl = main('encodeRoomUrl',[],{encodePayload})
+    const encodeRoomUrl = main('encodeRoomUrl',[],{nodeRoom:undefined,encodePayload})
     main('rememberWayBack',['WAY_BACK_KEY'],{currentRoomId:()=>UI_ROOM,sessionStorage:storage,encodeRoomUrl,
       joinLinkBase:()=> 'https://room.invalid/j/',relays:['wss://route.invalid/'],iceUrls:[],currentRoomLabel:()=> 'Library'})()
     expression({receiver:'sessionStorage',key:'ROOM_SWITCH_KEY',constants:['ROOM_SWITCH_KEY'],globals:{sessionStorage:storage,
