@@ -287,8 +287,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   onRecovering?: () => void
   /** Rebuild through the signalling owner after installing fresh credentials.
    * Native ICE restarts can retain an allocation tied to the old username.
-   * Return false when no protocol owner is attached, to use native recovery. */
-  rebuildPeers?: () => boolean
+   * A context limits connectivity recovery to that participant; no context
+   * rotates all peers. Return false to use native recovery. */
+  rebuildPeers?: (context?: PeerContext) => boolean
   /** Register the native connection with the embedding's media receivers
    * without wrapping and losing the pinned node factory's identity. */
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
@@ -302,6 +303,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   let deadline = Infinity
   let credential: SpryCredential
   let renewing: Promise<void> | undefined
+  let restartRequested = false
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
   const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
@@ -330,7 +332,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
   }
   const schedule = (seconds: number) => { clearTimeout(timer); timer = setTimeout(() => { void renew() }, Math.max(1000, seconds * 1000)) }
-  const runRenewal = async (restart: boolean): Promise<void> => {
+  const runRenewal = async (): Promise<void> => {
     if (!allowed()) { close(); return }
     if (remaining() <= 0) { expire(); return }
     try {
@@ -338,7 +340,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); return }
       const changed = credential.username !== next.username
       install(next)
-      if ((changed || restart) && !options.rebuildPeers?.()) for (const peer of peers) {
+      if ((changed || restartRequested) && !options.rebuildPeers?.()) for (const peer of peers) {
         if (peer.signalingState === 'closed') { peers.delete(peer); continue }
         try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
       }
@@ -356,11 +358,27 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     }
   }
   const renew = (restart = false): Promise<void> => {
+    if (restart && !restartRequested && allowed()) {
+      restartRequested = true
+      try { options.onRecovering?.() } catch { /* An observer cannot prevent credential recovery. */ }
+    }
     if (renewing) return renewing
-    if (restart && allowed()) { try { options.onRecovering?.() } catch { /* An observer cannot prevent credential recovery. */ } }
-    const pending = runRenewal(restart).finally(() => { if (renewing === pending) renewing = undefined })
+    const pending = runRenewal().finally(() => { if (renewing === pending) { renewing = undefined; restartRequested = false } })
     renewing = pending
     return pending
+  }
+  const recoverPeer = (peer: RTCPeerConnection, context?: PeerContext): void => {
+    if (!allowed()) { close(); return }
+    if (remaining() <= 0) { expire(); return }
+    // A remote participant changing networks does not invalidate everyone
+    // else's allocation. Use the existing login for this fresh connection,
+    // keeping the original rotation timer for all allocations on that login.
+    if (renewing || remaining() <= 60 || options.rebuildPeers && !context) { void renew(true); return }
+    try { options.onRecovering?.() } catch { /* Signalling observers cannot prevent recovery. */ }
+    if (!allowed() || remaining() <= 0) { close(); return }
+    try {
+      if (!options.rebuildPeers?.(context)) { peer.setConfiguration(configuration()); peer.restartIce() }
+    } catch { peer.close(); peers.delete(peer) }
   }
   install(await obtain())
   if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
@@ -372,12 +390,11 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       let connected = false, recovering = false
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
-        // A changed address can invalidate the old TURN allocation before its
-        // credential expires. Fetch current credentials and ask the protocol
-        // owner to rebuild; the room and its admission remain unchanged.
+        // Either endpoint can lose its route. Repair this pair without
+        // interrupting another participant's healthy audio and video.
         if (peer.connectionState === 'connected') { connected = true; recovering = false }
         else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
-          recovering = true; void renew(true)
+          recovering = true; recoverPeer(peer, context)
         }
       })
       // Native RTCTrackEvent includes every field Peer reads. Its DOM

@@ -141,6 +141,24 @@ function harness(
 const slotted = (pc: { calls: { method: string }[] }) => pc.calls.filter((c) => c.method === 'addTransceiver').length === 4
 
 describe('fresh node allocations', () => {
+  it.each([1, 2] as const)('rebuilds only the named participant on profile %s', async (profile) => {
+    const h = harness({ callProfile: profile, initialTier: 'turn' }), other = device()
+    try {
+      h.roster(profile)
+      h.session.setViews([...h.session.participants(), { participant: device().pub, devices: [other.pub],
+        tracks: [], callProfiles: { [other.pub]: profile } }])
+      h.mesh.publish([track('mic-1')]); await settle()
+      const failed = h.factory.to(h.remote.pub)!, healthy = h.factory.to(other.pub)!
+      expect(h.mesh.rebuildConnections(h.remote.pub)).toBe(true); await settle()
+      expect(failed.closed).toBe(true)
+      expect(h.factory.to(h.remote.pub)).not.toBe(failed)
+      expect(healthy.closed).toBe(false)
+      expect(h.factory.to(other.pub)).toBe(healthy)
+      expect(h.mesh.routes.get(h.remote.pub)?.tier).toBe('turn')
+      expect(slotted(h.factory.to(h.remote.pub)!)).toBe(profile === 2)
+    } finally { h.mesh.close() }
+  })
+
   it.each([1, 2] as const)('rebuilds profile %s on TURN without reusing a native peer or generation', async (profile) => {
     const h = harness({ callProfile: profile, initialTier: 'turn' })
     try {
