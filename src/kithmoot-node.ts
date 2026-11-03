@@ -8,7 +8,7 @@ import { verifyEventUncached } from './verify.js'
 import { parseGroupEvent, type GroupEvent, type ParsedGrant, type ParsedReset } from './group-grants.js'
 import { spryHash, type SpryCredential, type SpryOffer } from './spry.js'
 import { NostrRelayPool, type RelayTransport, type RelayPoolClient } from './relay-pool.js'
-import { ICE_RESTART_TIMEOUT_MS, type PeerContext, type PeerFactory, type RTCPeerConnectionLike } from './peer.js'
+import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from './peer.js'
 
 export class KithmootNodeError extends Error {
   constructor(readonly status: number, readonly reason: 'unavailable' | 'refused' | 'invalid' | 'expired') {
@@ -285,6 +285,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   /** Reopen signalling before a connectivity restart: its old socket may
    * still appear open while sending offers into the previous route. */
   onRecovering?: () => void
+  /** Rebuild through the signalling owner after installing fresh credentials.
+   * Native ICE restarts can retain an allocation tied to the old username.
+   * Return false when no protocol owner is attached, to use native recovery. */
+  rebuildPeers?: () => boolean
   /** Register the native connection with the embedding's media receivers
    * without wrapping and losing the pinned node factory's identity. */
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
@@ -293,7 +297,6 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
   const peers = new Set<RTCPeerConnection>(), controller = new AbortController()
-  const rotations = new WeakMap<RTCPeerConnection, { until: number; disconnected: boolean }>()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity
@@ -335,9 +338,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); return }
       const changed = credential.username !== next.username
       install(next)
-      if (changed || restart) for (const peer of peers) {
+      if ((changed || restart) && !options.rebuildPeers?.()) for (const peer of peers) {
         if (peer.signalingState === 'closed') { peers.delete(peer); continue }
-        if (changed && !restart) rotations.set(peer, { until: monotonic() + ICE_RESTART_TIMEOUT_MS, disconnected: false })
         try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
       }
       // A grant near its own end cannot extend this username. Give the
@@ -371,18 +373,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
         // A changed address can invalidate the old TURN allocation before its
-        // credential expires. Fetch current credentials and regather on the
-        // retained connection; the room and its admission remain unchanged.
-        if (peer.connectionState === 'connected') {
-          connected = true; recovering = false
-          if (rotations.get(peer)?.disconnected) rotations.delete(peer)
-        }
+        // credential expires. Fetch current credentials and ask the protocol
+        // owner to rebuild; the room and its admission remain unchanged.
+        if (peer.connectionState === 'connected') { connected = true; recovering = false }
         else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
-          // The scheduled credential restart can briefly disconnect its own
-          // transport. Let that attempt settle instead of minting again and
-          // reopening signalling in the middle of its offer/answer exchange.
-          const rotation = rotations.get(peer)
-          if (rotation && monotonic() < rotation.until) { rotation.disconnected = true; return }
           recovering = true; void renew(true)
         }
       })

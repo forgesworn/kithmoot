@@ -112,7 +112,8 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   }
   try {
     calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
-      onRecovering: () => { pool.reconnect(); inbox?.reconnect() }, onPeer: options.onPeer })
+      onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
+      rebuildPeers: () => s?.refreshNodeCallConnections() ?? false, onPeer: options.onPeer })
     if (state.authoritySk) {
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
