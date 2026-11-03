@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { WebSocket, WebSocketServer } from 'ws'
+import { WebSocket as NodeWebSocket, WebSocketServer } from 'ws'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { signNodeRoom, readNodeRoom, signNodeClosure, readNodeClosure } from '@forgesworn/fold-kit/node-room'
 import { buildGrant, buildReset, parseGroupEvent } from './group-grants.js'
@@ -49,7 +49,7 @@ describe('pinned KithMoot node client', () => {
     })
     await new Promise<void>(resolve => server.once('listening', resolve))
     const port = (server.address() as { port: number }).port
-    class Socket extends WebSocket { constructor(_: string) { super(`ws://127.0.0.1:${port}`) } }
+    class Socket extends NodeWebSocket { constructor(_: string) { super(`ws://127.0.0.1:${port}`) } }
     const transport = nodeRoomTransport(f.node, f.identity, 'room', { now: () => NOW, websocketImplementation: Socket as unknown as typeof globalThis.WebSocket })
     let initialEose!: () => void
     const initiallyReady = new Promise<void>(resolve => { initialEose = resolve })
