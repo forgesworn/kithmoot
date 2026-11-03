@@ -1,0 +1,100 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "source": "8c553672cbb3dcad850a703a151e868a9446763a",
+  "mainSha256": "bd3ba95fb885bc91c0e4dc9524995e1b9d9396f096e228ca5befc1e2603c89ee",
+  "mode": "explicit-profile2-comparison",
+  "requestedCallProfile": "2",
+  "mediaSeconds": 460,
+  "afterFinalRecoverySeconds": 310,
+  "changedNodeRoute": true,
+  "returnedNodeRoute": true,
+  "transitions": [
+    {
+      "phase": "vpn-recovering",
+      "seconds": 21
+    },
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 31,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovering",
+      "seconds": 88
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 10
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 15
+    }
+  ],
+  "credentialIssuances": [
+    {
+      "guest": "Roaming test A",
+      "seconds": -11,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": -6,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 28,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 52,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 93,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 94,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 135,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 141,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 376,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 382,
+      "lifetime": 300
+    }
+  ],
+  "peakSubscriptions": 13,
+  "subscriptionRefusals": 0,
+  "publicCAValidated": true,
+  "mediaRoute": "TCP443 only to turn.demo.forgesworn.dev; all selected local candidates relay and TLS",
+  "vpnFixture": "WireGuard route for the node with client NAT, carried through private SSH; container routes only; underlying host VPN not changed",
+  "privacyEvidence": "All received SDP candidates address the node relay range; missing peer-reflexive RTCStats addresses must match a same-port node candidate in the current remote description",
+  "rawReceiptSha256": "b4d88e51bce22acd51f67f12b07efda2d2db621585384c8f4180f56e19bb8590",
+  "rawLogSha256": "e6bcfcfb0d0156967508e10a7ba5dec778f6034e5672410e7f6de49f63d23a0b",
+  "limits": [
+    "This run explicitly requested profile2 on the core subscription fix; the final normal-link default run is separate",
+    "A WireGuard node route in an isolated container carried over private SSH is not an independent commercial VPN or physical mobile network",
+    "No owner keys, room invite or TURN credentials recorded"
+  ]
+}

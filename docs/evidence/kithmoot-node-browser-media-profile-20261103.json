@@ -1,0 +1,64 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "codeSource": "23d860a2389b95f33a69663d8693c80b48501acb",
+  "relayCodeSource": "c7db6eff86e91b6e381138bfeffaed8e12ff9cd5",
+  "before": {
+    "source": "8c553672cbb3dcad850a703a151e868a9446763a",
+    "mainSha256": "bd3ba95fb885bc91c0e4dc9524995e1b9d9396f096e228ca5befc1e2603c89ee",
+    "normalLinkFixedSlotRegressionRejected": true,
+    "reason": "The default1 renderer does not negotiate four fixed media slots"
+  },
+  "after": {
+    "normalNodeLinksChooseProfile2": true,
+    "explicitProfile1StillWins": true,
+    "ordinaryRoomDefaultStill1": true,
+    "defaultDoesNotWriteStorage": true,
+    "legacyPeerFallbackRetained": true,
+    "profileAndCompatibilityTestsPassed": 46,
+    "profileTestsSkipped": 2,
+    "relayAndAccessTestsPassed": 161,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "actualProcessBrowserJourneyPassed": true,
+    "browserJourneySeconds": 42.3,
+    "fixedSlotsObservedWithoutQuerySwitch": true,
+    "movingVideoAndSyntheticAudioBothDirections": true,
+    "suppressedTrackNotificationAndDetachedSinkRecovery": true,
+    "silentSocketRecoveryMs": 10155,
+    "admissionChatRemovalClosure": true,
+    "mainSha256": "a660bf5df0a729b5926a94856215b2b84b63a184db5a0b63d03773463579deb1"
+  },
+  "comparisonEvidence": "kithmoot-node-tls443-profile2-comparison-20261103.json",
+  "normalLinkRoamingQualification": "in progress; not yet acceptance",
+  "limits": [
+    "The 460 second full VPN/outage/renewal comparison explicitly selected profile2 on source8c; the new normal-link source23d is checked separately",
+    "No physical mobile handoff, independent commercial VPN or GrapheneOS acceptance claimed"
+  ],
+  "logs": [
+    {
+      "name": "kithmoot-node-default-profile-tests-20261103.log",
+      "sha256": "41d7b4e90b9dd4dded5376cbe952371bd5c40b3b5b19ed121303616f53fc3ddc"
+    },
+    {
+      "name": "kithmoot-node-default-profile-types-20261103.log",
+      "sha256": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042"
+    },
+    {
+      "name": "kithmoot-node-default-profile-build-20261103.log",
+      "sha256": "632d54f52505d7a8217522e853c0b4b9f14fe494ce16324f1b0db14288a261a2"
+    },
+    {
+      "name": "kithmoot-node-default-profile-browser-red-20261103.log",
+      "sha256": "762c19cd69e8762afc8a4405de471434a1ae0d5b7435bda8223419eb643d28a2"
+    },
+    {
+      "name": "kithmoot-node-default-profile-browser-green-20261103.log",
+      "sha256": "a566e4620c746dc2ae6fe8fa4b3cd81fa2dde49d29cb0526ad4a884dc23b114e"
+    },
+    {
+      "name": "kithmoot-node-subscription-close-focused3-20261103.log",
+      "sha256": "69b379e4a94790cea8ebb32b4a0f9bad9a1113e141bdf4977020fe4f65e54fe2"
+    }
+  ]
+}
