@@ -1,7 +1,8 @@
 # KithMoot node delivery candidate
 
-3 November 2026. Private implementation and review candidate. No public signed
-node release, live node installation or UI approval is claimed.
+3 November 2026. The owner-authorised private demo node is installed and paired
+at `demo.forgesworn.dev`; the web client is deployed. Public signed node
+distribution and Archipelago maintainer approval remain open.
 
 The [design](design/2026-11-02-kithmoot-node.md) is committed on main. The
 Google STUN correction and documentation drift fixes are merged; the corrected
@@ -13,14 +14,14 @@ ordinary rooms. Installing this candidate does not replace those rooms.
 | Stage | Candidate and acceptance evidence | Remaining gate |
 | --- | --- | --- |
 | N0 | Design PR668 and STUN/docs PR669/670/672 merged | Candidate decisions below require owner adoption before public release |
-| N1 | Spry PR33/34 merged; short credentials, cached-auth revocation, live call teardown, resource bounds and fail-closed leases | Public signed dependency distribution; internet/media qualification |
+| N1 | Spry PR33/34 merged; short credentials, cached-auth revocation, live call teardown, resource bounds and fail-closed leases | Public signed dependency distribution; independent-network and capacity qualification |
 | N2 | Private Shelter PR13 merged; room-scoped NIP42, addressed ask door, write-time room partitions and secure purge | Source/binary publication decision and recipient-accessible notices |
 | N3 | Fold 0.17.0 published and integrity read back; matching signed port-aware vectors pass on web and Android; Wildbloom design updated | Released client pins and UI acceptance |
-| N4 | Supervisor and private standalone Linux installer merged through PR678. Actual offline Debian/systemd install/update/rollback/killed-resume/uninstall and all four TURN allocations passed. [Installer receipt](evidence/kithmoot-node-installer-20261102.json), [host-profile receipt](evidence/kithmoot-node-host-profile-20261102.json) | Public CA issuance/renewal and another-network reachability; signed public distribution |
-| N5 | Web/desktop [PR675](https://github.com/forgesworn/kithmoot/pull/675). Actual Chromium room lifecycle and Electron renderer paired/enrolled with ports 34790/53499. [Review pack](kithmoot-node-ui-review.md) | Maintainer approval, then merge/release |
+| N4 | Supervisor and private standalone Linux installer merged through PR678. Actual offline Debian/systemd install/update/rollback/killed-resume/uninstall and all four TURN allocations passed. [Installer receipt](evidence/kithmoot-node-installer-20261102.json), [host-profile receipt](evidence/kithmoot-node-host-profile-20261102.json). Private demo has public CA certificates and reachable TLS443 calls | Unattended renewal, independent-network qualification and signed public distribution |
+| N5 | Web/desktop [PR675](https://github.com/forgesworn/kithmoot/pull/675) merged and web deployed. Owner confirmed pairing and ready status in the web app. Subsequent browser recovery fixes are described in the [network report](kithmoot-node-network-recovery.md). Local Electron pairing remains distinct from a packaged release | Packaged desktop and physical mobile qualification; Archy integration UI remains in its separate review pack |
 | N6 | Android foundation PR391 merged. Port-aware core PR393 merged as `dcf78bbb` after all 17 CI checks passed, separately from held UI [PR392](https://github.com/forgesworn/kithmoot-android/pull/392). Final local UI matrix: 4,014 tests passed, one opt-in skip; both lints and debug/unsigned-release/test APK builds passed | Maintainer approval, physical GrapheneOS |
-| N7 | Offline host allocation on UDP34790/TCP on port 34790/TLS53499/TLS443, revocation, room purge and cold proof passed. A real browser/native guest exchanged video both ways for 300 seconds through renewal, then removal and purge; [cross-client receipt](evidence/kithmoot-node-ui-20261102/cross-client-proof.json) records relay candidates and selected TCP on port 34790. This is local evidence | Web/Android sustained media in both directions forced over publicly trusted TLS443; independent networks; four-URL per-peer allocation/capacity measurement; physical no-Play phone |
-| N8 | Private Archy [PR53](https://github.com/forgesworn/archipelago-apps/pull/53). Unprivileged image, setup/pair/status/pause/delete UI, host TLS routing and coexistence, empty/partial-init deletion across restart qualified offline | Complete Archy daemon runtime, actual install/app gate/signer, reboot/FIPS and maintainer approval |
+| N7 | Offline host allocation on UDP34790/TCP on port 34790/TLS53499/TLS443, revocation, room purge and cold proof passed. A real browser/native guest exchanged video both ways for 300 seconds through renewal, then removal and purge; [cross-client receipt](evidence/kithmoot-node-ui-20261102/cross-client-proof.json) records relay candidates and selected TCP on port 34790. The public web [scoped recovery run](evidence/kithmoot-node-scoped-recovery-tls443-20261103.json) passed 459 seconds over publicly trusted TLS443, VPN on/off and an outage, including 312 seconds after final recovery across the prior login expiry | Android publicly trusted TLS443; independent networks; four-URL per-peer allocation/capacity measurement; physical no-Play phone |
+| N8 | Private Archy [PR53](https://github.com/forgesworn/archipelago-apps/pull/53). Unprivileged image, setup/pair/status/pause/delete UI, host TLS routing and coexistence, empty/partial-init deletion across restart qualified offline. Private demo runtime installed; owner completed signer-backed pairing and confirmed ready | Reboot/FIPS, official upstream submission and maintainer approval remain open; PR53 stays draft/unmerged |
 | N9 | [Legal-cover gap check](legal/kithmoot-node-release-gate.md) and candidate privacy/terms drafts prepared; four Chromium site checks passed, including 320/390/1440 widths with JavaScript disabled under production CSP | Owner adoption of actual operator/publication arrangements; publish only with the corresponding released behaviour |
 
 These are separate evidence classes. A green local build or hosted CI does
@@ -56,22 +57,24 @@ candidate does, not a claim that every owner decision has been adopted.
 
 ## Concrete next approvals and qualification target
 
-The owner can pass the three PR review packs to the maintainer. Each names
-screens, exact source/build, setup, expected results, evidence and limitations.
-No maintainer has been messaged. After a material UI change, review the new
-revision again.
+The Archy review pack names screens, exact source/build, setup, expected
+results, evidence and limitations. The owner clarified that ZAT is needed for
+submission back to the official Archy repository. Private PR53 remains draft
+and unmerged; no maintainer has been messaged. Refresh the pack and obtain
+explicit approval for the reviewed revision before merging Archipelago UI work.
 
 Maintainer must review and approve UI work on the Archy install, launch,
-pairing hand-off, delete-everything and status screens, and on KithMoot's
-Settings → Calls → Your KithMoot node, room hosting, guest ask/wait/admit and
-Room details → Hosted on with removal/close, before merging or approval.
-ZAT pending.
+pairing hand-off, delete-everything and status screens before merging or
+approval. ZAT pending. The review pack includes KithMoot's Settings → Calls →
+Your KithMoot node and Room details → Hosted on as integration context; the
+web release does not claim Archipelago maintainer approval.
 
-A live qualification needs an owner-authorised rented-server/away-from-home
-Archy target, its actual operator, public DNS/certificates, firewall access,
-and a no-Play GrapheneOS phone on another network. The private Archy image
-and exact host source are in PR53's review pack; loading/installing it and
-changing a live certificate or route are not performed by this handover.
+The authorised rented-server demo, public DNS/certificates and web pairing
+are now in use. The [network report](kithmoot-node-network-recovery.md) separates
+controlled public-node browser evidence from physical acceptance. A no-Play
+GrapheneOS phone on another network, independent commercial VPNs, packaged
+clients, reboot/FIPS and capacity remain open. Exact private Archy image and
+host source revisions are recorded in PR53's review pack.
 
 A public release additionally needs the owner to authorise Shelter source
 and binary distribution and choose the release-signing arrangement. Hash
