@@ -282,6 +282,9 @@ export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantId
  * username expires. A failed refresh never changes the transport policy. */
 export async function nodeCallFactory(record: NodeRoomRecord, device: ParticipantIdentity, access: () => Promise<NodeDeviceAccess>, options: NodeClientOptions & {
   PeerConnection?: typeof RTCPeerConnection; onUnavailable?: (error: KithmootNodeError) => void; monotonic?: () => number
+  /** Reopen signalling before a connectivity restart: its old socket may
+   * still appear open while sending offers into the previous route. */
+  onRecovering?: () => void
 } = {}): Promise<{ factory: PeerFactory; reconnect(): Promise<void>; close(): void }> {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
@@ -347,6 +350,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   }
   const renew = (restart = false): Promise<void> => {
     if (renewing) return renewing
+    if (restart && allowed()) { try { options.onRecovering?.() } catch { /* An observer cannot prevent credential recovery. */ } }
     const pending = runRenewal(restart).finally(() => { if (renewing === pending) renewing = undefined })
     renewing = pending
     return pending

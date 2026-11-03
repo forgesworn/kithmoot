@@ -78,6 +78,27 @@ async function settle(): Promise<void> {
 }
 
 describe('Mesh', () => {
+  it('gives a TURN-initial call its relay budget and retries on TURN without a duplicate direct attempt', async () => {
+    vi.useFakeTimers()
+    const session = new FakeSession(), factory = createFakeFactory(), local = device(), remote = device()
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk,
+      transport: new SimTransport(new SimRelay()), roomId: ROOM_ID, initialTier: 'turn', exhaustedRetryMs: 1000 })
+    try {
+      session.setViews([view(device().pub, [remote.pub])])
+      mesh.publish([{ id: 'camera', kind: 'video' } as unknown as MediaStreamTrack])
+      await vi.advanceTimersByTimeAsync(0)
+      const first = factory.to(remote.pub)!
+      expect(first.context?.tier).toBe('turn')
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(first.closed).toBe(false); expect(factory.instances).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: true })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(factory.instances).toHaveLength(2)
+      expect(factory.to(remote.pub)?.context?.tier).toBe('turn')
+    } finally { mesh.close(); vi.useRealTimers() }
+  })
+
   it('creates exactly one peer when the roster gains a remote device', () => {
     const session = new FakeSession()
     const factory = createFakeFactory()

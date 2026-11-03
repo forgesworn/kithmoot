@@ -177,6 +177,9 @@ export interface MeshOptions {
    * tries the next one. See `DEFAULT_ROUTE_TIMEOUT_MS`.
    */
   routeTimeoutMs?: number
+  /** A relay-only factory already uses TURN on its first connection. Start
+   * there, with its relay budget, and retain that choice after a rest. */
+  initialTier?: 'direct' | 'turn'
   /** How long the TURN rung gets. See `DEFAULT_TURN_ROUTE_TIMEOUT_MS`. */
   turnRouteTimeoutMs?: number
   /**
@@ -1052,7 +1055,7 @@ export class Mesh {
 
     for (const device of wantedDevices.keys()) {
       if (this.#routes.has(device)) continue
-      this.#routes.set(device, { tier: 'direct', endpoint: device, connected: false, exhausted: false, failed: [], retries: 0 })
+      this.#routes.set(device, { tier: this.#opts.initialTier ?? 'direct', endpoint: device, connected: false, exhausted: false, failed: [], retries: 0 })
     }
 
     // A volunteer who closed their laptop mid-sentence is the normal case,
@@ -1346,7 +1349,7 @@ export class Mesh {
     if (this.#closed) return
     const route = this.#routes.get(device)
     if (!route || !route.exhausted) return
-    route.tier = 'direct'
+    route.tier = this.#opts.initialTier ?? 'direct'
     route.endpoint = device
     route.connected = false
     route.exhausted = false
@@ -1810,7 +1813,7 @@ export class Mesh {
     if (this.#closed) return
     const route = this.#routes.get(device)
     if (!route) return
-    route.tier = 'direct'
+    route.tier = this.#opts.initialTier ?? 'direct'
     route.endpoint = device
     route.connected = false
     route.exhausted = false
