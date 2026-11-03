@@ -139,3 +139,12 @@ PR688 merged as `d7ce79ef`; release `20261103T221208Z` deploys the qualified
 main script (`57a1391e03c04fabed2636201e3ae8cccefbc8474b31147cd6fbcd10f323be0f`).
 The public index, entry script and main script match the local build byte for
 byte, with no diagnostic hook in the production renderer.
+
+Two browsers using the deployed renderer then passed a 24-second direct-route
+matched-pair smoke test over node TLS443 without candidate interception. They
+received 420/443 decoded video frames and 1,240/1,332 audio packets. One earlier
+repeated startup timed out before the second guest reached the call stage;
+subsequent device-signed access checks returned active in about half a second,
+and the accepted production run needed no manual retry. The cause of that
+startup timeout is not established. This does not qualify every initial join
+or replace the longer credential-renewal gate.
