@@ -6,15 +6,15 @@
   "sourceManifestSha256": "b96d597913aff461327ce7438b00460c5012b62ffbecee5c0415033ef83d97e5",
   "sourceFiles": 1804,
   "webBuild": {
-    "asset": "main-CflZEAWi.js",
-    "sha256": "b1ee62c2eb18aa3ebde24e232d73cb4d52006db6a9ec8c86fc71bd338aac70e0",
+    "asset": "main-U7y3ksWm.js",
+    "sha256": "e898e1688b69f7f0f8a79d3d2e14fbe4054c9294c8cdd900f411107013b8955a",
     "deployed": false,
     "reviewUrl": "https://localhost:4517/j/",
     "reviewServerRunning": false
   },
   "desktopBuild": {
-    "asset": "main-CH21o3RQ.js",
-    "sha256": "4a4c7b7231c9ba25fb913e3007171aaa7917f3cc26b3b7d0219649ed41157612",
+    "asset": "main-DjrctU5u.js",
+    "sha256": "7ac0460e2f93c85485c88708bf409e68be0c21552531fd460a2eb24e757ec59c",
     "deployed": false
   },
   "screenshots": {
@@ -159,5 +159,6 @@
     ],
     "logSha256": "1776208f0d424ddc4edf06d1f0d7600a2b2eedfbc559debe76a0fb226c605eee",
     "published": false
-  }
+  },
+  "crossClient": "cross-client-proof.json"
 }

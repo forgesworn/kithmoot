@@ -139,3 +139,28 @@ records stage-specific evidence, candidate choices and remaining approvals.
 The [legal-cover gap check](legal/kithmoot-node-release-gate.md) keeps the
 unpublished node separate from ordinary-room defaults and the existing public
 TURN service. No website deployment is performed by this candidate.
+
+## Browser and Android media
+
+Cross-client harness `792113dc00b28e8e992ca2180496b344ca637745` and native
+harness `0d7f15ba727981abf838deed48b875956ac31498` passed an actual browser
+keeper/native guest journey with 300 seconds of video both ways, credential
+renewal, signed removal with native media/custody clearing, and room purge.
+The [saved receipt](evidence/kithmoot-node-ui-20261102/cross-client-proof.json)
+records all ten frame samples and selected paths. The browser selected TURN
+over TCP on port 34790 with relay candidates on both ends. All four expected node
+URLs were configured; no browser `/turn` fallback request occurred. This
+proves local cross-client media, not public-CA TLS443 or independent NATs.
+The fixture, browsers and disposable no-Play AOSP API 35 emulator/AVD were removed.
+
+Run `test/kithmoot-node-cross-client.spec.ts` only with
+`E2E_NODE_CROSS_CLIENT=local-only`, an owned `E2E_NODE_ANDROID_SERIAL`,
+absolute `E2E_NODE_ADB`, `E2E_NODE_ANDROID_APK`,
+`E2E_NODE_ANDROID_TEST_APK` paths, the host's assigned
+`E2E_NODE_NATIVE_RELAY_IP` and the two private backend executable variables
+above. The guard rejects a physical/non-emulator serial and a device with
+Google Play services. Map only the two test hostnames inside that disposable
+emulator as described in the Android pack; its API preserves canonical signed
+HTTPS audiences and uses the generated fixture CA. No production trust or
+resolver bypass is added. The receipt deliberately leaves TLS443/public trust,
+NAT, physical-device and capacity acceptance open.
