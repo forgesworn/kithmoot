@@ -1189,14 +1189,19 @@ export class NostrRelayPool implements RelayTransport {
     sub.bindings.set(url, binding)
     // A relay that refused a read with `rate-limited:` is sent nothing until
     // its hold ends: the binding waits, closed, for `#recoverSubscriptions`.
-    if (this.#dials.readHeld(url)) { binding.closed = true; return }
+    if (this.#dials.readHeld(url) || Date.now() < (sub.resendAt.get(url) ?? 0)) { binding.closed = true; return }
     if (!this.#pool.listConnectionStatus().get(url)) {
       if (this.#dialable(url)) this.#mark(url, { state: 'connecting' })
       this.#attempted.set(url, Date.now())
     }
-    const active = () => !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
+    let stopped = false
+    const active = () => !stopped && !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
     let stall: ReturnType<typeof setTimeout> | undefined, handle: { close(): void } | undefined
-    binding.stop = () => { clearTimeout(stall); handle?.close() }
+    binding.stop = () => {
+      if (stopped) return
+      stopped = true; clearTimeout(stall)
+      if (!binding.closed) handle?.close()
+    }
     // Do not queue REQs, or retry their supposed silence, while connection
     // and authentication are still pending. The dependency's close waits for
     // its pending open, so obsolete retries would all send before closing and
@@ -1267,16 +1272,18 @@ export class NostrRelayPool implements RelayTransport {
           sub.onEvent(event, url)
         },
         onclose: reason => {
+          if (binding.closed) return
+          binding.closed = true
           clearTimeout(stall)
           closedBy = reason
           ended()
           if (!active()) return
-          binding.closed = true
           const evidence = closedReadEvidence(closedBy)
           if (evidence) binding.readEvidence = evidence
           // The socket still up means the relay sent `CLOSED` itself; a dropped
           // socket is marked disconnected before its subscriptions close.
-          if (this.#pool.listConnectionStatus().get(url) === true) this.#relayClosed(sub, url, closedBy)
+          // A deliberate local close fires before that flag changes.
+          if (closedBy !== 'relay connection closed by us' && this.#pool.listConnectionStatus().get(url) === true) this.#relayClosed(sub, url, closedBy)
         },
       })
       if (!active()) handle.close()
@@ -1328,6 +1335,10 @@ export class NostrRelayPool implements RelayTransport {
       // deduplication set across reconnections, including same-second events.
       // The redial waits a random moment, so pools that found the relay gone
       // together (after sleep, or a network change) do not dial it together.
+      // An idle socket can close while every reader is waiting out a relay
+      // refusal. Opening another socket does not shorten those backoffs.
+      const readers = [...this.#subscriptions].filter(sub => sub.bindings.has(relay.url) && !sub.stuck.has(relay.url))
+      if (readers.length && readers.every(sub => now < (sub.resendAt.get(relay.url) ?? 0))) continue
       this.#pool.close([relay.url])
       this.#reconnectSoon(relay.url, true)
     }
