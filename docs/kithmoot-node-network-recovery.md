@@ -8,17 +8,20 @@ Turning a VPN on or off, changing Wi-Fi and moving to mobile data must retain
 the room and recover its connection. Node rooms keep using their chosen node.
 They do not fall back to public relays or another TURN service.
 
-The browser now refreshes node credentials and restarts ICE on retained peers
-when their connection disconnects or fails. Returning online or changing the
-network type also reconnects the room relay and admission inbox. Concurrent
-refreshes share one request; a retry can restart ICE even if the issuer returns
-the same still-valid login. Only physical network type changes trigger that watcher. Estimated effective
+The browser refreshes node credentials and asks the room protocol to rebuild
+its connections when their route fails or their credentials renew. A native
+ICE restart can retain a TURN allocation tied to an earlier username, which
+then expires even while the app holds a newer login. Fresh native connections
+allocate with the installed credentials. Profile 2 keeps its generation history;
+legacy pairs restart on TURN. Returning online or changing the network type
+also reconnects the room relay and admission inbox. Concurrent refreshes share
+one request. Only physical network type changes trigger that watcher. Estimated effective
 connection type, latency and throughput do not restart a call. A peer that
 never connected cannot restart healthy calls; an established peer requests
 one refresh per failure episode.
 
 An established connection losing its route also reopens the authenticated room
-signalling socket before ICE restarts. A WebSocket can still report itself open
+signalling socket before rebuilding peers. A WebSocket can still report itself open
 after a route change while its offers go nowhere. Refreshing TURN alone cannot
 repair that socket. Concurrent recovery requests share the same reconnect.
 
@@ -70,7 +73,9 @@ or a call has failed.
   no-op probe fails this check.
 
 - Focused SDK/access/admission/closure tests cover temporary failure, retry,
-  concurrent reconnection, retained relay-only peers, withdrawal and expiry.
+  concurrent reconnection, fresh relay-only allocations, generation progression,
+  withdrawal and expiry. SDK users without a protocol rebuild callback retain
+  the native ICE restart fallback; the browser runtime supplies the callback.
 - The actual-process Chromium journey injects a temporary credential HTTP 503,
   triggers the online event, verifies retry and recovery, then admits guests,
   exchanges encrypted chat and verifies removal and room closure.
@@ -85,12 +90,22 @@ or a call has failed.
   A transient disconnect was followed by new media in both browsers. That run
   did not instrument the physical network route or qualify every VPN.
 
-Longer public credential-renewal, controlled VPN switching, independent mobile
-networks and physical GrapheneOS remain distinct evidence gates. Record actual
-results and limits rather than treating the availability of four TURN URLs as
-proof that each route worked.
+The strict public test matches the two test browsers by their mutual DTLS
+fingerprints and counts only media they exchange with each other. Room-wide
+media totals can hide a frozen pair when another participant still sends.
+Production release `20261103T155431Z` and the subsequent rotation-grace candidate
+failed that stricter renewal gate. The [allocation replacement candidate](evidence/kithmoot-node-matched-pair-tls443-20261103.json)
+passed 479 seconds over TURN TLS443, including VPN on/off, a 12-second outage
+and renewed credentials in both browsers. Media continued for 314 seconds after
+the final recovery, without a steady media gap over 25 seconds. VPN recovery
+took 42 seconds on and 11 seconds off; outage recovery took 15 seconds.
+There were no subscription overflows or browser errors.
 
-The longer demo run has exposed intermittent TLS connection failures and a
-failed VPN route recovery. Short raw-transport and application video successes
-do not clear that qualification. The signalling regression passes a check that
-reconnection precedes ICE restart and occurs once per established failure episode.
+That run served source `599467de` under production headers against the real
+public node, with a controlled WireGuard route carried through private SSH.
+Release `20261103T165540Z`, merge `3de4f219`, deploys the same main script bytes.
+Its public index, entry script and main script were compared byte for byte.
+Two fresh production browsers then exchanged matched-pair video and audio for
+28 seconds without candidate interception.
+Independent mobile networks, commercial VPNs, physical GrapheneOS and capacity
+remain distinct evidence gates.
