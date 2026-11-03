@@ -7,6 +7,7 @@ import { nodeBrowserFixture } from './node-browser-fixture.js'
 test('a paired owner admits a guest without typing, exchanges encrypted chat and closes the node room', async ({ browser, baseURL }, info) => {
   test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked Spry and private Shelter candidate executables')
   const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { turnPorts: { udpTcp: 34790, tls: 53499 } }), contexts: BrowserContext[] = [], requests: string[] = []
+  let failNextCredential = false
   try {
     async function device(owner = false) {
       const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } }); contexts.push(context)
@@ -31,6 +32,10 @@ test('a paired owner admits a guest without typing, exchanges encrypted chat and
       }, { node: fixture.websocket, accountRelay: accountRelay.href })
       await context.route('https://node.example/**', async route => {
         const path = new URL(route.request().url()).pathname; requests.push(path)
+        if (path === '/v1/credentials' && failNextCredential) {
+          failNextCredential = false
+          return route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': new URL(baseURL!).origin }, body: '{}' })
+        }
         const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
         await route.fulfill({ response })
       })
@@ -62,6 +67,12 @@ test('a paired owner admits a guest without typing, exchanges encrypted chat and
     await keeper.locator('#roomOnNode').check()
     await keeper.locator('#create').click()
     await expect(keeper.locator('#chatInput')).toBeVisible({ timeout: 30000 })
+    const beforeReconnect = requests.filter(path => path === '/v1/credentials').length
+    failNextCredential = true
+    await keeper.evaluate(() => window.dispatchEvent(new Event('online')))
+    await expect.poll(() => requests.filter(path => path === '/v1/credentials').length, { timeout: 15000 }).toBeGreaterThanOrEqual(beforeReconnect + 2)
+    await expect(keeper.locator('#chatInput')).toBeVisible()
+    await expect(keeper.locator('#status')).toContainText('restored')
     const link = keeper.url()
     expect(requests).toContain('/node/v1/enrol'); expect(requests).toContain('/v1/credentials')
     const guest = await device()

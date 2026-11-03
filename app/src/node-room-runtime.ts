@@ -62,6 +62,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   blocked: (participant: string) => boolean
   withdrawn: (reason: 'removed' | 'closed' | 'ended' | 'reset') => void
   unavailable: () => void
+  available?: () => void
 }) {
   if (state.phase !== 'active' || !state.grant) throw Error('Finish creating this room before entering.')
   const device = localIdentity(state.deviceSk), controller = new AbortController()
@@ -69,13 +70,22 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let access: NodeDeviceAccessController | undefined, timer: ReturnType<typeof setInterval> | undefined
   let inbox: ReturnType<typeof nodeKeeperInbox> | undefined, desk: ReturnType<typeof hostRoomEpoch> | undefined
   let calls: Awaited<ReturnType<typeof nodeCallFactory>> | undefined, refreshing = false
+  let connectionLost = false
+  const unavailable = () => { connectionLost = true; options.unavailable() }
+  let reconnecting: Promise<void> | undefined
+  const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string; effectiveType?: string } }).connection
+  const connectivity = typeof window === 'undefined' ? undefined : window
   const live = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal, allowed: live }
   const notify = (value: NodeDeviceAccess) => {
     if (value.state === 'closed' || value.state === 'removed' || value.state === 'ended' || value.state === 'reset') options.withdrawn(value.state)
     return value
   }
-  const refresh = async () => notify(await access!.refresh())
+  const refresh = async () => {
+    const next = notify(await access!.refresh())
+    if (next.state === 'active' && connectionLost) { connectionLost = false; options.available?.() }
+    return next
+  }
   access = await openNodeDeviceAccess(state.node, device, state.grant, nodeAccessStore(store, state.participant, state.node.room), requestOptions)
   const first = await refresh().catch(error => { access!.close(); throw error })
   if (first.state !== 'active') { access.close(); throw Error('This device no longer has access to the room.') }
@@ -83,10 +93,29 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   const root = deriveRoom(state.secret)
   const close = () => {
     if (stopped) return
-    stopped = true; controller.abort(); clearInterval(timer); desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
+    stopped = true; controller.abort(); clearInterval(timer)
+    connectivity?.removeEventListener('online', reconnect)
+    network?.removeEventListener('change', networkChanged)
+    desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
+  }
+  const reconnect = () => {
+    if (!live() || reconnecting) return
+    reconnecting = (async () => {
+      await refresh()
+      if (!live() || !access!.allowed()) return
+      await keeper?.retry(); await keeper?.renew()
+      pool.reconnect(); inbox?.reconnect()
+      await calls?.reconnect()
+    })().catch(unavailable).finally(() => { reconnecting = undefined })
+  }
+  let networkSignature = `${network?.type ?? ''}:${network?.effectiveType ?? ''}`
+  const networkChanged = () => {
+    const next = `${network?.type ?? ''}:${network?.effectiveType ?? ''}`
+    if (next === networkSignature) return
+    networkSignature = next; reconnect()
   }
   try {
-    calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: options.unavailable })
+    calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable })
     if (state.authoritySk) {
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
@@ -109,15 +138,17 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
             const answer = await keeper!.admit(event, true)
             s?.letIn(inspected.request.participant); await inbox!.publish(answer); options.settled(inspected.request, true)
           } catch (error) { options.settled(inspected.request, false); throw error }
-        })().catch(options.unavailable)
+        })().catch(unavailable)
       })
     }
     timer = setInterval(() => {
       if (!live()) { close(); return }
       if (refreshing) return
       refreshing = true
-      void refresh().then(() => keeper?.renew()).catch(options.unavailable).finally(() => { refreshing = false })
+      void refresh().then(() => keeper?.renew()).catch(unavailable).finally(() => { refreshing = false })
     }, 5000)
+    connectivity?.addEventListener('online', reconnect)
+    network?.addEventListener('change', networkChanged)
     return {
       state, pool, factory: calls.factory, allowed: () => live() && access!.allowed(), close,
       observe: (event: unknown) => access!.observe(event),
@@ -132,12 +163,12 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
         session.rememberMembers(journal?.members ?? [state.participant]); session.forgetParticipants(journal?.removed ?? [])
       },
       async remove(participant: string) {
-        if (!keeper || !s || !state.authoritySk) throw Error('Only the keeper can remove people from this room.')
+        if (!keeper || !s || !state.authoritySk) throw Error('Only the person managing this room can remove people.')
         await keeper.remove(participant)
         await s.rekey({ authoritySk: state.authoritySk, removed: [participant], by: state.participant })
       },
       async end(pair: PairedKithmootNode) {
-        if (!keeper || !s || !state.authoritySk) throw Error('Only the keeper can close this room.')
+        if (!keeper || !s || !state.authoritySk) throw Error('Only the person managing this room can close it.')
         const held = loadPendingNodeClose(store, state.participant, state.node.room)
         const current = s.currentEpoch()
         try {

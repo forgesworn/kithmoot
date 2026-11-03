@@ -23,6 +23,19 @@ function fixture() {
     reply: (value: unknown) => { reply = value }, failSave: () => { failure = true }, advance: (seconds: number) => { clock += seconds } }
 }
 describe('durable node device access', () => {
+  it.each([429, 503])('retains valid admission through HTTP %s and can refresh after recovery', async status => {
+    const f = fixture(), controller = await openNodeDeviceAccess(f.node, f.device, f.grant, f.store, f.options)
+    try {
+      await controller.refresh(); expect(controller.allowed()).toBe(true)
+      vi.mocked(f.fetcher).mockResolvedValueOnce(new Response('{}', { status, headers: { 'content-type': 'application/json' } }))
+      await expect(controller.refresh()).rejects.toMatchObject({ reason: 'unavailable', status })
+      expect(controller.allowed()).toBe(true)
+      expect((await controller.refresh()).state).toBe('active')
+      expect(f.options.onClosure).not.toHaveBeenCalled()
+      f.reply({ state: 'removed', event: buildRevocation(f.parsed, f.authoritySk, NOW + 1) })
+      expect((await controller.refresh()).state).toBe('removed'); expect(controller.allowed()).toBe(false)
+    } finally { controller.close() }
+  })
   it('persists admission before making requests and keeps revoked ids blocked after restart and replay', async () => {
     const f = fixture(), controller = await openNodeDeviceAccess(f.node, f.device, f.grant, f.store, f.options)
     expect(f.store.save).toHaveBeenCalledTimes(1); expect(f.fetcher).not.toHaveBeenCalled(); expect(controller.allowed()).toBe(false)

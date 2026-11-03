@@ -82,7 +82,7 @@ async function request(origin: string, path: string, value: unknown, identity: P
       headers: { 'Content-Type': 'application/json', Authorization: `Nostr ${btoa(JSON.stringify(proof))}` },
       credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000) })
     status = response.status
-    if (!response.ok) throw new KithmootNodeError(status, 'refused')
+    if (!response.ok) throw new KithmootNodeError(status, status === 408 || status === 425 || status === 429 || status >= 500 ? 'unavailable' : 'refused')
     return await body(response)
   } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(status, status ? 'invalid' : 'unavailable') }
 }
@@ -272,7 +272,7 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
 /** The inviter's separate, restricted ask inbox. Room-device grants confer
  * no access to this namespace; the keeper signs its own scoped NIP-42 proof.
  * This transport cannot be used as a RoomSession's admitted room door. */
-export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantIdentity, options: NodeRelayOptions = {}): RelayTransport {
+export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantIdentity, options: NodeRelayOptions = {}): RelayPoolClient {
   const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
   if (authority.pubkey !== node.authority) return invalid()
   return nodeRoomTransport(node, authority, 'ask', options)
@@ -282,7 +282,7 @@ export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantId
  * username expires. A failed refresh never changes the transport policy. */
 export async function nodeCallFactory(record: NodeRoomRecord, device: ParticipantIdentity, access: () => Promise<NodeDeviceAccess>, options: NodeClientOptions & {
   PeerConnection?: typeof RTCPeerConnection; onUnavailable?: (error: KithmootNodeError) => void; monotonic?: () => number
-} = {}): Promise<{ factory: PeerFactory; close(): void }> {
+} = {}): Promise<{ factory: PeerFactory; reconnect(): Promise<void>; close(): void }> {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
@@ -291,6 +291,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity
   let credential: SpryCredential
+  let renewing: Promise<void> | undefined
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
   const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
@@ -319,7 +320,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
   }
   const schedule = (seconds: number) => { clearTimeout(timer); timer = setTimeout(() => { void renew() }, Math.max(1000, seconds * 1000)) }
-  const renew = async (): Promise<void> => {
+  const runRenewal = async (restart: boolean): Promise<void> => {
     if (!allowed()) { close(); return }
     if (remaining() <= 0) { expire(); return }
     try {
@@ -327,7 +328,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); return }
       const changed = credential.username !== next.username
       install(next)
-      if (changed) for (const peer of peers) {
+      if (changed || restart) for (const peer of peers) {
         if (peer.signalingState === 'closed') { peers.delete(peer); continue }
         try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
       }
@@ -344,6 +345,12 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       else schedule(Math.min(5, remaining()))
     }
   }
+  const renew = (restart = false): Promise<void> => {
+    if (renewing) return renewing
+    const pending = runRenewal(restart).finally(() => { if (renewing === pending) renewing = undefined })
+    renewing = pending
+    return pending
+  }
   install(await obtain())
   if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
   schedule(remaining() <= 60 ? remaining() : remaining() - 60)
@@ -352,6 +359,12 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
       peer.close = () => { peers.delete(peer); end() }
+      peer.addEventListener?.('connectionstatechange', () => {
+        // A changed address can invalidate the old TURN allocation before its
+        // credential expires. Fetch current credentials and regather on the
+        // retained connection; the room and its admission remain unchanged.
+        if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') void renew(true)
+      })
       // Native RTCTrackEvent includes every field Peer reads. Its DOM
       // callback type is narrower than the portable adapter declaration.
       peers.add(peer); return peer as unknown as RTCPeerConnectionLike
@@ -359,6 +372,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {
     factory,
+    reconnect: () => renew(true),
     close,
   }
 }
