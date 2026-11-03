@@ -44,6 +44,10 @@ authenticated private call relay is recorded below.
 It is a draft for the owner to check. It is not legal advice, and no lawyer
 has read it. The law is in jurisdiction-kit's `law/gb/online-services.md`.
 
+- [`kithmoot-node-release-gate.md`](kithmoot-node-release-gate.md) records the
+  3 November private node candidate, access metadata, key custody, deletion
+  limits, independent-operator questions and remaining publication/UI gates.
+
 ## Archive
 
 [`archive/`](archive/) holds the documents written while ForgeSworn ran

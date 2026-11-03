@@ -62,6 +62,14 @@ for (const colour of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 844 })
       await page.evaluate(() => document.documentElement.style.fontSize = '200%')
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      for (const name of ['privacy', 'terms']) {
+        await page.goto(`https://site.kithmoot.test/${name}/index.html`)
+        await expect(page.getByRole('heading', { name: /Optional hosted node/ })).toBeVisible()
+        for (const width of [320, 390, 1440]) {
+          await page.setViewportSize({ width, height: 900 })
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name} overflow at ${width}px`).toBe(true)
+        }
+      }
       expect(failed).toEqual([])
     } finally { await context.close() }
   })
