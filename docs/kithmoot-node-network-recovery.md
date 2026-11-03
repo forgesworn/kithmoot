@@ -28,6 +28,13 @@ five seconds gets a bounded read probe in its existing room partition. A silent
 socket is replaced and its subscriptions restored, even when no chat message is
 being sent and the HTTP endpoint remains reachable.
 
+Subscription retries also wait for the authenticated connection to open.
+Previously an eleven-second handshake queued three generations of requests;
+obsolete readers all sent before their queued closes, overflowing the room
+relay's sixteen-subscription limit. The corrected client checks that a reader
+is still current before sending and starts its silence timer after connection.
+The relay's capacity and admission policy stay the same.
+
 Node connections also register with the browser's media receiver registry.
 Video tile binding and recovery use that registry when a browser omits a track
 notification during a rebuild. Registering each native peer through the pinned
@@ -50,6 +57,11 @@ stopped SSH tunnel must not be described as proof that the public room service
 or a call has failed.
 
 ## Verification
+
+- The [delayed authentication regression](evidence/kithmoot-node-subscription-recovery-20261103.json)
+  holds a real NIP-42 signer for eleven seconds. Eleven readers are opened and
+  one cancelled. The previous client sends thirty-one requests; the corrected
+  client sends exactly the ten current requests and stays below the relay cap.
 
 - The [socket liveness regression](evidence/kithmoot-node-socket-liveness-20261103.json)
   uses a real WebSocket server and device-signed NIP-42 authentication. It stops

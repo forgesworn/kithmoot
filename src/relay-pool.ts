@@ -1177,7 +1177,7 @@ export class NostrRelayPool implements RelayTransport {
     for (const relay of this.#relays) if (relay.read) this.#startRelay(sub, relay.url)
   }
 
-  #startRelay(sub: Subscription, url: string, since = Date.now()): void {
+  #startRelay(sub: Subscription, url: string, since?: number): void {
     if (this.#closed || this.#paused) return
     // Refused for good by this relay: only `#start` clears that.
     if (sub.stuck.has(url)) return
@@ -1189,45 +1189,52 @@ export class NostrRelayPool implements RelayTransport {
     sub.bindings.set(url, binding)
     // A relay that refused a read with `rate-limited:` is sent nothing until
     // its hold ends: the binding waits, closed, for `#recoverSubscriptions`.
-    if (this.#dials.readHeld(url)) { binding.closed = true; return }
-    const requestedAt = Date.now()
-    let closedBy: string | undefined
+    if (this.#dials.readHeld(url) || Date.now() < (sub.resendAt.get(url) ?? 0)) { binding.closed = true; return }
     if (!this.#pool.listConnectionStatus().get(url)) {
       if (this.#dialable(url)) this.#mark(url, { state: 'connecting' })
       this.#attempted.set(url, Date.now())
     }
-    const active = () => !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
-    // A `REQ` sent the instant a reopened socket connects can land in the
-    // gap before a relay that was still recovering actually starts
-    // answering again - the socket is open, but the relay drops the frame
-    // on the floor the same way it dropped everything else. Nothing else
-    // notices: the socket never closes, so `#recoverSubscriptions` sees a
-    // healthy connection, and nostr-tools' own `maxWait` below does not
-    // resend anything - it only fakes an `EOSE` locally once it gives up
-    // waiting. So this watches for that specific silence and resends the
-    // `REQ` on the same connection - it does not close it, which would
-    // race a publish retry reopening (or finishing on) that same url and
-    // turn its in-flight `OK` wait into a hard "connection closed by us"
-    // failure instead of a clean, retryable timeout. A connection that is
-    // genuinely dead surfaces as a real close on its own, or gets caught by
-    // a publish attempt's own retry or the next scheduled `probe()`; `since`
-    // carries the original start through each resend so this gives up
-    // resending - not listening - once `SUBSCRIBE_STALL_BUDGET_MS` passes,
-    // rather than resending into the void forever.
-    const stall = setTimeout(() => {
-      if (!active() || this.#authError(url) || this.#dials.readHeld(url) || Date.now() - since >= SUBSCRIBE_STALL_BUDGET_MS) return
-      void this.#background(async () => this.#startRelay(sub, url, since)).catch(() => {})
-    }, SUBSCRIBE_STALL_MS)
-    const handle = this.#pool.subscribeMap(sub.filters.map(filter => ({ url, filter: { ...filter } })), {
-      // Dependency relay serials restart on fresh sockets. A fresh wire ID
-      // prevents an old reader's EOSE identifier satisfying a new binding.
-      id: bytesToHex(randomBytes(16)),
-      abort: this.#abort.signal,
-      maxWait: SUBSCRIBE_EOSE_DEADLINE_MS,
-      oneose: () => {
+    let stopped = false
+    const active = () => !stopped && !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
+    let stall: ReturnType<typeof setTimeout> | undefined, handle: { close(): void } | undefined
+    binding.stop = () => {
+      if (stopped) return
+      stopped = true; clearTimeout(stall)
+      if (!binding.closed) handle?.close()
+    }
+    // Do not queue REQs, or retry their supposed silence, while connection
+    // and authentication are still pending. The dependency's close waits for
+    // its pending open, so obsolete retries would all send before closing and
+    // overflow the relay's subscription limit when the handshake finishes.
+    void this.#pool.ensureRelay(url, { abort: this.#abort.signal, connectionTimeout: SUBSCRIBE_EOSE_DEADLINE_MS - 1000 }).then(relay => {
+      if (!active()) return
+      this.#pool.onRelayConnectionSuccess?.(url)
+      const requestedAt = Date.now(), startedAt = since ?? requestedAt
+      let closedBy: string | undefined
+      // A `REQ` sent the instant a reopened socket connects can land in the
+      // gap before a relay that was still recovering actually starts
+      // answering again - the socket is open, but the relay drops the frame
+      // on the floor the same way it dropped everything else. Nothing else
+      // notices: the socket never closes, so `#recoverSubscriptions` sees a
+      // healthy connection, and nostr-tools' own `maxWait` below does not
+      // resend anything - it only fakes an `EOSE` locally once it gives up
+      // waiting. So this watches for that specific silence and resends the
+      // `REQ` on the same connection - it does not close it, which would
+      // race a publish retry reopening (or finishing on) that same url and
+      // turn its in-flight `OK` wait into a hard "connection closed by us"
+      // failure instead of a clean, retryable timeout. A connection that is
+      // genuinely dead surfaces as a real close on its own, or gets caught by
+      // a publish attempt's own retry or the next scheduled `probe()`; `since`
+      // carries the original start through each resend so this gives up
+      // resending - not listening - once `SUBSCRIBE_STALL_BUDGET_MS` passes,
+      // rather than resending into the void forever.
+      stall = setTimeout(() => {
+        if (!active() || this.#authError(url) || this.#dials.readHeld(url) || Date.now() - startedAt >= SUBSCRIBE_STALL_BUDGET_MS) return
+        void this.#background(async () => this.#startRelay(sub, url, startedAt)).catch(() => {})
+      }, SUBSCRIBE_STALL_MS)
+      const ended = () => {
         clearTimeout(stall)
-        // nostr-tools calls this for the relay's own `EOSE`, for its own wait
-        // running out at `maxWait` after the `REQ`, and just before a close.
+        // History finishes on EOSE, the dependency's timeout, or a close.
         // Only an answer inside that wait, with no close heard after it, is
         // the relay's: the `REQ` went out after `requestedAt`.
         if (Date.now() - requestedAt < SUBSCRIBE_EOSE_DEADLINE_MS) {
@@ -1245,31 +1252,46 @@ export class NostrRelayPool implements RelayTransport {
           clearTimeout(sub.deadline)
           sub.onEose?.()
         }
-      },
-      onevent: event => {
-        clearTimeout(stall)
-        if (generation === this.#generation) this.#heard(url)
-        if (generation === this.#generation && this.#dials.failing(url)) this.#answered(url)
-        if (!active() || sub.seen.has(event.id)) return
-        sub.seen.add(event.id)
-        // Every presence heartbeat is a new id, so a long-lived room would
-        // otherwise grow this for as long as it stays open.
-        if (sub.seen.size > MAX_SEEN_PER_SUBSCRIPTION) sub.seen.delete(sub.seen.values().next().value!)
-        sub.onEvent(event, url)
-      },
-      onclose: closes => {
-        clearTimeout(stall)
-        closedBy = closes[0]?.reason ?? ''
-        if (!active()) return
-        binding.closed = true
-        const evidence = closedReadEvidence(closedBy)
-        if (evidence) binding.readEvidence = evidence
-        // The socket still up means the relay sent `CLOSED` itself; a dropped
-        // socket is marked disconnected before its subscriptions close.
-        if (this.#pool.listConnectionStatus().get(url) === true) this.#relayClosed(sub, url, closedBy)
-      },
+      }
+      handle = relay.subscribe(sub.filters.map(filter => ({ ...filter })), {
+        // Dependency relay serials restart on fresh sockets. A fresh wire ID
+        // prevents an old reader's EOSE identifier satisfying a new binding.
+        id: bytesToHex(randomBytes(16)),
+        abort: this.#abort.signal,
+        eoseTimeout: SUBSCRIBE_EOSE_DEADLINE_MS,
+        oneose: ended,
+        onevent: event => {
+          clearTimeout(stall)
+          if (generation === this.#generation) this.#heard(url)
+          if (generation === this.#generation && this.#dials.failing(url)) this.#answered(url)
+          if (!active() || sub.seen.has(event.id)) return
+          sub.seen.add(event.id)
+          // Every presence heartbeat is a new id, so a long-lived room would
+          // otherwise grow this for as long as it stays open.
+          if (sub.seen.size > MAX_SEEN_PER_SUBSCRIPTION) sub.seen.delete(sub.seen.values().next().value!)
+          sub.onEvent(event, url)
+        },
+        onclose: reason => {
+          if (binding.closed) return
+          binding.closed = true
+          clearTimeout(stall)
+          closedBy = reason
+          ended()
+          if (!active()) return
+          const evidence = closedReadEvidence(closedBy)
+          if (evidence) binding.readEvidence = evidence
+          // The socket still up means the relay sent `CLOSED` itself; a dropped
+          // socket is marked disconnected before its subscriptions close.
+          // A deliberate local close fires before that flag changes.
+          if (closedBy !== 'relay connection closed by us' && this.#pool.listConnectionStatus().get(url) === true) this.#relayClosed(sub, url, closedBy)
+        },
+      })
+      if (!active()) handle.close()
+    }).catch(() => {
+      if (!active()) return
+      binding.closed = true
+      this.#pool.onRelayConnectionFailure?.(url)
     })
-    binding.stop = () => { clearTimeout(stall); handle.close() }
   }
 
   /** The relay itself closed one subscription. What it said decides what
@@ -1313,6 +1335,10 @@ export class NostrRelayPool implements RelayTransport {
       // deduplication set across reconnections, including same-second events.
       // The redial waits a random moment, so pools that found the relay gone
       // together (after sleep, or a network change) do not dial it together.
+      // An idle socket can close while every reader is waiting out a relay
+      // refusal. Opening another socket does not shorten those backoffs.
+      const readers = [...this.#subscriptions].filter(sub => sub.bindings.has(relay.url) && !sub.stuck.has(relay.url))
+      if (readers.length && readers.every(sub => now < (sub.resendAt.get(relay.url) ?? 0))) continue
       this.#pool.close([relay.url])
       this.#reconnectSoon(relay.url, true)
     }
