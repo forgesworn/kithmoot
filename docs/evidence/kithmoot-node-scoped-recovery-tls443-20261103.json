@@ -202,5 +202,79 @@
     "Synthetic camera and microphone; two Chromium processes on one container",
     "Candidate renderer served under production headers against the real public node",
     "No capacity, physical GrapheneOS or packaged-client release claim"
-  ]
+  ],
+  "productionDeployment": {
+    "v": 1,
+    "release": "20261103T221208Z",
+    "source": "d7ce79ef8e32443f28810e5218aa5424c14d1a8d",
+    "publicByteEquality": true,
+    "noDiagnosticHook": true,
+    "files": [
+      {
+        "path": "index.html",
+        "sha256": "a9dc3d43cffc82c4eeea9006a720bd01084a746bae9a58300a4b02b695d95ed6",
+        "bytes": 166025
+      },
+      {
+        "path": "assets/index-DHqHKKe3.js",
+        "sha256": "c22145965e667f15af353d020b0e0794f8dfc51d02f5c4d67032fb7c0d681f95",
+        "bytes": 5199
+      },
+      {
+        "path": "assets/main-Dm5h4PfM.js",
+        "sha256": "57a1391e03c04fabed2636201e3ae8cccefbc8474b31147cd6fbcd10f323be0f",
+        "bytes": 2087484
+      }
+    ]
+  },
+  "productionSmoke": {
+    "seconds": 24,
+    "firstMovingSampleSeconds": 0,
+    "productionRenderer": true,
+    "candidateInterception": false,
+    "matchedPairByMutualDtlsFingerprint": true,
+    "nodeTls443Selected": true,
+    "decodedVideoFrames": [
+      420,
+      443
+    ],
+    "audioPackets": [
+      1240,
+      1332
+    ],
+    "pageErrors": [],
+    "renewalQualification": false,
+    "samplesWithoutSelectedPairStats": [
+      2,
+      1
+    ]
+  },
+  "nativeBrowserRegressions": {
+    "completeRoomJourneyPassed": true,
+    "completeRoomJourneySeconds": 43.0,
+    "threeParticipantIsolationPassed": true,
+    "threeParticipantIsolationSeconds": 34.3,
+    "healthyNativeConnectionPreserved": true,
+    "healthyAudioAndVideoAdvancing": true,
+    "previousProductionSourceRejected": true,
+    "failureEventInjected": true
+  },
+  "focusedValidation": {
+    "testsPassed": 125,
+    "testsSkipped": 5,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "applicableHostedChecksPassed": 5
+  },
+  "startupObservation": {
+    "oneRepeatedProductionStartupTimedOut": true,
+    "failedGuestReachedCallStage": false,
+    "subsequentDeviceSignedAccessActiveMilliseconds": [
+      408,
+      457
+    ],
+    "subsequentProductionSmokePassedWithoutManualRetry": true,
+    "causeEstablished": false,
+    "allInitialJoinsQualified": false
+  }
 }
