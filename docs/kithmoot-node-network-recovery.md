@@ -17,6 +17,11 @@ connection type, latency and throughput do not restart a call. A peer that
 never connected cannot restart healthy calls; an established peer requests
 one refresh per failure episode.
 
+An established connection losing its route also reopens the authenticated room
+signalling socket before ICE restarts. A WebSocket can still report itself open
+after a route change while its offers go nowhere. Refreshing TURN alone cannot
+repair that socket. Concurrent recovery requests share the same reconnect.
+
 HTTP 408, 425, 429 and server failures are temporary unavailability. They do not
 revoke a valid signed admission. Explicit refusal, signed removal and closure
 retain their existing enforcement. Old TURN credentials still expire within
@@ -44,3 +49,8 @@ Longer public credential-renewal, controlled VPN switching, independent mobile
 networks and physical GrapheneOS remain distinct evidence gates. Record actual
 results and limits rather than treating the availability of four TURN URLs as
 proof that each route worked.
+
+The longer demo run has exposed intermittent TLS connection failures and a
+failed VPN route recovery. Short raw-transport and application video successes
+do not clear that qualification. The signalling regression passes a check that
+reconnection precedes ICE restart and occurs once per established failure episode.

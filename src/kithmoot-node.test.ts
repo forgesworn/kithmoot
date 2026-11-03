@@ -205,21 +205,26 @@ describe('pinned KithMoot node client', () => {
   })
   it('does not restart a healthy call for a peer which never connected and recovers each established failure only once', async () => {
     const f = fixture(), fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
+    const order: string[] = [], recovering = vi.fn(() => { order.push('signalling') })
     class Peer extends EventTarget {
-      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(() => { order.push('ice') }); setConfiguration = vi.fn()
       constructor(_: RTCConfiguration) { super() }
       state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
       close() { this.signalingState = 'closed' }
     }
     const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
-      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection })
+      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection, onRecovering: recovering })
     try {
       const healthy = managed.factory() as unknown as Peer, other = managed.factory() as unknown as Peer
       healthy.state('connected'); other.state('failed'); await new Promise(resolve => setTimeout(resolve, 0))
       expect(fetcher).toHaveBeenCalledTimes(1); expect(healthy.restartIce).not.toHaveBeenCalled()
+      expect(recovering).not.toHaveBeenCalled()
       healthy.state('disconnected'); await vi.waitFor(() => expect(healthy.restartIce).toHaveBeenCalledTimes(1))
+      expect(order[0]).toBe('signalling'); expect(order.slice(1)).toEqual(['ice', 'ice'])
       healthy.state('failed'); await new Promise(resolve => setTimeout(resolve, 0)); expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(recovering).toHaveBeenCalledTimes(1)
       healthy.state('connected'); healthy.state('disconnected'); await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3))
+      expect(recovering).toHaveBeenCalledTimes(2)
     } finally { managed.close() }
   })
   it('ends a cached call within five monotonic minutes despite clock rollback and a stalled renewal', async () => {
