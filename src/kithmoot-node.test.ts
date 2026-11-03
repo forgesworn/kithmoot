@@ -200,6 +200,35 @@ describe('pinned KithMoot node client', () => {
       expect(() => managed.factory()).toThrow()
     } finally { managed.close() }
   })
+  it('replaces allocations through the protocol owner after installing a new login', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW
+    const fetcher = vi.fn(async () => response(f.login(clock))) as unknown as typeof fetch
+    class Peer {
+      signalingState = 'stable'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      readonly allocationUsername: string
+      constructor(configuration: RTCConfiguration) { this.allocationUsername = configuration.iceServers![0]!.username! }
+      close() { this.signalingState = 'closed' }
+    }
+    let peer: Peer
+    const rebuildPeers = vi.fn(() => { peer.close(); peer = managed.factory() as unknown as Peer; return true })
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers })
+    try {
+      peer = managed.factory() as unknown as Peer
+      const first = peer
+      clock += 240; await vi.advanceTimersByTimeAsync(240000)
+      expect(rebuildPeers).toHaveBeenCalledTimes(1)
+      expect(first.signalingState).toBe('closed')
+      expect(peer!.allocationUsername).not.toBe(first.allocationUsername)
+      expect(first.restartIce).not.toHaveBeenCalled(); expect(first.setConfiguration).not.toHaveBeenCalled()
+      const second = peer!
+      await managed.reconnect()
+      expect(rebuildPeers).toHaveBeenCalledTimes(2)
+      expect(second.signalingState).toBe('closed'); expect(peer!).not.toBe(second)
+      managed.close(); await managed.reconnect(); expect(rebuildPeers).toHaveBeenCalledTimes(2)
+    } finally { managed.close() }
+  })
   it('closes existing peers when permission is withdrawn while a credential renewal is in flight', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW, allowed = true, calls = 0, release!: (value: Response) => void
@@ -209,13 +238,15 @@ describe('pinned KithMoot node client', () => {
       restartIce = vi.fn(); setConfiguration = vi.fn()
       close() { this.signalingState = 'closed' }
     }
-    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, { fetcher, now: () => clock, allowed: () => allowed,
+    const rebuildPeers = vi.fn(() => true)
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, { fetcher, now: () => clock, allowed: () => allowed, rebuildPeers,
       PeerConnection: Peer as unknown as typeof RTCPeerConnection })
     try {
       const peer = managed.factory() as unknown as Peer
       clock += 240; await vi.advanceTimersByTimeAsync(240000); expect(calls).toBe(2)
       allowed = false; release(response(f.login(clock))); await vi.advanceTimersByTimeAsync(0)
       await vi.waitFor(() => expect(peer.signalingState).toBe('closed')); expect(peer.restartIce).not.toHaveBeenCalled()
+      expect(rebuildPeers).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(300000); expect(calls).toBe(2)
     } finally { managed.close() }
   })

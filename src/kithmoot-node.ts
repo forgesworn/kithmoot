@@ -285,6 +285,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   /** Reopen signalling before a connectivity restart: its old socket may
    * still appear open while sending offers into the previous route. */
   onRecovering?: () => void
+  /** Rebuild through the signalling owner after installing fresh credentials.
+   * Native ICE restarts can retain an allocation tied to the old username.
+   * Return false when no protocol owner is attached, to use native recovery. */
+  rebuildPeers?: () => boolean
   /** Register the native connection with the embedding's media receivers
    * without wrapping and losing the pinned node factory's identity. */
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
@@ -334,7 +338,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); return }
       const changed = credential.username !== next.username
       install(next)
-      if (changed || restart) for (const peer of peers) {
+      if ((changed || restart) && !options.rebuildPeers?.()) for (const peer of peers) {
         if (peer.signalingState === 'closed') { peers.delete(peer); continue }
         try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
       }
@@ -369,8 +373,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
         // A changed address can invalidate the old TURN allocation before its
-        // credential expires. Fetch current credentials and regather on the
-        // retained connection; the room and its admission remain unchanged.
+        // credential expires. Fetch current credentials and ask the protocol
+        // owner to rebuild; the room and its admission remain unchanged.
         if (peer.connectionState === 'connected') { connected = true; recovering = false }
         else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
           recovering = true; void renew(true)

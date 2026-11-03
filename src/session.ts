@@ -2788,6 +2788,13 @@ export class RoomSession {
     return this.#mesh?.routes ?? new Map()
   }
 
+  /** Apply the node factory's refreshed TURN credentials with fresh native
+   * allocations. Node rooms have endpoint pairs and no forwarding routes. */
+  refreshNodeCallConnections(): boolean {
+    if (!this.#opts.node || this.#left || this.#closed) return false
+    return this.#mesh?.rebuildConnections() ?? false
+  }
+
   /**
    * What each profile-2 pair's own controller says about itself: generation,
    * where it is on the health ladder, per-slot verdicts and how much

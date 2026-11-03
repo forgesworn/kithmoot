@@ -1848,6 +1848,18 @@ export class Mesh {
     return [...this.#controllers.values()].map((controller) => controller.summary())
   }
 
+  /** Replace native endpoint connections after the factory's credentials
+   * change. Keep SlotPeer's generation history so delayed old signals cannot
+   * revive an allocation using an expired TURN login. */
+  rebuildConnections(): boolean {
+    if (this.#closed || this.#quiet) return false
+    for (const [device, peer] of [...this.#peers]) {
+      if (peer instanceof SlotPeer) peer.rebuild()
+      else this.#restartPair(device)
+    }
+    return true
+  }
+
   /** The peer for an ordinary room device, on whichever profile the pair
    *  speaks. Never a forwarder: that path stays profile 1 in phase 1. */
   #createEndpointPeer(endpoint: string): NegotiatingPeer {

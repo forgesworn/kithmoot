@@ -71,6 +71,7 @@ interface Harness {
 function harness(
   options: {
     callProfile?: 1 | 2
+    initialTier?: 'direct' | 'turn'
     routeTimeoutMs?: number
     exhaustedRetryMs?: number
     forwarders?: ForwarderRef[]
@@ -96,6 +97,7 @@ function harness(
     transport: new SimTransport(relay),
     roomId: ROOM_ID,
     callProfile: options.callProfile,
+    initialTier: options.initialTier,
     routeTimeoutMs: options.routeTimeoutMs,
     exhaustedRetryMs: options.exhaustedRetryMs,
     forwarders: options.forwarders,
@@ -137,6 +139,25 @@ function harness(
 /** Four `addTransceiver` calls, and nothing else, is what a profile-2
  *  connection does first. A profile-1 one never opens an empty m-line. */
 const slotted = (pc: { calls: { method: string }[] }) => pc.calls.filter((c) => c.method === 'addTransceiver').length === 4
+
+describe('fresh node allocations', () => {
+  it.each([1, 2] as const)('rebuilds profile %s on TURN without reusing a native peer or generation', async (profile) => {
+    const h = harness({ callProfile: profile, initialTier: 'turn' })
+    try {
+      h.roster(profile); h.mesh.publish([track('mic-1')]); await settle()
+      const first = h.factory.to(h.remote.pub)!
+      const generation = h.mesh.pairDiagnostics()[0]?.generation
+      expect(h.mesh.rebuildConnections()).toBe(true); await settle()
+      const replacement = h.factory.to(h.remote.pub)!
+      expect(first.closed).toBe(true)
+      expect(replacement).not.toBe(first)
+      expect(slotted(replacement)).toBe(profile === 2)
+      expect(h.mesh.routes.get(h.remote.pub)?.tier).toBe('turn')
+      if (profile === 2) expect(h.mesh.pairDiagnostics()[0]?.generation).toBeGreaterThan(generation!)
+      h.mesh.close(); expect(h.mesh.rebuildConnections()).toBe(false)
+    } finally { h.mesh.close() }
+  })
+})
 
 describe('the capability gate (§2.3)', () => {
   it('reads the far end\'s profile off the roster, and needs both sides to say 2', async () => {
