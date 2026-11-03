@@ -131,5 +131,33 @@
     "privateBackendFixturesStopped": true,
     "temporaryDesktopModuleRemoved": true,
     "reviewServerRunning": false
+  },
+  "hostedFullUnits": {
+    "sourceCommit": "04bd861bd310fa8472b8a50a05e120cfe94524b0",
+    "run": 41570064807,
+    "nodeVersions": [
+      22,
+      24
+    ],
+    "passed": 8820,
+    "skipped": 8,
+    "failed": 0,
+    "filesPassed": 512,
+    "filesSkipped": 1,
+    "realtimeRun": 41570064736,
+    "result": "success"
+  },
+  "releaseCopy": {
+    "sourceCommit": "142b1a3b439779896ec6006326de6e1d1f75a3e1",
+    "siteChecksPassed": 4,
+    "javascript": false,
+    "productionCsp": true,
+    "privacyTermsWidths": [
+      320,
+      390,
+      1440
+    ],
+    "logSha256": "1776208f0d424ddc4edf06d1f0d7600a2b2eedfbc559debe76a0fb226c605eee",
+    "published": false
   }
 }

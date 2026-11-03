@@ -2,7 +2,9 @@
 
 Status: implementation candidate, not approved or deployed. Tested UI source
 revision: `d18b0c57d8f97a6cac9789515143878b4fcbecff`. This pack and its evidence metadata are recorded in a
-following documentation-only commit.
+following documentation commit. Candidate-only privacy/terms copy is recorded
+at `142b1a3b439779896ec6006326de6e1d1f75a3e1`; it changes no application UI
+logic. Its four static-page browser checks passed.
 
 **Maintainer must review and approve UI work on KithMoot's Settings → Calls →
 Your KithMoot node, New room → Host on my node, the node room's ask and waiting
@@ -130,3 +132,10 @@ Those remain part of full node delivery.
 
 Maintainer decision: pending. Reviewed source revision: pending. Refresh this
 pack and obtain approval again after material UI changes.
+
+The prior full hosted Node22/24 unit matrix on `04bd861b` passed 8,820 tests
+with eight skips; realtime CI also passed. The new [delivery map](kithmoot-node-delivery-20261103.md)
+records stage-specific evidence, candidate choices and remaining approvals.
+The [legal-cover gap check](legal/kithmoot-node-release-gate.md) keeps the
+unpublished node separate from ordinary-room defaults and the existing public
+TURN service. No website deployment is performed by this candidate.
