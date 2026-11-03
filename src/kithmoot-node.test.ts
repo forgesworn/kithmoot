@@ -203,6 +203,25 @@ describe('pinned KithMoot node client', () => {
       expect(fetcher).toHaveBeenCalledTimes(2); expect(peer.signalingState).toBe('closed')
     } finally { managed.close() }
   })
+  it('does not restart a healthy call for a peer which never connected and recovers each established failure only once', async () => {
+    const f = fixture(), fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection })
+    try {
+      const healthy = managed.factory() as unknown as Peer, other = managed.factory() as unknown as Peer
+      healthy.state('connected'); other.state('failed'); await new Promise(resolve => setTimeout(resolve, 0))
+      expect(fetcher).toHaveBeenCalledTimes(1); expect(healthy.restartIce).not.toHaveBeenCalled()
+      healthy.state('disconnected'); await vi.waitFor(() => expect(healthy.restartIce).toHaveBeenCalledTimes(1))
+      healthy.state('failed'); await new Promise(resolve => setTimeout(resolve, 0)); expect(fetcher).toHaveBeenCalledTimes(2)
+      healthy.state('connected'); healthy.state('disconnected'); await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3))
+    } finally { managed.close() }
+  })
   it('ends a cached call within five monotonic minutes despite clock rollback and a stalled renewal', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW, ticks = 0, calls = 0, release!: (value: Response) => void
