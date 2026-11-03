@@ -132,6 +132,19 @@ installer-managed ACME lineage and deploy hook. It preserves supplied source
 certificates, unrelated ACME accounts and certificates, and existing firewall
 rules. Do not delete server files as a substitute for closing rooms.
 
+The final empty-node check records a durable deletion intent before teardown.
+It serialises against enrolment and refuses new rooms, grants and owner claims,
+including after restart. An interrupted removal can be retried. To abandon
+removal and use the retained node again, start its service and explicitly run:
+
+```
+sudo runuser -u kithmoot-node -- /opt/kithmoot-node/current/kithmoot-node cancel-delete --state /var/lib/kithmoot-node
+```
+
+Archy's host controller uses the same local `prepare-delete --state DIRECTORY`
+command before destructive removal. These operations use the private local
+socket; they are not public HTTP endpoints.
+
 ## Evidence and remaining acceptance
 
 [The installer receipt](evidence/kithmoot-node-installer-20261102.json) records

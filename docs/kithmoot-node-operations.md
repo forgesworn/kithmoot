@@ -152,3 +152,45 @@ The public installer must refuse release packaging until approved, signed
 Shelter and Spry releases, corresponding source, licences and the other node
 release gates exist. This implementation does not publish private Shelter
 source or binaries and does not deploy a new public service.
+
+
+## Host-managed TLS and separate listener profiles
+
+The default standalone profile still uses TURN UDP/TCP 3478, TLS 5349 and the
+bounded relay range 49160:49191. An optional `turnPorts:{udpTcp,tls}` selects
+two distinct unprivileged ports on the same node hostname;
+`relayPortFirst` selects the first of exactly 32 allocation ports. All internal
+and public ports must remain disjoint. HTTPS and the dedicated TURN hostname
+remain on 443. Doctor, the TLS front, firewall plans and the public info
+response use the configured profile. The paired client keeps that profile;
+room enrolment refuses a descriptor signed for different ports.
+
+Fold 0.17 records these optional ports in the keeper-signed descriptor. Earlier
+strict readers reject such records. Existing default descriptors retain their
+bytes. Do not change ports behind an active room's signed record: close its
+rooms first, or retain their old listeners.
+
+A declarative hosted Archy package may set `hosting:archy` and `tlsGate:true`.
+That mode refuses certificate and certificate-key fields. Spry advertises the
+hosted TLS ports and binds no TLS listener of its own; the host must supply
+both TLS listeners and the public HTTPS/room-WebSocket routes. Standalone
+system installation refuses this mode. Local supervisor readiness alone does
+not prove that the host gate works; doctor and the external checks still apply.
+
+The host profile requires three independent manifest-declared secrets, imported
+at setup and checked against existing private state at every start. The CLI
+reads only `KITHMOOT_NODE_SERVICE_KEY`, `KITHMOOT_NODE_TURN_SECRET` and
+`KITHMOOT_NODE_STATE_SALT` for this profile. Those values are never command-line
+arguments or log fields. Changed secrets stop recovery/start rather than
+silently replacing an existing identity. Direct Linux setup continues to
+generate its own private secrets. The supervisor and its children still run
+as an unprivileged service user; an Archy image can declare its data UID through
+the orchestrator instead of running the service as root.
+
+`test/kithmoot-node-host-profile.mjs` is an opt-in disposable Linux fixture.
+It runs the production supervisor and both backends as UID 1000, keeps the host
+certificate key unreadable to that application, and supplies generated host
+TLS gates. A separate Spry occupies 3478/5349 while the node uses 34790/53499
+and 49192:49223. This qualifies the runtime profile and listener coexistence;
+it does not establish Archy's actual app gate, FIPS, UI, public-network or
+physical-phone acceptance.

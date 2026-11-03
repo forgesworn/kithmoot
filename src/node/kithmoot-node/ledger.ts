@@ -90,7 +90,14 @@ export class NodeLedger {
   }
   meta(key: string): string | undefined { return this.#db.prepare('SELECT value FROM meta WHERE key=?').get(key)?.value as string | undefined }
   setMeta(key: string, value: string): void { this.#db.prepare('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value) }
+  prepareDeletion(): void {
+    this.#transaction(() => {
+      if (this.rooms().length || this.devices().length || this.operations().length) refusal(409, 'close-rooms-before-delete')
+      this.setMeta('deleting', '1')
+    })
+  }
   claimOwner(key: string): void {
+    if (this.meta('deleting') === '1') refusal(409, 'node-deleting')
     if (!KEY.test(key) || key === this.#serviceKey) refusal(400, 'invalid-owner')
     this.#transaction(() => { const owner = this.meta('owner'); if (owner && owner !== key) refusal(409, 'node-already-paired'); this.setMeta('owner', key) })
   }
@@ -106,6 +113,7 @@ export class NodeLedger {
     if (!KEY.test(room.room) || !KEY.test(room.authority) || room.inviter !== room.authority || room.authority === this.#serviceKey
       || room.ends !== undefined && (!Number.isSafeInteger(room.ends) || room.ends <= now || room.ends > now + 30 * 86400)) refusal(400, 'invalid-room')
     this.#transaction(() => {
+      if (this.meta('deleting') === '1') refusal(409, 'node-deleting')
       if (this.#db.prepare('SELECT 1 FROM closed WHERE room_hash=?').get(this.#roomHash(room.room))) refusal(409, 'room-closed')
       const old = this.room(room.room)
       if (old) {
@@ -119,6 +127,7 @@ export class NodeLedger {
     })
   }
   apply(value: unknown): { changed: boolean; room: string } {
+    if (this.meta('deleting') === '1') refusal(409, 'node-deleting')
     const now = this.#clock()
     const verdict = parseGroupEvent(value, { now, servers: [this.#host] })
     if (!verdict.ok) refusal(verdict.status, `grant-${verdict.reason}`)

@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { WebSocket } from 'ws'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { turnWire } from './node-turn-wire.mjs'
-import { signNodeRoom, readNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { signNodeRoom, readNodeRoom, readNodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { deriveRoom } from '../src/room.js'
 import { localIdentity } from '../src/identity.js'
 import { createDeviceCredential } from '../src/credential.js'
@@ -19,7 +19,8 @@ import { openNodeKeeperAdmissions, beginNodeJoin } from '../src/node-admission.j
 import { openNodeDeviceAccess } from '../src/node-device-access.js'
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../src/node-room-close.js'
 
-assert.equal(process.env.E2E_NODE_INSTALLED_FIXTURE, 'disposable-offline-systemd')
+const hostProfile = process.env.E2E_NODE_INSTALLED_FIXTURE === 'disposable-offline-host-profile'
+assert.ok(hostProfile || process.env.E2E_NODE_INSTALLED_FIXTURE === 'disposable-offline-systemd')
 const origin = 'https://node.example', sdkCleanups = [], turnClients = [], sockets = []
 class SdkSocket extends WebSocket {
   constructor(url) { super(url); sockets.push(this); this.on('message', data => { if (JSON.parse(String(data))[0] === 'EOSE') this.eosed = true }) }
@@ -34,14 +35,16 @@ const owner = generateSecretKey(), ownerIdentity = localIdentity(owner), options
 const info = await (await fetch(origin + '/node/v1/info')).json(), serviceKey = info.serviceKey
 // Capture the one-use local pairing code without ever logging it.
 const localPairScript = `const {connect}=require('node:net'); const s=connect('/var/lib/kithmoot-node/node.sock');s.on('connect',()=>s.end(JSON.stringify({op:'pair'})));s.on('data',d=>process.stdout.write(d));s.on('error',()=>process.exit(1));`
-const link = JSON.parse(execFileSync('runuser', ['--user', 'kithmoot-node', '--', '/opt/kithmoot-node/current/runtime/bin/node', '-e', localPairScript], { encoding: 'utf8' })).result
+let link
+try { link = JSON.parse(execFileSync('/usr/sbin/runuser', ['--user', hostProfile ? 'node' : 'kithmoot-node', '--', '/opt/kithmoot-node/current/runtime/bin/node', '-e', localPairScript], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).result }
+catch { throw Error('Fixture local pairing control unavailable') }
 const pair = await claimKithmootNode({ origin, ...link }, ownerIdentity)
 assert.equal(pair.serviceKey, serviceKey)
 try {
   const root = generateSecretKey(), keeperKey = generateSecretKey(), keeperDevice = generateSecretKey(), guestDevice = generateSecretKey()
   const keeperPerson = localIdentity(generateSecretKey()), guestPerson = localIdentity(generateSecretKey()), guestIdentity = localIdentity(guestDevice)
   const sdkRoom = deriveRoom(root).roomId, sdkNow = () => Math.floor(Date.now() / 1000)
-  const node = readNodeRoom(signNodeRoom({ authoritySk: keeperKey, room: sdkRoom, serviceKey, origin, now: sdkNow() }), sdkNow())
+  const node = readNodeRoom(signNodeRoom({ authoritySk: keeperKey, room: sdkRoom, serviceKey, origin, now: sdkNow(), turnPorts: pair.turnPorts }), sdkNow())
   await enrolNodeRoom(pair, node, ownerIdentity, options)
   let journal
   const keeper = await openNodeKeeperAdmissions({ ...options, node, authoritySk: keeperKey, roomSecret: root, keeperParticipant: keeperPerson.pubkey,
@@ -72,7 +75,7 @@ try {
   try { admitted = await attempt.result }
   catch (error) { throw Error(`SDK join: ${error.reason}; keeper error=${admissionError?.reason ?? 'none'}; asks=${asksSeen}`) }
   assert.notEqual(admitted, 'denied'); assert.equal(admissionError, undefined)
-  assert.deepEqual(admitted.secret, root)
+  assert.ok(Buffer.from(admitted.secret).equals(Buffer.from(root)), 'sealed admission matches the keeper room secret')
   let deviceState
   const deviceAccess = await openNodeDeviceAccess(node, guestIdentity, admitted.grant,
     { load: async () => deviceState, save: async value => { deviceState = structuredClone(value) } }, options)
@@ -86,8 +89,10 @@ try {
   sdkCleanups.unshift(() => session.leave())
   await session.join([], {}); await session.chat.send('encrypted SDK fixture')
   assert.ok(session.chat.messages().some(message => message.text === 'encrypted SDK fixture'))
-  const refused = spawnSync('/opt/kithmoot-node/current/kithmoot-node', ['uninstall', '--delete-everything'], { encoding: 'utf8' })
-  assert.equal(refused.status, 1); assert.match(refused.stderr, /close|room/i)
+  if (!hostProfile) {
+    const refused = spawnSync('/opt/kithmoot-node/current/kithmoot-node', ['uninstall', '--delete-everything'], { encoding: 'utf8' })
+    assert.equal(refused.status, 1); assert.match(refused.stderr, /close|room/i)
+  }
   if (process.env.E2E_NODE_LIVE_UPDATE) {
     assert.match(process.env.E2E_NODE_LIVE_UPDATE, /^\/candidate-[0-9]+\/kithmoot-node$/)
     const oldSockets = new Set(sockets)
@@ -101,9 +106,14 @@ try {
   assert.equal(access.state, 'active')
   const credentials = await nodeTurnCredentials(node, access, guestIdentity)
   assert.equal(credentials.urls.length, 4)
-  for (const [protocol, port] of [['udp', 3478], ['tcp', 3478], ['tls', 5349], ['tls', 443]]) {
-    const client = await turnWire({ protocol, port, host: '1.2.3.4', servername: 'turn.node.example', ca: readFileSync('/fixture/cert.pem') })
-    turnClients.push(client); assert.equal((await client.authenticate(credentials)).type, 0x0103)
+  const ports = readNodeTurnPorts(node.turnPorts)
+  for (const [protocol, port] of [['udp', ports.udpTcp], ['tcp', ports.udpTcp], ['tls', ports.tls], ['tls', 443]]) {
+    const client = await turnWire({ protocol, port, host: '1.2.3.4', servername: port === 443 ? 'turn.node.example' : 'node.example', ca: readFileSync(hostProfile ? '/fixture/client-ca.pem' : '/fixture/cert.pem') })
+    turnClients.push(client)
+    const allocation = await client.authenticate(credentials); assert.equal(allocation.type, 0x0103)
+    const relayed = allocation.attributes.get(0x0016); assert.ok(relayed && relayed.length === 8)
+    const relayPort = relayed.readUInt16BE(2) ^ 0x2112, first = hostProfile ? 49192 : 49160
+    assert.ok(relayPort >= first && relayPort < first + 32, 'allocation stays in the configured bounded range')
   }
 
   const resetFloor = keeper.close(), current = session.currentEpoch()
@@ -119,7 +129,7 @@ try {
   await until(() => closedNotice?.destruct === true, 'SDK closing rekey delivered to guest')
   await until(async () => (await queryNodeCloseOperation(reference.node, reference.operation, ownerIdentity)).phase === 'done', 'installed purge and completion')
   await until(() => turnClients.filter((_, i) => i !== 0).every(client => client.closed), 'all revoked TURN streams closed')
-  const refusedTurn = await turnWire({ protocol: 'tls', port: 443, host: '1.2.3.4', servername: 'turn.node.example', ca: readFileSync('/fixture/cert.pem') })
+  const refusedTurn = await turnWire({ protocol: 'tls', port: 443, host: '1.2.3.4', servername: 'turn.node.example', ca: readFileSync(hostProfile ? '/fixture/client-ca.pem' : '/fixture/cert.pem') })
   turnClients.push(refusedTurn)
   assert.equal((await refusedTurn.authenticate(credentials)).type, 0x0113)
   keeperKey.fill(0); root.fill(0)
@@ -129,11 +139,36 @@ try {
   assert.equal((await queryNodeAccess(node, admitted.grant.tags.find(t => t[0] === 'grant')[1], guestIdentity, options)).state, 'closed')
   const counts = await (await fetch(origin + '/node/v1/status')).json()
   assert.equal(counts.rooms, 0); assert.equal(counts.devices, 0)
+  let deletionFreeze = false
+  if (hostProfile) {
+    console.error('Fixture: checking empty-node readiness')
+    await until(async () => (await (await fetch(origin + '/node/v1/status')).json()).ready, 'node reconciles closure before deletion')
+    const local = op => {
+      const result = spawnSync('/usr/sbin/runuser', ['--user', 'node', '--', '/opt/kithmoot-node/current/kithmoot-node', op, '--state', '/var/lib/kithmoot-node'], { encoding: 'utf8' })
+      assert.equal(result.status, 0, 'Local deletion control failed: ' + result.stdout + result.stderr)
+      return JSON.parse(result.stdout)
+    }
+    console.error('Fixture: preparing deletion')
+    assert.deepEqual(local('prepare-delete'), { ok: true, result: { deleteReady: true } })
+    console.error('Fixture: deletion prepared')
+    const frozen = await (await fetch(origin + '/node/v1/status')).json()
+    assert.equal(frozen.deleting, true); assert.equal(frozen.ready, false)
+    const nextKey = generateSecretKey()
+    try {
+      const next = readNodeRoom(signNodeRoom({ authoritySk: nextKey, room: getPublicKey(generateSecretKey()), serviceKey, origin, now: sdkNow(), turnPorts: pair.turnPorts }), sdkNow())
+      await assert.rejects(enrolNodeRoom(pair, next, ownerIdentity, options), error => error.status === 409)
+    } finally { nextKey.fill(0) }
+    assert.deepEqual(local('cancel-delete'), { ok: true, result: { deleteReady: false } })
+    console.error('Fixture: deletion cancelled')
+    await until(async () => (await (await fetch(origin + '/node/v1/status')).json()).ready, 'node resumes after local deletion cancellation')
+    deletionFreeze = true
+    console.error('Fixture: deletion checks complete')
+  }
   console.log(JSON.stringify({ schema: 'kithmoot-node-installed/1', result: 'passed', isolatedLinux: true,
-    ownerPairing: true, manualAdmission: true, freshRoot: true, encryptedChat: true, activeUninstallRefused: true, liveUpdate: Boolean(process.env.E2E_NODE_LIVE_UPDATE),
-    authenticatedTurn: ['udp3478', 'tcp3478', 'tls5349', 'tls443'], cachedAccessRevoked: true,
+    ownerPairing: true, manualAdmission: true, freshRoot: true, encryptedChat: true, activeUninstallRefused: hostProfile ? null : true, hostProfile, liveUpdate: Boolean(process.env.E2E_NODE_LIVE_UPDATE),
+    authenticatedTurn: [`udp${ports.udpTcp}`, `tcp${ports.udpTcp}`, `tls${ports.tls}`, 'tls443'], cachedAccessRevoked: true,
     closeDelivered: true, callsRevoked: finished.receipt.callsRevoked, relayPurged: finished.receipt.relayPurged,
-    signedCompletion: true, coldPublicProof: true, counts }))
+    signedCompletion: true, coldPublicProof: true, deletionFreeze, counts }))
 
 } finally {
   for (const client of turnClients) client.close()

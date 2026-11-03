@@ -1,7 +1,7 @@
 import { base64urlnopad } from '@scure/base'
 import { randomBytes } from '@noble/hashes/utils'
-import { readNodeRoom, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
-  type NodeRoomRecord, type NodeCloseReceipt } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, readNodeTurnPorts, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
+  type NodeRoomRecord, type NodeCloseReceipt, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import type { Event } from 'nostr-tools/pure'
 import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
@@ -17,7 +17,7 @@ export class KithmootNodeError extends Error {
 }
 export interface NodeClientOptions { fetcher?: typeof fetch; now?: () => number; signal?: AbortSignal; allowed?: () => boolean }
 export interface NodeRelayOptions { websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean }
-export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string }
+export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string; turnPorts?: NodeTurnPorts }
 export type NodeClosePhase = 'publishing' | 'draining' | 'teardown' | 'erasing' | 'done'
 export interface NodeCloseInstruction { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }
 export interface NodeCloseStatus { phase: NodeClosePhase; receipt?: NodeCloseReceipt }
@@ -104,13 +104,17 @@ export async function claimKithmootNode(link: NodePairingLink, owner: Participan
   } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(0, 'unavailable') }
   if (info.v !== 1 || info.profile !== 'kithmoot-node/1' || info.origin !== origin || typeof info.serviceKey !== 'string' || !KEY.test(info.serviceKey)
     || info.serviceKey === owner.pubkey || info.relay !== `wss://${new URL(origin).host}/events` || info.calls !== 'relay-only' || info.files !== 'off') return invalid()
+  const ports = readNodeTurnPorts(info.turnPorts)
+  if (!ports) return invalid()
   const result = await request(origin, '/node/v1/claim', { code: link.code }, owner, options)
   if (result.paired !== true) return invalid()
-  return { v: 1, origin, serviceKey: info.serviceKey, owner: owner.pubkey }
+  return { v: 1, origin, serviceKey: info.serviceKey, owner: owner.pubkey, ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) }
 }
 export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRecord, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
   const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
-  if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey) return invalid()
+  const pairedPorts = readNodeTurnPorts(pair.turnPorts), roomPorts = readNodeTurnPorts(node.turnPorts)
+  if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey || !pairedPorts || !roomPorts
+    || pairedPorts.udpTcp !== roomPorts.udpTcp || pairedPorts.tls !== roomPorts.tls) return invalid()
   const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
   if (result.enrolled !== true) return invalid()
 }

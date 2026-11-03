@@ -1,3 +1,4 @@
+import { readNodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { DatabaseSync } from 'node:sqlite'
 import { spawnSync } from 'node:child_process'
 import { constants, openSync, closeSync, fstatSync, readFileSync, writeFileSync, renameSync, fsyncSync, lstatSync, existsSync, chmodSync, chownSync, unlinkSync, rmSync, realpathSync } from 'node:fs'
@@ -81,6 +82,7 @@ function tlsGroup(): number {
   return Number(row[2])
 }
 function certificates(configuration: NodeConfiguration, certificate: string, key: string, group: number): void {
+  if (configuration.tlsGate || !configuration.certificate || !configuration.certificateKey) throw Error('Standalone installation requires its own TLS files')
   const keyPath = realpathSync(key)
   if (lstatSync(keyPath).mode & 0o007) throw Error('TLS private key must not be accessible to other users')
   const cert = protectedRead(realpathSync(certificate)), secret = protectedRead(keyPath)
@@ -120,6 +122,7 @@ export async function installSystemNode(bundle: string, input: unknown, certific
   if (checked.release.platform !== `linux-${process.arch}`) throw Error('Release architecture does not match this server')
   const configuration = validateConfiguration({ ...(input as object), spryBinary: join(paths.installation, 'current/bin/spry-node'), shelterBinary: join(paths.installation, 'current/bin/bothyd'),
     certificate: join(paths.configuration, 'tls/fullchain.pem'), certificateKey: join(paths.configuration, 'tls/privkey.pem') })
+  if (configuration.tlsGate) throw Error('Host-managed TLS requires the declarative Archy package')
   if (!Object.values(networkInterfaces()).flat().some(address => address?.family === 'IPv4' && address.address === configuration.relayIp)) throw Error('Relay IP is not assigned to this server')
   // Validate the entire TLS pair before creating accounts or copying state.
   const keyPath = realpathSync(key), inputKey = protectedRead(keyPath)
@@ -139,7 +142,7 @@ export async function installSystemNode(bundle: string, input: unknown, certific
   protectedDirectory(paths.state, 0o700); chownSync(paths.state, node.uid, node.gid); chmodSync(paths.state, 0o700)
   const installed: InstalledNode = { v: 1, phase: 'prepared', directory: staged.directory, release: staged.release, configuration, ...(management.acme ? { acme: management.acme } : {}), ...(management.firewall ? { firewall: [] } : {}) }; saveInstalled(installed)
   atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: configuration.host, relayIp: configuration.relayIp, deskPort: configuration.deskPort,
-    spryPort: configuration.spryPort, shelterPort: configuration.shelterPort, certificate: configuration.certificate, certificateKey: configuration.certificateKey }) + '\n', 0o644)
+    spryPort: configuration.spryPort, shelterPort: configuration.shelterPort, ...(configuration.turnPorts ? { turnPorts: configuration.turnPorts } : {}), ...(configuration.relayPortFirst ? { relayPortFirst: configuration.relayPortFirst } : {}), certificate: configuration.certificate, certificateKey: configuration.certificateKey }) + '\n', 0o644)
   const initial = join(paths.configuration, 'initial.json'); atomicFile(initial, JSON.stringify(configuration), 0o640, node.gid)
   const command = join(staged.directory, 'kithmoot-node')
   service('kithmoot-node', command, ['init', '--state', paths.state, '--configuration', initial]); unlinkSync(initial)
@@ -155,7 +158,7 @@ export async function resumeSystemNode(): Promise<void> {
   verifyRelease(installed.directory, installed.release)
   for (const name of units) if (existsSync(join(paths.units, name)) && !protectedRead(join(paths.units, name)).equals(protectedRead(join(installed.directory, 'deploy', name)))) throw Error('Modified service units need operator review before recovery')
   const c = installed.configuration
-  atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: c.host, relayIp: c.relayIp, deskPort: c.deskPort, spryPort: c.spryPort, shelterPort: c.shelterPort, certificate: c.certificate, certificateKey: c.certificateKey }) + '\n', 0o644)
+  atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: c.host, relayIp: c.relayIp, deskPort: c.deskPort, spryPort: c.spryPort, shelterPort: c.shelterPort, ...(c.turnPorts ? { turnPorts: c.turnPorts } : {}), ...(c.relayPortFirst ? { relayPortFirst: c.relayPortFirst } : {}), certificate: c.certificate, certificateKey: c.certificateKey }) + '\n', 0o644)
   const command = join(installed.directory, 'kithmoot-node')
   if (existsSync(join(paths.state, 'initialising')) || !existsSync(join(paths.state, 'node.json'))) {
     const node = account('kithmoot-node', paths.state), initial = join(paths.configuration, 'initial.json')
@@ -208,11 +211,13 @@ export async function updateSystemNode(bundle: string): Promise<void> {
 export function uninstallSystemNode(deleteEverything: boolean): void {
   requireOperator(); if (!deleteEverything) throw Error('Uninstall requires --delete-everything')
   const installed = readInstalled(), command = join(installed.directory, 'kithmoot-node')
-  const status = JSON.parse(service('kithmoot-node', command, ['status', '--state', paths.state]))
-  if (!status.ok || status.result?.rooms !== 0 || status.result?.devices !== 0 || status.result?.pending !== 0) throw Error('Close hosted rooms in KithMoot and check their completion before deleting the node')
   if (installed.phase !== 'ready') throw Error('Recover the interrupted installation before removing it')
   verifyRelease(installed.directory, installed.release); unchangedUnits(installed)
   account('kithmoot-node', paths.state); account('kithmoot-node-front', '/nonexistent'); tlsGroup()
+  let prepared: { ok?: boolean; result?: { deleteReady?: boolean } }
+  try { prepared = JSON.parse(service('kithmoot-node', command, ['prepare-delete', '--state', paths.state])) }
+  catch { throw Error('Start the node, close hosted rooms in KithMoot and check their completion before deleting the node') }
+  if (!prepared.ok || prepared.result?.deleteReady !== true) throw Error('Close hosted rooms in KithMoot before deleting the node')
   removeFirewall(installed)
   if (installed.acme) {
     if (installed.acme !== acmeName(installed.configuration.host)) throw Error('Invalid managed certificate metadata')
@@ -249,7 +254,10 @@ export function manageAcme(name: string): void {
   run('systemctl', ['enable', '--now', 'certbot.timer'])
 }
 
-export const NODE_FIREWALL_RULES = ['443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49160:49191/udp'] as const
+export function nodeFirewallRules(configuration: NodeConfiguration): string[] {
+  const ports = readNodeTurnPorts(configuration.turnPorts)!, first = configuration.relayPortFirst ?? 49160
+  return ['443/tcp', `${ports.udpTcp}/tcp`, `${ports.udpTcp}/udp`, `${ports.tls}/tcp`, `${first}:${first + 31}/udp`]
+}
 const firewallComment = 'KithMoot-node-managed'
 export function checkManagedFirewall(): void {
   requireOperator()
@@ -259,20 +267,28 @@ function firewallLine(rule: string): string { return `ufw allow ${rule} comment 
 function firewallAdded(): string[] { return run('ufw', ['show', 'added']).split('\n').map(line => line.trim().replace(/"/g, "'")) }
 export function manageFirewall(): void {
   checkManagedFirewall(); let installed = readInstalled()
-  for (const rule of NODE_FIREWALL_RULES) {
+  for (const rule of nodeFirewallRules(installed.configuration)) {
     const lines = firewallAdded()
     // Preserve existing rules, including identical rules owned by the operator.
     if (lines.some(line => line === `ufw allow ${rule}` || line.startsWith(`ufw allow ${rule} comment `))) continue
     installed = { ...installed, firewall: [...new Set([...(installed.firewall ?? []), rule])] }
     saveInstalled(installed) // Journal before adding: recovery can identify our tagged rule.
-    run('ufw', ['allow', rule, 'comment', firewallComment])
+    // Plain `allow` can replace the comment on an equivalent existing rule.
+    // Insertion preserves that rule and its owner's comment instead.
+    run('ufw', ['insert', '1', 'allow', rule, 'comment', firewallComment])
+    if (!firewallAdded().includes(firewallLine(rule))) {
+      // UFW may recognise an equivalent rule whose spelling we did not.
+      // Its ownership stays with the operator, including during removal.
+      installed = { ...installed, firewall: installed.firewall!.filter(value => value !== rule) }
+      saveInstalled(installed)
+    }
   }
 }
 function removeFirewall(installed: InstalledNode): void {
   if (!installed.firewall?.length) return
   checkManagedFirewall()
   for (const rule of installed.firewall) {
-    if (!NODE_FIREWALL_RULES.includes(rule as typeof NODE_FIREWALL_RULES[number])) throw Error('Invalid managed firewall metadata')
+    if (!nodeFirewallRules(installed.configuration).includes(rule)) throw Error('Invalid managed firewall metadata')
     const lines = firewallAdded()
     if (lines.includes(firewallLine(rule))) run('ufw', ['--force', 'delete', 'allow', rule, 'comment', firewallComment])
     else if (lines.some(line => line.startsWith(`ufw allow ${rule} comment `))) throw Error('Modified node firewall rules need operator review')

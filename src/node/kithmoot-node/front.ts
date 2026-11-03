@@ -2,9 +2,10 @@ import { createServer as tlsServer, createSecureContext, type SecureContextOptio
 import { createServer as httpServer, request as httpRequest, type IncomingMessage, type OutgoingHttpHeaders } from 'node:http'
 import { connect, isIPv4, type Socket } from 'node:net'
 import { X509Certificate } from 'node:crypto'
+import { readNodeTurnPorts, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { isHostName } from '../../group-grants.js'
 
-export interface NodeFrontRoutes { host: string; relayIp: string; deskPort: number; spryPort: number; shelterPort: number }
+export interface NodeFrontRoutes { host: string; relayIp: string; deskPort: number; spryPort: number; shelterPort: number; turnPorts?: NodeTurnPorts; relayPortFirst?: number }
 type Certificate = Pick<SecureContextOptions, 'cert' | 'key'>
 const methods = new Map<string, readonly string[]>([
   ['/node/v1/info', ['GET', 'OPTIONS']], ['/node/v1/status', ['GET', 'POST', 'OPTIONS']],
@@ -17,10 +18,11 @@ const responseHeaders = ['content-type', 'access-control-allow-origin', 'access-
  * The TURN hostname terminates TLS and carries opaque TURN to the local Spry
  * TCP listener. HTTPS/WSS can reach only the explicit room-profile routes.
  * No service identities, TURN secrets, room keys or request logs live here. */
-export function createNodeFront(routes: NodeFrontRoutes, certificate: Certificate, fixture: { turnPort?: number } = {}) {
-  const { host } = routes
+export function createNodeFront(routes: NodeFrontRoutes, certificate: Certificate) {
+  const { host } = routes, ports = readNodeTurnPorts(routes.turnPorts)
+  if (!ports) throw Error('Invalid node front TURN ports')
   if (!isHostName(host) || host !== host.toLowerCase() || !host.includes('.') || host.endsWith('.local') || !isIPv4(routes.relayIp)
-    || ![routes.deskPort, routes.spryPort, routes.shelterPort, fixture.turnPort ?? 3478].every(port => Number.isInteger(port) && port >= 1 && port <= 65535)) throw Error('Invalid node front routes')
+    || ![routes.deskPort, routes.spryPort, routes.shelterPort, ports.udpTcp].every(port => Number.isInteger(port) && port >= 1 && port <= 65535)) throw Error('Invalid node front routes')
   const turnHost = `turn.${host}`
   const validate = (value: Certificate) => {
     if (typeof value.cert !== 'string' && !Buffer.isBuffer(value.cert)) throw Error('Invalid node certificate')
@@ -103,7 +105,7 @@ export function createNodeFront(routes: NodeFrontRoutes, certificate: Certificat
     if (closing || ![host, turnHost].includes(socket.servername || '')) { socket.destroy(); return }
     socket.setTimeout(120000, () => socket.destroy())
     if (socket.servername === host) { http.emit('connection', socket); return }
-    const peer = track(connect(fixture.turnPort ?? 3478, routes.relayIp))
+    const peer = track(connect(ports.udpTcp, routes.relayIp))
     peer.setTimeout(120000, () => peer.destroy()); socket.once('close', () => peer.destroy()); peer.once('close', () => socket.destroy())
     peer.pipe(socket); socket.pipe(peer)
   })

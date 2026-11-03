@@ -43,6 +43,16 @@ export class NodeSupervisor {
     void this.tick().catch(() => {})
   }
   async stop(): Promise<void> { if (this.#timer) clearInterval(this.#timer); this.#timer = undefined; await this.#tail }
+  prepareDeletion(): Promise<{ deleteReady: true }> {
+    return this.#serial(async () => {
+      if (!this.#ready && this.ledger.meta('deleting') !== '1') throw new NodeRefusal(503, 'node-reconciling')
+      this.ledger.prepareDeletion()
+      return { deleteReady: true }
+    })
+  }
+  cancelDeletion(): Promise<{ deleteReady: false }> {
+    return this.#serial(async () => { this.ledger.setMeta('deleting', '0'); return { deleteReady: false } })
+  }
   enrol(room: NodeRoom): Promise<void> { return this.#serial(async () => { this.ledger.enrol(room); await this.#project() }) }
   apply(event: unknown): Promise<{ accepted: true }> {
     return this.#serial(async () => { this.ledger.apply(event); await this.#project(); return { accepted: true } })
@@ -72,9 +82,10 @@ export class NodeSupervisor {
       if (!this.#ready) throw new NodeRefusal(503, 'node-reconciling')
     }).finally(() => { this.#ticking = false })
   }
-  status(): { v: 1; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number } {
-    return { v: 1, ready: this.#ready, paired: !!this.ledger.meta('owner'), rooms: this.ledger.rooms().length,
-      devices: this.ledger.devices().length, pending: this.ledger.operations().length }
+  status(): { v: 1; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number; deleting?: true } {
+    const deleting = this.ledger.meta('deleting') === '1'
+    return { v: 1, ready: this.#ready && !deleting, paired: !!this.ledger.meta('owner'), rooms: this.ledger.rooms().length,
+      devices: this.ledger.devices().length, pending: this.ledger.operations().length, ...(deleting ? { deleting: true as const } : {}) }
   }
   async ownerStatus(): Promise<ReturnType<NodeSupervisor['status']> & {
     version: string; turnReady: boolean; relayReady: boolean; storeBytes?: number

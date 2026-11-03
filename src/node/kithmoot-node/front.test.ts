@@ -37,7 +37,7 @@ beforeEach(async () => {
   websocketServer.on('connection', ws => ws.on('message', data => ws.send(data)))
   const shelterPort = await listen(relay)
   const turnPort = await listen(tcpServer(socket => socket.pipe(socket)))
-  front = createNodeFront({ host: 'node.example', relayIp: '127.0.0.1', deskPort, spryPort, shelterPort }, { cert, key }, { turnPort })
+  front = createNodeFront({ host: 'node.example', relayIp: '127.0.0.1', deskPort, spryPort, shelterPort, turnPorts: { udpTcp: turnPort, tls: 5349 } }, { cert, key })
   await new Promise<void>(r => front.server.listen(0, '127.0.0.1', r)); const address = front.server.address()
   if (!address || typeof address === 'string') throw Error('front listener'); frontPort = address.port
 })

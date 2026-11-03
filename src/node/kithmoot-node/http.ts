@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
 import { NodeRefusal, type NodeRoom } from './ledger.js'
 import { NodeSupervisor, type CloseRequest } from './supervisor.js'
+import { readNodeTurnPorts, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { NODE_VERSION } from './version.js'
 
 const digest = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex')
@@ -17,8 +18,9 @@ export function preparePairing(supervisor: NodeSupervisor): { code: string; expi
   supervisor.ledger.setMeta('pairing', JSON.stringify({ digest: digest(code), expiresAt }))
   return { code, expiresAt }
 }
-export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; origins: string[]; serviceKey: string }): Server {
-  const audience = new URL(options.origin)
+export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; origins: string[]; serviceKey: string; turnPorts?: NodeTurnPorts }): Server {
+  const audience = new URL(options.origin), ports = readNodeTurnPorts(options.turnPorts)
+  if (!ports) throw Error('Invalid node TURN ports')
   if (audience.protocol !== 'https:' || audience.origin !== options.origin || audience.hostname !== supervisor.host) throw Error('Invalid node HTTPS audience')
   for (const origin of options.origins) { const url = new URL(origin); if (url.origin !== origin || url.protocol !== 'https:') throw Error('Invalid browser origin') }
   const origins = new Set(options.origins), rates = new Map<string, { start: number; count: number }>()
@@ -55,7 +57,7 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     const path = request.url ?? ''
     const reply = (value: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(value)) }
     if (request.method === 'GET' && path === '/node/v1/info') return reply({ v: 1, profile: 'kithmoot-node/1', version: NODE_VERSION, origin: options.origin,
-      serviceKey: options.serviceKey, relay: `wss://${audience.host}/events`, files: 'off', calls: 'relay-only' })
+      serviceKey: options.serviceKey, relay: `wss://${audience.host}/events`, files: 'off', calls: 'relay-only', ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) })
     if (request.method === 'GET' && path === '/node/v1/status') return reply(supervisor.status())
     if (request.method !== 'POST' || !['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/node/v1/status'].includes(path)) throw new NodeRefusal(404, 'not-found')
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '') || request.headers['content-encoding']) throw new NodeRefusal(415, 'json-required')

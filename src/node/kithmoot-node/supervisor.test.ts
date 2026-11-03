@@ -10,7 +10,7 @@ import { type CallBackend, type RelayBackend } from './backends.js'
 
 const cleanups: (() => void)[] = []
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup() })
-function fixture() {
+function fixture(empty = false) {
   const path = mkdtempSync(join(tmpdir(), 'kithmoot-node-supervisor-')); cleanups.push(() => rmSync(path, { force: true, recursive: true }))
   let now = 1_900_000_000
   const authority = generateSecretKey(), device = getPublicKey(generateSecretKey()), room = '01'.repeat(32)
@@ -19,7 +19,7 @@ function fixture() {
   let ledger = new NodeLedger(join(path, 'ledger.sqlite'), options)
   cleanups.push(() => ledger.close())
   ledger.claimOwner(getPublicKey(generateSecretKey()))
-  ledger.enrol({ room, authority: getPublicKey(authority), inviter: getPublicKey(authority) })
+  if (!empty) ledger.enrol({ room, authority: getPublicKey(authority), inviter: getPublicKey(authority) })
   const state = { callReady: true, lease: false, relayFail: false, removeFail: false, purgeFail: false, addLostAck: false,
     revisions: [] as number[], members: new Set<string>(), purges: 0, publishes: 0, relayDevices: [] as string[], leases: 0 }
   const calls: CallBackend = {
@@ -53,6 +53,29 @@ function fixture() {
   }
 }
 describe('node supervisor recovery', () => {
+  it('refuses deletion while a room exists and leaves admission usable', async () => {
+    const f = fixture(); await f.supervisor.tick()
+    await expect(f.supervisor.prepareDeletion()).rejects.toThrow('close-rooms-before-delete')
+    expect(f.ledger.meta('deleting')).toBeUndefined()
+    await expect(f.supervisor.apply(f.grant)).resolves.toEqual({ accepted: true })
+  })
+  it('serialises durable deletion intent against enrolment and requires local cancellation after restart', async () => {
+    const f = fixture(true); await f.supervisor.tick()
+    const room = { room: f.room, authority: getPublicKey(f.authority), inviter: getPublicKey(f.authority) }
+    const prepared = f.supervisor.prepareDeletion(), raced = f.supervisor.enrol(room)
+    await expect(prepared).resolves.toEqual({ deleteReady: true })
+    await expect(raced).rejects.toThrow('node-deleting')
+    expect(f.supervisor.status()).toMatchObject({ ready: false, deleting: true, rooms: 0 })
+    f.restart(); await f.supervisor.tick()
+    expect(() => f.ledger.enrol(room)).toThrow('node-deleting')
+    expect(() => f.ledger.claimOwner(getPublicKey(f.authority))).toThrow('node-deleting')
+    await expect(f.supervisor.apply(f.grant)).rejects.toThrow('node-deleting')
+    await expect(f.supervisor.prepareDeletion()).resolves.toEqual({ deleteReady: true })
+    await expect(f.supervisor.cancelDeletion()).resolves.toEqual({ deleteReady: false })
+    await f.supervisor.tick()
+    await expect(f.supervisor.enrol(room)).resolves.toBeUndefined()
+    await expect(f.supervisor.prepareDeletion()).rejects.toThrow('close-rooms-before-delete')
+  })
   it('acknowledges only both child projections and retries the same committed grant', async () => {
     const f = fixture(); f.state.relayFail = true
     await expect(f.supervisor.apply(f.grant)).rejects.toThrow('children-pending')

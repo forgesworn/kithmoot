@@ -1,3 +1,4 @@
+import { readNodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { randomBytes } from 'node:crypto'
 import { createSocket } from 'node:dgram'
 import { connect as tcpConnect, type Socket } from 'node:net'
@@ -84,7 +85,7 @@ function roomChallenge(host: string, name: string): Promise<boolean> {
   })
 }
 export async function doctorNode(directory: string) {
-  const configuration = readConfiguration(directory), checks: { name: string; ok: boolean }[] = []
+  const configuration = readConfiguration(directory), ports = readNodeTurnPorts(configuration.turnPorts)!, checks: { name: string; ok: boolean }[] = []
   const check = async (name: string, operation: () => Promise<boolean>) => { let ok = false; try { ok = await operation() } catch {}; checks.push({ name, ok }) }
   const control = await localControl(directory, 'info').catch(() => ({ ok: false })) as { ok?: boolean; result?: { serviceKey?: string } }
   const serviceKey = control.ok && control.result?.serviceKey
@@ -98,9 +99,9 @@ export async function doctorNode(directory: string) {
       return addresses.every(rows => rows.length > 0 && rows.every(row => row.family === 4 && row.address === expected))
     }),
     check('storage-reserve', async () => { const state = statfsSync(directory); return state.bavail * state.bsize >= configuration.minFreeBytes }),
-    check('STUN-UDP-3478', () => probeNodeUdp(configuration.relayIp, 3478)),
-    check('STUN-TCP-3478', () => probeNodeStream(configuration.relayIp, 3478)),
-    check('STUN-TLS-5349', () => probeNodeStream(configuration.relayIp, 5349, configuration.host)),
+    check(`STUN-UDP-${ports.udpTcp}`, () => probeNodeUdp(configuration.relayIp, ports.udpTcp)),
+    check(`STUN-TCP-${ports.udpTcp}`, () => probeNodeStream(configuration.relayIp, ports.udpTcp)),
+    check(`STUN-TLS-${ports.tls}`, () => probeNodeStream(configuration.relayIp, ports.tls, configuration.host)),
     check('STUN-TLS-443', () => probeNodeStream(configuration.relayIp, 443, `turn.${configuration.host}`)),
   ])
   return { v: 1, version: NODE_VERSION, localReady: checks.every(check => check.ok), checks: checks.sort((a, b) => a.name.localeCompare(b.name)),
