@@ -287,8 +287,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   onRecovering?: () => void
   /** Rebuild through the signalling owner after installing fresh credentials.
    * Native ICE restarts can retain an allocation tied to the old username.
-   * Return false when no protocol owner is attached, to use native recovery. */
-  rebuildPeers?: () => boolean
+   * A context limits connectivity recovery to that participant; no context
+   * rotates all peers. Return false to use native recovery. */
+  rebuildPeers?: (context?: PeerContext) => boolean
   /** Register the native connection with the embedding's media receivers
    * without wrapping and losing the pinned node factory's identity. */
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
@@ -297,19 +298,22 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
   const peers = new Set<RTCPeerConnection>(), controller = new AbortController()
-  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
-  let deadline = Infinity
+  let deadline = Infinity, credentialDeadline = Infinity, rotationAt = Infinity
   let credential: SpryCredential
   let renewing: Promise<void> | undefined
+  let restartRequested = false
+  let rotateAll = false
+  const pendingPeers = new Map<RTCPeerConnection, PeerContext | undefined>()
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
   const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
   const close = () => {
-    if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer)
+    if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer); clearTimeout(retryTimer)
     options.signal?.removeEventListener('abort', close)
     for (const peer of peers) peer.close()
-    peers.clear()
+    peers.clear(); pendingPeers.clear()
   }
   const obtain = async (): Promise<SpryCredential> => {
     const value = await access()
@@ -317,52 +321,82 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     return nodeTurnCredentials(node, value, device, requestOptions)
   }
   const notify = (error: KithmootNodeError) => { try { options.onUnavailable?.(error) } catch {} }
-  const remaining = () => Math.min(credential.expiresAt - now(), (deadline - monotonic()) / 1000)
+  const remaining = () => Math.min(credential.expiresAt - now(), (credentialDeadline - monotonic()) / 1000, (deadline - monotonic()) / 1000)
   const expire = (): void => {
     if (!allowed()) { close(); return }
     if (remaining() <= 0) { notify(new KithmootNodeError(0, 'expired')); close(); return }
     expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
   }
-  const install = (next: SpryCredential): void => {
+  const install = (next: SpryCredential, all: boolean): void => {
     const nextDeadline = monotonic() + Math.min(300, next.expiresAt - now()) * 1000
-    deadline = credential?.username === next.username ? Math.min(deadline, nextDeadline) : nextDeadline
+    credentialDeadline = credential?.username === next.username ? Math.min(credentialDeadline, nextDeadline) : nextDeadline
+    // Other peers may still use an older login. A single-pair repair cannot
+    // move their expiry or their scheduled rotation into the future.
+    deadline = all ? credentialDeadline : Math.min(deadline, credentialDeadline)
     credential = next; clearTimeout(expiryTimer)
     expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
   }
-  const schedule = (seconds: number) => { clearTimeout(timer); timer = setTimeout(() => { void renew() }, Math.max(1000, seconds * 1000)) }
-  const runRenewal = async (restart: boolean): Promise<void> => {
+  const schedule = (seconds: number) => {
+    clearTimeout(timer); const delay = Math.max(1000, seconds * 1000)
+    rotationAt = monotonic() + delay
+    timer = setTimeout(() => { rotationAt = Infinity; void renew() }, delay)
+  }
+  const repair = (peer: RTCPeerConnection): void => {
+    if (peer.signalingState === 'closed') { peers.delete(peer); return }
+    try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
+  }
+  const runRenewal = async (): Promise<void> => {
     if (!allowed()) { close(); return }
     if (remaining() <= 0) { expire(); return }
     try {
       const next = await obtain()
       if (!allowed() || remaining() <= 0) { close(); return }
-      const changed = credential.username !== next.username
-      install(next)
-      if ((changed || restart) && !options.rebuildPeers?.()) for (const peer of peers) {
-        if (peer.signalingState === 'closed') { peers.delete(peer); continue }
-        try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
+      const all = rotateAll || remaining() <= 60
+      install(next, all)
+      if (all) {
+        if (!options.rebuildPeers?.()) for (const peer of peers) repair(peer)
+        pendingPeers.clear(); rotateAll = false
+      } else {
+        for (const [peer, context] of pendingPeers) {
+          if (!peers.has(peer) || peer.signalingState === 'closed') { pendingPeers.delete(peer); continue }
+          if (!options.rebuildPeers?.(context)) repair(peer)
+          pendingPeers.delete(peer)
+        }
       }
       // A grant near its own end cannot extend this username. Give the
       // keeper a chance to renew at the end without a per-second mint loop.
       const left = remaining()
-      schedule(left <= 60 ? left : left - 60)
+      const delay = left <= 60 ? left : left - 60
+      if (all || monotonic() + delay * 1000 < rotationAt) schedule(delay)
     } catch (error) {
       if (!allowed()) { close(); return }
       const failure = error instanceof KithmootNodeError ? error : new KithmootNodeError(0, 'unavailable')
       notify(failure)
       if (failure.reason === 'refused') close()
       else if (remaining() <= 0) expire()
-      else schedule(Math.min(5, remaining()))
+      else {
+        clearTimeout(retryTimer)
+        retryTimer = setTimeout(() => { void startRenewal() }, Math.max(1, Math.min(5, remaining()) * 1000))
+      }
     }
   }
-  const renew = (restart = false): Promise<void> => {
+  const startRenewal = (): Promise<void> => {
     if (renewing) return renewing
-    if (restart && allowed()) { try { options.onRecovering?.() } catch { /* An observer cannot prevent credential recovery. */ } }
-    const pending = runRenewal(restart).finally(() => { if (renewing === pending) renewing = undefined })
+    clearTimeout(retryTimer)
+    const pending = runRenewal().finally(() => { if (renewing === pending) { renewing = undefined; restartRequested = false } })
     renewing = pending
     return pending
   }
-  install(await obtain())
+  const renew = (restart = false, peer?: RTCPeerConnection, context?: PeerContext): Promise<void> => {
+    if (peer && (!options.rebuildPeers || context)) pendingPeers.set(peer, context)
+    else rotateAll = true
+    if (restart && !restartRequested && allowed()) {
+      restartRequested = true
+      try { options.onRecovering?.() } catch { /* An observer cannot prevent credential recovery. */ }
+    }
+    return startRenewal()
+  }
+  install(await obtain(), true)
   if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
   schedule(remaining() <= 60 ? remaining() : remaining() - 60)
   options.signal?.addEventListener('abort', close, { once: true })
@@ -372,12 +406,11 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       let connected = false, recovering = false
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
-        // A changed address can invalidate the old TURN allocation before its
-        // credential expires. Fetch current credentials and ask the protocol
-        // owner to rebuild; the room and its admission remain unchanged.
+        // Either endpoint can lose its route. Repair this pair without
+        // interrupting another participant's healthy audio and video.
         if (peer.connectionState === 'connected') { connected = true; recovering = false }
         else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
-          recovering = true; void renew(true)
+          recovering = true; void renew(true, peer, context)
         }
       })
       // Native RTCTrackEvent includes every field Peer reads. Its DOM

@@ -2788,11 +2788,11 @@ export class RoomSession {
     return this.#mesh?.routes ?? new Map()
   }
 
-  /** Apply the node factory's refreshed TURN credentials with fresh native
-   * allocations. Node rooms have endpoint pairs and no forwarding routes. */
-  refreshNodeCallConnections(): boolean {
+  /** Renew node allocations, or repair only the named participant. Node
+   * rooms have endpoint pairs and no forwarding routes. */
+  refreshNodeCallConnections(remoteDevice?: string): boolean {
     if (!this.#opts.node || this.#left || this.#closed) return false
-    return this.#mesh?.rebuildConnections() ?? false
+    return this.#mesh?.rebuildConnections(remoteDevice) ?? false
   }
 
   /**

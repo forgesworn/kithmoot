@@ -1848,12 +1848,13 @@ export class Mesh {
     return [...this.#controllers.values()].map((controller) => controller.summary())
   }
 
-  /** Replace native endpoint connections after the factory's credentials
-   * change. Keep SlotPeer's generation history so delayed old signals cannot
-   * revive an allocation using an expired TURN login. */
-  rebuildConnections(): boolean {
+  /** Replace endpoint allocations after credential rotation, or only the
+   * named endpoint after its route fails. Keep SlotPeer's generation history
+   * so delayed signals cannot revive an allocation using an expired login. */
+  rebuildConnections(remoteDevice?: string): boolean {
     if (this.#closed || this.#quiet) return false
     for (const [device, peer] of [...this.#peers]) {
+      if (remoteDevice !== undefined && device !== remoteDevice) continue
       if (peer instanceof SlotPeer) peer.rebuild()
       else this.#restartPair(device)
     }

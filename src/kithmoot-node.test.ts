@@ -7,6 +7,7 @@ import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { RECONNECT_JITTER_MS } from './relay-pool.js'
 import { spryHash } from './spry.js'
+import type { PeerContext } from './peer.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
   nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
 
@@ -296,7 +297,144 @@ describe('pinned KithMoot node client', () => {
       expect((peer as unknown as Peer).configuration.iceTransportPolicy).toBe('relay')
     } finally { managed.close() }
   })
-  it('does not restart a healthy call for a peer which never connected and recovers each established failure only once', async () => {
+  it('gives only the failed participant a fresh login and keeps the original rotation deadline', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW
+    const fetcher = vi.fn(async () => response(f.login(clock))) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(readonly configuration: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const contexts = [{ tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }, { tier: 'turn' as const, remoteDevice: 'cd'.repeat(32) }]
+    const live = new Map<string, Peer>()
+    const rebuild = vi.fn((context?: PeerContext) => {
+      for (const target of contexts) if (!context || context.remoteDevice === target.remoteDevice) {
+        live.get(target.remoteDevice)?.close()
+        live.set(target.remoteDevice, managed.factory(target) as unknown as Peer)
+      }
+      return true
+    })
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild })
+    try {
+      for (const context of contexts) { const peer = managed.factory(context) as unknown as Peer; live.set(context.remoteDevice, peer); peer.state('connected') }
+      const failed = live.get(contexts[0]!.remoteDevice)!, healthy = live.get(contexts[1]!.remoteDevice)!
+      clock += 100; await vi.advanceTimersByTimeAsync(100000)
+      failed.state('disconnected'); await vi.advanceTimersByTimeAsync(0)
+      expect(rebuild).toHaveBeenCalledExactlyOnceWith(contexts[0])
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(failed.signalingState).toBe('closed'); expect(healthy.signalingState).toBe('stable')
+      expect(live.get(contexts[1]!.remoteDevice)).toBe(healthy)
+      expect(live.get(contexts[0]!.remoteDevice)?.configuration.iceServers?.[0]?.username).not.toBe(failed.configuration.iceServers?.[0]?.username)
+      clock += 140; await vi.advanceTimersByTimeAsync(140000)
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      expect(rebuild).toHaveBeenLastCalledWith()
+      expect(healthy.signalingState).toBe('closed')
+      // A login close to expiry needs a global rotation, even when only one
+      // participant reported failure. No allocation may outlive its login.
+      const nearExpiry = live.get(contexts[0]!.remoteDevice)!
+      nearExpiry.state('connected'); clock += 241
+      nearExpiry.state('disconnected'); await vi.advanceTimersByTimeAsync(0)
+      expect(fetcher).toHaveBeenCalledTimes(4)
+      expect(rebuild).toHaveBeenLastCalledWith()
+    } finally { managed.close() }
+  })
+  it('retries a single-pair refresh without restarting healthy peers or extending their original expiry', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW, ticks = 0, calls = 0
+    const fetcher = vi.fn(async () => {
+      calls++
+      if (calls === 2) return new Response('{}', { status: 503 })
+      if (calls >= 4) return new Promise<Response>(() => {})
+      return response(f.login(clock))
+    }) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const context = { tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }, rebuild = vi.fn(() => true)
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, monotonic: () => ticks, PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild })
+    try {
+      const failed = managed.factory(context) as unknown as Peer, healthy = managed.factory({ tier: 'turn', remoteDevice: 'cd'.repeat(32) }) as unknown as Peer
+      failed.state('connected'); healthy.state('connected')
+      clock += 100; ticks = 100000; await vi.advanceTimersByTimeAsync(100000)
+      failed.state('disconnected'); await vi.advanceTimersByTimeAsync(0); expect(rebuild).not.toHaveBeenCalled()
+      clock += 5; ticks = 105000; await vi.advanceTimersByTimeAsync(5000)
+      expect(rebuild).toHaveBeenCalledExactlyOnceWith(context); expect(healthy.signalingState).toBe('stable')
+      clock += 135; ticks = 240000; await vi.advanceTimersByTimeAsync(135000); expect(calls).toBe(4)
+      clock += 60; ticks = 300000; await vi.advanceTimersByTimeAsync(60000)
+      expect(healthy.signalingState).toBe('closed'); expect(failed.signalingState).toBe('closed')
+      expect(rebuild).toHaveBeenCalledTimes(1)
+    } finally { managed.close() }
+  })
+  it('shares one refresh between two failed participants while a third stays connected', async () => {
+    const f = fixture(); let calls = 0, release!: (value: Response) => void
+    const fetcher = vi.fn(async () => ++calls === 1 ? response(f.login()) : new Promise<Response>(resolve => { release = resolve })) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const contexts = ['ab', 'cd', 'ef'].map(value => ({ tier: 'turn' as const, remoteDevice: value.repeat(32) })), rebuild = vi.fn(() => true)
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild })
+    try {
+      const peers = contexts.map(context => managed.factory(context) as unknown as Peer)
+      for (const peer of peers) peer.state('connected')
+      peers[0]!.state('disconnected'); peers[1]!.state('disconnected')
+      await vi.waitFor(() => expect(calls).toBe(2)); release(response(f.login()))
+      await vi.waitFor(() => expect(rebuild).toHaveBeenCalledTimes(2))
+      expect(rebuild).toHaveBeenNthCalledWith(1, contexts[0]); expect(rebuild).toHaveBeenNthCalledWith(2, contexts[1])
+      expect(peers[2]!.signalingState).toBe('stable'); expect(peers[2]!.restartIce).not.toHaveBeenCalled(); expect(calls).toBe(2)
+    } finally { managed.close() }
+  })
+  it('carries a peer failure into an in-flight scheduled renewal even when the login is unchanged', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW, calls = 0, release!: (value: Response) => void
+    const fetcher = vi.fn(async () => ++calls === 1 ? response(f.login()) : new Promise<Response>(resolve => { release = resolve })) as unknown as typeof fetch
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const rebuild = vi.fn(() => true), recovering = vi.fn()
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild, onRecovering: recovering })
+    try {
+      const peer = managed.factory({ tier: 'turn', remoteDevice: 'ab'.repeat(32) }) as unknown as Peer
+      peer.state('connected'); clock += 240; await vi.advanceTimersByTimeAsync(240000)
+      peer.state('disconnected'); release(response(f.login())); await vi.advanceTimersByTimeAsync(0)
+      expect(recovering).toHaveBeenCalledTimes(1)
+      expect(rebuild).toHaveBeenCalledExactlyOnceWith()
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    } finally { managed.close() }
+  })
+  it('cannot rebuild a failed pair after its recovery observer withdraws access', async () => {
+    const f = fixture(); let allowed = true
+    const fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch, rebuild = vi.fn(() => true)
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; restartIce = vi.fn(); setConfiguration = vi.fn()
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, { fetcher, now: () => NOW, allowed: () => allowed,
+      PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild, onRecovering: () => { allowed = false } })
+    try {
+      const peer = managed.factory({ tier: 'turn', remoteDevice: 'ab'.repeat(32) }) as unknown as Peer
+      peer.state('connected'); peer.state('disconnected')
+      expect(peer.signalingState).toBe('closed'); expect(rebuild).not.toHaveBeenCalled(); expect(peer.restartIce).not.toHaveBeenCalled()
+      expect(fetcher).toHaveBeenCalledTimes(1); expect(() => managed.factory()).toThrow()
+    } finally { managed.close() }
+  })
+  it('does not restart another peer for a peer which never connected and recovers each established failure only once', async () => {
     const f = fixture(), fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
     const order: string[] = [], recovering = vi.fn(() => { order.push('signalling') })
     class Peer extends EventTarget {
@@ -313,10 +451,12 @@ describe('pinned KithMoot node client', () => {
       expect(fetcher).toHaveBeenCalledTimes(1); expect(healthy.restartIce).not.toHaveBeenCalled()
       expect(recovering).not.toHaveBeenCalled()
       healthy.state('disconnected'); await vi.waitFor(() => expect(healthy.restartIce).toHaveBeenCalledTimes(1))
-      expect(order[0]).toBe('signalling'); expect(order.slice(1)).toEqual(['ice', 'ice'])
+      expect(order[0]).toBe('signalling'); expect(order.slice(1)).toEqual(['ice'])
+      expect(other.restartIce).not.toHaveBeenCalled()
       healthy.state('failed'); await new Promise(resolve => setTimeout(resolve, 0)); expect(fetcher).toHaveBeenCalledTimes(2)
       expect(recovering).toHaveBeenCalledTimes(1)
-      healthy.state('connected'); healthy.state('disconnected'); await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3))
+      healthy.state('connected'); healthy.state('disconnected'); await vi.waitFor(() => expect(healthy.restartIce).toHaveBeenCalledTimes(2))
+      expect(fetcher).toHaveBeenCalledTimes(3)
       expect(recovering).toHaveBeenCalledTimes(2)
     } finally { managed.close() }
   })

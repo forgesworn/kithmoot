@@ -194,3 +194,116 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     expect(requests).not.toContain('/turn')
   } finally { for (const context of contexts) await context.close(); await browser?.close(); await fixture.close() }
 })
+
+test('one disconnected participant does not replace a healthy participant connection', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires checked Spry and Shelter executables')
+  test.skip(browserName !== 'chromium', 'native node media qualification uses Chromium')
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+    '--autoplay-policy=no-user-gesture-required', '--host-resolver-rules=MAP node.example 127.0.0.1,MAP turn.node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = []
+  try {
+    async function device(owner = false) {
+      const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } })
+      contexts.push(context); await context.addInitScript(SYNTHETIC_MIC)
+      await context.grantPermissions(['camera', 'microphone', 'local-network-access'], { origin: new URL(baseURL!).origin })
+      await context.addInitScript(() => {
+        const Base = window.RTCPeerConnection, peers: RTCPeerConnection[] = []
+        ;(window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers = peers
+        window.RTCPeerConnection = class extends Base {
+          constructor(configuration?: RTCConfiguration) { super(configuration); peers.push(this) }
+        }
+      })
+      if (owner) {
+        const key = generateSecretKey()
+        await context.exposeFunction('nodeTestPublicKey', () => getPublicKey(key))
+        await context.exposeFunction('nodeTestSign', (value: EventTemplate) => finalizeEvent(value, key))
+        await context.addInitScript(() => {
+          const w = window as typeof window & { nodeTestPublicKey(): Promise<string>; nodeTestSign(value: unknown): Promise<unknown> }
+          Object.defineProperty(window, 'nostr', { configurable: true, value: { getPublicKey: () => w.nodeTestPublicKey(), signEvent: (value: unknown) => w.nodeTestSign(value) } })
+        })
+      }
+      const accountRelay = new URL('/__test-relay', baseURL!); accountRelay.protocol = 'wss:'
+      await context.addInitScript(({ node, accountRelay }) => {
+        const Base = window.WebSocket
+        window.WebSocket = class extends Base {
+          constructor(url: string | URL, protocols?: string | string[]) {
+            const value = String(url)
+            super(value === 'wss://node.example/events' ? node : value.startsWith('wss://') && !value.includes('localhost') ? accountRelay : value, protocols)
+          }
+        }
+      }, { node: fixture.websocket, accountRelay: accountRelay.href })
+      await context.route('https://node.example/**', async route => {
+        const path = new URL(route.request().url()).pathname
+        await route.fulfill({ response: await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path }) })
+      })
+      const page = await context.newPage()
+      page.on('pageerror', error => console.error('peer recovery browser:', error.message))
+      page.on('console', message => { if (message.type() === 'error') console.error('peer recovery app:', message.text()) })
+      return page
+    }
+    const keeper = await device(true)
+    await signInAccount(keeper, baseURL!); await openCallSettings(keeper, 'Your KithMoot node')
+    await keeper.locator('#nodePairingInput').fill(fixture.pairing()); await keeper.locator('#nodePair').click()
+    await keeper.locator('#actionConfirm').click(); await expect(keeper.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(keeper); await keeper.locator('#homeNewRoom').click()
+    await keeper.locator('#roomName').fill('Participant recovery')
+    if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Host')
+    await keeper.locator('#roomOnNode').check(); await keeper.locator('#create').click()
+    await expect(keeper.locator('#chatInput')).toBeVisible({ timeout: 30000 })
+    const guests = []
+    for (let i = 0; i < 2; i++) {
+      const guest = await device(); guests.push(guest)
+      await guest.goto(keeper.url()); await guest.locator('#actionConfirm').click()
+      await expect(keeper.locator('.approvalCard.knock')).toBeVisible()
+      await keeper.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+      await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 30000 })
+    }
+    await turnOnMedia(keeper)
+    for (const guest of guests) {
+      // Join the host's advertised call explicitly. Starting another call
+      // before its advert arrives would test call discovery instead.
+      await expect(guest.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call')
+      await turnOnMedia(guest)
+    }
+    const fingerprints = () => (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers.flatMap((pc, index) => {
+      if (pc.connectionState !== 'connected') return []
+      const fingerprint = (sdp?: string) => /a=fingerprint:([^\r\n]+)/.exec(sdp ?? '')?.[1]
+      return [{ index, local: fingerprint(pc.localDescription?.sdp), remote: fingerprint(pc.remoteDescription?.sdp) }]
+    })
+    await expect.poll(async () => (await keeper.evaluate(fingerprints)).length, { timeout: 25000 }).toBe(2)
+    const guestPeers = await guests[0]!.evaluate(fingerprints)
+    const keeperPeers = await keeper.evaluate(fingerprints)
+    const healthy = keeperPeers.find(pc => guestPeers.some(other => other.local === pc.remote && other.remote === pc.local))!
+    expect(healthy).toBeDefined()
+    const failed = keeperPeers.find(pc => pc.index !== healthy.index)!
+    const counters = async (index: number) => {
+      const pc = (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers[index]!
+      const stats = await pc.getStats(); let video = 0, audio = 0
+      stats.forEach(row => { if (row.type === 'inbound-rtp') { video += row.framesDecoded ?? 0; audio += row.kind === 'audio' ? row.packetsReceived ?? 0 : 0 } })
+      return { state: pc.signalingState, video, audio }
+    }
+    await expect.poll(async () => (await keeper.evaluate(counters, healthy.index)).video).toBeGreaterThan(0)
+    const before = await keeper.evaluate(counters, healthy.index)
+    // Exercise the native failure event without changing this browser's whole
+    // network. A remote participant can lose its route while others stay up.
+    await keeper.evaluate(index => {
+      const pc = (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers[index]!
+      Object.defineProperty(pc, 'connectionState', { configurable: true, value: 'disconnected' })
+      pc.dispatchEvent(new Event('connectionstatechange'))
+    }, failed.index)
+    await expect.poll(() => keeper.evaluate(index => (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers[index]!.signalingState, failed.index)).toBe('closed')
+    expect((await keeper.evaluate(counters, healthy.index)).state, 'recovering one participant closed the healthy native connection').not.toBe('closed')
+    await keeper.waitForTimeout(2000)
+    const after = await keeper.evaluate(counters, healthy.index)
+    expect(after.state).not.toBe('closed'); expect(after.video).toBeGreaterThan(before.video); expect(after.audio).toBeGreaterThan(before.audio)
+    console.log('Healthy participant kept the same native connection with advancing audio/video during another pair recovery.')
+    for (const page of [keeper, ...guests]) await page.getByRole('button', { name: 'Leave call', exact: true }).click()
+    await openRoomInfoPage(keeper, 'Privacy and connection'); await keeper.locator('#roomInfoBack').click()
+    await keeper.locator('#endRoom').click(); await keeper.locator('#actionConfirm').click()
+    await expect.poll(() => fixture.ledger.rooms().length).toBe(0)
+  } finally {
+    for (const context of contexts) await context.close()
+    await browser.close(); await fixture.close()
+  }
+})
