@@ -14238,9 +14238,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           if (reason === 'closed' || reason === 'removed' || reason === 'ended') {
             if (session === created) roomWasClosed({ destruct: true })
             else if (dockedCall?.session === created) dockedRoomClosed(created.roomId, { destruct: true })
-          } else if (session === created) void leaveWithNotice('Room access has been reset. Ask the keeper for a fresh invitation.')
+          } else if (session === created) void leaveWithNotice('Room access has been reset. Ask the person managing the room for a fresh invitation.')
         },
-        unavailable: () => { if (generation === roomGeneration) setStatus('Your KithMoot node is unavailable. Calls and messages stay on that node.') },
+        unavailable: () => { if (generation === roomGeneration) setStatus('Reconnecting to your KithMoot node. Your room stays here.', 'progress') },
+        available: () => {
+          if (generation === roomGeneration && $('status').textContent === 'Reconnecting to your KithMoot node. Your room stays here.') setStatus('Connection to your KithMoot node restored.', 'done')
+        },
       })
       if (generation !== roomGeneration) { nodeRuntime.close(); return }
       openingNodeRuntime = nodeRuntime

@@ -170,6 +170,39 @@ describe('pinned KithMoot node client', () => {
       await vi.advanceTimersByTimeAsync(300000); expect(calls).toBe(2)
     } finally { managed.close() }
   })
+  it('keeps an admitted call through a temporary server failure and retries credential renewal', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW, issued = 0
+    const fetcher = vi.fn(async () => ++issued === 2
+      ? new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } }) : response(f.login(clock))) as unknown as typeof fetch
+    class Peer { signalingState = 'stable'; restartIce = vi.fn(); setConfiguration = vi.fn(); close() { this.signalingState = 'closed' } }
+    const unavailable = vi.fn()
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, { fetcher, now: () => clock,
+      PeerConnection: Peer as unknown as typeof RTCPeerConnection, onUnavailable: unavailable })
+    try {
+      const peer = managed.factory() as unknown as Peer
+      clock += 240; await vi.advanceTimersByTimeAsync(240000)
+      expect(unavailable).toHaveBeenCalledWith(expect.objectContaining({ reason: 'unavailable', status: 503 }))
+      expect(peer.signalingState).toBe('stable')
+      clock += 5; await vi.advanceTimersByTimeAsync(5000)
+      expect(issued).toBe(3); expect(peer.restartIce).toHaveBeenCalledTimes(1)
+    } finally { managed.close() }
+  })
+  it('restarts retained relay peers after a network change even when the node returns the same login', async () => {
+    const f = fixture(), fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
+    class Peer { signalingState = 'stable'; restartIce = vi.fn(); setConfiguration = vi.fn(); close() { this.signalingState = 'closed' } }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Peer as unknown as typeof RTCPeerConnection })
+    try {
+      const peer = managed.factory() as unknown as Peer
+      await Promise.all([managed.reconnect(), managed.reconnect()])
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(peer.restartIce).toHaveBeenCalledTimes(1)
+      expect(peer.setConfiguration).toHaveBeenCalledWith(expect.objectContaining({ iceTransportPolicy: 'relay' }))
+      managed.close(); await managed.reconnect()
+      expect(fetcher).toHaveBeenCalledTimes(2); expect(peer.signalingState).toBe('closed')
+    } finally { managed.close() }
+  })
   it('ends a cached call within five monotonic minutes despite clock rollback and a stalled renewal', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW, ticks = 0, calls = 0, release!: (value: Response) => void
