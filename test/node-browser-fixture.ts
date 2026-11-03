@@ -20,7 +20,8 @@ async function freePort() {
 }
 /** Real supervisor, Spry and Shelter. Only the browser's production host
  * routing is replaced; signatures keep their production HTTPS/WSS audiences. */
-export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?: string } = {}) {
+export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?: string; turnPorts?: { udpTcp: number; tls: number };
+  onRequest?: (value: { method: string; path: string; origin?: string }) => void } = {}) {
   const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
   if (!spry || !shelter) throw Error('Set E2E_NODE_SPRY_BINARY and E2E_NODE_SHELTER_BINARY to checked local executables')
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-browser-')), children: ChildProcess[] = []
@@ -42,7 +43,8 @@ export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?:
     const [spryPort, relayPort] = await Promise.all(Array.from({ length: 2 }, freePort))
     // The signed node profile fixes the advertised TURN ports. This serial
     // fixture owns those real listeners; it never rewrites a credential.
-    const turnPort = 3478, tlsPort = 5349
+    const turnPorts = options.turnPorts ?? { udpTcp: 3478, tls: 5349 }
+    const turnPort = turnPorts.udpTcp, tlsPort = turnPorts.tls
     const cert = join(directory, 'cert.pem'), tlsKey = join(directory, 'key.pem'), control = join(directory, 'relay.sock'), turnSecret = randomBytes(32).toString('hex')
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,DNS:node.example,DNS:turn.node.example,IP:127.0.0.1', '-keyout', tlsKey, '-out', cert], { stdio: 'ignore' })
     const start = (binary: string, args: string[], env: Record<string, string> = {}) => { const child = spawn(binary, args, { env: { PATH: process.env.PATH, ...env }, stdio: 'ignore' }); children.push(child) }
@@ -60,11 +62,12 @@ export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?:
     }
     ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: randomBytes(32).toString('hex') })
     supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', key)
-    http = nodeHttp(supervisor, { origin, origins: [appOrigin], serviceKey }); await new Promise<void>(r => http!.listen(0, '127.0.0.1', r))
+    http = nodeHttp(supervisor, { origin, origins: [appOrigin], serviceKey, turnPorts }); await new Promise<void>(r => http!.listen(0, '127.0.0.1', r))
     const address = http.address(); if (!address || typeof address === 'string') throw Error('http listener')
     const desk = `http://127.0.0.1:${address.port}`
     bridge = httpsServer({ cert: readFileSync(cert), key: readFileSync(tlsKey) })
     bridge.on('request', (request, response) => {
+      options.onRequest?.({ method: request.method ?? '', path: request.url ?? '', origin: request.headers.origin })
       const target = request.url === '/v1/credentials' ? `http://127.0.0.1:${spryPort}` : desk
       const upstream = httpRequest(target + request.url, { method: request.method, headers: request.headers }, incoming => {
         response.writeHead(incoming.statusCode ?? 502, incoming.headers); incoming.pipe(response)

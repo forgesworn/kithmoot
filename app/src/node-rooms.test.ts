@@ -6,7 +6,9 @@ import { buildGrant } from '../../src/group-grants.js'
 import { pendingNodeRoomClose, prepareNodeRoomClose } from '../../src/node-room-close.js'
 import { memoryDeviceStore } from './device-store.js'
 import { deriveRoom } from '../../src/room.js'
-import { NODE_DEVICE_PREFIX, NODE_ROOM_PREFIX, NODE_ACCESS_PREFIX, NODE_KEEPER_PREFIX, NODE_PENDING_CLOSE_PREFIX,
+import { localIdentity } from '../../src/identity.js'
+import { createBrowserNodeRoom } from './node-room-runtime.js'
+import { NODE_PAIR_PREFIX, NODE_DEVICE_PREFIX, NODE_ROOM_PREFIX, NODE_ACCESS_PREFIX, NODE_KEEPER_PREFIX, NODE_PENDING_CLOSE_PREFIX,
   loadPairedNode, storePairedNode, unpairNode, nodeDeviceKeyFor, loadNodeRoom, storeNodeRoom, nodeCloseStore,
   nodeCloseReferences, forgetNodeCloseReference, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
 
@@ -22,6 +24,26 @@ function fixture() {
   return { store, participant, secret, authoritySk, room, node, deviceSk, grant, state, pair }
 }
 describe('browser node custody', () => {
+  it('retains custom node TURN ports through account restore and signs them into a recoverable new room', async () => {
+    const f = fixture(), owner = localIdentity(generateSecretKey()), pair = { ...f.pair, owner: owner.pubkey, turnPorts: { udpTcp: 34790, tls: 53499 } }
+    storePairedNode(f.store, owner.pubkey, pair)
+    const restored = loadPairedNode(f.store, owner.pubkey)!
+    expect(restored).toEqual(pair)
+    let prepared: BrowserNodeRoom | undefined
+    await expect(createBrowserNodeRoom(f.store, restored, owner, { now: () => NOW, allowed: () => false,
+      prepared: state => { prepared = state } })).rejects.toThrow()
+    expect(prepared?.node.turnPorts).toEqual(pair.turnPorts)
+    expect(loadNodeRoom(f.store, owner.pubkey, prepared!.node.room, NOW)?.node.turnPorts).toEqual(pair.turnPorts)
+    expect(prepared?.phase).toBe('creating')
+  })
+  it('refuses damaged saved TURN port profiles instead of restoring them as default ports', () => {
+    const f = fixture(), key = NODE_PAIR_PREFIX + f.participant
+    for (const turnPorts of [null, { udpTcp: 443, tls: 53499 }, { udpTcp: 34790, tls: 34790 }, { udpTcp: 34790, tls: 53499, extra: 1 }]) {
+      const raw = JSON.stringify({ ...f.pair, turnPorts }); f.store.set(key, raw)
+      expect(loadPairedNode(f.store, f.participant)).toBeUndefined()
+      expect(f.store.get(key)).toBe(raw)
+    }
+  })
   it('stores only public pairing fields for the matching account and unpairs without changing hosted rooms', () => {
     const f = fixture(), other = getPublicKey(generateSecretKey())
     const withCode = { ...f.pair, code: 'pairing code must never be saved' }

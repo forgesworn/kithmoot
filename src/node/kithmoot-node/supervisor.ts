@@ -97,16 +97,6 @@ export class NodeSupervisor {
     return { ...state, version: NODE_VERSION, ready: state.ready && turnReady && relayReady, turnReady, relayReady,
       ...(relay.status === 'fulfilled' ? { storeBytes: relay.value.usedBytes } : {}) }
   }
-  async ownerStatus(): Promise<ReturnType<NodeSupervisor['status']> & {
-    version: string; turnReady: boolean; relayReady: boolean; storeBytes?: number
-  }> {
-    const [calls, relay] = await Promise.allSettled([this.calls.status(), this.relay.status()])
-    const state = this.status()
-    const turnReady = calls.status === 'fulfilled' && calls.value.ready && (state.devices === 0 || calls.value.leaseActive)
-    const relayReady = relay.status === 'fulfilled' && (state.rooms === 0 || relay.value.leaseActive)
-    return { ...state, version: NODE_VERSION, ready: state.ready && turnReady && relayReady, turnReady, relayReady,
-      ...(relay.status === 'fulfilled' ? { storeBytes: relay.value.usedBytes } : {}) }
-  }
   operation(id: string): OperationStatus {
     const operation = this.ledger.operation(id)
     if (!operation) throw new NodeRefusal(404, 'operation-not-found')

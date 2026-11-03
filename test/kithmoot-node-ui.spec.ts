@@ -6,7 +6,7 @@ import { nodeBrowserFixture } from './node-browser-fixture.js'
 
 test('a paired owner admits a guest without typing, exchanges encrypted chat and closes the node room', async ({ browser, baseURL }, info) => {
   test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked Spry and private Shelter candidate executables')
-  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin), contexts: BrowserContext[] = [], requests: string[] = []
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { turnPorts: { udpTcp: 34790, tls: 53499 } }), contexts: BrowserContext[] = [], requests: string[] = []
   try {
     async function device(owner = false) {
       const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } }); contexts.push(context)

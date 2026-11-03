@@ -18,7 +18,7 @@ export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKith
   options: NodeClientOptions & { endsAt?: number; name?: string; prepared?: (state: BrowserNodeRoom) => void } = {}): Promise<BrowserNodeRoom> {
   const at = (options.now ?? now)(), secret = generateSecretKey(), authoritySk = generateSecretKey()
   const room = deriveRoom(secret).roomId, deviceSk = nodeDeviceKeyFor(store, owner.pubkey, room)
-  const node = readNodeRoom(signNodeRoom({ authoritySk, room, serviceKey: pair.serviceKey, origin: pair.origin, now: at, endsAt: options.endsAt }), at)!
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room, serviceKey: pair.serviceKey, origin: pair.origin, turnPorts: pair.turnPorts, now: at, endsAt: options.endsAt }), at)!
   const state: BrowserNodeRoom = { node, participant: owner.pubkey, secret, deviceSk, authoritySk, phase: 'creating', epochHint: 0, startsAt: at, name: options.name }
   // Persist root custody BEFORE anything can enrol the room remotely.
   storeNodeRoom(store, state, at)

@@ -1,6 +1,6 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
-import { readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, readNodeTurnPorts, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { deriveRoom } from '../../src/room.js'
 import { sanitiseDisplayName } from '../../src/display-name.js'
 import type { PairedKithmootNode } from '../../src/kithmoot-node.js'
@@ -37,7 +37,10 @@ function publicPair(value: unknown, participant?: string): PairedKithmootNode | 
   const pair = value as Partial<PairedKithmootNode>
   if (pair.v !== 1 || !canonicalOrigin(pair.origin) || typeof pair.serviceKey !== 'string' || !KEY.test(pair.serviceKey)
     || typeof pair.owner !== 'string' || !KEY.test(pair.owner) || pair.serviceKey === pair.owner || participant !== undefined && pair.owner !== participant) return undefined
-  return { v: 1, origin: pair.origin, serviceKey: pair.serviceKey, owner: pair.owner }
+  const ports = readNodeTurnPorts(pair.turnPorts)
+  if (!ports) return undefined
+  return { v: 1, origin: pair.origin, serviceKey: pair.serviceKey, owner: pair.owner,
+    ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) }
 }
 export function loadPairedNode(store: DeviceStore, participant: string): PairedKithmootNode | undefined {
   if (!KEY.test(participant)) return undefined
