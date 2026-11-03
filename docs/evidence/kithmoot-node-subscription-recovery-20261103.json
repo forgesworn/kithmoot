@@ -30,7 +30,7 @@
     "mainSha256": "bd3ba95fb885bc91c0e4dc9524995e1b9d9396f096e228ca5befc1e2603c89ee"
   },
   "limits": [
-    "Long controlled VPN, outage and renewal run for this source is in progress, not yet acceptance",
+    "Later source599467 passed the strict matched-pair VPN, outage and renewal gate with this subscription fix included; see the completion receipt.",
     "The earlier 439 second outage-only run passed media and renewal but still observed the subscription burst; it did not switch the VPN",
     "No protocol-default change, physical GrapheneOS or independent mobile handoff acceptance claimed"
   ],
@@ -55,5 +55,12 @@
       "name": "kithmoot-node-subscription-burst-browser-20261103.log",
       "sha256": "b9e844dbd1b848198927158548d1c435227a18e9eb7b25654b6bdc444254d395"
     }
-  ]
+  ],
+  "completion": {
+    "finalCodeSource": "c7db6eff86e91b6e381138bfeffaed8e12ff9cd5",
+    "focusedTestsPassed": 161,
+    "matchedPairReceipt": "kithmoot-node-matched-pair-tls443-20261103.json",
+    "peakSubscriptions": 12,
+    "subscriptionOverflows": 0
+  }
 }

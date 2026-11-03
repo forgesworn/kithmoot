@@ -30,9 +30,9 @@
     "mainSha256": "a660bf5df0a729b5926a94856215b2b84b63a184db5a0b63d03773463579deb1"
   },
   "comparisonEvidence": "kithmoot-node-tls443-profile2-comparison-20261103.json",
-  "normalLinkRoamingQualification": "in progress; not yet acceptance",
+  "normalLinkRoamingQualification": "The initial aggregate room-media run did not isolate the test pair. Strict production56cb failed; fresh-allocation599467 passed the paired gate. See kithmoot-node-matched-pair-tls443-20261103.json.",
   "limits": [
-    "The 460 second full VPN/outage/renewal comparison explicitly selected profile2 on source8c; the new normal-link source23d is checked separately",
+    "The historical 460-second comparison measured aggregate room media with an explicit profile2 query; it does not clear the matched-pair renewal gate.",
     "No physical mobile handoff, independent commercial VPN or GrapheneOS acceptance claimed"
   ],
   "logs": [

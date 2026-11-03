@@ -96,5 +96,8 @@
     "This run explicitly requested profile2 on the core subscription fix; the final normal-link default run is separate",
     "A WireGuard node route in an isolated container carried over private SSH is not an independent commercial VPN or physical mobile network",
     "No owner keys, room invite or TURN credentials recorded"
-  ]
+  ],
+  "mediaScope": "Aggregate room media; not isolated to the mutual test pair",
+  "matchedPairAcceptance": false,
+  "laterPairReceipt": "kithmoot-node-matched-pair-tls443-20261103.json"
 }

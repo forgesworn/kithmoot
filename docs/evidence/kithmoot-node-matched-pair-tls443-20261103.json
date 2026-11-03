@@ -1,0 +1,194 @@
+{
+  "passed": true,
+  "mode": "controlled-vpn-roaming-tls443",
+  "clientSource": "599467deab502c99a42465b94c5b44f929bdc398",
+  "productionWeb": false,
+  "candidateRendererWithProductionHeaders": true,
+  "realOwnerAdmission": true,
+  "mediaIsolatedToTestGuestPairByMutualDtlsFingerprint": true,
+  "requestedCallProfile": "default",
+  "nativeFakeMicrophone": true,
+  "publicCAValidated": true,
+  "mediaSeconds": 479,
+  "afterFinalRecoverySeconds": 314,
+  "firewall": "IPv4 media TCP443 only; IPv6 blocked; DNS and private encrypted carrier allowed",
+  "vpn": "WireGuard route for the node with client NAT, carried through private SSH; container routes only; underlying host VPN not changed",
+  "changedNodeRoute": true,
+  "returnedNodeRoute": true,
+  "transitions": [
+    {
+      "phase": "vpn-recovering",
+      "seconds": 21
+    },
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 42,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovering",
+      "seconds": 104
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 11
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 15
+    }
+  ],
+  "credentialIssuances": [
+    {
+      "guest": "Roaming test B",
+      "seconds": -7,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 27,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 28,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 111,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 111,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 154,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 155,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test A",
+      "seconds": 394,
+      "lifetime": 300
+    },
+    {
+      "guest": "Roaming test B",
+      "seconds": 395,
+      "lifetime": 300
+    }
+  ],
+  "roomLinkRecorded": false,
+  "credentialsRecorded": false,
+  "v": 1,
+  "date": "2026-11-03",
+  "rawReceiptSha256": "51eaeb7b64263b1e37639d2769a45a10057640187072dd83dfc7c18b33fc9761",
+  "mainSha256": "93bd107c7a20d7b0b4ee37f05060a7e9fe7f748f9848a4b85f19f60803b44e31",
+  "steadyMediaGapLimitSeconds": 25,
+  "peakSubscriptions": 12,
+  "subscriptionOverflows": 0,
+  "pageErrors": [],
+  "phases": {
+    "baseline": {
+      "samples": 5,
+      "decodedVideoFrames": [
+        369,
+        405
+      ],
+      "audioPackets": [
+        1089,
+        1117
+      ]
+    },
+    "vpn-recovering": {
+      "samples": 8,
+      "decodedVideoFrames": [
+        39,
+        43
+      ],
+      "audioPackets": [
+        125,
+        134
+      ]
+    },
+    "vpn-steady": {
+      "samples": 7,
+      "decodedVideoFrames": [
+        339,
+        301
+      ],
+      "audioPackets": [
+        1802,
+        1782
+      ]
+    },
+    "direct-recovering": {
+      "samples": 2,
+      "decodedVideoFrames": [
+        16,
+        16
+      ],
+      "audioPackets": [
+        58,
+        63
+      ]
+    },
+    "direct-steady": {
+      "samples": 4,
+      "decodedVideoFrames": [
+        364,
+        350
+      ],
+      "audioPackets": [
+        1017,
+        1013
+      ]
+    },
+    "outage": {
+      "samples": 3,
+      "decodedVideoFrames": [
+        4,
+        4
+      ],
+      "audioPackets": [
+        8,
+        7
+      ]
+    },
+    "outage-recovering": {
+      "samples": 3,
+      "decodedVideoFrames": [
+        136,
+        137
+      ],
+      "audioPackets": [
+        355,
+        358
+      ]
+    },
+    "renewal-soak": {
+      "samples": 61,
+      "decodedVideoFrames": [
+        5401,
+        5123
+      ],
+      "audioPackets": [
+        15209,
+        15163
+      ]
+    }
+  },
+  "limits": [
+    "Controlled node-route WireGuard with private SSH carrier; not an independent commercial VPN or mobile carrier",
+    "Synthetic camera and microphone; two Chromium processes on one container",
+    "Candidate renderer served under production headers against the real public node",
+    "No capacity, physical GrapheneOS or packaged-client release claim"
+  ]
+}
