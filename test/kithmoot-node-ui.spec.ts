@@ -259,7 +259,13 @@ test('one disconnected participant does not replace a healthy participant connec
       await keeper.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
       await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 30000 })
     }
-    for (const page of [keeper, ...guests]) await turnOnMedia(page)
+    await turnOnMedia(keeper)
+    for (const guest of guests) {
+      // Join the host's advertised call explicitly. Starting another call
+      // before its advert arrives would test call discovery instead.
+      await expect(guest.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call')
+      await turnOnMedia(guest)
+    }
     const fingerprints = () => (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers.flatMap((pc, index) => {
       if (pc.connectionState !== 'connected') return []
       const fingerprint = (sdp?: string) => /a=fingerprint:([^\r\n]+)/.exec(sdp ?? '')?.[1]
