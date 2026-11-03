@@ -3,9 +3,10 @@
 The design is [the node specification](design/2026-11-02-kithmoot-node.md).
 This implementation is being delivered in stages. The current backend can
 pair an owner, enrol rooms, project signed grants, remove devices and recover
-interrupted room closure. It is not yet a public node release. The web,
-desktop and Android node journeys, signed installer dependencies, external
-network qualification and applicable UI acceptance remain required.
+interrupted room closure. The private Linux installer and client implementations are available for
+review. This is not a public node release: signed dependencies, external
+network qualification and applicable UI acceptance remain required. See the
+[installer guide](kithmoot-node-install.md) and the web and Android UI review packs.
 
 ## Local operator commands
 
@@ -40,17 +41,17 @@ in the service's control group, so a killed supervisor cannot leave orphan
 children holding its ports and state locks through a restart. Use that
 lifecycle on Linux. A manually launched foreground process has graceful
 SIGTERM/SIGINT cleanup; killing it without its process group is not a
-substitute for the systemd crash/restart boundary. The unit is a candidate
-template, not evidence of installation on a fresh Linux machine.
+substitute for the systemd crash/restart boundary. The unit has been exercised on a disposable Debian systemd installation.
+That local proof does not establish outside reachability or a production deployment.
 
 Run `pair --state DIRECTORY` in a local terminal to print a single-use,
 six-minute owner link. Its code is in the fragment and is not logged by the
 service. The node stores only the code's digest. A new local pairing command
-invalidates the previous code. The client pairing handler is part of the
-remaining client implementation, so this candidate does not yet offer a
-complete install-and-pair journey. `status` returns counts; `doctor` checks
-local readiness and explicitly leaves DNS, certificate trust, outside TURN
-reachability and mobile-network acceptance to external checks.
+invalidates the previous code. The client pairing handlers are in the UI
+review candidates. `status` returns counts; `doctor` checks local service
+identity, DNS, certificate trust, storage, the four STUN transports and the
+relay authentication challenge. It explicitly leaves outside reachability,
+authenticated relay media and mobile-network acceptance to external checks.
 
 ## Public API behind the TLS front
 
@@ -72,7 +73,8 @@ codes. Unknown request fields and routes fail closed.
 * `GET /node/v1/info` returns the node service key and fixed node profile,
   sole relay, files-off and relay-only policy. The keeper's signed descriptor
   must pin these before a client trusts them.
-* `GET /node/v1/status` returns readiness and counts only.
+* `GET /node/v1/status` returns readiness and counts only. Its NIP-98
+  authenticated POST form returns the paired owner's detailed node status.
 * `POST /node/v1/claim` takes the local code, and pairs the signing public key
   as owner. It cannot replace an existing owner.
 * `POST /node/v1/enrol` takes `room`, `authority`, `inviter` and optional
@@ -150,3 +152,45 @@ The public installer must refuse release packaging until approved, signed
 Shelter and Spry releases, corresponding source, licences and the other node
 release gates exist. This implementation does not publish private Shelter
 source or binaries and does not deploy a new public service.
+
+
+## Host-managed TLS and separate listener profiles
+
+The default standalone profile still uses TURN UDP/TCP 3478, TLS 5349 and the
+bounded relay range 49160:49191. An optional `turnPorts:{udpTcp,tls}` selects
+two distinct unprivileged ports on the same node hostname;
+`relayPortFirst` selects the first of exactly 32 allocation ports. All internal
+and public ports must remain disjoint. HTTPS and the dedicated TURN hostname
+remain on 443. Doctor, the TLS front, firewall plans and the public info
+response use the configured profile. The paired client keeps that profile;
+room enrolment refuses a descriptor signed for different ports.
+
+Fold 0.17 records these optional ports in the keeper-signed descriptor. Earlier
+strict readers reject such records. Existing default descriptors retain their
+bytes. Do not change ports behind an active room's signed record: close its
+rooms first, or retain their old listeners.
+
+A declarative hosted Archy package may set `hosting:archy` and `tlsGate:true`.
+That mode refuses certificate and certificate-key fields. Spry advertises the
+hosted TLS ports and binds no TLS listener of its own; the host must supply
+both TLS listeners and the public HTTPS/room-WebSocket routes. Standalone
+system installation refuses this mode. Local supervisor readiness alone does
+not prove that the host gate works; doctor and the external checks still apply.
+
+The host profile requires three independent manifest-declared secrets, imported
+at setup and checked against existing private state at every start. The CLI
+reads only `KITHMOOT_NODE_SERVICE_KEY`, `KITHMOOT_NODE_TURN_SECRET` and
+`KITHMOOT_NODE_STATE_SALT` for this profile. Those values are never command-line
+arguments or log fields. Changed secrets stop recovery/start rather than
+silently replacing an existing identity. Direct Linux setup continues to
+generate its own private secrets. The supervisor and its children still run
+as an unprivileged service user; an Archy image can declare its data UID through
+the orchestrator instead of running the service as root.
+
+`test/kithmoot-node-host-profile.mjs` is an opt-in disposable Linux fixture.
+It runs the production supervisor and both backends as UID 1000, keeps the host
+certificate key unreadable to that application, and supplies generated host
+TLS gates. A separate Spry occupies 3478/5349 while the node uses 34790/53499
+and 49192:49223. This qualifies the runtime profile and listener coexistence;
+it does not establish Archy's actual app gate, FIPS, UI, public-network or
+physical-phone acceptance.

@@ -21,7 +21,7 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
     return { rooms: 0, devices: 0, usedBytes: 4096, leaseActive: relayLease }
   } }
   const supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', nodeKey)
-  const server = nodeHttp(supervisor, { origin: 'https://node.example', origins: ['https://app.example'], serviceKey })
+  const server = nodeHttp(supervisor, { origin: 'https://node.example', origins: ['https://app.example'], serviceKey, turnPorts: { udpTcp: 34790, tls: 53499 } })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); cleanup.push(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
   const address = server.address(); if (!address || typeof address === 'string') throw Error('listener')
   const base = `http://127.0.0.1:${address.port}`, owner = generateSecretKey(), foreign = generateSecretKey()
@@ -31,6 +31,7 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
     ] }, key))).toString('base64')}`
   }
   const post = (path: string, body: string, auth: string, origin?: string) => fetch(base + path, { method: 'POST', body, headers: { 'content-type': 'application/json', authorization: auth, ...(origin ? { origin } : {}) } })
+  expect(await (await fetch(base + '/node/v1/info')).json()).toMatchObject({ turnPorts: { udpTcp: 34790, tls: 53499 }, calls: 'relay-only', files: 'off' })
   const pair = preparePairing(supervisor), body = JSON.stringify({ code: pair.code }), auth = proof('/node/v1/claim', body)
   expect((await post('/node/v1/claim', body, auth, 'https://evil.example')).status).toBe(403)
   expect((await post('/node/v1/claim', body.replace(pair.code, 'A'.repeat(43)), auth)).status).toBe(401)

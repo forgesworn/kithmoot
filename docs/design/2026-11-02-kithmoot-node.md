@@ -333,8 +333,12 @@ store work in the performance plan].
 `kithmoot-node doctor` checks from the machine itself and says plainly which
 checks need a second network (TURN reachability from outside uses the
 existing `checkCallRelay` from the keeper's app, `app/src/call-relay-check.ts`).
-`kithmoot-node uninstall --delete-everything` purges every room, rotates
-nothing (it is going), removes units, data and certificates.
+`kithmoot-node uninstall --delete-everything` requires every hosted room to
+have completed its keeper-signed close first. The server has no keeper keys
+and cannot authorise device self-destruct by itself. It then removes its
+units, data, managed firewall rules and certificate copies. An ACME install
+also removes its own certificate lineage and renewal hook. Existing operator
+certificates and unrelated firewall rules are preserved.
 
 **Archy**: an app package in archipelago-apps beside Spry, "KithMoot node",
 bundling the same three processes. Archy supplies installation, the app gate's

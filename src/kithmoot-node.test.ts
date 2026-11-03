@@ -5,14 +5,14 @@ import { buildGrant, buildReset, parseGroupEvent } from './group-grants.js'
 import { localIdentity, type UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
 import { spryHash } from './spry.js'
-import { nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
+import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
   nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, type NodeDeviceAccess } from './kithmoot-node.js'
 
 const NOW = 1_900_000_000
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
-function fixture() {
+function fixture(turnPorts?: { udpTcp: number; tls: number }) {
   const authority = generateSecretKey(), device = generateSecretKey(), room = '01'.repeat(32), identity = localIdentity(device)
-  const event = signNodeRoom({ authoritySk: authority, room, serviceKey: getPublicKey(generateSecretKey()), origin: 'https://node.example', now: NOW })
+  const event = signNodeRoom({ authoritySk: authority, room, serviceKey: getPublicKey(generateSecretKey()), origin: 'https://node.example', now: NOW, turnPorts })
   const node = readNodeRoom(event, NOW)!
   const grant = buildGrant({ authoritySk: authority, roomId: room, device: identity.pubkey, server: 'node.example', scopes: ['turn', 'relay-read', 'relay-write'],
     grantId: '01'.repeat(16), createdAt: NOW, expiration: NOW + 7200 })
@@ -69,6 +69,18 @@ describe('pinned KithMoot node client', () => {
       await expect(nodeTurnCredentials(f.node, f.access, f.identity, { fetcher, now: () => NOW })).rejects.toMatchObject({ reason: 'invalid' })
       expect(fetcher).toHaveBeenCalledTimes(1)
     }
+  })
+  it('checks issuance lifetime with bounded clock skew and rechecks time after a slow request', async () => {
+    const f = fixture()
+    const options = (value: unknown) => ({ now: () => NOW, fetcher: vi.fn(async () => response(value)) as unknown as typeof fetch })
+    const shifted = (shift: number, lifetime = 300) => ({ ...f.login(NOW + shift), issuedAt: NOW + shift,
+      expiresAt: NOW + shift + lifetime, username: `${NOW + shift + lifetime}:${'01'.repeat(12)}` })
+    expect((await nodeTurnCredentials(f.node, f.access, f.identity, options(shifted(1)))).expiresAt).toBe(NOW + 301)
+    for (const value of [shifted(31), shifted(0, 301), { ...shifted(0), issuedAt: null }])
+      await expect(nodeTurnCredentials(f.node, f.access, f.identity, options(value))).rejects.toMatchObject({ reason: 'invalid' })
+    let clock = NOW
+    const fetcher = vi.fn(async () => { clock += 40; return response(f.login(clock)) }) as unknown as typeof fetch
+    expect((await nodeTurnCredentials(f.node, f.access, f.identity, { now: () => clock, fetcher })).expiresAt).toBe(NOW + 340)
   })
   it('does not treat a server refusal or grant reset as a signed room closure', async () => {
     const f = fixture(), reset = buildReset({ authoritySk: f.authority, roomId: f.room, server: 'node.example', createdAt: NOW })
@@ -158,4 +170,45 @@ describe('pinned KithMoot node client', () => {
       await vi.advanceTimersByTimeAsync(300000); expect(calls).toBe(2)
     } finally { managed.close() }
   })
+  it('ends a cached call within five monotonic minutes despite clock rollback and a stalled renewal', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW, ticks = 0, calls = 0, release!: (value: Response) => void
+    const fetcher = vi.fn(async () => ++calls === 1 ? response({ ...f.login(NOW + 1), issuedAt: NOW + 1 })
+      : new Promise<Response>(resolve => { release = resolve })) as unknown as typeof fetch
+    class Peer { signalingState = 'stable'; restartIce = vi.fn(); setConfiguration = vi.fn(); close() { this.signalingState = 'closed' } }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, monotonic: () => ticks, PeerConnection: Peer as unknown as typeof RTCPeerConnection })
+    try {
+      const peer = managed.factory() as unknown as Peer
+      clock += 240; ticks = 240000; await vi.advanceTimersByTimeAsync(240000); expect(calls).toBe(2)
+      clock = NOW - 600; ticks = 299000; await vi.advanceTimersByTimeAsync(59000); expect(peer.signalingState).toBe('stable')
+      ticks = 300000; await vi.advanceTimersByTimeAsync(1000); expect(peer.signalingState).toBe('closed')
+      expect(() => managed.factory()).toThrow()
+      release(response(f.login(NOW + 240))); await vi.advanceTimersByTimeAsync(0)
+      expect(peer.restartIce).not.toHaveBeenCalled(); expect(peer.signalingState).toBe('closed')
+    } finally { managed.close() }
+  })
+
+})
+
+it('pins selected ports during owner pairing and accepts credentials only for the keeper-signed port profile', async () => {
+  const turnPorts = { udpTcp: 34790, tls: 53499 }, f = fixture(turnPorts)
+  const info = { v: 1, profile: 'kithmoot-node/1', origin: f.node.origin, serviceKey: f.node.serviceKey, relay: f.node.relay, calls: 'relay-only', files: 'off', turnPorts }
+  const fetcher = vi.fn(async (url: string | URL | Request) => response(String(url).endsWith('/info') ? info : { paired: true })) as unknown as typeof fetch
+  const pair = await claimKithmootNode({ origin: f.node.origin, code: 'A'.repeat(43), expiresAt: NOW + 60 }, f.identity, { fetcher, now: () => NOW })
+  expect(pair.turnPorts).toEqual(turnPorts)
+  expect((await nodeTurnCredentials(f.node, f.access, f.identity, { fetcher: async () => response(f.login()), now: () => NOW })).urls).toEqual(f.node.turnUrls)
+  await expect(nodeTurnCredentials(f.node, f.access, f.identity, { fetcher: async () => response({ ...f.login(), urls: fixture().node.turnUrls }), now: () => NOW })).rejects.toMatchObject({ reason: 'invalid' })
+  const malformed = vi.fn(async () => response({ ...info, turnPorts: { udpTcp: 443, tls: 53499 } })) as unknown as typeof fetch
+  await expect(claimKithmootNode({ origin: f.node.origin, code: 'A'.repeat(43), expiresAt: NOW + 60 }, f.identity, { fetcher: malformed, now: () => NOW })).rejects.toMatchObject({ reason: 'invalid' })
+  expect(malformed).toHaveBeenCalledTimes(1)
+})
+
+it('refuses room enrolment when its signed port profile differs from the paired node', async () => {
+  const f = fixture({ udpTcp: 34790, tls: 53499 }), fetcher = vi.fn(async () => response({ enrolled: true })) as unknown as typeof fetch
+  const pair = { v: 1 as const, owner: f.identity.pubkey, origin: f.node.origin, serviceKey: f.node.serviceKey }
+  await expect(enrolNodeRoom(pair, f.node, f.identity, { fetcher, now: () => NOW })).rejects.toMatchObject({ reason: 'invalid' })
+  expect(fetcher).not.toHaveBeenCalled()
+  await enrolNodeRoom({ ...pair, turnPorts: f.node.turnPorts }, f.node, f.identity, { fetcher, now: () => NOW })
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })

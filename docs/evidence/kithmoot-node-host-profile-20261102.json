@@ -1,0 +1,168 @@
+{
+  "schema": "kithmoot-node-host-profile-evidence/1",
+  "date": "2026-11-02",
+  "sourceCommit": "df09cafc8b715ce0a0a408392db5058c2e029259",
+  "distribution": "private-candidate",
+  "manifestSha256": "7f7b6b718afd447c7c0fd02e4096d9632048afae8cf30a6839d5a55882159d0c",
+  "platform": "linux-arm64",
+  "fold": {
+    "version": "0.17.0",
+    "integrity": "sha512-9OKkQYDUAq2LWfVR194uj7ScM+8AqDP4NpIu5C9WVALl60t//g+UZo7kuz37faYUJ1rj0hce71tD3+txt1YMQg=="
+  },
+  "fixture": {
+    "base": "node:24-bookworm-slim",
+    "node": "24.22.2",
+    "network": "Docker bridge disconnected before setup of service keys; synthetic1.2.3.4/32 on loopback; no published ports",
+    "capabilities": "Fixture host NET_ADMIN for loopback setup; production application UID1000",
+    "tls": "Generated SAN-bearing certificate; normal trust and hostname verification; private host key unreadable to application"
+  },
+  "checks": {
+    "focusedTests": 55,
+    "testFiles": 11,
+    "libraryAndAppTypecheck": "passed",
+    "libraryBuild": "passed",
+    "changedCodeSecretScan": "no leaks",
+    "defaultBackendRegression": "passed, revocation acknowledgement to closed streams31ms",
+    "hostProfile": {
+      "schema": "kithmoot-node-host-profile/1",
+      "result": "passed",
+      "isolatedLinux": true,
+      "applicationUid": 1000,
+      "hostCertificateKeyDeniedToApplication": true,
+      "manifestDeclaredSecrets": true,
+      "hostManagedTls": true,
+      "separatePorts": {
+        "udpTcp": 34790,
+        "tls": 53499
+      },
+      "independentOldListenersPreserved": true,
+      "localDoctorChecks": 9,
+      "journey": {
+        "schema": "kithmoot-node-installed/1",
+        "result": "passed",
+        "isolatedLinux": true,
+        "ownerPairing": true,
+        "manualAdmission": true,
+        "freshRoot": true,
+        "encryptedChat": true,
+        "activeUninstallRefused": null,
+        "hostProfile": true,
+        "liveUpdate": false,
+        "authenticatedTurn": [
+          "udp34790",
+          "tcp34790",
+          "tls53499",
+          "tls443"
+        ],
+        "cachedAccessRevoked": true,
+        "closeDelivered": true,
+        "callsRevoked": true,
+        "relayPurged": true,
+        "signedCompletion": true,
+        "coldPublicProof": true,
+        "counts": {
+          "v": 1,
+          "ready": true,
+          "paired": true,
+          "rooms": 0,
+          "devices": 0,
+          "pending": 0
+        }
+      },
+      "actualArchyHostIntegration": false,
+      "publicNetwork": false,
+      "physicalGrapheneOS": false
+    },
+    "allocationRange": "All authenticated allocations checked within49192:49223",
+    "firewallOwnership": {
+      "schema": "kithmoot-node-ufw/1",
+      "result": "passed",
+      "existingRules": 3,
+      "ownRules": 3,
+      "insertionPreservesComments": true,
+      "repeatIdempotent": true,
+      "removalPreservesExistingRules": true,
+      "actualInstallerRemoval": false
+    }
+  },
+  "logHashes": {
+    "kithmoot-node-host-profile-proof-20261102.log": "80cf5a58415b2188707812479356d001dfdba51f1c5075da5fe189d3e5e9018e",
+    "kithmoot-node-archy-support-tests-20261102.log": "9c89466bb155cb17182f9c580540c44544dddef5ad29ea841269d7b0eef623eb",
+    "kithmoot-node-archy-support-types-20261102.log": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042",
+    "kithmoot-node-archy-support-build-20261102.log": "358d1fa73291eac8f518d0908428cedbacdd74e00b5df49c941fc771bda4f3da",
+    "kithmoot-node-archy-support-default-backends-20261102.log": "0212ea380e64cf7cab239e0827da333eba2a527b7236a9b0f50a699b4a0d2fb4",
+    "kithmoot-node-archy-support-secrets-20261102.log": "ed7f6f607ef51e6248d3bb015a543dc865e90ea11d734f527ac1188ef568983a",
+    "kithmoot-node-ufw-proof-20261102.log": "e2ff21be9db85520dc0f2012ba34ee9173a8a70f43a4084acea263118a7e9120",
+    "kithmoot-node-host-delete-proof-20261103.log": "871f6039f8291b76c7b642c8684e1aa896d4ab6b4e0c936e888948cc5342b69f",
+    "kithmoot-node-delete-all-tests-20261103.log": "95b1c49370d11e92eec1bdd26ef41c8698e3d2dde531cfd1f3174cf66826b3cc"
+  },
+  "limits": [
+    "Generated host TLS gates are not Archys real app gate or nginx ingress",
+    "Independent standard-profile Spry listeners qualify port coexistence, not FIPS private-mesh acceptance",
+    "Host profile removal UI and actual Archy lifecycle remain pending",
+    "Public DNS/CA, independent NAT, forced TLS443 cross-client media/capacity and physical GrapheneOS remain pending",
+    "Archy and client UI require explicit reviewed-revision maintainer acceptance; ZAT pending",
+    "Private Shelter publication and complete signed distribution/licence gates remain pending"
+  ],
+  "deleteIntentRequalification": {
+    "date": "2026-11-03",
+    "manifestSha256": "3e7f78635f9c69e7e281fb943e707328857c492038f6e1c87b2995215dd54a65",
+    "focusedTests": 44,
+    "testFiles": 10,
+    "typecheck": "passed",
+    "libraryBuild": "passed",
+    "hostProfile": {
+      "schema": "kithmoot-node-host-profile/1",
+      "result": "passed",
+      "isolatedLinux": true,
+      "applicationUid": 1000,
+      "hostCertificateKeyDeniedToApplication": true,
+      "manifestDeclaredSecrets": true,
+      "hostManagedTls": true,
+      "separatePorts": {
+        "udpTcp": 34790,
+        "tls": 53499
+      },
+      "independentOldListenersPreserved": true,
+      "localDoctorChecks": 9,
+      "journey": {
+        "schema": "kithmoot-node-installed/1",
+        "result": "passed",
+        "isolatedLinux": true,
+        "ownerPairing": true,
+        "manualAdmission": true,
+        "freshRoot": true,
+        "encryptedChat": true,
+        "activeUninstallRefused": null,
+        "hostProfile": true,
+        "liveUpdate": false,
+        "authenticatedTurn": [
+          "udp34790",
+          "tcp34790",
+          "tls53499",
+          "tls443"
+        ],
+        "cachedAccessRevoked": true,
+        "closeDelivered": true,
+        "callsRevoked": true,
+        "relayPurged": true,
+        "signedCompletion": true,
+        "coldPublicProof": true,
+        "deletionFreeze": true,
+        "counts": {
+          "v": 1,
+          "ready": true,
+          "paired": true,
+          "rooms": 0,
+          "devices": 0,
+          "pending": 0
+        }
+      },
+      "actualArchyHostIntegration": false,
+      "publicNetwork": false,
+      "physicalGrapheneOS": false
+    },
+    "restartAndConcurrentEnrolment": "passed against real SQLite in supervisor tests",
+    "asyncLocalControl": "passed on actual private socket; writable half remains open until reply"
+  }
+}

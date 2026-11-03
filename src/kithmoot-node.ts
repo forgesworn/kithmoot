@@ -1,7 +1,7 @@
 import { base64urlnopad } from '@scure/base'
 import { randomBytes } from '@noble/hashes/utils'
-import { readNodeRoom, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
-  type NodeRoomRecord, type NodeCloseReceipt } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, readNodeTurnPorts, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
+  type NodeRoomRecord, type NodeCloseReceipt, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import type { Event } from 'nostr-tools/pure'
 import type { ParticipantIdentity, UnsignedEvent } from './identity.js'
 import { verifyEventUncached } from './verify.js'
@@ -17,7 +17,7 @@ export class KithmootNodeError extends Error {
 }
 export interface NodeClientOptions { fetcher?: typeof fetch; now?: () => number; signal?: AbortSignal; allowed?: () => boolean }
 export interface NodeRelayOptions { websocketImplementation?: typeof WebSocket; now?: () => number; allowed?: () => boolean }
-export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string }
+export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; owner: string; turnPorts?: NodeTurnPorts }
 export interface NodeOwnerStatus {
   v: 1; version: string; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number
   turnReady: boolean; relayReady: boolean; storeBytes?: number
@@ -108,13 +108,17 @@ export async function claimKithmootNode(link: NodePairingLink, owner: Participan
   } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(0, 'unavailable') }
   if (info.v !== 1 || info.profile !== 'kithmoot-node/1' || info.origin !== origin || typeof info.serviceKey !== 'string' || !KEY.test(info.serviceKey)
     || info.serviceKey === owner.pubkey || info.relay !== `wss://${new URL(origin).host}/events` || info.calls !== 'relay-only' || info.files !== 'off') return invalid()
+  const ports = readNodeTurnPorts(info.turnPorts)
+  if (!ports) return invalid()
   const result = await request(origin, '/node/v1/claim', { code: link.code }, owner, options)
   if (result.paired !== true) return invalid()
-  return { v: 1, origin, serviceKey: info.serviceKey, owner: owner.pubkey }
+  return { v: 1, origin, serviceKey: info.serviceKey, owner: owner.pubkey, ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) }
 }
 export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRecord, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
   const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
-  if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey) return invalid()
+  const pairedPorts = readNodeTurnPorts(pair.turnPorts), roomPorts = readNodeTurnPorts(node.turnPorts)
+  if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey || !pairedPorts || !roomPorts
+    || pairedPorts.udpTcp !== roomPorts.udpTcp || pairedPorts.tls !== roomPorts.tls) return invalid()
   const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
   if (result.enrolled !== true) return invalid()
 }
@@ -164,9 +168,16 @@ export async function nodeTurnCredentials(record: NodeRoomRecord, access: Extrac
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
   if (!verifyNodeRoomGrant(access.grant.event, node, device.pubkey, now) || access.offer.endpoint !== node.origin || access.offer.expiresAt <= now) return invalid()
   const value = await request(node.origin, '/v1/credentials', { grant: access.offer.token }, device, options)
+  const receivedAt = (options.now ?? (() => Math.floor(Date.now() / 1000)))()
+  // Authenticated issuance time accommodates small clock differences without
+  // extending the server's five-minute lifetime. Missing timestamps keep the
+  // older strict local-clock bound; managed peers also have a monotonic cap.
+  const issuedAt = value.issuedAt
+  if (issuedAt !== undefined && (!Number.isSafeInteger(issuedAt) || Number(issuedAt) > receivedAt + 30 || Number(issuedAt) < receivedAt - 300
+    || Number(value.expiresAt) <= Number(issuedAt) || Number(value.expiresAt) > Number(issuedAt) + 300)) return invalid()
   if (!Array.isArray(value.urls) || !value.urls.length || value.urls.length > 4 || new Set(value.urls).size !== value.urls.length || value.urls.some(url => !node.turnUrls.includes(url))
     || typeof value.username !== 'string' || !/^[0-9]{1,12}:[a-f0-9]{24}$/.test(value.username) || typeof value.credential !== 'string' || !/^[A-Za-z0-9+/]{27}=$/.test(value.credential)
-    || !Number.isSafeInteger(value.expiresAt) || Number(value.expiresAt) <= now || Number(value.expiresAt) > now + 300
+    || !Number.isSafeInteger(value.expiresAt) || Number(value.expiresAt) <= receivedAt || issuedAt === undefined && Number(value.expiresAt) > receivedAt + 300
     || Number(value.username.split(':')[0]) !== value.expiresAt || !Number.isSafeInteger(value.accessExpiresAt) || Number(value.accessExpiresAt) < Number(value.expiresAt)
     || Number(value.accessExpiresAt) > Math.min(access.grant.expiration, node.endsAt ?? Infinity)) return invalid()
   return { urls: value.urls as string[], username: value.username, credential: value.credential, expiresAt: Number(value.expiresAt), accessExpiresAt: Number(value.accessExpiresAt) }
@@ -270,19 +281,21 @@ export function nodeKeeperInbox(record: NodeRoomRecord, authority: ParticipantId
 /** Relay-only browser connections with fresh TURN credentials before the old
  * username expires. A failed refresh never changes the transport policy. */
 export async function nodeCallFactory(record: NodeRoomRecord, device: ParticipantIdentity, access: () => Promise<NodeDeviceAccess>, options: NodeClientOptions & {
-  PeerConnection?: typeof RTCPeerConnection; onUnavailable?: (error: KithmootNodeError) => void
+  PeerConnection?: typeof RTCPeerConnection; onUnavailable?: (error: KithmootNodeError) => void; monotonic?: () => number
 } = {}): Promise<{ factory: PeerFactory; close(): void }> {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
   const peers = new Set<RTCPeerConnection>(), controller = new AbortController()
-  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined
+  let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined
+  const monotonic = options.monotonic ?? (() => performance.now())
+  let deadline = Infinity
   let credential: SpryCredential
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
   const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
   const close = () => {
-    if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer)
+    if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer)
     options.signal?.removeEventListener('abort', close)
     for (const peer of peers) peer.close()
     peers.clear()
@@ -293,36 +306,50 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     return nodeTurnCredentials(node, value, device, requestOptions)
   }
   const notify = (error: KithmootNodeError) => { try { options.onUnavailable?.(error) } catch {} }
+  const remaining = () => Math.min(credential.expiresAt - now(), (deadline - monotonic()) / 1000)
+  const expire = (): void => {
+    if (!allowed()) { close(); return }
+    if (remaining() <= 0) { notify(new KithmootNodeError(0, 'expired')); close(); return }
+    expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
+  }
+  const install = (next: SpryCredential): void => {
+    const nextDeadline = monotonic() + Math.min(300, next.expiresAt - now()) * 1000
+    deadline = credential?.username === next.username ? Math.min(deadline, nextDeadline) : nextDeadline
+    credential = next; clearTimeout(expiryTimer)
+    expiryTimer = setTimeout(expire, Math.max(1, remaining() * 1000))
+  }
   const schedule = (seconds: number) => { clearTimeout(timer); timer = setTimeout(() => { void renew() }, Math.max(1000, seconds * 1000)) }
   const renew = async (): Promise<void> => {
     if (!allowed()) { close(); return }
+    if (remaining() <= 0) { expire(); return }
     try {
       const next = await obtain()
-      if (!allowed()) { close(); return }
+      if (!allowed() || remaining() <= 0) { close(); return }
       const changed = credential.username !== next.username
-      credential = next
+      install(next)
       if (changed) for (const peer of peers) {
         if (peer.signalingState === 'closed') { peers.delete(peer); continue }
         try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
       }
       // A grant near its own end cannot extend this username. Give the
       // keeper a chance to renew at the end without a per-second mint loop.
-      const left = credential.expiresAt - now()
+      const left = remaining()
       schedule(left <= 60 ? left : left - 60)
     } catch (error) {
       if (!allowed()) { close(); return }
       const failure = error instanceof KithmootNodeError ? error : new KithmootNodeError(0, 'unavailable')
       notify(failure)
-      if (failure.reason === 'refused' || credential.expiresAt <= now()) close()
-      else schedule(Math.min(5, credential.expiresAt - now()))
+      if (failure.reason === 'refused') close()
+      else if (remaining() <= 0) expire()
+      else schedule(Math.min(5, remaining()))
     }
   }
-  credential = await obtain()
+  install(await obtain())
   if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
-  schedule(credential.expiresAt - now() <= 60 ? credential.expiresAt - now() : credential.expiresAt - now() - 60)
+  schedule(remaining() <= 60 ? remaining() : remaining() - 60)
   options.signal?.addEventListener('abort', close, { once: true })
   const factory: PeerFactory = () => {
-      if (!allowed() || credential.expiresAt <= now()) { close(); throw new KithmootNodeError(0, 'expired') }
+      if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
       peer.close = () => { peers.delete(peer); end() }
       // Native RTCTrackEvent includes every field Peer reads. Its DOM
