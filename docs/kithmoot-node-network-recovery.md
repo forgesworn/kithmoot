@@ -22,6 +22,11 @@ signalling socket before ICE restarts. A WebSocket can still report itself open
 after a route change while its offers go nowhere. Refreshing TURN alone cannot
 repair that socket. Concurrent recovery requests share the same reconnect.
 
+Node connections also register with the browser's media receiver registry.
+Video tile binding and recovery use that registry when a browser omits a track
+notification during a rebuild. Registering each native peer through the pinned
+factory keeps its node policy while letting the UI find and restore live video.
+
 Node sessions start the call manager on its TURN route, including after a retry.
 Their factory already requires relay-only ICE. Applying the shorter direct-route
 timer first created a second TURN connection and interrupted the first attempt.
@@ -45,6 +50,11 @@ or a call has failed.
 - The actual-process Chromium journey injects a temporary credential HTTP 503,
   triggers the online event, verifies retry and recovery, then admits guests,
   exchanges encrypted chat and verifies removal and room closure.
+- The [video recovery regression](evidence/kithmoot-node-video-recovery-20261103.json)
+  suppresses video track notifications. The prior production renderer leaves
+  empty tiles; the corrected renderer recovers moving remote pixels and real
+  synthetic microphone audio in both browsers. It also restores detached video
+  elements and completes the admission, removal and closure journey.
 - The first production public call run used two admitted browser guests in an
   isolated container whose firewall allowed media only over TCP443. Both
   received audio and decoded video through `turns:turn.demo.forgesworn.dev:443`.

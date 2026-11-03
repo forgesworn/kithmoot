@@ -8,7 +8,7 @@ import { verifyEventUncached } from './verify.js'
 import { parseGroupEvent, type GroupEvent, type ParsedGrant, type ParsedReset } from './group-grants.js'
 import { spryHash, type SpryCredential, type SpryOffer } from './spry.js'
 import { NostrRelayPool, type RelayTransport, type RelayPoolClient } from './relay-pool.js'
-import type { PeerFactory, RTCPeerConnectionLike } from './peer.js'
+import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from './peer.js'
 
 export class KithmootNodeError extends Error {
   constructor(readonly status: number, readonly reason: 'unavailable' | 'refused' | 'invalid' | 'expired') {
@@ -285,6 +285,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   /** Reopen signalling before a connectivity restart: its old socket may
    * still appear open while sending offers into the previous route. */
   onRecovering?: () => void
+  /** Register the native connection with the embedding's media receivers
+   * without wrapping and losing the pinned node factory's identity. */
+  onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
 } = {}): Promise<{ factory: PeerFactory; reconnect(): Promise<void>; close(): void }> {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
@@ -359,7 +362,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   if (!allowed()) { close(); throw new KithmootNodeError(403, 'refused') }
   schedule(remaining() <= 60 ? remaining() : remaining() - 60)
   options.signal?.addEventListener('abort', close, { once: true })
-  const factory: PeerFactory = () => {
+  const factory: PeerFactory = context => {
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
       let connected = false, recovering = false
@@ -375,7 +378,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       })
       // Native RTCTrackEvent includes every field Peer reads. Its DOM
       // callback type is narrower than the portable adapter declaration.
-      peers.add(peer); return peer as unknown as RTCPeerConnectionLike
+      peers.add(peer)
+      try { options.onPeer?.(peer, context) } catch (error) { peer.close(); throw error }
+      return peer as unknown as RTCPeerConnectionLike
     }
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {

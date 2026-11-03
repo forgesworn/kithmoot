@@ -5,6 +5,7 @@ import { localIdentity, type ParticipantIdentity } from '../../src/identity.js'
 import { createDeviceCredential } from '../../src/credential.js'
 import { hostRoomEpoch } from '../../src/epoch.js'
 import type { RoomSession } from '../../src/session.js'
+import type { PeerContext } from '../../src/peer.js'
 import { CONTROL_CHANNEL, encodeControl } from '../../src/control.js'
 import { enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, nodeCallFactory, type NodeClientOptions, type PairedKithmootNode, type NodeDeviceAccess } from '../../src/kithmoot-node.js'
 import { openNodeDeviceAccess, type NodeDeviceAccessController } from '../../src/node-device-access.js'
@@ -64,6 +65,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   withdrawn: (reason: 'removed' | 'closed' | 'ended' | 'reset') => void
   unavailable: () => void
   available?: () => void
+  onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
 }) {
   if (state.phase !== 'active' || !state.grant) throw Error('Finish creating this room before entering.')
   const device = localIdentity(state.deviceSk), controller = new AbortController()
@@ -110,7 +112,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   }
   try {
     calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
-      onRecovering: () => { pool.reconnect(); inbox?.reconnect() } })
+      onRecovering: () => { pool.reconnect(); inbox?.reconnect() }, onPeer: options.onPeer })
     if (state.authoritySk) {
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,

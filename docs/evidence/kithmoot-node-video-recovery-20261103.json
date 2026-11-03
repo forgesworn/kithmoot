@@ -1,0 +1,67 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "codeSource": "704bbd35f7ee0eb51652210ca567e6f73c7dc204",
+  "before": {
+    "source": "e86bf15b86e60201855b94e479eacd7190c875ec",
+    "productionRelease": "20261103T130008Z",
+    "frozenMainSha256": "f872764da3e0c1828cf495d0bdfb7a9d11490062264dfb55b3866e3a508f91a5",
+    "reproduced": true,
+    "fault": "Suppress incoming video track notifications while retaining real RTC receivers",
+    "result": "No decoded remote video element recovered within20seconds"
+  },
+  "after": {
+    "browserJourneyPassed": true,
+    "browserJourneySeconds": 48.6,
+    "realSpryShelterProcesses": true,
+    "turnPorts": {
+      "udpTcp": 34790,
+      "tls": 53499
+    },
+    "movingRemotePixelsBothDirections": true,
+    "syntheticMicrophoneAudioBothDirections": true,
+    "missingVideoNotificationRecovery": true,
+    "detachedVideoSinkRecovery": true,
+    "admissionChatRemovalClosure": true,
+    "focusedTestsPassed": 94,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "diagnosticHookAbsent": true,
+    "mainSha256": "3c59f679f82ad63d2cef46470ea78a40c8d32885ea5ba8e9fdbd0678612f9556"
+  },
+  "limits": [
+    "Local browser fixture uses a self-signed loopback certificate; this is not public CA or public TLS443 acceptance",
+    "Long application media, controlled VPN route changes and credential renewal qualification remain open",
+    "No physical GrapheneOS or mobile handoff acceptance claimed"
+  ],
+  "logs": [
+    {
+      "name": "kithmoot-node-peer-hook-red-20261103.log",
+      "sha256": "b5f51ce3c535d02b4cdd218f3d671ee5f05e7a9a056cd87b98067db6fedb92f2"
+    },
+    {
+      "name": "kithmoot-node-video-recovery-red-20261103.log",
+      "sha256": "705e1c2ae3cee05bc4ad7892e66d21183103497397752f0e5325580b0c7125e0"
+    },
+    {
+      "name": "kithmoot-node-video-recovery-green-20261103.log",
+      "sha256": "ce81aec99d9b9c9f17ec05ce31e94be423d511c0961221169021558d5e8dc7b3"
+    },
+    {
+      "name": "kithmoot-node-video-registry-focused-20261103.log",
+      "sha256": "c443cacae295de524088f2ac40d9afdc9763277003a26d8a9242c08529edf8ac"
+    },
+    {
+      "name": "kithmoot-node-video-registry-types-20261103.log",
+      "sha256": "00616aa57c07c2c8f899928b340342d3ae9bd3663298e0253a3ed90ae4166042"
+    },
+    {
+      "name": "kithmoot-node-video-registry-build-20261103.log",
+      "sha256": "ef5abe0c69e60113fa3d0c32fa3d9e459426987e4177f00c64d90579ef6b3c08"
+    },
+    {
+      "name": "kithmoot-node-video-gitleaks-20261103.log",
+      "sha256": "ed84a7cc9b13eaa35986a3586967886eb1e37a6516c75828f26003629511d2d5"
+    }
+  ]
+}
