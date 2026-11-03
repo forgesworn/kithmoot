@@ -22,6 +22,12 @@ signalling socket before ICE restarts. A WebSocket can still report itself open
 after a route change while its offers go nowhere. Refreshing TURN alone cannot
 repair that socket. Concurrent recovery requests share the same reconnect.
 
+Node sessions start the call manager on its TURN route, including after a retry.
+Their factory already requires relay-only ICE. Applying the shorter direct-route
+timer first created a second TURN connection and interrupted the first attempt.
+The regression checks that the first connection gets its relay budget and a
+retry starts on TURN again.
+
 HTTP 408, 425, 429 and server failures are temporary unavailability. They do not
 revoke a valid signed admission. Explicit refusal, signed removal and closure
 retain their existing enforcement. Old TURN credentials still expire within

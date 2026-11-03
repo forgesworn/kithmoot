@@ -1488,6 +1488,7 @@ export class RoomSession {
         callProfile: this.#opts.callProfile,
         trackRole: this.#opts.trackRole,
         factory: this.#opts.factory,
+        ...(this.#opts.node ? { initialTier: 'turn' as const } : {}),
         localDevice: device,
         localParticipant: this.participant,
         deviceSk: this.#opts.deviceSk,
