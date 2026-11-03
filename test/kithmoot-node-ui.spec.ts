@@ -1,5 +1,4 @@
 import { test, expect, chromium, type Browser, type BrowserContext } from '@playwright/test'
-import { createHash } from 'node:crypto'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC } from './browser.js'
 import { signInAccount } from './nostr-account.js'
@@ -207,19 +206,7 @@ test('one disconnected participant does not replace a healthy participant connec
     async function device(owner = false) {
       const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 860 } })
       contexts.push(context); await context.addInitScript(SYNTHETIC_MIC)
-      if (process.env.E2E_NODE_BASELINE_RENDERER === '1') {
-        await context.route(new URL('/j/**', baseURL!).href, async route => {
-          const url = new URL(route.request().url())
-          const local = await route.fetch()
-          const response = await context.request.get('https://kithmoot.forgesworn.dev' + url.pathname + url.search)
-          if (/\/assets\/main-[^/]+\.js$/.test(url.pathname)) {
-            expect(createHash('sha256').update(await response.body()).digest('hex')).toBe(process.env.E2E_NODE_BASELINE_MAIN_SHA256)
-          }
-          // The frozen renderer runs against a loopback test node, so keep
-          // the fixture origin's headers while replacing only asset bytes.
-          await route.fulfill({ response: local, headers: { ...local.headers(), 'content-type': response.headers()['content-type'] ?? 'application/octet-stream' }, body: await response.body() })
-        })
-      }
+      await context.grantPermissions(['camera', 'microphone', 'local-network-access'], { origin: new URL(baseURL!).origin })
       await context.addInitScript(() => {
         const Base = window.RTCPeerConnection, peers: RTCPeerConnection[] = []
         ;(window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers = peers
