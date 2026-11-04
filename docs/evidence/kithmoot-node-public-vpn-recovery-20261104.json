@@ -1,0 +1,252 @@
+{
+  "passed": true,
+  "mode": "controlled-vpn-roaming-tls443",
+  "clientSource": "9e8d547ac0c69644c22278f0d64008f625aded3e",
+  "productionRelease": "20261104T035132Z",
+  "productionWeb": true,
+  "nodeBackendSource": "b5ce969030230965badf6940b610b1f834471857",
+  "candidateRendererWithProductionHeaders": false,
+  "realOwnerAdmission": true,
+  "mediaIsolatedToTestGuestPairByMutualDtlsFingerprint": true,
+  "requestedCallProfile": "default",
+  "handshakeOnly": false,
+  "nativeFakeMicrophone": true,
+  "publicCAValidated": true,
+  "mediaSeconds": 430,
+  "afterFinalRecoverySeconds": 310,
+  "firewall": "IPv4 media TCP443 only; IPv6 blocked; DNS and private encrypted carrier allowed",
+  "vpn": "WireGuard route for the node with client NAT, carried through private SSH; container routes only; underlying host VPN not changed",
+  "changedNodeRoute": true,
+  "returnedNodeRoute": true,
+  "transitions": [
+    {
+      "phase": "vpn-recovering",
+      "seconds": 21
+    },
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 13,
+      "recoveryMs": 13162,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovering",
+      "seconds": 67
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 11,
+      "recoveryMs": 10860
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 8,
+      "recoveryMs": 8447
+    }
+  ],
+  "credentialIssuances": [
+    {
+      "guest": "Resilience test A",
+      "seconds": -12,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 27,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 27,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 29,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 72,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 73,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 74,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 113,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 113,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 228,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 234,
+      "lifetime": 300
+    }
+  ],
+  "roomLinkRecorded": false,
+  "credentialsRecorded": false,
+  "v": 1,
+  "date": "2026-11-04",
+  "rawReceiptSha256": "779f3d5c6a861c947ae11ef10afb4d4a79b3c47616c2fc4831eaad132c539318",
+  "mainFile": "main-Cu0BWARh.js",
+  "mainSha256": "2ffd840ad371f876562518a3df63e5213bc0ebca7b985b61808e32acf7091153",
+  "routeRecoveryDeadlineSeconds": 20,
+  "steadyMediaGapLimitSeconds": 25,
+  "observedMaxSteadyReceiveGapSeconds": [
+    7,
+    7
+  ],
+  "statsPollIntervalMs": 2000,
+  "phases": {
+    "baseline": {
+      "samples": 11,
+      "decodedVideoFrames": [
+        388,
+        422
+      ],
+      "audioPackets": [
+        1131,
+        1193
+      ]
+    },
+    "vpn-recovering": {
+      "samples": 6,
+      "decodedVideoFrames": [
+        43,
+        48
+      ],
+      "audioPackets": [
+        101,
+        113
+      ]
+    },
+    "vpn-steady": {
+      "samples": 15,
+      "decodedVideoFrames": [
+        542,
+        587
+      ],
+      "audioPackets": [
+        1588,
+        1583
+      ]
+    },
+    "direct-recovering": {
+      "samples": 5,
+      "decodedVideoFrames": [
+        34,
+        36
+      ],
+      "audioPackets": [
+        101,
+        92
+      ]
+    },
+    "direct-steady": {
+      "samples": 10,
+      "decodedVideoFrames": [
+        396,
+        383
+      ],
+      "audioPackets": [
+        1051,
+        1052
+      ]
+    },
+    "outage": {
+      "samples": 6,
+      "decodedVideoFrames": [
+        5,
+        5
+      ],
+      "audioPackets": [
+        11,
+        11
+      ]
+    },
+    "outage-recovering": {
+      "samples": 4,
+      "decodedVideoFrames": [
+        20,
+        19
+      ],
+      "audioPackets": [
+        55,
+        51
+      ]
+    },
+    "renewal-soak": {
+      "samples": 142,
+      "decodedVideoFrames": [
+        5269,
+        5086
+      ],
+      "audioPackets": [
+        14839,
+        14764
+      ]
+    }
+  },
+  "peakSubscriptions": 13,
+  "subscriptionOverflows": 0,
+  "pageErrors": [],
+  "httpAuthenticationRefusals": 0,
+  "maxObservedCredentialLifetimeSeconds": 300,
+  "priorCredentialExpiryCrossed": true,
+  "additionalAdmissionsCreated": 0,
+  "nodeImage": "localhost/kithmoot-node:0.1.0-rc.1-8961b322e310",
+  "spryBinarySha256": "d25a45c196da24f3e8f2950e7853642aab0de9c7ded7a7989291ece62b077dbd",
+  "fixes": {
+    "webPr": 692,
+    "webCodeSource": "9a2c1dc3c288f0cbdadb16e9dcbf9ee14ac9a8d2",
+    "webMerge": "9e8d547ac0c69644c22278f0d64008f625aded3e",
+    "spryPr": 35,
+    "spryCodeSource": "b5ce969030230965badf6940b610b1f834471857",
+    "spryMerge": "92b3418dd062f3cbcfc5bdd08c6c07f29846713b",
+    "tcpConnections": 64,
+    "relayAllocations": 32,
+    "perUsernameAllocations": 8
+  },
+  "checks": {
+    "focusedTests": 102,
+    "nativeJourneys": 3,
+    "webApplicableHostedChecks": 5,
+    "spryServiceTests": 87,
+    "spryInteropTests": 41,
+    "spryHostedPassed": 12,
+    "spryPublicationSkipped": true,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "secretScans": "passed"
+  },
+  "scope": {
+    "physicalPhone": "unavailable; not run",
+    "commercialVPNs": "not qualified",
+    "physicalWiFiCellularHandoff": "not run",
+    "archipelagoMaintainerZAT": "pending",
+    "signedPublicNodeShelterRelease": "not published"
+  },
+  "admissionCounts": {
+    "before": 10,
+    "after": 10
+  },
+  "qualificationLimit": "Scheduled credential renewal produced two zero-progress samples and a seven-second interval between advancing media samples; seamless playback is not established."
+}
