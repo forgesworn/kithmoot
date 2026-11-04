@@ -34,11 +34,11 @@ test('browser keeper and native guest sustain local relay video both ways and re
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
   let context: Awaited<ReturnType<typeof newDeviceContext>> | undefined
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-cross-'))
-  const desktopProfile = join(directory, 'desktop-profile')
+  const desktopProfile = join(directory, 'kithmoot-desktop-profile')
   let instrument: ReturnType<typeof spawn> | undefined, nativeLog = '', exit: Promise<number | null> | undefined
   const samples: unknown[] = [], requested: string[] = []
   const proxyFailures: string[] = []
-  let finishing = false
+  let finishing = false, failed = false
   try {
     const mediaArgs = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
       '--autoplay-policy=no-user-gesture-required', `--host-resolver-rules=MAP node.example ${relayIp},MAP turn.node.example ${relayIp}`]
@@ -47,12 +47,69 @@ test('browser keeper and native guest sustain local relay video both ways and re
         args: [...mediaArgs, '--ignore-certificate-errors', `--user-data-dir=${desktopProfile}`],
         env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: desktopProfile } })
       context = desktopApp.context()
+      // CDP request interception conflicts with Electron's custom HTTPS
+      // handler. Keep that real handler and route only the external fixture
+      // through the net.fetch path it already uses.
+      await desktopApp.evaluate(({ net, dialog }, { desk, calls }) => {
+        const state = { requests: [] as string[], failures: [] as string[], localConsent: false }
+        ;(globalThis as typeof globalThis & { __nodeQualification: typeof state }).__nodeQualification = state
+        const fetch = net.fetch.bind(net)
+        net.fetch = async (input: RequestInfo | URL, options?: RequestInit & { bypassCustomProtocolHandlers?: boolean }) => {
+          const request = new Request(input, options), url = new URL(request.url)
+          if (url.origin !== 'https://node.example') return fetch(input, options)
+          state.requests.push(url.pathname)
+          try {
+            const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
+            return await fetch((url.pathname === '/v1/credentials' ? calls : desk) + url.pathname + url.search,
+              { ...options, method: request.method, headers: request.headers, body, signal: request.signal })
+          } catch {
+            state.failures.push(url.pathname)
+            return new Response('{}', { status: 503, headers: { 'Content-Type': 'application/json' } })
+          }
+        }
+        const show = dialog.showMessageBox.bind(dialog)
+        dialog.showMessageBox = ((...args: unknown[]) => {
+          const settings = args.at(-1) as { message?: string }
+          if (settings.message === 'Allow connections on your local network?') {
+            state.localConsent = true
+            return Promise.resolve({ response: 1, checkboxChecked: false })
+          }
+          return Reflect.apply(show, dialog, args)
+        }) as typeof dialog.showMessageBox
+      }, { desk: fixture.desk, calls: fixture.calls })
       await context.addInitScript(INSTRUMENT)
+      // Synthetic capture avoids operating-system camera/microphone consent
+      // and never accesses the owner's physical devices.
+      await context.addInitScript(() => {
+        navigator.mediaDevices.getUserMedia = async constraints => {
+          const stream = new MediaStream()
+          if (constraints?.video) {
+            const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360
+            const ctx = canvas.getContext('2d')!; let frame = 0
+            const draw = () => {
+              ctx.fillStyle = '#123047'; ctx.fillRect(0, 0, 640, 360)
+              ctx.fillStyle = '#efb64c'; ctx.fillRect((frame++ * 9) % 500, 90, 100, 180)
+            }
+            draw(); const timer = setInterval(draw, 80)
+            const track = canvas.captureStream(12).getVideoTracks()[0]!, stop = track.stop.bind(track)
+            track.stop = () => { clearInterval(timer); stop() }; stream.addTrack(track)
+          }
+          if (constraints?.audio) {
+            const ctx = new AudioContext(); await ctx.resume()
+            const oscillator = ctx.createOscillator(), gain = ctx.createGain(), destination = ctx.createMediaStreamDestination()
+            oscillator.frequency.value = 440; gain.gain.value = 0.3
+            oscillator.connect(gain).connect(destination); oscillator.start()
+            const track = destination.stream.getAudioTracks()[0]!, stop = track.stop.bind(track)
+            track.stop = () => { oscillator.stop(); void ctx.close(); stop() }; stream.addTrack(track)
+          }
+          return stream
+        }
+      })
     } else {
       browser = await chromium.launch({ args: mediaArgs })
       context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block' })
     }
-    await context.addInitScript(SYNTHETIC_MIC)
+    if (!desktopApp) await context.addInitScript(SYNTHETIC_MIC)
     await context.addInitScript(() => {
       const w = window as unknown as { __nodeIce: unknown[] }; w.__nodeIce = []
       const Base = window.RTCPeerConnection
@@ -81,7 +138,7 @@ test('browser keeper and native guest sustain local relay video both ways and re
         }
       }
     }, { node: fixture.websocket, accountRelay: accountRelay.href })
-    await context.route('https://node.example/**', async route => {
+    if (!desktopApp) await context.route('https://node.example/**', async route => {
       const path = new URL(route.request().url()).pathname; requested.push(path)
       try {
         const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path, timeout: 6500 })
@@ -189,21 +246,32 @@ test('browser keeper and native guest sustain local relay video both ways and re
     await page.locator('#endRoom').click(); await page.locator('#actionConfirm').click()
     await expect.poll(() => fixture.ledger.rooms().length).toBe(0)
     await expect.poll(async () => (await fixture.relay.status()).rooms).toBe(0)
+    const desktopRuntime = desktopApp ? await desktopApp.evaluate(({ app, BrowserWindow }) => {
+      const state = (globalThis as typeof globalThis & { __nodeQualification: { requests: string[]; failures: string[]; localConsent: boolean } }).__nodeQualification
+      return { ...state, version: app.getVersion(), electron: process.versions.electron,
+        webSecurity: BrowserWindow.getAllWindows()[0]!.webContents.getLastWebPreferences().webSecurity }
+    }) : undefined
+    if (desktopRuntime) {
+      requested.push(...desktopRuntime.requests); proxyFailures.push(...desktopRuntime.failures)
+      expect(desktopRuntime.version).toBe('0.1.126'); expect(desktopRuntime.webSecurity).toBe(true)
+    }
     expect(requested).not.toContain('/turn')
     expect(fallbackRequests).toEqual([])
     expect(proxyFailures).toEqual([])
     const proof = { schema: 'kithmoot-node-cross-client/1', result: 'passed', videoSeconds: 300,
       actualBrowserUi: true, actualDesktopRenderer: !!desktopApp, actualNativeEngine: true, callProfile: 2, temporaryNativeIssuerFailureRecovered: true,
-      customPorts: { udpTcp: 34790, tls: 53499 }, selected, samples, fallbackRequests,
+      customPorts: { udpTcp: 34790, tls: 53499 }, selected, samples, fallbackRequests, desktopRuntime,
+      syntheticMedia: true, fixtureNetworkRouting: true, actualMacCaptureConsent: false,
       forcedTls443: false, publicCertificate: false, independentNats: false, physicalGrapheneOS: false, removal: true, purge: true }
     const proofPath = info.outputPath('cross-client-proof.json')
     writeFileSync(proofPath, JSON.stringify(proof, null, 2) + '\n')
     await info.attach('cross-client-proof', { path: proofPath, contentType: 'application/json' })
   } catch (error) {
+    failed = true
     // Capture the disposable app's Java/native wait state before force-stop;
     // a blocked signalling thread cannot finish the instrumentation report.
     try {
-      const pid = device('shell', 'pidof', 'dev.forgesworn.kithmoot').trim()
+      const pid = instrument?.exitCode === null ? device('shell', 'pidof', 'dev.forgesworn.kithmoot').trim() : ''
       if (/^[1-9][0-9]*$/.test(pid)) {
         device('shell', 'kill', '-3', pid)
         await new Promise(resolve => setTimeout(resolve, 2000))
@@ -237,9 +305,11 @@ test('browser keeper and native guest sustain local relay video both ways and re
     try { device('shell', 'run-as', 'dev.forgesworn.kithmoot', 'rm', '-f', 'files/node-cross-config.json') } catch {}
     try { device('shell', 'rm', '-f', '/data/local/tmp/kithmoot-node-cross.json') } catch {}
     writeFileSync(info.outputPath('native-media.txt'), nativeLog)
-    if (desktopApp) await stopIsolatedApp(desktopApp, desktopProfile)
-    else await context?.close()
-    await browser?.close(); await fixture.close()
-    rmSync(directory, { recursive: true, force: true })
+    const cleanupErrors: unknown[] = []
+    for (const clean of [() => desktopApp ? stopIsolatedApp(desktopApp, desktopProfile) : context?.close(),
+      () => browser?.close(), () => fixture.close(), () => rmSync(directory, { recursive: true, force: true })]) {
+      try { await clean() } catch (error) { cleanupErrors.push(error) }
+    }
+    if (cleanupErrors.length && !failed) throw new AggregateError(cleanupErrors, 'Cross-client fixture cleanup failed')
   }
 })
