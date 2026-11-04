@@ -72,8 +72,12 @@ async function checkRoom(page: Page, label: string): Promise<void> {
   await expect(page.locator('#room video.screenPreview.awaitingFrame'), `${label}: a share never painted a frame`).toHaveCount(0, { timeout: 30_000 })
   await page.waitForTimeout(400)
 
+  // Camera tracks can arrive after both shares. Locator.all() snapshots the
+  // current list, so await both tiles before measuring their geometry.
+  const cameraVideos = page.locator('#room > .participant:not([data-layout-hidden]) > .media > video:not(.screenPreview)')
+  await expect(cameraVideos, `${label}: both cameras should be on screen`).toHaveCount(2, { timeout: 30_000 })
   const cameras: Box[] = []
-  for (const camera of await page.locator('#room > .participant:not([data-layout-hidden]) > .media > video:not(.screenPreview)').all()) {
+  for (const camera of await cameraVideos.all()) {
     await expect(camera, `${label}: a camera should be visible`).toBeVisible()
     cameras.push(await boxOf(camera))
   }
