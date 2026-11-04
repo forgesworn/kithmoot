@@ -185,11 +185,78 @@ and WebSocket bridges connect that public page to the private fixture; its
 self-signed TLS is accepted only in the test context. Public deployment TLS is
 verified separately with normal certificate validation.
 
-The stricter public VPN gate for this revision has **not run**: fresh test guest
-admissions could not be completed while the owner's Mac was locked. No owner
+At that release point the stricter public VPN gate had **not run**: fresh test
+guest admissions could not be completed while the owner's Mac was locked. No owner
 keys were accessed and no admission was bypassed. The required recovery limit
 remains twenty seconds, followed by a 310-second media soak across the prior
 login expiry. The earlier 36-second VPN-off observation remains historical
 proof, not a passing result for that tighter gate. A direct/VPN/direct HTTPS
 probe passed, which does not qualify media. No physical phone was available;
 Wi-Fi/mobile handoff, commercial VPNs and GrapheneOS still need field checks.
+
+
+## Public recovery follow-up, 4 November
+
+Two further failures were reproduced on the public node. Spry reached its
+32-TCP-connection ceiling while most relay allocation slots remained free.
+[Spry PR35](https://github.com/forgesworn/spry-turn/pull/35) raises the independent
+TCP/TLS connection bound to 64. Relay allocations remain capped at 32, eight per
+username, with the existing bandwidth, expiry and revocation rules. A real
+TCP/STUN regression fails at handshake 33 on the old profile, accepts 64 with
+the correction, refuses handshake 65 and retains an existing connection.
+Supervised mode retains its default of 16 connections.
+
+A separate profile-2 race left a fresh connection with no remote description
+and no media slots. Early ICE candidates can bind both opening channels before
+their offers arrive. The polite side then replaced its connection for an offer
+addressed to the previous connection, which the new channel correctly refused.
+[KithMoot PR692](https://github.com/forgesworn/kithmoot/pull/692) resolves this
+addressed opening collision by advancing the generation. Offers addressed to
+a retired connection are rejected before glare handling. Two regressions fail
+on the previous source and pass after the correction.
+
+Web merge `9e8d547a`, release `20261104T035132Z`, serves
+`main-Cu0BWARh.js`, SHA-256
+`2ffd840ad371f876562518a3df63e5213bc0ebca7b985b61808e32acf7091153`.
+Normal public HTTPS readback verifies byte equality for the index, entry and
+main scripts and no production diagnostic hook. The private demo image is
+`localhost/kithmoot-node:0.1.0-rc.1-8961b322e310`, with Spry source `b5ce9690`
+(merged as `92b3418d`) and binary SHA-256
+`d25a45c196da24f3e8f2950e7853642aab0de9c7ded7a7989291ece62b077dbd`.
+The controller and other bundled components are unchanged.
+
+The focused suites pass 102 tests, typecheck and production build pass, and all
+five applicable web CI checks pass. Three browser journeys with actual isolated
+Spry/Shelter processes pass in 1.9 minutes: admission, initial HTTP503 recovery,
+chat, moving video, synthetic microphone audio, detached sinks, signalling
+recovery, removal, room purge, allocation pressure and a healthy third
+participant during another pair's repair. The corrected Spry profile also
+passes its workspace/minimal-feature tests, clippy, secret scans and 41
+interoperability checks; twelve hosted checks pass, with publication skipped.
+
+The public candidate's short diagnostic recovers in 13 seconds after VPN-on,
+13 seconds after VPN-off and four seconds after a twelve-second outage. Its
+32-second final soak does not qualify credential renewal. The separate deployed
+production receipt records the longer gate. Physical Wi-Fi/mobile handoff,
+commercial VPNs and GrapheneOS remain unqualified. Android publication remains
+0.6.132; no signed public node or Shelter release is implied.
+
+The [deployed production receipt](evidence/kithmoot-node-public-vpn-recovery-20261104.json)
+passes the full gate without renderer interception: 430 seconds of matched-pair
+audio/video over publicly trusted TLS on port 443, with recovery in 13.162
+seconds after VPN-on, 10.860 seconds after VPN-off and 8.447 seconds after the
+twelve-second outage. The call continues 310 seconds after final recovery,
+with both guests renewing their logins and media advancing beyond the prior
+login expiry. Each observed login lasts at most 300 seconds. There are no page
+errors, HTTP authentication refusals or subscription overflows. The existing
+admitted device identities are reused; recovery creates no new admissions.
+The isolated WireGuard route changes only the test container, with IPv6 and
+UDP media blocked. Both selected endpoints and every signalled remote
+candidate remain in the node's relay range. This qualifies the controlled
+browser case, not physical mobile networks or every VPN.
+
+Scheduled login renewal still produces a sampled media pause: two consecutive
+checks report no progress, with seven seconds between advancing samples. This
+passes the retained 25-second steady-phase guard, but does not establish
+seamless playback. It remains a separate quality improvement from the
+twenty-second route-recovery gate qualified here.

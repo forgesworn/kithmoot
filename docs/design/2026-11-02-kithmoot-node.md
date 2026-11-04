@@ -105,7 +105,7 @@ d6c101a.
 | Spry `https:` offers need a dotted DNS name; their TURN URLs must be exactly `turn:<host>:3478` (UDP, TCP) or `turns:<host>:5349`. `spry:` standard offers allow only `turn:` on one public IPv4 literal, no `turns:` | `src/spry.ts` `spryEndpoint`, `spryCredentials`, `isSpryStandardTurnUrls` |
 | Spry room grants: a paired app creates one grant per room scope, registers device keys (`/v1/grants/devices`, sealed), members may vouch for up to four keys for 24 hours, credentials last at most 5 minutes | spry-turn `docs/api.md` "Room-grant paths"; `app/src/spry-room.ts`; Android `SpryRoomRegistrar.kt` |
 | `trust_pairing` (a pre-trusted pairing key) and the aggregate bandwidth cap exist only in supervised mode, which has no HTTP listener | spry-turn `docs/api.md`, `docs/supervised-mode.md`, `crates/spry-service/src/supervised.rs` |
-| The standard profile reads `SPRY_TURN_PORT` (3478), `SPRY_TLS_PORT` (5349), `SPRY_RELAY_PORTS` (49160:49191), caps of 32 allocations, 8 per user, 32 TCP connections; `SPRY_TLS_GATE=true` advertises TLS terminated by the host; `SPRY_ROOM_SEAL=required` enforces sealing | spry-turn `docs/public-mode.md`, `docs/standalone.md` |
+| The standard profile reads `SPRY_TURN_PORT` (3478), `SPRY_TLS_PORT` (5349), `SPRY_RELAY_PORTS` (49160:49191), caps of 32 allocations, 8 per user, 64 TCP connections; `SPRY_TLS_GATE=true` advertises TLS terminated by the host; `SPRY_ROOM_SEAL=required` enforces sealing | spry-turn `docs/public-mode.md`, `docs/standalone.md` |
 | Spry has no access log; changing the TURN secret invalidates every credential and a restart drops every allocation; there is no rolling dual secret | spry-turn `README.md`, `docs/operations.md` "Credentials" |
 | Spry's public deployment and replacement of coturn are unqualified | spry-turn `docs/operations.md`, first paragraph |
 | Shelter's sheltered partition is reachable only over Link; its public `wss://` front allows anonymous reads of the public partition and writes only from keeper keys, kinds 0, 1, 3, 5, 6, 7, 10002, 10050, 10063 | bothy-node `docs/2026-09-10-durable-event-shelter.md` "Authority and privacy" |
@@ -304,7 +304,7 @@ between Spry and Archy's own networking service.
 |---|---|---|
 | Spry allocations | 32 | standard profile maximum |
 | Allocations per credential | 8 | standard profile maximum; a five-person mesh holds four peer connections per device, and if libwebrtc allocates once per TURN URL per connection, four URLs could need 16 [unverified; measured in N7] |
-| TCP and TLS connections | 32 | standard profile maximum |
+| TCP and TLS connections | 64 | standard profile maximum; old-route sockets and replacement handshakes share this bound |
 | Bytes per second per allocation | 1000000 | standard profile default |
 | Aggregate bytes per second | Operator's choice, asked at install, no assumed figure | new in the standard profile (N1) |
 | Shelter store | `max_bytes` and `min_free_bytes` asked at install, no assumed figure | Shelter `[events]` |
