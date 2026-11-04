@@ -1,0 +1,128 @@
+{
+  "verifiedAt": "2026-11-04T10:33:33.537Z",
+  "relay": "wss://relay.zapstore.dev",
+  "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+  "packageId": "dev.forgesworn.kithmoot",
+  "version": "0.6.133",
+  "versionCode": 156,
+  "channel": "main",
+  "applicationEventId": "9ce6f7a8a6882a1b8078c3dd7509809128f6878b7ef5ad0103d7f52c67dfba1c",
+  "releaseEventId": "b4497f3e0b6514d167ea333ae82486aa040feaad3383ebbeedb8a44322c35a1d",
+  "assetEventId": "e689e0814c83b330e84e0e7c82577d2444e5f1d6e72a9f803e6944d4d5436895",
+  "releaseCreatedAt": "2026-11-04T10:30:48.000Z",
+  "nostrSignaturesVerified": true,
+  "releaseReferencesVerifiedAsset": true,
+  "certificateIdentityProofVerified": true,
+  "proofAlgorithm": "rsa",
+  "apk": {
+    "url": "https://kithmoot.app/apk/kithmoot-0.6.133-production.apk",
+    "bytes": 74187340,
+    "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "ancestorCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+    "publicDownloadVerified": true,
+    "downloads": [
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.133-production.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "publicDownloadVerified": true
+      },
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-latest.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "publicDownloadVerified": true
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.133-production.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "publicDownloadVerified": true
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "publicDownloadVerified": true
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.133/kithmoot-0.6.133-production.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "publicDownloadVerified": true
+      }
+    ],
+    "signatureSchemes": {
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "abis": [
+      "arm64-v8a"
+    ],
+    "minSdk": 33,
+    "targetSdk": 35
+  },
+  "published": true,
+  "physicalAndroidAcceptance": false,
+  "zapstoreClientAcceptance": false,
+  "source": {
+    "repository": "https://github.com/forgesworn/kithmoot-android",
+    "commit": "3f5fc8670d19662906882dc2e3c818f5bb8c8a1a",
+    "mergeCommit": "5a127e196974243b60a4d9ba72088448b8c37263",
+    "pullRequest": 392,
+    "ci": {
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/41802664740/attempts/2",
+      "successfulJobs": 17,
+      "retriedInfrastructureJobs": [
+        "recording-private-node-emulator (default)",
+        "signing-lineage-emulator (33)"
+      ],
+      "sameSourceForReruns": true
+    },
+    "localUnitTests": {
+      "protocolPassed": 684,
+      "appPassed": 3330,
+      "optInSkipped": 1
+    }
+  },
+  "githubRelease": {
+    "url": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.133",
+    "targetCommit": "5a127e196974243b60a4d9ba72088448b8c37263",
+    "publicDownloadVerified": true
+  },
+  "website": {
+    "mergeCommit": "2d863963e92eeae093e121b45f90a6d43b6d809f",
+    "pullRequest": 698,
+    "sourceChecksPassed": 4,
+    "release": "20261104T102744Z",
+    "signedManifestSignaturesVerified": true,
+    "publicReadback": [
+      {
+        "host": "kithmoot.app",
+        "main": "main-BFWLf0Zy.js",
+        "mainSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f",
+        "indexExact": true,
+        "signedManifestsExact": true
+      },
+      {
+        "host": "kithmoot.forgesworn.dev",
+        "main": "main-BFWLf0Zy.js",
+        "mainSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f",
+        "indexExact": true,
+        "signedManifestsExact": true
+      }
+    ],
+    "rendererUnchangedFromQualifiedProduction": true,
+    "packagedDesktopChanged": false
+  },
+  "certificateIdentityProofEventId": "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
+  "limits": [
+    "Physical no-Play GrapheneOS and Android public TLS443 acceptance remain open.",
+    "Physical Wi-Fi/mobile handoff and independent commercial VPN qualification remain open.",
+    "Zapstore client indexing and installation were not tested.",
+    "Official Archy PR53 remains draft and unmerged, with maintainer ZAT pending.",
+    "Private Shelter and node server artifacts were not published."
+  ]
+}
