@@ -1,0 +1,167 @@
+{
+  "v": 1,
+  "date": "2026-11-04",
+  "candidateSource": "a773c6e97bb01852073fdd3adfeef2b82ce174e3",
+  "pr": 690,
+  "deployed": true,
+  "startup": {
+    "previousSourceRejectsSingleTemporaryInitialAccessFailure": true,
+    "initialAccessAndTurnLoginRetriesBounded": 3,
+    "retryDelaysMilliseconds": [
+      500,
+      1000
+    ],
+    "freshSignedProofOnRetry": true,
+    "refusalInvalidDataAbortAndNavigationRemainTerminal": true,
+    "nativeGuestInitialHttp503RecoveredThroughRoomLifecycle": true,
+    "specificPriorNetworkTimeoutCauseEstablished": false
+  },
+  "nativeAllocationRegression": {
+    "actualNodeFactoryConfiguration": true,
+    "devices": 3,
+    "peersPerDevicePerBatch": 2,
+    "batches": 2,
+    "mediaSlotsPerPeer": 4,
+    "firstBatchRetainedWhileReplacing": true,
+    "fixtureQuotaUnchanged": true,
+    "testedTransports": [
+      "TURN UDP",
+      "TURN TCP"
+    ],
+    "results": {
+      "previousFactory": [
+        {
+          "primaryCandidates": [
+            2,
+            1,
+            2,
+            0,
+            0,
+            0
+          ],
+          "quotaErrors": [
+            1,
+            7,
+            0,
+            8,
+            0,
+            0
+          ],
+          "distinctRelayPorts": 16
+        }
+      ],
+      "correctedFactory": [
+        {
+          "primaryCandidates": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "quotaErrors": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "distinctRelayPorts": 12
+        },
+        {
+          "primaryCandidates": [
+            2,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "quotaErrors": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "distinctRelayPorts": 12
+        }
+      ]
+    },
+    "limits": "Native gathering under allocation pressure; not a TLS, route-change latency or media-capacity measurement"
+  },
+  "verification": {
+    "focusedTestsPassed": 89,
+    "focusedTestsSkipped": 2,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "nativeJourneysPassed": 3,
+    "nativeJourneySeconds": [
+      58.1,
+      13.8,
+      35.3
+    ],
+    "applicableHostedChecksPassed": 5,
+    "productionRendererIsolatedNode": {
+      "passed": true,
+      "seconds": 60.0,
+      "rendererInterception": false,
+      "backends": "real Spry and Shelter fixture processes",
+      "guestInitialHttp503": true,
+      "movingVideoAndSyntheticMicrophoneAudio": true,
+      "silentSignallingRecoveryMilliseconds": 11068,
+      "removalAndRoomPurge": true,
+      "privateFixtureTransport": "Playwright HTTP forwarding and Node WebSocket bridges; fixture self-signed TLS accepted only in test context",
+      "limits": "Not the owner node or public VPN media qualification"
+    }
+  },
+  "candidateMain": {
+    "file": "main-DNLmMLbm.js",
+    "sha256": "b25a7587f7586e3347147f405535f2f5a22350c7c51fa7200f0881882dff3ce2"
+  },
+  "publicNetwork": {
+    "directVpnAndReturnedDirectHttpsProbePassed": true,
+    "freshOwnerRoomAdmission": "not completed: owner Mac locked; no owner key access or admission bypass",
+    "candidateMediaRun": "not run",
+    "requiredRouteRecoveryDeadlineSeconds": 20,
+    "requiredPostRecoverySoakSeconds": 310,
+    "previousProductionMaximumObservedRouteRecoverySeconds": 36,
+    "currentReleaseMediaRun": "not run"
+  },
+  "limits": [
+    "Owner reported no physical device available in this session",
+    "Public route recovery improvement has not yet been measured for this release",
+    "Official Archy UI maintainer acceptance and public signed node/Shelter distribution remain separate gates"
+  ],
+  "standard": "https://www.w3.org/TR/webrtc/#rtcbundlepolicy-enum",
+  "roomLinkRecorded": false,
+  "deviceKeysRecorded": false,
+  "deployment": {
+    "v": 1,
+    "source": "ecf73feabf51425b2676743de8d58d04ac0668dc",
+    "release": "20261104T013619Z",
+    "normalPublicTls": true,
+    "publicByteEquality": true,
+    "diagnosticHookAbsent": true,
+    "files": [
+      {
+        "path": "index.html",
+        "sha256": "344327d9b0121e9596dfe4398efdc9c75845a5c884d23db74459aabb7a864d37",
+        "bytes": 166025
+      },
+      {
+        "path": "assets/index-Bg5V_2_7.js",
+        "sha256": "e2524ddf66717ea160f87321bf11526725b65b8674694d2de201a2c9b0d6158c",
+        "bytes": 5199
+      },
+      {
+        "path": "assets/main-DNLmMLbm.js",
+        "sha256": "b25a7587f7586e3347147f405535f2f5a22350c7c51fa7200f0881882dff3ce2",
+        "bytes": 2087973
+      }
+    ]
+  }
+}
