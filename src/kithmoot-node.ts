@@ -308,7 +308,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const pendingPeers = new Map<RTCPeerConnection, PeerContext | undefined>()
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
-  const configuration = (): RTCConfiguration => ({ iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
+  // Gather all media slots on one transport. Parallel replacement generations
+  // otherwise compete with old-route leases for the node's TURN quotas.
+  const configuration = (): RTCConfiguration => ({ bundlePolicy: 'max-bundle', iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
   const close = () => {
     if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer); clearTimeout(retryTimer)
     options.signal?.removeEventListener('abort', close)

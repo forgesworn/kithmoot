@@ -3,6 +3,10 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC } from './browser.js'
 import { signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
+import { readNodeRoom, signNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { localIdentity } from '../src/identity.js'
+import { buildGrant } from '../src/group-grants.js'
+import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
 
 test('a paired owner admits a guest without typing, exchanges chat and moving call media and closes the node room', async ({ baseURL, browserName }, info) => {
   test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked Spry and private Shelter candidate executables')
@@ -10,6 +14,7 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
   const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { turnPorts: { udpTcp: 34790, tls: 53499 } }), contexts: BrowserContext[] = [], requests: string[] = []
   let browser: Browser | undefined
   let failNextCredential = false
+  let initialGuestFailures = 0
   try {
     const mediaBrowser = browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
       '--autoplay-policy=no-user-gesture-required', '--host-resolver-rules=MAP node.example 127.0.0.1,MAP turn.node.example 127.0.0.1'] })
@@ -60,6 +65,10 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
       }, { node: fixture.websocket, accountRelay: accountRelay.href })
       await context.route('https://node.example/**', async route => {
         const path = new URL(route.request().url()).pathname; requests.push(path)
+        if (!owner && path === '/node/v1/access' && initialGuestFailures === 0) {
+          initialGuestFailures++
+          return route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': new URL(baseURL!).origin }, body: '{}' })
+        }
         if (path === '/v1/credentials' && failNextCredential) {
           failNextCredential = false
           return route.fulfill({ status: 503, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': new URL(baseURL!).origin }, body: '{}' })
@@ -110,6 +119,7 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     await expect(keeper.locator('.approvalCard.knock')).toBeVisible()
     await keeper.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
     await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 30000 })
+    expect(initialGuestFailures).toBe(1)
     await expect(guest.locator('#attachToggle')).toBeHidden()
     await guest.locator('#chatInput').fill('A private node message')
     await guest.locator('#chatInput').press('Enter')
@@ -193,6 +203,77 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     expect(await keeper.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('kithmoot.node-operation.v1.')).length)).toBe(0)
     expect(requests).not.toContain('/turn')
   } finally { for (const context of contexts) await context.close(); await browser?.close(); await fixture.close() }
+})
+
+test('node peer replacements retain primary TURN candidates within the existing allocation quotas', async ({ baseURL, browserName }, info) => {
+  test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires checked Spry and Shelter executables')
+  test.skip(browserName !== 'chromium', 'native allocation qualification uses Chromium')
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin)
+  const managed: Awaited<ReturnType<typeof nodeCallFactory>>[] = []
+  let browser: Browser | undefined
+  try {
+    const fetcher = ((url: string, init: RequestInit) => fetch((new URL(url).pathname === '/v1/credentials' ? fixture.calls : fixture.desk) + new URL(url).pathname, init)) as typeof fetch
+    const ownerSk = generateSecretKey(), owner = localIdentity(ownerSk), at = Math.floor(Date.now() / 1000)
+    const pair = await claimKithmootNode(parseKithmootNodePairingLink(fixture.pairing()), owner, { fetcher })
+    const room = '33'.repeat(32), node = readNodeRoom(signNodeRoom({ authoritySk: ownerSk, room, serviceKey: pair.serviceKey, origin: pair.origin, now: at }), at)!
+    await enrolNodeRoom(pair, node, owner, { fetcher })
+    // Capture the actual factory configuration, then give it to native peers
+    // in Chromium. No room keys or browser globals enter the Node factory.
+    class ConfigurationPeer extends EventTarget {
+      signalingState = 'stable'
+      constructor(readonly configuration: RTCConfiguration) { super() }
+      close() { this.signalingState = 'closed' }
+    }
+    for (let device = 0; device < 3; device++) {
+      const identity = localIdentity(generateSecretKey()), grantId = String(device + 1).padStart(32, '0')
+      const grant = buildGrant({ authoritySk: ownerSk, roomId: room, device: identity.pubkey, server: 'node.example', scopes: ['turn', 'relay-read', 'relay-write'], grantId, createdAt: at, expiration: at + 3600 })
+      await postNodeGrant(node, grant, owner, { fetcher })
+      managed.push(await nodeCallFactory(node, identity, () => queryNodeAccess(node, grantId, identity, { fetcher }),
+        { fetcher, PeerConnection: ConfigurationPeer as unknown as typeof RTCPeerConnection }))
+    }
+    browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1,MAP turn.node.example 127.0.0.1', '--allow-loopback-in-peer-connection'] })
+    const page = await browser.newPage()
+    const batches = []
+    for (let batch = 0; batch < 2; batch++) {
+      if (batch) await Promise.all(managed.map(call => call.reconnect()))
+      const configurations = managed.map(call => {
+        const peer = call.factory() as unknown as ConfigurationPeer
+        const configuration = structuredClone(peer.configuration); peer.close(); return configuration
+      })
+      // Keep the first allocations alive to represent leases that have not
+      // timed out on the old route. The fixture's quotas are unchanged.
+      const rows = await page.evaluate(async configurations => {
+        const held = window as unknown as { __allocationPeers?: RTCPeerConnection[] }
+        held.__allocationPeers ??= []
+        const rows: Array<{ primary: number; quotaErrors: number; ports: number[] }> = []
+        for (const configuration of configurations) for (let peer = 0; peer < 2; peer++) {
+          // UDP/TCP alone make quota exhaustion deterministic. TLS/media
+          // qualification is covered separately; the fixture CA is local.
+          const pc = new RTCPeerConnection({ ...configuration, iceServers: configuration.iceServers!.map(server => ({ ...server,
+            urls: [server.urls].flat().filter(url => url.startsWith('turn:')) })) })
+          held.__allocationPeers.push(pc)
+          const row = { primary: 0, quotaErrors: 0, ports: [] as number[] }; rows.push(row)
+          pc.onicecandidate = event => { if (event.candidate) {
+            if (event.candidate.sdpMid === '0') row.primary++
+            row.ports.push(Number(event.candidate.candidate.split(' ')[5]))
+          } }
+          pc.onicecandidateerror = event => { if (event.errorCode === 486 || event.errorCode === 508) row.quotaErrors++ }
+          for (const kind of ['audio', 'video', 'video', 'audio'] as const) pc.addTransceiver(kind, { direction: 'sendrecv' })
+          await pc.setLocalDescription(await pc.createOffer())
+        }
+        await new Promise(resolve => setTimeout(resolve, 6000))
+        return rows
+      }, configurations)
+      batches.push(rows)
+      console.log('Node allocation batch:', batch, JSON.stringify(rows))
+      expect(rows.every(row => row.primary > 0), 'Every replacement needs a candidate on its primary bundled transport').toBe(true)
+      expect(rows.every(row => row.quotaErrors === 0), 'The existing server quota must accommodate this replacement batch').toBe(true)
+    }
+    await info.attach('native-allocation-batches.json', { body: JSON.stringify(batches, null, 2), contentType: 'application/json' })
+  } finally {
+    for (const call of managed) call.close()
+    await browser?.close(); await fixture.close()
+  }
 })
 
 test('one disconnected participant does not replace a healthy participant connection', async ({ baseURL, browserName }) => {

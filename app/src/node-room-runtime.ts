@@ -7,7 +7,7 @@ import { hostRoomEpoch } from '../../src/epoch.js'
 import type { RoomSession } from '../../src/session.js'
 import type { PeerContext } from '../../src/peer.js'
 import { CONTROL_CHANNEL, encodeControl } from '../../src/control.js'
-import { enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, nodeCallFactory, type NodeClientOptions, type PairedKithmootNode, type NodeDeviceAccess } from '../../src/kithmoot-node.js'
+import { KithmootNodeError, enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, nodeCallFactory, type NodeClientOptions, type PairedKithmootNode, type NodeDeviceAccess } from '../../src/kithmoot-node.js'
 import { openNodeDeviceAccess, type NodeDeviceAccessController } from '../../src/node-device-access.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperAdmissions, type NodeKeeperSnapshot } from '../../src/node-admission.js'
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../../src/node-room-close.js'
@@ -81,6 +81,26 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let unwatchNetwork: (() => void) | undefined
   const live = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal, allowed: live }
+  // Joining has no periodic recovery yet. A temporary timeout must not strand
+  // a saved admission on the invite screen. Each retry signs a fresh request;
+  // refusal, invalid data and a cancelled navigation remain terminal.
+  const startup = async <T>(run: () => Promise<T>): Promise<T> => {
+    for (let attempt = 0; ; attempt++) {
+      if (!live()) throw new KithmootNodeError(403, 'refused')
+      try { return await run() } catch (error) {
+        if (!live()) throw new KithmootNodeError(403, 'refused')
+        if (!(error instanceof KithmootNodeError) || error.reason !== 'unavailable' || attempt >= 2) throw error
+        unavailable()
+        await new Promise<void>((resolve, reject) => {
+          const signal = requestOptions.signal
+          const abort = () => { clearTimeout(pause); signal.removeEventListener('abort', abort); reject(new KithmootNodeError(403, 'refused')) }
+          const pause = setTimeout(() => { signal.removeEventListener('abort', abort); resolve() }, 500 * 2 ** attempt)
+          signal.addEventListener('abort', abort, { once: true })
+          if (signal.aborted) abort()
+        })
+      }
+    }
+  }
   const notify = (value: NodeDeviceAccess) => {
     if (value.state === 'closed' || value.state === 'removed' || value.state === 'ended' || value.state === 'reset') options.withdrawn(value.state)
     return value
@@ -91,7 +111,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     return next
   }
   access = await openNodeDeviceAccess(state.node, device, state.grant, nodeAccessStore(store, state.participant, state.node.room), requestOptions)
-  const first = await refresh().catch(error => { access!.close(); throw error })
+  const first = await startup(refresh).catch(error => { controller.abort(); access!.close(); throw error })
   if (first.state !== 'active') { access.close(); throw Error('This device no longer has access to the room.') }
   const pool = nodeRoomTransport(state.node, device, 'room', { allowed: () => live() && access!.allowed() })
   const root = deriveRoom(state.secret)
@@ -111,9 +131,9 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     })().catch(unavailable).finally(() => { reconnecting = undefined })
   }
   try {
-    calls = await nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
+    calls = await startup(() => nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
       onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
-      rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer })
+      rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer }))
     if (state.authoritySk) {
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
