@@ -76,8 +76,8 @@
       "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/41802664740/attempts/2",
       "successfulJobs": 17,
       "retriedInfrastructureJobs": [
-        "private-node-recording (default)",
-        "signing-lineage (API 33)"
+        "recording-private-node-emulator (default)",
+        "signing-lineage-emulator (33)"
       ],
       "sameSourceForReruns": true
     },
