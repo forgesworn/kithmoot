@@ -15392,7 +15392,7 @@ function listHeading(text: string): HTMLLIElement {
 
 let roomListPress = false, roomListPaintPending = false
 document.addEventListener('pointerdown', event => {
-  if ((event.target as Element | null)?.closest('#roomList .open')) roomListPress = true
+  if ((event.target as Element | null)?.closest('#roomList .open, #roomList .rowMenu')) roomListPress = true
 }, { capture: true, passive: true })
 const releaseRoomListPress = (): void => {
   setTimeout(() => {
