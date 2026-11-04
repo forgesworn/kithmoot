@@ -1,6 +1,6 @@
 {
   "schema": "kithmoot-node-client-parity/1",
-  "checkedAt": "2026-11-04T17:01:55.631389+00:00",
+  "checkedAt": "2026-11-04T23:16:08.922326+00:00",
   "android": {
     "version": "0.6.134",
     "versionCode": 157,
@@ -479,6 +479,144 @@
       "android134": "running",
       "website938": "queued",
       "releaseGate": "All required PR checks passed; both merge trees match their qualified source."
+    },
+    "completedPostMergeChecks": {
+      "android": {
+        "sourceMerge": "5625305c3390926ed64477fe2730100c7de6dab0",
+        "run": "https://github.com/forgesworn/kithmoot-android/actions/runs/41871355265",
+        "attempt": 2,
+        "passed": 17,
+        "skipped": 0,
+        "conclusion": "success",
+        "retryReason": "Emulator went offline during setup log capture before restart tests began."
+      },
+      "web": {
+        "sourceMerge": "93878bb5b35f5d183d379b290cbbb710e88aee11",
+        "run": "https://github.com/forgesworn/kithmoot/actions/runs/41871495121",
+        "attempt": 2,
+        "passed": 47,
+        "skipped": 1,
+        "conclusion": "success",
+        "retryReason": "A two-share desktop layout snapshot saw one camera; the unchanged shard passed on retry."
+      }
+    },
+    "layoutReadinessFollowup": {
+      "pullRequest": "https://github.com/forgesworn/kithmoot/pull/705",
+      "sourceCommit": "54cc1efd158a00e737b43a4b6c92e0a6e5801200",
+      "mergeCommit": "c898a18125d4932a773c224de7bf0624cb9c8d87",
+      "hostedChecksPassed": 5,
+      "baselineLocalSeconds": 31.1,
+      "revisedLocalSeconds": [
+        20.0,
+        28.0
+      ],
+      "change": "Await exactly two camera tiles before collecting geometry; every existing count, visibility and geometry assertion remains.",
+      "testOnly": true,
+      "clientRebuildRequired": false,
+      "deploymentRequired": false
+    },
+    "finalPublicMetadataReadback": {
+      "verifiedAt": "2026-11-04T23:05:12.697Z",
+      "sites": [
+        {
+          "host": "kithmoot.app",
+          "androidVersion": "0.6.134",
+          "desktopVersion": "0.1.126",
+          "signedMetadataBytesExact": true,
+          "signaturesVerified": true
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "androidVersion": "0.6.134",
+          "desktopVersion": "0.1.126",
+          "signedMetadataBytesExact": true,
+          "signaturesVerified": true
+        }
+      ]
+    },
+    "finalPublicEntryReadback": {
+      "verifiedAt": "2026-11-04T23:05:47.325144+00:00",
+      "files": [
+        {
+          "url": "https://kithmoot.app/j/assets/index-BcARsGXD.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "bytes": 5199,
+          "sha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6"
+        },
+        {
+          "url": "https://kithmoot.app/j/index.html",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/index.html",
+          "bytes": 166025,
+          "sha256": "85981eaa95555d2f946efb24cbb60180b33d86c261a0ca9d28583c5c7b56fc79"
+        },
+        {
+          "url": "https://kithmoot.app/j/sw.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 26729,
+          "sha256": "07a8568e0454cf6a64992b8233b65bd07f36558dd5cf6edb96fdb00206cc228b"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "bytes": 5199,
+          "sha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/index.html",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/index.html",
+          "bytes": 166025,
+          "sha256": "85981eaa95555d2f946efb24cbb60180b33d86c261a0ca9d28583c5c7b56fc79"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 26729,
+          "sha256": "07a8568e0454cf6a64992b8233b65bd07f36558dd5cf6edb96fdb00206cc228b"
+        }
+      ]
+    },
+    "finalZapstoreChannelReadback": {
+      "verifiedAt": "2026-11-04T23:05:12.914Z",
+      "relay": "wss://relay.zapstore.dev",
+      "eoseReceived": true,
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.134",
+      "versionCode": 157,
+      "channel": "main",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "releaseCreatedAt": "2026-11-04T15:08:31.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "apk": {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+            "publicDownloadVerified": true
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    },
+    "finalCertificateProofReadback": {
+      "verifiedAt": "2026-11-04T23:05:13.018Z",
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "certificateIdentityProofVerified": true,
+      "proofAlgorithm": "rsa"
     }
   }
 }
