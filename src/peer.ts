@@ -351,6 +351,9 @@ export interface PeerOptions {
   factory: PeerFactory
   localDevice: string
   remoteDevice: string
+  /** Allocate offer identifiers across replacement connections to this
+   * endpoint. Standalone peers use their own increasing sequence. */
+  nextOfferSequence?: () => number
   /** Every signal for the far end. Its SDP and candidates have already been
    *  through `hideLocalAddressesInSignal`, so no local network address
    *  reaches it; a candidate that would reveal one is never handed over -
@@ -932,7 +935,9 @@ export class Peer implements NegotiatingPeer {
       const offer = await this.#pc.createOffer()
       await this.#gather(() => this.#pc.setLocalDescription(offer), offer.sdp, (sdp) => {
         if (this.#offerSeq === Number.MAX_SAFE_INTEGER) throw new Error('call offer identifiers exhausted')
-        this.#outstandingOfferSeq = ++this.#offerSeq
+        const sequence = this.#opts.nextOfferSequence?.() ?? this.#offerSeq + 1
+        if (!Number.isSafeInteger(sequence) || sequence <= this.#offerSeq) throw new Error('call offer identifier must increase')
+        this.#outstandingOfferSeq = this.#offerSeq = sequence
         this.#onSignal({ type: 'offer', roomId: '', sdp, seq: this.#outstandingOfferSeq })
       })
     } finally {

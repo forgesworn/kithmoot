@@ -621,6 +621,9 @@ export class Mesh {
    *  a connection the far end has already closed, and must not cost a second
    *  rebuild. Bounded by `MAX_RETIRED_REMOTE_SESSIONS`. */
   readonly #retiredRemoteSessions = new Map<string, Set<string>>()
+  /** A delayed reply to a closed connection must not match the replacement's
+   * first offer. Profile 1 correlates replies with this optional wire seq. */
+  readonly #legacyOfferSequences = new Map<string, number>()
 
   #forwarders: ForwarderRef[]
   #forwarding: ForwardingState = 'off'
@@ -826,6 +829,7 @@ export class Mesh {
     this.#peers.clear()
     this.#peerSids.clear()
     this.#retiredRemoteSessions.clear()
+    this.#legacyOfferSequences.clear()
     this.#deviceProfiles.clear()
     this.#downgraded.clear()
     this.#profile2Evidence.clear()
@@ -2004,6 +2008,12 @@ export class Mesh {
       factory: this.#opts.factory,
       localDevice: this.#opts.localDevice,
       remoteDevice,
+      nextOfferSequence: () => {
+        const sequence = (this.#legacyOfferSequences.get(remoteDevice) ?? 0) + 1
+        if (!Number.isSafeInteger(sequence)) throw new Error('call offer identifiers exhausted')
+        this.#legacyOfferSequences.set(remoteDevice, sequence)
+        return sequence
+      },
       context: { tier: forwarder ? 'forwarder' : tier, remoteDevice },
       iceRestart: this.#opts.iceRestart,
       offerRetry: this.#opts.offerRetry,

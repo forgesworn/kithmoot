@@ -794,6 +794,27 @@ describe('NostrRelayPool', () => {
     expect(seen).toEqual([missed.id])
   })
 
+  it('rechecks the dial deadline when its timer fires before the wall clock reaches it', async () => {
+    vi.useFakeTimers()
+    pool.subscribe([{ kinds: [20461] }], () => {})
+    await vi.advanceTimersByTimeAsync(PROBE_QUIET_MS + 1)
+    a.silent = true
+    const probed = pool.probe(3_000)
+    await vi.advanceTimersByTimeAsync(3_000)
+    await probed
+    a.silent = false
+    const deadline = relayDials.retryAt(new URL(URL_A).href)
+    // Timers and the wall clock need not cross the same millisecond together.
+    // An early wake must keep the redial pending rather than consume it.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline - 1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(a.connections).toBe(0)
+    clock.mockReturnValue(deadline)
+    await vi.advanceTimersByTimeAsync(2)
+    expect(a.connections).toBe(1)
+    clock.mockRestore()
+  })
+
   it('leaves a healthy relay and its subscriptions untouched when another relay is reconnected by probe', async () => {
     vi.useFakeTimers()
     const seen: string[] = []
