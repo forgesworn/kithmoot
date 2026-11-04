@@ -148,3 +148,48 @@ subsequent device-signed access checks returned active in about half a second,
 and the accepted production run needed no manual retry. The cause of that
 startup timeout is not established. This does not qualify every initial join
 or replace the longer credential-renewal gate.
+
+
+## Startup retry and allocation pressure, 4 November
+
+The [startup and allocation regression](evidence/kithmoot-node-startup-allocation-20261103.json)
+reproduces two further defects. Initial access and TURN-login requests now get
+at most three attempts after temporary unavailability, with cancellable 500 ms
+and 1,000 ms waits and a fresh signed proof each time. Refusal, invalid data,
+navigation and cancellation remain terminal. This improves initial connection
+resilience; it does not establish the cause of the earlier production timeout.
+
+The node peer factory now uses `max-bundle`. Previously four media slots could
+gather separate TURN transports before negotiation, consuming the existing
+allocation quota while old and replacement connections overlapped. The native
+regression creates six peers for three devices, then six replacements while
+retaining the original batch. The previous factory loses primary relay
+candidates and receives quota errors. With the correction, all twelve peers
+retain primary candidates without quota errors. The quota is unchanged. This
+is an allocation-gathering check over fixture UDP/TCP, not a capacity, TLS or
+route-recovery latency measurement.
+
+PR690 merged as `ecf73fea`; release `20261104T013619Z` deploys main script
+`b25a7587f7586e3347147f405535f2f5a22350c7c51fa7200f0881882dff3ce2`.
+Normal public HTTPS readback verifies byte equality for the index, entry and
+main scripts and no production diagnostic hook. Eighty-nine focused tests pass
+(two skip), typecheck/build pass, all five applicable hosted checks pass, and
+three actual-process native browser journeys pass.
+
+The deployed renderer also passes the complete sixty-second room journey with
+real isolated Spry/Shelter processes, including an initial guest HTTP503,
+moving remote video and synthetic microphone audio, detached-sink recovery,
+silent signalling recovery, removal and room purge. Renderer assets are loaded
+directly from the public deployment without interception. Test HTTP forwarding
+and WebSocket bridges connect that public page to the private fixture; its
+self-signed TLS is accepted only in the test context. Public deployment TLS is
+verified separately with normal certificate validation.
+
+The stricter public VPN gate for this revision has **not run**: fresh test guest
+admissions could not be completed while the owner's Mac was locked. No owner
+keys were accessed and no admission was bypassed. The required recovery limit
+remains twenty seconds, followed by a 310-second media soak across the prior
+login expiry. The earlier 36-second VPN-off observation remains historical
+proof, not a passing result for that tighter gate. A direct/VPN/direct HTTPS
+probe passed, which does not qualify media. No physical phone was available;
+Wi-Fi/mobile handoff, commercial VPNs and GrapheneOS still need field checks.
