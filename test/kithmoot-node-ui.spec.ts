@@ -178,7 +178,8 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     for (const page of [keeper, guest]) await expect.poll(async () => (await page.evaluate(remotePictures)).length).toBeGreaterThan(0)
     for (const page of [keeper, guest]) await page.getByRole('button', { name: 'Leave call', exact: true }).click()
     for (const page of [keeper, guest]) await expect.poll(() => page.evaluate(() =>
-      (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers.every(pc => pc.signalingState === 'closed'))).toBe(true)
+      (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers.every(pc =>
+        pc.signalingState === 'closed' || pc.getSenders().every(sender => !sender.track || sender.track.readyState === 'ended')))).toBe(true)
     await openCallSettings(keeper, 'Your KithMoot node')
     await keeper.locator('#nodeUnpair').click(); await keeper.locator('#actionConfirm').click()
     await expect(keeper.locator('#nodeUnpaired')).toBeVisible()

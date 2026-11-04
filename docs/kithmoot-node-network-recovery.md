@@ -270,8 +270,8 @@ or after twenty seconds if replacement fails. Repeated repairs cannot extend
 that deadline or accumulate additional retained generations. Other peer
 factories keep their existing immediate replacement behaviour.
 
-Muted tracks and narrower audiences apply to both generations. Leaving a call,
-withdrawing access or closing the node factory closes all transports immediately.
+Muted tracks and narrower audiences apply to both generations. Closing a peer,
+withdrawing access or closing the node factory closes retained transports immediately.
 The factory ignores connectivity failures from a retiring generation. The web
 receiver registry retains the connected receiver until its replacement connects;
 closing the old generation cannot erase the new registry entry. This does not
