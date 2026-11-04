@@ -3,6 +3,8 @@ import { nip44 } from 'nostr-tools'
 import * as signals from './signal.js'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
+import { Peer } from './peer.js'
+import type { SignalBody } from './signal.js'
 import type { ForwarderMediaPipeline, MeshSession, RemoteAnnotation } from './mesh.js'
 import type { ForwarderRef } from './types.js'
 import { wrapSignal, SIGNAL_MAX_AGE_SECONDS } from './signal.js'
@@ -78,6 +80,43 @@ async function settle(): Promise<void> {
 }
 
 describe('Mesh', () => {
+  it('does not apply an answer from the retired direct offer to its replacement TURN offer', async () => {
+    vi.useFakeTimers()
+    const session = new FakeSession(), factory = createFakeFactory({ structuredSdp: true }), local = device(), remote = device()
+    const relay = new SimRelay(), answers: SignalBody[] = [], remotes: Peer[] = []
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub, deviceSk: local.sk,
+      transport: new SimTransport(relay), roomId: ROOM_ID })
+    const offers = () => relay.published.flatMap(event => {
+      const value = signals.unwrapSignalEvent(event, { recipientSk: remote.sk, roomId: ROOM_ID, now: Math.floor(Date.now() / 1000) })
+      return value?.body.type === 'offer' ? [value.body] : []
+    })
+    const answer = async (offer: SignalBody) => {
+      const peer = new Peer({ factory: createFakeFactory({ structuredSdp: true }), localDevice: remote.pub, remoteDevice: local.pub,
+        onSignal: body => { if (body.type === 'answer') answers.push(body) }, onTrack: () => {} })
+      remotes.push(peer); await peer.handleSignal(offer); await flush()
+      return answers.at(-1)!
+    }
+    const deliver = async (body: SignalBody) => {
+      relay.publish(wrapSignal({ ...body, roomId: ROOM_ID }, { senderSk: remote.sk, recipientPubkey: local.pub }))
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    try {
+      session.setViews([view(device().pub, [remote.pub])]); mesh.publish([fakeTrack('audio')])
+      await vi.advanceTimersByTimeAsync(0)
+      const direct = offers().at(-1)!, delayed = await answer(direct)
+      await vi.advanceTimersByTimeAsync(10_000)
+      const replacement = factory.instances.at(-1)!, turn = offers().at(-1)!
+      expect(replacement.context?.tier).toBe('turn')
+      const before = replacement.calls.filter(call => call.method === 'setRemoteDescription').length
+      await deliver(delayed)
+      expect(replacement.calls.filter(call => call.method === 'setRemoteDescription')).toHaveLength(before)
+      expect(replacement.signalingState).toBe('have-local-offer')
+      expect(turn.seq).toBeGreaterThan(direct.seq!)
+      await deliver(await answer(turn))
+      expect(replacement.signalingState).toBe('stable')
+    } finally { mesh.close(); for (const peer of remotes) peer.close(); vi.useRealTimers() }
+  })
+
   it('gives a TURN-initial call its relay budget and retries on TURN without a duplicate direct attempt', async () => {
     vi.useFakeTimers()
     const session = new FakeSession(), factory = createFakeFactory(), local = device(), remote = device()

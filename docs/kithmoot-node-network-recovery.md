@@ -293,3 +293,21 @@ disconnected or authenticating sockets. Closed readers on a connected socket
 restore on the next five-second recovery tick, preserving healthy readers,
 permanent refusals, read-rate holds and individual resend backoffs. The
 regression fails on the previous source and passes after this correction.
+
+## Legacy answers after a connection replacement
+
+The full browser matrix and a local replay reproduce a one-way-media failure
+after joining through a relay that is half-open for ten seconds. Profile-1
+offer numbers restart at one when the route ladder replaces a connection.
+A delayed answer for the retired direct offer can therefore settle the new
+TURN offer, leaving ICE connected but DTLS unable to carry media.
+
+The mesh now allocates increasing offer numbers per remote endpoint across
+connection replacements. Peers still use the existing optional `seq`/`re`
+fields; replies without correlation retain their legacy handling. A delayed
+answer regression fails on the old source and passes after the correction.
+The real browser reproduction now receives host camera and microphone without
+pressing Join again. Its 51.3-second run includes the initial ten-second fault
+and cold room entry; it is distinct from the established node call's
+twenty-second network-recovery gate. The related suites pass 230 tests with
+five existing skips.
