@@ -1,0 +1,182 @@
+{
+  "schema": "kithmoot-node-client-parity/1",
+  "checkedAt": "2026-11-04T15:52:09+00:00",
+  "android": {
+    "version": "0.6.134",
+    "versionCode": 157,
+    "sourceCommit": "512f9eafae72b7e65931e5c42cc3cbc98ef534d9",
+    "appUnitTests": {
+      "total": 3354,
+      "passed": 3353,
+      "skipped": 1,
+      "failed": 0
+    },
+    "protocolTests": {
+      "passed": 684,
+      "failed": 0
+    },
+    "lintDebug": true,
+    "lintRelease": true,
+    "productionApk": {
+      "bytes": 74199628,
+      "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+      "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+      "previewCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+      "minSdk": 33,
+      "targetSdk": 35,
+      "v1": false,
+      "v2": false,
+      "v3": true
+    },
+    "signedUpgradeSmoke": {
+      "passed": true,
+      "oldVersion": "0.6.133",
+      "newVersion": "0.6.134",
+      "newVersionCode": 157,
+      "sameApplicationUid": true,
+      "existingDataRetained": true,
+      "productionSignatureAcceptedByAndroid": true,
+      "newReleaseColdLaunchPassed": true,
+      "googlePlayServicesInstalled": false,
+      "apiLevel": 35,
+      "hardware": "ranchu",
+      "physicalDevice": false,
+      "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+    }
+  },
+  "desktop": {
+    "version": "0.1.126",
+    "sourceMergeCommit": "3eaf5e67c641896fbf18001dce739e4f0b2fff0c",
+    "sourcePullRequest": "https://github.com/forgesworn/kithmoot/pull/702",
+    "electron": "44.9.3",
+    "unitTestsPassed": 303,
+    "typecheck": true,
+    "productionBuild": true,
+    "artworkAndTelemetryAudits": true,
+    "developerIdSigned": true,
+    "notarisedAndStapled": true,
+    "gatekeeperAccepted": true,
+    "packagedSandboxAndProfileSmoke": true,
+    "packagedRenderers": {
+      "mac": {
+        "webFiles": 594,
+        "webManifestSha256": "b2f51e6a97d56042eaa8d94b7db628ece3764cfaa74065071643333d96b1b267",
+        "version": "0.1.126"
+      },
+      "linuxX64": {
+        "webFiles": 594,
+        "webManifestSha256": "b2f51e6a97d56042eaa8d94b7db628ece3764cfaa74065071643333d96b1b267",
+        "version": "0.1.126"
+      },
+      "linuxArm64": {
+        "webFiles": 594,
+        "webManifestSha256": "b2f51e6a97d56042eaa8d94b7db628ece3764cfaa74065071643333d96b1b267",
+        "version": "0.1.126"
+      },
+      "windows": {
+        "webFiles": 594,
+        "webManifestSha256": "b2f51e6a97d56042eaa8d94b7db628ece3764cfaa74065071643333d96b1b267",
+        "version": "0.1.126"
+      }
+    },
+    "packages": [
+      {
+        "filename": "KithMoot-0.1.126-mac-arm64.zip",
+        "version": "0.1.126",
+        "bytes": 193009112,
+        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1"
+      },
+      {
+        "filename": "KithMoot-0.1.126-linux-arm64.tar.gz",
+        "version": "0.1.126",
+        "bytes": 187296551,
+        "sha256": "57d08351f6b0cadca4422ae2dc9832c9266526330b4b36ecf0fec7fe6599b400"
+      },
+      {
+        "filename": "KithMoot-0.1.126-linux-x64.tar.gz",
+        "version": "0.1.126",
+        "bytes": 186406678,
+        "sha256": "c20a0d1d906376c9a049896550cc2bc8067b73781306cfd9dbe349029c69a40a"
+      },
+      {
+        "filename": "KithMoot-0.1.126-windows-x64.zip",
+        "version": "0.1.126",
+        "bytes": 221534693,
+        "sha256": "c25ac58312a0d68cfeaf385e23b11b011b2969d6db1cb738853c90a4ee51aaed"
+      },
+      {
+        "filename": "kithmoot_0.1.126_amd64.deb",
+        "version": "0.1.126",
+        "bytes": 151056824,
+        "sha256": "72f2e86f6efb96394df662ef68af5cb93fafecd1e9820a7ea06627813fc04802"
+      },
+      {
+        "filename": "kithmoot_0.1.126_arm64.deb",
+        "version": "0.1.126",
+        "bytes": 145495120,
+        "sha256": "045e2b68fc5e5e6d0fa4159f6c287431a20f31e58ac19d8db615fb52465fb455"
+      }
+    ],
+    "linuxWindowsRuntimeQualified": false
+  },
+  "controlledMediaChecks": [
+    {
+      "clients": "packaged-desktop/native",
+      "passed": true,
+      "postRecoveryMediaSeconds": 300,
+      "nativeFreshReceiverRecoveryMillis": 4075,
+      "temporaryCredentialFailureInjected": true,
+      "callProfile": 2,
+      "relayCandidatesOnly": true,
+      "credentialRenewal": true,
+      "removalStopsMediaAndClearsCustody": true,
+      "roomPurge": true,
+      "receiptSha256": "6533f126ee57c9f503abf3f6a0f022b8ec66f901ea5d70f4568c92bbb90f2ac5",
+      "syntheticMedia": true,
+      "fixtureNetworkRouting": true,
+      "forcedTls443": false,
+      "publicCertificate": false,
+      "physicalDevice": false
+    },
+    {
+      "clients": "browser/native",
+      "passed": true,
+      "postRecoveryMediaSeconds": 300,
+      "nativeFreshReceiverRecoveryMillis": 3057,
+      "temporaryCredentialFailureInjected": true,
+      "callProfile": 2,
+      "relayCandidatesOnly": true,
+      "credentialRenewal": true,
+      "removalStopsMediaAndClearsCustody": true,
+      "roomPurge": true,
+      "receiptSha256": "496a1a743a194511d604571c317dc427541b5293a16354e8ce126f3d586296ff",
+      "syntheticMedia": true,
+      "fixtureNetworkRouting": true,
+      "forcedTls443": false,
+      "publicCertificate": false,
+      "physicalDevice": false
+    }
+  ],
+  "backends": {
+    "sprySourceCommit": "92b3418dd062f3cbcfc5bdd08c6c07f29846713b",
+    "spryBinarySha256": "52858fe5f194451594a92783d3444ba600ccdc508811b512a22bd7b141abc2db",
+    "shelterBinarySha256": "2776783e0164dc3df276361e8872ad3f660a3c7e5a6ec36e9b4e13c32cbddca8",
+    "actualProcesses": true,
+    "customTurnPorts": {
+      "udpTcp": 34790,
+      "tls": 53499
+    }
+  },
+  "remainingFieldChecks": {
+    "physicalGrapheneOS": false,
+    "independentNats": false,
+    "realWifiCellularVpnHandoff": false,
+    "publiclyTrustedNativeTurnTls443": false,
+    "realMacCaptureConsent": false
+  },
+  "publication": {
+    "status": "prepared",
+    "androidSourceCi": "pending infrastructure retry",
+    "publicDownloadsVerified": false
+  }
+}

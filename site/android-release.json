@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.133",
-  "versionCode": 156,
+  "versionName": "0.6.134",
+  "versionCode": 157,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74187340,
-  "apkSha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+  "apkBytes": 74199628,
+  "apkSha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.133-production.apk",
+  "downloadFilename": "kithmoot-0.6.134-production.apk",
   "releaseNotes": [
-    "Pair your KithMoot node and host rooms there; guests ask to join and the room owner admits their devices.",
-    "Hosted rooms keep messages and relay-only calls on their chosen node, including TURN TLS443; keys stay on devices and files are off.",
-    "Remove guests and close hosted rooms with confirmed revocation, purge and recoverable signed completion checks."
+    "Node calls recover temporary connection failures and create fresh relay connections when credentials renew.",
+    "Network changes reopen authenticated signalling; either device can initiate call recovery.",
+    "Removal and closure stop media and clear access; concurrent shutdown waits for media cleanup."
   ]
 }

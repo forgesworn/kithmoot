@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.125",
+  "currentRelease": "0.1.126",
   "releases": [
     {
-      "version": "0.1.125",
+      "version": "0.1.126",
       "updateTo": {
-        "version": "0.1.125",
-        "pub_date": "2026-11-01T23:37:46Z",
-        "notes": "Tap to hear appears whenever the browser blocks call sound, including after earlier gestures; call diagnostics show remote-audio mute state.",
-        "name": "0.1.125",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.125/KithMoot-0.1.125-mac-arm64.zip",
-        "sha256": "065509c57382660ac67894c616d1c815ae93840dccdba1eb2bf5a8b118c45cd8",
-        "size": 192984800
+        "version": "0.1.126",
+        "name": "0.1.126",
+        "pub_date": "2026-11-04T15:27:24Z",
+        "notes": "Node pairing, admission and relay-only calls, including credential renewal and recovery after network changes.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-mac-arm64.zip",
+        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1",
+        "size": 193009112
       }
     }
   ]
