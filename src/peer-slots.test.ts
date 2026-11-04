@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { SLOT_ORDER, SlotSet, inferRoles, supportsSlots } from './peer-slots.js'
 import { SlotPair, slotTrack, settle } from '../test/slot-pair.js'
 import { FakeRTCPeerConnection, trackState } from '../test/fake-rtc.js'
-import { SLOT_REPAIR_MS } from './slot-peer.js'
+import { MEDIA_HANDOVER_TIMEOUT_MS, SLOT_REPAIR_MS } from './slot-peer.js'
 import type { SignalBody } from './signal.js'
 import type { SlotPeerOptions } from './slot-peer.js'
 import type { TrackRole } from './types.js'
@@ -190,6 +190,87 @@ describe('fixed media slots', () => {
       expect(pair.polite.connectionId).toBe(connectionId)
       expect(live.closed).toBe(false)
       expect(pair.polite.generation).toBe(1)
+    } finally { pair.close() }
+  })
+
+  it('keeps opted-in connected media until its replacement is ready, then closes the old transports', async () => {
+    const pair = new SlotPair()
+    const retiring = vi.fn()
+    Object.assign(pair.politeFactory, { onRetiring: retiring })
+    Object.assign(pair.impoliteFactory, { onRetiring: retiring })
+    try {
+      await pair.polite.start([slotTrack('mic'), slotTrack('camera')])
+      await pair.impolite.start([slotTrack('mic'), slotTrack('camera')])
+      await settle()
+      await pair.connect()
+      const oldA = pair.live('polite'), oldB = pair.live('impolite')
+      const delivered = pair.tracks.get('polite')!.length
+      pair.polite.rebuild()
+      await settle(16)
+      expect(pair.live('polite')).not.toBe(oldA)
+      expect(pair.live('impolite')).not.toBe(oldB)
+      expect(oldA.closed).toBe(false)
+      expect(oldB.closed).toBe(false)
+      expect(retiring).toHaveBeenCalledTimes(2)
+      expect(pair.tracks.get('polite')).toHaveLength(delivered)
+      pair.live('polite').setConnectionState('connected')
+      pair.live('impolite').setConnectionState('connected')
+      pair.clock.advance(1000)
+      await settle()
+      expect(oldA.closed).toBe(true)
+      expect(oldB.closed).toBe(true)
+      expect(pair.tracks.get('polite')!.length).toBeGreaterThan(delivered)
+    } finally { pair.close() }
+  })
+
+  it('mutes retained senders immediately and closes both generations when the call leaves', async () => {
+    const pair = new SlotPair()
+    Object.assign(pair.politeFactory, { onRetiring: vi.fn() })
+    Object.assign(pair.impoliteFactory, { onRetiring: vi.fn() })
+    try {
+      await pair.polite.start([slotTrack('mic'), slotTrack('camera')])
+      await settle(); await pair.connect()
+      const old = pair.live('polite')
+      expect(old.getTransceivers().some(t => t.sender.track)).toBe(true)
+      pair.polite.rebuild(); await settle(16)
+      expect(old.closed).toBe(false)
+      await pair.polite.start([])
+      expect(old.getTransceivers().every(t => t.sender.track === null)).toBe(true)
+      expect(pair.live('polite').getTransceivers().every(t => t.sender.track === null)).toBe(true)
+      const current = pair.live('polite'), delivered = pair.tracks.get('polite')!.length
+      pair.polite.close()
+      expect(current.closed).toBe(true); expect(old.closed).toBe(true)
+      pair.clock.advance(MEDIA_HANDOVER_TIMEOUT_MS); await settle()
+      expect(pair.tracks.get('polite')).toHaveLength(delivered)
+    } finally { pair.close() }
+  })
+
+  it('retains at most one old transport and never extends its handover deadline', async () => {
+    const pair = new SlotPair()
+    Object.assign(pair.politeFactory, { onRetiring: vi.fn() })
+    Object.assign(pair.impoliteFactory, { onRetiring: vi.fn() })
+    try {
+      await pair.polite.start([slotTrack('mic')]); await settle(); await pair.connect()
+      const old = pair.live('polite')
+      pair.polite.rebuild(); await settle(16)
+      const pending = pair.live('polite')
+      pair.clock.advance(MEDIA_HANDOVER_TIMEOUT_MS - 1)
+      pair.polite.rebuild(); await settle(16)
+      expect(pending.closed).toBe(true); expect(old.closed).toBe(false)
+      expect(pair.connections('polite').filter(pc => !pc.closed)).toHaveLength(2)
+      pair.clock.advance(1)
+      expect(old.closed).toBe(true)
+      expect(pair.connections('polite').filter(pc => !pc.closed)).toHaveLength(1)
+    } finally { pair.close() }
+  })
+
+  it('keeps immediate replacement for factories which do not opt into media handover', async () => {
+    const pair = new SlotPair()
+    try {
+      await pair.polite.start([slotTrack('mic')]); await settle(); await pair.connect()
+      const old = pair.live('polite')
+      pair.polite.rebuild(); await settle(16)
+      expect(old.closed).toBe(true)
     } finally { pair.close() }
   })
 

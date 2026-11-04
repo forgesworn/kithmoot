@@ -143,6 +143,25 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
       await expect.poll(async () => (await page.evaluate(remotePictures)).length,
         { message: 'Node receiver recovery must restore a detached remote video sink', timeout: 15000 }).toBeGreaterThan(0)
     }
+    // An online event rotates node credentials and native transports. Even
+    // with video track notifications suppressed above, the replacement must
+    // take over the visible receiver and survive the old connection closing.
+    const beforeRotation = await Promise.all([keeper, guest].map(page => page.evaluate(() => {
+      const peers = (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers
+      return { count: peers.length, connected: peers.flatMap((pc, index) => pc.connectionState === 'connected' ? [index] : []) }
+    })))
+    await keeper.evaluate(() => window.dispatchEvent(new Event('online')))
+    for (const [i, page] of [keeper, guest].entries()) {
+      await expect.poll(() => page.evaluate(before => {
+        const peers = (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers
+        return peers.slice(before.count).some(pc => pc.connectionState === 'connected') &&
+          before.connected.every(index => peers[index]!.signalingState === 'closed')
+      }, beforeRotation[i]!), { message: 'Credential rotation must complete and retire the old transport', timeout: 20000 }).toBe(true)
+      await expect.poll(async () => (await page.evaluate(remotePictures)).length).toBeGreaterThan(0)
+      const first = (await page.evaluate(remotePictures))[0]!
+      await expect.poll(async () => (await page.evaluate(remotePictures))[0]?.hash,
+        { message: 'Visible video must advance after the retired connection closes', timeout: 10000 }).not.toBe(first.hash)
+    }
     const beforeSilentSocket = await guest.evaluate(() => {
       const sockets = (window as unknown as { __nodeSockets: Array<WebSocket & { dropFrames: boolean }> }).__nodeSockets
       for (const socket of sockets) socket.dropFrames = true
@@ -158,6 +177,8 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     await expect(keeper.locator('#chatLog')).toContainText('Signalling recovered without another admission')
     for (const page of [keeper, guest]) await expect.poll(async () => (await page.evaluate(remotePictures)).length).toBeGreaterThan(0)
     for (const page of [keeper, guest]) await page.getByRole('button', { name: 'Leave call', exact: true }).click()
+    for (const page of [keeper, guest]) await expect.poll(() => page.evaluate(() =>
+      (window as unknown as { __nodePeers: RTCPeerConnection[] }).__nodePeers.every(pc => pc.signalingState === 'closed'))).toBe(true)
     await openCallSettings(keeper, 'Your KithMoot node')
     await keeper.locator('#nodeUnpair').click(); await keeper.locator('#actionConfirm').click()
     await expect(keeper.locator('#nodeUnpaired')).toBeVisible()
