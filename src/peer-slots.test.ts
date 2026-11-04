@@ -145,6 +145,54 @@ describe('fixed media slots', () => {
     pair.close()
   })
 
+  it('recovers opening glare after early candidates address the offer to the replaced connection', async () => {
+    const pair = new SlotPair()
+    try {
+      pair.cut = ({ body }) => body.type === 'offer'
+      await Promise.all([
+        pair.polite.start([slotTrack('mic'), slotTrack('camera')]),
+        pair.impolite.start([slotTrack('mic'), slotTrack('camera')]),
+      ])
+      await settle()
+      const retired = pair.polite.connectionId
+      // The candidates bind both channels before either opening offer lands.
+      pair.live('polite').emitCandidate()
+      pair.live('impolite').emitCandidate()
+      await settle()
+      pair.cut = ({ from, body }) => from === 'polite' && body.type === 'offer' && body.gen === 1
+      pair.impolite.retransmitNow()
+      await settle(16)
+
+      const offered = pair.sent.filter(s => s.from === 'impolite' && s.body.type === 'offer').at(-1)!.body
+      expect(offered.peerConn).toBe(retired)
+      expect(pair.polite.connectionId).not.toBe(retired)
+      expect(pair.live('polite').getTransceivers()).toHaveLength(4)
+      expect(pair.live('polite').signalingState).toBe('stable')
+      expect(pair.sent.some(s => s.body.type === 'answer')).toBe(true)
+      expect(pair.polite.generation).toBeGreaterThan(1)
+      expect(pair.polite.generation).toBe(pair.impolite.generation)
+      expect(pair.live('impolite').signalingState).toBe('stable')
+      expect(pair.live('impolite').getTransceivers()).toHaveLength(4)
+    } finally { pair.close() }
+  })
+
+  it('does not replace an opening connection for an offer addressed to a retired one', async () => {
+    const pair = new SlotPair()
+    try {
+      pair.cut = ({ body }) => body.type === 'offer'
+      await Promise.all([pair.polite.start([slotTrack('mic')]), pair.impolite.start([slotTrack('mic')])])
+      await settle()
+      const live = pair.live('polite'), connectionId = pair.polite.connectionId
+      const offer = pair.sent.find(s => s.from === 'impolite' && s.body.type === 'offer')!.body
+      await pair.polite.handleSignal({ ...offer, peerConn: 'cc'.repeat(8) })
+      await settle()
+      expect(pair.live('polite')).toBe(live)
+      expect(pair.polite.connectionId).toBe(connectionId)
+      expect(live.closed).toBe(false)
+      expect(pair.polite.generation).toBe(1)
+    } finally { pair.close() }
+  })
+
   it('never raises negotiationneeded for a media change', async () => {
     const pair = new SlotPair()
     const mic = slotTrack('mic')
