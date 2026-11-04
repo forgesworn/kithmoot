@@ -558,6 +558,9 @@ export class SlotPeer implements NegotiatingPeer {
     }
 
     if (body.type === 'offer') {
+      // Check the address before glare can replace the connection. The
+      // channel would reject this old address after that replacement too.
+      if (body.gen === this.#gen && body.peerConn !== undefined && body.peerConn !== this.#conn) return
       const action = decideOffer({
         incomingGen: body.gen,
         currentGen: this.#gen,
@@ -573,7 +576,12 @@ export class SlotPeer implements NegotiatingPeer {
           // answer: the far end is polite and is about to give way.
           return
         case 'rebuild-connection':
-          await this.#answer(this.#gen, body)
+          // Early candidates can bind both opening channels before either
+          // offer arrives. A retransmitted offer then names this connection;
+          // A1's replacement has a different id and cannot receive it. Open
+          // a higher generation instead, keeping stale-address filtering.
+          if (body.peerConn !== undefined) await this.#openGeneration(nextGeneration(this.#gen, this.#lastRemoteGen))
+          else await this.#answer(this.#gen, body)
           return
         case 'rollback': {
           // In-generation glare. Nothing was created for our offer, so
