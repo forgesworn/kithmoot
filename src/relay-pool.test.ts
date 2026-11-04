@@ -255,7 +255,9 @@ describe('NostrRelayPool', () => {
     await vi.advanceTimersByTimeAsync(1)
     await published
     expect(pool.health()[0]!.state).toBe('connected')
-    await vi.advanceTimersByTimeAsync(15_000)
+    // A recovered socket needs its readers on the next recovery tick. The
+    // disconnected-dial cooldown must not leave it write-only for 15s.
+    await vi.advanceTimersByTimeAsync(5_000)
     expect(seen).toEqual([first.id, missed.id])
     expect(b.connections).toBe(1)
     expect(b.frames.filter(frame => JSON.parse(frame)[0] === 'REQ')).toHaveLength(healthyRequests)
