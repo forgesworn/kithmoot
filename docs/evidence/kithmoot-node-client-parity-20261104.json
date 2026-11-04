@@ -1,6 +1,6 @@
 {
   "schema": "kithmoot-node-client-parity/1",
-  "checkedAt": "2026-11-04T15:52:09+00:00",
+  "checkedAt": "2026-11-04T23:16:08.922326+00:00",
   "android": {
     "version": "0.6.134",
     "versionCode": 157,
@@ -42,6 +42,20 @@
       "hardware": "ranchu",
       "physicalDevice": false,
       "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+    },
+    "sourceMergeCommit": "5625305c3390926ed64477fe2730100c7de6dab0",
+    "sourcePullRequest": "https://github.com/forgesworn/kithmoot-android/pull/394",
+    "hostedCi": {
+      "run": "https://github.com/forgesworn/kithmoot-android/actions/runs/41852363350",
+      "attempt": 2,
+      "checksPassed": 17,
+      "checksSkipped": 0,
+      "firstAttemptSetupFailures": [
+        "ordinary recovery: SDK emulator ZIP download failed before boot",
+        "API 33 signing lineage: emulator boot timed out before tests"
+      ],
+      "sameSourceRetriesPassed": true,
+      "mergeTreeMatchesQualifiedSource": true
     }
   },
   "desktop": {
@@ -175,8 +189,434 @@
     "realMacCaptureConsent": false
   },
   "publication": {
-    "status": "prepared",
-    "androidSourceCi": "pending infrastructure retry",
-    "publicDownloadsVerified": false
+    "status": "published and independently verified",
+    "websiteSourceCommit": "93878bb5b35f5d183d379b290cbbb710e88aee11",
+    "websitePullRequest": "https://github.com/forgesworn/kithmoot/pull/703",
+    "websiteRelease": "20261104T165051Z",
+    "websitePreparationChecksPassed": 4,
+    "androidSourceCi": "17 checks passed",
+    "publicDownloadsVerified": true,
+    "androidGitHub": {
+      "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.134/kithmoot-0.6.134-production.apk",
+      "bytes": 74199628,
+      "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+      "verified": true
+    },
+    "androidWebsiteDownloads": [
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "finalUrl": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+      },
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-latest.apk",
+        "finalUrl": "https://kithmoot.app/apk/kithmoot-latest.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.134-production.apk",
+        "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk",
+        "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+      }
+    ],
+    "desktopDownloads": [
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/KithMoot-0.1.126-linux-x64.tar.gz",
+        "bytes": 186406678,
+        "sha256": "c20a0d1d906376c9a049896550cc2bc8067b73781306cfd9dbe349029c69a40a",
+        "verified": true,
+        "seconds": 52.969
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/KithMoot-0.1.126-mac-arm64.zip",
+        "bytes": 193009112,
+        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1",
+        "verified": true,
+        "seconds": 65.578
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/KithMoot-0.1.126-linux-arm64.tar.gz",
+        "bytes": 187296551,
+        "sha256": "57d08351f6b0cadca4422ae2dc9832c9266526330b4b36ecf0fec7fe6599b400",
+        "verified": true,
+        "seconds": 91.18
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/kithmoot_0.1.126_amd64.deb",
+        "bytes": 151056824,
+        "sha256": "72f2e86f6efb96394df662ef68af5cb93fafecd1e9820a7ea06627813fc04802",
+        "verified": true,
+        "seconds": 45.948
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/KithMoot-0.1.126-windows-x64.zip",
+        "bytes": 221534693,
+        "sha256": "c25ac58312a0d68cfeaf385e23b11b011b2969d6db1cb738853c90a4ee51aaed",
+        "verified": true,
+        "seconds": 86.377
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.126/kithmoot_0.1.126_arm64.deb",
+        "bytes": 145495120,
+        "sha256": "045e2b68fc5e5e6d0fa4159f6c287431a20f31e58ac19d8db615fb52465fb455",
+        "verified": true,
+        "seconds": 58.845
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/KithMoot-0.1.126-linux-arm64.tar.gz",
+        "bytes": 187296551,
+        "sha256": "57d08351f6b0cadca4422ae2dc9832c9266526330b4b36ecf0fec7fe6599b400",
+        "verified": true,
+        "seconds": 10.733
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/KithMoot-0.1.126-mac-arm64.zip",
+        "bytes": 193009112,
+        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1",
+        "verified": true,
+        "seconds": 45.659
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/KithMoot-0.1.126-windows-x64.zip",
+        "bytes": 221534693,
+        "sha256": "c25ac58312a0d68cfeaf385e23b11b011b2969d6db1cb738853c90a4ee51aaed",
+        "verified": true,
+        "seconds": 20.137
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/KithMoot-0.1.126-linux-x64.tar.gz",
+        "bytes": 186406678,
+        "sha256": "c20a0d1d906376c9a049896550cc2bc8067b73781306cfd9dbe349029c69a40a",
+        "verified": true,
+        "seconds": 23.966
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-mac-arm64.zip",
+        "bytes": 193009112,
+        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1",
+        "verified": true,
+        "seconds": 48.379
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-linux-arm64.tar.gz",
+        "bytes": 187296551,
+        "sha256": "57d08351f6b0cadca4422ae2dc9832c9266526330b4b36ecf0fec7fe6599b400",
+        "verified": true,
+        "seconds": 54.957
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/kithmoot_0.1.126_amd64.deb",
+        "bytes": 151056824,
+        "sha256": "72f2e86f6efb96394df662ef68af5cb93fafecd1e9820a7ea06627813fc04802",
+        "verified": true,
+        "seconds": 124.18
+      },
+      {
+        "url": "https://kithmoot.app/apk/desktop/0.1.126/kithmoot_0.1.126_arm64.deb",
+        "bytes": 145495120,
+        "sha256": "045e2b68fc5e5e6d0fa4159f6c287431a20f31e58ac19d8db615fb52465fb455",
+        "verified": true,
+        "seconds": 149.868
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-linux-x64.tar.gz",
+        "bytes": 186406678,
+        "sha256": "c20a0d1d906376c9a049896550cc2bc8067b73781306cfd9dbe349029c69a40a",
+        "verified": true,
+        "seconds": 110.063
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/kithmoot_0.1.126_amd64.deb",
+        "bytes": 151056824,
+        "sha256": "72f2e86f6efb96394df662ef68af5cb93fafecd1e9820a7ea06627813fc04802",
+        "verified": true,
+        "seconds": 94.37
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-windows-x64.zip",
+        "bytes": 221534693,
+        "sha256": "c25ac58312a0d68cfeaf385e23b11b011b2969d6db1cb738853c90a4ee51aaed",
+        "verified": true,
+        "seconds": 136.354
+      },
+      {
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/kithmoot_0.1.126_arm64.deb",
+        "bytes": 145495120,
+        "sha256": "045e2b68fc5e5e6d0fa4159f6c287431a20f31e58ac19d8db615fb52465fb455",
+        "verified": true,
+        "seconds": 60.203
+      }
+    ],
+    "desktopApt": {
+      "passed": true,
+      "version": "0.1.126",
+      "signedPublicIndicesVerified": true,
+      "publicPackageHashesMatch": true,
+      "oldReleaseAssetsPreserved": true
+    },
+    "websiteReadbacks": [
+      {
+        "host": "kithmoot.app",
+        "main": "assets/index-BcARsGXD.js",
+        "mainSha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6",
+        "indexExact": true,
+        "signedManifestsExact": true,
+        "rendererFilesVerified": 598,
+        "allRendererBytesExact": true
+      },
+      {
+        "host": "kithmoot.forgesworn.dev",
+        "main": "assets/index-BcARsGXD.js",
+        "mainSha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6",
+        "indexExact": true,
+        "signedManifestsExact": true,
+        "rendererFilesVerified": 598,
+        "allRendererBytesExact": true
+      }
+    ],
+    "zapstore": {
+      "verifiedAt": "2026-11-04T17:00:39.547Z",
+      "relay": "wss://relay.zapstore.dev",
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.134",
+      "versionCode": 157,
+      "channel": "main",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "releaseCreatedAt": "2026-11-04T15:08:31.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "certificateIdentityProofVerified": true,
+      "proofAlgorithm": "rsa",
+      "apk": {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "ancestorCertificateSha256": "5a04a77faf9d747728b8d74175225aa1920add75371a9d566d801fe55e390874",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+            "finalUrl": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+          },
+          {
+            "url": "https://kithmoot.app/apk/kithmoot-latest.apk",
+            "finalUrl": "https://kithmoot.app/apk/kithmoot-latest.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+          },
+          {
+            "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.134-production.apk",
+            "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-0.6.134-production.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+          },
+          {
+            "url": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk",
+            "finalUrl": "https://kithmoot.forgesworn.dev/apk/kithmoot-latest.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1"
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    },
+    "zapstoreCurrentChannelReadback": {
+      "verifiedAt": "2026-11-04T17:00:42.967Z",
+      "relay": "wss://relay.zapstore.dev",
+      "eoseReceived": true,
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.134",
+      "versionCode": 157,
+      "channel": "main",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "releaseCreatedAt": "2026-11-04T15:08:31.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "apk": {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+            "publicDownloadVerified": true
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    },
+    "desktopFullPostMergeCi": {
+      "run": "https://github.com/forgesworn/kithmoot/actions/runs/41857303749",
+      "conclusion": "success"
+    },
+    "automaticPostMergeChecksAtPublication": {
+      "android134": "running",
+      "website938": "queued",
+      "releaseGate": "All required PR checks passed; both merge trees match their qualified source."
+    },
+    "completedPostMergeChecks": {
+      "android": {
+        "sourceMerge": "5625305c3390926ed64477fe2730100c7de6dab0",
+        "run": "https://github.com/forgesworn/kithmoot-android/actions/runs/41871355265",
+        "attempt": 2,
+        "passed": 17,
+        "skipped": 0,
+        "conclusion": "success",
+        "retryReason": "Emulator went offline during setup log capture before restart tests began."
+      },
+      "web": {
+        "sourceMerge": "93878bb5b35f5d183d379b290cbbb710e88aee11",
+        "run": "https://github.com/forgesworn/kithmoot/actions/runs/41871495121",
+        "attempt": 2,
+        "passed": 47,
+        "skipped": 1,
+        "conclusion": "success",
+        "retryReason": "A two-share desktop layout snapshot saw one camera; the unchanged shard passed on retry."
+      }
+    },
+    "layoutReadinessFollowup": {
+      "pullRequest": "https://github.com/forgesworn/kithmoot/pull/705",
+      "sourceCommit": "54cc1efd158a00e737b43a4b6c92e0a6e5801200",
+      "mergeCommit": "c898a18125d4932a773c224de7bf0624cb9c8d87",
+      "hostedChecksPassed": 5,
+      "baselineLocalSeconds": 31.1,
+      "revisedLocalSeconds": [
+        20.0,
+        28.0
+      ],
+      "change": "Await exactly two camera tiles before collecting geometry; every existing count, visibility and geometry assertion remains.",
+      "testOnly": true,
+      "clientRebuildRequired": false,
+      "deploymentRequired": false
+    },
+    "finalPublicMetadataReadback": {
+      "verifiedAt": "2026-11-04T23:05:12.697Z",
+      "sites": [
+        {
+          "host": "kithmoot.app",
+          "androidVersion": "0.6.134",
+          "desktopVersion": "0.1.126",
+          "signedMetadataBytesExact": true,
+          "signaturesVerified": true
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "androidVersion": "0.6.134",
+          "desktopVersion": "0.1.126",
+          "signedMetadataBytesExact": true,
+          "signaturesVerified": true
+        }
+      ]
+    },
+    "finalPublicEntryReadback": {
+      "verifiedAt": "2026-11-04T23:05:47.325144+00:00",
+      "files": [
+        {
+          "url": "https://kithmoot.app/j/assets/index-BcARsGXD.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "bytes": 5199,
+          "sha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6"
+        },
+        {
+          "url": "https://kithmoot.app/j/index.html",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/index.html",
+          "bytes": 166025,
+          "sha256": "85981eaa95555d2f946efb24cbb60180b33d86c261a0ca9d28583c5c7b56fc79"
+        },
+        {
+          "url": "https://kithmoot.app/j/sw.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 26729,
+          "sha256": "07a8568e0454cf6a64992b8233b65bd07f36558dd5cf6edb96fdb00206cc228b"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/assets/index-BcARsGXD.js",
+          "bytes": 5199,
+          "sha256": "2f646087e552f4ec95897fbe1a7821f849273c767da76f1808fc171281e237a6"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/index.html",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/index.html",
+          "bytes": 166025,
+          "sha256": "85981eaa95555d2f946efb24cbb60180b33d86c261a0ca9d28583c5c7b56fc79"
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "finalUrl": "https://kithmoot.forgesworn.dev/j/sw.js",
+          "bytes": 26729,
+          "sha256": "07a8568e0454cf6a64992b8233b65bd07f36558dd5cf6edb96fdb00206cc228b"
+        }
+      ]
+    },
+    "finalZapstoreChannelReadback": {
+      "verifiedAt": "2026-11-04T23:05:12.914Z",
+      "relay": "wss://relay.zapstore.dev",
+      "eoseReceived": true,
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "packageId": "dev.forgesworn.kithmoot",
+      "version": "0.6.134",
+      "versionCode": 157,
+      "channel": "main",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "releaseCreatedAt": "2026-11-04T15:08:31.000Z",
+      "nostrSignaturesVerified": true,
+      "releaseReferencesVerifiedAsset": true,
+      "apk": {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+        "bytes": 74199628,
+        "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+        "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+        "publicDownloadVerified": true,
+        "downloads": [
+          {
+            "url": "https://kithmoot.app/apk/kithmoot-0.6.134-production.apk",
+            "bytes": 74199628,
+            "sha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+            "publicDownloadVerified": true
+          }
+        ]
+      },
+      "published": true,
+      "physicalAndroidAcceptance": false,
+      "zapstoreClientAcceptance": false
+    },
+    "finalCertificateProofReadback": {
+      "verifiedAt": "2026-11-04T23:05:13.018Z",
+      "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+      "applicationEventId": "dcfc653bad72ec04ae38556992dfec7f351227868471f7b090f8e231f8e4ba62",
+      "releaseEventId": "b4a5e6b2f802a07334384746220ad21370184a07e43a4fb4272600e5ad943b48",
+      "assetEventId": "de627204299a540803bfd521419f9ff52ef1f65999ac6a1be3267e5bc3701026",
+      "certificateIdentityProofVerified": true,
+      "proofAlgorithm": "rsa"
+    }
   }
 }
