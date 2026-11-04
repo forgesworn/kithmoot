@@ -1,5 +1,11 @@
 # Changelog
 
+## Desktop 0.1.126, 4 November 2026
+
+- Bundle the web client's node pairing, admission and relay-only calls, including TURN over TLS on port 443 and recovery after network changes or credential renewal.
+- Keep temporary connection failures recoverable while the existing admission remains valid; removal and room closure end access.
+- Fix local ad-hoc Mac previews failing to launch because of library validation. Public Mac builds retain Developer ID signing, hardened runtime and notarisation.
+
 ## Unreleased, 28 October 2026
 
 - **Calls no longer tell the people you call the addresses on your own network.** The web app and desktop app used to offer every call peer each local address the device had: Wi-Fi and Ethernet, a VPN tunnel, Tailscale or a mesh. Together those are a stable fingerprint that can recognise a device across rooms and VPN exits. Now only your public address (or your call relay's) is sent. The Android app is getting the same rule separately. The cost: two devices on the same network connect through the router or a relay instead of directly across the network. "Hide my IP address" is unchanged.

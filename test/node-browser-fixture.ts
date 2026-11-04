@@ -47,7 +47,14 @@ export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?:
     const turnPort = turnPorts.udpTcp, tlsPort = turnPorts.tls
     const cert = join(directory, 'cert.pem'), tlsKey = join(directory, 'key.pem'), control = join(directory, 'relay.sock'), turnSecret = randomBytes(32).toString('hex')
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,DNS:node.example,DNS:turn.node.example,IP:127.0.0.1', '-keyout', tlsKey, '-out', cert], { stdio: 'ignore' })
-    const start = (binary: string, args: string[], env: Record<string, string> = {}) => { const child = spawn(binary, args, { env: { PATH: process.env.PATH, ...env }, stdio: 'ignore' }); children.push(child) }
+    const startupErrors: string[] = []
+    const start = (binary: string, args: string[], env: Record<string, string> = {}) => {
+      const index = children.length
+      startupErrors[index] = ''
+      const child = spawn(binary, args, { env: { PATH: process.env.PATH, ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
+      child.stderr?.on('data', chunk => { startupErrors[index] = (startupErrors[index] + String(chunk)).slice(-2048) })
+      children.push(child)
+    }
     start(spry, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: turnSecret,
       SPRY_ROOM_SEAL: 'required', SPRY_LOCAL_TEST: 'true', SPRY_RELAY_IP: options.relayIp ?? '127.0.0.1', SPRY_HTTP_PORT: String(spryPort), SPRY_TURN_PORT: String(turnPort),
       SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: '49400:49431', SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true',
@@ -57,7 +64,10 @@ export async function nodeBrowserFixture(appOrigin: string, options: { relayIp?:
     const deadline = Date.now() + 15000
     for (;;) {
       try { if ((await calls.status()).ready && (await relay.status()).rooms === 0) break } catch { /* startup */ }
-      if (Date.now() > deadline) throw Error('Node fixture children did not become ready')
+      if (children.some(child => child.exitCode !== null) || Date.now() > deadline) {
+        const safe = startupErrors.join('\n').replaceAll(turnSecret, '[fixture secret]').replaceAll(Buffer.from(key).toString('hex'), '[fixture key]')
+        throw Error(`Node fixture children did not become ready: ${safe}`)
+      }
       await new Promise(r => setTimeout(r, 40))
     }
     ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: randomBytes(32).toString('hex') })

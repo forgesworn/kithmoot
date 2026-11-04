@@ -1,12 +1,14 @@
-import { test, expect, chromium } from '@playwright/test'
+import { test, expect, chromium, _electron as electron } from '@playwright/test'
 import { spawn, execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir, networkInterfaces } from 'node:os'
 import { join, isAbsolute } from 'node:path'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, inbound } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, inbound, INSTRUMENT, SYNTHETIC_MIC } from './browser.js'
 import { signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
+import { stopIsolatedApp } from '../desktop/test/isolated-app.mjs'
+import { HOME as DESKTOP_HOME, ORIGIN as DESKTOP_ORIGIN } from '../desktop/policy.mjs'
 
 // Explicit disposable-emulator qualification only. No public trust/NAT claim.
 test('browser keeper and native guest sustain local relay video both ways and revoke', async ({ baseURL }, info) => {
@@ -21,16 +23,34 @@ test('browser keeper and native guest sustain local relay video both ways and re
   expect(device('shell', 'getprop', 'ro.hardware').trim()).toMatch(/^(ranchu|goldfish)$/)
   expect(device('shell', 'pm', 'list', 'packages', 'com.google.android.gms').trim()).toBe('')
   device('install', '-r', apk); device('install', '-r', testApk)
-  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { relayIp, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const executable = process.env.E2E_NODE_DESKTOP_EXECUTABLE
+  if (executable) expect(isAbsolute(executable)).toBe(true)
+  const home = executable ? DESKTOP_HOME : baseURL!
+  const fixture = await nodeBrowserFixture(executable ? DESKTOP_ORIGIN : new URL(baseURL!).origin, { relayIp, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  console.log('Node fixture ready; starting controlled client')
+  let desktopApp: Awaited<ReturnType<typeof electron.launch>> | undefined
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
   let context: Awaited<ReturnType<typeof newDeviceContext>> | undefined
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-cross-'))
+  const desktopProfile = join(directory, 'desktop-profile')
   let instrument: ReturnType<typeof spawn> | undefined, nativeLog = '', exit: Promise<number | null> | undefined
   const samples: unknown[] = [], requested: string[] = []
+  const proxyFailures: string[] = []
+  let finishing = false
   try {
-    browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
-    '--autoplay-policy=no-user-gesture-required', `--host-resolver-rules=MAP node.example ${relayIp},MAP turn.node.example ${relayIp}`] })
-    context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    const mediaArgs = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
+      '--autoplay-policy=no-user-gesture-required', `--host-resolver-rules=MAP node.example ${relayIp},MAP turn.node.example ${relayIp}`]
+    if (executable) {
+      desktopApp = await electron.launch({ executablePath: executable,
+        args: [...mediaArgs, '--ignore-certificate-errors', `--user-data-dir=${desktopProfile}`],
+        env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: desktopProfile } })
+      context = desktopApp.context()
+      await context.addInitScript(INSTRUMENT)
+    } else {
+      browser = await chromium.launch({ args: mediaArgs })
+      context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block' })
+    }
+    await context.addInitScript(SYNTHETIC_MIC)
     await context.addInitScript(() => {
       const w = window as unknown as { __nodeIce: unknown[] }; w.__nodeIce = []
       const Base = window.RTCPeerConnection
@@ -61,23 +81,33 @@ test('browser keeper and native guest sustain local relay video both ways and re
     }, { node: fixture.websocket, accountRelay: accountRelay.href })
     await context.route('https://node.example/**', async route => {
       const path = new URL(route.request().url()).pathname; requested.push(path)
-      const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
-      await route.fulfill({ response })
+      try {
+        const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path, timeout: 6500 })
+        await route.fulfill({ response })
+      } catch {
+        if (!finishing) {
+          proxyFailures.push(path)
+          await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }).catch(() => {})
+        }
+      }
     })
-    const page = await context.newPage()
+    const page = desktopApp ? await desktopApp.firstWindow() : await context.newPage()
     const fallbackRequests: string[] = []
     page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/turn') fallbackRequests.push(url.origin + url.pathname) })
     page.on('console', message => { if (message.type() === 'error') console.log('Browser node:', message.text()) })
-    await signInAccount(page, baseURL!)
+    await signInAccount(page, home)
     await openCallSettings(page, 'Your KithMoot node')
     await page.locator('#nodePairingInput').fill(fixture.pairing()); await page.locator('#nodePair').click(); await page.locator('#actionConfirm').click()
     await expect(page.locator('#nodeHost')).toHaveText('node.example'); await closeSettings(page)
+    console.log('Controlled keeper paired')
     await page.locator('#homeNewRoom').click(); await page.locator('#roomName').fill('Cross-client node fixture')
     if (await page.locator('#newRoomYourName').isVisible()) await page.locator('#newRoomYourName').fill('Keeper')
     await page.locator('#roomOnNode').check(); await page.locator('#create').click()
     await expect(page.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    console.log('Controlled node room created')
     await page.locator('#callToggle').click(); await expect(page.locator('#deviceControls')).toBeVisible()
     await page.locator('#toggleCamera').click(); await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
+    if (await page.locator('#toggleMic').getAttribute('data-on') !== 'true') await page.locator('#toggleMic').click()
     const config = join(directory, 'native.json')
     writeFileSync(config, JSON.stringify({ v: 1, ...fixture.native, browserLink: page.url() }), { mode: 0o600, flag: 'wx' })
     device('shell', 'run-as', 'dev.forgesworn.kithmoot', 'mkdir', '-p', 'files')
@@ -92,8 +122,17 @@ test('browser keeper and native guest sustain local relay video both ways and re
     exit = new Promise((resolve, reject) => { instrument!.once('error', reject); instrument!.once('exit', resolve) })
     await expect(page.locator('.approvalCard.knock')).toBeVisible({ timeout: 30_000 })
     await page.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+    console.log('Controlled native guest admitted; waiting for media')
     await expect(page.locator('#chatLog')).toContainText('Native guest receives browser video', { timeout: 120_000 })
+    await expect(page.locator('#chatLog')).toContainText('Native guest recovered temporary issuer failure', { timeout: 30_000 })
     await expect.poll(async () => (await page.evaluate(inbound)).framesDecoded, { timeout: 90_000 }).toBeGreaterThan(20)
+    // A new node room defaults to profile 2 at both ends. Opening a legacy
+    // pair before the authenticated roster capability arrives would otherwise
+    // hide the very handover path this qualification needs to exercise.
+    await expect.poll(() => page.evaluate(() => {
+      const peers = (window as unknown as { __pcs?: RTCPeerConnection[] }).__pcs ?? []
+      return peers.filter(peer => peer.connectionState === 'connected').map(peer => peer.getTransceivers().length)
+    }), { timeout: 15_000 }).toEqual([4])
     const videoCounters = () => page.evaluate(async () => {
       const values: Record<string, number> = {}
       const peers = (window as unknown as { __pcs?: RTCPeerConnection[] }).__pcs ?? []
@@ -150,13 +189,30 @@ test('browser keeper and native guest sustain local relay video both ways and re
     await expect.poll(async () => (await fixture.relay.status()).rooms).toBe(0)
     expect(requested).not.toContain('/turn')
     expect(fallbackRequests).toEqual([])
+    expect(proxyFailures).toEqual([])
     const proof = { schema: 'kithmoot-node-cross-client/1', result: 'passed', videoSeconds: 300,
-      actualBrowserUi: true, actualNativeEngine: true, customPorts: { udpTcp: 34790, tls: 53499 }, selected, samples, fallbackRequests,
+      actualBrowserUi: true, actualDesktopRenderer: !!desktopApp, actualNativeEngine: true, callProfile: 2, temporaryNativeIssuerFailureRecovered: true,
+      customPorts: { udpTcp: 34790, tls: 53499 }, selected, samples, fallbackRequests,
       forcedTls443: false, publicCertificate: false, independentNats: false, physicalGrapheneOS: false, removal: true, purge: true }
     const proofPath = info.outputPath('cross-client-proof.json')
     writeFileSync(proofPath, JSON.stringify(proof, null, 2) + '\n')
     await info.attach('cross-client-proof', { path: proofPath, contentType: 'application/json' })
   } catch (error) {
+    // Capture the disposable app's Java/native wait state before force-stop;
+    // a blocked signalling thread cannot finish the instrumentation report.
+    try {
+      const pid = device('shell', 'pidof', 'dev.forgesworn.kithmoot').trim()
+      if (/^[1-9][0-9]*$/.test(pid)) {
+        device('shell', 'kill', '-3', pid)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        const name = device('shell', 'ls', '-t', '/data/anr').trim().split(/\s+/)[0]
+        if (name && /^[A-Za-z0-9_.-]+$/.test(name)) {
+          const destination = info.outputPath('native-thread-dump.txt')
+          device('pull', `/data/anr/${name}`, destination)
+          await info.attach('native-thread-dump', { path: destination, contentType: 'text/plain' })
+        }
+      }
+    } catch { /* Not every emulator permits thread dumps. Preserve the original failure. */ }
     const page = context?.pages()[0]
     if (page) {
       const diagnostic = await page.evaluate(async () => {
@@ -174,11 +230,14 @@ test('browser keeper and native guest sustain local relay video both ways and re
     }
     throw error
   } finally {
+    finishing = true
     if (instrument?.exitCode === null) { instrument.kill('SIGTERM'); try { device('shell', 'am', 'force-stop', 'dev.forgesworn.kithmoot') } catch {} }
     try { device('shell', 'run-as', 'dev.forgesworn.kithmoot', 'rm', '-f', 'files/node-cross-config.json') } catch {}
     try { device('shell', 'rm', '-f', '/data/local/tmp/kithmoot-node-cross.json') } catch {}
     writeFileSync(info.outputPath('native-media.txt'), nativeLog)
+    if (desktopApp) await stopIsolatedApp(desktopApp, desktopProfile)
+    else await context?.close()
+    await browser?.close(); await fixture.close()
     rmSync(directory, { recursive: true, force: true })
-    await context?.close(); await browser?.close(); await fixture.close()
   }
 })

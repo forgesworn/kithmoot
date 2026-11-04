@@ -37,7 +37,7 @@ const isHelper = file => file.endsWith('/Contents/Resources/spry/spry-node')
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '125', icon, overwrite: true, asar: true, extraResource: [helper.dir],
+  appVersion: version, buildVersion: '126', icon, overwrite: true, asar: true, extraResource: [helper.dir],
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
@@ -53,7 +53,10 @@ for (const path of paths) {
   const bundledHelper = resolve(bundle, 'Contents/Resources/spry/spry-node')
   if (signing.localPreview) {
     await sign({ app: bundle, identity: '-', identityValidation: false, platform: 'darwin', ignore: isHelper,
-      optionsForFile: () => ({ hardenedRuntime: true }) })
+      // Ad-hoc code has no Team ID. Hardened library validation would refuse
+      // Electron's framework before launch. This unpublishable preview uses
+      // ordinary ad-hoc signing; distribution below retains hardened runtime.
+      optionsForFile: () => ({ hardenedRuntime: false }) })
   } else {
     await sign({ app: bundle, identity: signing.identity, keychain: signing.keychain,
       platform: 'darwin', type: 'distribution', ignore: isHelper,
