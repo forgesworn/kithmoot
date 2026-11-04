@@ -297,7 +297,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
-  const peers = new Set<RTCPeerConnection>(), controller = new AbortController()
+  const peers = new Set<RTCPeerConnection>(), retiring = new WeakSet<RTCPeerConnection>(), controller = new AbortController()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity, credentialDeadline = Infinity, rotationAt = Infinity
@@ -360,7 +360,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
         pendingPeers.clear(); rotateAll = false
       } else {
         for (const [peer, context] of pendingPeers) {
-          if (!peers.has(peer) || peer.signalingState === 'closed') { pendingPeers.delete(peer); continue }
+          if (!peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed') { pendingPeers.delete(peer); continue }
           if (!options.rebuildPeers?.(context)) repair(peer)
           pendingPeers.delete(peer)
         }
@@ -408,6 +408,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       let connected = false, recovering = false
       peer.close = () => { peers.delete(peer); end() }
       peer.addEventListener?.('connectionstatechange', () => {
+        if (retiring.has(peer)) return
         // Either endpoint can lose its route. Repair this pair without
         // interrupting another participant's healthy audio and video.
         if (peer.connectionState === 'connected') { connected = true; recovering = false }
@@ -421,6 +422,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       try { options.onPeer?.(peer, context) } catch (error) { peer.close(); throw error }
       return peer as unknown as RTCPeerConnectionLike
     }
+  factory.onRetiring = value => {
+    const peer = value as unknown as RTCPeerConnection
+    if (peers.has(peer)) retiring.add(peer)
+  }
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {
     factory,

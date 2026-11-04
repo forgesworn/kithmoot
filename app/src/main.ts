@@ -14219,16 +14219,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const credential = loadCredential()
     const roomNode = nodeRoom
     const ownConnections = new Set<string>()
+    const latestConnections = new Map<string, RTCPeerConnection>()
     // Receiver binding, video recovery and uplink sampling share this
     // registry. Pinned node factories must register their peers here too.
     const registerConnection = (pc: RTCPeerConnection, context?: PeerContext) => {
       const key = peerAssist.connectionKey(context?.tier ?? 'direct', context?.remoteDevice ?? 'unknown')
-      openConnections.set(key, pc)
+      latestConnections.set(key, pc)
+      if (!roomNode || openConnections.get(key)?.connectionState !== 'connected') openConnections.set(key, pc)
       ownConnections.add(key)
       pc.addEventListener('connectionstatechange', () => {
-        if (pc.connectionState === 'connected') { openConnections.set(key, pc); return }
+        if (pc.connectionState === 'connected') {
+          if (latestConnections.get(key) === pc) openConnections.set(key, pc)
+          return
+        }
         if (!roomNode && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !turnRelayConfigured) noteRelayMissing(true)
         if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return
+        if (openConnections.get(key) !== pc) return
         openConnections.delete(key)
         peerAssist.forget(key)
       })

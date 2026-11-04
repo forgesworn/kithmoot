@@ -201,6 +201,9 @@ export interface PeerContext {
  */
 export interface PeerFactory {
   (context?: PeerContext): RTCPeerConnectionLike
+  /** Opt in to bounded media overlap during replacement. The signalling
+   * owner still closes the old connection; suppress its connectivity repairs. */
+  onRetiring?: (peer: RTCPeerConnectionLike) => void
 }
 
 /**

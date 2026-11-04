@@ -61,6 +61,8 @@ const REAL_CLOCK: ChannelClock = {
  * be the fault rather than the repair.
  */
 export const SLOT_REPAIR_MS = 10_000
+export const MEDIA_HANDOVER_TIMEOUT_MS = 20_000
+export const MEDIA_HANDOVER_SETTLE_MS = 1_000
 
 /** A connection instance id: 16 lower-case hex, fresh per
  *  `RTCPeerConnection` and never reused, per §2.2. */
@@ -180,6 +182,9 @@ export class SlotPeer implements NegotiatingPeer {
   #restarted = false
   #graceTimer: unknown
   #giveUpTimer: unknown
+  #retiring: { pc: RTCPeerConnectionLike; slots: SlotSet; timer: unknown } | undefined
+  #handoverTimer: unknown
+  #handoverTracks: { track: MediaStreamTrack; receiver?: unknown; role?: TrackRole }[] = []
   /** Offers the connection raised `negotiationneeded` for that this class did
    *  not ask for. Expected to stay zero on a profile-2 connection; anything
    *  else is a code path calling `addTrack` and is worth a diagnostic. */
@@ -339,7 +344,7 @@ export class SlotPeer implements NegotiatingPeer {
    * is no shared "make the connection" helper between this and `#answer`.
    */
   async #openGeneration(gen: number): Promise<void> {
-    this.#teardownConnection()
+    this.#teardownConnection(true)
     if (this.#closed) return
     this.#gen = gen
     this.#opener = true
@@ -360,7 +365,7 @@ export class SlotPeer implements NegotiatingPeer {
   async #answer(gen: number, body: SignalBody): Promise<void> {
     const slots = body.slots
     if (!slots) return
-    this.#teardownConnection()
+    this.#teardownConnection(true)
     if (this.#closed) return
     this.#gen = gen
     this.#lastRemoteGen = Math.max(this.#lastRemoteGen, gen)
@@ -421,7 +426,8 @@ export class SlotPeer implements NegotiatingPeer {
     pc.ontrack = (event) => {
       const mid = event.transceiver?.mid
       const role = (mid === null || mid === undefined ? undefined : this.#slotMap?.[mid]) ?? this.#slots?.roleOf(mid)
-      this.#opts.onTrack(event.track, event.receiver, role)
+      if (this.#retiring) this.#handoverTracks.push({ track: event.track, receiver: event.receiver, role })
+      else this.#opts.onTrack(event.track, event.receiver, role)
     }
 
     pc.onicecandidate = (event) => {
@@ -461,6 +467,13 @@ export class SlotPeer implements NegotiatingPeer {
       this.#clearRestartTimers()
       this.#everConnected = true
       this.#restarted = false
+      if (this.#retiring && this.#handoverTimer === undefined) {
+        this.#handoverTimer = this.#clock.setTimer(MEDIA_HANDOVER_SETTLE_MS, () => {
+          this.#handoverTimer = undefined
+          if (this.#pc !== pc || pc.connectionState !== 'connected') return
+          try { this.#flushHandoverTracks() } finally { this.#closeRetiring() }
+        })
+      } else if (!this.#retiring) this.#flushHandoverTracks()
     }
     if (state === 'disconnected') {
       this.#opts.onConnectionState?.(state)
@@ -757,9 +770,16 @@ export class SlotPeer implements NegotiatingPeer {
 
   async #applyTracks(): Promise<void> {
     const slots = this.#slots
-    if (!slots) return
     const inferred = this.#opts.trackRole ? undefined : inferRoles(this.#tracks)
     const resolve: RoleResolver = this.#opts.trackRole ?? ((track) => inferred?.get(track))
+    // Muting and a narrower audience apply to the old senders immediately,
+    // even while a replacement is still negotiating its slots.
+    const retiring = this.#retiring
+    if (retiring) {
+      const broken = await retiring.slots.apply(this.#tracks, resolve)
+      if (broken.length && this.#retiring === retiring) this.#closeRetiring()
+    }
+    if (!slots) return
     const broken = await slots.apply(this.#tracks, resolve)
     if (broken.length === 0) return
     // The only path in §3.1 where a slot change still costs a negotiation.
@@ -789,8 +809,12 @@ export class SlotPeer implements NegotiatingPeer {
    * mistaken for the pair failing. "A rebuild offer never reaches the old
    * connection" is a property of this method.
    */
-  #teardownConnection(): void {
+  #teardownConnection(retainMedia = false): void {
     this.#clearRestartTimers()
+    if (this.#handoverTimer !== undefined) this.#clock.clearTimer(this.#handoverTimer)
+    this.#handoverTimer = undefined
+    this.#handoverTracks = []
+    const slots = this.#slots
     this.#channel?.close()
     this.#channel = undefined
     this.#slots = undefined
@@ -803,12 +827,40 @@ export class SlotPeer implements NegotiatingPeer {
     this.#repairedAt.clear()
     const pc = this.#pc
     this.#pc = undefined
-    if (!pc) return
+    if (!pc) { if (!retainMedia) this.#closeRetiring(); return }
     pc.ontrack = null
     pc.onicecandidate = null
     pc.onnegotiationneeded = null
     pc.onconnectionstatechange = null
+    if (retainMedia && !this.#closed && slots && pc.connectionState === 'connected' &&
+        this.#opts.factory.onRetiring && !this.#retiring) {
+      try {
+        this.#opts.factory.onRetiring(pc)
+        const timer = this.#clock.setTimer(MEDIA_HANDOVER_TIMEOUT_MS, () => {
+          this.#closeRetiring()
+          if (this.#pc?.connectionState === 'connected') this.#flushHandoverTracks()
+        })
+        this.#retiring = { pc, slots, timer }
+        return
+      } catch { /* An observer cannot keep a connection alive without bounds. */ }
+    }
     pc.close()
+    if (!retainMedia) this.#closeRetiring()
+  }
+
+  #flushHandoverTracks(): void {
+    if (this.#closed) return
+    const tracks = this.#handoverTracks
+    this.#handoverTracks = []
+    for (const { track, receiver, role } of tracks) this.#opts.onTrack(track, receiver, role)
+  }
+
+  #closeRetiring(): void {
+    const retiring = this.#retiring
+    this.#retiring = undefined
+    if (!retiring) return
+    this.#clock.clearTimer(retiring.timer)
+    retiring.pc.close()
   }
 
   #clearGraceTimer(): void {

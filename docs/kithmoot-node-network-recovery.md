@@ -255,8 +255,24 @@ UDP media blocked. Both selected endpoints and every signalled remote
 candidate remain in the node's relay range. This qualifies the controlled
 browser case, not physical mobile networks or every VPN.
 
-Scheduled login renewal still produces a sampled media pause: two consecutive
+Scheduled login renewal in that release produces a sampled media pause: two consecutive
 checks report no progress, with seven seconds between advancing samples. This
 passes the retained 25-second steady-phase guard, but does not establish
 seamless playback. It remains a separate quality improvement from the
 twenty-second route-recovery gate qualified here.
+
+## Media handover during node login renewal
+
+Node profile-2 connections now retain one connected transport while its
+replacement negotiates with a fresh TURN login. The replacement takes over
+received tracks one second after connecting. The old transport closes then,
+or after twenty seconds if replacement fails. Repeated repairs cannot extend
+that deadline or accumulate additional retained generations. Other peer
+factories keep their existing immediate replacement behaviour.
+
+Muted tracks and narrower audiences apply to both generations. Closing a peer,
+withdrawing access or closing the node factory closes retained transports immediately.
+The factory ignores connectivity failures from a retiring generation. The web
+receiver registry retains the connected receiver until its replacement connects;
+closing the old generation cannot erase the new registry entry. This does not
+extend the five-minute TURN login lifetime or change the relay-only policy.

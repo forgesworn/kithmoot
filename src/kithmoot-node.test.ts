@@ -372,6 +372,32 @@ describe('pinned KithMoot node client', () => {
       expect(rebuild).toHaveBeenCalledTimes(1)
     } finally { managed.close() }
   })
+  it('ignores recovery from retired media while still closing it immediately on withdrawal', async () => {
+    const f = fixture(); let allowed = true
+    const fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch, rebuild = vi.fn(() => true)
+    class Peer extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'
+      constructor(_: RTCConfiguration) { super() }
+      state(value: string) { this.connectionState = value; this.dispatchEvent(new globalThis.Event('connectionstatechange')) }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, { fetcher, now: () => NOW, allowed: () => allowed,
+      PeerConnection: Peer as unknown as typeof RTCPeerConnection, rebuildPeers: rebuild })
+    try {
+      const retired = managed.factory(), current = managed.factory()
+      const old = retired as unknown as Peer, next = current as unknown as Peer
+      old.state('connected'); next.state('connected')
+      managed.factory.onRetiring!(retired)
+      old.state('disconnected'); old.state('failed')
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(fetcher).toHaveBeenCalledTimes(1); expect(rebuild).not.toHaveBeenCalled()
+      expect(old.signalingState).toBe('stable')
+      allowed = false; await managed.reconnect()
+      expect(old.signalingState).toBe('closed'); expect(next.signalingState).toBe('closed')
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    } finally { managed.close() }
+  })
+
   it('shares one refresh between two failed participants while a third stays connected', async () => {
     const f = fixture(); let calls = 0, release!: (value: Response) => void
     const fetcher = vi.fn(async () => ++calls === 1 ? response(f.login()) : new Promise<Response>(resolve => { release = resolve })) as unknown as typeof fetch
