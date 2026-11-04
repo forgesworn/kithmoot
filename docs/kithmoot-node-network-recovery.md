@@ -258,8 +258,8 @@ browser case, not physical mobile networks or every VPN.
 Scheduled login renewal in that release produces a sampled media pause: two consecutive
 checks report no progress, with seven seconds between advancing samples. This
 passes the retained 25-second steady-phase guard, but does not establish
-seamless playback. It remains a separate quality improvement from the
-twenty-second route-recovery gate qualified here.
+seamless playback. The later bounded media handover and production qualification below address
+that sampled renewal pause separately from route recovery.
 
 ## Media handover during node login renewal
 
@@ -318,3 +318,73 @@ retry pending until it can dial. Previously that retry was consumed by the
 dial gate and readers waited for a later recovery cycle. A fake-clock
 regression reproduces the early-wake failure before the correction and verifies
 that the same pending retry connects as soon as the deadline arrives.
+
+## Deployed handover and reader correction, 4 November
+
+[PR694](https://github.com/forgesworn/kithmoot/pull/694) adds bounded media
+handover; [PR695](https://github.com/forgesworn/kithmoot/pull/695) restores room
+readers promptly on a recovered socket. [PR696](https://github.com/forgesworn/kithmoot/pull/696)
+adds legacy answer sequencing and reliable redial deadlines. Web merge
+`0102c468`, release `20261104T061508Z`, serves `main-BFWLf0Zy.js`, SHA-256
+`c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f`.
+Normal public TLS readback verifies index, entry and main byte equality and
+the absence of the production diagnostic hook. The private node image remains
+`8961b322e310`, with the controller and host revisions unchanged.
+
+The reader correction passes 110 pool, authentication, dial-gate, node-client
+and browser-node-runtime tests. The earlier handover correction passes 174
+focused tests with three existing skips. Typecheck, web and desktop builds,
+secret scans, and all five applicable PR checks pass. Three real Spry/Shelter
+browser journeys pass in two minutes. The obsolete desktop Calls-row assertion
+now includes the existing node row first; its desktop-browser regression passes
+in four seconds, with no UI change.
+
+The reader candidate passes 430 seconds, including 312 seconds after final
+recovery across both previous login expiries. Recovery takes
+13.151/12.774/6.348 seconds for VPN-on, VPN-off and the twelve-second outage.
+Both devices renew logins lasting at most 300 seconds. All 133 checked steady
+samples per guest advance received video/audio and attached video-element
+playback. This candidate result remains distinct from production qualification.
+
+The [actual deployed production receipt](evidence/kithmoot-node-renewal-continuity-20261104.json)
+passes 442 seconds of matched-pair audio/video, including 310 seconds
+after final confirmed recovery. VPN-on, VPN-off and outage recovery take
+18.006/16.736/2.100 seconds, all below twenty seconds. Both guests renew
+credentials and continue beyond the prior expiry. Every one of the 132 checked
+steady samples per guest advances received video/audio and presented frames.
+There are no page errors, authentication refusals or subscription overflows,
+and recovery creates no new admission. This replaces the earlier sampled
+seven-second renewal pause with no zero-progress samples at roughly two-second
+polls; it does not establish gap-free playback below that interval.
+
+The legacy fix passes 230 related tests (five existing skips). After the redial
+correction, 228 pool/auth/node/mesh/peer tests pass (three skips), and hosted
+Node24 runs pass 8,861 tests (eight skips). The earlier idle-socket CI failure
+and its red/green deadline regression remain in the private evidence archive.
+
+The harness observes credential expiry and lifetime inside the browser without
+recording credential secrets. A previous inspector-only receipt missed one
+browser's renewal response and is retained as inconclusive. Another production
+attempt stopped when a different room participant's peer-reflexive address was
+redacted in a statistics snapshot. Endpoint qualification now follows the same
+controlled guest pair as media qualification: recovery counts only when fresh
+media comes from matched native connections with verified node endpoints.
+Missing endpoint evidence does not count as recovery; the twenty-second
+deadline remains unchanged. Exposed non-node addresses and non-node signalled
+candidates still fail the test. Other room participants' redacted statistics
+are outside the controlled-pair endpoint proof and are recorded as such.
+
+A playback counter snapshot during an earlier production attempt reset across
+connection replacement and could not distinguish a freeze from a new stream.
+The final harness counts presented frames with requestVideoFrameCallback and
+receiver object identity, retaining counters across closed generations. Recovery
+uses the first of two consecutive verified media samples: the first must arrive
+within twenty seconds and the next must confirm it within four seconds. The
+post-recovery soak starts at confirmation. These measurement corrections do not
+remove the route deadline or the requirement for audio and displayed video.
+
+These checks qualify the controlled Chromium browser case. Roughly two-second
+sampling cannot establish gap-free playback below that interval. Physical
+Wi-Fi/cellular handoff, commercial VPNs, GrapheneOS and capacity remain separate.
+No new APK, public signed node/Shelter release or official Archy approval is
+implied. Official Archy maintainer acceptance remains pending.
