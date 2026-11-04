@@ -1031,16 +1031,25 @@ export class NostrRelayPool implements RelayTransport {
     const redial = () => {
       this.#reconnects.delete(url)
       if (generation !== this.#generation || this.#closed || this.#paused) return
+      // A timer may wake before the wall clock crosses its deadline, or
+      // another pool may have extended the shared backoff meanwhile. Keep
+      // this redial pending until that deadline rather than losing it to
+      // the dial gate and waiting for a later recovery pass.
+      const remaining = this.#dials.retryAt(url) - Date.now()
+      if (remaining > 0) { schedule(remaining); return }
       this.#attempted.set(url, Date.now())
       for (const sub of this.#subscriptions) if (every || sub.bindings.has(url)) this.#startRelay(sub, url)
+    }
+    const schedule = (wait: number) => {
+      const timer = setTimeout(redial, wait)
+      ;(timer as unknown as { unref?: () => void }).unref?.()
+      this.#reconnects.set(url, timer)
     }
     // Never before the relay's dial backoff ends: a dial turned away by it
     // would leave the subscriptions for the next recovery pass.
     const wait = Math.max(Math.floor(this.#random() * this.#reconnectJitterMs), this.#dials.retryAt(url) - Date.now())
     if (wait <= 0) { redial(); return }
-    const timer = setTimeout(redial, wait)
-    ;(timer as unknown as { unref?: () => void }).unref?.()
-    this.#reconnects.set(url, timer)
+    schedule(wait)
   }
 
   /**

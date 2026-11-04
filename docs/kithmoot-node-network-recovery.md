@@ -311,3 +311,10 @@ pressing Join again. Its 51.3-second run includes the initial ten-second fault
 and cold room entry; it is distinct from the established node call's
 twenty-second network-recovery gate. The related suites pass 230 tests with
 five existing skips.
+
+The redial timer also rechecks the shared backoff deadline when it wakes. A
+millisecond-early timer, or a deadline extended by another pool, keeps the
+retry pending until it can dial. Previously that retry was consumed by the
+dial gate and readers waited for a later recovery cycle. A fake-clock
+regression reproduces the early-wake failure before the correction and verifies
+that the same pending retry connects as soon as the deadline arrives.
