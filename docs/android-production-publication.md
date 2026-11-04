@@ -6,6 +6,34 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.134 and desktop 0.1.126, 4 November 2026
+
+Android 0.6.134 (code 157) carries the web node-call recovery work into native
+signalling, TURN renewal, bounded connection handover and synchronous removal.
+Desktop 0.1.126 bundles the shared renderer; its signed Mac package was exercised
+with the native app. Production signing identities and update keys are retained.
+
+All 17 Android source CI checks passed, after two runner setup failures were
+retried on the same source. The signing host passed 3,353 app tests with one
+existing opt-in skip, 684 protocol tests and both lints. Browser/native and
+packaged-desktop/native calls each sustained 300 seconds after recovering an
+injected credential failure, renewed TURN access, stopped media on removal and
+purged the room. The signed 0.6.133-to-0.6.134 emulator upgrade retained its UID
+and test data and cold-launched without Google Play.
+
+The [publication receipt](evidence/kithmoot-node-client-parity-20261104.json)
+records the exact APK, certificate and lineage; GitHub and both website hosts'
+full downloads; signed update feeds and APT index; every deployed app file on
+both hosts; and the current Zapstore channel, events and RSA certificate proof.
+The production APK is 74,199,628 bytes, SHA-256
+`50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1`.
+
+Physical GrapheneOS, independent NATs, real Wi-Fi/cellular/VPN handoff,
+publicly trusted native TURN TLS443 and real Mac capture consent remain field
+checks. Linux and Windows packages have matching renderer content and verified
+downloads, with runtime acceptance still separate. No private Shelter release
+or official Archy UI submission is included.
+
 ## Website placeholder, 2 November 2026
 
 The homepage now shows Coming soon. Android publication copy and its
