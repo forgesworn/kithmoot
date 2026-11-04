@@ -1,0 +1,199 @@
+{
+  "problem": "A room-list refresh between pointer-down and pointer-up replaced the More button and discarded its click.",
+  "sourceCommit": "7be82e544275bb5a9146e06d75b57ce88bb7f63c",
+  "mergeCommit": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+  "sourceTree": "f722fff5667d64955c68771310d1cbae85618552",
+  "mergedTreeMatchesTestedSource": true,
+  "pullRequest": 700,
+  "fix": "Extend the existing room-list press guard to the More button. Existing Open-button, popover and confirmation behavior is retained.",
+  "regression": {
+    "beforeFix": {
+      "browser": "firefox",
+      "outcome": "failed",
+      "reason": "Forget menu missing after an unchanged search-input repaint during the press",
+      "assertionTimeoutMs": 5000
+    },
+    "afterFix": {
+      "browser": "firefox",
+      "outcome": "passed",
+      "durationSeconds": 2.3
+    },
+    "fullTargetedJourneys": {
+      "firefoxPassed": 14,
+      "chromiumPassed": 14
+    },
+    "localWebKit": {
+      "productResult": "not_run",
+      "environment": "macOS 14.6.1, Playwright 1.62.1",
+      "blocker": "Page.overrideSetting: Unknown setting: PushAPIEnabled before page creation"
+    },
+    "linuxFirefoxRegression": {
+      "project": "firefox",
+      "jobUrl": "https://github.com/forgesworn/kithmoot/actions/runs/41819930862/job/126540357447",
+      "sourceCommit": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+      "checks": [
+        {
+          "test": "the creator can turn an existing temporary meeting into a group without changing its conversation",
+          "passed": true
+        },
+        {
+          "test": "room actions survive a list refresh between pointer press and release",
+          "passed": true
+        }
+      ]
+    },
+    "linuxWebKitRegression": {
+      "passed": true,
+      "project": "webkit",
+      "environment": "GitHub Actions Linux",
+      "jobUrl": "https://github.com/forgesworn/kithmoot/actions/runs/41819930862/job/126540357017",
+      "test": "room actions survive a list refresh between pointer press and release",
+      "sourceCommit": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9"
+    }
+  },
+  "baselinePostMergeCI": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/41814260591",
+    "headSha": "2d863963e92eeae093e121b45f90a6d43b6d809f",
+    "attempt": 1,
+    "conclusion": "failure",
+    "successfulJobs": 46,
+    "skippedJobs": [
+      "diagnostic prior lease (${{ matrix.slice }})"
+    ],
+    "failedJobs": [
+      "acceptance (firefox 2 of 2)"
+    ]
+  },
+  "sourceCI": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/41818832797",
+    "headSha": "7be82e544275bb5a9146e06d75b57ce88bb7f63c",
+    "attempt": 1,
+    "conclusion": "success",
+    "successfulJobs": 4,
+    "skippedJobs": [
+      "diagnostic prior lease (${{ matrix.slice }})",
+      "Browser protected sharing and local publisher independence",
+      "browser regressions (${{ matrix.name }})",
+      "Independent call servers over TLS and participant replacement",
+      "acceptance (${{ matrix.name }})",
+      "Private call relay (Chromium and WebKit)",
+      "protected ordinary startup (${{ matrix.project }}, ${{ matrix.slice }})"
+    ],
+    "failedJobs": []
+  },
+  "sourceAdapterCI": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/41818832841",
+    "headSha": "7be82e544275bb5a9146e06d75b57ce88bb7f63c",
+    "attempt": 1,
+    "conclusion": "success",
+    "successfulJobs": 1,
+    "skippedJobs": [],
+    "failedJobs": []
+  },
+  "postMergeCI": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/41819930862",
+    "headSha": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "successfulJobs": 47,
+    "skippedJobs": [
+      "diagnostic prior lease (${{ matrix.slice }})"
+    ],
+    "verifiedAt": "2026-11-04T11:53:01.405193+00:00"
+  },
+  "production": {
+    "release": "20261104T112032Z",
+    "commit": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+    "mainFilename": "main-C6LOhDuG.js",
+    "mainSha256": "894e6aa5bc85d1e1a42617a01e0a9141507bf2cfc5d77601b37455cd0bedca7e",
+    "rendererComparison": {
+      "beforeSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f",
+      "afterSha256": "894e6aa5bc85d1e1a42617a01e0a9141507bf2cfc5d77601b37455cd0bedca7e",
+      "afterFilename": "main-C6LOhDuG.js",
+      "onlySelectorChanged": false,
+      "beforeBytes": 2089501,
+      "afterBytes": 2089521,
+      "onlySelectorAndAssetFilenameHashesChanged": true
+    },
+    "publicUi": {
+      "verifiedAt": "2026-11-04T11:21:42.220Z",
+      "checks": [
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/",
+          "width": 390,
+          "normalPublicTls": true,
+          "syntheticRoomOnly": true,
+          "webSocketsBlocked": true,
+          "menuSurvivedRefresh": true,
+          "forgetConfirmed": true
+        },
+        {
+          "url": "https://kithmoot.forgesworn.dev/j/",
+          "width": 1440,
+          "normalPublicTls": true,
+          "syntheticRoomOnly": true,
+          "webSocketsBlocked": true,
+          "menuSurvivedRefresh": true,
+          "forgetConfirmed": true
+        }
+      ]
+    },
+    "publicReadback": {
+      "verifiedAt": "2026-11-04T11:22:10.542352+00:00",
+      "downloads": [
+        {
+          "url": "https://kithmoot.app/apk/kithmoot-0.6.133-production.apk",
+          "bytes": 74187340,
+          "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+          "verified": true
+        },
+        {
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.133/kithmoot-0.6.133-production.apk",
+          "bytes": 74187340,
+          "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+          "verified": true
+        }
+      ],
+      "sites": [
+        {
+          "host": "kithmoot.app",
+          "signedAndroidManifestExact": true,
+          "rendererSha256": "894e6aa5bc85d1e1a42617a01e0a9141507bf2cfc5d77601b37455cd0bedca7e"
+        },
+        {
+          "host": "kithmoot.forgesworn.dev",
+          "signedAndroidManifestExact": true,
+          "rendererSha256": "894e6aa5bc85d1e1a42617a01e0a9141507bf2cfc5d77601b37455cd0bedca7e"
+        }
+      ],
+      "catalogue": {
+        "eventIds": [
+          "9ce6f7a8a6882a1b8078c3dd7509809128f6878b7ef5ad0103d7f52c67dfba1c",
+          "b4497f3e0b6514d167ea333ae82486aa040feaad3383ebbeedb8a44322c35a1d",
+          "e689e0814c83b330e84e0e7c82577d2444e5f1d6e72a9f803e6944d4d5436895",
+          "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a"
+        ],
+        "signaturesVerified": true,
+        "releaseAssetReferencesVerified": true,
+        "certificateIdentityProofVerified": true,
+        "certificateProofAlgorithm": "rsa"
+      }
+    }
+  },
+  "limits": [
+    "The public menu checks use synthetic local rooms with WebSockets blocked; they do not establish a new hosted-call or physical-phone qualification.",
+    "Physical GrapheneOS, mobile-data handoff, independent commercial VPNs and capacity remain open.",
+    "Official Archy PR53 remains draft with maintainer ZAT pending."
+  ],
+  "postMergeAdapterCI": {
+    "url": "https://github.com/forgesworn/kithmoot/actions/runs/41819930646",
+    "headSha": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+    "attempt": 1,
+    "status": "completed",
+    "conclusion": "success",
+    "successfulJobs": 1,
+    "skippedJobs": [],
+    "verifiedAt": "2026-11-04T11:53:01.405431+00:00"
+  }
+}

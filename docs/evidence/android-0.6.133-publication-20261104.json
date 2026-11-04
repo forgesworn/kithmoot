@@ -85,6 +85,19 @@
       "protocolPassed": 684,
       "appPassed": 3330,
       "optInSkipped": 1
+    },
+    "postMergeCI": {
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/41812485657",
+      "headSha": "5a127e196974243b60a4d9ba72088448b8c37263",
+      "attempt": 2,
+      "conclusion": "success",
+      "successfulJobs": 17,
+      "retriedInfrastructureJobs": [
+        "recording-private-node-emulator (google_apis)"
+      ],
+      "sameSourceForReruns": true,
+      "retryReason": "The emulator failed to boot before any instrumentation command ran.",
+      "verifiedAt": "2026-11-04T11:26:22.210586+00:00"
     }
   },
   "githubRelease": {
@@ -115,7 +128,21 @@
       }
     ],
     "rendererUnchangedFromQualifiedProduction": true,
-    "packagedDesktopChanged": false
+    "packagedDesktopChanged": false,
+    "postMergeCI": {
+      "url": "https://github.com/forgesworn/kithmoot/actions/runs/41814260591",
+      "headSha": "2d863963e92eeae093e121b45f90a6d43b6d809f",
+      "attempt": 1,
+      "conclusion": "failure",
+      "successfulJobs": 46,
+      "skippedJobs": [
+        "diagnostic prior lease (${{ matrix.slice }})"
+      ],
+      "failedJobs": [
+        "acceptance (firefox 2 of 2)"
+      ]
+    },
+    "followUpWebFix": "room-actions-press-20261104.json"
   },
   "certificateIdentityProofEventId": "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a",
   "limits": [
@@ -124,5 +151,46 @@
     "Zapstore client indexing and installation were not tested.",
     "Official Archy PR53 remains draft and unmerged, with maintainer ZAT pending.",
     "Private Shelter and node server artifacts were not published."
-  ]
+  ],
+  "verificationAfterMerge": {
+    "verifiedAt": "2026-11-04T10:46:46.106632+00:00",
+    "downloads": [
+      {
+        "url": "https://kithmoot.app/apk/kithmoot-0.6.133-production.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "verified": true
+      },
+      {
+        "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.133/kithmoot-0.6.133-production.apk",
+        "bytes": 74187340,
+        "sha256": "592152e60c0ceeee66e8858d4b74416a70dd6f463770af2c5d30284eef64210b",
+        "verified": true
+      }
+    ],
+    "sites": [
+      {
+        "host": "kithmoot.app",
+        "signedAndroidManifestExact": true,
+        "rendererSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f"
+      },
+      {
+        "host": "kithmoot.forgesworn.dev",
+        "signedAndroidManifestExact": true,
+        "rendererSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f"
+      }
+    ],
+    "catalogue": {
+      "eventIds": [
+        "9ce6f7a8a6882a1b8078c3dd7509809128f6878b7ef5ad0103d7f52c67dfba1c",
+        "b4497f3e0b6514d167ea333ae82486aa040feaad3383ebbeedb8a44322c35a1d",
+        "e689e0814c83b330e84e0e7c82577d2444e5f1d6e72a9f803e6944d4d5436895",
+        "92b6a379df28897aae33731e748cba5861a5bdfc80ab24ddcda3ab639774b50a"
+      ],
+      "signaturesVerified": true,
+      "releaseAssetReferencesVerified": true,
+      "certificateIdentityProofVerified": true,
+      "certificateProofAlgorithm": "rsa"
+    }
+  }
 }
