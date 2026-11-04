@@ -1,0 +1,332 @@
+{
+  "passed": true,
+  "nodeBackendSource": "b5ce969030230965badf6940b610b1f834471857",
+  "mode": "controlled-vpn-roaming-tls443",
+  "clientSource": "0102c468d663ec80aa8da3260bbb1d4295e18f1d",
+  "productionRelease": "20261104T061508Z",
+  "productionWeb": true,
+  "candidateRendererWithProductionHeaders": false,
+  "realOwnerAdmission": true,
+  "mediaIsolatedToTestGuestPairByMutualDtlsFingerprint": true,
+  "requestedCallProfile": "default",
+  "handshakeOnly": false,
+  "nativeFakeMicrophone": true,
+  "publicCAValidated": true,
+  "mediaSeconds": 442,
+  "afterFinalRecoverySeconds": 310,
+  "firewall": "IPv4 media TCP443 only; IPv6 blocked; DNS and private encrypted carrier allowed",
+  "vpn": "WireGuard route for the node with client NAT, carried through private SSH; container routes only; underlying host VPN not changed",
+  "changedNodeRoute": true,
+  "returnedNodeRoute": true,
+  "transitions": [
+    {
+      "phase": "vpn-recovering",
+      "seconds": 22
+    },
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 18,
+      "recoveryMs": 18006,
+      "confirmationMs": 20072,
+      "freshConfirmationSamples": 2,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovering",
+      "seconds": 73
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 17,
+      "recoveryMs": 16736,
+      "confirmationMs": 19049,
+      "freshConfirmationSamples": 2
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 2,
+      "recoveryMs": 2100,
+      "confirmationMs": 4571,
+      "freshConfirmationSamples": 2
+    }
+  ],
+  "credentialIssuances": [
+    {
+      "guest": "Resilience test A",
+      "seconds": -14,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": -8,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 28,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 29,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 30,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 79,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 79,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 81,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 80,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 128,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 128,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test A",
+      "seconds": 227,
+      "lifetime": 300
+    },
+    {
+      "guest": "Resilience test B",
+      "seconds": 233,
+      "lifetime": 300
+    }
+  ],
+  "roomLinkRecorded": false,
+  "credentialsRecorded": false,
+  "frameObservation": "Monotonic requestVideoFrameCallback counts using receiver object identity; closed-generation counts retained; transparent awaiting-frame sinks excluded",
+  "receiveCounterObservation": "Cumulative RTC inbound counters sampled every 250ms and retained across closed generations",
+  "recoveryMeasurement": "First of two consecutive verified received/presented-media samples; first must be within20s and the next confirms it within4s",
+  "endpointVerification": {
+    "scope": "Controlled guest pair matched by mutual DTLS fingerprints",
+    "recoveryRequiresFreshMediaOnVerifiedNodeEndpoints": true,
+    "knownNonNodeAddressesRejected": true,
+    "allSignalledRemoteCandidatesMustBeNodeRelays": true,
+    "unavailableRemoteAddressObservationsInTestPair": 0,
+    "unavailableRemoteAddressObservationsOutsideTestPair": 0,
+    "outsidePairRedactedStatisticsDoNotQualifyEndpoints": true
+  },
+  "supersededMainCi": {
+    "source": "074dbb8f5dfd03dbcf49875ed4a37b4e7eb16b42",
+    "run": 41774766412,
+    "status": "cancelled to release runners for the later reader correction; not a passing CI result"
+  },
+  "credentialObservation": "In-browser clone of authenticated fetch response; lifetime and expiry only, no credential secrets",
+  "harnessSha256": "6ee46574794a22a4f3679901dd4c5053dd4230020ac07226e1f19935147f56a9",
+  "v": 1,
+  "date": "2026-11-04",
+  "rawReceiptSha256": "1df71e21133d4aa98a64e34d312842d500b29a085f0be3751ac85db16c456be1",
+  "mainFile": "main-BFWLf0Zy.js",
+  "mainSha256": "c040497d7a78d1d4785c71d74af03bc573464b9e71cdf47b18d28f094205825f",
+  "routeRecoveryDeadlineSeconds": 20,
+  "statsPollIntervalMs": 2000,
+  "phases": {
+    "baseline": {
+      "samples": 11,
+      "decodedVideoFrames": [
+        371,
+        395
+      ],
+      "audioPackets": [
+        1154,
+        1252
+      ],
+      "videoElementPlaybackFrames": [
+        261,
+        320
+      ]
+    },
+    "vpn-recovering": {
+      "samples": 9,
+      "decodedVideoFrames": [
+        137,
+        130
+      ],
+      "audioPackets": [
+        447,
+        448
+      ],
+      "videoElementPlaybackFrames": [
+        99,
+        107
+      ]
+    },
+    "vpn-steady": {
+      "samples": 14,
+      "decodedVideoFrames": [
+        475,
+        459
+      ],
+      "audioPackets": [
+        1484,
+        1488
+      ],
+      "videoElementPlaybackFrames": [
+        382,
+        396
+      ]
+    },
+    "direct-recovering": {
+      "samples": 8,
+      "decodedVideoFrames": [
+        97,
+        90
+      ],
+      "audioPackets": [
+        346,
+        338
+      ],
+      "videoElementPlaybackFrames": [
+        67,
+        63
+      ]
+    },
+    "direct-steady": {
+      "samples": 10,
+      "decodedVideoFrames": [
+        333,
+        318
+      ],
+      "audioPackets": [
+        1070,
+        1077
+      ],
+      "videoElementPlaybackFrames": [
+        253,
+        262
+      ]
+    },
+    "outage": {
+      "samples": 6,
+      "decodedVideoFrames": [
+        6,
+        6
+      ],
+      "audioPackets": [
+        17,
+        16
+      ],
+      "videoElementPlaybackFrames": [
+        3,
+        3
+      ]
+    },
+    "outage-recovering": {
+      "samples": 2,
+      "decodedVideoFrames": [
+        101,
+        101
+      ],
+      "audioPackets": [
+        475,
+        404
+      ],
+      "videoElementPlaybackFrames": [
+        40,
+        30
+      ]
+    },
+    "renewal-soak": {
+      "samples": 142,
+      "decodedVideoFrames": [
+        5463,
+        5158
+      ],
+      "audioPackets": [
+        15419,
+        15443
+      ],
+      "videoElementPlaybackFrames": [
+        4299,
+        4599
+      ]
+    }
+  },
+  "renewalContinuity": {
+    "testedSteadySamplesPerGuest": 132,
+    "zeroProgressSamples": [
+      0,
+      0
+    ],
+    "receivedVideoAudioAndAttachedVideoPlaybackRequired": true,
+    "previousPauseSeconds": 7,
+    "limitation": "No zero-progress samples at roughly two-second polls; this does not prove gap-free playback below the sampling interval."
+  },
+  "peakSubscriptions": 13,
+  "subscriptionOverflows": 0,
+  "pageErrors": [],
+  "httpAuthenticationRefusals": 0,
+  "maxObservedCredentialLifetimeSeconds": 300,
+  "priorCredentialExpiryCrossed": true,
+  "additionalAdmissionsCreated": 0,
+  "admissionCounts": {
+    "before": 10,
+    "after": 10
+  },
+  "nodeImage": "localhost/kithmoot-node:0.1.0-rc.1-8961b322e310",
+  "spryBinarySha256": "d25a45c196da24f3e8f2950e7853642aab0de9c7ded7a7989291ece62b077dbd",
+  "fixes": {
+    "webPr": 696,
+    "webCodeSource": "cd2b619ae0eb62c5d6ac1874a3333bae484d4f56",
+    "readerRestorePr": 695,
+    "readerRestoreSource": "303bd47ac7b2aee07f7b4d50e764cdb93d54d562",
+    "mediaHandoverPr": 694,
+    "mediaHandoverSource": "459974282f44b58060fb7708cee547b4425421cf",
+    "previousGlarePr": 692,
+    "spryPr": 35,
+    "tcpConnections": 64,
+    "relayAllocations": 32,
+    "perUsernameAllocations": 8
+  },
+  "checks": {
+    "focusedTests": 230,
+    "focusedSkipped": 5,
+    "redialPoolAuthNodeMeshPeerTests": 228,
+    "redialFocusedSkipped": 3,
+    "readerFocusedTests": 110,
+    "handoverFocusedTests": 174,
+    "handoverFocusedSkipped": 3,
+    "node24FullTests": 8861,
+    "node24FullSkipped": 8,
+    "nativeJourneys": 3,
+    "nativeJourneysSource": "303bd47ac7b2aee07f7b4d50e764cdb93d54d562",
+    "legacyHalfOpenJoinBrowserSeconds": 51.3,
+    "webApplicableHostedChecks": 5,
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "secretScans": "changed commits passed; whole-src findings were two pre-existing synthetic test fixtures",
+    "desktopRowBrowserRegression": "passed actual desktop build; four seconds"
+  },
+  "scope": {
+    "physicalPhone": "unavailable; not run",
+    "commercialVPNs": "not qualified",
+    "physicalWiFiCellularHandoff": "not run",
+    "archipelagoMaintainerZAT": "pending",
+    "signedPublicNodeShelterRelease": "not published"
+  }
+}
