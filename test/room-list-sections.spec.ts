@@ -130,6 +130,23 @@ test('a pin puts a room in Pinned, survives a reload, and goes when the room is 
   } finally { await page.context().close() }
 })
 
+test('room actions survive a list refresh between pointer press and release', async ({ browser, baseURL }) => {
+  const { page } = await homeWith(browser, baseURL!, 1, false)
+  try {
+    await row(page, 'Room 01').locator('.rowMenu').hover()
+    await page.mouse.down()
+    try {
+      // The search input uses the same list repaint as incoming room activity.
+      // Keep its value unchanged and trigger that repaint during the press.
+      await page.locator('#homeRoomQuery').dispatchEvent('input')
+    } finally { await page.mouse.up() }
+    await expect(page.getByRole('menuitem', { name: 'Forget this room' })).toBeVisible({ timeout: 5_000 })
+    await page.getByRole('menuitem', { name: 'Forget this room' }).click()
+    await page.locator('#actionConfirm').click()
+    await expect(row(page, 'Room 01')).toHaveCount(0)
+  } finally { await page.context().close() }
+})
+
 test('Unpin puts the room back where its activity says', async ({ browser, baseURL }) => {
   const { page } = await homeWith(browser, baseURL!, 9)
   try {
