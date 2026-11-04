@@ -117,9 +117,9 @@ test('the row reads "Call relay on this computer", Off, only when the relay is a
     await expect(p.row).toBeVisible()
     await expect(p.row.locator('.infoRowTitle')).toHaveText('Call relay on this computer')
     await expect(p.sub).toHaveText('Off')
-    // First in the list of relays for your calls, ahead of Spry, the relay server and public relays.
+    // Your node comes first; the computer relay precedes the other relay choices.
     const ids = await page.locator('[data-settings-page="calls"] .infoRows > button:not([hidden])').evaluateAll(rows => rows.map(row => row.id))
-    expect(ids.slice(0, 4)).toEqual(['settingsRowCallRelay', 'callsRowSpry', 'callsRowServer', 'callsRowPublic'])
+    expect(ids.slice(0, 5)).toEqual(['callsRowNode', 'settingsRowCallRelay', 'callsRowSpry', 'callsRowServer', 'callsRowPublic'])
   } finally { await context.close() }
 })
 
