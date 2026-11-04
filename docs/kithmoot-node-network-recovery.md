@@ -276,3 +276,20 @@ The factory ignores connectivity failures from a retiring generation. The web
 receiver registry retains the connected receiver until its replacement connects;
 closing the old generation cannot erase the new registry entry. This does not
 extend the five-minute TURN login lifetime or change the relay-only policy.
+
+## Restore readers when a relay socket reconnects first
+
+An actual production VPN-on run of `074dbb8f` misses the twenty-second gate.
+One browser authenticates a replacement relay socket and receives write
+acknowledgements, but its persistent room subscriptions are absent. It cannot
+receive the call answers. This failure is retained separately from the passing
+429-second handover candidate; matching asset bytes alone do not qualify every
+network transition.
+
+Reader recovery previously checked the disconnected-dial cooldown before it
+checked whether the socket was already connected. A publish could reopen it,
+leaving closed readers waiting fifteen seconds. The cooldown now applies to
+disconnected or authenticating sockets. Closed readers on a connected socket
+restore on the next five-second recovery tick, preserving healthy readers,
+permanent refusals, read-rate holds and individual resend backoffs. The
+regression fails on the previous source and passes after this correction.

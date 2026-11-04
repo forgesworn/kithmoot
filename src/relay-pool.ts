@@ -1316,8 +1316,7 @@ export class NostrRelayPool implements RelayTransport {
     const connected = this.#pool.listConnectionStatus()
     const now = Date.now()
     for (const relay of this.#relays) {
-      if (!relay.read || this.#authError(relay.url) || this.#dials.readHeld(relay.url) || this.#reconnects.has(relay.url) ||
-          now - (this.#attempted.get(relay.url) ?? 0) < (this.#authentication.get(relay.url) && this.#health.get(relay.url)?.state === 'connecting' ? this.#authTimeout + 8_000 : 15_000)) continue
+      if (!relay.read || this.#authError(relay.url) || this.#dials.readHeld(relay.url) || this.#reconnects.has(relay.url)) continue
       if (connected.get(relay.url)) {
         // A publish can reconnect before this timer, but cannot restore the
         // subscriptions closed with the old socket. Rebind only dead readers;
@@ -1330,6 +1329,11 @@ export class NostrRelayPool implements RelayTransport {
         for (const sub of closed) this.#startRelay(sub, relay.url)
         continue
       }
+      // The dial cooldown protects a disconnected or authenticating socket.
+      // A publish may already have reopened it: closed readers on that live
+      // socket must not wait another fifteen seconds to hear call answers.
+      if (now - (this.#attempted.get(relay.url) ?? 0) <
+          (this.#authentication.get(relay.url) && this.#health.get(relay.url)?.state === 'connecting' ? this.#authTimeout + 8_000 : 15_000)) continue
       // Keep healthy relays and their consumers running. Replaying the
       // original filters catches missed events; each consumer retains its
       // deduplication set across reconnections, including same-second events.
