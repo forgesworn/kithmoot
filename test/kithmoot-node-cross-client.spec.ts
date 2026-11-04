@@ -7,7 +7,9 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } fr
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, inbound, INSTRUMENT, SYNTHETIC_MIC } from './browser.js'
 import { signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
+// @ts-expect-error - desktop runtime fixtures are plain ESM without declarations.
 import { stopIsolatedApp } from '../desktop/test/isolated-app.mjs'
+// @ts-expect-error - the desktop main-process policy is plain ESM.
 import { HOME as DESKTOP_HOME, ORIGIN as DESKTOP_ORIGIN } from '../desktop/policy.mjs'
 
 // Explicit disposable-emulator qualification only. No public trust/NAT claim.
