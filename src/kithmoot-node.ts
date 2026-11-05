@@ -298,6 +298,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
   const peers = new Set<RTCPeerConnection>(), retiring = new WeakSet<RTCPeerConnection>(), controller = new AbortController()
+  const contexts = new WeakMap<RTCPeerConnection, PeerContext | undefined>()
+  const pendingRestarts = new Map<RTCPeerConnection, () => void>()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity, credentialDeadline = Infinity, rotationAt = Infinity
@@ -315,7 +317,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer); clearTimeout(retryTimer)
     options.signal?.removeEventListener('abort', close)
     for (const peer of peers) peer.close()
-    peers.clear(); pendingPeers.clear()
+    peers.clear(); pendingPeers.clear(); pendingRestarts.clear()
   }
   const obtain = async (): Promise<SpryCredential> => {
     const value = await access()
@@ -345,7 +347,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   }
   const repair = (peer: RTCPeerConnection): void => {
     if (peer.signalingState === 'closed') { peers.delete(peer); return }
-    try { peer.setConfiguration(configuration()); peer.restartIce() } catch { peer.close(); peers.delete(peer) }
+    if (retiring.has(peer)) { pendingRestarts.delete(peer); return }
+    const restart = pendingRestarts.get(peer)
+    pendingRestarts.delete(peer)
+    try { peer.setConfiguration(configuration()); if (restart) restart(); else peer.restartIce() } catch { peer.close(); peers.delete(peer) }
   }
   const runRenewal = async (): Promise<void> => {
     if (!allowed()) { close(); return }
@@ -357,12 +362,12 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       install(next, all)
       if (all) {
         if (!options.rebuildPeers?.()) for (const peer of peers) repair(peer)
-        pendingPeers.clear(); rotateAll = false
+        pendingPeers.clear(); pendingRestarts.clear(); rotateAll = false
       } else {
         for (const [peer, context] of pendingPeers) {
-          if (!peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed') { pendingPeers.delete(peer); continue }
+          if (!peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed') { pendingPeers.delete(peer); pendingRestarts.delete(peer); continue }
           if (!options.rebuildPeers?.(context)) repair(peer)
-          pendingPeers.delete(peer)
+          pendingPeers.delete(peer); pendingRestarts.delete(peer)
         }
       }
       // A grant near its own end cannot extend this username. Give the
@@ -406,7 +411,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
       let connected = false, recovering = false
-      peer.close = () => { peers.delete(peer); end() }
+      peer.close = () => { peers.delete(peer); pendingRestarts.delete(peer); end() }
+      contexts.set(peer, context)
       peer.addEventListener?.('connectionstatechange', () => {
         if (retiring.has(peer)) return
         // Either endpoint can lose its route. Repair this pair without
@@ -424,7 +430,16 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     }
   factory.onRetiring = value => {
     const peer = value as unknown as RTCPeerConnection
-    if (peers.has(peer)) retiring.add(peer)
+    if (peers.has(peer)) { retiring.add(peer); pendingRestarts.delete(peer) }
+  }
+  factory.onIceRestart = (value, restart) => {
+    const peer = value as unknown as RTCPeerConnection
+    if (!peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed') return
+    // Peer/SlotPeer also observes the failure. Its native restart and offer
+    // must wait for the same refresh as the node's listener, rather than
+    // gathering another allocation with the old login in parallel.
+    pendingRestarts.set(peer, restart)
+    void renew(true, peer, contexts.get(peer))
   }
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {

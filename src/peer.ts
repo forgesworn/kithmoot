@@ -204,6 +204,10 @@ export interface PeerFactory {
   /** Opt in to bounded media overlap during replacement. The signalling
    * owner still closes the old connection; suppress its connectivity repairs. */
   onRetiring?: (peer: RTCPeerConnectionLike) => void
+  /** Own ICE recovery when credentials must be refreshed first. Either
+   * replace/close this connection or call restart once it is ready. The
+   * continuation ignores a connection already closed or replaced. */
+  onIceRestart?: (peer: RTCPeerConnectionLike, restart: () => void) => void
 }
 
 /**
@@ -766,10 +770,14 @@ export class Peer implements NegotiatingPeer {
     }
   }
 
-  #restartIce(): void {
+  #restartIce(delegated = false): void {
     if (this.#closed) return
     this.#restarted = true
     this.#clearRestartTimers()
+    if (!delegated && this.#opts.factory.onIceRestart) {
+      this.#opts.factory.onIceRestart(this.#pc, () => { if (this.#pc.signalingState !== 'closed') this.#restartIce(true) })
+      return
+    }
     this.#pc.restartIce?.()
     // The browser raises `negotiationneeded` and the offer that follows
     // carries the restart. If nothing comes of it, the failure is real.
