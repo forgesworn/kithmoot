@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.126",
+  "currentRelease": "0.1.127",
   "releases": [
     {
-      "version": "0.1.126",
+      "version": "0.1.127",
       "updateTo": {
-        "version": "0.1.126",
-        "name": "0.1.126",
-        "pub_date": "2026-11-04T15:27:24Z",
-        "notes": "Node pairing, admission and relay-only calls, including credential renewal and recovery after network changes.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.126/KithMoot-0.1.126-mac-arm64.zip",
-        "sha256": "b37b59500ceb3dff83bb8c862e2c87e4d0d3a3ebff021867e24437d1d5cda1b1",
-        "size": 193009112
+        "version": "0.1.127",
+        "name": "0.1.127",
+        "pub_date": "2026-11-05T20:16:07Z",
+        "notes": "Sequential node TURN routes and bounded legacy media handover during credential renewal.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.127/KithMoot-0.1.127-mac-arm64.zip",
+        "sha256": "a7aa0681ad532e178d983ef298830d4d4d5aa95fa35df35dce62ee6b1459cf24",
+        "size": 193009935
       }
     }
   ]

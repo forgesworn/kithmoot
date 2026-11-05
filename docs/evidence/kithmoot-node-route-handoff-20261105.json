@@ -1,0 +1,325 @@
+{
+  "schema": 1,
+  "date": "2026-11-05",
+  "sourceCommit": "e3a8e4d9d76684aedfffb728619e9a62cac4eaac",
+  "scope": {
+    "actualMeshOwner": true,
+    "realWebRtc": true,
+    "realSpryPacketRelay": true,
+    "fixtureCredentialHttp": true,
+    "fixtureRosterAndSignalling": true,
+    "syntheticCapture": true,
+    "physical": false,
+    "realPublicNetworks": false,
+    "actualPwaUi": false
+  },
+  "cases": {
+    "legacy": {
+      "passed": true,
+      "browser": "151.0.7922.34",
+      "seconds": 673.163,
+      "samples": 343,
+      "credentialIssues": {
+        "a": 12,
+        "b": 4,
+        "c": 5
+      },
+      "phases": [
+        {
+          "label": "initial UDP",
+          "recoveryMs": 3051,
+          "at": 4868,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "drop a UDP",
+          "at": 12935
+        },
+        {
+          "label": "UDP to TLS443",
+          "recoveryMs": 14163,
+          "at": 27095,
+          "metrics": {
+            "allocations": 10,
+            "udp": 6,
+            "stream": 4,
+            "connections": 4,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "TLS443 to UDP",
+          "recoveryMs": 2039,
+          "at": 37180,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "all a routes off",
+          "at": 45249
+        },
+        {
+          "label": "full outage recovered",
+          "recoveryMs": 5043,
+          "at": 62565,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        }
+      ],
+      "maxAllocations": 12,
+      "quotaRefusals": {
+        "userRefusals": 0,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      },
+      "finalMetrics": {
+        "allocations": 0,
+        "udp": 0,
+        "stream": 0,
+        "connections": 0,
+        "userRefusals": 0,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      },
+      "healthyPairUnchangedDuringHandoff": true,
+      "rawReceiptSha256": "fbda5f9737acdc36340fcab5e4eb64f2d7bf0f4c4e09d50239ef2cf81a3eb8d8"
+    },
+    "slots": {
+      "passed": true,
+      "browser": "151.0.7922.34",
+      "seconds": 670.692,
+      "samples": 348,
+      "credentialIssues": {
+        "a": 12,
+        "b": 4,
+        "c": 4
+      },
+      "phases": [
+        {
+          "label": "initial UDP",
+          "recoveryMs": 3027,
+          "at": 5032,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "drop a UDP",
+          "at": 13085
+        },
+        {
+          "label": "UDP to TLS443",
+          "recoveryMs": 13156,
+          "at": 26238,
+          "metrics": {
+            "allocations": 10,
+            "udp": 6,
+            "stream": 4,
+            "connections": 4,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "TLS443 to UDP",
+          "recoveryMs": 2021,
+          "at": 36313,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        },
+        {
+          "label": "all a routes off",
+          "at": 44354
+        },
+        {
+          "label": "full outage recovered",
+          "recoveryMs": 3074,
+          "at": 59653,
+          "metrics": {
+            "allocations": 6,
+            "udp": 6,
+            "stream": 0,
+            "connections": 0,
+            "userRefusals": 0,
+            "globalRefusals": 0,
+            "bindFailures": 0
+          }
+        }
+      ],
+      "maxAllocations": 12,
+      "quotaRefusals": {
+        "userRefusals": 0,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      },
+      "finalMetrics": {
+        "allocations": 0,
+        "udp": 0,
+        "stream": 0,
+        "connections": 0,
+        "userRefusals": 0,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      },
+      "healthyPairUnchangedDuringHandoff": true,
+      "rawReceiptSha256": "79ccdca99f9f10a7d7748f992e5fbcb4a6462158a05832b759470ec8b23f2ce3"
+    }
+  },
+  "checks": {
+    "sdk": {
+      "passed": 8893,
+      "skipped": 8,
+      "filesPassed": 513,
+      "filesSkipped": 1
+    },
+    "typechecks": true,
+    "legacyRegressionFailedBeforeRepair": true,
+    "focusedSafetyTestsPassed": true
+  },
+  "retainedBaselines": [
+    "bare native restart long expiry failure",
+    "legacy actual Mesh renewal failure at 242.905 seconds",
+    "renderer fixture corrections",
+    "interrupted local SDK run with timeouts; unchanged source isolated rerun passed"
+  ],
+  "remainingAcceptance": [
+    "physical GrapheneOS",
+    "independent NATs",
+    "real Wi-Fi/cellular/VPN handoff",
+    "publicly trusted native TURN TLS443",
+    "full PWA user journey on this revision",
+    "perceived capture and call quality"
+  ],
+  "nativeCandidates": {
+    "android": {
+      "version": "0.6.135",
+      "versionCode": 158,
+      "sourceCommit": "6862eb7e46b0196f3cb031b4248a093330073255",
+      "bytes": 74203724,
+      "sha256": "7c684d2662517b9288b22a57f31399838eb9ffc9011bab0584b605e0d9a5a15a",
+      "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+      "lineageFileSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+      "localAppTestsPassed": 3362,
+      "localAppTestsSkipped": 1,
+      "protocolTestsPassed": 684,
+      "bothLintsPassed": true,
+      "exactVersionPackagingPassed": true,
+      "upgrade": {
+        "from": "0.6.134",
+        "to": "0.6.135",
+        "api": 35,
+        "googlePlayServicesDisabled": true,
+        "uidPreserved": true,
+        "instrumentationTests": 4,
+        "coldLaunches": 3,
+        "ownedEmulatorStopped": true,
+        "ownedAvdDeleted": true
+      },
+      "pullRequest": "https://github.com/forgesworn/kithmoot-android/pull/396"
+    },
+    "desktop": {
+      "version": "0.1.127",
+      "sourceCommit": "e3a8e4d9d76684aedfffb728619e9a62cac4eaac",
+      "files": [
+        {
+          "filename": "KithMoot-0.1.127-mac-arm64.zip",
+          "bytes": 193009935,
+          "sha256": "a7aa0681ad532e178d983ef298830d4d4d5aa95fa35df35dce62ee6b1459cf24"
+        },
+        {
+          "filename": "KithMoot-0.1.127-linux-x64.tar.gz",
+          "bytes": 186399732,
+          "sha256": "4afb8158721c224fc5be372ade1a18fdd4ab3d60f72d537926f4876fc6f22e8d"
+        },
+        {
+          "filename": "KithMoot-0.1.127-linux-arm64.tar.gz",
+          "bytes": 187309376,
+          "sha256": "97339f13a893bb9aa17b1a02f74541bccc461f9db936584348467ab8524fc68b"
+        },
+        {
+          "filename": "KithMoot-0.1.127-windows-x64.zip",
+          "bytes": 221535636,
+          "sha256": "ab3b296449e2fd671a0c6d9bc43720bddc5d72f4a5468158abde516c3305b098"
+        },
+        {
+          "filename": "kithmoot_0.1.127_amd64.deb",
+          "bytes": 151053880,
+          "sha256": "523c1a314fce35a1a47315a848ced3d2343acdc11eaaee184fec9501d57ed73a"
+        },
+        {
+          "filename": "kithmoot_0.1.127_arm64.deb",
+          "bytes": 145488140,
+          "sha256": "d4a88ea5aef1309885839b303d249f031aa93516ffe2400702474440bcda13b0"
+        }
+      ],
+      "packagedRenderers": {
+        "mac": {
+          "version": "0.1.127",
+          "webFiles": 594,
+          "webManifestSha256": "bf209ce4ba9894ef74845995dce4b5cd79f8dfd11738c1e30b2cb8f27ddac941",
+          "asarSha256": "62660eb9e519f71ed7d40ad3e358c8790046162fdb1df73371607654114d8db3"
+        },
+        "linuxX64": {
+          "version": "0.1.127",
+          "webFiles": 594,
+          "webManifestSha256": "bf209ce4ba9894ef74845995dce4b5cd79f8dfd11738c1e30b2cb8f27ddac941",
+          "asarSha256": "f8dfd15ccf9c2e8689a9f691b9e703acb56173644a38d96496e5e1e14cef8615"
+        },
+        "linuxArm64": {
+          "version": "0.1.127",
+          "webFiles": 594,
+          "webManifestSha256": "bf209ce4ba9894ef74845995dce4b5cd79f8dfd11738c1e30b2cb8f27ddac941",
+          "asarSha256": "f8dfd15ccf9c2e8689a9f691b9e703acb56173644a38d96496e5e1e14cef8615"
+        },
+        "windows": {
+          "version": "0.1.127",
+          "webFiles": 594,
+          "webManifestSha256": "bf209ce4ba9894ef74845995dce4b5cd79f8dfd11738c1e30b2cb8f27ddac941",
+          "asarSha256": "486ca97291b38f429deb8c3eb0e7d92a2e3d4e6b6c83d7b6526d12af50aa6cbf"
+        }
+      },
+      "macDeveloperIdNotarisationStaplingGatekeeperPassed": true,
+      "packagedMacSmokePassed": true,
+      "windowsUnsignedPreview": true,
+      "physicalAcceptance": false
+    }
+  }
+}

@@ -542,3 +542,33 @@ smoothness or a new credential-expiry soak. The earlier 28 node-wide per-login
 requests remain unattributed; reproducing this failure class does not identify
 their senders. Server limits, admission, logging and deployed server code are
 unchanged by this client correction.
+
+### Legacy connection continuity during node renewal, 5 November
+
+The actual Mesh owner exposed a gap which direct Peer/SlotPeer fixtures did not
+cover: profile-1 renewal closed the working transport before its replacement
+could carry media. Node-owned legacy replacement now keeps one connected old
+transport, stops its signalling and buffers new receivers until the replacement
+has connected and had one second to settle. The overlap ends after at most
+twenty seconds or the old login's original monotonic deadline. Repeated repairs
+keep that original deadline and cannot accumulate retiring transports.
+
+Publication and audience changes silence retiring senders. Removal, standing
+down and call teardown close them immediately. Factories which have not opted
+into retirement keep their existing close behaviour. The regression failed on
+the previous implementation, then passed alongside deadline, receiver buffering,
+repeated repair, audience, removal and teardown cases.
+
+A controlled native Chromium run using the actual Mesh rebuild owner sustained
+673 seconds, including UDP loss to TLS443, return to UDP, a twelve-second outage
+and two credential renewals. Six incoming audio/video streams continued to
+advance at the sampled intervals, with displayed video and non-silent synthetic
+audio checked separately. The healthy pair was unchanged during the handoffs;
+relay quota refusals and final allocations were zero. Credential HTTP, roster,
+signalling delivery and capture were fixtures; the Spry packet relay and WebRTC
+were real. This is not physical-phone, public TLS, full-PWA-UI or perceived
+quality acceptance. The earlier bare native ICE-restart expiry failure, legacy
+renewal failure and renderer-fixture corrections remain in private evidence.
+SDK embedders must supply the owned connection-rebuild callback for fresh TURN
+allocations; changing credentials with a native ICE restart alone did not
+replace the old allocation in the baseline experiment.

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased, 5 November 2026
+## Desktop 0.1.127, 5 November 2026
+
+- Keep legacy hosted-call audio and video flowing while TURN credentials renew. The old transport has a bounded handover and still obeys mute, audience and removal controls.
+
+- Hosted calls gather one TURN route per peer, falling back from UDP to TLS on port 443 with fresh credentials. Scoped repair leaves healthy connections alone and keeps the original renewal deadline.
 
 - **Calls that need a relay connect in about 5 seconds instead of 11.** A call between two people who cannot reach each other directly, such as behind a strict router, used to wait ten seconds before trying the call relay. It now moves on three seconds after the direct attempt has started checking and found nothing. Calls that connect directly are unchanged.
 - **People on a call hear you as soon as you join, not 2.5 seconds later.** Joining a call waited 2.5 seconds for the room to offer a call relay before switching your microphone on, even in rooms that never offer one, so the people already on the call heard and saw you about two seconds after you heard them. Joining now switches the microphone on straight away and takes a relay if one is offered a moment later. With "Hide my IP address" on, the call still waits for the relay, because it cannot go direct.
