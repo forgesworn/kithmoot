@@ -444,3 +444,50 @@ relay statistics every ten seconds. Node totals include other room devices and
 both forwarding legs. No physical phone, independent NATs, commercial VPN,
 hardware capture, perceptual audio quality or subsecond gap-free playback is
 qualified. Official Archy maintainer acceptance remains pending.
+
+
+## One owner for native ICE recovery, 5 November
+
+A node route failure could start two recovery paths. The node factory fetched
+fresh credentials while Peer or SlotPeer immediately restarted native ICE with
+the old login; SlotPeer could also send that stale restart offer. The optional
+factory recovery hook now defers the whole restart. After credentials arrive,
+the owner either rebuilds that connection or continues native negotiation.
+Closed, replaced and retiring connections cannot resume deferred work. Other
+factories retain their previous behaviour. Relay-only routing, scoped peer
+repair, original credential deadlines and resource limits remain in force.
+
+The integration regression fails before the correction in both protocols, then
+passes for both rebuild and native fallback. The full SDK suite passes 8,863
+tests with eight intentional skips; the focused suites pass 289 with three
+skips. Library/app type checks, production build and hosted checks pass.
+[Client PR709](https://github.com/forgesworn/kithmoot/pull/709) is merged.
+
+[Spry PR38](https://github.com/forgesworn/spry-turn/pull/38) also reclaims
+already-expired allocation capacity before refusing a new Allocate, rather
+than waiting for the periodic sweep. Separate private aggregate counters now
+distinguish server allocation limits, username limits and relay bind failures.
+They contain no participant addresses, usernames or room identifiers.
+
+The [measured comparison](evidence/kithmoot-node-allocation-recovery-20261105.json)
+retains a backend-only production-renderer run, the client candidate and the
+final public run. The candidate passes 733 seconds, including 611 seconds after
+final recovery. Public release `20261105T143709Z` deploys its exact 598 files;
+index, entry, main and service worker match on both domains with normal TLS.
+The website and native update feeds are unchanged; no native package release
+is claimed by this app-only delivery.
+
+The final production run passes 749 seconds with 610 seconds after final
+recovery. VPN on/off recover in 16.556/16.894 seconds and the twelve-second
+outage in 2.088 seconds. Both guests renew credentials beyond old expiry,
+advance received audio/video and displayed frames at all 269 checked steady
+samples, and expose no TURN486/508 errors. No new whole-server allocation
+refusals occur in its observation window. Per-login request refusals remain
+in node-wide counters; they cannot identify a client or establish failed calls.
+The original 32 total allocations, eight per username and 64 streams remain.
+
+These are controlled Chromium tests using synthetic capture and a shared
+WireGuard/NAT carrier over TURN TLS443. They do not qualify independent NATs,
+physical Wi-Fi/mobile hand-offs, commercial VPNs, larger-room capacity or
+perceptual video smoothness. Earlier failures and counter-scope limitations
+remain explicit. Archy maintainer UI acceptance is still pending.

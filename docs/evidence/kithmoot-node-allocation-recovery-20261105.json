@@ -1,0 +1,806 @@
+{
+  "schema": "kithmoot-node-allocation-recovery/1",
+  "source": {
+    "backend": "31c728f947fda91b8500748edf5ff913452aec38",
+    "backendMerged": "937e4c28497776db7bc8e81bb56a68fe05e2921d",
+    "client": "6b5147d7f36f830943361e8c94e8f745759cbb35",
+    "clientMerged": "41a1fe4731dc6e400b778b57273959119313a13b"
+  },
+  "limitsUnchanged": {
+    "allocations": 32,
+    "perUsername": 8,
+    "streamConnections": 64,
+    "allocationLeaseSeconds": 30,
+    "maximumLoginSeconds": 300
+  },
+  "localChecks": {
+    "fullSdkPassed": 8863,
+    "fullSdkSkipped": 8,
+    "focusedPassed": 289,
+    "focusedSkipped": 3,
+    "legacyAndSlotsRegressionObservedRedThenGreen": true,
+    "libraryAndAppTypecheck": true,
+    "productionBuild": true,
+    "tlsInteropPassed": 41
+  },
+  "cases": {
+    "backendOnly": {
+      "schema": "kithmoot-node-sustained-media/1",
+      "passed": true,
+      "clientSource": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+      "productionRelease": "20261104T112032Z",
+      "nodeBackendSource": "31c728f947fda91b8500748edf5ff913452aec38",
+      "mediaSeconds": 735,
+      "afterFinalRecoverySeconds": 611,
+      "sampleCadenceSeconds": 2,
+      "matchedPair": true,
+      "publicTlsValidated": true,
+      "productionRendererUnmodified": true,
+      "candidateRendererWithProductionHeaders": false,
+      "browserVersion": "151.0.7922.34",
+      "mediaTransport": "TURN over TLS443; browser non-proxied UDP disabled; CONNECT proxy port443 only",
+      "network": "Isolated container direct/WireGuard/direct and twelve-second outage; no host VPN changes",
+      "recovery": [
+        {
+          "phase": "vpn-recovered",
+          "recoverySeconds": 12,
+          "recoveryMs": 12388,
+          "confirmationMs": 14413,
+          "freshConfirmationSamples": 2,
+          "encryptedTransfer": true
+        },
+        {
+          "phase": "direct-recovered",
+          "recoverySeconds": 11,
+          "recoveryMs": 10899,
+          "confirmationMs": 12985,
+          "freshConfirmationSamples": 2
+        },
+        {
+          "phase": "outage-recovered",
+          "recoverySeconds": 5,
+          "recoveryMs": 4607,
+          "confirmationMs": 6727,
+          "freshConfirmationSamples": 2
+        }
+      ],
+      "guests": [
+        {
+          "endpoint": 0,
+          "steadySamples": 216,
+          "selectedEndpointUnavailableSamples": 18,
+          "decodedVideoFramesAdvanced": 10622,
+          "receivedAudioPacketsAdvanced": 29731,
+          "presentedFramesAdvanced": 8830,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 5.5,
+            "mean": 15.793364197530858
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 6.666666666666667,
+            "mean": 18.896064814814817
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.39241352201258
+          },
+          "jitterMilliseconds": {
+            "mean": 15.50076103500761,
+            "maximum": 98
+          },
+          "packetLoss": {
+            "receivedDelta": 44163,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 12277288,
+          "reportedFreezeEventsDelta": 43
+        },
+        {
+          "endpoint": 1,
+          "steadySamples": 216,
+          "selectedEndpointUnavailableSamples": 20,
+          "decodedVideoFramesAdvanced": 10240,
+          "receivedAudioPacketsAdvanced": 29728,
+          "presentedFramesAdvanced": 9422,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 4.4,
+            "mean": 16.8932098765432
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 5,
+            "mean": 18.3054012345679
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.136176935229066
+          },
+          "jitterMilliseconds": {
+            "mean": 15.370030581039755,
+            "maximum": 83
+          },
+          "packetLoss": {
+            "receivedDelta": 42193,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 10665401,
+          "reportedFreezeEventsDelta": 52
+        }
+      ],
+      "relay": {
+        "scope": "Whole node; includes other participants and forwarding legs. Transport proof for this test uses matched browser endpoints, not aggregate UDP totals.",
+        "sampleCount": 74,
+        "streamConnectionsPeak": 57,
+        "streamPayloadBytesDelta": 138794561,
+        "udpPayloadBytesDelta": 72431082,
+        "forwardedPacketsDelta": 761982,
+        "droppedPacketsDelta": 261,
+        "streamErrorsDelta": 13,
+        "maximumPayloadBytesPerSecond": 521760.38338658144,
+        "requestRefusals": {
+          "allocationQuotaRefusals": 14,
+          "userQuotaRefusals": 40,
+          "relayBindFailures": 0,
+          "refusedStreams": 0
+        },
+        "counterObservationWindow": {
+          "startsAtMs": 1793884653664,
+          "endsAtMs": 1793885565123,
+          "includesPreparationAndUpTo15SecondsOfTeardown": true,
+          "scope": "Whole node, including other participants. Requests and retries are not failed calls; no client attribution is available."
+        },
+        "sampledPeakAllocations": 32,
+        "streamConnectionCapacityRefusalsDelta": 0,
+        "sampleCadenceSeconds": 10
+      },
+      "credentials": [
+        {
+          "endpoint": 0,
+          "seconds": -12,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": -8,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 30,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 30,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 79,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 79,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 119,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 117,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 229,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 233,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 469,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 474,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 710,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 714,
+          "lifetime": 300
+        }
+      ],
+      "physicalDevice": false,
+      "commercialVpn": false,
+      "independentNats": false,
+      "subsecondGapFreeClaim": false,
+      "realCaptureHardware": false,
+      "browserExposedAllocationErrors": [
+        6,
+        6
+      ],
+      "actualRoundedSampleIntervalsSeconds": {
+        "minimum": 2,
+        "median": 2,
+        "maximum": 6
+      },
+      "allAttemptsOrNetworksQualified": false
+    },
+    "candidate": {
+      "schema": "kithmoot-node-sustained-media/1",
+      "passed": true,
+      "clientSource": "6b5147d7f36f830943361e8c94e8f745759cbb35",
+      "productionRelease": "20261104T112032Z",
+      "nodeBackendSource": "31c728f947fda91b8500748edf5ff913452aec38",
+      "mediaSeconds": 733,
+      "afterFinalRecoverySeconds": 611,
+      "sampleCadenceSeconds": 2,
+      "matchedPair": true,
+      "publicTlsValidated": true,
+      "productionRendererUnmodified": false,
+      "candidateRendererWithProductionHeaders": true,
+      "browserVersion": "151.0.7922.34",
+      "mediaTransport": "TURN over TLS443; browser non-proxied UDP disabled; CONNECT proxy port443 only",
+      "network": "Isolated container direct/WireGuard/direct and twelve-second outage; no host VPN changes",
+      "recovery": [
+        {
+          "phase": "vpn-recovered",
+          "recoverySeconds": 13,
+          "recoveryMs": 12723,
+          "confirmationMs": 14744,
+          "freshConfirmationSamples": 2,
+          "encryptedTransfer": true
+        },
+        {
+          "phase": "direct-recovered",
+          "recoverySeconds": 12,
+          "recoveryMs": 12458,
+          "confirmationMs": 14481,
+          "freshConfirmationSamples": 2
+        },
+        {
+          "phase": "outage-recovered",
+          "recoverySeconds": 2,
+          "recoveryMs": 2022,
+          "confirmationMs": 4081,
+          "freshConfirmationSamples": 2
+        }
+      ],
+      "guests": [
+        {
+          "endpoint": 0,
+          "steadySamples": 270,
+          "selectedEndpointUnavailableSamples": 17,
+          "decodedVideoFramesAdvanced": 10925,
+          "receivedAudioPacketsAdvanced": 29740,
+          "presentedFramesAdvanced": 9276,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 5,
+            "mean": 16.132098765432104
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 5.333333333333333,
+            "mean": 18.993827160493826
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.37468671679198
+          },
+          "jitterMilliseconds": {
+            "mean": 14.671550671550671,
+            "maximum": 75
+          },
+          "packetLoss": {
+            "receivedDelta": 46359,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 14281828,
+          "reportedFreezeEventsDelta": 27
+        },
+        {
+          "endpoint": 1,
+          "steadySamples": 270,
+          "selectedEndpointUnavailableSamples": 18,
+          "decodedVideoFramesAdvanced": 10998,
+          "receivedAudioPacketsAdvanced": 29750,
+          "presentedFramesAdvanced": 10157,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 6,
+            "mean": 17.63981481481482
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 6.333333333333333,
+            "mean": 19.116358024691362
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.438753132832083
+          },
+          "jitterMilliseconds": {
+            "mean": 14.862026862026863,
+            "maximum": 94
+          },
+          "packetLoss": {
+            "receivedDelta": 47382,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 16181773,
+          "reportedFreezeEventsDelta": 22
+        }
+      ],
+      "relay": {
+        "scope": "Whole node; includes other participants and forwarding legs. Transport proof for this test uses matched browser endpoints, not aggregate UDP totals.",
+        "sampleCount": 73,
+        "streamConnectionsPeak": 52,
+        "streamPayloadBytesDelta": 167911617,
+        "udpPayloadBytesDelta": 80670063,
+        "forwardedPacketsDelta": 778887,
+        "droppedPacketsDelta": 1686,
+        "streamErrorsDelta": 12,
+        "maximumPayloadBytesPerSecond": 658770.7959305805,
+        "requestRefusals": {
+          "allocationQuotaRefusals": 0,
+          "userQuotaRefusals": 63,
+          "relayBindFailures": 0,
+          "refusedStreams": 0
+        },
+        "counterObservationWindow": {
+          "startsAtMs": 1793887076786,
+          "endsAtMs": 1793888188521,
+          "includesPreparationAndUpTo15SecondsOfTeardown": true,
+          "scope": "Whole node, including other participants. Requests and retries are not failed calls; no client attribution is available."
+        },
+        "sampledPeakAllocations": 24,
+        "streamConnectionCapacityRefusalsDelta": 0,
+        "sampleCadenceSeconds": 10
+      },
+      "credentials": [
+        {
+          "endpoint": 0,
+          "seconds": -11,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": -7,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 31,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 30,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 50,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 81,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 79,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 119,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 119,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 229,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 233,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 245,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 247,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 261,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 470,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 473,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 486,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 488,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 502,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 504,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 710,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 713,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 725,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 729,
+          "lifetime": 300
+        }
+      ],
+      "physicalDevice": false,
+      "commercialVpn": false,
+      "independentNats": false,
+      "subsecondGapFreeClaim": false,
+      "realCaptureHardware": false,
+      "browserExposedAllocationErrors": [
+        0,
+        0
+      ],
+      "actualRoundedSampleIntervalsSeconds": {
+        "minimum": 2,
+        "median": 2.0,
+        "maximum": 4
+      },
+      "allAttemptsOrNetworksQualified": false
+    },
+    "production": {
+      "schema": "kithmoot-node-sustained-media/1",
+      "passed": true,
+      "clientSource": "6b5147d7f36f830943361e8c94e8f745759cbb35",
+      "productionRelease": "20261105T143709Z",
+      "nodeBackendSource": "31c728f947fda91b8500748edf5ff913452aec38",
+      "mediaSeconds": 749,
+      "afterFinalRecoverySeconds": 610,
+      "sampleCadenceSeconds": 2,
+      "matchedPair": true,
+      "publicTlsValidated": true,
+      "productionRendererUnmodified": true,
+      "candidateRendererWithProductionHeaders": false,
+      "browserVersion": "151.0.7922.34",
+      "mediaTransport": "TURN over TLS443; browser non-proxied UDP disabled; CONNECT proxy port443 only",
+      "network": "Isolated container direct/WireGuard/direct and twelve-second outage; no host VPN changes",
+      "recovery": [
+        {
+          "phase": "vpn-recovered",
+          "recoverySeconds": 17,
+          "recoveryMs": 16556,
+          "confirmationMs": 18602,
+          "freshConfirmationSamples": 2,
+          "encryptedTransfer": true
+        },
+        {
+          "phase": "direct-recovered",
+          "recoverySeconds": 17,
+          "recoveryMs": 16894,
+          "confirmationMs": 18989,
+          "freshConfirmationSamples": 2
+        },
+        {
+          "phase": "outage-recovered",
+          "recoverySeconds": 2,
+          "recoveryMs": 2088,
+          "confirmationMs": 4200,
+          "freshConfirmationSamples": 2
+        }
+      ],
+      "guests": [
+        {
+          "endpoint": 0,
+          "steadySamples": 269,
+          "selectedEndpointUnavailableSamples": 23,
+          "decodedVideoFramesAdvanced": 10913,
+          "receivedAudioPacketsAdvanced": 29787,
+          "presentedFramesAdvanced": 9333,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 4.333333333333333,
+            "mean": 16.293184634448576
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 5.6,
+            "mean": 19.05427509293681
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.424088050314468
+          },
+          "jitterMilliseconds": {
+            "mean": 14.967032967032967,
+            "maximum": 98
+          },
+          "packetLoss": {
+            "receivedDelta": 49119,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 17787138,
+          "reportedFreezeEventsDelta": 35
+        },
+        {
+          "endpoint": 1,
+          "steadySamples": 269,
+          "selectedEndpointUnavailableSamples": 27,
+          "decodedVideoFramesAdvanced": 10975,
+          "receivedAudioPacketsAdvanced": 29784,
+          "presentedFramesAdvanced": 9628,
+          "steadyZeroProgressSamples": 0,
+          "displayedFramesPerSecond": {
+            "minimum": 5.666666666666667,
+            "mean": 16.788971499380416
+          },
+          "aggregateDecodedFramesPerSecond": {
+            "minimum": 6,
+            "mean": 19.134014869888478
+          },
+          "perStreamVideoDecodedFps": {
+            "minimum": 0,
+            "mean": 9.452924528301887
+          },
+          "jitterMilliseconds": {
+            "mean": 14.706959706959706,
+            "maximum": 77
+          },
+          "packetLoss": {
+            "receivedDelta": 49238,
+            "lostDelta": 0,
+            "percent": 0
+          },
+          "receivedPayloadBytesDelta": 18178310,
+          "reportedFreezeEventsDelta": 37
+        }
+      ],
+      "relay": {
+        "scope": "Whole node; includes other participants and forwarding legs. Transport proof for this test uses matched browser endpoints, not aggregate UDP totals.",
+        "sampleCount": 74,
+        "streamConnectionsPeak": 55,
+        "streamPayloadBytesDelta": 188467012,
+        "udpPayloadBytesDelta": 86997489,
+        "forwardedPacketsDelta": 803933,
+        "droppedPacketsDelta": 2617,
+        "streamErrorsDelta": 8,
+        "maximumPayloadBytesPerSecond": 610122.8648486665,
+        "requestRefusals": {
+          "allocationQuotaRefusals": 0,
+          "userQuotaRefusals": 28,
+          "relayBindFailures": 0,
+          "refusedStreams": 0
+        },
+        "counterObservationWindow": {
+          "startsAtMs": 1793890220057,
+          "endsAtMs": 1793891001354,
+          "includesPreparationAndUpTo15SecondsOfTeardown": true,
+          "scope": "Whole node, including other participants. Requests and retries are not failed calls; no client attribution is available."
+        },
+        "sampledPeakAllocations": 30,
+        "streamConnectionCapacityRefusalsDelta": 0,
+        "sampleCadenceSeconds": 10
+      },
+      "credentials": [
+        {
+          "endpoint": 0,
+          "seconds": -12,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": -7,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 28,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 27,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 40,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 39,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 89,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 90,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 135,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 135,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 229,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 233,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 250,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 255,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 266,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 469,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 474,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 710,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 714,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 0,
+          "seconds": 725,
+          "lifetime": 300
+        },
+        {
+          "endpoint": 1,
+          "seconds": 729,
+          "lifetime": 300
+        }
+      ],
+      "physicalDevice": false,
+      "commercialVpn": false,
+      "independentNats": false,
+      "subsecondGapFreeClaim": false,
+      "realCaptureHardware": false,
+      "browserExposedAllocationErrors": [
+        0,
+        0
+      ],
+      "actualRoundedSampleIntervalsSeconds": {
+        "minimum": 2,
+        "median": 2.0,
+        "maximum": 7
+      },
+      "allAttemptsOrNetworksQualified": false
+    }
+  },
+  "deployment": {
+    "webRelease": "20261105T143709Z",
+    "qualifiedCandidateFiles": 598,
+    "exactPublicReadbacks": 8,
+    "bothDomainsVerifiedWithNormalTls": true,
+    "websiteAndNativeUpdateFeedsUnchanged": true,
+    "oldReleaseRetained": true,
+    "privateImageId": "2ccdc2b17784f9df107080279c112e565a5a1615f85336e92d6842c1ecf08ef5",
+    "privateBinarySha256": "8b815bbabe06f51ee41e9fd8e8d3831a1c08264980b479ff3b44de4628a7ffd8"
+  },
+  "measurementNotes": [
+    "The candidate was served only to owned browsers under production headers. The final run loaded unmodified public files, without renderer interception.",
+    "Earlier renderer build 20261104T112032Z remained byte-identical inside deployment 20261104T165051Z; the raw baseline harness retained the renderer-build label.",
+    "The node factory and generic peer could both recover the same failure. Integration regressions prove stale native ICE used the previous login while refresh was pending; the corrected owner defers that restart and its offer.",
+    "Both guests share an isolated controlled carrier. Only the proxy container changes WireGuard/NAT routes; the Mac VPN and firewall are unchanged. Browser non-proxied WebRTC UDP is disabled; the proxy accepts port443 only.",
+    "Private counters cover the whole node and cannot identify a client, selected path or failed call. Some per-login refusals remain; no claim that all quota refusals are eliminated is made.",
+    "The owner reported updating the managing room tab before the production run. Other participant activity is not controlled, so node-wide differences are not a causal capacity comparison.",
+    "Selected-pair telemetry is required during recovery confirmations. Missing selected pairs in steady samples are counted separately, not silently treated as verified endpoints.",
+    "Displayed frames follow attached visible video elements. RTP freeze counters include inactive slots and retiring generations; they are not a perceptual playback score.",
+    "A reconstructed VPN fixture first used the wrong local carrier port. Its HTTPS probe failed, no product pass was inferred, and the corrected fixture passed an independent encrypted-transfer check before reruns.",
+    "Browser allocation-error counts use the final cumulative event arrays, including separate events with indistinguishable millisecond timestamps; repeated copies of arrays in earlier samples are not recounted."
+  ],
+  "acceptance": {
+    "scope": "One controlled continuity case per stage with synthetic media",
+    "physicalPhone": false,
+    "realCaptureHardware": false,
+    "commercialVpn": false,
+    "independentNats": false,
+    "perceptualSmoothnessQualified": false,
+    "largerRoomCapacityQualified": false,
+    "allNodePerLoginRefusalsEliminated": false,
+    "officialArchyMaintainer": "pending"
+  }
+}
