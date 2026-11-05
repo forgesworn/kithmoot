@@ -1,6 +1,8 @@
 # What KithMoot can learn from Anagram's Iroh calls
 
-26 October 2026. Source assessment with a deferred comparison design. No
+26 October 2026. Source assessment with a deferred comparison design. Source
+pins, Anagram's queue behaviour and KithMoot's call routing were refreshed on
+5 November 2026; the finding is unchanged. No
 transport was integrated, benchmarked or deployed by this review. The accompanying
 [product gap review](../anagram-gap-review-2026-10-26.md) records the messaging
 work separately.
@@ -44,17 +46,24 @@ replacement is not justified by this source comparison.
 
 ## Evidence and attribution
 
-- KithMoot source: `28786a0c42568b46f842e1dee249e57132ec2f86`.
-  Companion source pins: RelaySwarm `de2cbd6f32dc6b890c814324282dd0bcd5574e8f`
+- KithMoot source: `789f0f2a08106dd071dd62b8b59551f5845991cb` (refreshed
+  5 November; first reviewed at `28786a0c42568b46f842e1dee249e57132ec2f86`).
+  Companion source pins, unchanged: RelaySwarm `de2cbd6f32dc6b890c814324282dd0bcd5574e8f`
   and Sapflow `27cea3d2fa629ee23724f40a9e6ae75f2a8ac5df`, from
   [`realtime-sources.json`](../../realtime-sources.json).
-- Anagram source: `a4db9c697d77e3f8e15ca985af5e68677bc61a7d`.
-  Its wrapper pins Iroh and iroh-relay **1.3.0**, disables default features and
-  uses `tls-ring`. Browser bindings use wasm-bindgen 0.2.122.
+- Anagram source: `0bca0c7d0e458ffe6abea09f745324bba84552ee`, its `main` on
+  5 November (first reviewed at `a4db9c697d77e3f8e15ca985af5e68677bc61a7d`;
+  four commits apart). Its wrapper still pins Iroh and iroh-relay **1.3.0**,
+  disables default features and uses `tls-ring`. Browser bindings use
+  wasm-bindgen 0.2.122. Relay pool and `clear_ip_transports()` are unchanged.
 - The owner relayed the Anagram developer's assessment that calls work well and
   that an audio packet-dropping bug is being fixed. This is developer self-report,
-  not an independent test, an identified root cause or a verified fix. The
-  supplied conversation did not identify the affected build/platform.
+  not an independent test. The supplied conversation did not identify the
+  affected build/platform. The subsequent `fixes: audio packets dropping` commit
+  changes Anagram's own queue policy, not Iroh: native reads no longer keep only
+  the newest four of up to 64 waiting datagrams, and the JavaScript queue limit
+  rose from 5 packets/100 ms to 75 packets/1.5 s, trimming toward live speech
+  only beyond that backlog. This is a source reading; the fix was not run here.
 - Official Iroh documentation was read on 26 October 2026. General documentation
   describes default deployments; the pinned application's source determines
   which features Anagram actually enables. Some documentation describes
@@ -69,13 +78,13 @@ replacement is not justified by this source comparison.
 | Room membership and people/devices | Application Nostr signalling and host-controlled call roster | KithMoot/fold-kit admission, participant credentials, grouped devices and agent ownership | Retain our application model. An Iroh endpoint key is a transport identity, not room authority. |
 | Finding/authenticating a transport peer | Encrypted Nostr signal supplies ephemeral endpoint ID, relay and call ID; Rust checks peer ID, ALPN and call confirmation | Existing encrypted signalling; separate RelaySwarm rendezvous in the SDK | Reuse Nostr as the authenticated address handoff. Bind any new endpoint to room, device, call generation and expiry. |
 | Establishing the network connection | Iroh QUIC through its relay protocol; browser and native share the wrapper | Ordinary WebRTC ICE/DTLS/media; SDK WebRTC data channels and native Node backend | Iroh is an alternative client transport plus a different relay protocol. It is not a Spry TURN server drop-in. |
-| NAT/restricted-network reachability | Current Anagram disables native IP transports; browser Iroh is relay-only | ICE selects direct or explicitly configured TURN; Spry is an optional TURN operator implementation | Compare real connection setup, relay-only behaviour and blocked-UDP networks. Direct native Iroh is a separate configuration to qualify. |
+| NAT/restricted-network reachability | Current Anagram disables native IP transports; browser Iroh is relay-only | ICE tries direct paths first; local-network host candidates are sent again by default since 1 November (`HIDE_HOST_CANDIDATES` is off). Default rooms mint a TURN credential from the publisher's same-origin `/turn`, offering UDP TURN and `turns:` on TLS 443 (qualified in browsers on 2 November). Hide my IP requires credentialled TURN and never silently becomes direct. Spry remains an optional TURN operator implementation | Compare real connection setup, relay-only behaviour and blocked-UDP networks. Direct native Iroh is a separate configuration to qualify. |
 | Media capture and protection | Application-owned capture and codec path | Existing voice/camera effects, selective media grants, screen crop/redaction and recording policy | Reuse our processed streams and consent model. Transport cannot select raw capture on failure. |
 | Encoding, jitter and rendering | Application packet Opus/VP8 and legacy WebM paths | Browser/native WebRTC media today; WebCodecs, bounded queues and playback in the SDK | Compare media policies separately from connection transport. Iroh does not supply echo cancellation or codec policy on our behalf. |
 | Group distribution | Full mesh, up to six participants in link-call rooms | Ordinary mesh/forwarding; SDK supports one encrypted publication upload to a selected forwarding operator | Preserve and compare topology explicitly. Sharing an encoder does not eliminate one network copy per mesh recipient. |
 | Forwarding privacy | Iroh relay forwards endpoint-encrypted traffic | Our SDK forwarding node receives already encrypted media publications | Keep the SDK's media encryption if an Iroh connection terminates at a forwarding operator. TLS to that operator alone would expose plaintext there. |
 | Native/browser lifecycle | Shared Rust core; native main-window bridge and session-bound handles | Browser WebRTC; native Android engine; separately packaged SDK backend | Investigate a shared core, without assuming Tauri IPC directly fits Electron or Kotlin. |
-| Service operation | Configurable Anagram/default/public Iroh relays | Independently selected operators; private owner deployment remains separate | Preserve the agreed operating arrangement. Changing transport does not require selecting a ForgeSworn-operated public service. |
+| Service operation | Configurable Anagram/default/public Iroh relays | Since 1 November the default is the publisher's public TURN service at `kithmoot.forgesworn.dev`. When no credential can be minted, STUN falls back to Cloudflare only (Google removed 2 November; installed clients built earlier may retain it). Rooms and devices can name their own STUN/TURN; Spry and the desktop's built-in call relay (off by default) are self-hosted options. See [decisions](../decisions.md) for 1-2 November | Preserve the agreed operating arrangement. Changing transport does not require selecting a ForgeSworn-operated public service. |
 
 ## The important browser constraint
 
@@ -93,6 +102,12 @@ TCP connection. Datagram semantics do not remove head-of-line blocking in that
 carrier. Measure actual delayed speech and freeze recovery, not merely whether
 QUIC is present.
 
+KithMoot's ordinary path differs here. ICE normally ranks UDP candidates, direct or
+UDP TURN, above `turns:` on TLS 443, so media reaches a TCP carrier only when
+UDP paths fail or are refused. That fallback has the same head-of-line exposure
+as Anagram's relay link. A matched comparison should therefore pin both clients
+to the same carrier rather than compare Anagram's TCP relay with our UDP TURN.
+
 The shipped pool contains `iroh.nostr.com` plus four n0 public relays. Official
 n0 guidance describes its free public relays as development/hobby infrastructure,
 with rate limits, no SLA and support concentrated on current versions. Their
@@ -103,28 +118,33 @@ TURN and cannot be substituted by changing a TURN URL.
 Sources: [Iroh browser support](https://docs.iroh.computer/languages/wasm-browser),
 [network/carrier behaviour](https://docs.iroh.computer/configuring-networks),
 [public relay policy](https://docs.iroh.computer/iroh-services/relays/public),
-[Anagram Rust endpoint](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/iroh-calls/src/lib.rs#L63),
-[relay pool](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src/utils/irohRelays.ts#L27).
+[Anagram Rust endpoint](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/iroh-calls/src/lib.rs#L85),
+[relay pool](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/utils/irohRelays.ts#L27),
+[KithMoot ICE fallback](../../src/ice-defaults.ts),
+[host-candidate switch](../../src/local-address-filter.ts),
+[TURN on 443](../../deploy/turn-443.md).
 
 ## Concrete lessons
 
 | Lesson | Observed implementation | Application here |
 | --- | --- | --- |
 | Keep control, audio, camera and screen independent | Four ordered bidirectional streams with descending priorities; a separate audio datagram path. Receivers keep one pending read per stream and complete ready before media. | Protect mute/hangup and audio from camera/share work. Independent streams still share congestion and may share the outer TCP carrier. Do not claim total isolation. |
-| Spend latency on current speech | 20 ms mono 48 kHz Opus frames at 32 kbit/s, FEC enabled, a 40–160 ms adaptive jitter target, concealment, generation/sequence checks and bounded catch-up. | Compare this with our SDK decoder/playout, which is not the ordinary browser WebRTC jitter engine. Audio continuity merits a separate diagnostic gate. Values are experiment candidates, not proven tuning for our devices. |
-| Bound every queue, including IPC | Audio datagrams are at most 1,100 bytes; transport buffers are 2,200 bytes sending and 8,800 receiving. Native reads return at most four recent packets, with bounded draining. Per-peer native sends permit two in flight and one latest pending. | Instrument capture, worker, native bridge, transport, decoder and playback separately. Count intentional deadline drops apart from missing network packets. A browser-to-native round trip must not serialise every 20 ms frame. |
+| Spend latency on current speech | 20 ms mono 48 kHz Opus frames at 32 kbit/s, FEC enabled, a 40–160 ms adaptive jitter target, concealment, generation/sequence checks and bounded catch-up. Since `0bca0c7`, ordinary jitter keeps buffered speech in order; only a backlog beyond 1.5 s is trimmed toward live. | Compare this with our SDK decoder/playout, which is not the ordinary browser WebRTC jitter engine. Audio continuity merits a separate diagnostic gate. Values are experiment candidates, not proven tuning for our devices. |
+| Bound every queue, including IPC | Audio datagrams are at most 1,100 bytes; transport buffers are 2,200 bytes sending and 8,800 receiving. Native reads return at most four packets in arrival order and leave the rest for the next read. Per-peer native sends permit two in flight with a bounded FIFO queue behind them. At `a4db9c6` both paths kept only the newest packets; the packet-dropping fix replaced that trimming. | Instrument capture, worker, native bridge, transport, decoder and playback separately. Count intentional deadline drops apart from missing network packets; Anagram's fix shows over-eager trimming can itself cause audible loss. A browser-to-native round trip must not serialise every 20 ms frame. |
 | Encode once for equivalent recipients | Shared microphone encoder; video encoders keyed by original track and quality profile; per-peer send state. A slow peer does not immediately lower quality for all. | Retain our SDK's once-per-source encoder model and compare the ordinary call path separately. Encoder savings are not mesh bandwidth savings. |
 | Recover the affected media only | Packet-video dependency fences and keyframe requests; legacy camera/screen restart controls; audio continues during video failure. Native Linux deliberately negotiates legacy audio because of a WebKitGTK realtime-worklet failure. | Test camera/share failure while speech continues, and negotiate real capabilities before selection. Do not copy the Linux fallback into unrelated engines or treat fallback as platform parity. |
 | Give native handles a clear owner | Main-window access checks, fresh WebView session IDs, stale-result rejection, bounded handle maps and cleanup after reload. Binary IPC avoids JSON media copies. | Useful for any future Electron/Rust or Android adapter. Keep source ownership and asynchronous cleanup explicit; the application should not retain microphone/camera resources after transport shutdown. |
 | Assert what users actually receive | Native probe uses the production transport, local TLS relay and synthetic media; checks changing decoded pictures, audio playback, mute, reconnection and hangup. | Extend our existing media qualification rather than substituting connection-state assertions. Attribute source tests, executed results and developer reports separately. |
 
-Source anchors: [transport/lanes](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/iroh-calls/src/lib.rs#L164),
-[audio send/receive bounds](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src/services/callPacketAudio.ts#L155),
-[jitter buffer](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src/services/callAudioPackets.ts#L72),
-[Opus worker](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src/services/callAudio.worker.ts#L39),
-[shared video encoder](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src/services/callPacketVideo.ts#L245),
-[native bridge](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/src-tauri/src/iroh_calls.rs),
-[probe](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/scripts/native-calls/run.mjs).
+Source anchors: [transport/lanes](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/iroh-calls/src/lib.rs#L164),
+[audio send/receive bounds](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/services/callPacketAudio.ts#L162),
+[audio queue](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/services/callAudioQueue.ts),
+[jitter buffer](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/services/callAudioPackets.ts#L74),
+[Opus worker](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/services/callAudio.worker.ts#L40),
+[shared video encoder](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src/services/callPacketVideo.ts#L245),
+[native bridge](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/src-tauri/src/iroh_calls.rs),
+[probe](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/scripts/native-calls/run.mjs),
+[packet-drop fix](https://github.com/lnbits/anagram/compare/a4db9c697d77e3f8e15ca985af5e68677bc61a7d...0bca0c7d0e458ffe6abea09f745324bba84552ee).
 
 Anagram currently uses long-lived reliable camera/screen lanes. Iroh's own
 [real-time protocol guidance](https://docs.iroh.computer/protocols/using-quic)
@@ -217,7 +237,7 @@ In the supplied discussion, the remark about forward secrecy and restoration
 appears to concern stored message history; it is not evidence that live Iroh
 calls are unencrypted.
 
-The [Anagram group specification](https://github.com/lnbits/anagram/blob/a4db9c697d77e3f8e15ca985af5e68677bc61a7d/nips/nip171.md#security-and-limitations)
+The [Anagram group specification](https://github.com/lnbits/anagram/blob/0bca0c7d0e458ffe6abea09f745324bba84552ee/nips/nip171.md#security-and-limitations)
 states that recovery-master compromise exposes all recorded past epochs and
 future epochs under that master. Ordinary KithMoot likewise makes no stored-room
 forward-secrecy claim, and its MLS preview is not production. Distinguish live
