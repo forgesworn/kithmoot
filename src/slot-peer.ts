@@ -457,6 +457,7 @@ export class SlotPeer implements NegotiatingPeer {
     }
 
     pc.onconnectionstatechange = () => this.#onConnectionState(pc)
+    this.#opts.factory.onIceRestartReady?.(pc, () => { if (!this.#closed && this.#pc === pc && pc.signalingState !== 'closed') this.#restartIce(true) })
     return pc
   }
 

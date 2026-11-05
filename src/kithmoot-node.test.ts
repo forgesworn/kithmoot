@@ -28,6 +28,138 @@ function fixture(turnPorts?: { udpTcp: number; tls: number }) {
   return { authority, device, room, node, grant, identity, access, login }
 }
 const response = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
+describe('node TURN route gathering', () => {
+  async function setup() {
+    const f = fixture({ udpTcp: 34790, tls: 53499 }); let issued = 0
+    const fetcher = vi.fn(async () => response(f.login(NOW, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
+    class Connection extends EventTarget {
+      signalingState = 'stable'; connectionState = 'new'; iceGatheringState = 'new'
+      restartIce = vi.fn()
+      setConfiguration = vi.fn((configuration: RTCConfiguration) => { this.configuration = configuration })
+      constructor(public configuration: RTCConfiguration) { super() }
+      fire(type: string, fields: object = {}) { this.dispatchEvent(Object.assign(new globalThis.Event(type), fields)) }
+      gather() { this.iceGatheringState = 'gathering'; this.fire('icegatheringstatechange') }
+      exhausted() { this.iceGatheringState = 'complete'; this.fire('icegatheringstatechange') }
+      close() { this.signalingState = 'closed' }
+    }
+    const contexts = [{ tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }, { tier: 'turn' as const, remoteDevice: 'cd'.repeat(32) }]
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection })
+    const create = (index = 0) => managed.factory(contexts[index]) as unknown as Connection
+    const urls = (peer: Connection) => peer.configuration.iceServers![0]!.urls
+    return { ...f, managed, create, urls, fetcher }
+  }
+  it('gathers one UDP route per peer rather than allocating all four advertised routes', async () => {
+    const f = await setup()
+    try {
+      expect(f.node.turnUrls).toHaveLength(4)
+      for (let index = 0; index < 4; index++) expect(f.urls(f.create())).toEqual([f.node.turnUrls.find(url => url.endsWith('transport=udp'))])
+    } finally { f.managed.close() }
+  })
+  it('falls back to TLS 443 when UDP gathering stalls, without restarting a healthy peer', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const blocked = f.create(), healthy = f.create(1), oldLogin = blocked.configuration.iceServers![0]!.username
+      blocked.gather(); healthy.gather(); healthy.fire('icecandidate', { candidate: { type: 'relay' } })
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(f.urls(blocked)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(blocked.configuration.iceServers![0]!.username).not.toBe(oldLogin)
+      expect(blocked.restartIce).toHaveBeenCalledTimes(1)
+      expect(healthy.restartIce).not.toHaveBeenCalled(); expect(healthy.setConfiguration).not.toHaveBeenCalled()
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+    } finally { f.managed.close() }
+  })
+  it('tries remaining pinned routes once and stops after all transports are unreachable', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create()
+      const expected = [f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url)), f.node.turnUrls.find(url => /^turns:.*:53499\?/.test(url)), f.node.turnUrls.find(url => /^turn:.*transport=tcp$/.test(url))]
+      for (const url of expected) {
+        peer.gather(); peer.fire('icecandidateerror', { errorCode: 701 }); peer.exhausted(); await vi.advanceTimersByTimeAsync(4000)
+        expect(f.urls(peer)).toEqual([url])
+      }
+      peer.gather(); peer.fire('icecandidateerror', { errorCode: 701 }); peer.exhausted(); await vi.advanceTimersByTimeAsync(20000)
+      expect(f.fetcher).toHaveBeenCalledTimes(4); expect(peer.restartIce).toHaveBeenCalledTimes(3)
+      expect(peer.configuration.iceTransportPolicy).toBe('relay')
+    } finally { f.managed.close() }
+  })
+  it('falls back when a gathered route fails its checks and ignores errors from the old URL', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(), udp = f.urls(peer) as string[]
+      peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } })
+      await vi.advanceTimersByTimeAsync(5000); expect(f.fetcher).toHaveBeenCalledTimes(1)
+      peer.connectionState = 'failed'; peer.fire('connectionstatechange'); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      peer.gather(); peer.fire('icecandidateerror', { errorCode: 701, url: udp[0] })
+      peer.fire('icecandidate', { candidate: { type: 'relay' } })
+      await vi.advanceTimersByTimeAsync(5000); expect(f.fetcher).toHaveBeenCalledTimes(2)
+      expect(f.urls(f.create(1))).toEqual(f.urls(peer))
+      await f.managed.reconnect()
+      expect(f.urls(peer)).toEqual(udp)
+    } finally { f.managed.close() }
+  })
+  it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const peers = [f.create(), f.create(1)]
+      for (const peer of peers) { peer.gather(); peer.fire('icecandidateerror', { errorCode: 701 }); peer.exhausted() }
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+      release(response(f.login(NOW, '02'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      for (const peer of peers) expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+    } finally { f.managed.close() }
+  })
+  it('keeps a URL whose IPv4 relay candidate follows an address-family error', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather(); peer.fire('icecandidateerror', { errorCode: 701 })
+      await vi.advanceTimersByTimeAsync(100)
+      peer.fire('icecandidate', { candidate: { type: 'relay' } }); peer.exhausted()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+    } finally { f.managed.close() }
+  })
+  it('falls back when a browser with UDP disabled reports only gathering complete', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.exhausted(); await vi.advanceTimersByTimeAsync(4000)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(peer.restartIce).toHaveBeenCalledTimes(1)
+    } finally { f.managed.close() }
+  })
+  it('lets a replacement gathering round finish after an empty rollback round', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather(); peer.exhausted()
+      await vi.advanceTimersByTimeAsync(100)
+      peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } }); peer.exhausted()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+    } finally { f.managed.close() }
+  })
+  it.each([401, 403, 486, 508])('does not treat TURN refusal %s as a blocked route', async code => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather(); peer.fire('icecandidateerror', { errorCode: code })
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+    } finally { f.managed.close() }
+  })
+  it.each(['closed', 'retiring', 'stopped'])('cancels route fallback for a %s peer', async state => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather()
+      if (state === 'closed') peer.close()
+      else if (state === 'retiring') f.managed.factory.onRetiring!(peer as unknown as ReturnType<typeof f.managed.factory>)
+      else f.managed.close()
+      await vi.advanceTimersByTimeAsync(10000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+    } finally { f.managed.close() }
+  })
+})
 describe('pinned KithMoot node client', () => {
   it('probes and replaces an idle silent authenticated socket without waiting for a publish', async () => {
     const f = fixture(), server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
@@ -199,7 +331,7 @@ describe('pinned KithMoot node client', () => {
       clock += 240; await vi.advanceTimersByTimeAsync(240000)
       expect(peer.restartIce).toHaveBeenCalledTimes(1); expect(peer.setConfiguration).toHaveBeenCalledTimes(1)
       expect(peer.configuration.iceTransportPolicy).toBe('relay')
-      expect(peer.configuration.iceServers?.[0]?.urls).toEqual(f.node.turnUrls)
+      expect(peer.configuration.iceServers?.[0]?.urls).toEqual([f.node.turnUrls[0]])
       managed.close(); expect(peer.signalingState).toBe('closed')
       expect(() => managed.factory()).toThrow()
     } finally { managed.close() }
@@ -341,6 +473,34 @@ describe('pinned KithMoot node client', () => {
         expect(calls).toBe(2)
       } finally { subject.close(); managed.close() }
     }
+  })
+
+  it('sends a fixed-slot restart offer when TURN gathering falls back before a connection failure', async () => {
+    vi.useFakeTimers()
+    const f = fixture(); let connection!: Connection, calls = 0
+    const fetcher = vi.fn(async () => response(f.login(NOW, String(++calls).padStart(24, '0')))) as unknown as typeof fetch
+    class Connection extends FakeRTCPeerConnection {
+      readonly events = new EventTarget()
+      iceGatheringState: RTCIceGatheringState = 'new'
+      constructor(public configuration: RTCConfiguration) { super(); connection = this }
+      addEventListener(type: string, listener: EventListener) { this.events.addEventListener(type, listener) }
+      setConfiguration(value: RTCConfiguration) { this.configuration = value }
+      override close() { this.signalingState = 'closed'; super.close() }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection })
+    const subject = new SlotPeer({ factory: managed.factory, localDevice: f.identity.pubkey, remoteDevice: 'ab'.repeat(32),
+      context: { tier: 'turn', remoteDevice: 'ab'.repeat(32) }, onSignal: () => {}, onTrack: () => {} })
+    try {
+      await subject.start([fakeTrack('audio')])
+      const offer = vi.spyOn(connection, 'createOffer')
+      connection.iceGatheringState = 'complete'
+      connection.events.dispatchEvent(new globalThis.Event('icegatheringstatechange'))
+      await vi.advanceTimersByTimeAsync(4000)
+      await vi.waitFor(() => expect(calls).toBe(2))
+      await vi.waitFor(() => expect(offer).toHaveBeenCalled())
+      expect(connection.configuration.iceServers![0]!.urls).toEqual([f.node.turnUrls[3]])
+    } finally { subject.close(); managed.close() }
   })
 
   it('gives only the failed participant a fresh login and keeps the original rotation deadline', async () => {
