@@ -8,6 +8,9 @@ import { verifyEventUncached } from './verify.js'
 import { RECONNECT_JITTER_MS } from './relay-pool.js'
 import { spryHash } from './spry.js'
 import type { PeerContext } from './peer.js'
+import { Peer } from './peer.js'
+import { SlotPeer } from './slot-peer.js'
+import { FakeRTCPeerConnection, fakeTrack } from '../test/fake-rtc.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
   nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
 
@@ -297,6 +300,49 @@ describe('pinned KithMoot node client', () => {
       expect((peer as unknown as Peer).configuration.iceTransportPolicy).toBe('relay')
     } finally { managed.close() }
   })
+  it.each(['legacy', 'slots'] as const)('defers the %s native restart until fresh node credentials arrive', async profile => {
+    for (const rebuild of [false, true]) {
+      const f = fixture(), connections: Connection[] = [], restartLogins: string[] = []
+      let calls = 0, release!: (value: Response) => void
+      const fetcher = vi.fn(async () => ++calls === 1 ? response(f.login()) : new Promise<Response>(resolve => { release = resolve })) as unknown as typeof fetch
+      class Connection extends FakeRTCPeerConnection {
+        readonly events = new EventTarget()
+        constructor(public configuration: RTCConfiguration) { super(); connections.push(this) }
+        addEventListener(type: string, listener: EventListener) { this.events.addEventListener(type, listener) }
+        setConfiguration(value: RTCConfiguration) { this.configuration = value }
+        override restartIce() { restartLogins.push(this.configuration.iceServers![0]!.username!); super.restartIce() }
+        override setConnectionState(state: RTCPeerConnectionState) {
+          this.connectionState = state
+          this.events.dispatchEvent(new globalThis.Event('connectionstatechange'))
+          this.onconnectionstatechange?.()
+        }
+        override close() { this.signalingState = 'closed'; super.close() }
+      }
+      let subject: Peer | SlotPeer
+      const owner = vi.fn(() => { if (rebuild) subject.close(); return rebuild })
+      const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+        { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection, rebuildPeers: owner })
+      const options = { factory: managed.factory, localDevice: f.identity.pubkey, remoteDevice: 'ab'.repeat(32),
+        context: { tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }, onSignal: () => {}, onTrack: () => {} }
+      subject = profile === 'slots' ? new SlotPeer(options) : new Peer(options)
+      try {
+        await subject.start([fakeTrack('audio')])
+        const connection = connections[0]!
+        connection.setConnectionState('connected')
+        // Both listeners run as in a browser: the node starts an asynchronous
+        // refresh, then the generic peer sees failure on that same connection.
+        connection.setConnectionState('failed')
+        await vi.waitFor(() => expect(calls).toBe(2))
+        expect(restartLogins, 'the generic restart used the old login while its replacement was pending').toEqual([])
+        release(response(f.login(NOW, '02'.repeat(12))))
+        await vi.waitFor(() => expect(owner).toHaveBeenCalledTimes(1))
+        if (rebuild) expect(restartLogins).toEqual([])
+        else await vi.waitFor(() => expect(restartLogins).toEqual([f.login(NOW, '02'.repeat(12)).username]))
+        expect(calls).toBe(2)
+      } finally { subject.close(); managed.close() }
+    }
+  })
+
   it('gives only the failed participant a fresh login and keeps the original rotation deadline', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW

@@ -502,11 +502,15 @@ export class SlotPeer implements NegotiatingPeer {
    * at `gen + 1` is a different act with a different cost, and the pair-health
    * ladder (S8) is what decides to take it.
    */
-  #restartIce(): void {
+  #restartIce(delegated = false): void {
     const pc = this.#pc
     if (this.#closed || !pc) return
     this.#restarted = true
     this.#clearRestartTimers()
+    if (!delegated && this.#opts.factory.onIceRestart) {
+      this.#opts.factory.onIceRestart(pc, () => { if (this.#pc === pc && pc.signalingState !== 'closed') this.#restartIce(true) })
+      return
+    }
     pc.restartIce?.()
     void this.#enqueue(() => this.#offer({ restart: true })).catch(() => {})
     this.#giveUpTimer = this.#clock.setTimer(this.#timeoutMs, () => {
