@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.134",
-  "versionCode": 157,
+  "versionName": "0.6.135",
+  "versionCode": 158,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74199628,
-  "apkSha256": "50558c4a814af6dc7144f6302d0e3eec17344176e7d89c696fe8156143bf2ba1",
+  "apkBytes": 74203724,
+  "apkSha256": "7c684d2662517b9288b22a57f31399838eb9ffc9011bab0584b605e0d9a5a15a",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.134-production.apk",
+  "downloadFilename": "kithmoot-0.6.135-production.apk",
   "releaseNotes": [
-    "Node calls recover temporary connection failures and create fresh relay connections when credentials renew.",
-    "Network changes reopen authenticated signalling; either device can initiate call recovery.",
-    "Removal and closure stop media and clear access; concurrent shutdown waits for media cleanup."
+    "Hosted calls try one node TURN route at a time, including TLS on port 443.",
+    "Route repair refreshes access before replacing the affected connection.",
+    "Network changes retry UDP; removal and the five-minute login limit stay enforced."
   ]
 }

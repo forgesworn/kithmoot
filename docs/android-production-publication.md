@@ -6,6 +6,35 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.135 and desktop 0.1.127, 5 November 2026
+
+Android 0.6.135 (158) gathers one authorised node TURN route per peer, trying
+UDP and then TLS443. Desktop 0.1.127 bundles the shared repair for legacy
+connection renewal: one bounded retiring transport keeps carrying media until
+the replacement is ready, while audience changes, removal and teardown remain
+in force. It also includes the ordinary-call connection fixes already on main.
+
+The SDK passed 8,893 tests with eight existing skips. Actual Mesh/native
+Chromium calls sustained 673 and 670 seconds across route loss, restoration,
+a short outage and repeated credential renewal, with zero quota refusals and
+zero final allocations. HTTP authority, roster, signalling delivery and capture
+were fixtures. The [evidence](evidence/kithmoot-node-route-handoff-20261105.json)
+keeps that scope separate from a complete deployed-app user journey.
+
+Android passed 3,362 local app tests with one existing skip, 684 protocol tests,
+both lints and debug/release assembly. Its exact production APK retained the
+existing certificate and lineage and passed an isolated API35 upgrade from
+0.6.134, four storage/native checks and three cold launches with Google Play
+services disabled. All six desktop installers carry the same 594 renderer
+files; the Mac build passed notarisation, stapling, Gatekeeper and packaged
+security/startup checks. Windows remains an unsigned preview.
+
+Source CI, public downloads, signed update feeds, APT and Zapstore each have
+their own delivery verification. Physical GrapheneOS, independent NATs, real
+Wi-Fi/cellular/VPN handoff, public native TLS443 and perceived quality remain
+field checks. No private Shelter release or official Archy UI submission is
+included.
+
 ## Android 0.6.134 and desktop 0.1.126, 4 November 2026
 
 Android 0.6.134 (code 157) carries the web node-call recovery work into native
