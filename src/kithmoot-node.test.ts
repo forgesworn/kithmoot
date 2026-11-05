@@ -49,6 +49,28 @@ describe('node TURN route gathering', () => {
     const urls = (peer: Connection) => peer.configuration.iceServers![0]!.urls
     return { ...f, managed, create, urls, fetcher }
   }
+
+  it('bounds retiring media by its original login even after all-peer credential renewal', async () => {
+    vi.useFakeTimers(); const f = fixture(); let clock = NOW, ticks = 0, issued = 0
+    class Connection extends EventTarget {
+      signalingState = 'stable'; connectionState = 'connected'
+      constructor(_: RTCConfiguration) { super() }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access, {
+      fetcher: (async () => response(f.login(clock, String(++issued).padStart(24, '0')))) as typeof fetch,
+      now: () => clock, monotonic: () => ticks, rebuildPeers: () => true,
+      PeerConnection: Connection as unknown as typeof RTCPeerConnection,
+    })
+    try {
+      const old = managed.factory()
+      clock += 295; ticks = 295_000; await managed.reconnect()
+      const current = managed.factory(); managed.factory.onRetiring!(old)
+      await vi.advanceTimersByTimeAsync(4_999); expect(old.signalingState).toBe('stable')
+      clock += 5; ticks += 5_000; await vi.advanceTimersByTimeAsync(1)
+      expect(old.signalingState).toBe('closed'); expect(current.signalingState).toBe('stable')
+    } finally { managed.close() }
+  })
   it('gathers one UDP route per peer rather than allocating all four advertised routes', async () => {
     const f = await setup()
     try {

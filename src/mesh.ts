@@ -600,6 +600,7 @@ export class Mesh {
    *  every one of them arrives on the same connection. */
   readonly #trackOwner = new Map<string, string>()
   readonly #trackListeners = new Set<(t: RemoteTrack) => void>()
+  readonly #retiringPeers = new Map<string, { peer: Peer; tracks: RemoteTrack[]; timer: ReturnType<typeof setTimeout>; settle?: ReturnType<typeof setTimeout> }>()
   readonly #annotationListeners = new Set<(annotation: RemoteAnnotation) => void>()
   readonly #relayTestListeners = new Set<(message: RemoteRelayTest) => void>()
   /** Staleness, deduplication and rate limiting - the three rules §3 of the
@@ -857,6 +858,7 @@ export class Mesh {
     this.#volunteers.clear()
     this.#pendingSignals.clear()
     for (const peer of this.#peers.values()) peer.close()
+    for (const endpoint of [...this.#retiringPeers.keys()]) this.#closeRetiringPeer(endpoint)
     this.#peers.clear()
     this.#peerSids.clear()
     this.#retiredRemoteSessions.clear()
@@ -949,6 +951,10 @@ export class Mesh {
       }
     }
 
+    for (const [endpoint, retiring] of this.#retiringPeers) {
+      if (!endpoints.has(endpoint)) this.#closeRetiringPeer(endpoint)
+      else void retiring.peer.start(this.#tracksFor(endpoint))
+    }
     for (const [endpoint, peer] of [...this.#peers]) {
       // Not the endpoint we built this for any more, even though the key is
       // the same one: another page session of that device is answering now,
@@ -1125,7 +1131,16 @@ export class Mesh {
     return built !== undefined && current !== undefined && built !== current
   }
 
-  #closePeer(endpoint: string, peer: NegotiatingPeer): void {
+  #closePeer(endpoint: string, peer: NegotiatingPeer, retainMedia = false): void {
+    const held = this.#retiringPeers.get(endpoint)
+    if (!retainMedia) this.#closeRetiringPeer(endpoint)
+    else if (held) {
+      // Another repair may supersede a replacement still negotiating. Keep
+      // the original connected transport and deadline, never another one.
+      held.tracks = []
+      if (held.settle !== undefined) clearTimeout(held.settle)
+      held.settle = undefined
+    }
     this.#peers.delete(endpoint)
     this.#peerSids.delete(endpoint)
     // Detached, not closed: the controller outlives any one connection, and
@@ -1137,9 +1152,25 @@ export class Mesh {
     this.#publishRetryAt.delete(endpoint)
     this.#closingEndpoints.add(endpoint)
     try {
-      peer.close()
+      if (retainMedia && !held && peer instanceof Peer && peer.retire()) {
+        const timer = setTimeout(() => this.#closeRetiringPeer(endpoint, true), 20_000)
+        ;(timer as unknown as { unref?: () => void }).unref?.()
+        this.#retiringPeers.set(endpoint, { peer, tracks: [], timer })
+      } else peer.close()
     } finally {
       this.#closingEndpoints.delete(endpoint)
+    }
+  }
+
+  #closeRetiringPeer(endpoint: string, flush = false): void {
+    const retiring = this.#retiringPeers.get(endpoint)
+    if (!retiring) return
+    this.#retiringPeers.delete(endpoint)
+    clearTimeout(retiring.timer)
+    if (retiring.settle !== undefined) clearTimeout(retiring.settle)
+    retiring.peer.close()
+    if (flush && !this.#closed && this.#peers.has(endpoint)) {
+      for (const remote of retiring.tracks) for (const listener of this.#trackListeners) listener(remote)
     }
   }
 
@@ -1284,6 +1315,11 @@ export class Mesh {
 
   /** A rung worked. */
   #endpointConnected(endpoint: string): void {
+    const retiring = this.#retiringPeers.get(endpoint)
+    if (retiring && retiring.settle === undefined) {
+      retiring.settle = setTimeout(() => this.#closeRetiringPeer(endpoint, true), 1_000)
+      ;(retiring.settle as unknown as { unref?: () => void }).unref?.()
+    }
     this.#clearRouteTimer(endpoint)
     this.#clearCheckTimer(endpoint)
     this.#controllers.get(endpoint)?.connected()
@@ -1881,7 +1917,7 @@ export class Mesh {
    * the device is still wanted and the endpoint set is unchanged - so nothing
    * else would replace a connection that has been failing for a minute.
    */
-  #restartPair(device: string): void {
+  #restartPair(device: string, retainMedia = false): void {
     if (this.#closed) return
     const route = this.#routes.get(device)
     if (!route) return
@@ -1893,7 +1929,7 @@ export class Mesh {
     route.retries += 1
     this.#announceRoute(device, route)
     const peer = this.#peers.get(device)
-    if (peer) this.#closePeer(device, peer)
+    if (peer) this.#closePeer(device, peer, retainMedia)
     this.#reconcile(this.#opts.session.participants())
   }
 
@@ -1928,7 +1964,7 @@ export class Mesh {
     for (const [device, peer] of [...this.#peers]) {
       if (remoteDevice !== undefined && device !== remoteDevice) continue
       if (peer instanceof SlotPeer) peer.rebuild()
-      else this.#restartPair(device)
+      else this.#restartPair(device, true)
     }
     return true
   }
@@ -2048,7 +2084,7 @@ export class Mesh {
       this.#retiredRemoteSessions.set(endpoint, seen)
     }
     this.#diagnose({ kind: 'signal-received', device: endpoint, detail: 'offer: far end started a new session; rebuilding' })
-    this.#closePeer(endpoint, stale)
+    this.#closePeer(endpoint, stale, true)
     for (const [device, route] of this.#routes) {
       if (route.endpoint !== endpoint || !route.connected) continue
       route.connected = false
@@ -2127,6 +2163,7 @@ export class Mesh {
             else if (state === 'failed' || state === 'closed') this.#forwarderFailed()
           }
         : (state: RTCPeerConnectionState) => {
+            if (this.#peers.get(remoteDevice) !== peer) return
             this.#diagnose({ kind: 'connection-state-change', device: remoteDevice, detail: state })
             if (state === 'connected') this.#endpointConnected(remoteDevice)
             else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
@@ -2208,6 +2245,15 @@ export class Mesh {
     if (!participant) return
     const remote: RemoteTrack = { participant, device, track, via }
     if (role !== undefined) remote.role = role
+    const retiring = this.#retiringPeers.get(device)
+    if (retiring) {
+      // Leave the old media attached until the replacement can render it.
+      // Keep only the latest receiver for a given kind/role during retries.
+      const index = retiring.tracks.findIndex(value => value.track.kind === track.kind && value.role === role)
+      if (index < 0) retiring.tracks.push(remote)
+      else retiring.tracks[index] = remote
+      return
+    }
     for (const listener of this.#trackListeners) listener(remote)
   }
 

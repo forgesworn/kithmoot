@@ -141,6 +141,83 @@ function harness(
 const slotted = (pc: { calls: { method: string }[] }) => pc.calls.filter((c) => c.method === 'addTransceiver').length === 4
 
 describe('fresh node allocations', () => {
+  it('keeps the connected legacy node transport until its replacement settles', async () => {
+    const h = harness({ callProfile: 1, initialTier: 'turn' })
+    const retired = vi.fn(); Object.assign(h.factory, { onRetiring: retired })
+    try {
+      h.roster(1); h.mesh.publish([track('mic-1')]); await settle()
+      const first = h.factory.to(h.remote.pub)!; first.setConnectionState('connected')
+      h.mesh.rebuildConnections(h.remote.pub); await settle()
+      expect(first.closed).toBe(false)
+      expect(retired).toHaveBeenCalledWith(first)
+      const next = h.factory.to(h.remote.pub)!; expect(next).not.toBe(first)
+      next.setConnectionState('connected')
+      expect(first.closed).toBe(false)
+      await new Promise(resolve => setTimeout(resolve, 1100))
+      expect(first.closed).toBe(true)
+    } finally { h.mesh.close() }
+  })
+
+
+  it('keeps only the original retiring transport across repeated legacy repairs and buffers new receivers', async () => {
+    const h = harness({ callProfile: 1, initialTier: 'turn' }); Object.assign(h.factory, { onRetiring: vi.fn() })
+    const received = vi.fn(); h.mesh.onRemoteTrack(received)
+    try {
+      h.roster(1); h.mesh.publish([track('mic-1')]); await settle()
+      const first = h.factory.to(h.remote.pub)!; first.setConnectionState('connected')
+      h.mesh.rebuildConnections(); await settle()
+      const second = h.factory.to(h.remote.pub)!
+      second.ontrack?.({ track: track('stale-receiver'), streams: [] })
+      expect(received).not.toHaveBeenCalled()
+      h.mesh.rebuildConnections(); await settle()
+      const third = h.factory.to(h.remote.pub)!
+      expect(first.closed).toBe(false); expect(second.closed).toBe(true)
+      third.ontrack?.({ track: track('current-receiver'), streams: [] })
+      third.setConnectionState('connected'); await new Promise(resolve => setTimeout(resolve, 1100))
+      expect(first.closed).toBe(true)
+      expect(received).toHaveBeenCalledTimes(1)
+      expect(received.mock.calls[0]![0].track.id).toBe('current-receiver')
+    } finally { h.mesh.close() }
+  })
+
+  it('narrows retiring senders when the audience changes and closes them on removal', async () => {
+    const h = harness({ callProfile: 1, initialTier: 'turn' }); Object.assign(h.factory, { onRetiring: vi.fn() })
+    try {
+      const mic = track('mic-1'); h.roster(1); h.mesh.publish([mic]); await settle()
+      const first = h.factory.to(h.remote.pub)!; first.setConnectionState('connected')
+      h.mesh.rebuildConnections(); await settle()
+      expect(first.getSenders()[0]?.track).toBe(mic)
+      h.mesh.publish([mic], () => false); await settle()
+      expect(first.getSenders().every(sender => sender.track === null)).toBe(true)
+      h.session.setViews([]); await settle()
+      expect(first.closed).toBe(true)
+      expect(h.factory.instances.every(peer => peer.closed)).toBe(true)
+    } finally { h.mesh.close() }
+  })
+
+  it('bounds a stalled legacy handover without restarting its original deadline', async () => {
+    const h = harness({ callProfile: 1, initialTier: 'turn' }); Object.assign(h.factory, { onRetiring: vi.fn() })
+    try {
+      h.roster(1); h.mesh.publish([track('mic-1')]); await settle()
+      const first = h.factory.to(h.remote.pub)!; first.setConnectionState('connected')
+      vi.useFakeTimers(); h.mesh.rebuildConnections(); await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(10_000)
+      h.mesh.rebuildConnections(); await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(9_999); expect(first.closed).toBe(false)
+      await vi.advanceTimersByTimeAsync(1); expect(first.closed).toBe(true)
+    } finally { h.mesh.close(); vi.useRealTimers() }
+  })
+
+  it.each(['close', 'standDown'] as const)('stops a retiring legacy transport immediately on %s', async action => {
+    const h = harness({ callProfile: 1, initialTier: 'turn' }); Object.assign(h.factory, { onRetiring: vi.fn() })
+    try {
+      h.roster(1); h.mesh.publish([track('mic-1')]); await settle()
+      const first = h.factory.to(h.remote.pub)!; first.setConnectionState('connected')
+      h.mesh.rebuildConnections(); await settle(); expect(first.closed).toBe(false)
+      h.mesh[action](); expect(first.closed).toBe(true)
+      expect(h.factory.instances.every(peer => peer.closed)).toBe(true)
+    } finally { h.mesh.close() }
+  })
   it.each([1, 2] as const)('rebuilds only the named participant on profile %s', async (profile) => {
     const h = harness({ callProfile: profile, initialTier: 'turn' }), other = device()
     try {

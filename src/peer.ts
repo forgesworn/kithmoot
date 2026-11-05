@@ -488,6 +488,8 @@ export class Peer implements NegotiatingPeer {
   #hasRemoteDescription = false
   #pendingCandidates: RTCIceCandidateInit[] = []
   #closed = false
+  #retiring = false
+  #retiringTimer: ReturnType<typeof setTimeout> | undefined
   /** The operations queue.
    *
    *  Every negotiation step - our own offer as much as an inbound signal -
@@ -865,6 +867,21 @@ export class Peer implements NegotiatingPeer {
    *  or larger track list - to publish a newly toggled-on track - since only
    *  tracks this connection has not already been given are actually added. */
   async start(tracks: MediaStreamTrack[]): Promise<void> {
+    if (this.#retiring) {
+      // A retiring transport may keep existing media, but publication and
+      // audience changes must silence anything no longer authorised.
+      const published = new Set(tracks)
+      try {
+        const changes: Promise<void>[] = []
+        for (const sender of this.#pc.getSenders?.() ?? []) {
+          if (!sender.track || published.has(sender.track)) continue
+          if (!sender.replaceTrack) { this.close(); return }
+          changes.push(sender.replaceTrack(null))
+        }
+        await Promise.all(changes)
+      } catch { this.close() }
+      return
+    }
     return this.#enqueue(() => this.#start(tracks))
   }
 
@@ -1498,14 +1515,36 @@ export class Peer implements NegotiatingPeer {
     )
   }
 
-  close(): void {
-    if (this.#closed) return
+  /** Stop signalling while a node-owned replacement takes over the media.
+   * Never retain a disconnected transport, or one without sender controls. */
+  retire(): boolean {
+    if (this.#closed || this.#pc.connectionState !== 'connected' || !this.#pc.getSenders || !this.#opts.factory.onRetiring) return false
+    try { this.#opts.factory.onRetiring(this.#pc) } catch { return false }
+    this.#stopNegotiating()
+    this.#retiring = true
+    this.#retiringTimer = this.#after(20_000, () => this.close())
+    return true
+  }
+
+  #stopNegotiating(): void {
     this.#closed = true
     if (this.#audioSenderStartTimer !== undefined) clearTimeout(this.#audioSenderStartTimer)
     this.#audioSenderStartTimer = undefined
     this.#clearRestartTimers()
     this.#clearNegotiationTimers()
     this.#gatherDone?.()
+    this.#pc.ontrack = null
+    this.#pc.onicecandidate = null
+    this.#pc.onnegotiationneeded = null
+    this.#pc.onconnectionstatechange = null
+  }
+
+  close(): void {
+    if (this.#closed && !this.#retiring) return
+    this.#retiring = false
+    if (this.#retiringTimer !== undefined) clearTimeout(this.#retiringTimer)
+    this.#retiringTimer = undefined
+    this.#stopNegotiating()
     this.#pc.close()
   }
 }

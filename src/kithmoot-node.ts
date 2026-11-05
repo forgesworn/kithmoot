@@ -298,6 +298,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
   if (!Base) throw new KithmootNodeError(0, 'unavailable')
   const peers = new Set<RTCPeerConnection>(), retiring = new WeakSet<RTCPeerConnection>(), controller = new AbortController()
+  const peerDeadlines = new WeakMap<RTCPeerConnection, number>()
+  const retiringTimers = new Map<RTCPeerConnection, ReturnType<typeof setTimeout>>()
   const contexts = new WeakMap<RTCPeerConnection, PeerContext | undefined>()
   const pendingRestarts = new Map<RTCPeerConnection, () => void>()
   const protocolRestarts = new WeakMap<RTCPeerConnection, () => void>()
@@ -424,12 +426,13 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const factory: PeerFactory = context => {
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
+      peerDeadlines.set(peer, credentialDeadline)
       selectedRoutes.set(peer, preferredRoute!)
       let connected = false, recovering = false
       let gatheringTimer: ReturnType<typeof setTimeout> | undefined, gathered = false, gotRelay = false, refused = false, switching = false
       const cancelGathering = () => { clearTimeout(gatheringTimer); gatheringTimer = undefined }
       stopGathering.set(peer, cancelGathering)
-      peer.close = () => { cancelGathering(); peers.delete(peer); pendingRestarts.delete(peer); end() }
+      peer.close = () => { cancelGathering(); clearTimeout(retiringTimers.get(peer)); retiringTimers.delete(peer); peers.delete(peer); pendingRestarts.delete(peer); end() }
       contexts.set(peer, context)
       const tryNextRoute = (failed = false) => {
         cancelGathering()
@@ -481,7 +484,11 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     }
   factory.onRetiring = value => {
     const peer = value as unknown as RTCPeerConnection
-    if (peers.has(peer)) { retiring.add(peer); pendingRestarts.delete(peer); stopGathering.get(peer)?.() }
+    if (peers.has(peer) && !retiring.has(peer)) {
+      retiring.add(peer); pendingRestarts.delete(peer); stopGathering.get(peer)?.()
+      const remaining = Math.max(0, Math.min(20_000, (peerDeadlines.get(peer) ?? monotonic()) - monotonic()))
+      retiringTimers.set(peer, setTimeout(() => peer.close(), remaining))
+    }
   }
   factory.onIceRestartReady = (value, restart) => { protocolRestarts.set(value as unknown as RTCPeerConnection, restart) }
   factory.onIceRestart = (value, restart) => {
