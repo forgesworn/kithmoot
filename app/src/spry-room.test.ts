@@ -95,6 +95,78 @@ it('uses shared room access when this device’s paired node cannot relay', asyn
   } finally { broker.close() }
 })
 
+/** A room with no relay offer yet, and the hook that delivers one later. */
+function roomWithoutOffer(): { session: RoomSession; deliver: (offer: SpryOfferLike) => void } {
+  let deliver: (offer: SpryOfferLike) => void = () => {}
+  const session = { roomId: 'generated-room', call: undefined, descriptor: {},
+    onDescriptor: (cb: (d: RoomDescriptor) => void) => { deliver = offer => cb({ spry: offer } as RoomDescriptor); return () => {} },
+    onChange: () => () => {}, publishDescriptor: async () => {},
+  } as unknown as RoomSession
+  return { session, deliver: offer => deliver(offer) }
+}
+type SpryOfferLike = { v: 1; endpoint: string; token: string; expiresAt: number }
+const credentialFetcher = (paths: string[]): typeof fetch => async url => {
+  paths.push(String(url))
+  const expiresAt = Math.floor(Date.now() / 1000) + 300
+  return Response.json({ urls: ['turn:relay.example:3478?transport=udp'], username: `${expiresAt}:${'b'.repeat(24)}`,
+    credential: 'a'.repeat(27) + '=', expiresAt, accessExpiresAt: expiresAt + 86400 })
+}
+
+it('starts an ordinary call at once in a room with no relay offer, and still takes one that arrives', async () => {
+  vi.useFakeTimers()
+  const endpoint = 'https://relay.example:3744'
+  const { session, deliver } = roomWithoutOffer()
+  const apply = vi.fn(), paths: string[] = []
+  const broker = new SpryRoom(session, undefined, apply, credentialFetcher(paths))
+  try {
+    let ready = false
+    const opening = broker.prepare().then(() => { ready = true })
+    await vi.advanceTimersByTimeAsync(10)
+    // Measured: every ordinary call in a room without Spry sat here for 2.5 s
+    // before its microphone opened, so the far end heard nothing for 2.5 s.
+    expect(ready).toBe(true)
+    await opening
+    // The offer lands after the call has started, before the call is declared.
+    deliver({ v: 1, endpoint, token: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 86400 })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(paths).toContain(endpoint + '/v1/credentials')
+    expect(apply).toHaveBeenCalledWith([expect.objectContaining({ urls: ['turn:relay.example:3478?transport=udp'] })])
+  } finally { broker.close() }
+})
+
+it('holds a relay-only call for a relay offer still on its way', async () => {
+  vi.useFakeTimers()
+  const endpoint = 'https://relay.example:3744'
+  const { session, deliver } = roomWithoutOffer()
+  const apply = vi.fn(), paths: string[] = []
+  const broker = new SpryRoom(session, undefined, apply, credentialFetcher(paths))
+  try {
+    let ready = false
+    const opening = broker.prepare(true).then(() => { ready = true })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(ready).toBe(false)
+    deliver({ v: 1, endpoint, token: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 86400 })
+    await vi.advanceTimersByTimeAsync(10)
+    await opening
+    expect(ready).toBe(true)
+    // Credentials before the call starts: Hide my IP address cannot go direct.
+    expect(apply).toHaveBeenCalledTimes(1)
+
+    // With nothing on offer the wait is still bounded.
+    const quiet = roomWithoutOffer()
+    const idle = new SpryRoom(quiet.session, undefined, vi.fn(), credentialFetcher([]))
+    try {
+      let idleReady = false
+      const idleOpening = idle.prepare(true).then(() => { idleReady = true })
+      await vi.advanceTimersByTimeAsync(2400)
+      expect(idleReady).toBe(false)
+      await vi.advanceTimersByTimeAsync(100)
+      await idleOpening
+      expect(idleReady).toBe(true)
+    } finally { idle.close() }
+  } finally { broker.close() }
+})
+
 // ---------------------------------------------------------------------------
 // Room-grant sealing: registrar, vouching, retry and the share choice.
 // ---------------------------------------------------------------------------

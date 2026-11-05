@@ -504,15 +504,33 @@ export class SpryRoom {
    * not go direct (Hide my IP address): a refusal of another member's relay
    * is retried at 3 and 10 seconds first, since the owner's app registers a
    * newcomer's key only once it has seen it join.
+   *
+   * With nothing on offer yet, only a patient call waits for an offer still
+   * on its way, because it cannot go direct. An ordinary call starts at once
+   * and takes an offer that lands in the same window when it lands. Waiting
+   * for every call held each one 2.5 seconds before its microphone opened in
+   * any room with no relay offered, which is most rooms: measured, the people
+   * already on the call heard a newcomer about 2.2 seconds after the newcomer
+   * heard them.
    */
   async prepare(patient = false): Promise<void> {
     this.#windowStart = Date.now(); this.#retryStep = 0
     if (!this.#offer && !this.#shared && !this.pairing) {
-      await new Promise<void>(resolve => {
+      const arrival = new Promise<void>(resolve => {
         const finish = () => { clearTimeout(timer); this.#waiters.delete(finish); resolve() }
         const timer = setTimeout(finish, 2500)
         this.#waiters.add(finish)
       })
+      if (!patient) {
+        // Not left to the descriptor handler, which refreshes only once the
+        // call is declared: the offer can land before that.
+        void arrival.then(() => {
+          if (!this.#closed && (this.#offer || this.#shared || this.pairing)) return this.refresh()
+        }).catch(() => {})
+        this.#applyCredentials()
+        return
+      }
+      await arrival
     }
     for (let step = 0; ; step++) {
       try { await this.refresh(); break } catch (error) {
