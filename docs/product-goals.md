@@ -8,11 +8,11 @@ Roadmap additions recorded 2026-10-09: G10–G17 cover battery use, recording,
 room capacity, persistent call surfaces, room/project identity, shorter invites
 and admission/UI polish. All eight remain open.
 
-Additions accepted 2026-10-26 from the [Anagram comparison](anagram-gap-review-2026-10-26.md):
+Additions accepted 2026-10-26:
 strengthen G1–G3, G7, G9, G10 and G12 with local custody, recovery, bounded history,
 audio continuity, efficient group media and typed agent interactions; add G18
-for ordinary Nostr messaging. Improve the existing stack. Iroh integration and
-a transport comparison experiment are outside the current plan. These additions
+for ordinary Nostr messaging. Improve the existing stack; a transport replacement is outside the current
+plan. These additions
 remain open and make no new runtime or release claim.
 
 The [client roadmap](client-roadmap.md) sequences this work: finish and
@@ -296,8 +296,7 @@ complete daily-call journey and does not declare platform parity complete.
 Use synthetic/consented qualification media and privacy-safe aggregate results.
 The [no-call-records requirement](research/call-independence-requirements.md#no-call-records-from-the-calling-stack)
 still applies: no persistent/exported records of real calls or automatic
-telemetry. This work adds no publisher service dependency. Technical references
-and the deferred Iroh comparison remain in the [source assessment](research/anagram-iroh-20261026.md).
+telemetry. This work adds no publisher service dependency.
 
 ## G8 — Anonymous temporary meetings with automatic teardown
 

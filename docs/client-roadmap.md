@@ -13,11 +13,9 @@ platform?
 
 ## New physical-test feedback
 
-### Accepted comparison lessons — 26 October 2026
+### Accepted additions, 26 October 2026
 
-The [Anagram gap review](anagram-gap-review-2026-10-26.md) and
-[call source assessment](research/anagram-iroh-20261026.md) now feed the existing
-product goals and execution phases. All additions remain open.
+These additions feed the existing product goals and execution phases. All additions remain open.
 
 | Phase | Accepted work | Product goals |
 | --- | --- | --- |
@@ -25,8 +23,8 @@ product goals and execution phases. All additions remain open.
 | P2 | Protected ordinary storage, fresh-device recovery, bounded history/search, existing notification qualification and independent-client NIP-17 messaging | G1–G3, G18 |
 | P3 | Typed agent choices/actions with version, expiry and authority checks | G9 |
 
-Improve the current KithMoot/Sapflow/RelaySwarm/Spry stack. No Iroh integration
-or comparison experiment is planned. Ordinary website/Android calls and the
+Improve the current KithMoot/Sapflow/RelaySwarm/Spry stack; no transport
+replacement is planned. Ordinary website/Android calls and the
 experimental realtime SDK have separate evidence; do not infer product
 integration from the SDK release. New engine selection needs ordinary-call,
 cross-client and physical acceptance, including no-Play GrapheneOS.
