@@ -6,9 +6,8 @@ It is an execution checklist, not a claim that a phase is complete. The
 [day-end handover](2026-09-15-pwa-day-end.md) records the exact release and
 the remaining named physical checks.
 
-Accepted scope additions recorded 26 October 2026 extend P1–P3 below using the
-[Anagram comparison](anagram-gap-review-2026-10-26.md). They improve the existing
-stack; no Iroh integration or transport comparison experiment is planned.
+Accepted scope additions recorded 26 October 2026 extend P1–P3 below. They improve the existing
+stack; no transport replacement is planned.
 The dated September delivery record remains historical, not current-release
 acceptance. The added work packages are open.
 
