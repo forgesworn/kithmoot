@@ -735,6 +735,104 @@ describe('the route timeout', () => {
       vi.useRealTimers()
     }
   })
+
+  /** A direct rung with a negotiation under way: a camera to send, one open
+   *  connection, and the long budget far away. */
+  async function checking(over: Partial<MeshOptions> = {}) {
+    const remote = device()
+    const h = harness({ routeTimeoutMs: 10_000, directCheckTimeoutMs: 1_000, ...over })
+    h.session.setViews([person(remote.pub)])
+    h.mesh.publish([{ id: 'cam', kind: 'video' } as unknown as MediaStreamTrack])
+    await vi.advanceTimersByTimeAsync(0)
+    return { h, remote, direct: h.factory.to(remote.pub)! }
+  }
+
+  it('BUG: moves to TURN soon after direct checks start and find nothing, not ten seconds after the offer', async () => {
+    // Measured in an emulated NAT matrix: a pair behind a symmetric NAT sat
+    // in `checking` on the direct rung until the route timeout, so every
+    // call that needed the relay took nearly twelve seconds to join, while
+    // every direct pair had connected 0.6 s after its checks began.
+    vi.useFakeTimers()
+    try {
+      const { h, remote, direct } = await checking()
+      h.state(remote.pub, 'connecting')
+      await vi.advanceTimersByTimeAsync(1_500)
+
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: false })
+      expect(direct.closed).toBe(true)
+      expect(h.factory.to(remote.pub)?.context?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stays direct when the checks connect inside their budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, remote, direct } = await checking()
+      h.state(remote.pub, 'connecting')
+      await vi.advanceTimersByTimeAsync(600)
+      h.state(remote.pub, 'connected')
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'direct', connected: true })
+      expect(h.factory.to(remote.pub)).toBe(direct)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives a negotiation that never reaches the checks the whole route timeout', async () => {
+    // A lost description is not evidence about the path: nothing has been
+    // tried yet, so only the long budget applies.
+    vi.useFakeTimers()
+    try {
+      const { h, remote } = await checking()
+      await vi.advanceTimersByTimeAsync(9_000)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('starts the checking clock again when a late candidate arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, remote } = await checking()
+      h.state(remote.pub, 'connecting')
+      await vi.advanceTimersByTimeAsync(800)
+      const candidate = JSON.stringify({ candidate: 'candidate:2 1 udp 1686052607 198.51.100.7 40000 typ srflx', sdpMid: '0', sdpMLineIndex: 0 })
+      h.relay.publish(wrapSignal({ type: 'ice', roomId: ROOM_ID, candidate }, { senderSk: remote.sk, recipientPubkey: h.local.pub }))
+      await vi.advanceTimersByTimeAsync(800)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('direct')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not shorten the TURN rung', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, remote } = await checking({ turnRouteTimeoutMs: 20_000 })
+      h.state(remote.pub, 'connecting')
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      h.state(remote.pub, 'connecting')
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'turn', exhausted: false })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('after the ladder runs out', () => {

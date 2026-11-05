@@ -177,6 +177,9 @@ export interface MeshOptions {
    * tries the next one. See `DEFAULT_ROUTE_TIMEOUT_MS`.
    */
   routeTimeoutMs?: number
+  /** How long the direct rung may check candidates without connecting. See
+   *  `DEFAULT_DIRECT_CHECK_TIMEOUT_MS`. */
+  directCheckTimeoutMs?: number
   /** A relay-only factory already uses TURN on its first connection. Start
    * there, with its relay budget, and retain that choice after a rest. */
   initialTier?: 'direct' | 'turn'
@@ -412,6 +415,30 @@ export const DEFAULT_FORWARDER_TIMEOUT_MS = 8_000
 export const DEFAULT_ROUTE_TIMEOUT_MS = 10_000
 
 /**
+ * How long the direct rung may sit checking candidates without connecting
+ * before the next rung is tried.
+ *
+ * `DEFAULT_ROUTE_TIMEOUT_MS` starts when a negotiation does, so it has to
+ * cover descriptions crossing a public relay before a single check runs.
+ * Once ICE is checking the question is narrower and answered sooner: a
+ * direct path that works connects well inside a second of the candidates
+ * arriving, and one through a symmetric NAT never does. Measured in an
+ * emulated NAT matrix, every direct pair connected 0.13 to 0.41 s after its
+ * checks began, while every pair behind a symmetric NAT sat in `checking`
+ * until the ten-second timer moved it to TURN, so a relayed call took over
+ * eleven seconds to join.
+ *
+ * The clock starts when the connection reports `connecting`, which is when
+ * checks begin, and starts again whenever a candidate crosses in either
+ * direction: a late candidate is a path that has not been tried yet. Only
+ * the direct rung has it. The route timeout still bounds the whole rung,
+ * and nothing about the rungs or their order changes; this only stops a
+ * pair that has already shown it cannot connect directly from waiting out
+ * the rest of the ten seconds.
+ */
+export const DEFAULT_DIRECT_CHECK_TIMEOUT_MS = 3_000
+
+/**
  * How long the TURN rung gets, which is longer than the others.
  *
  * It is the last rung, so nothing is waiting behind it; and it is the slow
@@ -602,6 +629,9 @@ export class Mesh {
   readonly #pendingSignals = new Map<string, { body: SignalBody; createdAt: number }[]>()
   /** One timer per endpoint, bounding how long a rung gets. */
   readonly #routeTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** One timer per endpoint whose direct rung is checking candidates. See
+   *  `DEFAULT_DIRECT_CHECK_TIMEOUT_MS`. */
+  readonly #checkTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** One timer per exhausted device, after which its ladder is retried. */
   readonly #retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** One timer per endpoint with a negotiation outstanding on a connection
@@ -818,6 +848,7 @@ export class Mesh {
     this.#unsubSignal()
     this.#teardownForwarder()
     for (const endpoint of [...this.#routeTimers.keys()]) this.#clearRouteTimer(endpoint)
+    for (const endpoint of [...this.#checkTimers.keys()]) this.#clearCheckTimer(endpoint)
     for (const endpoint of [...this.#renegotiationTimers.keys()]) this.#clearRenegotiationTimer(endpoint)
     for (const device of [...this.#retryTimers.keys()]) this.#clearRetryTimer(device)
     this.#publishRetryAt.clear()
@@ -1101,6 +1132,7 @@ export class Mesh {
     // a rebuild's peer is attached to the same one a moment later.
     if (this.#controllers.get(endpoint)?.peer === peer) this.#controllers.get(endpoint)!.detach()
     this.#clearRouteTimer(endpoint)
+    this.#clearCheckTimer(endpoint)
     this.#clearRenegotiationTimer(endpoint)
     this.#publishRetryAt.delete(endpoint)
     this.#closingEndpoints.add(endpoint)
@@ -1129,6 +1161,40 @@ export class Mesh {
     const timer = this.#routeTimers.get(endpoint)
     if (timer !== undefined) clearTimeout(timer)
     this.#routeTimers.delete(endpoint)
+  }
+
+  /**
+   * The direct rung's connection has started checking candidates: give the
+   * checks `DEFAULT_DIRECT_CHECK_TIMEOUT_MS` to find a path, and start that
+   * clock again if it is already running.
+   *
+   * Only for a pair reached directly and not yet connected. Assist and the
+   * forwarder are reached through somebody else; TURN has its own, longer
+   * budget; a profile-2 pair has its controller.
+   */
+  #armCheckTimer(endpoint: string): void {
+    const route = this.#routes.get(endpoint)
+    if (!route || route.tier !== 'direct' || route.endpoint !== endpoint || route.connected) return
+    if (this.#controlled(endpoint) || !this.#peers.has(endpoint)) return
+    this.#clearCheckTimer(endpoint)
+    const timer = setTimeout(() => {
+      this.#checkTimers.delete(endpoint)
+      this.#endpointFailed(endpoint)
+    }, this.#opts.directCheckTimeoutMs ?? DEFAULT_DIRECT_CHECK_TIMEOUT_MS)
+    ;(timer as unknown as { unref?: () => void }).unref?.()
+    this.#checkTimers.set(endpoint, timer)
+  }
+
+  /** A candidate crossed, either way: one more path for the checks to try,
+   *  so the direct rung's checking clock starts again. */
+  #candidateCrossed(endpoint: string): void {
+    if (this.#checkTimers.has(endpoint)) this.#armCheckTimer(endpoint)
+  }
+
+  #clearCheckTimer(endpoint: string): void {
+    const timer = this.#checkTimers.get(endpoint)
+    if (timer !== undefined) clearTimeout(timer)
+    this.#checkTimers.delete(endpoint)
   }
 
   /**
@@ -1219,6 +1285,7 @@ export class Mesh {
   /** A rung worked. */
   #endpointConnected(endpoint: string): void {
     this.#clearRouteTimer(endpoint)
+    this.#clearCheckTimer(endpoint)
     this.#controllers.get(endpoint)?.connected()
     for (const [device, route] of this.#routes) {
       if (route.endpoint !== endpoint || route.connected) continue
@@ -1234,6 +1301,7 @@ export class Mesh {
   #endpointFailed(endpoint: string): void {
     if (this.#closed || this.#closingEndpoints.has(endpoint)) return
     this.#clearRouteTimer(endpoint)
+    this.#clearCheckTimer(endpoint)
     // The connection on this rung is finished, whether it said so itself or
     // simply never came up. It has to go before the next rung is chosen: the
     // next rung may be the same endpoint over a different ICE configuration -
@@ -2032,6 +2100,7 @@ export class Mesh {
         this.#opts.transport.publish(wrap).catch((error) => this.#signalPublishFailed(remoteDevice, body as SignalBody, error))
         if (!forwarder) {
           this.#watchNegotiation(remoteDevice, body as SignalBody)
+          if ((body as SignalBody).type === 'ice') this.#candidateCrossed(remoteDevice)
           this.#diagnose({ kind: 'signal-sent', device: remoteDevice, detail: (body as SignalBody).type })
         }
       },
@@ -2061,6 +2130,8 @@ export class Mesh {
             this.#diagnose({ kind: 'connection-state-change', device: remoteDevice, detail: state })
             if (state === 'connected') this.#endpointConnected(remoteDevice)
             else if (state === 'failed' || state === 'closed') this.#endpointFailed(remoteDevice)
+            // Checks have begun. See `DEFAULT_DIRECT_CHECK_TIMEOUT_MS`.
+            else if (state === 'connecting' && this.#peers.get(remoteDevice) === peer) this.#armCheckTimer(remoteDevice)
           },
       onRemoteRestart: forwarder
         ? undefined
@@ -2243,6 +2314,7 @@ export class Mesh {
     )
     if (unwrapped.body.type === 'offer') this.#armRouteTimerForOffer(unwrapped.from)
     this.#watchNegotiation(unwrapped.from, unwrapped.body)
+    if (unwrapped.body.type === 'ice') this.#candidateCrossed(unwrapped.from)
   }
 
   /**

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased, 5 November 2026
+
+- **Calls that need a relay connect in about 5 seconds instead of 11.** A call between two people who cannot reach each other directly, such as behind a strict router, used to wait ten seconds before trying the call relay. It now moves on three seconds after the direct attempt has started checking and found nothing. Calls that connect directly are unchanged.
+
 ## Desktop 0.1.126, 4 November 2026
 
 - Bundle the web client's node pairing, admission and relay-only calls, including TURN over TLS on port 443 and recovery after network changes or credential renewal.
