@@ -491,3 +491,54 @@ WireGuard/NAT carrier over TURN TLS443. They do not qualify independent NATs,
 physical Wi-Fi/mobile hand-offs, commercial VPNs, larger-room capacity or
 perceptual video smoothness. Earlier failures and counter-scope limitations
 remain explicit. Archy maintainer UI acceptance is still pending.
+
+## Sequential TURN routes, 5 November
+
+The [route-gathering regression](evidence/kithmoot-node-turn-route-gathering-20261105.json)
+reproduces a concrete per-login refusal without filling the node. BUNDLE shares
+media sections, but each advertised TURN URL can still allocate on several
+interfaces. In the native SDK baseline, two connected pairs use 22 allocations
+and already expose six per-login refusals. A third pair cannot connect within
+twenty seconds. The final fixture counters report 13 per-login refusals and
+zero whole-server or bind refusals. The first two pairs remain connected.
+
+Node connections now gather one pinned TURN URL at a time: UDP first, then
+TLS on port 443, then the remaining advertised TLS and TCP routes. An empty
+gathering round gets four seconds before switching. That window lets a valid
+IPv4 candidate follow an address-family lookup error and lets negotiation
+rollback finish without abandoning a working route. A successful route is
+reused for subsequent peers. Explicit network recovery starts with UDP again;
+healthy existing peers keep their current transport.
+
+Fallback obtains fresh credentials through the existing recovery owner. Both
+call protocols register their restart continuation, so a factory-initiated
+restart also sends the fixed-slot protocol's explicit restart offer. Closed,
+replaced and retiring connections cannot resume recovery. Authentication and
+capacity errors do not trigger transport fallback. The relay-only policy and
+the signed node endpoint restrictions remain in force.
+
+Chromium 151 passes all four native cases:
+
+| Protocol | Client route | Connected pairs | Allocations | Per-login refusals |
+| --- | --- | ---: | ---: | ---: |
+| Legacy | UDP | 4 | 8 | 0 |
+| Fixed slots | UDP | 4 | 8 | 0 |
+| Legacy | UDP disabled, TLS 443 | 4 | 16 | 0 |
+| Fixed slots | UDP disabled, TLS 443 | 4 | 16 | 0 |
+
+Each case checks eight current native connections at seven two-second samples.
+Every checked interval advances decoded video and received audio, with positive
+synthetic audio energy. Closing the factories releases every allocation. The
+full SDK suite passes 8,884 tests with eight skipped; typecheck and the web
+build pass. The original route-selection and fixed-slot offer regressions were
+observed failing before their corrections.
+
+These fixtures use one browser, synthetic capture, fixture authority responses
+and a real loopback Spry packet relay. TLS 443 uses a task-owned TCP forwarder
+and an explicitly trusted ephemeral certificate. They are four pairs sharing a
+central factory, not a complete five-person mesh or a room-capacity claim.
+They do not qualify public certificates, physical hand-offs, perceived video
+smoothness or a new credential-expiry soak. The earlier 28 node-wide per-login
+requests remain unattributed; reproducing this failure class does not identify
+their senders. Server limits, admission, logging and deployed server code are
+unchanged by this client correction.

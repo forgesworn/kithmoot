@@ -208,6 +208,9 @@ export interface PeerFactory {
    * replace/close this connection or call restart once it is ready. The
    * continuation ignores a connection already closed or replaced. */
   onIceRestart?: (peer: RTCPeerConnectionLike, restart: () => void) => void
+  /** Register the protocol's restart after its handlers are installed. A
+   * credential owner can then initiate recovery without bypassing signalling. */
+  onIceRestartReady?: (peer: RTCPeerConnectionLike, restart: () => void) => void
 }
 
 /**
@@ -716,6 +719,7 @@ export class Peer implements NegotiatingPeer {
       opts.onConnectionState?.(state)
       if (state === 'failed' || state === 'closed') this.close()
     }
+    opts.factory.onIceRestartReady?.(this.#pc, () => { if (!this.#closed && this.#pc.signalingState !== 'closed') this.#restartIce(true) })
   }
 
   #armAudioSenderStartCheck(): void {

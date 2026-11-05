@@ -1,0 +1,193 @@
+{
+  "schema": "kithmoot-node-turn-route-gathering-v1",
+  "date": "2026-11-05",
+  "baseClientRevision": "d7c470e49ab90ec7c540ce0e3b9679c5a469e8a6",
+  "relayRevision": "937e4c28497776db7bc8e81bb56a68fe05e2921d",
+  "runtimeSources": {
+    "src/kithmoot-node.ts": "efb2bf5bfaaa34f6ab99e2a581ae438a2bdc57f56d0b6dd589c6700d13e6fd75",
+    "src/peer.ts": "170230a24451acd20243c6e5a4aec75c42bb32e8aecfab2d15a2afe0b344c085",
+    "src/slot-peer.ts": "ee171820736467741a11a14615440ab23a21542c64868f37e297bc23f33df82b"
+  },
+  "limits": {
+    "allocations": 32,
+    "allocationsPerLogin": 8,
+    "streamConnections": 64,
+    "allocationLeaseSeconds": 30,
+    "credentialSeconds": 300,
+    "changed": false
+  },
+  "baseline": {
+    "sourceSha256": "cba6d829d77c2f7c28e487af8160f466a894724b03c86f47969e99030effd02e",
+    "receiptSha256": "6228c1f93dcfb0a750dd092ebdc0f87f15fc908bbdfd9b369b9162b525045be8",
+    "rows": [
+      {
+        "peers": 1,
+        "allocations": 14,
+        "userRefusals": 0,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      },
+      {
+        "peers": 2,
+        "allocations": 22,
+        "userRefusals": 6,
+        "globalRefusals": 0,
+        "bindFailures": 0
+      }
+    ],
+    "thirdPairConnected": false,
+    "timeoutSeconds": 20,
+    "finalMetrics": {
+      "allocations": 29,
+      "udp": 5,
+      "stream": 24,
+      "connections": 24,
+      "userRefusals": 13,
+      "globalRefusals": 0,
+      "bindFailures": 0
+    },
+    "browserQuotaEvents": 13
+  },
+  "cases": [
+    {
+      "profile": "legacy",
+      "route": "udp",
+      "passed": true,
+      "receiptSha256": "af02a4e1292bfa945fe9b5a5860516463b6efc715460b40d0b23005cd7b2e0fd",
+      "pairsConnected": 4,
+      "currentNativePeers": 8,
+      "allocationsWithAllPairsConnected": 8,
+      "userRefusals": 0,
+      "globalRefusals": 0,
+      "bindFailures": 0,
+      "selectedRelayOnly": true,
+      "selectedTls443Only": false,
+      "positiveAudioEnergyEverySample": true,
+      "progressChecks": 48,
+      "minimumDecodedVideoFramesPerInterval": 39,
+      "minimumAudioPacketsPerInterval": 101,
+      "browserErrorCodes": {
+        "701": 24
+      },
+      "allAllocationsReleasedOnClose": true
+    },
+    {
+      "profile": "legacy",
+      "route": "tls443",
+      "passed": true,
+      "receiptSha256": "e2f86eb17d03209652efad174b6de955bc7dd91631dd4d35d605a7a10c4a60f1",
+      "pairsConnected": 4,
+      "currentNativePeers": 8,
+      "allocationsWithAllPairsConnected": 16,
+      "userRefusals": 0,
+      "globalRefusals": 0,
+      "bindFailures": 0,
+      "selectedRelayOnly": true,
+      "selectedTls443Only": true,
+      "positiveAudioEnergyEverySample": true,
+      "progressChecks": 48,
+      "minimumDecodedVideoFramesPerInterval": 39,
+      "minimumAudioPacketsPerInterval": 97,
+      "browserErrorCodes": {},
+      "allAllocationsReleasedOnClose": true
+    },
+    {
+      "profile": "slots",
+      "route": "udp",
+      "passed": true,
+      "receiptSha256": "16813bd83d63bdb7c3de37bef2a4907f4f8df46c5377136d7a94b301f9b93ef5",
+      "pairsConnected": 4,
+      "currentNativePeers": 8,
+      "allocationsWithAllPairsConnected": 8,
+      "userRefusals": 0,
+      "globalRefusals": 0,
+      "bindFailures": 0,
+      "selectedRelayOnly": true,
+      "selectedTls443Only": false,
+      "positiveAudioEnergyEverySample": true,
+      "progressChecks": 48,
+      "minimumDecodedVideoFramesPerInterval": 40,
+      "minimumAudioPacketsPerInterval": 102,
+      "browserErrorCodes": {
+        "701": 16
+      },
+      "allAllocationsReleasedOnClose": true
+    },
+    {
+      "profile": "slots",
+      "route": "tls443",
+      "passed": true,
+      "receiptSha256": "4047735116c5708273166c9ce83b9c18f2f1dfcee0652dc06a177813a1f8c825",
+      "pairsConnected": 4,
+      "currentNativePeers": 8,
+      "allocationsWithAllPairsConnected": 16,
+      "userRefusals": 0,
+      "globalRefusals": 0,
+      "bindFailures": 0,
+      "selectedRelayOnly": true,
+      "selectedTls443Only": true,
+      "positiveAudioEnergyEverySample": true,
+      "progressChecks": 48,
+      "minimumDecodedVideoFramesPerInterval": 39,
+      "minimumAudioPacketsPerInterval": 100,
+      "browserErrorCodes": {},
+      "allAllocationsReleasedOnClose": true
+    }
+  ],
+  "scope": {
+    "browser": "Chromium 151.0.7922.34",
+    "host": "macOS",
+    "shape": "One central SDK factory and four guest factories, four pairs in one browser, not a complete five-person mesh",
+    "packetRelay": "Real Spry Server with fixture-only loopback peers enabled",
+    "authority": "Fixture-signed node records and grants; credential HTTP responses are fixtures, TURN packet authentication is real",
+    "media": "Synthetic camera and non-silent WebAudio oscillator, attached to autoplay media elements",
+    "restriction": "Native WebRTC non-proxied UDP disabled; TLS 443 reaches loopback through a task-owned Docker TCP forwarder",
+    "tlsTrust": "Ephemeral certificate allowed by SPKI for this fixture; no public certificate qualification",
+    "dns": "Fixture DNS supplies loopback hostnames; host resolver override did not control native TURN lookup",
+    "sampleCadenceSeconds": 2,
+    "samplesAfterAllPairsConnected": 7,
+    "independentNats": false,
+    "physicalDevice": false,
+    "commercialVpn": false,
+    "publicNetwork": false,
+    "completeRoomCapacity": false,
+    "perceivedSmoothness": false,
+    "credentialExpirySoak": false,
+    "fixtureBrowserBundleSha256": "50dd70b588b8d273f9eb80eb6b41d4e09a67db00eb6c572bd615aac5147bb4c7"
+  },
+  "historicalPublicRefusals": {
+    "requests": 28,
+    "attributed": false,
+    "note": "The controlled bug explains a reproducible failure class, not the identity or cause of each earlier node-wide request refusal."
+  },
+  "regressions": {
+    "initialThreeTests": "observed failing before sequential route selection",
+    "fixedSlotFactoryRestart": "observed missing restart offer before registering protocol restart continuations",
+    "covered": [
+      "one pinned route per native peer",
+      "UDP then TLS 443 then remaining advertised routes",
+      "no direct or public relay fallback",
+      "healthy peers stay untouched",
+      "coalesced pending credential refresh",
+      "address-family 701 with later usable candidate",
+      "empty rollback round followed by usable gathering",
+      "gather-complete-only browser event",
+      "auth and capacity refusals do not trigger transport fallback",
+      "retired, closed and stopped peer cancellation",
+      "fixed-slot restart offer after factory-driven fallback"
+    ]
+  },
+  "localChecks": {
+    "sdk": {
+      "passed": 8884,
+      "skipped": 8,
+      "filesPassed": 513,
+      "filesSkipped": 1,
+      "command": "npm test -- --maxWorkers=3"
+    },
+    "typecheck": "passed",
+    "webBuild": "passed",
+    "diffCheck": "passed",
+    "taskDiffSecretScan": "passed"
+  }
+}

@@ -235,7 +235,8 @@ test('browser keeper and native guest sustain local relay video both ways and re
     expect(selected.length).toBeGreaterThan(0)
     for (const peer of selected) {
       expect(peer.policy).toBe('relay'); expect(peer.pairs.length).toBeGreaterThan(0)
-      expect([...peer.urls].sort()).toEqual(['turn:node.example:34790?transport=udp', 'turn:node.example:34790?transport=tcp', 'turns:node.example:53499?transport=tcp', 'turns:turn.node.example:443?transport=tcp'].sort())
+      expect(peer.urls).toHaveLength(1)
+      expect(['turn:node.example:34790?transport=udp', 'turn:node.example:34790?transport=tcp', 'turns:node.example:53499?transport=tcp', 'turns:turn.node.example:443?transport=tcp']).toContain(peer.urls[0])
       for (const pair of peer.pairs as { local: string; remote: string }[]) { expect(pair.local).toBe('relay'); expect(pair.remote).toBe('relay') }
     }
     await openRoomInfoPage(page, 'Privacy and connection'); await page.locator('#roomInfoBack').click()

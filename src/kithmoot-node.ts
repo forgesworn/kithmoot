@@ -300,6 +300,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const peers = new Set<RTCPeerConnection>(), retiring = new WeakSet<RTCPeerConnection>(), controller = new AbortController()
   const contexts = new WeakMap<RTCPeerConnection, PeerContext | undefined>()
   const pendingRestarts = new Map<RTCPeerConnection, () => void>()
+  const protocolRestarts = new WeakMap<RTCPeerConnection, () => void>()
+  const selectedRoutes = new WeakMap<RTCPeerConnection, string>()
+  const stopGathering = new WeakMap<RTCPeerConnection, () => void>()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity, credentialDeadline = Infinity, rotationAt = Infinity
@@ -310,9 +313,16 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const pendingPeers = new Map<RTCPeerConnection, PeerContext | undefined>()
   const allowed = () => !stopped && !options.signal?.aborted && (options.allowed?.() ?? true)
   const requestOptions = { ...options, allowed, signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal }
-  // Gather all media slots on one transport. Parallel replacement generations
-  // otherwise compete with old-route leases for the node's TURN quotas.
-  const configuration = (): RTCConfiguration => ({ bundlePolicy: 'max-bundle', iceTransportPolicy: 'relay', iceServers: [{ urls: [...credential.urls], username: credential.username, credential: credential.credential }] })
+  // BUNDLE shares media, but each TURN URL can still create allocations.
+  // Prefer UDP, then TLS 443, then the remaining pinned routes. Remember the
+  // usable client route for new peers; existing healthy peers keep theirs.
+  const rank = (url: string) => url.endsWith('transport=udp') ? 0 : /^turns:.*:443\?/.test(url) ? 1 : url.startsWith('turns:') ? 2 : 3
+  const routes = () => [...credential.urls].sort((a, b) => rank(a) - rank(b))
+  let preferredRoute: string | undefined
+  const configuration = (): RTCConfiguration => {
+    if (!preferredRoute || !credential.urls.includes(preferredRoute)) preferredRoute = routes()[0]!
+    return { bundlePolicy: 'max-bundle', iceTransportPolicy: 'relay', iceServers: [{ urls: [preferredRoute], username: credential.username, credential: credential.credential }] }
+  }
   const close = () => {
     if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer); clearTimeout(retryTimer)
     options.signal?.removeEventListener('abort', close)
@@ -348,9 +358,13 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const repair = (peer: RTCPeerConnection): void => {
     if (peer.signalingState === 'closed') { peers.delete(peer); return }
     if (retiring.has(peer)) { pendingRestarts.delete(peer); return }
-    const restart = pendingRestarts.get(peer)
+    const restart = pendingRestarts.get(peer) ?? protocolRestarts.get(peer)
     pendingRestarts.delete(peer)
-    try { peer.setConfiguration(configuration()); if (restart) restart(); else peer.restartIce() } catch { peer.close(); peers.delete(peer) }
+    try {
+      const next = configuration()
+      selectedRoutes.set(peer, preferredRoute!)
+      peer.setConfiguration(next); if (restart) restart(); else peer.restartIce()
+    } catch { peer.close(); peers.delete(peer) }
   }
   const runRenewal = async (): Promise<void> => {
     if (!allowed()) { close(); return }
@@ -410,14 +424,51 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const factory: PeerFactory = context => {
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
       const peer = new Base(configuration()), end = peer.close.bind(peer)
+      selectedRoutes.set(peer, preferredRoute!)
       let connected = false, recovering = false
-      peer.close = () => { peers.delete(peer); pendingRestarts.delete(peer); end() }
+      let gatheringTimer: ReturnType<typeof setTimeout> | undefined, gathered = false, gotRelay = false, refused = false, switching = false
+      const cancelGathering = () => { clearTimeout(gatheringTimer); gatheringTimer = undefined }
+      stopGathering.set(peer, cancelGathering)
+      peer.close = () => { cancelGathering(); peers.delete(peer); pendingRestarts.delete(peer); end() }
       contexts.set(peer, context)
+      const tryNextRoute = (failed = false) => {
+        cancelGathering()
+        if (!allowed() || !gathered || !peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed' || (gotRelay && !failed) || refused || switching) return
+        const ordered = routes(), current = selectedRoutes.get(peer)
+        const next = preferredRoute !== current ? preferredRoute : ordered[ordered.indexOf(current!) + 1]
+        if (!next) return
+        preferredRoute = next; switching = true
+        void renew(true, peer, context)
+      }
+      peer.addEventListener?.('icegatheringstatechange', () => {
+        if (peer.iceGatheringState === 'gathering') {
+          cancelGathering(); gathered = true; gotRelay = false; refused = false; switching = false
+          gatheringTimer = setTimeout(tryNextRoute, 4000)
+        } else if (peer.iceGatheringState === 'complete') {
+          // Glare/rollback can complete an abandoned round with no candidate.
+          // Give the replacement round its gathering window before fallback.
+          gathered = true
+          if (!gatheringTimer && !gotRelay && !refused && !switching) gatheringTimer = setTimeout(tryNextRoute, 4000)
+        }
+      })
+      peer.addEventListener?.('icecandidate', event => {
+        if (event.candidate?.type === 'relay') { gotRelay = true; cancelGathering() }
+      })
+      peer.addEventListener?.('icecandidateerror', event => {
+        if (event.url && event.url !== selectedRoutes.get(peer)) return
+        // Capacity/authentication refusals are not evidence of a blocked
+        // transport. Do not route around a quota by minting another login.
+        if ([401, 403, 486, 508].includes(event.errorCode)) { refused = true; cancelGathering() }
+        // 701 can describe just one address family or interface while the
+        // same URL is still gathering a usable candidate on another. Wait
+        // for gathering to finish, or for the bounded no-candidate timer.
+      })
       peer.addEventListener?.('connectionstatechange', () => {
         if (retiring.has(peer)) return
+        if (peer.connectionState === 'failed') tryNextRoute(true)
         // Either endpoint can lose its route. Repair this pair without
         // interrupting another participant's healthy audio and video.
-        if (peer.connectionState === 'connected') { connected = true; recovering = false }
+        if (peer.connectionState === 'connected') { connected = true; recovering = false; cancelGathering() }
         else if (connected && !recovering && (peer.connectionState === 'disconnected' || peer.connectionState === 'failed')) {
           recovering = true; void renew(true, peer, context)
         }
@@ -430,8 +481,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     }
   factory.onRetiring = value => {
     const peer = value as unknown as RTCPeerConnection
-    if (peers.has(peer)) { retiring.add(peer); pendingRestarts.delete(peer) }
+    if (peers.has(peer)) { retiring.add(peer); pendingRestarts.delete(peer); stopGathering.get(peer)?.() }
   }
+  factory.onIceRestartReady = (value, restart) => { protocolRestarts.set(value as unknown as RTCPeerConnection, restart) }
   factory.onIceRestart = (value, restart) => {
     const peer = value as unknown as RTCPeerConnection
     if (!peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed') return
@@ -444,7 +496,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {
     factory,
-    reconnect: () => renew(true),
+    reconnect: () => { preferredRoute = undefined; return renew(true) },
     close,
   }
 }
