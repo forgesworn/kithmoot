@@ -388,3 +388,59 @@ sampling cannot establish gap-free playback below that interval. Physical
 Wi-Fi/cellular handoff, commercial VPNs, GrapheneOS and capacity remain separate.
 No new APK, public signed node/Shelter release or official Archy approval is
 implied. Official Archy maintainer acceptance remains pending.
+
+## Longer soak and abandoned allocations, 5 November
+
+Extending qualification to ten minutes after final confirmed recovery exposed
+another bounded resource problem. Two production-browser attempts reached the
+node's 32-allocation limit after route changes. One froze at routine login
+renewal; a repeat with a single slower private metrics observer failed before
+its first scheduled renewal. These failed results are retained with the private
+reproduction material. Staggering client renewals was considered locally and
+reverted because it did not address the earlier outage failure.
+
+[Spry PR37](https://github.com/forgesworn/spry-turn/pull/37) adds a validated
+allocation lifetime cap and sets the private node profile to renewable
+30-second leases. A vanished route can release its relay port without waiting
+for the five-minute login to expire. Healthy Chromium WebRTC refreshes a short
+allocation lease at half its lifetime. Admission, revocation, login expiry,
+relay ports, total allocations and connection limits are unchanged. The
+standalone default remains 3,600 seconds. Socket regressions cover Allocate,
+Refresh, passive stream expiry, port reuse and explicit deallocation; a private
+profile regression proves that allocation and login lifetimes are separate.
+
+The private demo received only the Spry binary and its updated bundle inventory.
+The controller, Shelter, supervisor, room data, access grants, settings, host
+and other five apps were preserved. The update waited for zero relay sockets
+and retained the prior image and a cold data backup. The public web renderer
+remained at `a49a2ac5`, release `20261104T112032Z`.
+
+The [sustained-media record](evidence/kithmoot-node-sustained-media-20261105.json)
+records a 736-second run, including 611 seconds after final confirmed recovery.
+VPN-on, VPN-off and outage recovery took 13.859/11.687/2.340 seconds. Each
+guest advanced audio, received video and displayed frames at all 264 checked
+steady samples. Both renewed their 300-second logins and continued beyond
+their predecessors' expiry. The record also preserves the earlier failed
+attempts, RTP loss/jitter/freeze counters and missing endpoint observations.
+One-second socket counts still reached the 32-port ceiling and the passing run
+observed five transient TURN486 refusals. Short leases bound abandoned
+occupancy; this is not a claim that capacity pressure or all recovery failures
+have been eliminated.
+The native desktop Chromium guests use their existing admitted identities and
+synthetic audio/video. Non-proxied WebRTC UDP is disabled, and an opaque CONNECT
+proxy accepts port 443 only. The proxy container's node route changes through an
+isolated WireGuard/NAT fixture; the Mac's VPN and firewall remain unchanged.
+Normal certificate verification stays enabled, and no renderer or TURN URL is
+intercepted. Mutual DTLS fingerprints identify the test pair. Reception and
+visible presentation are counted across replacement generations.
+
+This is controlled browser evidence. Earlier post-update attempts also missed
+the twenty-second recovery gate, including an attempt with TURN quota
+refusals. The record retains them rather than treating one passing run as
+proof of universal recovery or capacity. Missing selected-candidate telemetry
+is reported separately from media progress; only verified endpoints count for
+recovery. The browser is sampled about every two seconds and private aggregate
+relay statistics every ten seconds. Node totals include other room devices and
+both forwarding legs. No physical phone, independent NATs, commercial VPN,
+hardware capture, perceptual audio quality or subsecond gap-free playback is
+qualified. Official Archy maintainer acceptance remains pending.

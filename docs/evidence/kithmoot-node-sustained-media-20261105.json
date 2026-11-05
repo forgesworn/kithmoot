@@ -1,0 +1,323 @@
+{
+  "schema": "kithmoot-node-sustained-media/1",
+  "passed": true,
+  "clientSource": "a49a2ac5c7bd1dcb9c9a15cca3c6612a952f97c9",
+  "productionRelease": "20261104T112032Z",
+  "nodeBackendSource": "61b6398da372898dcd684acecde12deb32cea621",
+  "mediaSeconds": 736,
+  "afterFinalRecoverySeconds": 611,
+  "sampleCadenceSeconds": 2,
+  "matchedPair": true,
+  "publicTlsValidated": true,
+  "productionRendererUnmodified": true,
+  "browserVersion": "151.0.7922.34",
+  "mediaTransport": "TURN over TLS443; browser non-proxied UDP disabled; CONNECT proxy port443 only",
+  "network": "Isolated container direct/WireGuard/direct and twelve-second outage; no host VPN changes",
+  "recovery": [
+    {
+      "phase": "vpn-recovered",
+      "recoverySeconds": 14,
+      "recoveryMs": 13859,
+      "confirmationMs": 15920,
+      "freshConfirmationSamples": 2,
+      "encryptedTransfer": true
+    },
+    {
+      "phase": "direct-recovered",
+      "recoverySeconds": 12,
+      "recoveryMs": 11687,
+      "confirmationMs": 13908,
+      "freshConfirmationSamples": 2
+    },
+    {
+      "phase": "outage-recovered",
+      "recoverySeconds": 2,
+      "recoveryMs": 2340,
+      "confirmationMs": 4508,
+      "freshConfirmationSamples": 2
+    }
+  ],
+  "guests": [
+    {
+      "endpoint": 0,
+      "steadySamples": 264,
+      "selectedEndpointUnavailableSamples": 23,
+      "decodedVideoFramesAdvanced": 10813,
+      "receivedAudioPacketsAdvanced": 29756,
+      "presentedFramesAdvanced": 9146,
+      "steadyZeroProgressSamples": 0,
+      "displayedFramesPerSecond": {
+        "minimum": 3.6666666666666665,
+        "mean": 16.056502525252522
+      },
+      "aggregateDecodedFramesPerSecond": {
+        "minimum": 5,
+        "mean": 18.967171717171727
+      },
+      "perStreamVideoDecodedFps": {
+        "minimum": 0,
+        "mean": 9.380128205128209
+      },
+      "jitterMilliseconds": {
+        "mean": 14.908863920099876,
+        "maximum": 84
+      },
+      "packetLoss": {
+        "receivedDelta": 48464,
+        "lostDelta": 0,
+        "percent": 0
+      },
+      "receivedPayloadBytesDelta": 17192457,
+      "reportedFreezeEventsDelta": 53
+    },
+    {
+      "endpoint": 1,
+      "steadySamples": 264,
+      "selectedEndpointUnavailableSamples": 22,
+      "decodedVideoFramesAdvanced": 10584,
+      "receivedAudioPacketsAdvanced": 29768,
+      "presentedFramesAdvanced": 9612,
+      "steadyZeroProgressSamples": 0,
+      "displayedFramesPerSecond": {
+        "minimum": 4.5,
+        "mean": 16.901199494949495
+      },
+      "aggregateDecodedFramesPerSecond": {
+        "minimum": 4.666666666666667,
+        "mean": 18.59911616161616
+      },
+      "perStreamVideoDecodedFps": {
+        "minimum": 0,
+        "mean": 9.205448717948716
+      },
+      "jitterMilliseconds": {
+        "mean": 14.92134831460674,
+        "maximum": 97
+      },
+      "packetLoss": {
+        "receivedDelta": 45319,
+        "lostDelta": 0,
+        "percent": 0
+      },
+      "receivedPayloadBytesDelta": 13570152,
+      "reportedFreezeEventsDelta": 57
+    }
+  ],
+  "relay": {
+    "scope": "Whole node; includes other participants and forwarding legs. Transport proof for this test uses matched browser endpoints, not aggregate UDP totals.",
+    "sampleCount": 73,
+    "allocationsPeak": 26,
+    "streamConnectionsPeak": 52,
+    "streamPayloadBytesDelta": 150471221,
+    "udpPayloadBytesDelta": 69263467,
+    "forwardedPacketsDelta": 754590,
+    "droppedPacketsDelta": 2108,
+    "streamErrorsDelta": 15,
+    "maximumPayloadBytesPerSecond": 540433.8793447863,
+    "streamConnectionCapacityRefusalsDelta": 0,
+    "allocatedPortSocketObservation": {
+      "cadenceSeconds": 1,
+      "samples": 733,
+      "peak": 32,
+      "samplesAtConfigured32PortLimit": 2
+    },
+    "allocationQuotaErrorsByEndpoint": [
+      2,
+      3
+    ],
+    "quotaInterpretation": "TURN486 can mean the global or per-username allocation limit; the ten-second aggregate sampler cannot distinguish them. One-second port counts also reached32; some486 observations occurred near counts22-26. Per-username headroom and short-lived peaks remain unqualified."
+  },
+  "credentials": [
+    {
+      "endpoint": 0,
+      "seconds": -13,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": -8,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 34,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 34,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 80,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 79,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 122,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 125,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 228,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 233,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 468,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 473,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 0,
+      "seconds": 709,
+      "lifetime": 300
+    },
+    {
+      "endpoint": 1,
+      "seconds": 714,
+      "lifetime": 300
+    }
+  ],
+  "physicalDevice": false,
+  "commercialVpn": false,
+  "independentNats": false,
+  "subsecondGapFreeClaim": false,
+  "realCaptureHardware": false,
+  "backendMergedRevision": "b7c291beff42ef970d6f536f0fe8ae3df3a76134",
+  "backendPullRequest": "https://github.com/forgesworn/spry-turn/pull/37",
+  "privateBinarySha256": "282bce1f6b2d3aa8fe18e0ee420b2ab9a5ccc1e7c5cb7cb8e99047efcb13f590",
+  "privateImageId": "f3ceaf005904fcbd0e207cddec09dda7d2701d734f9cbd33b343e21ded2b16cc",
+  "acceptance": {
+    "scope": "One controlled Chromium continuity run",
+    "continuousSteadyMedia": true,
+    "allRecoveryAttemptsPassed": false,
+    "perceptualSmoothness": "not qualified",
+    "physicalNetworkHandoff": "not tested",
+    "officialArchyMaintainer": "pending"
+  },
+  "actualRoundedSampleIntervalsSeconds": {
+    "minimum": 2,
+    "median": 2,
+    "maximum": 5
+  },
+  "measurementNotes": [
+    "Selected-endpoint telemetry is required for both recovery confirmation samples. Missing selected pairs in steady snapshots are counted separately; they are not presented as verified endpoints. All exposed selected endpoints and signalled candidates remained node relays.",
+    "Presented-frame counters follow attached visible playing video elements and retained matched receiver identities across generations. The counters cannot establish uninterrupted playback between samples.",
+    "Reported freeze events and per-stream decoded rates include inactive media slots and retiring generations. They cannot be equated with visible freezes or a perceptual quality score.",
+    "Packet-loss figures are positive counter increments across observed matched RTP streams during the checked steady portion, rather than a whole-network loss measurement.",
+    "The proxy container changes route; the Mac firewall and VPN stay unchanged. Both guests share this controlled carrier; independent carrier NATs were not tested."
+  ],
+  "phaseZeroProgressSamples": [
+    {
+      "seconds": 29,
+      "phase": "vpn-recovering"
+    },
+    {
+      "seconds": 31,
+      "phase": "vpn-recovering"
+    },
+    {
+      "seconds": 33,
+      "phase": "vpn-recovering"
+    },
+    {
+      "seconds": 35,
+      "phase": "vpn-recovering"
+    },
+    {
+      "seconds": 54,
+      "phase": "vpn-steady"
+    },
+    {
+      "seconds": 56,
+      "phase": "vpn-steady"
+    },
+    {
+      "seconds": 77,
+      "phase": "direct-recovering"
+    },
+    {
+      "seconds": 79,
+      "phase": "direct-recovering"
+    },
+    {
+      "seconds": 81,
+      "phase": "direct-recovering"
+    },
+    {
+      "seconds": 111,
+      "phase": "outage"
+    },
+    {
+      "seconds": 114,
+      "phase": "outage"
+    },
+    {
+      "seconds": 116,
+      "phase": "outage"
+    },
+    {
+      "seconds": 118,
+      "phase": "outage"
+    },
+    {
+      "seconds": 120,
+      "phase": "outage"
+    }
+  ],
+  "previousAttempts": [
+    {
+      "profile": "Original five-minute allocation leases",
+      "result": "failed",
+      "case": "Native Chromium VPN/on/off/outage gates passed; routine renewal froze at261 seconds while the node reached32 allocations."
+    },
+    {
+      "profile": "Original five-minute allocation leases; one ten-second private sampler",
+      "result": "failed",
+      "case": "Clean rerun missed outage recovery at153 seconds and reached32 allocations before scheduled renewal."
+    },
+    {
+      "profile": "Thirty-second allocation leases; blocking route controller",
+      "result": "failed",
+      "case": "VPN-off missed the20-second verified-endpoint gate. Both endpoints had received/displayed media by the final samples; controller sampling had a long gap."
+    },
+    {
+      "profile": "Thirty-second allocation leases; asynchronous HTTPS route probe",
+      "result": "failed",
+      "case": "VPN-on missed the20-second gate and TURN486 allocation refusals were observed."
+    },
+    {
+      "profile": "Container Chromium with constrained CPU",
+      "result": "inconclusive",
+      "case": "Long sampling intervals and carrier setup failures were retained separately; no product pass inferred."
+    }
+  ],
+  "privateReproductionEvidence": {
+    "receipt-roaming.json": "4bf7addfb0ca01602212ded6bb89bd7354cb5ccfaccd87dde69660a7c09b4f6d",
+    "relay-lease-observations.jsonl": "57c93018c3226daa7ebcfe3b1cc6e2abccfb14eb7ba94f1e1aa7763ed1a572f3",
+    "relay-port-counts.jsonl": "09fb2661a42a384a3e411aa83e61c0dbfc29d007ae04009506aead7d6cdbd871",
+    "network-native-proxy.mjs": "f525636b4d7e3312add00062c7ca7c456ec31694be6f87d6faa0cfb132509b5a",
+    "analyse-media.mjs": "77751cd5b4a19ff99509634b643ec93ba1181ebaf4c5437f4847347a9d9a2101"
+  }
+}
