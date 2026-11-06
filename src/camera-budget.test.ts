@@ -7,6 +7,7 @@ import { Peer } from './peer.js'
 import type { ParticipantView } from './session.js'
 import { createFakeFactory, fakeTrack, type FakeRTCPeerConnection, type FakeRtpSender } from '../test/fake-rtc.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
+import { SlotPair, slotTrack, settle as settleSlots } from '../test/slot-pair.js'
 
 const LOW = 'a'.repeat(64)
 const HIGH = 'b'.repeat(64)
@@ -138,6 +139,28 @@ describe('Peer.setCameraRung', () => {
     pc.setConnectionState('connected')
     expect(cam.parameters.encodings[0]!.maxBitrate).toBe(CAMERA_RUNG_MEDIUM.maxBitrate)
     peer.close()
+  })
+})
+
+describe('SlotPeer.setCameraRung (call profile 2)', () => {
+  it('steps the camera slot down with no signalling, leaves a share alone, and lifts it again', async () => {
+    const pair = new SlotPair()
+    const mic = slotTrack('mic'), camera = slotTrack('camera'), screen = Object.assign(slotTrack('screen'), { contentHint: 'detail' }) as MediaStreamTrack
+    await pair.polite.start([mic, camera, screen]); await settleSlots()
+    await pair.impolite.start([slotTrack('mic', '2')]); await settleSlots()
+    await pair.connect()
+    const pc = pair.live('polite')
+    const senderOf = (track: MediaStreamTrack) => pc.getTransceivers().map((t) => t.sender as unknown as FakeRtpSender).find((s) => s.track === track)!
+    const mark = pair.sent.length
+    pair.polite.setCameraRung(CAMERA_RUNG_SMALL)
+    expect(senderOf(camera).parameters.encodings[0]!.maxBitrate).toBe(CAMERA_RUNG_SMALL.maxBitrate)
+    expect(senderOf(screen).parameterCalls).toEqual([])
+    expect(senderOf(mic).parameterCalls).toEqual([])
+    pair.polite.setCameraRung(undefined)
+    expect(senderOf(camera).parameters.encodings[0]!.maxBitrate).toBeUndefined()
+    await settleSlots()
+    expect(pair.since(mark)).toEqual([])
+    pair.close()
   })
 })
 

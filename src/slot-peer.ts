@@ -339,7 +339,9 @@ export class SlotPeer implements NegotiatingPeer {
 
   #applyCameraRung(): void {
     const published = new Set(this.#tracks)
-    for (const sender of this.#pc?.getSenders?.() ?? []) {
+    // A slot's sender belongs to its transceiver; ask for those directly.
+    const senders = this.#pc?.getTransceivers?.().map((transceiver) => transceiver.sender) ?? this.#pc?.getSenders?.() ?? []
+    for (const sender of senders) {
       if (sender.track && published.has(sender.track)) capCameraSender(sender, this.#cameraRung)
     }
   }
