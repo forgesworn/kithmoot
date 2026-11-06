@@ -304,6 +304,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const pendingRestarts = new Map<RTCPeerConnection, () => void>()
   const protocolRestarts = new WeakMap<RTCPeerConnection, () => void>()
   const selectedRoutes = new WeakMap<RTCPeerConnection, string>()
+  const pendingRoutes = new Map<RTCPeerConnection, string>()
+  let retryCurrentRoute = false
   const stopGathering = new WeakMap<RTCPeerConnection, () => void>()
   const prepareRepair = new WeakMap<RTCPeerConnection, () => void>()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -330,7 +332,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     if (stopped) return; stopped = true; controller.abort(); clearTimeout(timer); clearTimeout(expiryTimer); clearTimeout(retryTimer)
     options.signal?.removeEventListener('abort', close)
     for (const peer of peers) peer.close()
-    peers.clear(); pendingPeers.clear(); pendingRestarts.clear()
+    peers.clear(); pendingPeers.clear(); pendingRestarts.clear(); pendingRoutes.clear()
   }
   const obtain = async (): Promise<SpryCredential> => {
     const value = await access()
@@ -378,6 +380,16 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       if (!allowed() || remaining() <= 0) { close(); return }
       const all = rotateAll || remaining() <= 60
       install(next, all)
+      // An offline gathering round cannot select the post-outage route. First
+      // retry the current URL with the newly authorised login. Otherwise commit
+      // at most one shared advance after access succeeds, coalescing old peers.
+      if (!retryCurrentRoute) for (const [peer, nextRoute] of pendingRoutes) {
+        if (peers.has(peer) && !retiring.has(peer) && peer.signalingState !== 'closed'
+          && selectedRoutes.get(peer) === preferredRoute && nextRoute !== preferredRoute && credential.urls.includes(nextRoute)) {
+          preferredRoute = nextRoute; break
+        }
+      }
+      pendingRoutes.clear(); retryCurrentRoute = false
       if (all) {
         if (!options.rebuildPeers?.()) for (const peer of peers) repair(peer)
         pendingPeers.clear(); pendingRestarts.clear(); rotateAll = false
@@ -396,6 +408,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     } catch (error) {
       if (!allowed()) { close(); return }
       const failure = error instanceof KithmootNodeError ? error : new KithmootNodeError(0, 'unavailable')
+      if (failure.reason === 'unavailable') { retryCurrentRoute = true; pendingRoutes.clear() }
       notify(failure)
       if (failure.reason === 'refused') close()
       else if (remaining() <= 0) expire()
@@ -437,7 +450,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       prepareRepair.set(peer, () => {
         cancelGathering(); gathered = false; gotRelay = false; refused = false; switching = false; connected = false; recovering = false
       })
-      peer.close = () => { cancelGathering(); clearTimeout(retiringTimers.get(peer)); retiringTimers.delete(peer); peers.delete(peer); pendingRestarts.delete(peer); end() }
+      peer.close = () => { cancelGathering(); clearTimeout(retiringTimers.get(peer)); retiringTimers.delete(peer); peers.delete(peer); pendingRestarts.delete(peer); pendingRoutes.delete(peer); end() }
       contexts.set(peer, context)
       const tryNextRoute = (failed = false) => {
         cancelGathering()
@@ -450,7 +463,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
           && !retiring.has(other) && other.connectionState === 'connected' && selectedRoutes.get(other) === current)
         const next = routeIsLive ? current : preferredRoute !== current ? preferredRoute : ordered[ordered.indexOf(current!) + 1]
         if (!next) return
-        preferredRoute = next; switching = true
+        pendingRoutes.set(peer, next); switching = true
         void renew(true, peer, context)
       }
       peer.addEventListener?.('icegatheringstatechange', () => {
@@ -497,7 +510,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   factory.onRetiring = value => {
     const peer = value as unknown as RTCPeerConnection
     if (peers.has(peer) && !retiring.has(peer)) {
-      retiring.add(peer); pendingRestarts.delete(peer); stopGathering.get(peer)?.()
+      retiring.add(peer); pendingRestarts.delete(peer); pendingRoutes.delete(peer); stopGathering.get(peer)?.()
       // Only a connected transport can preserve media during a handoff. Free
       // the other handles before their replacements request TURN allocations.
       if (peer.connectionState !== 'connected') { peer.close(); return }
@@ -518,7 +531,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   factories.set(factory, `${node.event.id}:${device.pubkey}`)
   return {
     factory,
-    reconnect: () => { preferredRoute = undefined; return renew(true) },
+    reconnect: () => { preferredRoute = undefined; pendingRoutes.clear(); return renew(true) },
     close,
   }
 }

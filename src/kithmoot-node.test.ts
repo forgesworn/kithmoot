@@ -219,6 +219,39 @@ describe('node TURN route gathering', () => {
       expect(f.fetcher).toHaveBeenCalledTimes(3)
     } finally { f.managed.close() }
   })
+  it('keeps the shared route until fresh node access authorises its replacement', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const peer = f.create(), current = f.urls(peer)
+      peer.gather(); await vi.advanceTimersByTimeAsync(4000)
+      // A remote offer can create another peer while the access request waits.
+      expect(f.urls(f.create(1))).toEqual(current)
+      release(response(f.login(NOW, '31'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(f.urls(f.create(1))).toEqual(f.urls(peer))
+    } finally { f.managed.close() }
+  })
+  it('retries the current route after unavailable access before trusting offline gathering failure', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const tls = f.urls(peer)
+      peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      vi.mocked(f.fetcher).mockRejectedValueOnce(new TypeError('Network is offline'))
+      peer.connectionState = 'failed'; peer.fire('connectionstatechange'); await vi.advanceTimersByTimeAsync(0)
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const incoming = f.create(1); incoming.gather(); await vi.advanceTimersByTimeAsync(4000)
+      release(response(f.login(NOW, '32'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(peer)).toEqual(tls); expect(f.urls(incoming)).toEqual(tls)
+      expect(f.urls(f.create())).toEqual(tls)
+      // A fresh post-recovery gathering can still discover a blocked TLS route.
+      incoming.gather(); await vi.advanceTimersByTimeAsync(4000)
+      expect(f.urls(incoming)).toEqual([f.node.turnUrls.find(url => /^turns:.*:53499\?/.test(url))])
+    } finally { f.managed.close() }
+  })
   it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {
     vi.useFakeTimers(); const f = await setup()
     try {
