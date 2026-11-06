@@ -197,7 +197,7 @@ reopened, from about 22:00 UTC on 1 November 2026:
 
 | Surface | Now | Evidence |
 | --- | --- | --- |
-| TURN credentials, `GET /turn`, and the TURN server | Open to anyone, no account; hour-long logins; coturn on 3478 and 5349 with logs discarded, 1 Mbit/s per session. Used by default by the web app, desktop 0.1.124 and Android 0.6.132 | `server/turn-credentials.mjs`, `deploy/coturn/turnserver.conf`, `app/src/main.ts`; that `/turn` answers is the host's report, as `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
+| TURN credentials, `GET /turn`, and the TURN server | Open to anyone, no account; hour-long logins; coturn on 3478 and 5349 with logs discarded, 1 MB/s (about 8 Mbit/s) per allocation. Used by default by the web app, desktop 0.1.124 and Android 0.6.132 | `server/turn-credentials.mjs`, `deploy/coturn/turnserver.conf`, `app/src/main.ts`; that `/turn` answers is the host's report, as `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
 | STUN | coturn answers STUN on 3478 again, so older clients that name it (Android through 0.6.105, desktop through 0.1.101) reach it. New default STUN is Google's, then Cloudflare's | `src/ice-defaults.ts`; host's report |
 | The relay ForgeSworn runs, `relay.trotters.cc` | First default relay again, for new installs and rooms. Reads and writes open to anyone, no authentication. The allowlist now only sets retention: strangers' private messages and media deleted on each clean-up run, app data, reports and deletions after 90 days, the rest after 7 days; public kinds 1, 6, 7 and 9735 after a day for everyone | `data/public-relays.json`; access and retention are the host's report |
 

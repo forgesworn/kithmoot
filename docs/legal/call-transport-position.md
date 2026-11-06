@@ -110,7 +110,7 @@ people. From about 22:00 UTC on 1 November 2026:
 
 | What | Fact | Evidence |
 | --- | --- | --- |
-| Public TURN | coturn on `kithmoot.forgesworn.dev`, 3478 UDP/TCP and 5349 TLS, relay ports 49152 to 49299 UDP. Log output discarded, Docker log driver none. 1 Mbit/s per session; quotas 32 per user, 250 in all | `deploy/coturn/turnserver.conf` for logging and quotas; ports and the Docker driver are the host's report |
+| Public TURN | coturn on `kithmoot.forgesworn.dev`, 3478 UDP/TCP and 5349 TLS, relay ports 49152 to 49299 UDP. Log output discarded, Docker log driver none. 1 MB/s (about 8 Mbit/s) per allocation (`max-bps=1000000`, bytes per second); quotas 32 per user, 250 in all | `deploy/coturn/turnserver.conf` for logging and quotas; ports and the Docker driver are the host's report |
 | Credential issuer | `GET /turn`, anonymous, no account; HMAC time-limited logins, TTL 3600 s; per-IP rate limit held in memory and pruned after about ten minutes | `server/turn-credentials.mjs`; that `/turn` is live is the host's report: `deploy/Caddyfile.kithmoot` on this branch still answers 410 |
 | Who uses it | Web, desktop from 0.1.124, Android from 0.6.132, for rooms on default ICE settings without a device relay; Hide my IP too | `app/src/main.ts` `TURN_CREDENTIAL_ENDPOINT`, `app/src/ice-resolve.ts`, `app/src/relay-only.ts`; Android is the host's report |
 | Default STUN | Google (`stun.l.google.com:19302`), then Cloudflare (`stun.cloudflare.com:3478`), unless the device sets its own; when `/turn` answers, the web app derives STUN from the minted TURN URL | `src/ice-defaults.ts:55`, `app/src/ice-resolve.ts:106-116` |
