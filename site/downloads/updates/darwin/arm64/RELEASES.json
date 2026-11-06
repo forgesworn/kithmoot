@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.128",
+  "currentRelease": "0.1.129",
   "releases": [
     {
-      "version": "0.1.128",
+      "version": "0.1.129",
       "updateTo": {
-        "version": "0.1.128",
-        "name": "0.1.128",
-        "pub_date": "2026-11-06T06:59:07Z",
-        "notes": "Camera frames go out as captured when no background effect or face privacy is on, for smoother call video.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.128/KithMoot-0.1.128-mac-arm64.zip",
-        "sha256": "fc3d9ebf3b6f89801d23d030d5c2261921cdaceebcf918d51b524397894a28ea",
-        "size": 191634876
+        "version": "0.1.129",
+        "name": "0.1.129",
+        "pub_date": "2026-11-06T07:58:05Z",
+        "notes": "Returning to timed node rooms reuses admissions that already last until the room ends.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.129/KithMoot-0.1.129-mac-arm64.zip",
+        "sha256": "779790057ed82c5acd48cfa519d5324a2623b018936e67cca04ce1d8d7c592ed",
+        "size": 193010387
       }
     }
   ]

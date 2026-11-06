@@ -1,0 +1,198 @@
+{
+  "schema": "kithmoot-released-public-interop-evidence/1",
+  "date": "2026-11-06",
+  "status": "admission-verified-media-qualification-incomplete",
+  "scope": {
+    "publicNode": true,
+    "normalTls": true,
+    "isolatedRoom": true,
+    "originalUserRoomModified": false,
+    "syntheticCapture": true,
+    "physicalDevice": false,
+    "commercialVpnOrWifiCellularRoaming": false
+  },
+  "clients": {
+    "web": {
+      "origin": "https://kithmoot.forgesworn.dev/j/",
+      "freshPublicAssets": true,
+      "serviceWorkerBlockedInFixture": true,
+      "admitted": true
+    },
+    "desktop": {
+      "version": "0.1.128",
+      "publishedZipSha256": "fc3d9ebf3b6f89801d23d030d5c2261921cdaceebcf918d51b524397894a28ea",
+      "asarSha256": "3219742d106d1aa01f012f054d54761ce34683965fc9a6c1d0332c9c7c5d157c",
+      "normalSignatureAndStapleVerified": true,
+      "admitted": true
+    },
+    "android": {
+      "version": "0.6.135",
+      "versionCode": 158,
+      "source": "6862eb7e46b0196f3cb031b4248a093330073255",
+      "publishedApkSha256": "7c684d2662517b9288b22a57f31399838eb9ffc9011bab0584b605e0d9a5a15a",
+      "productionApkUnchanged": true,
+      "api": 35,
+      "googlePlayServicesDisabled": true,
+      "admitted": true,
+      "observer": "Separate private instrumentation signed for the unchanged production APK; never distributed",
+      "hostCameraOrMicrophoneUsed": false
+    }
+  },
+  "media": {
+    "sixDirectionBaselinePassed": false,
+    "twelveMinuteSoakPassed": false,
+    "interruptionRemovalClosureMediaPassed": false,
+    "failure": "Native SIGILL in libmediapipe_tasks_jni.so at PC 0x95d754; exact APK disassembly identifies RDSVL x0,#1. Repeated on the M4 emulator, including an attempt to select normal Effects Off before camera capture. Physical behaviour is not established.",
+    "driverFailure": "Browser getStats remained pending after native exit; the owned driver and clients were stopped explicitly."
+  },
+  "admissionRegression": {
+    "failure": "A grant already capped at a timed room end was saved as a newer event with unchanged expiry; the node refused renewal-must-extend.",
+    "sdkRegressionTestsFailedBefore": 3,
+    "ledgerRegressionFailedBefore": true,
+    "focusedTestsPassed": 29,
+    "fullSdkPassed": 8906,
+    "fullSdkSkipped": 8,
+    "typecheckPassed": true,
+    "productionBuildPassed": true,
+    "optionalBinaryBrowserCasesSkipped": 4,
+    "androidAlreadyGuardsCappedRenewal": true,
+    "privateFixtureCorrections": [
+      "Restore only verified server-accepted grants in the isolated fixture journal; no node database writes.",
+      "Supply known membership to the fixture epoch host so returning test guests receive room keys."
+    ],
+    "publicBefore": {
+      "at": "2026-11-06T07:50:25.048Z",
+      "phase": "before",
+      "room": "63ab0e5210fedc997ee0e86a9701f7a376f009b554bdd89f764f33613d8e2298",
+      "expiry": 1793958002,
+      "device": "ad068b92778cb663312fa212484e6debc8feed36a3bf044bdb9c07aa22c377ba",
+      "passed": true,
+      "response": {
+        "error": "renewal-must-extend"
+      },
+      "refusal": {
+        "status": 409,
+        "reason": "refused"
+      }
+    },
+    "publicAfter": {
+      "at": "2026-11-06T07:55:22.905Z",
+      "phase": "after",
+      "room": "63ab0e5210fedc997ee0e86a9701f7a376f009b554bdd89f764f33613d8e2298",
+      "expiry": 1793958002,
+      "device": "ad068b92778cb663312fa212484e6debc8feed36a3bf044bdb9c07aa22c377ba",
+      "passed": true,
+      "access": {
+        "state": "active",
+        "event": "842a01363a686e1b15c812b73fabf664adeeffa37dcd4f7fc239d9452fecd8af",
+        "grantExpiresAt": 1793958002,
+        "roomOfferExpiresAt": 1796539279
+      }
+    },
+    "probeCorrection": "The room-wide Spry offer has an independent expiry; device access remains bounded by the signed grant and device registration. The initial offer-expiry equality assertion was incorrect and its failed receipt is retained."
+  },
+  "cleanup": {
+    "ownedAndroidEmulatorStopped": true,
+    "ownedAvdDeleted": true,
+    "privateObserverPublished": false,
+    "operatorStopped": true,
+    "roomClosureSdkProof": {
+      "at": "2026-11-06T07:57:14.618Z",
+      "phase": "closed",
+      "room": "63ab0e5210fedc997ee0e86a9701f7a376f009b554bdd89f764f33613d8e2298",
+      "expiry": 1793958002,
+      "device": "ad068b92778cb663312fa212484e6debc8feed36a3bf044bdb9c07aa22c377ba",
+      "passed": true,
+      "closedProofVerified": true
+    },
+    "nodePurgeReadback": {
+      "ownRoom": "63ab0e5210fedc997ee0e86a9701f7a376f009b554bdd89f764f33613d8e2298",
+      "roomRows": 0,
+      "grantRows": 0,
+      "phase": "done",
+      "result": {
+        "published": true,
+        "callsRevoked": true,
+        "relayPurged": true,
+        "eventsDeleted": 24,
+        "completedAt": 1793951765,
+        "receipt": {
+          "kind": 27544,
+          "created_at": 1793951765,
+          "content": "{\"v\":1,\"operation\":\"93a7dd1889e31d4e6470d7d3a90118b7\",\"published\":true,\"callsRevoked\":true,\"relayPurged\":true,\"eventsDeleted\":24,\"completedAt\":1793951765}",
+          "tags": [
+            [
+              "operation",
+              "93a7dd1889e31d4e6470d7d3a90118b7"
+            ],
+            [
+              "expiration",
+              "1796543765"
+            ]
+          ],
+          "pubkey": "ebbc893826ed3aa68127466715f9c778a984100545c6356b13b0da26d13c812d",
+          "id": "c80919f664f55b1b76a9f493a2b3cedde16864c677e13c5a405738bb75cc95da",
+          "sig": "4f997ac45e3f984fc3f6886676e7e969b9c26d76627e6e52057ab9ff216741ef64004eeee0abfd88fdacf6264cb7b3b1b87be6b46544c8ac7f43bfd43421c541"
+        }
+      }
+    }
+  },
+  "limits": [
+    "Admission success is not sustained audio/video acceptance.",
+    "Synthetic input and controlled egress restrictions do not establish physical capture, perceived video quality or real network roaming.",
+    "No Archipelago UI change or maintainer acceptance is included."
+  ],
+  "nodeDeployment": {
+    "activated": true,
+    "oldImage": "localhost/kithmoot-node:0.1.0-rc.1-capacity-8b815bbabe06",
+    "newImage": "localhost/kithmoot-node:0.1.0-rc.1-grant-cap-4fd6e276",
+    "source": "4fd6e276",
+    "rollbackAvailable": true,
+    "ready": true,
+    "unchangedNeighbourContainers": 5,
+    "serviceIdentityUnchanged": true,
+    "bundleSha256": "0fbebc71627e2be37471bc3204e7ec47a55e6f651169cc0330e5f75f04defee7"
+  },
+  "desktopDeliveryCandidate": {
+    "version": "0.1.129",
+    "source": "f8d9040aa8e40e5ddf09825deb4693d64c0463aa",
+    "allFourRendererTreesMatch": true,
+    "packages": [
+      {
+        "filename": "KithMoot-0.1.129-mac-arm64.zip",
+        "bytes": 193010387,
+        "sha256": "779790057ed82c5acd48cfa519d5324a2623b018936e67cca04ce1d8d7c592ed"
+      },
+      {
+        "filename": "KithMoot-0.1.129-linux-x64.tar.gz",
+        "bytes": 186392212,
+        "sha256": "745ccdbe16321f79944692ddfb587eabf8de947411ec706d580a6cec036135a6"
+      },
+      {
+        "filename": "KithMoot-0.1.129-linux-arm64.tar.gz",
+        "bytes": 187318891,
+        "sha256": "bfb99dc4d09920da2811c01777d5840ab126c05b2933918a6310c450e63b8fac"
+      },
+      {
+        "filename": "KithMoot-0.1.129-windows-x64.zip",
+        "bytes": 221535175,
+        "sha256": "a14518845a9030544f0fded2d694a19227d8dcdc72888edde9c109c6e75c77b6"
+      },
+      {
+        "filename": "kithmoot_0.1.129_amd64.deb",
+        "bytes": 151046796,
+        "sha256": "470bfe17a1ef01b478955d370ae03fd070a43ba53b2dcd905f102d316c419e33"
+      },
+      {
+        "filename": "kithmoot_0.1.129_arm64.deb",
+        "bytes": 145494112,
+        "sha256": "d566e76235169617224385e4a4684d902f24c374c0de22b9cfa8c8b72dd00edc"
+      }
+    ],
+    "notarisedAndStapled": true,
+    "packagedSmokePassed": true,
+    "unitTestsPassed": 302,
+    "unitTestsSkipped": 1,
+    "publication": "Prepared; public distribution is verified separately after publication."
+  }
+}
