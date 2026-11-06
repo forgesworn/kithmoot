@@ -1488,7 +1488,17 @@ export class RoomSession {
         callProfile: this.#opts.callProfile,
         trackRole: this.#opts.trackRole,
         factory: this.#opts.factory,
-        ...(this.#opts.node ? { initialTier: 'turn' as const } : {}),
+        ...(this.#opts.node ? {
+          initialTier: 'turn' as const,
+          callDevices: (views: readonly ParticipantView[]) => {
+            const call = this.#self?.call?.id
+            if (!call) return new Set<string>()
+            const sids = new Map(views.flatMap(view => Object.entries(view.sids ?? {})))
+            return new Set(this.#presentEntries()
+              .filter(entry => entry.call?.id === call && entry.sid === sids.get(entry.device))
+              .map(entry => entry.device))
+          },
+        } : {}),
         localDevice: device,
         localParticipant: this.participant,
         deviceSk: this.#opts.deviceSk,
@@ -3296,6 +3306,8 @@ export class RoomSession {
     const bells: Array<[CallBellState, CallMembership]> = []
     if (previous && previous.id !== next?.id && !this.#othersOnCall(previous.id)) bells.push(['end', previous])
     if (next && next.id !== previous?.id && !this.#othersOnCall(next.id)) bells.push(['start', next])
+    // Local call membership takes effect before a slow relay echoes it.
+    if (this.#opts.node) this.#notify()
     await this.#publishEntry(true)
     for (const [state, on] of bells) void this.#ringBell(state, on)
   }
@@ -3419,6 +3431,7 @@ export class RoomSession {
     if (!this.#self || this.#left) return
     const { call: _off, ...rest } = this.#self
     this.#self = { ...rest, tracks: [], claims: {} }
+    if (this.#opts.node) this.#notify()
     await this.#publishEntry(true, true)
   }
 

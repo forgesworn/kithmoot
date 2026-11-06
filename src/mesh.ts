@@ -111,6 +111,9 @@ function describeError(error: unknown): string {
 
 export interface MeshOptions {
   session: MeshSession
+  /** When supplied, only these room devices receive media connections.
+   *  Room annotations and membership still use the whole roster. */
+  callDevices?: (views: readonly ParticipantView[]) => ReadonlySet<string>
   factory: PeerFactory
   localDevice: string
   /** Our own participant pubkey. Supplied explicitly, never inferred from
@@ -889,6 +892,7 @@ export class Mesh {
     if (this.#closed) return
 
     this.#views = views
+    const callDevices = this.#opts.callDevices?.(views)
     const wantedDevices = new Map<string, string>() // device -> participant
     const annotationDevices = new Map<string, string>() // every other admitted room device
     this.#trackOwner.clear()
@@ -905,6 +909,7 @@ export class Mesh {
         // someone else's participant must not talk us into a peer to
         // ourselves either.
         if (device === this.#opts.localDevice) continue
+        if (callDevices && !callDevices.has(device)) continue
         wantedDevices.set(device, view.participant)
       }
       // Track adverts are kept for every remote device whether or not it has

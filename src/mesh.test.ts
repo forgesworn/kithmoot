@@ -80,6 +80,48 @@ async function settle(): Promise<void> {
 }
 
 describe('Mesh', () => {
+  it('opens media only for call devices while keeping the full room roster', async () => {
+    const session = new FakeSession(), factory = createFakeFactory(), local = device()
+    const listener = device(), manager = device(), otherCall = device()
+    let eligible = new Set<string>()
+    const roster = [view(device().pub, [listener.pub, manager.pub]), view(device().pub, [otherCall.pub])]
+    session.setViews(roster)
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub,
+      deviceSk: local.sk, transport: new SimTransport(new SimRelay()), roomId: ROOM_ID,
+      callDevices: () => eligible })
+    try {
+      expect(factory.instances).toHaveLength(0)
+      eligible = new Set([listener.pub]); session.setViews(roster)
+      await flush()
+      expect([...mesh.routes.keys()]).toEqual([listener.pub])
+      expect(factory.instances).toHaveLength(1)
+      expect(session.participants()).toEqual(roster)
+      const previous = factory.instances[0]!
+      eligible = new Set([otherCall.pub]); session.setViews(roster)
+      await flush()
+      expect(previous.closed).toBe(true)
+      expect([...mesh.routes.keys()]).toEqual([otherCall.pub])
+      eligible = new Set(); session.setViews(roster)
+      expect([...mesh.routes.keys()]).toEqual([])
+      expect(factory.instances.every(peer => peer.closed)).toBe(true)
+    } finally { mesh.close() }
+  })
+
+  it('does not open media for an excluded device sending an offer', async () => {
+    const session = new FakeSession(), factory = createFakeFactory(), local = device(), manager = device()
+    const relay = new SimRelay()
+    session.setViews([view(device().pub, [manager.pub])])
+    const mesh = new Mesh({ session, factory, localDevice: local.pub, localParticipant: device().pub,
+      deviceSk: local.sk, transport: new SimTransport(relay), roomId: ROOM_ID, callDevices: () => new Set() })
+    try {
+      relay.publish(wrapSignal({ type: 'offer', sdp: 'spectator-offer', roomId: ROOM_ID },
+        { senderSk: manager.sk, recipientPubkey: local.pub }))
+      await flush()
+      expect(factory.instances).toHaveLength(0)
+      expect([...mesh.routes.keys()]).toEqual([])
+    } finally { mesh.close() }
+  })
+
   it('does not apply an answer from the retired direct offer to its replacement TURN offer', async () => {
     vi.useFakeTimers()
     const session = new FakeSession(), factory = createFakeFactory({ structuredSdp: true }), local = device(), remote = device()
