@@ -115,6 +115,9 @@ use without a native app, pocket notifications, durable history, infrastructure
 you own, and access to existing messaging services. They record intended
 outcomes and acceptance criteria, not additional shipped features.
 
+[Where KithMoot fits](docs/ECOSYSTEM.md) lists the neighbouring projects and
+services and the exact interface to each.
+
 ## The link, and what a relay sees
 
 The link is an admission capability, not the room's traffic key. It stays in
