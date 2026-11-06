@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.129",
+  "currentRelease": "0.1.130",
   "releases": [
     {
-      "version": "0.1.129",
+      "version": "0.1.130",
       "updateTo": {
-        "version": "0.1.129",
-        "name": "0.1.129",
-        "pub_date": "2026-11-06T07:58:05Z",
-        "notes": "Returning to timed node rooms reuses admissions that already last until the room ends.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.129/KithMoot-0.1.129-mac-arm64.zip",
-        "sha256": "779790057ed82c5acd48cfa519d5324a2623b018936e67cca04ce1d8d7c592ed",
-        "size": 193010387
+        "version": "0.1.130",
+        "name": "0.1.130",
+        "pub_date": "2026-11-06T15:19:45Z",
+        "notes": "Hosted calls release failed connections before trying replacements, freeing their relay allocations sooner.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.130/KithMoot-0.1.130-mac-arm64.zip",
+        "sha256": "b40a931958aef2691016db77d7b0314e2f1c018cee2db538db7476da3b73b5f8",
+        "size": 193010442
       }
     }
   ]
