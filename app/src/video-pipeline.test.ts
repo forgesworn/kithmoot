@@ -231,3 +231,165 @@ test('privacy cover is synchronous and privacy off cannot keep alive the old cov
   expect(f.output().ctx.drawImage).toHaveBeenCalledTimes(5)
   expect(pipeline.stats).toMatchObject({ fullRenderCount: 3, keepAliveCount: 1 })
 })
+
+// -- the frame-level path (Chromium: MediaStreamTrackProcessor and MediaStreamTrackGenerator) --
+
+class FakeFrame {
+  closed = false
+  constructor(readonly source: unknown, readonly timestamp: number) {}
+  close() { this.closed = true }
+}
+
+function setupFrameApi(opts: { mode?: 'off' | 'blur' } = {}) {
+  const f = setup()
+  const cameras = new Map<unknown, ReadableStreamDefaultController<FakeFrame>>()
+  const cancelled: unknown[] = []
+  const written: FakeFrame[] = []
+  const generators: Array<FakeTrack & { writable: WritableStream<FakeFrame> }> = []
+  vi.stubGlobal('MediaStreamTrackProcessor', class {
+    readonly readable: ReadableStream<FakeFrame>
+    constructor({ track }: { track: unknown }) {
+      this.readable = new ReadableStream<FakeFrame>({
+        start: (controller) => { cameras.set(track, controller) },
+        cancel: () => { cancelled.push(track) },
+      })
+    }
+  })
+  vi.stubGlobal('MediaStreamTrackGenerator', class extends FakeTrack {
+    readonly writable = new WritableStream<FakeFrame>({ write: (frame) => { written.push(frame) } })
+    constructor() {
+      super('generator')
+      generators.push(this)
+    }
+  })
+  vi.stubGlobal('VideoFrame', class extends FakeFrame {
+    constructor(source: unknown, init: { timestamp: number }) { super(source, init.timestamp) }
+  })
+  let clock = 1_000_000_000
+  return {
+    ...f,
+    written,
+    generators,
+    cancelled,
+    /** One camera frame from `camera` (default: the newest), stamped after the last. */
+    async cameraFrame(camera = f.sources.at(-1)) {
+      const frame = new FakeFrame(camera, (clock += 41_667))
+      cameras.get(camera)!.enqueue(frame)
+      await vi.advanceTimersByTimeAsync(0)
+      return frame
+    },
+    async start() {
+      const pipeline = new CameraPipeline({ mode: opts.mode ?? 'off', facePrivacy: 'off', framing: false })
+      running.push(pipeline)
+      const track = await pipeline.start()
+      return { pipeline, track }
+    },
+  }
+}
+
+const canvasFrames = (f: ReturnType<typeof setupFrameApi>) => f.written.filter((frame) => frame.source === f.output())
+const cameraFrames = (f: ReturnType<typeof setupFrameApi>) => f.written.filter((frame) => frame.source !== f.output())
+
+test('with nothing asked of the picture, camera frames are published as they come, on a generator track', async () => {
+  const f = setupFrameApi()
+  const { pipeline, track } = await f.start()
+  expect(track).toBe(f.generators[0])
+  expect(pipeline.track).toBe(track)
+  const first = await f.cameraFrame()
+  const second = await f.cameraFrame()
+  f.decode()
+  expect(f.written).toEqual([first, second])
+  expect(canvasFrames(f)).toHaveLength(0)
+  expect(pipeline.stats.directFrameCount).toBe(2)
+})
+
+test('with blur on, no camera frame is ever written: each is closed and only the finished canvas goes out', async () => {
+  const f = setupFrameApi({ mode: 'blur' })
+  const { pipeline } = await f.start()
+  const frames = [await f.cameraFrame(), await f.cameraFrame()]
+  f.decode()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(cameraFrames(f)).toHaveLength(0)
+  for (const frame of frames) expect(frame.closed).toBe(true)
+  expect(canvasFrames(f).length).toBeGreaterThan(0)
+  expect(pipeline.stats.directFrameCount).toBe(0)
+})
+
+test('switching an effect on stops camera frames from the very next one, before any render', async () => {
+  const f = setupFrameApi()
+  const { pipeline } = await f.start()
+  await f.cameraFrame()
+  pipeline.setMode('blur')
+  const after = await f.cameraFrame()
+  expect(after.closed).toBe(true)
+  expect(f.written).not.toContain(after)
+  expect(cameraFrames(f)).toHaveLength(1)
+  f.decode()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(canvasFrames(f).length).toBeGreaterThan(0)
+})
+
+test('face privacy on stops camera frames and puts the cover out at once', async () => {
+  const f = setupFrameApi()
+  const { pipeline } = await f.start()
+  await f.cameraFrame()
+  pipeline.setFacePrivacyMode('avatar')
+  await vi.advanceTimersByTimeAsync(0)
+  expect(canvasFrames(f)).toHaveLength(1)
+  const after = await f.cameraFrame()
+  expect(after.closed).toBe(true)
+  expect(cameraFrames(f)).toHaveLength(1)
+})
+
+test('switching the effect back off resumes camera frames, never older than the last canvas frame', async () => {
+  const f = setupFrameApi({ mode: 'blur' })
+  const { pipeline } = await f.start()
+  await f.cameraFrame()
+  f.decode()
+  await vi.advanceTimersByTimeAsync(0)
+  const lastCanvas = canvasFrames(f).at(-1)!
+  pipeline.setMode('off')
+  const next = await f.cameraFrame()
+  for (const frame of cameraFrames(f)) expect(frame.timestamp).toBeGreaterThan(lastCanvas.timestamp)
+  expect(f.written.at(-1) === next || next.closed).toBe(true)
+  const later = await f.cameraFrame()
+  expect(f.written.at(-1)).toBe(later)
+  const stamps = f.written.map((frame) => frame.timestamp)
+  expect(stamps).toEqual([...stamps].sort((a, b) => a - b))
+})
+
+test('a camera flip with the effect off reads the new camera and stops reading the old one; the published track stays the same', async () => {
+  const f = setupFrameApi()
+  const { pipeline, track } = await f.start()
+  const old = f.sources[0]
+  await f.cameraFrame(old)
+  await pipeline.useCamera({ facingMode: 'environment' })
+  const fresh = f.sources[1]
+  expect(fresh).toBeDefined()
+  expect(pipeline.track).toBe(track)
+  expect(f.cancelled).toContain(old)
+  const next = await f.cameraFrame(fresh)
+  expect(f.written.at(-1)).toBe(next)
+})
+
+test('a camera flip with blur on still writes no camera frame from either camera', async () => {
+  const f = setupFrameApi({ mode: 'blur' })
+  const { pipeline } = await f.start()
+  await f.cameraFrame()
+  await pipeline.useCamera({ facingMode: 'environment' })
+  await f.cameraFrame()
+  f.decode()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(cameraFrames(f)).toHaveLength(0)
+})
+
+test('stop ends the generator and the camera reader', async () => {
+  const f = setupFrameApi()
+  const { pipeline, track } = await f.start()
+  await f.cameraFrame()
+  pipeline.stop()
+  running.splice(running.indexOf(pipeline), 1)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(track.readyState).toBe('ended')
+  expect(f.cancelled).toContain(f.sources[0])
+})

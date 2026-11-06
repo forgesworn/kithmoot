@@ -266,6 +266,7 @@ async function routes(page: Page): Promise<Record<string, number>> {
       blurAll: Number(panel.dataset.blurAll ?? '0'),
       cover: Number(panel.dataset.cover ?? '0'),
       composite: Number(panel.dataset.composite ?? '0'),
+      directFrames: Number(panel.dataset.directFrames ?? '0'),
       fps: Number(panel.dataset.fps ?? '0'),
       frameCostMs: Number(panel.dataset.frameCostMs ?? '0'),
     }
@@ -285,10 +286,13 @@ test('blur is on by default and genuinely blurs the room', async ({ page }) => {
   await page.waitForTimeout(1500)
   const blurred = await measure(page)
 
+  expect((await routes(page)).directFrames).toBe(0)
   await page.locator('#effectModes button[data-mode="off"]').click()
   await expect(page.locator('#effectMode')).toHaveText('off')
   await page.waitForTimeout(1000)
   const raw = await measure(page)
+  // Chromium publishes the camera's own frames once nothing is asked of them.
+  await expect.poll(async () => (await routes(page)).directFrames).toBeGreaterThan(0)
 
   // The room behind the person: an order of magnitude of detail should be
   // gone. Anything less than a halving would not be a blur anybody would
@@ -348,6 +352,7 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
 
   const before = await routes(page)
   expect(before.passthrough).toBe(0)
+  expect(before.directFrames).toBe(0)
 
   const button = page.locator('#switchCamera')
   await expect(button).toBeVisible()
@@ -360,8 +365,10 @@ test('a camera swap never publishes an unblurred frame', async ({ page }) => {
   await page.waitForTimeout(1200)
 
   const after = await routes(page)
-  // The whole point: not one frame took the raw route across four swaps.
+  // The whole point: not one frame took the raw route across four swaps,
+  // through the canvas or, where the browser has a frame generator, past it.
   expect(after.passthrough).toBe(0)
+  expect(after.directFrames).toBe(0)
   expect(after.blurAll).toBeGreaterThan(before.blurAll)
 
   // And the published track is the same object it was before the swap, so

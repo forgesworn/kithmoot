@@ -7097,6 +7097,7 @@ function publishEffectStats(): void {
   panel.dataset.blurAll = String(totals['blur-all'])
   panel.dataset.cover = String(totals.cover)
   panel.dataset.composite = String(totals.composite)
+  panel.dataset.directFrames = String(stats.directFrameCount)
   renderEffectFailureNotice()
 }
 
