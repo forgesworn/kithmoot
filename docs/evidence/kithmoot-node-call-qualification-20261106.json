@@ -1,0 +1,176 @@
+{
+  "schema": "kithmoot-node-call-qualification/1",
+  "date": "2026-11-06",
+  "status": "qualified-artifacts-published-and-read-back",
+  "priorEvidence": "kithmoot-node-released-interop-20261105.json",
+  "web": {
+    "qualifiedSource": "077f64664ba05c30cfea7a2cffadabbbf50f8f7f",
+    "deployedSource": "33939ca4cd18c998ae92e4ba8b12c36b4e931878",
+    "release": "20261106T221054Z",
+    "all638DeployedFilesMatch": true,
+    "clientCodeMatchesQualifiedSource": true,
+    "serviceWorkersAllowed": true,
+    "frontendResponsesSubstituted": false
+  },
+  "desktop": {
+    "version": "0.1.132",
+    "source": "0ef63547204481fc15613b29a5e316ebc28257ab",
+    "release": "https://github.com/forgesworn/kithmoot/releases/tag/v0.1.132",
+    "files": [
+      {
+        "filename": "KithMoot-0.1.132-mac-arm64.zip",
+        "bytes": 193011488,
+        "sha256": "2234eb3503d716b91254441f50ae995b39f3be6723dea0d77e50bc6d16893796"
+      },
+      {
+        "filename": "KithMoot-0.1.132-linux-x64.tar.gz",
+        "bytes": 186387238,
+        "sha256": "88a303a87a61891af3446b6b183e6f9ab6061260c3a36e578f50397de5f9462d"
+      },
+      {
+        "filename": "KithMoot-0.1.132-linux-arm64.tar.gz",
+        "bytes": 187324561,
+        "sha256": "1a2fe330c160c564ff92df0c19a2068d990c5540e9561249ed01da7a4c8ddc47"
+      },
+      {
+        "filename": "KithMoot-0.1.132-windows-x64.zip",
+        "bytes": 221535125,
+        "sha256": "417e3b0bae06f3892d9cd0b4c70d1fd8948bddb31f155f0c698dd007ea039243"
+      },
+      {
+        "filename": "kithmoot_0.1.132_amd64.deb",
+        "bytes": 151054648,
+        "sha256": "5113dcb51ccb2d02065d5c356e7d0fb305b8bdaaf35a7d088135b0e6ce0c9ac0"
+      },
+      {
+        "filename": "kithmoot_0.1.132_arm64.deb",
+        "bytes": 145489588,
+        "sha256": "98baa5569c700acf2858e1d7e68a8dc3f4d016ac582b19a8d3b13ce20a2ec3a4"
+      }
+    ],
+    "packagedRendererFiles": 594,
+    "packagedRendererManifestSha256": "bbed98204b843ddfd2b2b12b444ad425cb3386589c925bba3b11e065e7a1eae0",
+    "notarisation": "c0494924-14d0-444c-ba30-d1c5fc84a92d",
+    "notarisationAccepted": true,
+    "publicMacSignatureAndGatekeeperVerified": true,
+    "normalTlsReadbacks": {
+      "web": 28,
+      "installers": 18,
+      "apt": 8
+    },
+    "aptPreviousPackagesAndKeyPreserved": true,
+    "windowsUnsignedPreview": true
+  },
+  "android": {
+    "version": "0.6.136",
+    "versionCode": 159,
+    "source": "0db021a87cbd9c783f891fda7aedd6f635e121ac",
+    "release": "https://github.com/forgesworn/kithmoot-android/releases/tag/v0.6.136",
+    "apkBytes": 74388044,
+    "apkSha256": "b643cec058c9c28dc684499253164dfe6beb84e54113b8ae6d761dcccfa4fd77",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "signatureAndLineageVerified": true,
+    "production135UpgradeRetainedUidIdentityAndVault": true,
+    "normalTlsApkReadbacks": 9,
+    "normalTlsManifestAndSignatureReadbacks": 4,
+    "productionApkUnmodifiedByObserver": true,
+    "googlePlayServicesDisabledInEmulator": true
+  },
+  "runtime": {
+    "publicNode": "demo.forgesworn.dev",
+    "seconds": 720,
+    "allSixAudioVideoDirectionsVerified": true,
+    "onlyTwoMediaPeersPerCallingClient": true,
+    "noncallingManagerHasNoInitialAllocation": true,
+    "controlledInterruptionSeconds": 12,
+    "automaticRecoveryMillis": 21066,
+    "periodicRefreshesAfterRecoveryGrace": {
+      "web": {
+        "issues": 4,
+        "distinctExpiries": 4
+      },
+      "desktop": {
+        "issues": 4,
+        "distinctExpiries": 4
+      }
+    },
+    "nativeGenerationsAfterGrace": [
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "turnOnlyTls443": true,
+    "mediaUdpBlockedInFixture": true,
+    "normalTls": true,
+    "turnQuota": {
+      "epochStable": true,
+      "allocationQuotaRefusals": 0,
+      "userQuotaRefusals": 0,
+      "relayBindFailures": 0,
+      "peakAllocations": 19,
+      "quotasUnchanged": true
+    },
+    "nativeRemoval": {
+      "enginePresent": false,
+      "identityReady": false,
+      "appResponsive": true
+    },
+    "closedRoomReadback": {
+      "rooms": 0,
+      "grants": 0
+    },
+    "management": "Released web UI, with automation delivering the background confirmation close event",
+    "syntheticCapture": true,
+    "qualifiedBeforePublication": true,
+    "publicArtifactsHaveIdenticalBytes": true
+  },
+  "zapstore": {
+    "publisher": "da19f1cd34beca44be74da4b306d9d1dd86b6343cef94ce22c49c6f59816e5bd",
+    "applicationEventId": "522363922bf7d049dfb6614fd42ef0b12e07d92efe0ad6eaef222d4b07fffeb1",
+    "assetEventId": "5dd9a99b134db5d89881b1035c9bdafb832dd9bbc21457c82a4f110871c6c7d2",
+    "releaseEventId": "97ec481a3d2c24ba5d4775d7b777ca9c4f55e4f3f811670f92b6132c45da99a4",
+    "threeAcknowledgementsAndExactReadbacks": true,
+    "currentMainChannelVerified": true,
+    "certificateIdentityProofVerified": true,
+    "privateKeyExported": false,
+    "zapstoreClientAcceptance": false
+  },
+  "verification": {
+    "androidHostedJobs": 17,
+    "sharedIntegratedHostedSuccesses": 47,
+    "sharedIntegratedHostedSkips": 1,
+    "sharedLocalTestsPassed": 8940,
+    "sharedLocalTestsSkipped": 8,
+    "androidAppTestsPassed": 3387,
+    "androidAppTestsSkipped": 1,
+    "protocolTestsPassed": 684,
+    "desktopTestsPassed": 302,
+    "desktopTestsSkipped": 1
+  },
+  "priorFailedRun": {
+    "sameCandidateSources": true,
+    "staleDirection": "desktop-to-android",
+    "failedAtApproximatelySeconds": 375,
+    "sharedMediaInterruptionBeforeFailure": true,
+    "newQuotaOrBindRefusals": 0,
+    "causeEstablished": false,
+    "retainedSeparately": true
+  },
+  "cleanup": {
+    "ownedRoomPurged": true,
+    "ownedGuestProfilesRemoved": true,
+    "emulatorStopped": true,
+    "avdDeleted": true,
+    "privateTunnelStopped": true,
+    "originalUserRoomModified": false
+  },
+  "limits": {
+    "physicalGrapheneOsVerified": false,
+    "actualPublicIpChangeVerified": false,
+    "commercialVpnOrWifiCellularRoamingVerified": false,
+    "perceivedAudioVideoQualityVerified": false
+  }
+}
