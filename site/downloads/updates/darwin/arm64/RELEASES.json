@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.131",
+  "currentRelease": "0.1.132",
   "releases": [
     {
-      "version": "0.1.131",
+      "version": "0.1.132",
       "updateTo": {
-        "version": "0.1.131",
-        "name": "0.1.131",
-        "pub_date": "2026-11-06T18:40:00Z",
-        "notes": "Hosted calls release failed connections before trying replacements, freeing their relay allocations sooner.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.131/KithMoot-0.1.131-mac-arm64.zip",
-        "sha256": "167dfda0e29647874fbdbb3c45c985f0cc1d6a4f7d6301431b3f3af354a24913",
-        "size": 193010732
+        "version": "0.1.132",
+        "name": "0.1.132",
+        "pub_date": "2026-11-06T20:15:00Z",
+        "notes": "Node calls connect media only between devices in the same call, including muted listeners.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.132/KithMoot-0.1.132-mac-arm64.zip",
+        "sha256": "ddc9fc915dce8ceac4045ec1624021855834212fb82dd91d2c29707e18bd5c20",
+        "size": 193008925
       }
     }
   ]
