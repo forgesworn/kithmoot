@@ -73,6 +73,15 @@ describe('capCameraSender', () => {
     }
   })
 
+  it('falls back to the bitrate ceiling alone when an engine refuses the frame-rate or size ceiling', async () => {
+    const s = sender(fakeTrack('video'))
+    const set = s.setParameters
+    s.setParameters = (next) => ('maxFramerate' in next.encodings[0]! ? Promise.reject(new Error('unsupported')) : set(next))
+    expect(capCameraSender(s, CAMERA_RUNG_SMALL)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(s.calls).toEqual([{ encodings: [{ maxBitrate: CAMERA_RUNG_SMALL.maxBitrate }] }])
+  })
+
   it('skips an engine without setParameters, and survives one that throws', () => {
     expect(capCameraSender({ track: fakeTrack('video') }, CAMERA_RUNG_SMALL)).toBe(false)
     const throwing = { track: fakeTrack('video'), getParameters: () => { throw new Error('closed') }, setParameters: () => Promise.resolve() }
