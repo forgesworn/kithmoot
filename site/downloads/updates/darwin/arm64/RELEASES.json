@@ -6,11 +6,11 @@
       "updateTo": {
         "version": "0.1.132",
         "name": "0.1.132",
-        "pub_date": "2026-11-06T20:15:00Z",
-        "notes": "Node calls connect media only between devices in the same call, including muted listeners.",
+        "pub_date": "2026-11-06T21:00:33Z",
+        "notes": "Node calls connect only devices in the same call; camera bitrate and size adapt to the number of recipients.",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.132/KithMoot-0.1.132-mac-arm64.zip",
-        "sha256": "ddc9fc915dce8ceac4045ec1624021855834212fb82dd91d2c29707e18bd5c20",
-        "size": 193008925
+        "sha256": "2234eb3503d716b91254441f50ae995b39f3be6723dea0d77e50bc6d16893796",
+        "size": 193011488
       }
     }
   ]
