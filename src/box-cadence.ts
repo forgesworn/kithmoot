@@ -3,8 +3,9 @@
  *
  * This module prepares byte-exact control requests for a verified Bothy over
  * an already-authenticated ordinary Link session. It deliberately contains no
- * dialler and no HTTP fallback: KithMoot does not yet have a browser Link
- * transport, and these credentials must never be sent over the public web.
+ * dialler and no HTTP fallback: KithMoot's browser Link carrier does not carry
+ * quiet-room traffic yet (docs/browser-link.md), and these credentials must
+ * never be sent over the public web.
  *
  * Only public drop keys cross the boundary. The room epoch key remains with
  * the client and is used here only long enough to derive each public key.

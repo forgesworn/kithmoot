@@ -19,7 +19,7 @@ Missing, changed, legacy and unknown inputs refuse with no fallback.
 From the browser worktree, prepare the reviewed local bundle before typechecking:
 
 ```sh
-node scripts/prepare-admin-invitation-preview.mjs /Users/darren/WebstormProjects/vennel/release/admin-policy-20261025/artifacts/5b3eb5fe28255b5c0cc09d959a3010a3d48f9562/web
+node scripts/prepare-admin-invitation-preview.mjs ../vennel/release/admin-policy-20261025/artifacts/5b3eb5fe28255b5c0cc09d959a3010a3d48f9562/web
 npm ci --no-audit --no-fund
 npm run typecheck
 ```
