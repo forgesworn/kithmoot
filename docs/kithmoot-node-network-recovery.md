@@ -632,5 +632,18 @@ transport with local presence echoes suppressed.
 A private signed Android candidate ran six media directions for about seven
 minutes before a renewal stalled with per-login TURN allocation refusals.
 Removal and room closure erased its saved identity, but its media soak failed.
-The revised web, desktop and Android builds require the same twelve-minute
-runtime qualification within the existing node quotas before release.
+The revised builds passed that gate on 6 November, then were published as
+desktop 0.1.132 and Android 0.6.136. The repeated twelve-minute check verified
+all six audio/video directions over node TURN TLS443, periodic renewals and
+automatic recovery 21,066 ms after a controlled twelve-second interruption.
+The noncalling manager consumed no initial allocation; peak allocation count
+was 19, with no new quota or bind refusals and unchanged limits. Normal web
+controls removed Android, erased its saved room identity and closed the room
+with zero room or grant rows remaining.
+
+An earlier run with these same candidates stalled after a shared interruption
+without quota refusals; its cause remains unestablished and its failure is
+retained separately. The passing run used synthetic capture and an isolated
+Android emulator. It does not establish physical roaming, an actual public-IP
+change or perceived quality. See the [dated qualification evidence](evidence/kithmoot-node-call-qualification-20261106.json)
+for exact artifacts, public readbacks and limits.

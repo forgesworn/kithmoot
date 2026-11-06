@@ -6,6 +6,34 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.136 and desktop 0.1.132, 6 November 2026
+
+Android 0.6.136 (159) and desktop 0.1.132 are published on GitHub and both
+website domains. Android's production certificate and lineage are unchanged.
+The signed desktop updater, Mac feed and APT repository identify the same six
+packages; APT retains all older packages and its archive key. The public Mac
+archive passed signature and Gatekeeper checks. Windows remains an unsigned
+portable preview.
+
+The exact candidates passed the twelve-minute mixed call over node TURN TLS443,
+with six audio/video directions, repeated renewals and recovery in 21,066 ms
+after a controlled twelve-second interruption. Media peers now belong only to
+devices in the same call, including muted listeners. Removal stopped Android
+media and completed its saved-room and device-identity wipe. Room closure left
+zero room and grant rows. Quotas were unchanged, with no new refusals.
+
+All 638 deployed files match source `33939ca4`. Public verification covered
+18 installer downloads, 28 website reads, eight APT reads, nine APK downloads
+and four Android manifest/signature reads. The three Zapstore catalogue records
+were acknowledged, read back exactly and verified as the current main release
+using the existing publisher identity. No private signing key was exported.
+
+The [dated evidence](evidence/kithmoot-node-call-qualification-20261106.json)
+records hashes, source revisions, catalogue IDs, earlier failure and cleanup.
+The repeat used synthetic capture and an isolated emulator. Physical GrapheneOS,
+actual Wi-Fi/mobile/VPN roaming, an independently verified public-IP change,
+Zapstore-client installation and perceived call quality remain untested.
+
 ## Desktop 0.1.128, 6 November 2026
 
 Desktop 0.1.128 bundles the web client's direct camera frames (PR #715): with
