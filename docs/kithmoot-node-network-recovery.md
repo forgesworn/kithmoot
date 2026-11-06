@@ -600,3 +600,17 @@ and unchanged production Android 0.6.135. Its sustained three-client media gate
 is incomplete: MediaPipe raised SIGILL on the M4 Android emulator before a live
 six-direction baseline. The emulator and its AVD were stopped and deleted.
 This does not establish physical-device behaviour or perceived call quality.
+
+The timed-room fix is shipped in web release `20261106T080946Z`, desktop
+0.1.129 and the demo node backend. All 638 deployed files match the build;
+42 normal-TLS readbacks, including 14 full installer downloads, match their
+expected bytes. Fresh startup on both public web addresses passes.
+
+A bounded follow-up on an M1 API35 emulator passed production Android's
+synthetic-audio preflight and web admission. Desktop guest entry timed out
+before native admission; its cause remains unclassified. The original fixture
+watchdog then closed that isolated room. A later baseline retry therefore did
+not run, and no native media or handoff result is claimed. Both temporary rooms
+were closed and purged, and their owned emulators and AVDs were deleted. The
+M1 preflight does not establish a MediaPipe workaround or physical-device
+acceptance.
