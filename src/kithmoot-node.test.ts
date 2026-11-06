@@ -34,6 +34,7 @@ describe('node TURN route gathering', () => {
     const fetcher = vi.fn(async () => response(f.login(NOW, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
     class Connection extends EventTarget {
       signalingState = 'stable'; connectionState = 'new'; iceGatheringState = 'new'
+      localDescription: RTCSessionDescriptionInit | null | undefined
       restartIce = vi.fn()
       setConfiguration = vi.fn((configuration: RTCConfiguration) => { this.configuration = configuration })
       constructor(public configuration: RTCConfiguration) { super() }
@@ -153,6 +154,115 @@ describe('node TURN route gathering', () => {
       expect(f.urls(f.create(1))).toEqual(f.urls(peer))
       await f.managed.reconnect()
       expect(f.urls(peer)).toEqual(udp)
+    } finally { f.managed.close() }
+  })
+  it('keeps a connected route through an empty later gathering round', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(), route = f.urls(peer)
+      peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } })
+      peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      peer.gather(); peer.exhausted(); await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+      expect(f.urls(f.create(1))).toEqual(route)
+    } finally { f.managed.close() }
+  })
+  it('does not spend a route on an abandoned local offer', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create()
+      peer.gather(); peer.localDescription = null; peer.exhausted()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+      peer.localDescription = { type: 'offer', sdp: 'v=0\r\n' }
+      peer.gather(); peer.exhausted(); await vi.advanceTimersByTimeAsync(4000)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+    } finally { f.managed.close() }
+  })
+  it('repairs one failed pair on the relay route another pair is using', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const probe = f.create(); probe.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const tls = f.urls(probe); probe.close()
+      const healthy = f.create(1), failed = f.create()
+      for (const peer of [healthy, failed]) { peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } }) }
+      healthy.connectionState = 'connected'; healthy.fire('connectionstatechange')
+      failed.connectionState = 'failed'; failed.fire('connectionstatechange')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(failed)).toEqual(tls); expect(f.urls(f.create())).toEqual(tls)
+      expect(f.fetcher).toHaveBeenCalledTimes(3); expect(failed.restartIce).toHaveBeenCalledTimes(1)
+      expect(healthy.restartIce).not.toHaveBeenCalled(); expect(healthy.setConfiguration).not.toHaveBeenCalled()
+    } finally { f.managed.close() }
+  })
+  it.each(['empty gathering', 'failed checks'])('retries an established route before changing transports, then permits %s fallback', async reason => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peers = [f.create(), f.create(1)], route = f.urls(peers[0]!)
+      for (const peer of peers) {
+        peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } })
+        peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      }
+      for (const peer of peers) peer.connectionState = 'failed'
+      for (const peer of peers) peer.fire('connectionstatechange')
+      await vi.advanceTimersByTimeAsync(0)
+      for (const peer of peers) { expect(f.urls(peer)).toEqual(route); expect(peer.restartIce).toHaveBeenCalledTimes(1) }
+      expect(f.fetcher).toHaveBeenCalledTimes(2); expect(f.urls(f.create())).toEqual(route)
+      // The fresh repair can still discover a genuinely blocked route.
+      peers[0]!.gather()
+      if (reason === 'empty gathering') { peers[0]!.exhausted(); await vi.advanceTimersByTimeAsync(4000) }
+      else {
+        peers[0]!.fire('icecandidate', { candidate: { type: 'relay' } })
+        peers[0]!.fire('connectionstatechange'); await vi.advanceTimersByTimeAsync(0)
+      }
+      expect(f.urls(peers[0]!)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(f.fetcher).toHaveBeenCalledTimes(3)
+    } finally { f.managed.close() }
+  })
+  it('keeps the shared route until fresh node access authorises its replacement', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const peer = f.create(), current = f.urls(peer)
+      peer.gather(); await vi.advanceTimersByTimeAsync(4000)
+      // A remote offer can create another peer while the access request waits.
+      expect(f.urls(f.create(1))).toEqual(current)
+      release(response(f.login(NOW, '31'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(f.urls(f.create(1))).toEqual(f.urls(peer))
+    } finally { f.managed.close() }
+  })
+  it('retries the current route after unavailable access before trusting offline gathering failure', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(); peer.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const tls = f.urls(peer)
+      peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      vi.mocked(f.fetcher).mockRejectedValueOnce(new TypeError('Network is offline'))
+      peer.connectionState = 'failed'; peer.fire('connectionstatechange'); await vi.advanceTimersByTimeAsync(0)
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const incoming = f.create(1); incoming.gather(); await vi.advanceTimersByTimeAsync(4000)
+      release(response(f.login(NOW, '32'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(peer)).toEqual(tls); expect(f.urls(incoming)).toEqual(tls)
+      expect(f.urls(f.create())).toEqual(tls)
+      // A fresh post-recovery gathering can still discover a blocked TLS route.
+      incoming.gather(); await vi.advanceTimersByTimeAsync(4000)
+      expect(f.urls(incoming)).toEqual([f.node.turnUrls.find(url => /^turns:.*:53499\?/.test(url))])
+    } finally { f.managed.close() }
+  })
+  it.each(['requesting peer', 'another peer'])('keeps a route proven by %s while fresh access waits', async which => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const blocked = f.create(), other = f.create(1), current = f.urls(blocked)
+      blocked.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const connected = which === 'requesting peer' ? blocked : other
+      connected.connectionState = 'connected'; connected.fire('connectionstatechange')
+      release(response(f.login(NOW, '33'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(blocked)).toEqual(current); expect(f.urls(f.create())).toEqual(current)
     } finally { f.managed.close() }
   })
   it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {
