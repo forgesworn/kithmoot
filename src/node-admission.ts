@@ -138,7 +138,7 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
       state.grants.push(record)
       if (!state.members.includes(participant)) state.members.push(participant)
       await save()
-    } else if (parsed(record).expiration <= now() + GRANT_RENEW_WITHIN_SECONDS) {
+    } else if (parsed(record).expiration <= now() + GRANT_RENEW_WITHIN_SECONDS && parsed(record).expiration < (node.endsAt ?? Infinity)) {
       const previous = parsed(record), createdAt = nextCreatedAt(now(), previous.createdAt)
       record.credential = structuredClone(credential)
       record.event = buildGrant({ authoritySk, roomId: node.room, device: proof.device, server: host, scopes: previous.scopes,
@@ -189,7 +189,10 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
       requireLive()
       for (const record of state.grants) {
         const previous = parsed(record)
-        if (previous.status !== 'active' || state.removed.includes(record.participant) || previous.expiration > now() + GRANT_RENEW_WITHIN_SECONDS) continue
+        // A grant already reaching the room end cannot be extended. Replacing
+        // it at the same expiry is rejected by the node, including on return.
+        if (previous.status !== 'active' || state.removed.includes(record.participant) || previous.expiration > now() + GRANT_RENEW_WITHIN_SECONDS
+          || previous.expiration >= (node.endsAt ?? Infinity)) continue
         const createdAt = nextCreatedAt(now(), previous.createdAt)
         record.event = buildGrant({ authoritySk, roomId: node.room, device: previous.device, server: host, scopes: previous.scopes,
           grantId: previous.grantId, createdAt, expiration: Math.min(createdAt + GRANT_LIFETIME_SECONDS, node.endsAt ?? Infinity) })

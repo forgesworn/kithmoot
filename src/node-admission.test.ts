@@ -9,17 +9,26 @@ import { parseGroupEvent } from './group-grants.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperSnapshot } from './node-admission.js'
 
 const NOW = 1_900_000_000
-async function fixture() {
+async function fixture(endsAt?: number) {
   const authoritySk = generateSecretKey(), roomSecret = generateSecretKey(), keeper = localIdentity(generateSecretKey()), guest = localIdentity(generateSecretKey())
-  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW }), NOW)!
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW, ...(endsAt === undefined ? {} : { endsAt }) }), NOW)!
   let saved: NodeKeeperSnapshot | undefined, failSave = false, failPost = false, clock = NOW
-  const posts: Event[] = [], onGrant = vi.fn(async () => {})
+  const posts: Event[] = [], accepted = new Map<string, Event>(), onGrant = vi.fn(async () => {})
   const store = { load: async () => structuredClone(saved), save: vi.fn(async (value: NodeKeeperSnapshot) => { if (failSave) throw Error('disk'); saved = structuredClone(value) }) }
   const fetcher = vi.fn(async (_url: unknown, init?: RequestInit) => {
     const event = JSON.parse(String(init?.body)) as Event
     // The exact signed event must already have been atomically saved.
     if (!event.tags.some(t => t[0] === 'status' && t[1] === 'revoked')) expect(saved?.grants.some(r => r.event.id === event.id)).toBe(true)
     posts.push(event)
+    const parsed = parseGroupEvent(event)
+    if (!parsed.ok || parsed.parsed.type !== 'grant') throw Error('fixture grant')
+    const previous = accepted.get(parsed.parsed.grantId)
+    if (previous && previous.id !== event.id && parsed.parsed.status === 'active') {
+      const old = parseGroupEvent(previous)
+      if (!old.ok || old.parsed.type !== 'grant') throw Error('fixture previous grant')
+      if (parsed.parsed.expiration <= old.parsed.expiration) return new Response(JSON.stringify({ error: 'renewal-must-extend' }), { status: 409 })
+    }
+    accepted.set(parsed.parsed.grantId, event)
     if (failPost) throw Error('lost acknowledgement')
     return new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } })
   }) as unknown as typeof fetch
@@ -132,6 +141,44 @@ describe('keeper node admission journal', () => {
       if (!a.ok || a.parsed.type !== 'grant' || !b.ok || b.parsed.type !== 'grant') throw Error('fixture')
       expect(b.parsed.grantId).toBe(a.parsed.grantId); expect(b.parsed.expiration).toBe(NOW + 51 * 86400)
       expect(b.parsed.scopes).toEqual(['turn', 'relay-read', 'relay-write']); expect(b.parsed.bytes).toBeUndefined()
+    } finally { keeper.close() }
+  })
+  it('readmits a returning device after restart with the exact grant capped by the room end', async () => {
+    const f = await fixture(NOW + 3 * 3600), keeper = await openNodeKeeperAdmissions(f.options), request = await f.ask()
+    await keeper.admit(request.event, true)
+    const first = f.saved()!.grants[0]!.event
+    keeper.close(); f.advance(60)
+    const restored = await openNodeKeeperAdmissions(f.options)
+    try {
+      const returning = await f.ask(f.guest, request.deviceSk)
+      const answer = await restored.admit(returning.event)
+      const admission = decodeNodeJoinAnswer({ node: f.node, deviceSk: request.deviceSk, event: answer, requestId: returning.requestId, requestExpiresAt: returning.expiresAt, now: NOW + 60 })
+      expect(admission && admission !== 'denied' && admission.grant).toEqual(first)
+      expect(f.posts.map(event => event.id)).toEqual([first.id, first.id])
+      expect(f.saved()!.grants[0]!.event).toEqual(first)
+    } finally { restored.close() }
+  })
+  it('does not schedule a same-expiry renewal at the room end or operate after the room expires', async () => {
+    const f = await fixture(NOW + 3 * 3600), keeper = await openNodeKeeperAdmissions(f.options)
+    try {
+      await keeper.admit((await f.ask()).event, true)
+      const first = f.saved()!.grants[0]!.event
+      f.advance(60); await keeper.renew()
+      expect(f.posts).toEqual([first]); expect(f.saved()!.grants[0]!.event).toEqual(first)
+      f.advance(3 * 3600)
+      await expect(keeper.renew()).rejects.toMatchObject({ reason: 'refused' })
+      expect(f.posts).toEqual([first])
+    } finally { keeper.close() }
+  })
+  it('keeps a maximum-duration room grant at its signed end throughout the renewal window', async () => {
+    const f = await fixture(NOW + 30 * 86400), keeper = await openNodeKeeperAdmissions(f.options)
+    try {
+      await keeper.admit((await f.ask()).event, true)
+      const capped = f.saved()!.grants[0]!.event, parsed = parseGroupEvent(capped)
+      expect(parsed.ok && parsed.parsed.type === 'grant' && parsed.parsed.expiration).toBe(NOW + 30 * 86400)
+      f.advance(21 * 86400); await keeper.renew()
+      f.advance(5 * 86400); await keeper.renew()
+      expect(f.posts).toEqual([capped]); expect(f.saved()!.grants[0]!.event).toEqual(capped)
     } finally { keeper.close() }
   })
 })
