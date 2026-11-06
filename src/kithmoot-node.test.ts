@@ -71,6 +71,40 @@ describe('node TURN route gathering', () => {
       expect(old.signalingState).toBe('closed'); expect(current.signalingState).toBe('stable')
     } finally { managed.close() }
   })
+  it.each(['new', 'connecting', 'disconnected', 'failed'])('releases retired %s transports before starting replacements', async state => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const old = f.create(); old.connectionState = state
+      f.managed.factory.onRetiring!(old as unknown as ReturnType<typeof f.managed.factory>)
+      expect(old.signalingState).toBe('closed')
+      expect(f.fetcher).toHaveBeenCalledTimes(1)
+    } finally { f.managed.close() }
+  })
+  it('keeps a failed three-peer rebuild inside the replacement connection budget', async () => {
+    vi.useFakeTimers(); const f = fixture(), active = new Set<Connection>()
+    class Connection extends EventTarget {
+      signalingState = 'stable'; connectionState = 'disconnected'
+      constructor(readonly configuration: RTCConfiguration) {
+        super()
+        if (active.size >= 4) throw Error('TURN quota: three current transports and one replacement')
+        active.add(this)
+      }
+      close() { this.signalingState = 'closed'; active.delete(this) }
+    }
+    const fetcher = vi.fn(async () => response(f.login())) as unknown as typeof fetch
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection })
+    try {
+      const old = Array.from({ length: 3 }, () => managed.factory())
+      expect(active.size).toBe(3)
+      expect(() => {
+        for (const peer of old) { managed.factory.onRetiring!(peer); managed.factory() }
+      }).not.toThrow()
+      expect(active.size).toBe(3)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    } finally { managed.close() }
+    expect(active.size).toBe(0)
+  })
   it('gathers one UDP route per peer rather than allocating all four advertised routes', async () => {
     const f = await setup()
     try {
