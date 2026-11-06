@@ -572,3 +572,24 @@ renewal failure and renderer-fixture corrections remain in private evidence.
 SDK embedders must supply the owned connection-rebuild callback for fresh TURN
 allocations; changing credentials with a native ICE restart alone did not
 replace the old allocation in the baseline experiment.
+
+## Admission at a timed room's end
+
+A device grant cannot outlast its room. Once a grant reaches the signed room
+end, the managing app reuses its signed event instead of trying to renew it to
+the same expiry. This applies to scheduled renewal and returning devices after
+an app restart. Android already follows this rule.
+
+Earlier web and desktop versions could save a newer signed confirmation before
+the node rejected its unchanged expiry with `renewal-must-extend`. The node now
+accepts that confirmation only when it has the same grant ID, room, device and
+scopes, a strictly newer timestamp, and the same expiry exactly at the signed
+room end. It persists that accepted event so client and server agree after a
+restart. This does not extend access. Shorter expiries, changed scopes, stale
+confirmations, revoked grants, reset grants and closing or expired rooms retain
+their existing refusals. Untimed rooms still require a renewal to extend expiry.
+
+Regression checks cover lost acknowledgements, returning devices, a maximum
+30-day room, durable node recovery and the authenticated HTTP access response.
+These checks establish admission behaviour; they do not establish physical
+network roaming or sustained audio/video quality on released clients.

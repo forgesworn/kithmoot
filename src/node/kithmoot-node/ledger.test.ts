@@ -9,14 +9,14 @@ import { NodeLedger } from './ledger.js'
 const NOW = 1_900_000_000
 const paths: string[] = [], ledgers: NodeLedger[] = []
 afterEach(() => { for (const ledger of ledgers.splice(0)) ledger.close(); for (const path of paths.splice(0)) rmSync(path, { recursive: true, force: true }) })
-function fixture() {
+function fixture(ends?: number) {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-ledger-')); paths.push(directory)
   const authority = generateSecretKey(), owner = getPublicKey(generateSecretKey()), device = getPublicKey(generateSecretKey())
   const options = { host: 'node.example', serviceKey: getPublicKey(generateSecretKey()), salt: 'test-salt', now: () => NOW }
   const path = join(directory, 'ledger.sqlite')
   const ledger = new NodeLedger(path, options); ledgers.push(ledger); ledger.claimOwner(owner)
   const room = '01'.repeat(32)
-  ledger.enrol({ room, authority: getPublicKey(authority), inviter: getPublicKey(authority) })
+  ledger.enrol({ room, authority: getPublicKey(authority), inviter: getPublicKey(authority), ends })
   const grant = (patch: Record<string, unknown> = {}) => buildGrant({ authoritySk: authority, roomId: room, device, server: 'node.example',
     scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: NOW, expiration: NOW + 3600, ...patch })
   return { ledger, authority, owner, device, room, grant, path, options }
@@ -70,6 +70,30 @@ describe('node authorisation ledger', () => {
     expect(() => f.ledger.apply(f.grant({ createdAt: NOW + 1, expiration: NOW + 3000 }))).toThrow('renewal-must-extend')
     f.ledger.apply(f.grant({ createdAt: NOW + 1, expiration: NOW + 4000 }))
     expect(f.ledger.devices()[0]?.expires).toBe(NOW + 4000)
+  })
+  it('recovers an older client\'s newer confirmation with identical rights at the signed room end', () => {
+    const f = fixture(NOW + 3600), first = f.grant(), retry = f.grant({ createdAt: NOW + 1 })
+    f.ledger.apply(first)
+    expect(f.ledger.apply(retry).changed).toBe(true)
+    expect(f.ledger.apply(retry).changed).toBe(false)
+    expect(f.ledger.active()[0]?.event).toEqual(retry)
+    expect(f.ledger.devices()).toEqual([{ room: f.room, device: f.device, expires: NOW + 3600, turn: true, read: true, write: true }])
+    ledgers.splice(ledgers.indexOf(f.ledger), 1); f.ledger.close()
+    const reopened = new NodeLedger(f.path, f.options); ledgers.push(reopened)
+    expect(reopened.apply(retry).changed).toBe(false)
+    expect(() => reopened.apply(first)).toThrow('stale-grant')
+  })
+  it('never uses capped-confirmation recovery to change rights, shorten access or revive a revocation', () => {
+    const f = fixture(NOW + 3600); f.ledger.apply(f.grant())
+    expect(() => f.ledger.apply(f.grant({ createdAt: NOW + 1, scopes: ['relay-read'] }))).toThrow('renewal-must-extend')
+    expect(() => f.ledger.apply(f.grant({ createdAt: NOW + 1, expiration: NOW + 3500 }))).toThrow('renewal-must-extend')
+    expect(() => f.ledger.apply(f.grant({ createdAt: NOW + 1, device: getPublicKey(generateSecretKey()) }))).toThrow('grant-id-rebound')
+    const parsed = parseGroupEvent(f.grant())
+    if (!parsed.ok || parsed.parsed.type !== 'grant') throw Error('fixture')
+    f.ledger.apply(buildRevocation(parsed.parsed, f.authority, NOW + 1))
+    expect(() => f.ledger.apply(f.grant({ createdAt: NOW + 2 }))).toThrow('grant-revoked')
+    const persistent = fixture(); persistent.ledger.apply(persistent.grant())
+    expect(() => persistent.ledger.apply(persistent.grant({ createdAt: NOW + 1 }))).toThrow('renewal-must-extend')
   })
   it('resumes a close operation after restart and erases its room data before completion', () => {
     const f = fixture(); f.ledger.apply(f.grant())

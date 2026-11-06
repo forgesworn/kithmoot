@@ -162,7 +162,12 @@ export class NodeLedger {
           if (!parsed.ok || parsed.parsed.type !== 'grant') refusal(503, 'stored-grant-invalid')
           if (event.status === 'revoked' && (event.expiration < Number(old.expiration)
             || JSON.stringify(event.scopes.slice().sort()) !== JSON.stringify(parsed.parsed.scopes.slice().sort()))) refusal(409, 'revocation-tags-changed')
-          if (event.status === 'active' && event.expiration <= Number(old.expiration)) refusal(409, 'renewal-must-extend')
+          // Older clients saved a newer confirmation even when the room end
+          // prevented extension. Accept only those unchanged rights at that end,
+          // so their durable journal can recover without extending access.
+          const cappedConfirmation = room.ends !== undefined && event.expiration === room.ends && event.expiration === Number(old.expiration)
+            && JSON.stringify(event.scopes.slice().sort()) === JSON.stringify(parsed.parsed.scopes.slice().sort())
+          if (event.status === 'active' && event.expiration <= Number(old.expiration) && !cappedConfirmation) refusal(409, 'renewal-must-extend')
         }
         if (event.status === 'active' && this.active().some(g => g.roomId === event.roomId && g.device === event.device && g.grantId !== event.grantId)) refusal(409, 'device-already-granted')
         if (!old && Number(this.#db.prepare('SELECT count(*) AS n FROM grants').get()?.n) >= 4096) refusal(429, 'grant-record-limit')

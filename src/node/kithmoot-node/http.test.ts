@@ -7,6 +7,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { NodeLedger } from './ledger.js'
 import { NodeSupervisor } from './supervisor.js'
 import { nodeHttp, preparePairing } from './http.js'
+import { buildGrant } from '../../group-grants.js'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
 afterEach(async () => { for (const run of cleanup.splice(0).reverse()) await run() })
@@ -40,8 +41,8 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   expect((await post('/node/v1/claim', body, auth)).status).toBe(409)
   await supervisor.tick()
   expect(await supervisor.ownerStatus()).toMatchObject({ ready: true, relayReady: true, rooms: 0 })
-  const room = JSON.stringify({ room: '01'.repeat(32), authority: getPublicKey(generateSecretKey()) })
-  const roomBody = JSON.stringify({ ...JSON.parse(room), inviter: JSON.parse(room).authority })
+  const authority = generateSecretKey(), room = JSON.stringify({ room: '01'.repeat(32), authority: getPublicKey(authority) })
+  const roomBody = JSON.stringify({ ...JSON.parse(room), inviter: JSON.parse(room).authority, ends: now + 3600 })
   expect((await post('/node/v1/enrol', roomBody, proof('/node/v1/enrol', roomBody, foreign))).status).toBe(403)
   expect((await post('/node/v1/enrol', roomBody, proof('/groups/v1/events', roomBody))).status).toBe(401)
   expect((await post('/node/v1/enrol', roomBody, proof('/node/v1/enrol', roomBody))).status).toBe(200)
@@ -63,4 +64,19 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   expect((await post('/node/v1/claim', reconnect, proof('/node/v1/claim', reconnect))).status).toBe(200)
   expect(ledger.meta('owner')).toBe(getPublicKey(owner)); expect(ledger.rooms()).toHaveLength(1)
   expect((await post('/node/v1/claim', reconnect, proof('/node/v1/claim', reconnect))).status).toBe(403)
+  relayUnavailable = false
+  const device = generateSecretKey(), grant = buildGrant({ authoritySk: authority, roomId: JSON.parse(room).room, device: getPublicKey(device),
+    server: 'node.example', scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: now, expiration: now + 3600 })
+  const confirmation = buildGrant({ authoritySk: authority, roomId: JSON.parse(room).room, device: getPublicKey(device),
+    server: 'node.example', scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: now + 1, expiration: now + 3600 })
+  for (const event of [grant, confirmation, confirmation]) {
+    const body = JSON.stringify(event)
+    expect((await post('/groups/v1/events', body, proof('/groups/v1/events', body, authority))).status).toBe(200)
+  }
+  const stale = JSON.stringify(grant)
+  expect((await post('/groups/v1/events', stale, proof('/groups/v1/events', stale, authority))).status).toBe(409)
+  const access = JSON.stringify({ room: JSON.parse(room).room, grant: '01'.repeat(16) })
+  const accepted = await (await post('/node/v1/access', access, proof('/node/v1/access', access, device))).json()
+  expect(accepted).toMatchObject({ state: 'active', event: confirmation, offer: { expiresAt: now + 3600 } })
+  expect(ledger.devices()[0]?.expires).toBe(now + 3600)
 })
