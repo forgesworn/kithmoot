@@ -614,3 +614,23 @@ not run, and no native media or handoff result is claimed. Both temporary rooms
 were closed and purged, and their owned emulators and AVDs were deleted. The
 M1 preflight does not establish a MediaPipe workaround or physical-device
 acceptance.
+
+## Node media follows the call
+
+Node rooms open media connections only between devices in the same call.
+A manager reading chat or admitting guests creates no media peer. Listeners
+with mic and camera off remain call members. Membership, annotations and
+capability visibility still use the complete authenticated roster. Ordinary
+rooms keep their existing roster-wide peer behaviour.
+
+Selection uses each device's authenticated presence and the chosen page
+session, rather than a participant's aggregated call label. Local call changes
+and handoffs reconcile before their presence is echoed by the relay; remote
+changes reconcile on arrival. Tests exercise this through a pinned node
+transport with local presence echoes suppressed.
+
+A private signed Android candidate ran six media directions for about seven
+minutes before a renewal stalled with per-login TURN allocation refusals.
+Removal and room closure erased its saved identity, but its media soak failed.
+The revised web, desktop and Android builds require the same twelve-minute
+runtime qualification within the existing node quotas before release.

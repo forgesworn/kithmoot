@@ -11,6 +11,11 @@ import type { PeerContext } from './peer.js'
 import { Peer } from './peer.js'
 import { SlotPeer } from './slot-peer.js'
 import { FakeRTCPeerConnection, fakeTrack } from '../test/fake-rtc.js'
+import { RoomSession } from './session.js'
+import { deriveRoom } from './room.js'
+import { createDeviceCredential } from './credential.js'
+import { encodeRosterEvent } from './roster.js'
+import { SimRelay } from '../test/sim-relay.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
   nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
 
@@ -327,6 +332,98 @@ describe('node TURN route gathering', () => {
   })
 })
 describe('pinned KithMoot node client', () => {
+  it('reconciles node media by device call before the local presence echo', async () => {
+    const secret = generateSecretKey(), room = deriveRoom(secret), authority = generateSecretKey()
+    const localSk = generateSecretKey(), local = localIdentity(localSk), participant = localIdentity(generateSecretKey())
+    const node = readNodeRoom(signNodeRoom({ authoritySk: authority, room: room.roomId,
+      serviceKey: getPublicKey(generateSecretKey()), origin: 'https://node.example', now: NOW }), NOW)!
+    const relay = new SimRelay(), connections: Connection[] = []
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    server.on('connection', socket => {
+      const subscriptions = new Map<string, () => void>()
+      socket.send(JSON.stringify(['AUTH', 'call-membership']))
+      socket.on('message', bytes => {
+        const frame = JSON.parse(bytes.toString())
+        if (frame[0] === 'AUTH') socket.send(JSON.stringify(['OK', frame[1].id, verifyEventUncached(frame[1]), '']))
+        if (frame[0] === 'REQ') {
+          subscriptions.get(frame[1])?.()
+          subscriptions.set(frame[1], relay.subscribe(frame.slice(2), event => {
+            // The local UI must not wait for its presence to round-trip.
+            if (event.pubkey !== local.pubkey) socket.send(JSON.stringify(['EVENT', frame[1], event]))
+          }))
+          socket.send(JSON.stringify(['EOSE', frame[1]]))
+        }
+        if (frame[0] === 'EVENT') { relay.publish(frame[1]); socket.send(JSON.stringify(['OK', frame[1].id, true, ''])) }
+        if (frame[0] === 'CLOSE') { subscriptions.get(frame[1])?.(); subscriptions.delete(frame[1]) }
+      })
+      socket.on('close', () => { for (const unsubscribe of subscriptions.values()) unsubscribe() })
+    })
+    await new Promise<void>(resolve => server.once('listening', resolve))
+    const port = (server.address() as { port: number }).port
+    class Socket extends NodeWebSocket { constructor(_: string) { super(`ws://127.0.0.1:${port}`) } }
+    class Connection extends FakeRTCPeerConnection {
+      readonly events = new EventTarget()
+      constructor(public configuration: RTCConfiguration) { super(); connections.push(this) }
+      addEventListener(type: string, listener: EventListener) { this.events.addEventListener(type, listener) }
+      override close() { this.signalingState = 'closed'; super.close() }
+    }
+    const transport = nodeRoomTransport(node, local, 'room', { now: () => NOW,
+      websocketImplementation: Socket as unknown as typeof WebSocket })
+    const grant = buildGrant({ authoritySk: authority, roomId: room.roomId, device: local.pubkey, server: 'node.example',
+      scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: NOW, expiration: NOW + 3600 })
+    const parsed = parseGroupEvent(grant)
+    if (!parsed.ok || parsed.parsed.type !== 'grant') throw Error('fixture grant')
+    const access: Extract<NodeDeviceAccess, { state: 'active' }> = { state: 'active', grant: parsed.parsed,
+      offer: { v: 1, endpoint: node.origin, token: 'A'.repeat(43), expiresAt: NOW + 3600 } }
+    const managed = await nodeCallFactory(node, local, async () => access, {
+      now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection,
+      fetcher: (async () => response({ urls: node.turnUrls, username: `${NOW + 300}:${'01'.repeat(12)}`,
+        credential: 'A'.repeat(27) + '=', expiresAt: NOW + 300, accessExpiresAt: NOW + 3600 })) as typeof fetch,
+    })
+    const live = new RoomSession({ secret, identity: participant, deviceSk: localSk, transport, factory: managed.factory,
+      node, authority: node.authority, now: () => NOW, epochSettleMs: 0, callBell: false })
+    const first = { id: '11'.repeat(16), since: NOW }, second = { id: '22'.repeat(16), since: NOW }
+    const remoteParticipant = generateSecretKey(), listener = generateSecretKey(), manager = generateSecretKey()
+    let stamp = NOW
+    const presence = async (sk: Uint8Array, call: typeof first | undefined, sid: string) => relay.publish(encodeRosterEvent({
+      participant: getPublicKey(remoteParticipant), device: getPublicKey(sk),
+      credential: await createDeviceCredential({ identity: localIdentity(remoteParticipant), devicePubkey: getPublicKey(sk), roomId: room.roomId, now: () => NOW, expiresAt: NOW + 3600 }),
+      tracks: [], claims: {}, updatedAt: ++stamp, sid, ...(call ? { call } : {}),
+    }, { roomId: room.roomId, roomKey: room.roomKey, deviceSk: sk, expiresAt: NOW + 3600 }))
+    try {
+      await live.join([], {})
+      await presence(listener, first, 'aa'.repeat(16)); await presence(manager, second, 'bb'.repeat(16))
+      await vi.waitFor(() => expect(live.participants().flatMap(view => view.devices)).toHaveLength(2))
+      expect(connections).toHaveLength(0)
+      let update = live.setCall(first)
+      expect([...live.routes.keys()]).toEqual([getPublicKey(listener)])
+      await update
+      await presence(listener, second, 'aa'.repeat(16))
+      await vi.waitFor(() => expect(live.routes.size).toBe(0))
+      update = live.setCall(second)
+      expect(new Set(live.routes.keys())).toEqual(new Set([getPublicKey(listener), getPublicKey(manager)]))
+      await update
+      // A second tab of this device in another call wins by its newer presence.
+      await presence(listener, first, 'cc'.repeat(16))
+      await vi.waitFor(() => expect([...live.routes.keys()]).toEqual([getPublicKey(manager)]))
+      await presence(listener, second, 'cc'.repeat(16))
+      await vi.waitFor(() => expect(live.routes.size).toBe(2))
+      update = live.setCall(null)
+      expect(live.routes.size).toBe(0)
+      expect(connections.every(peer => peer.closed)).toBe(true)
+      await update
+      await live.setCall(second)
+      update = live.farewellCall()
+      expect(live.routes.size).toBe(0)
+      await update
+      expect(live.participants().flatMap(view => view.devices)).toHaveLength(2)
+    } finally {
+      await live.leave(); managed.close(); transport.close(); relay.close()
+      for (const socket of server.clients) socket.terminate()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
   it('probes and replaces an idle silent authenticated socket without waiting for a publish', async () => {
     const f = fixture(), server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
     let connections = 0, eoses = 0, silenceFirst = false
