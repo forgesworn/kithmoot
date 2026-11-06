@@ -195,6 +195,30 @@ describe('node TURN route gathering', () => {
       expect(healthy.restartIce).not.toHaveBeenCalled(); expect(healthy.setConfiguration).not.toHaveBeenCalled()
     } finally { f.managed.close() }
   })
+  it.each(['empty gathering', 'failed checks'])('retries an established route before changing transports, then permits %s fallback', async reason => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peers = [f.create(), f.create(1)], route = f.urls(peers[0]!)
+      for (const peer of peers) {
+        peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } })
+        peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      }
+      for (const peer of peers) peer.connectionState = 'failed'
+      for (const peer of peers) peer.fire('connectionstatechange')
+      await vi.advanceTimersByTimeAsync(0)
+      for (const peer of peers) { expect(f.urls(peer)).toEqual(route); expect(peer.restartIce).toHaveBeenCalledTimes(1) }
+      expect(f.fetcher).toHaveBeenCalledTimes(2); expect(f.urls(f.create())).toEqual(route)
+      // The fresh repair can still discover a genuinely blocked route.
+      peers[0]!.gather()
+      if (reason === 'empty gathering') { peers[0]!.exhausted(); await vi.advanceTimersByTimeAsync(4000) }
+      else {
+        peers[0]!.fire('icecandidate', { candidate: { type: 'relay' } })
+        peers[0]!.fire('connectionstatechange'); await vi.advanceTimersByTimeAsync(0)
+      }
+      expect(f.urls(peers[0]!)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+      expect(f.fetcher).toHaveBeenCalledTimes(3)
+    } finally { f.managed.close() }
+  })
   it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {
     vi.useFakeTimers(); const f = await setup()
     try {

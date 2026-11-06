@@ -305,6 +305,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   const protocolRestarts = new WeakMap<RTCPeerConnection, () => void>()
   const selectedRoutes = new WeakMap<RTCPeerConnection, string>()
   const stopGathering = new WeakMap<RTCPeerConnection, () => void>()
+  const prepareRepair = new WeakMap<RTCPeerConnection, () => void>()
   let stopped = false, timer: ReturnType<typeof setTimeout> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined, retryTimer: ReturnType<typeof setTimeout> | undefined
   const monotonic = options.monotonic ?? (() => performance.now())
   let deadline = Infinity, credentialDeadline = Infinity, rotationAt = Infinity
@@ -365,6 +366,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     try {
       const next = configuration()
       selectedRoutes.set(peer, preferredRoute!)
+      prepareRepair.get(peer)?.()
       peer.setConfiguration(next); if (restart) restart(); else peer.restartIce()
     } catch { peer.close(); peers.delete(peer) }
   }
@@ -432,6 +434,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       let gatheringTimer: ReturnType<typeof setTimeout> | undefined, gathered = false, gotRelay = false, refused = false, switching = false
       const cancelGathering = () => { clearTimeout(gatheringTimer); gatheringTimer = undefined }
       stopGathering.set(peer, cancelGathering)
+      prepareRepair.set(peer, () => {
+        cancelGathering(); gathered = false; gotRelay = false; refused = false; switching = false; connected = false; recovering = false
+      })
       peer.close = () => { cancelGathering(); clearTimeout(retiringTimers.get(peer)); retiringTimers.delete(peer); peers.delete(peer); pendingRestarts.delete(peer); end() }
       contexts.set(peer, context)
       const tryNextRoute = (failed = false) => {
@@ -473,7 +478,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       })
       peer.addEventListener?.('connectionstatechange', () => {
         if (retiring.has(peer)) return
-        if (peer.connectionState === 'failed') tryNextRoute(true)
+        // Retry an established route with fresh credentials first. A failed
+        // check in that fresh gathering round can still select another route.
+        if (peer.connectionState === 'failed' && !connected) tryNextRoute(true)
         // Either endpoint can lose its route. Repair this pair without
         // interrupting another participant's healthy audio and video.
         if (peer.connectionState === 'connected') { connected = true; recovering = false; cancelGathering() }
