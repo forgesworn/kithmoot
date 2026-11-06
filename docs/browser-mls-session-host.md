@@ -3,7 +3,7 @@
 This is the session persistence boundary for browser MLS rooms. Its development-only room caller is described in
 [browser room operations](browser-mls-room-operations.md). It has no app
 or network caller and is not production enabled. It follows the shared
-[Vennel driver contract](https://github.com/forgesworn/vennel/blob/main/docs/vmls-driver.md)
+Vennel driver contract (`docs/vmls-driver.md` in the Vennel repository)
 and uses the existing pinned WASM and coordinated persona store.
 
 ## What is covered

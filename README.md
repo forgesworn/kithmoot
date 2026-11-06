@@ -38,9 +38,9 @@ have to fit in a QR code, and every character in the path costs density.
 The library holds the room protocol without a browser: identity, links, rooms,
 epochs and `RoomAgent`, the headless counterpart to a browser's room session.
 It is not published to the npm registry. Its workspace packages are pinned at
-0.2.0, which the registry does not carry, and `@forgesworn/fold-kit` and
-`@forgesworn/signet-contacts` are installed from pinned GitHub commits, so
-an install needs git access to GitHub. Build it from a checkout:
+0.2.0, which the registry does not carry, and `@forgesworn/signet-contacts` is
+installed from a pinned GitHub commit, so an install needs git access to
+GitHub. Build it from a checkout:
 
 ```bash
 git clone https://github.com/forgesworn/kithmoot.git
@@ -115,6 +115,9 @@ use without a native app, pocket notifications, durable history, infrastructure
 you own, and access to existing messaging services. They record intended
 outcomes and acceptance criteria, not additional shipped features.
 
+[Where KithMoot fits](docs/ECOSYSTEM.md) lists the neighbouring projects and
+services and the exact interface to each.
+
 ## The link, and what a relay sees
 
 The link is an admission capability, not the room's traffic key. It stays in
@@ -180,10 +183,11 @@ anybody pays for.
 
 A room still names its own STUN and TURN servers, the way it names its relays:
 a plural, swappable list. Self-host coturn, point at somebody else's, or name
-none. A room that names none is not left with nothing: the app it was opened
-from derives its own STUN from that origin rather than naming any third
-party, so a name in the address bar is the only name in play - never
-Google's, never any other operator's by default. Nobody is required, and no
+none. A room that names none is not left with nothing: when the publisher's
+`/turn` service mints a credential, STUN comes from that TURN server; when it
+does not, the app falls back to Cloudflare's public STUN server, which the
+privacy page names (see `docs/decisions.md`, 2 November 2026). Any STUN
+server learns the address and timing of a call attempt. Nobody is required, and no
 single party can be removed to take the system down. That is the claim, and it
 is narrower than "nothing to run".
 
