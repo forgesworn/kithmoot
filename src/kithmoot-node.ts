@@ -486,6 +486,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
     const peer = value as unknown as RTCPeerConnection
     if (peers.has(peer) && !retiring.has(peer)) {
       retiring.add(peer); pendingRestarts.delete(peer); stopGathering.get(peer)?.()
+      // Only a connected transport can preserve media during a handoff. Free
+      // the other handles before their replacements request TURN allocations.
+      if (peer.connectionState !== 'connected') { peer.close(); return }
       const remaining = Math.max(0, Math.min(20_000, (peerDeadlines.get(peer) ?? monotonic()) - monotonic()))
       retiringTimers.set(peer, setTimeout(() => peer.close(), remaining))
     }
