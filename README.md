@@ -38,9 +38,9 @@ have to fit in a QR code, and every character in the path costs density.
 The library holds the room protocol without a browser: identity, links, rooms,
 epochs and `RoomAgent`, the headless counterpart to a browser's room session.
 It is not published to the npm registry. Its workspace packages are pinned at
-0.2.0, which the registry does not carry, and `@forgesworn/fold-kit` and
-`@forgesworn/signet-contacts` are installed from pinned GitHub commits, so
-an install needs git access to GitHub. Build it from a checkout:
+0.2.0, which the registry does not carry, and `@forgesworn/signet-contacts` is
+installed from a pinned GitHub commit, so an install needs git access to
+GitHub. Build it from a checkout:
 
 ```bash
 git clone https://github.com/forgesworn/kithmoot.git
