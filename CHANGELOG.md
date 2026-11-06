@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased, 6 November 2026
+
+- **Group calls use far less upload.** Each person sent their camera to every other person at the one-to-one rate, so on an emulated six-person call everyone uploaded about 8.6 Mbit/s. The camera now steps down as the call grows, on the same steps as the Android app: 800 kbit/s at up to 24 frames a second for two or three other people, and 500 kbit/s at up to 15 frames a second and 360 lines for four or more. On the same emulated calls upload fell to about 2.7 Mbit/s at four people and 2.8 Mbit/s at six, and the browser used about 40% less CPU at six. One-to-one calls and screen shares are unchanged.
+
 ## Desktop 0.1.129, 6 November 2026
 
 - Reuse admissions that already last until a timed node room ends, keeping returning guests and scheduled checks from submitting impossible extensions.

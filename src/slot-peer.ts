@@ -26,6 +26,7 @@
  * profile 1.
  */
 
+import { capCameraSender, type CameraRung } from './camera-budget.js'
 import { normaliseHex } from './hex.js'
 import { hideLocalAddressesInSignal, hideLocalCandidateJson, type AddressCarryingSignal, HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { SignalChannel } from './signal-channel.js'
@@ -172,6 +173,8 @@ export class SlotPeer implements NegotiatingPeer {
   #openingOfferSeq: number | undefined
   #tier: RouteTier
   #tracks: MediaStreamTrack[] = []
+  /** The group-call camera rung, if any. See `setCameraRung`. */
+  #cameraRung: Readonly<CameraRung> | undefined
   #hasRemoteDescription = false
   #pendingCandidates: RTCIceCandidateInit[] = []
   #closed = false
@@ -324,6 +327,26 @@ export class SlotPeer implements NegotiatingPeer {
     this.#channel.sendUnreliable({ type: 'health', rx })
   }
 
+  /** Step the camera video this connection sends down to a rung (or, with
+   *  `undefined`, back to the defaults), by `setParameters` on its slot
+   *  senders: no generation, no negotiation. Screen shares and anything not
+   *  published here are left alone. */
+  setCameraRung(rung: Readonly<CameraRung> | undefined): void {
+    if (this.#closed || rung === this.#cameraRung) return
+    this.#cameraRung = rung
+    this.#applyCameraRung()
+  }
+
+  #applyCameraRung(): void {
+    const published = new Set(this.#tracks)
+    // A slot's sender belongs to its transceiver; ask for those directly.
+    const senders = this.#pc?.getTransceivers?.().map((transceiver) => transceiver.sender) ?? this.#pc?.getSenders?.() ?? []
+    for (const sender of senders) {
+      const rung = this.#cameraRung
+      if (sender.track && published.has(sender.track)) capCameraSender(sender, rung, () => !this.#closed && this.#cameraRung === rung)
+    }
+  }
+
   close(): void {
     if (this.#closed) return
     this.#closed = true
@@ -468,6 +491,9 @@ export class SlotPeer implements NegotiatingPeer {
       this.#clearRestartTimers()
       this.#everConnected = true
       this.#restarted = false
+      // A new generation's senders start uncapped; so do engines that expose
+      // no encodings before negotiation.
+      if (this.#cameraRung !== undefined) this.#applyCameraRung()
       if (this.#retiring && this.#handoverTimer === undefined) {
         this.#handoverTimer = this.#clock.setTimer(MEDIA_HANDOVER_SETTLE_MS, () => {
           this.#handoverTimer = undefined
@@ -786,6 +812,7 @@ export class SlotPeer implements NegotiatingPeer {
     }
     if (!slots) return
     const broken = await slots.apply(this.#tracks, resolve)
+    if (this.#cameraRung !== undefined) this.#applyCameraRung()
     if (broken.length === 0) return
     // The only path in §3.1 where a slot change still costs a negotiation.
     // Expected never to happen; if it does, a rebuild is the repair, and it

@@ -127,6 +127,12 @@ export class FakeRtpSender {
    *  transceiver again - so a camera turned off and on again costs a new
    *  m-line every time, which is H1's root cause and has to be countable. */
   everSent = false
+  /** What `getParameters` hands out: one encoding, as a browser's
+   *  `addTrack` sender has. `parameterCalls` records every accepted
+   *  `setParameters`, kept off `connection.calls` so tests that assert the
+   *  exact negotiation sequence are not affected by encoding tuning. */
+  parameters: { encodings: Record<string, unknown>[] } = { encodings: [{}] }
+  readonly parameterCalls: { encodings: Record<string, unknown>[] }[] = []
 
   constructor(track: MediaStreamTrack | null, readonly transceiver: FakeRtpTransceiver) {
     this.track = track
@@ -140,6 +146,16 @@ export class FakeRtpSender {
    * `negotiationneeded`, no new SDP. The call is recorded on the connection
    * so a test can assert the slot was swapped rather than re-added.
    */
+  getParameters(): { encodings: Record<string, unknown>[] } {
+    return { encodings: this.parameters.encodings.map((encoding) => ({ ...encoding })) }
+  }
+
+  async setParameters(parameters: { encodings: Record<string, unknown>[] }): Promise<void> {
+    const copy = { encodings: parameters.encodings.map((encoding) => ({ ...encoding })) }
+    this.parameters = copy
+    this.parameterCalls.push(copy)
+  }
+
   async replaceTrack(track: MediaStreamTrack | null): Promise<void> {
     const pc = this.transceiver.connection
     pc.calls.push({ method: 'replaceTrack', args: [this.transceiver.mid, track] })

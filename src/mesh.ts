@@ -1,5 +1,6 @@
 import type { ExpirationDeadline } from './expiration.js'
 import type { Event } from 'nostr-tools/pure'
+import { cameraRungFor } from './camera-budget.js'
 import { Peer } from './peer.js'
 import type { NegotiatingPeer, PeerFactory } from './peer.js'
 import { SlotPeer } from './slot-peer.js'
@@ -540,6 +541,8 @@ export const MAX_HELD_SIGNAL_DEVICES = 16
 export class Mesh {
   readonly #opts: MeshOptions
   readonly #peers = new Map<string, NegotiatingPeer>()
+  /** A camera rung pass is already waiting. See `#rebalanceCamera`. */
+  #rebalanceQueued = false
   /**
    * The page session each open peer was built for - see `RosterEntry.sid`.
    *
@@ -785,6 +788,38 @@ export class Mesh {
     // Never narrowed: a forwarder cannot skip anybody, which is why a device
     // that narrows never promotes at all - see `#audienceNarrows`.
     this.#forwarderPeer?.start(tracks).catch(() => this.#forwarderFailed())
+    this.#rebalanceCamera()
+  }
+
+  /**
+   * Step this device's camera down for the number of connections that
+   * carry it: see `cameraRungFor`. Run whenever a peer is added, replaced
+   * or dropped and whenever the published set or its audience changes. One
+   * recipient (a one-to-one call) and none (camera off, or a forwarder
+   * carrying the room) mean the browser's defaults; each peer ignores a
+   * rung it already has, so a repeat costs nothing.
+   *
+   * Coalesced into one pass per turn of the event loop: a join opens every
+   * connection in one reconcile, and the rung should be worked out once
+   * from the final count rather than once per connection on the way there.
+   */
+  #rebalanceCamera(): void {
+    if (this.#rebalanceQueued) return
+    this.#rebalanceQueued = true
+    queueMicrotask(() => {
+      this.#rebalanceQueued = false
+      this.#applyCameraRung()
+    })
+  }
+
+  #applyCameraRung(): void {
+    if (this.#closed) return
+    let recipients = 0
+    for (const endpoint of this.#peers.keys()) {
+      if (this.#tracksFor(endpoint).some((track) => track.kind === 'video' && track.contentHint !== 'detail')) recipients++
+    }
+    const rung = cameraRungFor(recipients)
+    for (const peer of this.#peers.values()) peer.setCameraRung?.(rung)
   }
 
   /**
@@ -1001,6 +1036,7 @@ export class Mesh {
       }
       const peer = this.#createEndpointPeer(endpoint)
       this.#peers.set(endpoint, peer)
+      this.#rebalanceCamera()
       const sid = this.#deviceSids.get(endpoint)
       if (sid === undefined) this.#peerSids.delete(endpoint)
       else this.#peerSids.set(endpoint, sid)
@@ -1142,6 +1178,7 @@ export class Mesh {
       held.settle = undefined
     }
     this.#peers.delete(endpoint)
+    this.#rebalanceCamera()
     this.#peerSids.delete(endpoint)
     // Detached, not closed: the controller outlives any one connection, and
     // a rebuild's peer is attached to the same one a moment later.
@@ -1832,6 +1869,7 @@ export class Mesh {
     this.#closePeer(device, existing)
     const peer = this.#createEndpointPeer(device)
     this.#peers.set(device, peer)
+    this.#rebalanceCamera()
     const sid = this.#deviceSids.get(device)
     if (sid === undefined) this.#peerSids.delete(device)
     else this.#peerSids.set(device, sid)
@@ -2035,6 +2073,7 @@ export class Mesh {
     this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: far end is on call profile 1; rebuilding` })
     const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
     this.#peers.set(endpoint, peer)
+    this.#rebalanceCamera()
     const sid = this.#deviceSids.get(endpoint)
     if (sid === undefined) this.#peerSids.delete(endpoint)
     else this.#peerSids.set(endpoint, sid)
@@ -2092,6 +2131,7 @@ export class Mesh {
     }
     const peer = this.#createPeer(endpoint, false, this.#tierOfEndpoint(endpoint))
     this.#peers.set(endpoint, peer)
+    this.#rebalanceCamera()
     const sid = this.#deviceSids.get(endpoint)
     if (sid === undefined) this.#peerSids.delete(endpoint)
     else this.#peerSids.set(endpoint, sid)
