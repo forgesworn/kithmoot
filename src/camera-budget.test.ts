@@ -83,6 +83,21 @@ describe('capCameraSender', () => {
     expect(s.calls).toEqual([{ encodings: [{ maxBitrate: CAMERA_RUNG_SMALL.maxBitrate }] }])
   })
 
+  it('never lets a late refusal put back a rung the caller has moved off', async () => {
+    let refuse!: (e: Error) => void
+    const s = sender(fakeTrack('video'))
+    const set = s.setParameters
+    let first = true
+    s.setParameters = (next) => { if (first) { first = false; return new Promise((_, reject) => { refuse = reject }) } return set(next) }
+    let current: unknown = CAMERA_RUNG_SMALL
+    capCameraSender(s, CAMERA_RUNG_SMALL, () => current === CAMERA_RUNG_SMALL)
+    current = undefined   // people left: the caller lifts the rung before the refusal settles
+    refuse(new Error('unsupported'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(s.calls).toEqual([])
+    expect(s.getParameters().encodings[0]!.maxBitrate).toBeUndefined()
+  })
+
   it('skips an engine without setParameters, and survives one that throws', () => {
     expect(capCameraSender({ track: fakeTrack('video') }, CAMERA_RUNG_SMALL)).toBe(false)
     const throwing = { track: fakeTrack('video'), getParameters: () => { throw new Error('closed') }, setParameters: () => Promise.resolve() }
@@ -122,6 +137,25 @@ describe('Peer.setCameraRung', () => {
     expect(sendersOf(pc).find((s) => s.track === camera)!.parameters.encodings[0]!.maxBitrate).toBe(CAMERA_RUNG_MEDIUM.maxBitrate)
     // The share keeps its own budget from tuneShareSender, never the camera's.
     expect(sendersOf(pc).find((s) => s.track === screen)!.parameters.encodings[0]!.maxBitrate).not.toBe(CAMERA_RUNG_MEDIUM.maxBitrate)
+    peer.close()
+  })
+
+  it('keeps the newer rung when a refusal of the older one settles late', async () => {
+    const factory = createFakeFactory()
+    const peer = new Peer({ factory, localDevice: LOW, remoteDevice: HIGH, onSignal: () => {}, onTrack: () => {} })
+    const camera = fakeTrack('video')
+    await peer.start([camera]); await settle()
+    const cam = sendersOf(factory.instances[0]!).find((s) => s.track === camera)!
+    const accept = cam.setParameters.bind(cam)
+    let refuse!: (e: Error) => void
+    let first = true
+    cam.setParameters = (next) => { if (first) { first = false; return new Promise((_, reject) => { refuse = reject }) } return accept(next) }
+    peer.setCameraRung(CAMERA_RUNG_SMALL)   // refused, but not yet
+    peer.setCameraRung(CAMERA_RUNG_MEDIUM)  // two people left
+    refuse(new Error('unsupported'))
+    await settle()
+    expect(cam.parameters.encodings[0]!.maxBitrate).toBe(CAMERA_RUNG_MEDIUM.maxBitrate)
+    expect(cam.parameterCalls.map((c) => c.encodings[0]!.maxBitrate)).toEqual([CAMERA_RUNG_MEDIUM.maxBitrate])
     peer.close()
   })
 

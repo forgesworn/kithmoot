@@ -905,7 +905,7 @@ export class Peer implements NegotiatingPeer {
         throw new Error('media pipeline refused sender')
       }
       if (sender !== undefined) tuneShareSender(track, sender)
-      if (sender !== undefined && this.#cameraRung !== undefined) capCameraSender(sender, this.#cameraRung)
+      if (sender !== undefined && this.#cameraRung !== undefined) this.#capSender(sender)
       this.#addedTracks.add(track)
       if (track.kind === 'audio') this.#armAudioSenderStartCheck()
     }
@@ -1561,8 +1561,13 @@ export class Peer implements NegotiatingPeer {
 
   #applyCameraRung(): void {
     for (const sender of this.#pc.getSenders?.() ?? []) {
-      if (sender.track && this.#addedTracks.has(sender.track)) capCameraSender(sender, this.#cameraRung)
+      if (sender.track && this.#addedTracks.has(sender.track)) this.#capSender(sender)
     }
+  }
+
+  #capSender(sender: unknown): void {
+    const rung = this.#cameraRung
+    capCameraSender(sender, rung, () => !this.#closed && this.#cameraRung === rung)
   }
 
   close(): void {

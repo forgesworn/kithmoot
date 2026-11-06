@@ -75,10 +75,12 @@ function scaleFor(track: MediaStreamTrack, maxHeight: number): number {
  * some engines) is left for a later call. A refusal is retried with the
  * bitrate ceiling alone, for an engine that does not take the others; a
  * refusal of that too - a change made during negotiation - is ignored,
- * because the caller applies the rung again once the connection is up. Senders without `setParameters` (Node's
+ * because the caller applies the rung again once the connection is up.
+ * `isCurrent` says whether `rung` is still the one the caller wants; the
+ * retry is skipped once it is not. Senders without `setParameters` (Node's
  * WebRTC) are skipped.
  */
-export function capCameraSender(sender: unknown, rung: Readonly<CameraRung> | undefined): boolean {
+export function capCameraSender(sender: unknown, rung: Readonly<CameraRung> | undefined, isCurrent: () => boolean = () => true): boolean {
   const s = sender as ParameterisedSender | null
   const track = s?.track
   if (!track || track.kind !== 'video' || track.contentHint === 'detail') return false
@@ -101,8 +103,10 @@ export function capCameraSender(sender: unknown, rung: Readonly<CameraRung> | un
     void s.setParameters.call(sender, parameters).catch(() => {
       // An engine that refuses the frame-rate or size ceiling would lose the
       // bitrate ceiling with it: ask again for that alone, which every engine
-      // that has `setParameters` takes. Lifting needs no fallback.
-      if (rung === undefined) return
+      // that has `setParameters` takes. Lifting needs no fallback, and nor
+      // does a rung the caller has since moved off: the refusal can settle
+      // after a newer rung (or a lift) was applied, and must not undo it.
+      if (rung === undefined || !isCurrent()) return
       try {
         const retry = s.getParameters!.call(sender)
         const first = retry.encodings?.[0]
