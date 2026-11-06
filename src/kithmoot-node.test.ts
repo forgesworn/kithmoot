@@ -252,6 +252,19 @@ describe('node TURN route gathering', () => {
       expect(f.urls(incoming)).toEqual([f.node.turnUrls.find(url => /^turns:.*:53499\?/.test(url))])
     } finally { f.managed.close() }
   })
+  it.each(['requesting peer', 'another peer'])('keeps a route proven by %s while fresh access waits', async which => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      let release!: (response: Response) => void
+      vi.mocked(f.fetcher).mockImplementationOnce(() => new Promise<Response>(resolve => { release = resolve }))
+      const blocked = f.create(), other = f.create(1), current = f.urls(blocked)
+      blocked.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const connected = which === 'requesting peer' ? blocked : other
+      connected.connectionState = 'connected'; connected.fire('connectionstatechange')
+      release(response(f.login(NOW, '33'.repeat(12)))); await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(blocked)).toEqual(current); expect(f.urls(f.create())).toEqual(current)
+    } finally { f.managed.close() }
+  })
   it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {
     vi.useFakeTimers(); const f = await setup()
     try {

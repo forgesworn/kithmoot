@@ -383,7 +383,8 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       // An offline gathering round cannot select the post-outage route. First
       // retry the current URL with the newly authorised login. Otherwise commit
       // at most one shared advance after access succeeds, coalescing old peers.
-      if (!retryCurrentRoute) for (const [peer, nextRoute] of pendingRoutes) {
+      const routeIsLive = [...peers].some(peer => peer.connectionState === 'connected' && selectedRoutes.get(peer) === preferredRoute)
+      if (!retryCurrentRoute && !routeIsLive) for (const [peer, nextRoute] of pendingRoutes) {
         if (peers.has(peer) && !retiring.has(peer) && peer.signalingState !== 'closed'
           && selectedRoutes.get(peer) === preferredRoute && nextRoute !== preferredRoute && credential.urls.includes(nextRoute)) {
           preferredRoute = nextRoute; break
