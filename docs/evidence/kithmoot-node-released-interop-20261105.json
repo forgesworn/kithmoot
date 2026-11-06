@@ -153,7 +153,7 @@
     "serviceIdentityUnchanged": true,
     "bundleSha256": "0fbebc71627e2be37471bc3204e7ec47a55e6f651169cc0330e5f75f04defee7"
   },
-  "desktopDeliveryCandidate": {
+  "desktopDelivery": {
     "version": "0.1.129",
     "source": "f8d9040aa8e40e5ddf09825deb4693d64c0463aa",
     "allFourRendererTreesMatch": true,
@@ -193,6 +193,93 @@
     "packagedSmokePassed": true,
     "unitTestsPassed": 302,
     "unitTestsSkipped": 1,
-    "publication": "Prepared; public distribution is verified separately after publication."
+    "publication": "Published and verified from GitHub, website and signed APT; previous APT packages retained."
+  },
+  "publicDelivery": {
+    "source": "a7129a9093de40ee2d7ac64e0c044737ecc76159",
+    "fixPr": 718,
+    "releasePr": 719,
+    "bothPrChecksPassed": true,
+    "bothBroadMainWorkflowsPassed": true,
+    "webRelease": "20261106T080946Z",
+    "exactServerFiles": 638,
+    "normalTlsReadbacks": 42,
+    "fullInstallerDownloads": 14,
+    "freshBrowserContexts": 2,
+    "freshBrowserPageErrors": 0,
+    "signedUpdateFeedsVerified": true,
+    "aptIndexSignatureVerified": true,
+    "websiteAndGithubPackageDigestsMatch": true
+  },
+  "m1Followup": {
+    "passed": false,
+    "nativePreflightPassed": true,
+    "nativeMediaPipeInitialisationTested": false,
+    "webAdmitted": true,
+    "desktop129Admitted": false,
+    "native135Admitted": false,
+    "failure": "Desktop guest entry timed out before native join. Coordinator recorded no desktop request. Cause remains unclassified. No media baseline or sustained call pass.",
+    "fixtureIssuesRetained": [
+      "Initial SDK AVD metadata lookup failure; private AVD configuration used without modifying shared SDK.",
+      "First emulator port5588 was outside the supported range; changed to5570.",
+      "Initial name-fill driver race corrected.",
+      "Original watchdog was not stopped by a process-name check and closed the room at09:05. Later baseline retry therefore used an already closed room and never ran."
+    ],
+    "roomClosed": true,
+    "physical": false,
+    "nativePreflight": {
+      "passed": true,
+      "physical": false,
+      "apkVersion": "0.6.135",
+      "publishedApkUnchanged": true,
+      "source": "6862eb7e46b0196f3cb031b4248a093330073255",
+      "api": "35",
+      "grpcLoopbackOnly": true,
+      "grpcListenerOwnChildVerified": true,
+      "grpcTokenAuthentication": true,
+      "googlePlayServicesDisabled": true,
+      "ownedEmulatorMediaUdpBlocked": true,
+      "nodeTcpRestrictedTo443": true,
+      "syntheticAudioPolicyStarted": true,
+      "hostMicrophoneDisabled": true,
+      "syntheticPcmCaptured": true,
+      "ownedAvdDeleted": true,
+      "ownedEmulatorStopped": true
+    },
+    "roomPurge": {
+      "ownRoom": "21ec84ef8a69d0ec3498fecf243ab78170f9a917771e432579b4daa5e8ea5187",
+      "roomRows": 0,
+      "grantRows": 0
+    },
+    "closure": {
+      "operation": "04eb2e1bf30a3013d4a7f077726a177a",
+      "phase": "done",
+      "result": {
+        "published": true,
+        "callsRevoked": true,
+        "relayPurged": true,
+        "eventsDeleted": 4,
+        "completedAt": 1793955905,
+        "receipt": {
+          "kind": 27544,
+          "created_at": 1793955905,
+          "content": "{\"v\":1,\"operation\":\"04eb2e1bf30a3013d4a7f077726a177a\",\"published\":true,\"callsRevoked\":true,\"relayPurged\":true,\"eventsDeleted\":4,\"completedAt\":1793955905}",
+          "tags": [
+            [
+              "operation",
+              "04eb2e1bf30a3013d4a7f077726a177a"
+            ],
+            [
+              "expiration",
+              "1796547905"
+            ]
+          ],
+          "pubkey": "ebbc893826ed3aa68127466715f9c778a984100545c6356b13b0da26d13c812d",
+          "id": "18671fd3594bb9710e46104a33496e0faf12831af3215a3412462936514ccc62",
+          "sig": "72a91c6bc0387dc1a4f37420b9224adec11ac87d644dbec6732fc9063a7da884c766b93ca88d208bdbe3d4ef892865c7cf6da6370225230fc2b43450596703e6"
+        }
+      }
+    },
+    "scope": "Unchanged production135 on an M1 API35 emulator, synthetic audio only. No native room admission, camera engine, MediaPipe initialisation or call-media qualification was reached."
   }
 }
