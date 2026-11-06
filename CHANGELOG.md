@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.129, 6 November 2026
+
+- Reuse admissions that already last until a timed node room ends, keeping returning guests and scheduled checks from submitting impossible extensions.
+
 ## Desktop 0.1.128, 6 November 2026
 
 - **Call video arrives sooner and smoother in Chrome, Edge and the desktop app when no background effect or face privacy is on.** The camera's frames now go out as they are captured instead of being redrawn through a canvas first, which on an emulated call cut the picture delay by 15 to 20 ms and kept the camera's full frame rate. With an effect or face privacy on, only the finished picture is sent, exactly as before. Safari and Firefox are unchanged.

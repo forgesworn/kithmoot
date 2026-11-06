@@ -593,3 +593,10 @@ Regression checks cover lost acknowledgements, returning devices, a maximum
 30-day room, durable node recovery and the authenticated HTTP access response.
 These checks establish admission behaviour; they do not establish physical
 network roaming or sustained audio/video quality on released clients.
+
+The [released-client public test record](evidence/kithmoot-node-released-interop-20261105.json)
+records normal public-node admission from the web app, packaged desktop 0.1.128
+and unchanged production Android 0.6.135. Its sustained three-client media gate
+is incomplete: MediaPipe raised SIGILL on the M4 Android emulator before a live
+six-direction baseline. The emulator and its AVD were stopped and deleted.
+This does not establish physical-device behaviour or perceived call quality.
