@@ -42,6 +42,23 @@ import type { BackgroundChoice } from './backgrounds.js'
  *
  * The cost is one texture blit per frame even with the effect off. That is
  * cheap, and it buys a toggle that never renegotiates.
+ *
+ * ## Where the browser has them, the frames go straight through
+ *
+ * The canvas costs more than the blit. A canvas track is captured when the
+ * page next paints, so every camera frame waits for a frame callback first
+ * (about ten milliseconds at a 60 Hz paint clock), and it carries the paint
+ * time rather than the camera's, which the far end renders less evenly.
+ *
+ * So where `MediaStreamTrackProcessor` and `MediaStreamTrackGenerator` exist
+ * (Chromium-based browsers, the desktop app among them), the published track is a
+ * generator instead, and it is still the one object for the life of the
+ * camera. Each frame is routed when it is written, never later: while the
+ * effect and face privacy are both off, the camera's own frames are written
+ * as they arrive; otherwise only the finished canvas is written, and a camera
+ * frame is closed unread. Switching an effect on flips that routing
+ * synchronously, before the next camera frame can be written, so the canvas
+ * path's guarantee is unchanged. Safari and Firefox keep the canvas track.
  */
 
 /** During foreground rendering the canvas is drawn once per decoded camera
@@ -163,6 +180,9 @@ export interface CameraStats {
    *  FPS, action or render-cost measurements. Timestamps use performance.now(). */
   fullRenderCount: number
   keepAliveCount: number
+  /** Camera frames published as they came, with no canvas in between. Only
+   *  ever above zero with the effect and face privacy both off. */
+  directFrameCount: number
   lastFullRenderAt: number
   lastKeepAliveAt: number
   /** The camera element's decoded size (zero before the first frame), the
@@ -187,6 +207,24 @@ type FrameCallbackHost = HTMLVideoElement & {
 
 type CanvasCaptureTrack = MediaStreamTrack & { requestFrame?: () => void }
 
+type TrackGenerator = MediaStreamTrack & { readonly writable: WritableStream<VideoFrame> }
+interface FrameTrackApi {
+  Processor: new (init: { track: MediaStreamTrack }) => { readonly readable: ReadableStream<VideoFrame> }
+  Generator: new (init: { kind: 'video' }) => TrackGenerator
+  Frame: new (source: CanvasImageSource, init: { timestamp: number }) => VideoFrame
+}
+
+/** Chromium's frame-level track API, or null where any part is missing. */
+function frameTrackApi(): FrameTrackApi | null {
+  const g = globalThis as unknown as {
+    MediaStreamTrackProcessor?: FrameTrackApi['Processor']
+    MediaStreamTrackGenerator?: FrameTrackApi['Generator']
+    VideoFrame?: FrameTrackApi['Frame']
+  }
+  if (typeof g.MediaStreamTrackProcessor !== 'function' || typeof g.MediaStreamTrackGenerator !== 'function' || typeof g.VideoFrame !== 'function') return null
+  return { Processor: g.MediaStreamTrackProcessor, Generator: g.MediaStreamTrackGenerator, Frame: g.VideoFrame }
+}
+
 export class CameraPipeline {
   readonly #video: HTMLVideoElement
   /** The published picture: a crop of `#stage`, never of the camera. */
@@ -205,6 +243,18 @@ export class CameraPipeline {
 
   #stream: MediaStream | null = null
   #outputStream: MediaStream | null = null
+  /** The published track where the frame-level API exists, see above. */
+  #generator: TrackGenerator | null = null
+  #writer: WritableStreamDefaultWriter<VideoFrame> | null = null
+  #frameApi: FrameTrackApi | null = null
+  /** Which camera track is being read; a reader for any other one stops. */
+  #readingSource: MediaStreamTrack | null = null
+  #sourceReader: ReadableStreamDefaultReader<VideoFrame> | null = null
+  /** Camera frame timestamps minus performance.now(), both in microseconds,
+   *  so canvas frames are stamped on the camera's clock. */
+  #frameClockOffsetUs = 0
+  #lastWrittenUs = -Infinity
+  #directFrameCount = 0
   #recovery?: Promise<void>
   #running = false
   #stopped = false
@@ -297,7 +347,7 @@ export class CameraPipeline {
   }
 
   get track(): MediaStreamTrack | undefined {
-    return this.#outputStream?.getVideoTracks()[0]
+    return this.#generator ?? this.#outputStream?.getVideoTracks()[0]
   }
 
   /** Which camera is feeding the pipeline right now, so a caller cycling
@@ -329,6 +379,7 @@ export class CameraPipeline {
       mask: mask ? `${mask.width}x${mask.height}` : '',
       fullRenderCount: this.#fullRenderCount,
       keepAliveCount: this.#keepAliveCount,
+      directFrameCount: this.#directFrameCount,
       lastFullRenderAt: this.#lastFullRenderAt,
       lastKeepAliveAt: this.#lastKeepAliveAt,
       // The source element only grows these once the camera is decoding;
@@ -357,18 +408,35 @@ export class CameraPipeline {
    *  never valid on this machine) rather than failing the call. */
   async start(opts: { deviceId?: string } = {}): Promise<MediaStreamTrack> {
     if (this.#stopped) throw new Error('Camera was stopped.')
-    if (this.#outputStream) {
-      const existing = this.#outputStream.getVideoTracks()[0]
-      if (existing) return existing
-    }
+    const existing = this.track
+    if (existing) return existing
     await this.#openInitialCamera(opts.deviceId)
     if (this.#stopped) throw new Error('Camera was stopped.')
 
-    this.#outputStream = this.#canvas.captureStream(CAPTURE_FPS)
-    const track = this.#outputStream.getVideoTracks()[0]
+    let track: MediaStreamTrack | undefined
+    const api = frameTrackApi()
+    if (api) {
+      try {
+        const generator = new api.Generator({ kind: 'video' })
+        this.#writer = generator.writable.getWriter()
+        this.#generator = generator
+        this.#frameApi = api
+        track = generator
+      } catch {
+        this.#generator = null
+        this.#writer = null
+        this.#frameApi = null
+      }
+    }
+    if (!track) {
+      this.#outputStream = this.#canvas.captureStream(CAPTURE_FPS)
+      track = this.#outputStream.getVideoTracks()[0]
+    }
     if (!track) throw new Error('this browser will not capture a stream from a canvas')
     this.#running = true
     this.#windowStartedAt = performance.now()
+    const source = this.sourceTrack
+    if (source) this.#readSource(source)
     this.#schedule()
     this.#watchdog = setInterval(() => {
       if (!this.#running) return
@@ -563,8 +631,15 @@ export class CameraPipeline {
     this.#effect.close()
     this.#facePrivacy.close()
     this.#vision.reset()
+    this.#readingSource = null
+    void this.#sourceReader?.cancel().catch(() => {})
+    this.#sourceReader = null
     for (const t of this.#stream?.getTracks() ?? []) t.stop()
     for (const t of this.#outputStream?.getTracks() ?? []) t.stop()
+    void this.#writer?.close().catch(() => {})
+    this.#generator?.stop()
+    this.#writer = null
+    this.#generator = null
     this.#stream = null
     this.#outputStream = null
     this.#video.srcObject = null
@@ -605,6 +680,7 @@ export class CameraPipeline {
     this.#stream = stream
     this.#video.srcObject = stream
     const track = stream.getVideoTracks()[0]
+    if (track && this.#running) this.#readSource(track)
     const settings = track?.getSettings()
     if (settings?.deviceId) this.#deviceId = settings.deviceId
     track?.addEventListener('ended', () => {
@@ -680,7 +756,83 @@ export class CameraPipeline {
     if (this.#canvas.height !== height) this.#canvas.height = height
     const crop = this.#framing && this.#facePrivacy.mode === 'off' ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
     this.#canvasCtx.drawImage(this.#stage, crop.x * width, crop.y * height, crop.width * width, crop.height * height, 0, 0, width, height)
+    if (this.#generator && !this.#sendsCameraDirectly()) this.#writeCanvas()
     return true
+  }
+
+  /** Whether a camera frame may be published as it is: nothing has been
+   *  asked of the picture. Read for every frame at the moment it is
+   *  written, so changing either setting takes effect on the next one. */
+  #sendsCameraDirectly(): boolean {
+    return this.#running && this.#effect.mode === 'off' && this.#facePrivacy.mode === 'off'
+  }
+
+  /** Read the camera's own frames for the generator, for as long as `track`
+   *  is the camera being shown. A frame that may not go out as it is gets
+   *  closed here, unread by anything else. */
+  #readSource(track: MediaStreamTrack): void {
+    const api = this.#frameApi
+    if (!api || !this.#generator || this.#readingSource === track) return
+    void this.#sourceReader?.cancel().catch(() => {})
+    this.#readingSource = track
+    let reader: ReadableStreamDefaultReader<VideoFrame>
+    try {
+      reader = new api.Processor({ track }).readable.getReader()
+    } catch {
+      this.#readingSource = null
+      return
+    }
+    this.#sourceReader = reader
+    void (async () => {
+      for (;;) {
+        let result: ReadableStreamReadResult<VideoFrame>
+        try { result = await reader.read() } catch { return }
+        const frame = result.value
+        if (result.done || !frame) return
+        if (this.#readingSource !== track) {
+          frame.close()
+          void reader.cancel().catch(() => {})
+          return
+        }
+        this.#frameClockOffsetUs = frame.timestamp - performance.now() * 1000
+        // A frame older than one already written (the moment after the canvas
+        // stopped feeding the track) is dropped rather than sent backwards.
+        if (this.#sendsCameraDirectly() && frame.timestamp > this.#lastWrittenUs) {
+          this.#lastWrittenUs = frame.timestamp
+          this.#directFrameCount += 1
+          this.#write(frame)
+        } else {
+          frame.close()
+        }
+      }
+    })()
+  }
+
+  /** The published canvas, as a frame on the camera's clock. */
+  #writeCanvas(): void {
+    const api = this.#frameApi
+    if (!api || !this.#writer) return
+    const timestamp = Math.max(Math.round(performance.now() * 1000 + this.#frameClockOffsetUs), this.#lastWrittenUs + 1)
+    let frame: VideoFrame
+    try {
+      frame = new api.Frame(this.#canvas, { timestamp })
+    } catch {
+      return
+    }
+    this.#lastWrittenUs = timestamp
+    this.#write(frame)
+  }
+
+  #write(frame: VideoFrame): void {
+    const writer = this.#writer
+    if (!writer) {
+      frame.close()
+      return
+    }
+    // The generator owns a frame once written; one it refused is still ours.
+    writer.write(frame).catch(() => {
+      try { frame.close() } catch { /* already closed */ }
+    })
   }
 
   #cancelSchedule(): void {

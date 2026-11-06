@@ -191,6 +191,10 @@ test('a delayed first camera frame after rejoin keeps its playback sink attached
     // Real WebRTC, the owned privacy compositor and its capture track remain
     // intact. No raw camera, ICE configuration or incoming sink is substituted.
     await contexts[1].addInitScript(() => {
+      // The deferral is of a canvas capture track's first paint, so keep the
+      // camera pipeline on its canvas track rather than the frame generator
+      // it uses where the browser has one.
+      Reflect.deleteProperty(window, 'MediaStreamTrackGenerator')
       const deadlines = new WeakMap<HTMLCanvasElement, number>()
       const capture = HTMLCanvasElement.prototype.captureStream
       const draw = CanvasRenderingContext2D.prototype.drawImage
