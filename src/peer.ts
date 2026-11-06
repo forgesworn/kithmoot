@@ -1,3 +1,4 @@
+import { capCameraSender, type CameraRung } from './camera-budget.js'
 import { normaliseHex } from './hex.js'
 import { hideLocalAddressesInSignal, HIDE_HOST_CANDIDATES } from './local-address-filter.js'
 import { isSessionMismatch, replacesSession, sameShape, sdpSession, sdpShape, type SdpSession } from './sdp-shape.js'
@@ -351,6 +352,10 @@ export interface NegotiatingPeer {
   /** A negotiation has gone unanswered for long enough that the caller wants
    *  it unstuck. */
   healStalledNegotiation(): void
+  /** Step this connection's camera video down to `rung`, or back to the
+   *  browser's defaults with `undefined`. See `cameraRungFor`. Optional, so a
+   *  double written before it existed stays valid. */
+  setCameraRung?(rung: Readonly<CameraRung> | undefined): void
   close(): void
 }
 
@@ -520,6 +525,8 @@ export class Peer implements NegotiatingPeer {
   #giveUpTimer?: ReturnType<typeof setTimeout>
   #audioSenderStartTimer?: ReturnType<typeof setTimeout>
   readonly #reboundAudioSenders = new WeakSet<object>()
+  /** The group-call camera rung, if any. See `setCameraRung`. */
+  #cameraRung: Readonly<CameraRung> | undefined
   readonly #retryMs: number
   readonly #maxRetryMs: number
   readonly #jitter: number
@@ -693,6 +700,8 @@ export class Peer implements NegotiatingPeer {
         this.#everConnected = true
         this.#restarted = false
         this.#armAudioSenderStartCheck()
+        // Some engines expose no encodings before negotiation; now they do.
+        if (this.#cameraRung !== undefined) this.#applyCameraRung()
       }
       if (state === 'disconnected') {
         opts.onConnectionState?.(state)
@@ -896,6 +905,7 @@ export class Peer implements NegotiatingPeer {
         throw new Error('media pipeline refused sender')
       }
       if (sender !== undefined) tuneShareSender(track, sender)
+      if (sender !== undefined && this.#cameraRung !== undefined) capCameraSender(sender, this.#cameraRung)
       this.#addedTracks.add(track)
       if (track.kind === 'audio') this.#armAudioSenderStartCheck()
     }
@@ -1537,6 +1547,22 @@ export class Peer implements NegotiatingPeer {
     this.#pc.onicecandidate = null
     this.#pc.onnegotiationneeded = null
     this.#pc.onconnectionstatechange = null
+  }
+
+  /** Step the camera video this connection sends down to a rung (or, with
+   *  `undefined`, back to the defaults). Only this peer's own published
+   *  tracks are touched - never a forwarded one, never a screen share - and
+   *  nothing is renegotiated. */
+  setCameraRung(rung: Readonly<CameraRung> | undefined): void {
+    if (this.#closed || rung === this.#cameraRung) return
+    this.#cameraRung = rung
+    this.#applyCameraRung()
+  }
+
+  #applyCameraRung(): void {
+    for (const sender of this.#pc.getSenders?.() ?? []) {
+      if (sender.track && this.#addedTracks.has(sender.track)) capCameraSender(sender, this.#cameraRung)
+    }
   }
 
   close(): void {
