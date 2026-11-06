@@ -34,6 +34,7 @@ describe('node TURN route gathering', () => {
     const fetcher = vi.fn(async () => response(f.login(NOW, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
     class Connection extends EventTarget {
       signalingState = 'stable'; connectionState = 'new'; iceGatheringState = 'new'
+      localDescription: RTCSessionDescriptionInit | null | undefined
       restartIce = vi.fn()
       setConfiguration = vi.fn((configuration: RTCConfiguration) => { this.configuration = configuration })
       constructor(public configuration: RTCConfiguration) { super() }
@@ -153,6 +154,45 @@ describe('node TURN route gathering', () => {
       expect(f.urls(f.create(1))).toEqual(f.urls(peer))
       await f.managed.reconnect()
       expect(f.urls(peer)).toEqual(udp)
+    } finally { f.managed.close() }
+  })
+  it('keeps a connected route through an empty later gathering round', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create(), route = f.urls(peer)
+      peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } })
+      peer.connectionState = 'connected'; peer.fire('connectionstatechange')
+      peer.gather(); peer.exhausted(); await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+      expect(f.urls(f.create(1))).toEqual(route)
+    } finally { f.managed.close() }
+  })
+  it('does not spend a route on an abandoned local offer', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const peer = f.create()
+      peer.gather(); peer.localDescription = null; peer.exhausted()
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
+      peer.localDescription = { type: 'offer', sdp: 'v=0\r\n' }
+      peer.gather(); peer.exhausted(); await vi.advanceTimersByTimeAsync(4000)
+      expect(f.fetcher).toHaveBeenCalledTimes(2)
+      expect(f.urls(peer)).toEqual([f.node.turnUrls.find(url => /^turns:.*:443\?/.test(url))])
+    } finally { f.managed.close() }
+  })
+  it('repairs one failed pair on the relay route another pair is using', async () => {
+    vi.useFakeTimers(); const f = await setup()
+    try {
+      const probe = f.create(); probe.gather(); await vi.advanceTimersByTimeAsync(4000)
+      const tls = f.urls(probe); probe.close()
+      const healthy = f.create(1), failed = f.create()
+      for (const peer of [healthy, failed]) { peer.gather(); peer.fire('icecandidate', { candidate: { type: 'relay' } }) }
+      healthy.connectionState = 'connected'; healthy.fire('connectionstatechange')
+      failed.connectionState = 'failed'; failed.fire('connectionstatechange')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(f.urls(failed)).toEqual(tls); expect(f.urls(f.create())).toEqual(tls)
+      expect(f.fetcher).toHaveBeenCalledTimes(3); expect(failed.restartIce).toHaveBeenCalledTimes(1)
+      expect(healthy.restartIce).not.toHaveBeenCalled(); expect(healthy.setConfiguration).not.toHaveBeenCalled()
     } finally { f.managed.close() }
   })
   it('coalesces two blocked peers onto the same fallback instead of skipping TLS 443', async () => {

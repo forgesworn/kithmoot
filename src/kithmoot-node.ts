@@ -436,9 +436,14 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       contexts.set(peer, context)
       const tryNextRoute = (failed = false) => {
         cancelGathering()
-        if (!allowed() || !gathered || !peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed' || (gotRelay && !failed) || refused || switching) return
+        if (!allowed() || !gathered || !peers.has(peer) || retiring.has(peer) || peer.signalingState === 'closed'
+          || peer.connectionState === 'connected' || peer.localDescription === null || (gotRelay && !failed) || refused || switching) return
         const ordered = routes(), current = selectedRoutes.get(peer)
-        const next = preferredRoute !== current ? preferredRoute : ordered[ordered.indexOf(current!) + 1]
+        // A fresh relay candidate and another connected pair prove this local
+        // route. Repair the failed pair there rather than abandoning the route.
+        const routeIsLive = failed && gotRelay && preferredRoute === current && [...peers].some(other => other !== peer
+          && !retiring.has(other) && other.connectionState === 'connected' && selectedRoutes.get(other) === current)
+        const next = routeIsLive ? current : preferredRoute !== current ? preferredRoute : ordered[ordered.indexOf(current!) + 1]
         if (!next) return
         preferredRoute = next; switching = true
         void renew(true, peer, context)
