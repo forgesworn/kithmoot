@@ -6,6 +6,19 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Desktop 0.1.128, 6 November 2026
+
+Desktop 0.1.128 bundles the web client's direct camera frames (PR #715): with
+no background effect or face privacy on, Chromium publishes the camera's own
+frames through a track generator instead of redrawing them through a canvas;
+with either on, only the finished canvas is written. Android is unchanged at
+0.6.135; its camera path is native and does not use this code.
+
+All four packaged apps carry the same 594 renderer files, including the new
+pipeline. The Mac build passed notarisation, stapling and Gatekeeper. Windows
+remains an unsigned preview. A real-camera call check on the desktop app with
+blur on and off remains a field check.
+
 ## Android 0.6.135 and desktop 0.1.127, 5 November 2026
 
 Android 0.6.135 (158) gathers one authorised node TURN route per peer, trying

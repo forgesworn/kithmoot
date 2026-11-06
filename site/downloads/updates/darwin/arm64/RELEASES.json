@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.127",
+  "currentRelease": "0.1.128",
   "releases": [
     {
-      "version": "0.1.127",
+      "version": "0.1.128",
       "updateTo": {
-        "version": "0.1.127",
-        "name": "0.1.127",
-        "pub_date": "2026-11-05T20:16:07Z",
-        "notes": "Sequential node TURN routes and bounded legacy media handover during credential renewal.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.127/KithMoot-0.1.127-mac-arm64.zip",
-        "sha256": "a7aa0681ad532e178d983ef298830d4d4d5aa95fa35df35dce62ee6b1459cf24",
-        "size": 193009935
+        "version": "0.1.128",
+        "name": "0.1.128",
+        "pub_date": "2026-11-06T06:59:07Z",
+        "notes": "Camera frames go out as captured when no background effect or face privacy is on, for smoother call video.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.128/KithMoot-0.1.128-mac-arm64.zip",
+        "sha256": "fc3d9ebf3b6f89801d23d030d5c2261921cdaceebcf918d51b524397894a28ea",
+        "size": 191634876
       }
     }
   ]
