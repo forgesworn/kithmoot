@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.128, 6 November 2026
+
+- **Call video arrives sooner and smoother in Chrome, Edge and the desktop app when no background effect or face privacy is on.** The camera's frames now go out as they are captured instead of being redrawn through a canvas first, which on an emulated call cut the picture delay by 15 to 20 ms and kept the camera's full frame rate. With an effect or face privacy on, only the finished picture is sent, exactly as before. Safari and Firefox are unchanged.
+
 ## Desktop 0.1.127, 5 November 2026
 
 - Keep legacy hosted-call audio and video flowing while TURN credentials renew. The old transport has a bounded handover and still obeys mute, audience and removal controls.
@@ -17,7 +21,6 @@
 
 ## Unreleased, 28 October 2026
 
-- **Call video arrives sooner and smoother in Chrome, Edge and the desktop app when no background effect or face privacy is on.** The camera's frames now go out as they are captured instead of being redrawn through a canvas first, which on an emulated call cut the picture delay by 15 to 20 ms and kept the camera's full frame rate. With an effect or face privacy on, only the finished picture is sent, exactly as before. Safari and Firefox are unchanged.
 - **Calls no longer tell the people you call the addresses on your own network.** The web app and desktop app used to offer every call peer each local address the device had: Wi-Fi and Ethernet, a VPN tunnel, Tailscale or a mesh. Together those are a stable fingerprint that can recognise a device across rooms and VPN exits. Now only your public address (or your call relay's) is sent. The Android app is getting the same rule separately. The cost: two devices on the same network connect through the router or a relay instead of directly across the network. "Hide my IP address" is unchanged.
 - **Agents and forwarders no longer ask Google for their public address.** With no STUN server configured, the WebRTC library they use quietly asked Google's instead. They now ask nobody unless you name a server.
 
