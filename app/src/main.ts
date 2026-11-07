@@ -11358,6 +11358,39 @@ function coalesceChatPaint(key: string, paint: () => void): void {
   chatPaintTimers.set(key, entry)
 }
 
+/**
+ * Roster repaints, at most one a second while nothing visible changes.
+ *
+ * Every device in a room restates its presence, and each restatement used to
+ * repaint the room and the call dock, whether or not anybody's name, devices,
+ * tracks or call had changed: on a phone in a call, with several of the
+ * person's own devices present, that was a steady share of the main thread.
+ * A roster whose views differ from the last ones painted paints at once, as
+ * before. One that is the same paints on a trailing timer, so the screen
+ * still catches up with anything else a repaint reads, a second late at most.
+ */
+const ROSTER_REPAINT_FLOOR_MS = 1_000
+const rosterPaints = new WeakMap<RoomSession, { views: string; at: number; timer?: ReturnType<typeof setTimeout>; paint: () => void }>()
+function throttleRosterPaint(s: RoomSession, views: ParticipantView[], paint: () => void): void {
+  const signature = JSON.stringify(views)
+  const held = rosterPaints.get(s)
+  const now = Date.now()
+  const run = (): void => {
+    const entry = rosterPaints.get(s)!
+    clearTimeout(entry.timer); entry.timer = undefined
+    entry.at = Date.now()
+    entry.paint()
+  }
+  if (!held || held.views !== signature || now - held.at >= ROSTER_REPAINT_FLOOR_MS) {
+    rosterPaints.set(s, { views: signature, at: now, paint })
+    clearTimeout(held?.timer)
+    run()
+    return
+  }
+  held.paint = paint
+  held.timer ??= setTimeout(run, held.at + ROSTER_REPAINT_FLOOR_MS - now)
+}
+
 function conversationStorageKey(): string {
   return `kithmoot.conversation.v1.${nostrSession?.pubkey ?? 'visitor'}.${currentRoomId()}`
 }
@@ -14625,17 +14658,22 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
         }
       }
-      // The call's roster moves the tiles and the dock; the room on screen
-      // is repainted with its own roster.
-      if (isDocked) { repaint(); return }
-      announceComings(views, meParticipant)
-      assignmentPanel?.refreshPeople()
-      render(views, meParticipant)
-      renderInvites()
-      renderHost()
-      relayPage?.refresh()
-      // The owner of an agent that asked may only now be known.
-      renderApprovals()
+      // A heartbeat that changes nothing anybody can see waits for the
+      // trailing paint; see `throttleRosterPaint`.
+      throttleRosterPaint(s, views, () => {
+        if (session !== s && dockedCall?.session !== s) return
+        // The call's roster moves the tiles and the dock; the room on screen
+        // is repainted with its own roster.
+        if (dockedCall?.session === s) { repaint(); return }
+        announceComings(views, meParticipant)
+        assignmentPanel?.refreshPeople()
+        render(views, meParticipant)
+        renderInvites()
+        renderHost()
+        relayPage?.refresh()
+        // The owner of an agent that asked may only now be known.
+        renderApprovals()
+      })
     })
     s.onRemoteTrack(({ device, track, role }) => {
       // Profile 2's fixed slot is authoritative. Discarding it here made the
