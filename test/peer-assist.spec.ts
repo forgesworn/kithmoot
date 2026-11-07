@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test'
+import { build } from 'esbuild'
+import { fileURLToPath } from 'node:url'
 
 /**
  * Peer assist, measured in a real browser rather than reasoned about.
@@ -33,10 +35,11 @@ import { test, expect } from '@playwright/test'
  *   what carrying three pairs would do to a domestic uplink. That figure is
  *   arithmetic - two streams up and two down per pair - and it is stated as
  *   arithmetic rather than dressed up as a measurement.
- * - **Escalation latency is not measured.** The switch from one volunteer to
- *   the next is driven by the test rather than by `Mesh`, so the gap recorded
- *   here is the media path's, not the signalling's. The decision to escalate,
- *   and the four routes to it, are covered in `src/mesh-assist.test.ts`.
+ * - **Escalation latency is measured only in the last block.** The first
+ *   three tests drive the frames by hand, so the gap they record is the media
+ *   path's. "peer assist through Mesh" below runs three real `Mesh`es with
+ *   the app's own pumps (`app/src/peer-relay-media.ts`) and a fault hook that
+ *   stops two of them connecting, so it measures what the app does.
  */
 
 /** The page-side toolkit, as seen from the test. Type only: it is erased
@@ -642,4 +645,208 @@ test.describe('peer assist in a real browser', () => {
     // eslint-disable-next-line no-console
     console.log('assist cost:', JSON.stringify(result))
   })
+})
+
+// ---------------------------------------------------------------------------
+// Driven through Mesh: the app's pumps, the real ladder, a fault hook
+// ---------------------------------------------------------------------------
+
+interface MeshRunResult {
+  error: string | null
+  route: { tier: string; endpoint: string; connected: boolean } | null
+  volunteerIsV: boolean
+  connectedAfterMs: number
+  carriedMid: string | null
+  carriedBytes: number
+  carriedFramesDecoded: number
+  directABConnected: boolean
+  movedOnAfterMs: number
+  tierAfter: string | null
+}
+
+let assistBundle = ''
+let assistWorker = ''
+
+test.describe('peer assist through Mesh', () => {
+  test.beforeAll(async () => {
+    const common = { bundle: true, format: 'iife' as const, platform: 'browser' as const, write: false, target: 'es2022', logLevel: 'silent' as const }
+    assistBundle = (await build({ ...common, entryPoints: [fileURLToPath(new URL('./peer-assist-mesh.browser-entry.ts', import.meta.url))], globalName: 'Assist' })).outputFiles[0]!.text
+    assistWorker = (await build({ ...common, entryPoints: [fileURLToPath(new URL('../app/src/peer-relay-media.worker.ts', import.meta.url))] })).outputFiles[0]!.text
+  })
+
+  test.beforeEach(async ({ page, context }) => {
+    await context.grantPermissions(['camera', 'microphone'])
+    await page.goto('./')
+    await page.addScriptTag({ content: assistBundle })
+  })
+
+  for (const ending of ['toggles off', 'closes its tab'] as const) {
+    test(`a pair that cannot connect is carried by a volunteer, and moves on when the volunteer ${ending}`, async ({ page }) => {
+      test.setTimeout(120_000)
+      const result = await page.evaluate<MeshRunResult, { worker: string; ending: string }>(async ({ worker, ending }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const K = (window as any).Assist
+        const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+        const until = async (check: () => boolean, ms: number) => {
+          const start = performance.now()
+          while (!check()) {
+            if (performance.now() - start > ms) return -1
+            await wait(50)
+          }
+          return performance.now() - start
+        }
+        let error: string | null = null
+        try {
+          const relay = new K.SimRelay()
+          const ROOM = 'f'.repeat(64)
+          const who = (name: string) => {
+            const sk = K.generateSecretKey()
+            return { name, sk, pub: K.getPublicKey(sk) as string, participant: `p-${name}` }
+          }
+          const A = who('a')
+          const B = who('b')
+          const V = who('v')
+          const painting = () => {
+            const canvas = document.createElement('canvas')
+            canvas.width = 320
+            canvas.height = 240
+            const ctx = canvas.getContext('2d')!
+            let t = 0
+            setInterval(() => {
+              t += 7
+              ctx.fillStyle = `hsl(${t % 360},80%,50%)`
+              ctx.fillRect(0, 0, 320, 240)
+            }, 66)
+            return canvas.captureStream(15).getVideoTracks()[0]!
+          }
+          const camA = painting()
+          const camB = painting()
+          let volunteering = true
+          let present = true
+          const offer = { reachability: 'public', capacity: { uplinkBps: 100_000_000, peers: 2, perPeerBps: 600_000 }, relaying: 0, maxRelayed: 3 }
+          const views = () => [
+            { participant: A.participant, devices: [A.pub], tracks: [{ trackId: camA.id, role: 'camera', device: A.pub }] },
+            { participant: B.participant, devices: [B.pub], tracks: [{ trackId: camB.id, role: 'camera', device: B.pub }] },
+            ...(present ? [{ participant: V.participant, devices: [V.pub], tracks: [], ...(volunteering ? { assist: [{ ...offer, device: V.pub }] } : {}) }] : []),
+          ]
+          const listeners = new Set<(v: unknown) => void>()
+          const session = () => ({
+            participants: () => views(),
+            onChange: (cb: (v: unknown) => void) => {
+              listeners.add(cb)
+              return () => listeners.delete(cb)
+            },
+          })
+          const emit = () => {
+            for (const listener of listeners) listener(views())
+          }
+          const pcs = new Map<string, RTCPeerConnection>()
+          // The fault hook: A and B are given a connection that can gather
+          // no candidate at all, so they can never reach each other.
+          const factory = (me: string, blocked?: string) => (context?: { remoteDevice?: string }) => {
+            const remote = context?.remoteDevice ?? ''
+            const pc = new RTCPeerConnection(remote === blocked ? { iceServers: [], iceTransportPolicy: 'relay' } : {})
+            pcs.set(`${me}>${remote}`, pc)
+            return pc
+          }
+          const workerUrl = URL.createObjectURL(new Blob([worker], { type: 'text/javascript' }))
+          const pipeline = new K.BrowserRelayMediaPipeline({
+            RTCRtpScriptTransform: (window as unknown as { RTCRtpScriptTransform: unknown }).RTCRtpScriptTransform,
+            RTCRtpReceiver,
+            Worker,
+            createWorker: () => new Worker(workerUrl),
+          })
+          const mesh = (person: typeof A, extra: Record<string, unknown>, blocked?: string) => new K.Mesh({
+            session: session(),
+            factory: factory(person.pub, blocked),
+            localDevice: person.pub,
+            localParticipant: person.participant,
+            deviceSk: person.sk,
+            transport: new K.SimTransport(relay),
+            roomId: ROOM,
+            routeTimeoutMs: 6_000,
+            directCheckTimeoutMs: 3_000,
+            turnRouteTimeoutMs: 3_000,
+            exhaustedRetryMs: 120_000,
+            ...extra,
+          })
+          const mV = mesh(V, { relay: new K.PeerRelay(), relayMedia: pipeline, offering: () => volunteering })
+          const mA = mesh(A, {}, B.pub)
+          const mB = mesh(B, {}, A.pub)
+          const carried: MediaStreamTrack[] = []
+          mB.onRemoteTrack((remote: { via: string; device: string; track: MediaStreamTrack }) => {
+            if (remote.via === 'assist' && remote.device === A.pub) carried.push(remote.track)
+          })
+          mA.publish([camA])
+          mB.publish([camB])
+          emit()
+
+          const routeAtB = () => mB.routes.get(A.pub) as { tier: string; endpoint: string; connected: boolean } | undefined
+          const connectedAfterMs = await until(() => routeAtB()?.tier === 'assist' && routeAtB()!.connected, 45_000)
+          await wait(3_000)
+          const toV = pcs.get(`${B.pub}>${V.pub}`)!
+          let carriedMid: string | null = null
+          let carriedBytes = 0
+          let carriedFramesDecoded = 0
+          const track = carried.at(-1)
+          if (track) {
+            carriedMid = toV.getTransceivers().find((t) => t.receiver.track === track)?.mid ?? null
+            ;(await toV.getStats()).forEach((stat: { type?: string; mid?: string; bytesReceived?: number; framesDecoded?: number; trackIdentifier?: string }) => {
+              if (stat.type !== 'inbound-rtp' || (stat.mid !== carriedMid && stat.trackIdentifier !== track.id)) return
+              carriedBytes += stat.bytesReceived ?? 0
+              carriedFramesDecoded += stat.framesDecoded ?? 0
+            })
+          }
+          const ab = pcs.get(`${A.pub}>${B.pub}`)
+          const route = routeAtB() ?? null
+
+          const start = performance.now()
+          if (ending === 'toggles off') {
+            volunteering = false
+            mV.stopRelaying()
+          } else {
+            present = false
+            mV.close()
+          }
+          emit()
+          await until(() => routeAtB()?.tier !== 'assist' || routeAtB()?.endpoint !== V.pub, 30_000)
+          const movedOnAfterMs = performance.now() - start
+          const tierAfter = routeAtB()?.tier ?? null
+          for (const m of [mA, mB, mV]) m.close()
+          return {
+            error,
+            route,
+            volunteerIsV: route?.endpoint === V.pub,
+            connectedAfterMs,
+            carriedMid,
+            carriedBytes,
+            carriedFramesDecoded,
+            directABConnected: ab?.connectionState === 'connected',
+            movedOnAfterMs,
+            tierAfter,
+          }
+        } catch (err) {
+          error = String(err)
+          return { error, route: null, volunteerIsV: false, connectedAfterMs: -1, carriedMid: null, carriedBytes: 0, carriedFramesDecoded: 0, directABConnected: false, movedOnAfterMs: -1, tierAfter: null }
+        }
+      }, { worker: assistWorker, ending })
+
+      // eslint-disable-next-line no-console
+      console.log(`assist through Mesh (${ending}):`, JSON.stringify(result))
+      expect(result.error).toBeNull()
+      // B reached A through V, and the route counted only once media came.
+      expect(result.connectedAfterMs).toBeGreaterThan(0)
+      expect(result.route).toMatchObject({ tier: 'assist', connected: true })
+      expect(result.volunteerIsV).toBe(true)
+      expect(result.directABConnected).toBe(false)
+      // getStats on B's connection to the volunteer: bytes and decoded frames
+      // on the m-line the volunteer named in `carry`.
+      expect(result.carriedMid).not.toBeNull()
+      expect(result.carriedBytes).toBeGreaterThan(10_000)
+      expect(result.carriedFramesDecoded).toBeGreaterThan(10)
+      // Told at once, not left to a stall: well inside one route budget.
+      expect(result.movedOnAfterMs).toBeLessThan(6_000)
+      expect(result.tierAfter).not.toBe('assist')
+    })
+  }
 })
