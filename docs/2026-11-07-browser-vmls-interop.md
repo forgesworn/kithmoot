@@ -35,7 +35,9 @@ The loader and manifest name the same Vennel commit. `node scripts/check-vmls-wa
 | 8. Manifest restore | **pass (vector/browser fixture)** | All 12 manifest cases, including exact integer boundaries and control text, plus real browser restore/fault cases. |
 | 9. Lane behaviour | **not run in the Browser app** | The 48 upstream lane vectors pass, but production MLS/lane wiring is unavailable; no Browser end-to-end lane recovery or sheltered-content claim is made. |
 
-The independent cross-implementation exchange is the TypeScript/Rust binding fixture. Other results use the Rust engine through its WASM boundary and Browser host fixtures; they are not presented as independent second implementations.
+The independent cross-implementation exchange is the TypeScript/Rust binding fixture. Other results use the Rust engine through its WASM boundary and Browser host fixtures; they are not presented as independent second implementations. The unsigned-reader assertion accounts for every unframed vector explicitly through the five fixed hostile cases.
+
+Production `Platform` construction currently omits the optional revoked-credential list, so the new tombstone gating cannot fire in product. That pre-existing limitation is not revocation-enforcement coverage; production MLS remains disabled. The `separatePerson` guest fixture changes the person credential but reuses the adder's rendezvous key, so it is not a complete second-person exchange proof.
 
 ## Dependency gate
 
