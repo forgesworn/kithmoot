@@ -219,7 +219,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
   guest = made.session; guestAck(made.step)
   guestLeaf = bytesToHex(guest.ownLeafId())
   const introPending = wasm.prepareIntroduction(keeperPlatform, BigInt(clock), rz, 0n), req = introPending.request()
-  const intro = introPending.complete(BigInt(clock), req.operation, secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
+  const intro = introPending.complete(keeperPlatform, BigInt(clock), req.operation, secp256k1.getSharedSecret(activeRzSecret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
   const capabilityEnvelope = made.step.outbound[0].envelope
   if (competing) {
     if (!previousGuest) throw new Error('fixture competing commit needs an existing different roster device')
@@ -234,7 +234,7 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
           const credential = finalizeEvent({ kind: 20460, created_at: clock, content: '', tags: [['d', person], ['scope', 'person'], ['device', device], ['expiration', String(clock + 7 * 86400)]] }, new Uint8Array(32).fill(44))
           const request = previousGuest.prepareUpdate(BigInt(clock), { credential: { pubkey: hexToBytes(person), createdAt: BigInt(clock), tags: credential.tags, content: '', sig: hexToBytes(credential.sig) }, homeBox: hexToBytes(boxId), expiresAt: BigInt(clock + 86400) })
           step = previousGuest.completeUpdate(BigInt(clock), request.operation, schnorr.sign(request.digest, new Uint8Array(32).fill(44)))
-        } else step = previousGuest.add(BigInt(clock), [intro.openCapability(BigInt(clock), capabilityEnvelope)])
+        } else step = previousGuest.add(BigInt(clock), [intro.openCapability(keeperPlatform, BigInt(clock), capabilityEnvelope)])
         step.snapshot?.plaintext.fill(0)
         return step.outbound.find((item: any) => item.destination.type === 'CommitSlot')
       } finally { previousGuest.free(); previousPlatform.free() }
@@ -242,12 +242,12 @@ export async function addGuest(stageWelcome = false, packageClient: BrowserMlsBo
     if (made.state !== 'active') throw new Error('fixture competitor has no witnessed predecessor')
     competingCandidateSlot = made.value
   }
-  const opened = intro.openCapability(BigInt(clock), capabilityEnvelope)
+  const opened = intro.openCapability(keeperPlatform, BigInt(clock), capabilityEnvelope)
   candidatePrepared = true
   await candidateStartPause
   let added = await rooms.addCapabilities(activeContext, roomId, [opened], packageClient, clock)
   if (retryUncertain && added.state === 'transport' && (added.answer.state === 'unavailable' || added.answer.state === 'not-signed')) {
-    added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(BigInt(clock), capabilityEnvelope)], packageClient, clock)
+    added = await rooms.addCapabilities(activeContext, roomId, [intro.openCapability(keeperPlatform, BigInt(clock), capabilityEnvelope)], packageClient, clock)
   }
   intro.free(); introPending.free(); joining.free(); keeperPlatform.free()
   if (added.state !== 'active') {
@@ -960,8 +960,8 @@ export async function makeJoinWelcome(alternative = false) {
   const ack = (step: any) => { if (step.snapshot) { session.commitAck(step.snapshot.generation, step.snapshot.generation); step.snapshot.plaintext.fill(0) } }
   const pending = wasm.prepareIntroduction(platform, BigInt(clock), hexToBytes(joinRz), 0n), req = pending.request()
   const shared = secp256k1.getSharedSecret(inviterRzSecret, concatBytes(Uint8Array.of(2), req.peerRz))
-  const intro = pending.complete(BigInt(clock), req.operation, shared.slice(1)); shared.fill(0)
-  const added = session.add(BigInt(clock), [intro.openCapability(BigInt(clock), joinOutbound.envelope)]); ack(added)
+  const intro = pending.complete(platform, BigInt(clock), req.operation, shared.slice(1)); shared.fill(0)
+  const added = session.add(BigInt(clock), [intro.openCapability(platform, BigInt(clock), joinOutbound.envelope)]); ack(added)
   const slot = added.outbound.find((o: any) => o.destination.type === 'CommitSlot')
   const applied = session.process(BigInt(clock), slot.mailbox, slot.envelope, receipt(slot), undefined); ack(applied.step)
   joinWelcome = applied.step.outbound.find((o: any) => o.destination.type === 'Welcome')

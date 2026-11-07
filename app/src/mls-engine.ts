@@ -2,7 +2,7 @@ import { adminInvitationPreviewEnabled, loadAdminInvitationEngine } from './mls-
 import { invitationPreviewEnabled, loadInvitationEngine } from './mls-invitation-engine.js'
 import type * as Binding from '../public/vmls-wasm/vmls_wasm.js'
 
-const version = '6df0803012ad194f033ecbad27ad2858df26477e'
+const version = 'c154087ecfc43ee9404fa4d548cdc94c0789afef'
 let binding: Promise<typeof Binding> | undefined
 
 /** Self-hosted shared Rust engine, loaded only for explicit MLS use. Its

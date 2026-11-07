@@ -1,5 +1,49 @@
 /* @ts-self-types="./vmls_wasm.d.ts" */
 
+export class AdminIntroduction {
+    static __wrap(ptr) {
+        const obj = Object.create(AdminIntroduction.prototype);
+        obj.__wbg_ptr = ptr;
+        AdminIntroductionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        AdminIntroductionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_adminintroduction_free(ptr, 0);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    mailbox() {
+        const ret = wasm.adminintroduction_mailbox(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {Platform} platform
+     * @param {bigint} now
+     * @param {Uint8Array} envelope
+     * @returns {Capability}
+     */
+    openAdminInvitationCapability(platform, now, envelope) {
+        _assertClass(platform, Platform);
+        const ret = wasm.adminintroduction_openAdminInvitationCapability(this.__wbg_ptr, platform.__wbg_ptr, now, envelope);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return Capability.__wrap(ret[0]);
+    }
+}
+if (Symbol.dispose) AdminIntroduction.prototype[Symbol.dispose] = AdminIntroduction.prototype.free;
+
 /**
  * A capability record the adder verified. `Session.add` and
  * `Session.repair` consume the objects they are given, whatever the result;
@@ -315,13 +359,31 @@ export class Introduction {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
-     * Opens and verifies a capability record fetched from the mailbox.
+     * Opens and verifies a capability record fetched from the mailbox. The
+     * platform's current tombstone list gates the joiner's credential here,
+     * and again at the commit.
+     * @param {Platform} platform
      * @param {any} now
      * @param {any} envelope
      * @returns {Capability}
      */
-    openCapability(now, envelope) {
-        const ret = wasm.introduction_openCapability(this.__wbg_ptr, now, envelope);
+    openCapability(platform, now, envelope) {
+        _assertClass(platform, Platform);
+        const ret = wasm.introduction_openCapability(this.__wbg_ptr, platform.__wbg_ptr, now, envelope);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return Capability.__wrap(ret[0]);
+    }
+    /**
+     * @param {Platform} platform
+     * @param {any} now
+     * @param {any} envelope
+     * @returns {Capability}
+     */
+    openInvitationCapability(platform, now, envelope) {
+        _assertClass(platform, Platform);
+        const ret = wasm.introduction_openInvitationCapability(this.__wbg_ptr, platform.__wbg_ptr, now, envelope);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -339,6 +401,92 @@ export class Introduction {
     }
 }
 if (Symbol.dispose) Introduction.prototype[Symbol.dispose] = Introduction.prototype.free;
+
+export class PendingAdminIntroduction {
+    static __wrap(ptr) {
+        const obj = Object.create(PendingAdminIntroduction.prototype);
+        obj.__wbg_ptr = ptr;
+        PendingAdminIntroductionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PendingAdminIntroductionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pendingadminintroduction_free(ptr, 0);
+    }
+    /**
+     * @param {Platform} platform
+     * @param {bigint} now
+     * @param {Uint8Array} operation
+     * @param {Uint8Array} shared_x
+     * @returns {AdminIntroduction}
+     */
+    complete(platform, now, operation, shared_x) {
+        _assertClass(platform, Platform);
+        const ret = wasm.pendingadminintroduction_complete(this.__wbg_ptr, platform.__wbg_ptr, now, operation, shared_x);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return AdminIntroduction.__wrap(ret[0]);
+    }
+    /**
+     * @param {any} now
+     * @returns {boolean}
+     */
+    isPending(now) {
+        const ret = wasm.pendingadminintroduction_isPending(this.__wbg_ptr, now);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * @returns {VmlsEcdhRequest}
+     */
+    request() {
+        const ret = wasm.pendingadminintroduction_request(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) PendingAdminIntroduction.prototype[Symbol.dispose] = PendingAdminIntroduction.prototype.free;
+
+export class PendingAdminInvitation {
+    static __wrap(ptr) {
+        const obj = Object.create(PendingAdminInvitation.prototype);
+        obj.__wbg_ptr = ptr;
+        PendingAdminInvitationFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PendingAdminInvitationFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pendingadmininvitation_free(ptr, 0);
+    }
+    /**
+     * @returns {VmlsAdminInvitationSignRequestV2}
+     */
+    request() {
+        const ret = wasm.pendingadmininvitation_request(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) PendingAdminInvitation.prototype[Symbol.dispose] = PendingAdminInvitation.prototype.free;
 
 /**
  * A capability record waiting for the device's signature and the ECDH with
@@ -496,14 +644,18 @@ export class PendingIntroduction {
         wasm.__wbg_pendingintroduction_free(ptr, 0);
     }
     /**
-     * The ECDH's x coordinate (wiped): the `Introduction`.
+     * The ECDH's x coordinate (wiped): the `Introduction`. The platform's
+     * current tombstone list gates completion alongside the list captured
+     * at prepare.
+     * @param {Platform} platform
      * @param {any} now
      * @param {any} operation
      * @param {any} shared_x
      * @returns {Introduction}
      */
-    complete(now, operation, shared_x) {
-        const ret = wasm.pendingintroduction_complete(this.__wbg_ptr, now, operation, shared_x);
+    complete(platform, now, operation, shared_x) {
+        _assertClass(platform, Platform);
+        const ret = wasm.pendingintroduction_complete(this.__wbg_ptr, platform.__wbg_ptr, now, operation, shared_x);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -535,8 +687,39 @@ export class PendingIntroduction {
 }
 if (Symbol.dispose) PendingIntroduction.prototype[Symbol.dispose] = PendingIntroduction.prototype.free;
 
+export class PendingInvitation {
+    static __wrap(ptr) {
+        const obj = Object.create(PendingInvitation.prototype);
+        obj.__wbg_ptr = ptr;
+        PendingInvitationFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PendingInvitationFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_pendinginvitation_free(ptr, 0);
+    }
+    /**
+     * @returns {VmlsInvitationSignRequest}
+     */
+    request() {
+        const ret = wasm.pendinginvitation_request(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+}
+if (Symbol.dispose) PendingInvitation.prototype[Symbol.dispose] = PendingInvitation.prototype.free;
+
 /**
- * The CSPRNG and this device's two public keys, bound once.
+ * The CSPRNG, this device's two public keys and the vault's tombstone list,
+ * bound once.
  */
 export class Platform {
     __destroy_into_raw() {
@@ -552,13 +735,17 @@ export class Platform {
     /**
      * `deviceKey` is the device's 32-byte x-only public key, as its person
      * credential names it; `rendezvousKey` this person's x-only `rz`.
-     * Neither secret half ever crosses.
+     * Neither secret half ever crosses. `revokedCredentialIds`, when given,
+     * is an array of the vault's tombstoned credential ids (32 bytes each);
+     * the list binds with the platform, so a changed vault set means a new
+     * platform and new sessions from it.
      * @param {any} device_key
      * @param {any} rendezvous_key
      * @param {VmlsRandom} rng
+     * @param {Array<any> | null} [revoked_credential_ids]
      */
-    constructor(device_key, rendezvous_key, rng) {
-        const ret = wasm.platform_new(device_key, rendezvous_key, rng);
+    constructor(device_key, rendezvous_key, rng, revoked_credential_ids) {
+        const ret = wasm.platform_new(device_key, rendezvous_key, rng, isLikeNone(revoked_credential_ids) ? 0 : addToExternrefTable0(revoked_credential_ids));
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -671,6 +858,36 @@ export class Session {
         }
     }
     /**
+     * @param {bigint} now
+     * @param {PendingAdminInvitation} pending
+     * @param {Uint8Array} operation
+     * @param {Uint8Array} signature
+     * @returns {any}
+     */
+    completeAdminInvitation(now, pending, operation, signature) {
+        _assertClass(pending, PendingAdminInvitation);
+        const ret = wasm.session_completeAdminInvitation(this.__wbg_ptr, now, pending.__wbg_ptr, operation, signature);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {any} now
+     * @param {PendingInvitation} pending
+     * @param {any} operation
+     * @param {any} signature
+     * @returns {any}
+     */
+    completeInvitation(now, pending, operation, signature) {
+        _assertClass(pending, PendingInvitation);
+        const ret = wasm.session_completeInvitation(this.__wbg_ptr, now, pending.__wbg_ptr, operation, signature);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * The signature over the prepared digest: the Update Commit's step.
      * @param {any} now
      * @param {any} operation
@@ -730,6 +947,16 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @returns {VmlsCurrentAdminRolesV1}
+     */
+    getCurrentAdminRolesV1() {
+        const ret = wasm.session_getCurrentAdminRolesV1(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Actual MLS group id, or `null` before joining; not the local session id.
      * Sensitive metadata for encrypted admission, not proof of authority.
      * @returns {any}
@@ -762,11 +989,53 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Copies a guarded local observation under this actual session's borrow.
+     * Wipes the given plaintext array, including malformed-input/Busy/Poisoned
+     * refusals. No callbacks or state changes. The borrowed engine checkpoint
+     * never leaves this call; callers must recheck actual custody and current
+     * authority after asynchronous work, never adopt this object as a proof.
+     * @param {any} plaintext
+     * @param {any} now
+     * @param {any} expected_identity
+     * @param {any} revoked_credentials
+     * @returns {VmlsLocalCheckpointInspection}
+     */
+    inspectLocalCheckpoint(plaintext, now, expected_identity, revoked_credentials) {
+        const ret = wasm.session_inspectLocalCheckpoint(this.__wbg_ptr, plaintext, now, expected_identity, revoked_credentials);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * The home box installation the group pins, or `null` before joining.
      * @returns {any}
      */
     installation() {
         const ret = wasm.session_installation(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {any} now
+     * @returns {any}
+     */
+    invitationResponse(now) {
+        const ret = wasm.session_invitationResponse(this.__wbg_ptr, now);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @param {any} invitation_id
+     * @param {any} now
+     * @returns {any}
+     */
+    issuedInvitation(invitation_id, now) {
+        const ret = wasm.session_issuedInvitation(this.__wbg_ptr, invitation_id, now);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -836,6 +1105,40 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Actual surviving-installation provenance; never label imported backups trusted.
+     * @param {Platform} platform
+     * @param {Uint8Array} session
+     * @param {Uint8Array} plaintext
+     * @param {bigint} high_water
+     * @param {VmlsRestartDisposition} disposition
+     * @returns {Session}
+     */
+    static openAdminInvitationSession(platform, session, plaintext, high_water, disposition) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_openAdminInvitationSession(platform.__wbg_ptr, session, plaintext, high_water, disposition);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return Session.__wrap(ret[0]);
+    }
+    /**
+     * Actual surviving-installation provenance; never label imported backups trusted.
+     * @param {Platform} platform
+     * @param {any} session
+     * @param {any} plaintext
+     * @param {any} high_water
+     * @param {any} disposition
+     * @returns {Session}
+     */
+    static openInvitationSession(platform, session, plaintext, high_water, disposition) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_openInvitationSession(platform.__wbg_ptr, session, plaintext, high_water, disposition);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return Session.__wrap(ret[0]);
+    }
+    /**
      * Restores a session from the plaintext of its snapshot, which the
      * caller unsealed, and its high-water mark (a BigInt). A snapshot older
      * than the mark throws `Rollback`; a newer one opens unacknowledged, so
@@ -901,6 +1204,35 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * expectedInviterPersona comes from deliberate trusted-contact/OOB selection.
+     * @param {Platform} platform
+     * @param {bigint} now
+     * @param {any} binding
+     * @param {Uint8Array} authorization_bytes
+     * @param {Uint8Array} expected_inviter_persona
+     * @returns {PendingCapability}
+     */
+    static prepareAdminInvitationCapability(platform, now, binding, authorization_bytes, expected_inviter_persona) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_prepareAdminInvitationCapability(platform.__wbg_ptr, now, binding, authorization_bytes, expected_inviter_persona);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingCapability.__wrap(ret[0]);
+    }
+    /**
+     * @param {bigint} now
+     * @param {VmlsInvitationTarget} target
+     * @returns {PendingAdminInvitation}
+     */
+    prepareAdminInvitation(now, target) {
+        const ret = wasm.session_prepareAdminInvitation(this.__wbg_ptr, now, target);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingAdminInvitation.__wrap(ret[0]);
+    }
+    /**
      * Prepares this device's capability record for an adder and its
      * pending-join session: a `PendingCapability`. The request is
      * `{ binding, expectedGroupId, expiresAt, adderRz, counter }`.
@@ -916,6 +1248,36 @@ export class Session {
             throw takeFromExternrefTable0(ret[1]);
         }
         return PendingCapability.__wrap(ret[0]);
+    }
+    /**
+     * @param {Platform} platform
+     * @param {bigint} now
+     * @param {any} request
+     * @param {Uint8Array} installation
+     * @returns {PendingCreate}
+     */
+    static prepareCreateAdminInvitationProfile(platform, now, request, installation) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_prepareCreateAdminInvitationProfile(platform.__wbg_ptr, now, request, installation);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingCreate.__wrap(ret[0]);
+    }
+    /**
+     * @param {Platform} platform
+     * @param {any} now
+     * @param {any} request
+     * @param {any} installation
+     * @returns {PendingCreate}
+     */
+    static prepareCreateInvitationProfile(platform, now, request, installation) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_prepareCreateInvitationProfile(platform.__wbg_ptr, now, request, installation);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingCreate.__wrap(ret[0]);
     }
     /**
      * Prepares a group with this device as its only member: a
@@ -935,6 +1297,35 @@ export class Session {
             throw takeFromExternrefTable0(ret[1]);
         }
         return PendingCreate.__wrap(ret[0]);
+    }
+    /**
+     * expectedInviterPersona comes from deliberate trusted-contact/OOB selection.
+     * @param {Platform} platform
+     * @param {any} now
+     * @param {any} binding
+     * @param {any} authorization_bytes
+     * @param {any} expected_inviter_persona
+     * @returns {PendingCapability}
+     */
+    static prepareInvitationCapability(platform, now, binding, authorization_bytes, expected_inviter_persona) {
+        _assertClass(platform, Platform);
+        const ret = wasm.session_prepareInvitationCapability(platform.__wbg_ptr, now, binding, authorization_bytes, expected_inviter_persona);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingCapability.__wrap(ret[0]);
+    }
+    /**
+     * @param {any} now
+     * @param {any} target
+     * @returns {PendingInvitation}
+     */
+    prepareInvitation(now, target) {
+        const ret = wasm.session_prepareInvitation(this.__wbg_ptr, now, target);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return PendingInvitation.__wrap(ret[0]);
     }
     /**
      * Prepares an Update of this leaf's key and binding:
@@ -973,6 +1364,30 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @returns {VmlsGroupProfile}
+     */
+    profile() {
+        const ret = wasm.session_profile(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Borrows the opaque capability; unlike add(), this does not consume it.
+     * @param {any} now
+     * @param {Capability} capability
+     * @returns {any}
+     */
+    recordInvitationResponse(now, capability) {
+        _assertClass(capability, Capability);
+        const ret = wasm.session_recordInvitationResponse(this.__wbg_ptr, now, capability.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @param {any} now
      * @param {any} leaf_ids
      * @returns {any}
@@ -999,11 +1414,37 @@ export class Session {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * @param {any} now
+     * @returns {any}
+     */
+    retryInvitationResponse(now) {
+        const ret = wasm.session_retryInvitationResponse(this.__wbg_ptr, now);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * @param {any} body
      * @returns {any}
      */
     send(body) {
         const ret = wasm.session_send(this.__wbg_ptr, body);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Native atomically refuses a stale reviewed commitment (StaleOperation).
+     * AdminRequired=195; InvalidAdminSet=196. IDs must already be canonical.
+     * @param {bigint} now
+     * @param {Uint8Array} expected_admin_set_commitment
+     * @param {Uint8Array[]} admin_leaf_ids
+     * @returns {any}
+     */
+    setAdminRolesV1(now, expected_admin_set_commitment, admin_leaf_ids) {
+        const ret = wasm.session_setAdminRolesV1(this.__wbg_ptr, now, expected_admin_set_commitment, admin_leaf_ids);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -1304,6 +1745,42 @@ export function coordinatorObjectHash(sealed) {
 }
 
 /**
+ * Delegated identity verification alone does not select a trusted inviter.
+ * `revokedCredentialIds`, when given, is an array of the caller vault's
+ * tombstoned credential ids (32 bytes each); omitted, no revocation check
+ * runs, so callers that have a vault must pass its list.
+ * @param {bigint} now
+ * @param {Uint8Array} authorization_bytes
+ * @param {Array<any> | null} [revoked_credential_ids]
+ * @returns {VmlsAdminInvitationInspectionV2}
+ */
+export function inspectAdminInvitation(now, authorization_bytes, revoked_credential_ids) {
+    const ret = wasm.inspectAdminInvitation(now, authorization_bytes, isLikeNone(revoked_credential_ids) ? 0 : addToExternrefTable0(revoked_credential_ids));
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Delegated identity verification alone does not select a trusted inviter.
+ * `revokedCredentialIds`, when given, is an array of the caller vault's
+ * tombstoned credential ids (32 bytes each); omitted, no revocation check
+ * runs, so callers that have a vault must pass its list.
+ * @param {any} now
+ * @param {any} authorization_bytes
+ * @param {Array<any> | null} [revoked_credential_ids]
+ * @returns {VmlsInvitationInspection}
+ */
+export function inspectInvitation(now, authorization_bytes, revoked_credential_ids) {
+    const ret = wasm.inspectInvitation(now, authorization_bytes, isLikeNone(revoked_credential_ids) ? 0 : addToExternrefTable0(revoked_credential_ids));
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Opens the coordinator from its persisted state and the objects actually
  * stored, active and (if a candidate is staged) staged.
  * @param {Platform} platform
@@ -1337,6 +1814,21 @@ export function parseCapabilities(body) {
 }
 
 /**
+ * @param {Platform} platform
+ * @param {bigint} now
+ * @param {Uint8Array} authorization_bytes
+ * @returns {PendingAdminIntroduction}
+ */
+export function prepareAdminInvitationIntroduction(platform, now, authorization_bytes) {
+    _assertClass(platform, Platform);
+    const ret = wasm.prepareAdminInvitationIntroduction(platform.__wbg_ptr, now, authorization_bytes);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return PendingAdminIntroduction.__wrap(ret[0]);
+}
+
+/**
  * The adder's side: prepares the introduction for `peerRz`'s capability
  * record number `counter` (a BigInt): a `PendingIntroduction`.
  * @param {Platform} platform
@@ -1348,6 +1840,21 @@ export function parseCapabilities(body) {
 export function prepareIntroduction(platform, now, peer_rz, counter) {
     _assertClass(platform, Platform);
     const ret = wasm.prepareIntroduction(platform.__wbg_ptr, now, peer_rz, counter);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return PendingIntroduction.__wrap(ret[0]);
+}
+
+/**
+ * @param {Platform} platform
+ * @param {any} now
+ * @param {any} authorization_bytes
+ * @returns {PendingIntroduction}
+ */
+export function prepareInvitationIntroduction(platform, now, authorization_bytes) {
+    _assertClass(platform, Platform);
+    const ret = wasm.prepareInvitationIntroduction(platform.__wbg_ptr, now, authorization_bytes);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -1490,6 +1997,10 @@ function __wbg_get_imports() {
             return ret;
         }, arguments); },
         __wbg_get_6c896e0571ddae51: function(arg0, arg1) {
+            const ret = arg0[arg1 >>> 0];
+            return ret;
+        },
+        __wbg_get_unchecked_288889d017702237: function(arg0, arg1) {
             const ret = arg0[arg1 >>> 0];
             return ret;
         },
@@ -1640,6 +2151,9 @@ function __wbg_get_imports() {
     };
 }
 
+const AdminIntroductionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_adminintroduction_free(ptr, 1));
 const CapabilityFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_capability_free(ptr, 1));
@@ -1649,6 +2163,12 @@ const CoordinatorFinalization = (typeof FinalizationRegistry === 'undefined')
 const IntroductionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_introduction_free(ptr, 1));
+const PendingAdminIntroductionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pendingadminintroduction_free(ptr, 1));
+const PendingAdminInvitationFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pendingadmininvitation_free(ptr, 1));
 const PendingCapabilityFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pendingcapability_free(ptr, 1));
@@ -1658,6 +2178,9 @@ const PendingCreateFinalization = (typeof FinalizationRegistry === 'undefined')
 const PendingIntroductionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_pendingintroduction_free(ptr, 1));
+const PendingInvitationFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_pendinginvitation_free(ptr, 1));
 const PlatformFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_platform_free(ptr, 1));
