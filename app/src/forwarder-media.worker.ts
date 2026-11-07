@@ -18,11 +18,15 @@ interface TransformData {
 interface ScriptTransformer {
   readable: ReadableStream<EncodedFrameLike>
   writable: WritableStream<EncodedFrameLike>
+  /** The options given to `RTCRtpScriptTransform`, where the standard puts
+   *  them. */
+  options?: TransformData
 }
 
 interface TransformEvent extends Event {
   transformer: ScriptTransformer
-  data: TransformData
+  /** Where an older engine put the options. Not the standard place. */
+  data?: TransformData
 }
 
 function validKey(value: unknown): value is Uint8Array {
@@ -30,7 +34,12 @@ function validKey(value: unknown): value is Uint8Array {
 }
 
 self.addEventListener('rtctransform', (event: Event) => {
-  const { transformer, data } = event as TransformEvent
+  const { transformer } = event as TransformEvent
+  // `transformer.options` first. Reading only `event.data`, which Chromium
+  // leaves undefined, returned here without ever consuming the stream, so
+  // every frame on a forwarded endpoint was dropped: measured in Chromium
+  // 151, 105 frames encoded and none sent.
+  const data = transformer.options ?? (event as TransformEvent).data
   if (!data || !validKey(data.key) || (data.direction !== 'encrypt' && data.direction !== 'decrypt')) return
 
   let transform: FrameTransformer = data.direction === 'encrypt'
