@@ -173,6 +173,23 @@ export function lnurlpUrl(address: string): string | undefined {
   return `https://${host}/.well-known/lnurlp/${encodeURIComponent(name)}`
 }
 
+/**
+ * A Lightning address someone else declared, or nothing. Built from the same
+ * checks `lnurlpUrl` makes, plus a bound on the whole string (the longest
+ * email-shaped address there is), and lower-cased so the same address is
+ * always one string. Never fetches anything: an address is only ever shown,
+ * copied or handed to the viewer's own wallet.
+ */
+export function sanitiseLightningAddress(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  if (trimmed.length > 254) return undefined
+  const at = trimmed.indexOf('@')
+  if (at <= 0 || at !== trimmed.lastIndexOf('@')) return undefined
+  if (!ADDRESS_NAME.test(trimmed.slice(0, at)) || !ADDRESS_HOST.test(trimmed.slice(at + 1))) return undefined
+  return trimmed.toLowerCase()
+}
+
 /** What the project's own address says about who signs its receipts. */
 export interface ZapEndpoint {
   /** The pubkey the endpoint advertises as the signer of its receipts. */

@@ -10,6 +10,7 @@ import { verifyDeviceCredential } from './credential.js'
 import { verifyEventUncached } from './verify.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import { sanitiseDisplayName } from './display-name.js'
+import { sanitiseLightningAddress } from './donations.js'
 import { sanitiseAssistOffer } from './peer-assist.js'
 import { inspectAgentOwnershipSignature, normaliseAgentOwnership, verifyAgentOwnership } from './ownership.js'
 import type { RosterEntry, CallMembership, TrackAdvert, TrackRole } from './types.js'
@@ -128,6 +129,10 @@ export function encodeRosterEvent(entry: RosterEntry, opts: EncodeRosterOptions)
     left: entry.left === true ? true : undefined,
     agent: entry.agent === true ? true : undefined,
     requestReceipts: entry.agent === true && entry.requestReceipts === true ? true : undefined,
+    // Same rule as the name: never publish an address another client has to
+    // defuse, and only an agent carries one. `undefined` is dropped, so an
+    // entry without it is byte-identical to one written before the field.
+    zap: entry.agent === true ? sanitiseLightningAddress(entry.zap) : undefined,
     owner,
     ownerClaim,
   })
@@ -276,6 +281,12 @@ export function decodeRosterEvent(event: Event, opts: DecodeRosterOptions): Rost
     // member sends this device, so only an honest `true` is one.
     if (entry.agent !== true) delete entry.agent
     if (entry.agent !== true || entry.requestReceipts !== true) delete entry.requestReceipts
+    // A maker's Lightning address is a claim like the name: sanitised, or
+    // gone. A malformed one costs the claim and never the entry, and a
+    // device that does not say it is an agent has no maker to zap.
+    const zap = entry.agent === true ? sanitiseLightningAddress(entry.zap) : undefined
+    if (zap === undefined) delete entry.zap
+    else entry.zap = zap
     // Whose agent this is, verified here or not carried at all. A reader
     // that sees `owner` on a decoded entry is looking at a proof this
     // function checked against the participant the entry names, at this

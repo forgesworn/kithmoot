@@ -352,6 +352,25 @@ The switch is per person, per device: it is my media, so it is my switch. A
 room where three people want an agent following along and one does not has
 three transcribed voices and one silence, which is exactly right.
 
+### Zapping the maker
+
+An agent can carry its operator's Lightning address on its roster entry
+(`--zap you@your-wallet.example`), beside its name. A person who found the
+agent useful can then zap that address from their own wallet, after the fact,
+by choice.
+
+The trust model is the name's. The address is self-asserted: nothing checks
+that it belongs to whoever runs the agent, so the app shows it in full and
+says "Goes to whoever runs this agent. Asserted by nobody." Whose agent it is
+comes only from a verified ownership proof, never from the address. The app
+offers Copy and an "Open in wallet" `lightning:` link, and makes no network
+request of any kind for this, so the maker's Lightning provider never learns a
+viewer's address. Nothing ForgeSworn runs creates, relays or receives a
+payment. The address lives on the roster entry and goes when the entry does.
+It appears in the message menu of an agent's message only while that agent is
+in the roster with an address; a history line from an agent that has left gets
+nothing.
+
 ## Whose agent is this
 
 The agent flag says what a participant claims to be. It says nothing about

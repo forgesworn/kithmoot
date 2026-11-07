@@ -52,6 +52,8 @@ export interface PresentParticipant {
   devices: number
   /** True when any of their devices says it is an agent. */
   agent: boolean
+  /** The Lightning address an agent declared; only ever set for an agent. */
+  zap?: string
 }
 
 /**
@@ -129,6 +131,7 @@ export class PresenceLedger {
       }
       view.devices++
       if (entry.agent === true) view.agent = true
+      if (entry.agent === true && entry.zap !== undefined && view.zap === undefined) view.zap = entry.zap
     }
     return [...byParticipant.values()]
   }

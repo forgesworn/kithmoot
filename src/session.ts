@@ -19,6 +19,7 @@ import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
+import { sanitiseLightningAddress } from './donations.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { recordingProfile, readLiveRecordingState, verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
@@ -135,6 +136,9 @@ export interface ParticipantView {
   agent?: boolean
   /** At least one current agent device supports request-received markers. */
   requestReceipts?: boolean
+  /** The Lightning address whoever runs this agent declared on its roster
+   *  entry. Self-asserted and unverified, like `name`: show it in full. */
+  zap?: string
   /** Whose agent this is, from a proof this session verified on one of its
    *  devices' entries. Absent for a person, and for an agent nobody has
    *  claimed. See `AgentOwnership`. */
@@ -268,6 +272,9 @@ export interface RoomSessionBaseOptions {
   agent?: boolean
   /** Advertise only while a driver that issues request receipts is attached. */
   requestReceipts?: boolean
+  /** A Lightning address (`name@host`) for whoever runs this agent, published
+   *  on its roster entry like the name. Self-declared, not verified. */
+  zap?: string
   /** This agent's ownership proof, carried on every roster entry and chat
    *  message. Checked here against the participant; a proof that names
    *  somebody else is a setup mistake and is refused at construction. */
@@ -3072,6 +3079,7 @@ export class RoomSession {
       ...(!left && live && (!live.recording.on || self.call?.id === live.call) ? { liveRecording: live } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
+      ...(this.#opts.agent === true && sanitiseLightningAddress(this.#opts.zap) ? { zap: sanitiseLightningAddress(this.#opts.zap) } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(assist ? { assist } : {}),
@@ -3872,6 +3880,7 @@ export class RoomSession {
           (recordingRank === previousRecordingRank && entry.updatedAt >= previousRecordingPresence.updatedAt)) recordingPresence.set(entry.device, entry)
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
+      if (entry.agent === true && entry.zap !== undefined && view.zap === undefined) view.zap = entry.zap
       // Verified at decode, or not here at all. One proof per person is
       // enough: every device of one agent names the same principal.
       if (entry.owner && !view.owner) {

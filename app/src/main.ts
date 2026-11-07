@@ -12779,6 +12779,10 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           { label: 'Send as task', text: 'Send as task', run: () => offer(false) },
           { label: 'Summarise this', text: 'Summarise this', run: () => offer(true) },
         ]
+        // Only while the sender is in the roster as an agent with an address;
+        // a history line from an agent that has left gets nothing.
+        const zap = mine ? undefined : session?.participants().find(p => p.participant === m.participant && p.agent === true)?.zap
+        if (zap) actions.push({ label: `Zap whoever runs ${senderLabel(original)}`, text: 'Zap', run: () => openZapDialog(zap, more) })
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
@@ -15872,6 +15876,44 @@ function tombstoneRow(id: string, at: number): HTMLLIElement {
   })
   row.append(text, dismiss)
   return row
+}
+
+/** The maker's Lightning address, shown in full with the two things a viewer
+ *  may do with it. Nothing here touches the network: the address is copied,
+ *  or handed to the viewer's own wallet through a `lightning:` link. */
+function openZapDialog(address: string, opener: HTMLElement): void {
+  const dialog = document.createElement('dialog')
+  dialog.className = 'zapDialog'
+  dialog.setAttribute('aria-label', 'Zap')
+  const title = document.createElement('h2')
+  title.textContent = 'Zap'
+  const shown = document.createElement('p')
+  shown.className = 'zapAddress'
+  shown.textContent = address
+  const copy = document.createElement('button')
+  copy.type = 'button'
+  copy.className = 'primary'
+  copy.textContent = 'Copy'
+  copy.addEventListener('click', () => {
+    navigator.clipboard.writeText(address)
+      .then(() => { copy.textContent = 'Copied' })
+      .catch((err) => setStatus(describeError(err)))
+  })
+  const wallet = document.createElement('a')
+  wallet.textContent = 'Open in wallet'
+  wallet.href = `lightning:${address}`
+  const note = document.createElement('p')
+  note.className = 'note'
+  note.textContent = 'Goes to whoever runs this agent. Asserted by nobody.'
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.textContent = 'Close'
+  close.addEventListener('click', () => dialog.close())
+  dialog.addEventListener('close', () => { dialog.remove(); if (opener.isConnected) opener.focus({ preventScroll: true }) })
+  dialog.append(title, shown, copy, wallet, note, close)
+  document.body.append(dialog)
+  dialog.showModal()
+  copy.focus()
 }
 
 let messageMenuCount = 0

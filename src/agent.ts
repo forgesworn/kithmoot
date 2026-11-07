@@ -226,6 +226,9 @@ interface CommonAgentOptions {
   agent?: boolean
   /** Opt in when this driver sends signed request-received markers. */
   requestReceipts?: boolean
+  /** A Lightning address for whoever runs this agent, published on the roster
+   *  entry like the name. Self-declared, not verified. */
+  zap?: string
   /** What this agent publishes at join. Nothing, by default. */
   tracks?: TrackAdvert[]
   claims?: Partial<Record<SingularRole, number>>
@@ -896,6 +899,7 @@ export class RoomAgent {
       name: opts.name,
       agent: opts.agent ?? true,
       requestReceipts: opts.requestReceipts,
+      zap: opts.zap,
       owner: opts.owner,
       now: opts.now,
       timing: opts.timing,

@@ -9,6 +9,7 @@ import {
   donorTier,
   fetchZapEndpoint,
   lnurlpUrl,
+  sanitiseLightningAddress,
   ringTier,
   satsOf,
   tallyDonations,
@@ -99,6 +100,24 @@ describe('reading an amount off a bolt11 invoice', () => {
     expect(bolt11Msats('')).toBeUndefined()
     expect(bolt11Msats(undefined)).toBeUndefined()
     expect(bolt11Msats(42)).toBeUndefined()
+  })
+})
+
+describe('a Lightning address somebody else declared', () => {
+  it('accepts a plain address and lower-cases it', () => {
+    expect(sanitiseLightningAddress('alice@example.com')).toBe('alice@example.com')
+    expect(sanitiseLightningAddress('Alice@Example.COM')).toBe('alice@example.com')
+    expect(sanitiseLightningAddress('  alice@example.com ')).toBe('alice@example.com')
+  })
+
+  it('refuses everything that is not exactly name@host', () => {
+    for (const bad of ['alice', 'alice@@example.com', 'a@b@example.com', '@example.com', 'alice@', 'alice@example.com:8080',
+      'alice@example.com/path', 'alice@localhost', 'al ice@example.com', 'alice@exa mple.com', `${'a'.repeat(300)}@example.com`, 'a'.repeat(300)]) {
+      expect(sanitiseLightningAddress(bad)).toBeUndefined()
+    }
+    for (const notString of [undefined, null, 42, {}, [], true, ['alice@example.com']]) {
+      expect(sanitiseLightningAddress(notString)).toBeUndefined()
+    }
   })
 })
 

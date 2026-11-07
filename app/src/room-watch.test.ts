@@ -38,6 +38,17 @@ describe('PresenceLedger', () => {
     ])
   })
 
+  it('carries a declared Lightning address only for an agent', () => {
+    const ledger = new PresenceLedger()
+    ledger.ingest(entry({ device: 'd1', participant: 'p1', name: 'Ada', zap: 'ada@example.com' }), NOW)
+    ledger.ingest(entry({ device: 'd2', participant: 'p2', name: 'Bot', agent: true, zap: 'maker@example.com' }), NOW)
+    ledger.ingest(entry({ device: 'd3', participant: 'p3', name: 'Quiet', agent: true }), NOW)
+    const byParticipant = new Map(ledger.present(NOW + 1).map((p) => [p.participant, p]))
+    expect(byParticipant.get('p1')).not.toHaveProperty('zap')
+    expect(byParticipant.get('p2')?.zap).toBe('maker@example.com')
+    expect(byParticipant.get('p3')).not.toHaveProperty('zap')
+  })
+
   it('refuses an entry stamped before the presence window, however recently it was delivered', () => {
     // Every relay this project has been pointed at replays the last few
     // dozen roster entries to a new subscriber: the final heartbeat of
