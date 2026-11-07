@@ -12779,6 +12779,11 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
           { label: 'Send as task', text: 'Send as task', run: () => offer(false) },
           { label: 'Summarise this', text: 'Summarise this', run: () => offer(true) },
         ]
+        // Only while the sender is in the roster as an agent with an address;
+        // a history line from an agent that has left gets nothing.
+        const maker = mine ? undefined : session?.participants().find(p => p.participant === m.participant && p.agent === true)
+        const zap = maker?.zap
+        if (zap) actions.push({ label: `Zap whoever runs ${senderLabel(original)}`, text: 'Zap', run: () => { void openZapDialog(zap, m.participant, maker?.name ?? m.name) } })
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
@@ -15872,6 +15877,47 @@ function tombstoneRow(id: string, at: number): HTMLLIElement {
   })
   row.append(text, dismiss)
   return row
+}
+
+/** The maker's Lightning address, shown in full on the app's own confirmation
+ *  dialog, which already handles focus, Escape, a click outside and a change
+ *  of room. The agent is named with its short key beside the address, because
+ *  the address is asserted by nobody and the viewer should see exactly whose
+ *  agent they are thanking. Nothing here touches the network: the address is
+ *  copied, or handed to the viewer's own wallet through a `lightning:` link. */
+async function openZapDialog(address: string, agent: string, name: string | undefined): Promise<void> {
+  // The roster name, as the room shows it, with the short key always beside
+  // it here: a name is self-asserted too, and this is the one place a wrong
+  // one would send money.
+  const shown = shownAs(agent, name)
+  const who = shown.name === undefined ? shown.short : `${shown.name} (${shown.short})`
+  const content = document.createElement('div')
+  const shownAddress = document.createElement('p')
+  shownAddress.className = 'zapAddress'
+  shownAddress.textContent = address
+  const wallet = document.createElement('a')
+  wallet.className = 'zapWallet'
+  wallet.textContent = 'Open in wallet'
+  wallet.href = `lightning:${address}`
+  // The confirmation dialog cycles Tab through its own list of controls, and
+  // a link is not on it unless it says so; without this only a mouse reaches
+  // the wallet.
+  wallet.tabIndex = 0
+  content.append(shownAddress, wallet)
+  const copy = await confirmRoomAction({
+    title: 'Zap',
+    message: `Goes to whoever runs ${who}. Asserted by nobody.`,
+    content,
+    confirmLabel: 'Copy',
+    cancelLabel: 'Close',
+  })
+  if (!copy) return
+  try {
+    await navigator.clipboard.writeText(address)
+    setStatus('Address copied', 'done')
+  } catch (err) {
+    setStatus(describeError(err))
+  }
 }
 
 let messageMenuCount = 0

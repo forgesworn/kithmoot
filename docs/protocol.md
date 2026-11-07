@@ -353,6 +353,13 @@ An automated device declares `agent:true`. It may additionally advertise
 `true` on an agent entry enables this capability; other values are ignored.
 Absence of this field does not imply that an ordinary agent reply failed.
 
+An agent entry may also carry `zap`, one Lightning address (`name@host`,
+LUD-16) of whoever runs the agent. Optional, agent entries only: on any other
+entry it is dropped. It is self-asserted like `name`, at most 254 characters,
+lower-cased, and a value that is not exactly one `name@host` is ignored without
+costing the entry. It is not part of the ownership proof, and a reader makes no
+network request for it.
+
 A descriptor (20465) contains forwarder references and ICE configuration under
 the room key. It does not replace the invitation admission policy. A forwarder
 reference names its signalling relay and public key; unrecognised properties do

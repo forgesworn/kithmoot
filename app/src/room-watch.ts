@@ -52,6 +52,8 @@ export interface PresentParticipant {
   devices: number
   /** True when any of their devices says it is an agent. */
   agent: boolean
+  /** The Lightning address an agent declared; only ever set for an agent. */
+  zap?: string
 }
 
 /**
@@ -115,6 +117,7 @@ export class PresenceLedger {
 
     const byParticipant = new Map<string, PresentParticipant>()
     const nameStamp = new Map<string, number>()
+    const zapStamp = new Map<string, number>()
     for (const entry of this.#entries.values()) {
       let view = byParticipant.get(entry.participant)
       if (!view) {
@@ -129,6 +132,13 @@ export class PresenceLedger {
       }
       view.devices++
       if (entry.agent === true) view.agent = true
+      // The address follows the same rule as the name: the most recently
+      // restated one wins, so an agent restarted with a new address is not
+      // shown the old one off a device entry that has yet to lapse.
+      if (entry.agent === true && entry.zap !== undefined && (view.zap === undefined || entry.updatedAt >= (zapStamp.get(entry.participant) ?? 0))) {
+        view.zap = entry.zap
+        zapStamp.set(entry.participant, entry.updatedAt)
+      }
     }
     return [...byParticipant.values()]
   }

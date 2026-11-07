@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { nip19 } from 'nostr-tools'
+import { sanitiseLightningAddress } from '../donations.js'
 import { RoomAgent, DEFAULT_RELAYS } from '../agent.js'
 import type { KeeperState } from '../agent.js'
 import { parseKeeperState, serialiseKeeperState } from '../keeper-state.js'
@@ -99,6 +100,9 @@ Options
   --context <file>         Encrypted room context cache; private collections excluded
   --context-server <url>  Enable a Wildbloom/Blossom HTTPS origin; repeatable
   --name <name>            What the room calls this agent (required)
+  --zap <address>          A Lightning address (name@host) people can zap to thank
+                           whoever runs this agent. Published on the roster entry
+                           like the name: self-declared, not verified.
   --owner-proof <file>     This agent's ownership proof, from attest; carried on
                            every roster entry and message so people see whose it is
   --forwarder <json|file>  (create) A forwarder the room may promote to: the line
@@ -269,6 +273,7 @@ interface Common {
   fakeTranscriber: boolean
   callEndsAfter?: string
   ownerProof?: string
+  zap?: string
   expectPubkey?: string
   forbidPubkey: string[]
   quiet: boolean
@@ -319,6 +324,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       'group-reset': { type: 'boolean', default: false },
       'group-withdraw': { type: 'boolean', default: false },
       'owner-proof': { type: 'string' },
+      zap: { type: 'string' },
       'expect-pubkey': { type: 'string' },
       'forbid-pubkey': { type: 'string', multiple: true },
       agent: { type: 'string' },
@@ -367,6 +373,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     fakeTranscriber: values['fake-transcriber'],
     callEndsAfter: values['call-ends-after'] ?? env('CALL_ENDS_AFTER'),
     ownerProof: values['owner-proof'] ?? env('OWNER_PROOF'),
+    // Checked here, before anything is opened, but only for the commands
+    // that publish a roster entry: a stray KITHMOOT_ZAP must not stop
+    // attest or any other subcommand that never carries one.
+    zap: ['create', 'join', 'mcp', 'scribe', 'host'].includes(command ?? '') ? zapOption(values.zap ?? env('ZAP')) : undefined,
     expectPubkey: values['expect-pubkey'] ?? env('EXPECT_PUBKEY'),
     forbidPubkey: [...(values['forbid-pubkey'] ?? []), ...envList('FORBID_PUBKEY')],
     quiet: values.quiet,
@@ -485,6 +495,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       ...(destruct ? { deviceKeyForRoom: (roomId: string) => destructDeviceKey(participantSk, roomId) } : {}),
       roomName,
       name: common.name,
+      zap: common.zap,
       identity,
       relays: common.relays.length ? common.relays : undefined,
       iceUrls: common.ice,
@@ -541,6 +552,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
       agent = await RoomAgent.join({
         link,
         name: common.name,
+        zap: common.zap,
         identity,
         relays: common.relays.length ? common.relays : undefined,
         factory,
@@ -1121,6 +1133,15 @@ function rekeyEvery(raw: string | undefined): number {
   if (!Number.isFinite(days) || days < 0) fail(`--rekey-every must be a number of days, 0 or more; got ${raw}`)
   if (days > 0 && days * 86_400 < 3_600) fail('--rekey-every must be at least an hour (about 0.042 days), or 0 for off')
   return days
+}
+
+/** `--zap`, checked before anything is opened: an address that would be
+ *  silently dropped on the roster is a mistake worth stopping for. */
+export function zapOption(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const address = sanitiseLightningAddress(value)
+  if (address === undefined) return fail('--zap (or KITHMOOT_ZAP) must be a Lightning address like you@your-wallet.example')
+  return address
 }
 
 function fail(message: string): never {

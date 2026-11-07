@@ -19,6 +19,7 @@ import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
+import { sanitiseLightningAddress } from './donations.js'
 import { resolveSingularRoles } from './roles.js'
 import { KINDS } from './kinds.js'
 import { recordingProfile, readLiveRecordingState, verifyLiveRecordingState, type LiveRecordingState } from './live-recording.js'
@@ -135,6 +136,9 @@ export interface ParticipantView {
   agent?: boolean
   /** At least one current agent device supports request-received markers. */
   requestReceipts?: boolean
+  /** The Lightning address whoever runs this agent declared on its roster
+   *  entry. Self-asserted and unverified, like `name`: show it in full. */
+  zap?: string
   /** Whose agent this is, from a proof this session verified on one of its
    *  devices' entries. Absent for a person, and for an agent nobody has
    *  claimed. See `AgentOwnership`. */
@@ -268,6 +272,9 @@ export interface RoomSessionBaseOptions {
   agent?: boolean
   /** Advertise only while a driver that issues request receipts is attached. */
   requestReceipts?: boolean
+  /** A Lightning address (`name@host`) for whoever runs this agent, published
+   *  on its roster entry like the name. Self-declared, not verified. */
+  zap?: string
   /** This agent's ownership proof, carried on every roster entry and chat
    *  message. Checked here against the participant; a proof that names
    *  somebody else is a setup mistake and is refused at construction. */
@@ -3054,6 +3061,9 @@ export class RoomSession {
       assist = null
     }
 
+    // Sanitised once here and once more by the encoder; the second pass is
+    // the boundary every entry crosses, this one keeps the option honest.
+    const zap = this.#opts.agent === true ? sanitiseLightningAddress(this.#opts.zap) : undefined
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
@@ -3072,6 +3082,7 @@ export class RoomSession {
       ...(!left && live && (!live.recording.on || self.call?.id === live.call) ? { liveRecording: live } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
+      ...(zap ? { zap } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(assist ? { assist } : {}),
@@ -3819,6 +3830,7 @@ export class RoomSession {
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */
     const nameStamp = new Map<string, number>()
+    const zapStamp = new Map<string, number>()
     /** Which call a participant is held to be on, and when that was last restated. */
     const callStamp = new Map<string, { id: string; at: number }>()
     /** The page session each device is currently to be dealt with as, and
@@ -3872,6 +3884,13 @@ export class RoomSession {
           (recordingRank === previousRecordingRank && entry.updatedAt >= previousRecordingPresence.updatedAt)) recordingPresence.set(entry.device, entry)
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
+      // The address follows the name's rule: the most recently restated one
+      // wins, so an agent restarted with a new address is not shown the old
+      // one off a device entry that has yet to lapse.
+      if (entry.agent === true && entry.zap !== undefined && (view.zap === undefined || entry.updatedAt >= (zapStamp.get(entry.participant) ?? 0))) {
+        view.zap = entry.zap
+        zapStamp.set(entry.participant, entry.updatedAt)
+      }
       // Verified at decode, or not here at all. One proof per person is
       // enough: every device of one agent names the same principal.
       if (entry.owner && !view.owner) {

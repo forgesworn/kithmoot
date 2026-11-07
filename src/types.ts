@@ -235,6 +235,17 @@ export interface RosterEntry {
    * Absent on drivers that send ordinary replies without those markers. */
   requestReceipts?: boolean
   /**
+   * A Lightning address (`name@host`, LUD-16) that whoever runs this agent
+   * has put beside its name, so a person who found the agent useful can zap
+   * its maker from their own wallet. Self-asserted exactly like `name`:
+   * nothing verifies that the address belongs to the person who runs the
+   * agent, so a renderer shows it in full and says nobody vouches for it.
+   * Only meaningful with `agent: true`; dropped from any other entry. A
+   * malformed value costs the claim, never the entry. It is not inside the
+   * ownership proof, so it does not change what that proof signs.
+   */
+  zap?: string
+  /**
    * Whose agent this is, said by the principal rather than by the agent.
    * Carried only on an entry that says `agent: true`, and only ever seen
    * by a reader after `decodeRosterEvent` verified it: a proof that does

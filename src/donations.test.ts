@@ -9,6 +9,7 @@ import {
   donorTier,
   fetchZapEndpoint,
   lnurlpUrl,
+  sanitiseLightningAddress,
   ringTier,
   satsOf,
   tallyDonations,
@@ -99,6 +100,24 @@ describe('reading an amount off a bolt11 invoice', () => {
     expect(bolt11Msats('')).toBeUndefined()
     expect(bolt11Msats(undefined)).toBeUndefined()
     expect(bolt11Msats(42)).toBeUndefined()
+  })
+})
+
+describe('a Lightning address somebody else declared', () => {
+  it('accepts a plain address and lower-cases it', () => {
+    expect(sanitiseLightningAddress('alice@example.com')).toBe('alice@example.com')
+    expect(sanitiseLightningAddress('Alice@Example.COM')).toBe('alice@example.com')
+    expect(sanitiseLightningAddress('  alice@example.com ')).toBe('alice@example.com')
+  })
+
+  it('refuses everything that is not exactly name@host', () => {
+    for (const bad of ['alice', 'alice@@example.com', 'a@b@example.com', '@example.com', 'alice@', 'alice@example.com:8080',
+      'alice@example.com/path', 'alice@localhost', 'al ice@example.com', 'alice@exa mple.com', `${'a'.repeat(300)}@example.com`, 'a'.repeat(300)]) {
+      expect(sanitiseLightningAddress(bad)).toBeUndefined()
+    }
+    for (const notString of [undefined, null, 42, {}, [], true, ['alice@example.com']]) {
+      expect(sanitiseLightningAddress(notString)).toBeUndefined()
+    }
   })
 })
 
@@ -496,5 +515,17 @@ describe('the ledger', () => {
     await settle()
     expect(fixture.fetches()).toBe(0)
     expect(SpyTransport.built).toBe(0)
+  })
+})
+
+describe('sanitiseLightningAddress, the limits the shape checks do not state', () => {
+  it('bounds the local part and each host label, and refuses an IP literal', () => {
+    expect(sanitiseLightningAddress(`${'a'.repeat(64)}@example.com`)).toBe(`${'a'.repeat(64)}@example.com`)
+    expect(sanitiseLightningAddress(`${'a'.repeat(65)}@example.com`)).toBeUndefined()
+    expect(sanitiseLightningAddress(`maker@${'b'.repeat(63)}.com`)).toBe(`maker@${'b'.repeat(63)}.com`)
+    expect(sanitiseLightningAddress(`maker@${'b'.repeat(64)}.com`)).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@127.0.0.1')).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@10.0.0.1')).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@example.c0m')).toBe('maker@example.c0m')
   })
 })

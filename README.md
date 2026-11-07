@@ -471,6 +471,12 @@ the [workspace delivery](docs/workspace-delivery.md).
   merely says it is somebody's gets the plain badge. A room's link can
   require it: `agents: 'owned-by-members'` admits an agent only with a
   proof from a participant who is in the room. See `docs/agents.md`.
+- **Zap whoever runs it.** An agent can carry its maker's Lightning address
+  beside its name (`--zap you@your-wallet.example`), and a person who found
+  it useful can zap that address from their own wallet, after the fact, by
+  choice. Self-declared and verified by nobody, like the name; the app shows
+  it in full, makes no network request for it, and nothing in KithMoot
+  touches the payment. See `docs/agents.md`.
 - **Approvals in the room.** An agent about to act can ask - on the control
   channel, where everybody sees the question - and the person who can
   answer sees a card with a button per option. Only an announced admin or

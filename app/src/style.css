@@ -3116,6 +3116,8 @@ label.note {
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }
+.actionDialog .zapAddress { margin: .75rem 0 0; font-family: var(--mono, ui-monospace, monospace); font-size: var(--fs-2); user-select: all; }
+.actionDialog .zapWallet { display: inline-block; margin-top: .75rem; }
 .recordingChoices { margin: 1rem 0 0; padding: .5rem; min-width: 0; }
 .admissionPreview { margin: 1rem 0; padding: .75rem; min-width: 0; }
 .admissionPreview[hidden], .admissionPreview [hidden] { display: none; }

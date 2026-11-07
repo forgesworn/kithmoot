@@ -503,6 +503,40 @@ describe('the agent flag', () => {
     }
   })
 
+  it('carries a maker\'s Lightning address on an agent entry, and costs only the claim when it is malformed', async () => {
+    const { entry, roomId, roomKey, deviceSk } = await fixture()
+    const good = encodeRosterEvent({ ...entry, agent: true, zap: 'Maker@Example.COM' }, { roomId, roomKey, deviceSk })
+    expect(decodeRosterEvent(good, { roomId, roomKey, now: NOW })?.zap).toBe('maker@example.com')
+    for (const bad of ['nope', 'a@b@example.com', 'maker@example.com:80', 'x'.repeat(300), 7, {}]) {
+      const sent = encodeRosterEvent({ ...entry, agent: true, zap: bad } as unknown as RosterEntry, { roomId, roomKey, deviceSk })
+      expect(JSON.parse(nip44.v2.decrypt(sent.content, roomKey))).not.toHaveProperty('zap')
+      // The receive boundary, independent of our encoder's sanitisation.
+      const raw = finalizeEvent({ kind: good.kind, created_at: NOW, tags: good.tags,
+        content: nip44.v2.encrypt(JSON.stringify({ ...entry, agent: true, zap: bad }), roomKey) }, deviceSk)
+      const decoded = decodeRosterEvent(raw, { roomId, roomKey, now: NOW })
+      expect(decoded).not.toBeNull()
+      expect(decoded?.agent).toBe(true)
+      expect(decoded).not.toHaveProperty('zap')
+    }
+  })
+
+  it('drops a Lightning address from an entry that is not an agent, on the way out and on the way in', async () => {
+    const { entry, roomId, roomKey, deviceSk } = await fixture()
+    const sent = encodeRosterEvent({ ...entry, zap: 'maker@example.com' }, { roomId, roomKey, deviceSk })
+    expect(JSON.parse(nip44.v2.decrypt(sent.content, roomKey))).not.toHaveProperty('zap')
+    const raw = finalizeEvent({ kind: sent.kind, created_at: NOW, tags: sent.tags,
+      content: nip44.v2.encrypt(JSON.stringify({ ...entry, zap: 'maker@example.com' }), roomKey) }, deviceSk)
+    const decoded = decodeRosterEvent(raw, { roomId, roomKey, now: NOW })
+    expect(decoded).not.toBeNull()
+    expect(decoded).not.toHaveProperty('zap')
+  })
+
+  it('leaves an agent entry without an address byte-identical to one from before the field existed', async () => {
+    const { entry, roomId, roomKey, deviceSk } = await fixture()
+    const sent = encodeRosterEvent({ ...entry, agent: true }, { roomId, roomKey, deviceSk })
+    expect(nip44.v2.decrypt(sent.content, roomKey)).not.toContain('zap')
+  })
+
   it('accepts only an honest `true`; anything else is a person', async () => {
     // The flag decides what a member sends this device, so a looser
     // implementation's `1` or `"yes"` must not read as one.

@@ -112,6 +112,11 @@ This ordinary room join does not require an ownership proof. It shows an agent
 badge without a verified owner; room policies that require ownership are a
 separate, opt-in setup described in the [agent reference](agents.md).
 
+Optionally, add `--zap you@your-wallet.example` to the command to put your
+Lightning address beside the bot's name, so people who found it useful can zap
+you from their own wallet. It is self-declared and not verified, and nothing
+else changes.
+
 In the room, wait for **SkativeSupport** to appear. Select it in the mention
 picker and send **@SkativeSupport can you help me report a bug?** It should
 reply in the conversation. The persona gives it a role, not knowledge of your

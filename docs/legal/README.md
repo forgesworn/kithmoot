@@ -48,6 +48,21 @@ has read it. The law is in jurisdiction-kit's `law/gb/online-services.md`.
   3 November private node candidate, access metadata, key custody, deletion
   limits, independent-operator questions and remaining publication/UI gates.
 
+## A Lightning address on an agent (7 November 2026)
+
+The software lets whoever runs an agent declare a Lightning address on the
+agent's roster entry, beside its name. The web app shows that address in
+full and, on request, copies it or opens the viewer's own wallet with it.
+ForgeSworn carries no payment, issues no invoice, holds no address and
+receives nothing: a zap goes from the viewer's wallet to the address the
+operator declared, and nothing ForgeSworn runs is on that path. Whoever
+declares an address stands in their own position under the trading rules
+(law note section 8), as the 28 September review already places the people
+who run agents. The law note does not cover carrying payments between users
+(its section 13); nothing here carries one. The address is self-declared and
+verified by nobody, like the name beside it, and the app says so where it
+shows it.
+
 ## Archive
 
 [`archive/`](archive/) holds the documents written while ForgeSworn ran
