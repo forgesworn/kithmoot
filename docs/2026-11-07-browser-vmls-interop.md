@@ -1,6 +1,6 @@
 # Browser scoped VMLS interoperability
 
-Status: **scoped local interoperability pass; PR blocked by consumer dependency findings**
+Status: **scoped local interoperability pass; non-shipping dependency exception approved; PR review and hosted CI pending**
 
 ## Source and artefact identity
 
@@ -39,8 +39,10 @@ The independent cross-implementation exchange is the TypeScript/Rust binding fix
 
 Production `Platform` construction currently omits the optional revoked-credential list, so the new tombstone gating cannot fire in product. That pre-existing limitation is not revocation-enforcement coverage; production MLS remains disabled. The `separatePerson` guest fixture reuses the adder's rendezvous key. Its person key equals the current guest device key in the ordinary path and the previous guest's device key in competing variants, so it has no independent person identity and provides no complete second-person exchange proof.
 
-## Dependency gate
+## Dependency disposition
 
-A fresh `cargo audit` with 1,422 advisories reports no issue in the 71-package core lock. Every consumer lock nevertheless reports `RUSTSEC-2026-0387` through OpenMLS's retained `crypto-bigint` 0.5.5 line and `RUSTSEC-2026-0330`/`RUSTSEC-2026-0331` through `libcrux-kem` 0.0.9. These are outside the existing `RUSTSEC-2026-0173` maintenance-warning exception. Owner disposition or compatible remediation is required before PR/merge. The exact package delta, lock hashes and regenerated SBOM are recorded in Vennel's implementation contract and dependency exception.
+A fresh `cargo audit` with 1,422 advisories reports no issue in the 71-package core lock. Every consumer lock nevertheless reports `RUSTSEC-2026-0387` through OpenMLS's retained `crypto-bigint` 0.5.5 line and `RUSTSEC-2026-0330`/`RUSTSEC-2026-0331` through `libcrux-kem` 0.0.9. On 7 November 2026 the owner explicitly approved Vennel's **non-shipping exception** for exactly those three advisories at the unchanged consumer lock hashes. Vennel `db669f9ebc94b7f6367df2bccf7a544a531d8717` records the exposure analysis, successful audits with only those IDs ignored, and closure conditions. It also enables Vennel's PR and post-merge CI triggers. No stable compatible OpenMLS provider remediation is currently released; no unreleased pin, provider fork or backport is authorised.
+
+The WASM source and assets remain those identified above from `c154087`; the exception commit changes documentation and CI only. This decision permits PR review and hosted CI, not deployment, production use or shipping. Merge remains a separate decision after fresh review and hosted CI. Any new advisory or changed lock, feature, target or flag requires a new disposition.
 
 No screen or user interaction changed. Production MLS remains disabled. No deployment, public-network test, real external service, physical device, human security approval or production acceptance is claimed.
