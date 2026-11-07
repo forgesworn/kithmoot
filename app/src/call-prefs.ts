@@ -47,6 +47,22 @@ export function loadMicOnJoin(store: DeviceStore): boolean {
   return readString(store, MIC_ON_JOIN_KEY) !== 'off'
 }
 
+const PASS_ON_KEY = 'kithmoot.call.passOn'
+
+/**
+ * Whether members who offered to help people connect may pass this device's
+ * call on when it cannot reach somebody directly. On unless this device saved
+ * 'off'. Off, this device never asks anybody to carry it; read when a call
+ * is joined.
+ */
+export function loadPassOn(store: DeviceStore): boolean {
+  return readString(store, PASS_ON_KEY) !== 'off'
+}
+
+export function storePassOn(store: DeviceStore, on: boolean): void {
+  writeString(store, PASS_ON_KEY, on ? 'on' : 'off')
+}
+
 const EFFECT_MODES: readonly EffectMode[] = ['off', 'blur', 'replace']
 const VOICE_PRESETS: readonly VoicePreset[] = ['off', 'lower', 'higher', 'neutral', 'deep', 'bright']
 

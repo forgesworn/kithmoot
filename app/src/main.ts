@@ -98,7 +98,8 @@ import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
 import { installAgentsHear } from './call-agents-hear.js'
-import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
+import { assistSessionOptions, installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
+import { BrowserRelayMediaPipeline } from './peer-relay-media.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
@@ -382,7 +383,7 @@ import type { MicPipeline, MicState } from './voice-pipeline.js'
 import {
   loadBackgroundId, loadBlurStrength, loadCameraDeviceId, loadEffectMode, loadMicDeviceId, loadMicOnJoin, loadVoicePreset,
   storeBackgroundId, storeBlurStrength, storeCameraDeviceId, storeEffectMode, storeMicDeviceId, storeVoicePreset,
-  loadFacePrivacyMode, storeFacePrivacyMode,
+  loadFacePrivacyMode, storeFacePrivacyMode, loadPassOn, storePassOn,
 } from './call-prefs.js'
 import { installCallShortcuts, modifierGlyph } from './call-shortcuts.js'
 import { ProfileBook, type LookupScope, type Profile } from './profiles.js'
@@ -5180,6 +5181,8 @@ const peerAssist = installPeerAssist({
   setStatus,
   describeError,
   setToggle,
+  // The pumps need the standard script transform and a module worker.
+  canPump: () => new BrowserRelayMediaPipeline().available,
 })
 
 /** Whether this browser is the one that opened this room, as opposed to
@@ -7987,6 +7990,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
           return mediaEl?.querySelector(kind) ? 'live' : 'waiting'
         }),
       )
+      const carriedBy = assistedThrough(view)
+      if (carriedBy) box.append(assistedNote(view.participant, carriedBy))
     }
 
     for (const device of sharedDevices) {
@@ -8652,6 +8657,47 @@ function connectingWord(device: string): string {
     default:
       return 'connecting…'
   }
+}
+
+/** The volunteer carrying this person's call to us, while media is
+ *  actually arriving that way. */
+function assistedThrough(view: ParticipantView): string | undefined {
+  const routes = (mediaSession() ?? session)?.routes
+  for (const device of view.devices) {
+    const route = routes?.get(device)
+    if (route?.tier === 'assist' && route.connected) return route.endpoint
+  }
+  return undefined
+}
+
+/** Which tiles have the "through somebody" details open, so a repaint does
+ *  not fold it shut under the person reading it. */
+const assistedNotesOpen = new Set<string>()
+
+/**
+ * The line that stays on a tile for as long as somebody else is passing this
+ * person's call on. Short where it is always visible; what it means, and what
+ * a volunteer could do, in the details beneath it.
+ */
+function assistedNote(participant: string, volunteer: string): HTMLDetailsElement {
+  const by = nameOfDevice(volunteer)
+  const details = document.createElement('details')
+  details.className = 'note assistedNote'
+  details.open = assistedNotesOpen.has(participant)
+  details.addEventListener('toggle', () => {
+    if (details.open) assistedNotesOpen.add(participant)
+    else assistedNotesOpen.delete(participant)
+  })
+  const summary = document.createElement('summary')
+  summary.textContent = `Through ${by}, who offered to help people connect.`
+  const more = document.createElement('p')
+  more.className = 'note'
+  more.textContent =
+    `Your devices could not connect directly, so ${by} is passing your call on. ` +
+    `${by} is on this call and sees and hears nothing more than before. ` +
+    'Until KithMoot signs each picture and voice, someone passing a call on could show something else under another person\'s name.'
+  details.append(summary, more)
+  return details
 }
 
 /** Builds the chip row for a tile. `status` decides whether a track gets a
@@ -14464,6 +14510,18 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       : {}
     sessionAuthority = roomAuthority()
     const roomCallProfile = roomNode ? readCallProfile(location.search, localStorage, sessionStorage, 2) : callProfile
+    // One pump per session, closed with its mesh. Its worker starts only
+    // when this device first carries somebody.
+    const assistOptions = assistSessionOptions({
+      roomNode: !!roomNode,
+      chatOnly: !!chatOnly,
+      relayOnly,
+      passOn: loadPassOn(deviceStore),
+      paused: PEER_ASSIST_PAUSED,
+      offer: peerAssist.offer,
+      relay: peerAssist.relay,
+      relayMedia: new BrowserRelayMediaPipeline(),
+    })
     const s = credential
       ? new RoomSession({
           ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
@@ -14480,9 +14538,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile: roomCallProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          // Peer assist is paused: nothing forwards a carried pair's frames, so a
-          // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
-          ...(roomNode || chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          // Peer assist: whether this device may be carried, and whether it may
+          // carry anybody. Never with Hide my IP. See `assistSessionOptions`.
+          ...assistOptions,
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           ...deliveryReceiptHooks(sessionRoomId, credential.pubkey, isQuietPolicy(roomPolicy)),
@@ -14546,9 +14604,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           callProfile: roomCallProfile,
           recordingProfile: 4,
           trackRole: activeTrackRole,
-          // Peer assist is paused: nothing forwards a carried pair's frames, so a
-          // volunteer would accept pairs and carry nothing (see PEER_ASSIST_PAUSED).
-          ...(roomNode || chatOnly || PEER_ASSIST_PAUSED ? { peerAssist: false } : { assist: peerAssist.offer, relay: peerAssist.relay }),
+          // Peer assist: whether this device may be carried, and whether it may
+          // carry anybody. Never with Hide my IP. See `assistSessionOptions`.
+          ...assistOptions,
           ...forwarderMediaOptions,
           ...(roomArchive ? { archive: roomArchive } : {}),
           ...deliveryReceiptHooks(sessionRoomId, currentIdentity().pubkey, isQuietPolicy(roomPolicy)),
@@ -18957,6 +19015,7 @@ function renderCalls(): void {
   setIfChanged($('settingsSubcalls'), view.rootSub)
   setIfChanged($('privacyHideIpState'), input.hideIp ? 'On' : 'Off')
   ;($('privacyHideIp') as HTMLInputElement).checked = input.hideIp
+  ;($('callPassOn') as HTMLInputElement).checked = loadPassOn(deviceStore)
 }
 
 /** The whole of the call settings, drawn afresh (entering Settings, a new account). */
@@ -19400,6 +19459,9 @@ $('privacyHideIp').addEventListener('change', event => {
   try { if (on) localStorage.setItem(HIDE_IP_KEY, '1'); else localStorage.removeItem(HIDE_IP_KEY) } catch { /* Still applies to this page. */ }
   ;($('joinRelayOnly') as HTMLInputElement).checked = on
   renderCalls()
+})
+$('callPassOn').addEventListener('change', event => {
+  storePassOn(deviceStore, (event.target as HTMLInputElement).checked)
 })
 // Privacy keeps a row of the same name; the control itself lives on Calls.
 $('privacyHideIpRow').addEventListener('click', () => {

@@ -333,6 +333,8 @@
           </div>
           <label class="checkboxRow"><input id="privacyHideIp" type="checkbox" aria-describedby="hideIpNote" /> <span>Hide my IP address on calls</span></label>
           <p class="note" id="hideIpNote">Calls always go through a relay, so people on the call don't see your IP address. Calls can be slower, and KithMoot asks before using a relay someone in the room runs.</p>
+          <label class="checkboxRow"><input id="callPassOn" type="checkbox" checked aria-describedby="callPassOnNote" /> <span>Let members pass my call on</span></label>
+          <p class="note" id="callPassOnNote">If you can't connect directly to someone on a group call, another member who offered to help can pass your call on to them. They are on the call already and see and hear nothing more than before. Turn this off to wait for another way instead. With Hide my IP on, your call is never passed on. Applies from the next call you join.</p>
           <p class="note">Rooms can bring their own relay, named in the room's link or shared by a member. Your calls use it when none of yours is in use, and before any public relay.</p>
           <div class="infoRows callsAdvanced">
             <button id="callsRowAdvanced" type="button" class="infoRow" data-settings-open="callAdvanced">
@@ -1850,12 +1852,15 @@
               once it is full.
             </p>
             <p class="note warn">
-              The people you would be helping are already in the room with you.
+              The people you would be helping are already on the call with you.
               You can see and hear them now, and passing their video along
-              gives you nothing you did not already have. What it does not let
-              you do is pass one person off as another: every picture and voice
-              is signed by whoever sent it, and a relabelled one is thrown out
-              at the other end.
+              gives you nothing you did not already have. Each of them will see
+              that their call is reaching the other through you.
+            </p>
+            <p class="note">
+              If you're not sure the laws that apply to you, or your internet
+              provider's terms, allow passing other people's calls on, leave
+              this off.
             </p>
             <p class="note">
               Turn it off whenever you like, even in the middle of a call.
