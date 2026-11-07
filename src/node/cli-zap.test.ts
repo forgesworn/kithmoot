@@ -17,7 +17,24 @@ describe('--zap', () => {
       lines.length = 0
       const outcome = await main(['join', 'https://example.test/j/#x', '--name', 'Bot', '--zap', bad]).then(() => 'started', (e: Error) => e.message)
       expect(outcome).toBe('exit 2')
-      expect(lines.join('')).toContain('--zap must be a Lightning address')
+      expect(lines.join('')).toContain('must be a Lightning address')
+    }
+  })
+})
+
+describe('a stray KITHMOOT_ZAP', () => {
+  it('does not stop a subcommand that never publishes a roster entry', async () => {
+    const lines: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation(((s: string) => { lines.push(String(s)); return true }) as never)
+    vi.spyOn(process, 'exit').mockImplementation(((code: number) => { throw new Error(`exit ${code}`) }) as never)
+    vi.stubEnv('KITHMOOT_ZAP', 'nope')
+    try {
+      // attest fails for its own reasons here (no agent key given), never for the address.
+      const outcome = await main(['attest']).then(() => 'ran', (e: Error) => e.message)
+      expect(lines.join('')).not.toContain('must be a Lightning address')
+      expect(outcome).not.toBe('')
+    } finally {
+      vi.unstubAllEnvs()
     }
   })
 })

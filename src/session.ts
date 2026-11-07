@@ -3061,6 +3061,9 @@ export class RoomSession {
       assist = null
     }
 
+    // Sanitised once here and once more by the encoder; the second pass is
+    // the boundary every entry crosses, this one keeps the option honest.
+    const zap = this.#opts.agent === true ? sanitiseLightningAddress(this.#opts.zap) : undefined
     const entry: RosterEntry = {
       participant: this.participant,
       device: this.device,
@@ -3079,7 +3082,7 @@ export class RoomSession {
       ...(!left && live && (!live.recording.on || self.call?.id === live.call) ? { liveRecording: live } : {}),
       ...(this.#opts.agent === true ? { agent: true } : {}),
       ...(this.#opts.agent === true && this.#opts.requestReceipts === true ? { requestReceipts: true } : {}),
-      ...(this.#opts.agent === true && sanitiseLightningAddress(this.#opts.zap) ? { zap: sanitiseLightningAddress(this.#opts.zap) } : {}),
+      ...(zap ? { zap } : {}),
       ...(this.#ownerToCarry() ? { owner: this.#ownerToCarry() } : {}),
       ...(this.#ownerClaimToCarry() ? { ownerClaim: this.#ownerClaimToCarry() } : {}),
       ...(assist ? { assist } : {}),
@@ -3827,6 +3830,7 @@ export class RoomSession {
     const byParticipant = new Map<string, ParticipantView>()
     /** When the name currently held for a participant was last restated. */
     const nameStamp = new Map<string, number>()
+    const zapStamp = new Map<string, number>()
     /** Which call a participant is held to be on, and when that was last restated. */
     const callStamp = new Map<string, { id: string; at: number }>()
     /** The page session each device is currently to be dealt with as, and
@@ -3880,7 +3884,13 @@ export class RoomSession {
           (recordingRank === previousRecordingRank && entry.updatedAt >= previousRecordingPresence.updatedAt)) recordingPresence.set(entry.device, entry)
       if (entry.agent === true) view.agent = true
       if (entry.agent === true && entry.requestReceipts === true) view.requestReceipts = true
-      if (entry.agent === true && entry.zap !== undefined && view.zap === undefined) view.zap = entry.zap
+      // The address follows the name's rule: the most recently restated one
+      // wins, so an agent restarted with a new address is not shown the old
+      // one off a device entry that has yet to lapse.
+      if (entry.agent === true && entry.zap !== undefined && (view.zap === undefined || entry.updatedAt >= (zapStamp.get(entry.participant) ?? 0))) {
+        view.zap = entry.zap
+        zapStamp.set(entry.participant, entry.updatedAt)
+      }
       // Verified at decode, or not here at all. One proof per person is
       // enough: every device of one agent names the same principal.
       if (entry.owner && !view.owner) {

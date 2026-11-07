@@ -476,3 +476,19 @@ describe('RoomWatch', () => {
     })
   })
 })
+
+describe('a declared Lightning address across devices', () => {
+  it('shows the most recently restated address, as it does the name', () => {
+    const ledger = new PresenceLedger()
+    ledger.ingest(entry({ device: 'old', participant: 'bot', name: 'Bot', agent: true, zap: 'old@example.com', updatedAt: NOW - 30 }), NOW)
+    ledger.ingest(entry({ device: 'new', participant: 'bot', name: 'Bot', agent: true, zap: 'new@example.com', updatedAt: NOW - 5 }), NOW)
+    const first = ledger.present(NOW + 1).find((p) => p.participant === 'bot')
+    expect(first?.zap).toBe('new@example.com')
+    // Insertion order must not decide it: the same two entries the other
+    // way round give the same answer.
+    const other = new PresenceLedger()
+    other.ingest(entry({ device: 'new', participant: 'bot', name: 'Bot', agent: true, zap: 'new@example.com', updatedAt: NOW - 5 }), NOW)
+    other.ingest(entry({ device: 'old', participant: 'bot', name: 'Bot', agent: true, zap: 'old@example.com', updatedAt: NOW - 30 }), NOW)
+    expect(other.present(NOW + 1).find((p) => p.participant === 'bot')?.zap).toBe('new@example.com')
+  })
+})

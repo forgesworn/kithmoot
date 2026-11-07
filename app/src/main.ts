@@ -15904,7 +15904,7 @@ async function openZapDialog(address: string, agent: string, name: string | unde
   // the wallet.
   wallet.tabIndex = 0
   content.append(shownAddress, wallet)
-  const copy = await confirmAction({
+  const copy = await confirmRoomAction({
     title: 'Zap',
     message: `Goes to whoever runs ${who}. Asserted by nobody.`,
     content,

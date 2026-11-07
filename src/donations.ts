@@ -186,7 +186,16 @@ export function sanitiseLightningAddress(value: unknown): string | undefined {
   if (trimmed.length > 254) return undefined
   const at = trimmed.indexOf('@')
   if (at <= 0 || at !== trimmed.lastIndexOf('@')) return undefined
-  if (!ADDRESS_NAME.test(trimmed.slice(0, at)) || !ADDRESS_HOST.test(trimmed.slice(at + 1))) return undefined
+  const name = trimmed.slice(0, at)
+  const host = trimmed.slice(at + 1)
+  if (!ADDRESS_NAME.test(name) || !ADDRESS_HOST.test(host)) return undefined
+  // The limits a name and a hostname actually have, which the shape checks
+  // above do not state: 64 for the local part, 63 for each label. And a
+  // host whose last label is all digits is an IP literal, which no
+  // Lightning address resolves through.
+  if (name.length > 64) return undefined
+  const labels = host.split('.')
+  if (labels.some((label) => label.length > 63) || /^\d+$/.test(labels[labels.length - 1]!)) return undefined
   return trimmed.toLowerCase()
 }
 

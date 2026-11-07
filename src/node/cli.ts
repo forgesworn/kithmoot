@@ -373,7 +373,10 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     fakeTranscriber: values['fake-transcriber'],
     callEndsAfter: values['call-ends-after'] ?? env('CALL_ENDS_AFTER'),
     ownerProof: values['owner-proof'] ?? env('OWNER_PROOF'),
-    zap: zapOption(values.zap ?? env('ZAP')),
+    // Checked here, before anything is opened, but only for the commands
+    // that publish a roster entry: a stray KITHMOOT_ZAP must not stop
+    // attest or any other subcommand that never carries one.
+    zap: ['create', 'join', 'mcp', 'scribe', 'host'].includes(command ?? '') ? zapOption(values.zap ?? env('ZAP')) : undefined,
     expectPubkey: values['expect-pubkey'] ?? env('EXPECT_PUBKEY'),
     forbidPubkey: [...(values['forbid-pubkey'] ?? []), ...envList('FORBID_PUBKEY')],
     quiet: values.quiet,
@@ -1137,7 +1140,7 @@ function rekeyEvery(raw: string | undefined): number {
 export function zapOption(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   const address = sanitiseLightningAddress(value)
-  if (address === undefined) return fail('--zap must be a Lightning address like you@your-wallet.example')
+  if (address === undefined) return fail('--zap (or KITHMOOT_ZAP) must be a Lightning address like you@your-wallet.example')
   return address
 }
 

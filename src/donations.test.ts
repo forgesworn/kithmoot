@@ -517,3 +517,15 @@ describe('the ledger', () => {
     expect(SpyTransport.built).toBe(0)
   })
 })
+
+describe('sanitiseLightningAddress, the limits the shape checks do not state', () => {
+  it('bounds the local part and each host label, and refuses an IP literal', () => {
+    expect(sanitiseLightningAddress(`${'a'.repeat(64)}@example.com`)).toBe(`${'a'.repeat(64)}@example.com`)
+    expect(sanitiseLightningAddress(`${'a'.repeat(65)}@example.com`)).toBeUndefined()
+    expect(sanitiseLightningAddress(`maker@${'b'.repeat(63)}.com`)).toBe(`maker@${'b'.repeat(63)}.com`)
+    expect(sanitiseLightningAddress(`maker@${'b'.repeat(64)}.com`)).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@127.0.0.1')).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@10.0.0.1')).toBeUndefined()
+    expect(sanitiseLightningAddress('maker@example.c0m')).toBe('maker@example.c0m')
+  })
+})
