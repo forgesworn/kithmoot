@@ -37,7 +37,7 @@ The loader and manifest name the same Vennel commit. `node scripts/check-vmls-wa
 
 The independent cross-implementation exchange is the TypeScript/Rust binding fixture. Other results use the Rust engine through its WASM boundary and Browser host fixtures; they are not presented as independent second implementations. The unsigned-reader assertion accounts for every unframed vector explicitly through the five fixed hostile cases.
 
-Production `Platform` construction currently omits the optional revoked-credential list, so the new tombstone gating cannot fire in product. That pre-existing limitation is not revocation-enforcement coverage; production MLS remains disabled. The `separatePerson` guest fixture reuses the adder's rendezvous key and makes the person key equal the guest device key, so it does not model a real second person or provide a complete second-person exchange proof.
+Production `Platform` construction currently omits the optional revoked-credential list, so the new tombstone gating cannot fire in product. That pre-existing limitation is not revocation-enforcement coverage; production MLS remains disabled. The `separatePerson` guest fixture reuses the adder's rendezvous key. Its person key equals the current guest device key in the ordinary path and the previous guest's device key in competing variants, so it has no independent person identity and provides no complete second-person exchange proof.
 
 ## Dependency gate
 
