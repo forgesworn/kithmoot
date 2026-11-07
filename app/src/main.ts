@@ -12781,8 +12781,9 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         ]
         // Only while the sender is in the roster as an agent with an address;
         // a history line from an agent that has left gets nothing.
-        const zap = mine ? undefined : session?.participants().find(p => p.participant === m.participant && p.agent === true)?.zap
-        if (zap) actions.push({ label: `Zap whoever runs ${senderLabel(original)}`, text: 'Zap', run: () => { void openZapDialog(zap, m.participant) } })
+        const maker = mine ? undefined : session?.participants().find(p => p.participant === m.participant && p.agent === true)
+        const zap = maker?.zap
+        if (zap) actions.push({ label: `Zap whoever runs ${senderLabel(original)}`, text: 'Zap', run: () => { void openZapDialog(zap, m.participant, maker?.name ?? m.name) } })
         if (mine && !original.kind) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
@@ -15884,8 +15885,11 @@ function tombstoneRow(id: string, at: number): HTMLLIElement {
  *  the address is asserted by nobody and the viewer should see exactly whose
  *  agent they are thanking. Nothing here touches the network: the address is
  *  copied, or handed to the viewer's own wallet through a `lightning:` link. */
-async function openZapDialog(address: string, agent: string): Promise<void> {
-  const shown = shownAs(agent)
+async function openZapDialog(address: string, agent: string, name: string | undefined): Promise<void> {
+  // The roster name, as the room shows it, with the short key always beside
+  // it here: a name is self-asserted too, and this is the one place a wrong
+  // one would send money.
+  const shown = shownAs(agent, name)
   const who = shown.name === undefined ? shown.short : `${shown.name} (${shown.short})`
   const content = document.createElement('div')
   const shownAddress = document.createElement('p')
