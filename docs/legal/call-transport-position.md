@@ -34,8 +34,14 @@ until per-sender signing exists, could present media under another member's
 name; the helped side's details say so. Each end consents per direction by
 asking, and the volunteer accepts only once both ends have asked, holding
 the first request for at most 8 seconds. An end asks only for a far end its
-own audience rule admits, so a person's media is never carried to an agent
-or anybody else they keep it from. A person can stop their device asking at
+own audience rule admits. Carrying is a lease: an end repeats its request
+every 10 seconds while it still sends to the far end, and the volunteer
+stops within 30 seconds of the last one, so withdrawn consent ends the
+carrying even if the release message is lost. An end that is sent media it
+did not ask for answers with a release. A volunteer carries only for ends
+whose request says they read the `carry` field: web and desktop builds from
+25 August to 28 October 2026 also asked for assist and would have shown
+carried media under the volunteer's name, so their requests are refused. A person can stop their device asking at
 all ("Let members pass my call on", on by default). A relay-only (Hide my IP)
 session never asks or offers. A route counts as working only once carried
 media arrives, and is given up when it stalls.

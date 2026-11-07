@@ -807,6 +807,7 @@ Writers keep the existing seal-less envelope:
    outside test" below);
    `roomId`; optional `sdp`, JSON-string `candidate`, `trackHints`, `tier`,
    `assist` (far-end device), `accept` (assist response boolean),
+   `release`, `readsCarry` and `carry` (see "Peer assist" below),
    `annotation` and `relayTest`. An annotation is temporary screen-share markup:
    `{op:"stroke",shareId,strokeId,points:[{x,y},...]}` or
    `{op:"clear",shareId,strokeId:""}`. `shareId` is the advertised screen
@@ -924,6 +925,59 @@ and the ±20-second staleness window never confuse a retransmission for a stale
 replay, and the inner-event-id dedup above never mistakes it for a duplicate
 of the original. Receiver dedup for profile-2 signals is keyed `(conn, seq)`
 rather than by inner event id.
+
+### Peer assist
+
+A member who opts in may carry media between two members of the same call
+who are both directly connected to it and cannot connect to each other.
+Everything here rides the ordinary 20462 signal and is additive: an old
+reader's JSON parse ignores the new fields.
+
+- **Request.** An end sends `{type:"assist", assist:<far device>,
+  readsCarry:true}` to the volunteer it chose. `readsCarry` says this end
+  attributes carried m-lines by `carry` (below). A volunteer refuses a request
+  without it, because builds that asked before `carry` existed attribute a
+  track by id alone and would show the far end's media under the volunteer's
+  name. An end asks only for a far end its own audience rule admits, never
+  while it is relay-only (Hide my IP), and never when its person has turned
+  off "Let members pass my call on".
+- **Mutual request.** The volunteer replies `accept:true` only once both ends
+  of the pair have asked, and then to both. It holds the first request for at
+  most 8 seconds and then replies `accept:false`. It carries X's media to Y
+  only because X asked.
+- **Lease.** A carried end repeats its request every 10 seconds, checking
+  each time that it still sends to the far end. A volunteer stops carrying a
+  pair, telling both ends with `accept:false`, when either end has not asked
+  for 30 seconds.
+- **Release.** An end that stops using the route sends `{type:"assist",
+  assist:<far device>, accept:false, release:true}`. `accept:false` is there
+  so a volunteer from before `release` reads it as a reply and ignores it.
+  An end that receives an `accept:true` it is not waiting for, or an offer
+  whose `carry` names somebody it did not ask that sender to carry, answers
+  with a release. A volunteer that stops carrying a pair sends `accept:false`
+  to each end still present.
+- **`carry`.** On an offer from the volunteer to an end: a map from
+  transceiver mid to `{device:<64 hex>, role:"camera"|"mic"|"screen"|
+  "screen-audio"}`, at most 8 entries. Readers drop malformed entries one by
+  one, lower-case `device`, and drop the whole map when it has more than 8
+  entries or nothing valid left; the offer itself is still applied. Keys are
+  own keys only (`__proto__` is a mid like any other). Each carried clock
+  gets a send-only m-line of its own, so a carried m-line can only first
+  appear in an offer, which always carries the map.
+- **Attribution.** A reader attributes a carried m-line to `device` only when
+  its own route to `device` is through the sender and `device`'s roster entry
+  advertises `role`. A carried m-line that names anybody else is dropped. A
+  track that cannot be placed yet on a volunteer that is carrying for this
+  reader, carried or not, is held and placed once the roster or map catches
+  up; it is never shown as the volunteer's own unless the volunteer's roster
+  entry advertises it.
+- **Connected means media.** An end counts the route connected on the first
+  carried bytes, not on the reply, and gives the route up when carried media
+  for an advertised role stops arriving.
+
+Signal vectors for `carry`, `release` and `readsCarry` are the
+`assistSignals` group, and volunteer choice is `assistSelection`
+(`vectors/README.md`).
 
 ### Relay outside test
 
