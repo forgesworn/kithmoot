@@ -670,8 +670,9 @@ let assistWorker = ''
 test.describe('peer assist through Mesh', () => {
   test.beforeAll(async () => {
     const common = { bundle: true, format: 'iife' as const, platform: 'browser' as const, write: false, target: 'es2022', logLevel: 'silent' as const }
-    assistBundle = (await build({ ...common, entryPoints: [fileURLToPath(new URL('./peer-assist-mesh.browser-entry.ts', import.meta.url))], globalName: 'Assist' })).outputFiles[0]!.text
-    assistWorker = (await build({ ...common, entryPoints: [fileURLToPath(new URL('../app/src/peer-relay-media.worker.ts', import.meta.url))] })).outputFiles[0]!.text
+    assistBundle = (await build({ ...common, entryPoints: [fileURLToPath(new URL('./peer-assist-mesh.browser-entry.ts', import.meta.url))], globalName: 'Assist' })).outputFiles?.[0]?.text ?? ''
+    assistWorker = (await build({ ...common, entryPoints: [fileURLToPath(new URL('../app/src/peer-relay-media.worker.ts', import.meta.url))] })).outputFiles?.[0]?.text ?? ''
+    if (!assistBundle || !assistWorker) throw new Error('could not bundle the peer assist page')
   })
 
   test.beforeEach(async ({ page, context }) => {
