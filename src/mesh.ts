@@ -429,8 +429,10 @@ export interface RemoteTrack {
    * the app is told the role rather than left to infer it from an advert that
    * may be a moment stale.
    *
-   * Absent for a profile-1 peer, and for a forwarded or assisted track, where
-   * the roster advert remains the only hint there is.
+   * Absent for a profile-1 peer and for a forwarded track, where the roster
+   * advert remains the only hint there is. For an assisted track it is the
+   * role the volunteer's `carry` map named, checked against the source's
+   * roster advert.
    */
   role?: TrackRole
 }
@@ -2164,6 +2166,27 @@ export class Mesh {
     const pipeline = this.#opts.relayMedia
     const wanted = new Map<string, { pair: RelayPair; from: string; to: string; role: TrackRole; track: MediaStreamTrack; receiver: unknown }>()
     if (relay && pipeline?.ready === true && !this.#closed) {
+      // Helping turned on after the call began: claim the receivers that
+      // arrived before, so the first pair does not depend on attaching a
+      // transform to a stream that is already flowing. The pipeline taps
+      // each receiver once, so repeating this costs nothing.
+      let offering = false
+      try {
+        offering = this.#opts.offering?.() ?? true
+      } catch {
+        offering = false
+      }
+      if (offering && pipeline.prepare) {
+        for (const media of this.#endpointMedia.values()) {
+          for (const { track, receiver } of media.values()) {
+            try {
+              pipeline.prepare(receiver, track)
+            } catch {
+              // An optimisation, as at arrival.
+            }
+          }
+        }
+      }
       for (const pair of relay.pairs) {
         for (const [from, to] of [[pair.a, pair.b], [pair.b, pair.a]] as const) {
           if (!pair.asked(from)) continue

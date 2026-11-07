@@ -1583,11 +1583,28 @@ describe('the mutual request', () => {
     }
   })
 
+  it('claims receivers that arrived before helping was turned on', async () => {
+    vi.useFakeTimers()
+    try {
+      let offering = false
+      const { pipeline, h } = await volunteering({ offering: () => offering })
+      expect(pipeline.prepared).toEqual([])
+      offering = true
+      // The republished offer is a roster change, which reconciles.
+      h.session.setViews(h.session.participants())
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pipeline.prepared).toEqual(expect.arrayContaining([{ from: 'a' }, { from: 'b' }]))
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('claims receivers early while offering, so a later pair can tap them', async () => {
     vi.useFakeTimers()
     try {
       const { pipeline, h } = await volunteering()
-      expect(pipeline.prepared).toEqual([{ from: 'a' }, { from: 'b' }])
+      expect(pipeline.prepared).toEqual(expect.arrayContaining([{ from: 'a' }, { from: 'b' }]))
       h.close()
     } finally {
       vi.useRealTimers()
