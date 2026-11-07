@@ -14510,8 +14510,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       : {}
     sessionAuthority = roomAuthority()
     const roomCallProfile = roomNode ? readCallProfile(location.search, localStorage, sessionStorage, 2) : callProfile
-    // One pump per session, closed with its mesh. Its worker starts only
-    // when this device first carries somebody.
+    // One pump per session, closed with its mesh. Its worker starts when
+    // this device offers to help, and taps nothing until it is running.
     const assistOptions = assistSessionOptions({
       roomNode: !!roomNode,
       chatOnly: !!chatOnly,

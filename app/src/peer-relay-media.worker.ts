@@ -127,7 +127,13 @@ self.addEventListener('rtctransform', (event: Event) => {
 })
 
 self.addEventListener('message', (event: MessageEvent<unknown>) => {
-  const message = event.data as { op?: unknown; drive?: unknown } | undefined
+  const message = event.data as { op?: unknown; drive?: unknown; tap?: unknown } | undefined
+  if (message?.op === 'untap' && typeof message.tap === 'number') {
+    // The receiver's transform has been taken off; nothing more will come.
+    const tap = taps.get(message.tap)
+    if (tap && tap.drives.size === 0) taps.delete(message.tap)
+    return
+  }
   if (message?.op !== 'close' || typeof message.drive !== 'number') return
   const drive = drives.get(message.drive)
   if (!drive) return
@@ -135,6 +141,10 @@ self.addEventListener('message', (event: MessageEvent<unknown>) => {
   drives.delete(message.drive)
   taps.get(drive.tap)?.drives.delete(message.drive)
 })
+
+// Loaded and listening. The page taps no receiver before it hears this, so
+// a worker that never loads cannot stop this device's own media.
+self.postMessage({ op: 'ready' })
 
 setInterval(() => {
   for (const [drive, { relay }] of drives) {

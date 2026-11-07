@@ -10,16 +10,23 @@
  * - **A clock on each leg.** `Mesh` sends a clone of the received track, so
  *   the encoder produces a frame for every frame the source sends; the drive
  *   transform swaps each one for the source's.
- * - **The same codec on both hops.** The clock's transceiver is limited to
- *   the codec the source's receiver negotiated before the offer goes out, and
- *   checked again once media flows. A mismatch fails the leg, and the pair
- *   finds another route.
+ * - **The same codec on both hops.** Only VP8 video and Opus audio are
+ *   carried, because those are what has been measured: the drive keeps the
+ *   clock's own frame metadata and swaps only the bytes, and for codecs whose
+ *   packetiser reads that metadata (VP9 and AV1 descriptors, H.264 profiles)
+ *   nobody has yet shown the far end decodes the result. The clock's
+ *   transceiver is limited to the source's codec before the offer goes out,
+ *   and checked again once media flows: a mismatch, or no codec going out at
+ *   all, fails the leg, and the pair finds another route.
  * - **Key frames from the source.** A far end that needs one asks the clock;
  *   the worker turns that into a request to the source, where the browser
  *   allows it.
  * - **A transform claimed before it is needed.** Receivers are tapped as they
  *   arrive while this device is offering, through `prepare`, so a pair that
- *   asks later finds the tap already there.
+ *   asks later finds the tap already there - but only once the worker has
+ *   said it is running, because a tap on a worker that never loaded would
+ *   stop the volunteer's own picture and sound. If the worker fails later,
+ *   every transform is taken off again.
  *
  * What is not measured: whether every browser lets a receiver's transform be
  * attached after its media has started (only needed when `prepare` came too
@@ -51,6 +58,9 @@ interface RelayMediaScope {
 const CODEC_CHECK_MS = 4_000
 
 const NOT_MEDIA = /\/(rtx|red|ulpfec|flexfec)$/i
+
+/** The only codecs carried until others have been measured end to end. */
+const CARRIED = new Set(['video/vp8', 'audio/opus'])
 
 function fmtp(line: string | undefined): Map<string, string> {
   const out = new Map<string, string>()
@@ -130,10 +140,14 @@ function sum(stats: RelayStats[]): RelayStats {
 export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
   readonly #scope: RelayMediaScope
   #worker?: Worker
+  /** The worker has said it is running. Nothing is tapped before this. */
+  #workerReady = false
   /** Each receiver's tap, so one source carried to two pairs is tapped once:
    *  a receiver has room for one transform. */
-  readonly #taps = new WeakMap<object, number>()
-  readonly #drives = new Map<number, { leg: RelayLeg; stats?: RelayStats; check?: ReturnType<typeof setTimeout> }>()
+  readonly #taps = new Map<object, number>()
+  /** Receivers offered by `prepare` before the worker was ready. */
+  readonly #pending = new Set<object>()
+  readonly #drives = new Map<number, { leg: RelayLeg; tap: number; stats?: RelayStats; check?: ReturnType<typeof setTimeout> }>()
   #seq = 0
   #closed = false
   #broken = false
@@ -147,18 +161,28 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
     return !this.#closed && !this.#broken && this.#scope.RTCRtpScriptTransform !== undefined && (this.#scope.createWorker !== undefined || this.#scope.Worker !== undefined)
   }
 
+  /** True once the worker is running and has said so. */
   get ready(): boolean {
-    return this.available
+    return this.available && this.#workerReady
   }
 
-  /** Started on first use, so a call nobody is helping in costs no worker. */
+  /** Started when this device offers, so a call nobody is helping in costs
+   *  no worker. */
+  warm(): void {
+    this.#ensureWorker()
+  }
+
   #ensureWorker(): Worker | undefined {
     if (this.#worker || !this.available) return this.#worker
     try {
-      this.#worker = this.#scope.createWorker?.() ?? new Worker(new URL('./peer-relay-media.worker.ts', import.meta.url), { type: 'module' })
-      this.#worker.addEventListener('message', (event: MessageEvent<unknown>) => this.#onMessage(event.data))
+      const worker = this.#scope.createWorker?.() ?? new Worker(new URL('./peer-relay-media.worker.ts', import.meta.url), { type: 'module' })
+      worker.addEventListener('message', (event: MessageEvent<unknown>) => this.#onMessage(event.data))
+      // A chunk that will not load after a deploy, a script error, CSP.
+      worker.addEventListener('error', () => this.#fail())
+      worker.addEventListener('messageerror', () => this.#fail())
+      this.#worker = worker
     } catch {
-      // CSP, or a browser that will not make a module worker: no pumps here.
+      // A browser that will not make a module worker: no pumps here.
       this.#broken = true
       this.#worker = undefined
     }
@@ -166,7 +190,55 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
   }
 
   prepare(receiver: unknown): void {
+    if (!receiver || typeof receiver !== 'object' || !this.available) return
+    if (!this.#workerReady) {
+      this.#ensureWorker()
+      this.#pending.add(receiver)
+      return
+    }
     this.#tap(receiver)
+  }
+
+  /**
+   * The worker has gone. Every transform it owned is taken off, so this
+   * device's own media flows as if it had never offered, and every leg is
+   * failed, so the pairs are told and move on.
+   */
+  #fail(): void {
+    if (this.#broken) return
+    this.#broken = true
+    this.#workerReady = false
+    this.#pending.clear()
+    for (const receiver of this.#taps.keys()) this.#untransform(receiver)
+    this.#taps.clear()
+    for (const [drive, entry] of [...this.#drives]) {
+      if (entry.check !== undefined) clearTimeout(entry.check)
+      this.#drives.delete(drive)
+      this.#untransform(entry.leg.sink.sender)
+      entry.leg.fail('the pump worker stopped')
+    }
+    this.#worker?.terminate()
+    this.#worker = undefined
+  }
+
+  #untransform(endpoint: unknown): void {
+    try {
+      ;(endpoint as { transform?: unknown }).transform = null
+    } catch {
+      // A connection that has closed keeps what it had, and carries nothing.
+    }
+  }
+
+  /** No longer offering: give back every tap no leg is using. */
+  release(): void {
+    this.#pending.clear()
+    const inUse = new Set([...this.#drives.values()].map((entry) => entry.tap))
+    for (const [receiver, tap] of [...this.#taps]) {
+      if (inUse.has(tap)) continue
+      this.#untransform(receiver)
+      this.#taps.delete(receiver)
+      this.#worker?.postMessage({ op: 'untap', tap })
+    }
   }
 
   carry(leg: RelayLeg): RelayLegHandle | null {
@@ -185,7 +257,7 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
     } catch {
       return null
     }
-    const entry: { leg: RelayLeg; stats?: RelayStats; check?: ReturnType<typeof setTimeout> } = { leg }
+    const entry: { leg: RelayLeg; tap: number; stats?: RelayStats; check?: ReturnType<typeof setTimeout> } = { leg, tap }
     entry.check = setTimeout(() => void this.#checkCodec(drive), CODEC_CHECK_MS)
     this.#drives.set(drive, entry)
     return {
@@ -211,10 +283,11 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
    */
   #preferSourceCodec(leg: RelayLeg): boolean {
     const codec = negotiatedCodec(leg.source.receiver)
+    // Not known to be one of the measured codecs is not carried.
+    if (!codec || !CARRIED.has(codec.mimeType.toLowerCase())) return false
     const transceiver = leg.sink.transceiver as { setCodecPreferences?: (codecs: CodecLike[]) => void } | undefined
-    // Without either half there is nothing to set; the post-start check
-    // still catches a mismatch.
-    if (!codec || typeof transceiver?.setCodecPreferences !== 'function') return true
+    // Nothing to set; the post-start check still catches a mismatch.
+    if (typeof transceiver?.setCodecPreferences !== 'function') return true
     const capabilities = this.#scope.RTCRtpReceiver?.getCapabilities?.(leg.source.track.kind)?.codecs ?? []
     const same = capabilities.filter((candidate) => sameCodec(candidate, codec))
     if (same.length === 0) return false
@@ -235,14 +308,22 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
       codecInUse(entry.leg.source.receiver, 'inbound-rtp'),
       codecInUse(entry.leg.sink.sender, 'outbound-rtp'),
     ])
-    if (!this.#drives.has(drive) || inbound === undefined || outbound === undefined) return
-    if (inbound !== outbound) entry.leg.fail(`codec ${inbound} in, ${outbound} out`)
+    if (!this.#drives.has(drive)) return
+    // Nothing going out after this long is a leg the far end refused or never
+    // negotiated: a dead picture that the sound beside it would make look
+    // healthy. Failed, so the pair moves on.
+    if (outbound === undefined) {
+      entry.leg.fail('nothing went out on the carried m-line')
+      return
+    }
+    if (inbound !== undefined && inbound !== outbound) entry.leg.fail(`codec ${inbound} in, ${outbound} out`)
   }
 
   #tap(receiver: unknown): number | undefined {
     if (!receiver || typeof receiver !== 'object' || !('transform' in receiver)) return undefined
     const known = this.#taps.get(receiver)
     if (known !== undefined) return known
+    if (!this.#workerReady) return undefined
     const worker = this.#ensureWorker()
     const Transform = this.#scope.RTCRtpScriptTransform
     if (!worker || !Transform) return undefined
@@ -258,6 +339,13 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
 
   #onMessage(data: unknown): void {
     const message = data as { op?: unknown; drive?: unknown; stats?: RelayStats } | undefined
+    if (message?.op === 'ready') {
+      if (this.#broken || this.#closed) return
+      this.#workerReady = true
+      for (const receiver of this.#pending) this.#tap(receiver)
+      this.#pending.clear()
+      return
+    }
     if (message?.op !== 'stats' || typeof message.drive !== 'number' || !message.stats) return
     const entry = this.#drives.get(message.drive)
     if (!entry) return
@@ -273,6 +361,8 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
     this.#closed = true
     for (const entry of this.#drives.values()) if (entry.check !== undefined) clearTimeout(entry.check)
     this.#drives.clear()
+    this.#taps.clear()
+    this.#pending.clear()
     this.#worker?.terminate()
     this.#worker = undefined
   }
