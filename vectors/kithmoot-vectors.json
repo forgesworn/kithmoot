@@ -13736,6 +13736,1564 @@
         }
       }
     ],
+    "assistSelection": [
+      {
+        "name": "pair-key-mixed-case",
+        "kind": "positive",
+        "note": "The pair key is the two device keys, lower-cased and then sorted, joined with `:`. Here the first argument is upper-case `B` and the second lower-case `a`: sorted before folding, `B` (0x42) would come before `a` (0x61); folded first, `a` comes first. Both argument orders give the same key, and the key is lower case throughout.",
+        "input": {
+          "op": "pairKey",
+          "a": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          "b": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "output": {
+          "pairKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "swappedPairKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      {
+        "name": "pair-key-same-ends-either-order",
+        "kind": "positive",
+        "note": "Two ordinary lower-case device keys: the smaller sorts first whichever end is asking, and the key is `<smaller>:<larger>`.",
+        "input": {
+          "op": "pairKey",
+          "a": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177",
+          "b": "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68"
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "swappedPairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68"
+        }
+      },
+      {
+        "name": "slot-scores-three-slots",
+        "kind": "positive",
+        "note": "SHA-256 of the UTF-8 string `kithmoot/v1/assist|<pairKey>|<device>|<slot>` (slot in decimal), lower-case hex, first 16 characters. A volunteer with three slots holds slots 0, 1 and 2; its best score is the greatest, compared as a string.",
+        "input": {
+          "op": "slotScores",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "device": "92ec740e479fe2aacba78422aa9de74f16ecf792760f8b2f18c45514d9ade283",
+          "slots": 3
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "scores": [
+            "aed8350975ddf68b",
+            "c9c2b0b3565d6ec2",
+            "d986f869e8286212"
+          ],
+          "best": "d986f869e8286212"
+        }
+      },
+      {
+        "name": "spare-default-headroom",
+        "kind": "positive",
+        "note": "Spare uplink is `uplinkBps * headroom - peers * perPeerBps`, with the default headroom 0.8 when none is given: 10 Mbit/s of uplink, two peers at 500 kbit/s each.",
+        "input": {
+          "op": "spare",
+          "capacity": {
+            "uplinkBps": 10000000,
+            "peers": 2,
+            "perPeerBps": 500000
+          },
+          "headroom": null
+        },
+        "output": {
+          "spareBps": 7000000
+        }
+      },
+      {
+        "name": "spare-explicit-headroom",
+        "kind": "positive",
+        "note": "The same capacity with a headroom of 0.5.",
+        "input": {
+          "op": "spare",
+          "capacity": {
+            "uplinkBps": 10000000,
+            "peers": 2,
+            "perPeerBps": 500000
+          },
+          "headroom": 0.5
+        },
+        "output": {
+          "spareBps": 4000000
+        }
+      },
+      {
+        "name": "spare-floored-at-zero",
+        "kind": "negative",
+        "note": "The call already costs more than the headroom allows: the result is 0, never negative.",
+        "input": {
+          "op": "spare",
+          "capacity": {
+            "uplinkBps": 2000000,
+            "peers": 4,
+            "perPeerBps": 500000
+          },
+          "headroom": null
+        },
+        "output": {
+          "spareBps": 0
+        }
+      },
+      {
+        "name": "spare-headroom-above-one",
+        "kind": "negative",
+        "note": "A headroom above 1 is not a fraction: the result is 0, whatever the uplink.",
+        "input": {
+          "op": "spare",
+          "capacity": {
+            "uplinkBps": 10000000,
+            "peers": 0,
+            "perPeerBps": 500000
+          },
+          "headroom": 1.5
+        },
+        "output": {
+          "spareBps": 0
+        }
+      },
+      {
+        "name": "spare-headroom-zero",
+        "kind": "negative",
+        "note": "A headroom of 0 offers nothing: the result is 0.",
+        "input": {
+          "op": "spare",
+          "capacity": {
+            "uplinkBps": 10000000,
+            "peers": 0,
+            "perPeerBps": 500000
+          },
+          "headroom": 0
+        },
+        "output": {
+          "spareBps": 0
+        }
+      },
+      {
+        "name": "sanitise-valid-offer",
+        "kind": "positive",
+        "note": "A well-formed public offer is kept as it is, with the member order `reachability`, `capacity`, `relaying`, `maxRelayed`.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":1,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 10000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 1,
+            "maxRelayed": 3
+          }
+        }
+      },
+      {
+        "name": "sanitise-integer-valued-doubles",
+        "kind": "positive",
+        "note": "Integer-valued doubles on the wire (`2.0`, `1.0`, `3.0`) are integers: the offer is kept. A reader that treats a decimal point as \"not an integer\" drops an offer this implementation believes. `uplinkBps` and `perPeerBps` may be any finite non-negative number, so `1e7` is read as ten million.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":1e7,\"peers\":2.0,\"perPeerBps\":500000.0},\"relaying\":1.0,\"maxRelayed\":3.0}"
+        },
+        "output": {
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 10000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 1,
+            "maxRelayed": 3
+          }
+        }
+      },
+      {
+        "name": "sanitise-max-relayed-clamped",
+        "kind": "positive",
+        "note": "`maxRelayed` above 3 is clamped to 3, not refused: a client with a different cap is not hostile. `relaying` is not clamped.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":100}"
+        },
+        "output": {
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 10000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          }
+        }
+      },
+      {
+        "name": "sanitise-non-public-kept",
+        "kind": "positive",
+        "note": "A `nat` offer is a well-formed offer and survives sanitising; it is the ranking, not the sanitiser, that passes it over.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"nat\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": {
+            "reachability": "nat",
+            "capacity": {
+              "uplinkBps": 10000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          }
+        }
+      },
+      {
+        "name": "sanitise-unknown-reachability",
+        "kind": "negative",
+        "note": "A reachability outside `public`, `nat`, `symmetric` and `unknown` drops the whole offer.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"open\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-fractional-peers",
+        "kind": "negative",
+        "note": "`peers` of 2.5 is not an integer: the whole offer is dropped, not rounded.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2.5,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-fractional-relaying",
+        "kind": "negative",
+        "note": "`relaying` of 1.5 is not an integer: the whole offer is dropped.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":1.5,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-fractional-max-relayed",
+        "kind": "negative",
+        "note": "`maxRelayed` of 2.5 is not an integer: the whole offer is dropped, not floored.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":2,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":2.5}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-string-number",
+        "kind": "negative",
+        "note": "A number carried as a JSON string (`\"2\"`) is not a number: the whole offer is dropped.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":10000000,\"peers\":\"2\",\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-negative-uplink",
+        "kind": "negative",
+        "note": "A negative `uplinkBps` drops the whole offer.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"capacity\":{\"uplinkBps\":-1,\"peers\":2,\"perPeerBps\":500000},\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-missing-capacity",
+        "kind": "negative",
+        "note": "No `capacity` object drops the whole offer.",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "{\"reachability\":\"public\",\"relaying\":0,\"maxRelayed\":3}"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "sanitise-not-an-object",
+        "kind": "negative",
+        "note": "A JSON array is not an offer. (`null` and non-objects are dropped the same way.)",
+        "input": {
+          "op": "sanitise",
+          "offerJson": "[1,2,3]"
+        },
+        "output": {
+          "offer": null
+        }
+      },
+      {
+        "name": "slots-limited-by-uplink",
+        "kind": "positive",
+        "note": "The smaller of what the spare uplink pays for and what is left of `maxRelayed`. Spare is 2,200,000 bit/s and one pair costs `perPeerBps * 2` = 1,000,000, so two pairs are affordable while three are allowed: two slots.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 4000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 2
+        }
+      },
+      {
+        "name": "slots-limited-by-willingness",
+        "kind": "positive",
+        "note": "Plenty of uplink, but one pair already carried of three allowed: two slots.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 50000000,
+              "peers": 1,
+              "perPeerBps": 500000
+            },
+            "relaying": 1,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 2
+        }
+      },
+      {
+        "name": "slots-max-relayed-above-cap",
+        "kind": "positive",
+        "note": "`maxRelayed` of 100 is read as 3: three slots however much uplink there is, and never more.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 500000000,
+              "peers": 1,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 100
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 3
+        }
+      },
+      {
+        "name": "slots-cost-zero-trusts-willingness",
+        "kind": "positive",
+        "note": "No per-peer bitrate means no stated cost: the volunteer is believed, and the remainder of `maxRelayed` is the answer. Cost is 0.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 1000000,
+              "peers": 0,
+              "perPeerBps": 0
+            },
+            "relaying": 1,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 0,
+          "slots": 2
+        }
+      },
+      {
+        "name": "slots-custom-headroom",
+        "kind": "positive",
+        "note": "A headroom of 0.5 on the same offer as `slots-limited-by-uplink` leaves spare of 1,000,000 and so one slot instead of two.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 4000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          },
+          "headroom": 0.5
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 1
+        }
+      },
+      {
+        "name": "slots-floor-just-below-boundary",
+        "kind": "positive",
+        "note": "Spare uplink is 2,992,000 bit/s against a cost of 1,000,000 per pair: 2.992 pairs, floored to 2. The spare is not rounded up to the next pair.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 4990000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 2
+        }
+      },
+      {
+        "name": "slots-floor-at-boundary",
+        "kind": "positive",
+        "note": "Ten thousand bit/s more uplink makes spare exactly 3,000,000: three pairs. Together with the previous case this pins the floor on the boundary.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 5000000,
+              "peers": 2,
+              "perPeerBps": 500000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 3
+        }
+      },
+      {
+        "name": "slots-none-left",
+        "kind": "negative",
+        "note": "Already relaying as many pairs as it allows: zero slots, and the offer is still well-formed.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 50000000,
+              "peers": 1,
+              "perPeerBps": 500000
+            },
+            "relaying": 3,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 0
+        }
+      },
+      {
+        "name": "slots-relaying-above-clamped-max",
+        "kind": "negative",
+        "note": "`maxRelayed` of 100 is clamped to 3 before the remainder is taken, so relaying 5 leaves a negative remainder, read as zero.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 500000000,
+              "peers": 1,
+              "perPeerBps": 500000
+            },
+            "relaying": 5,
+            "maxRelayed": 100
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 1000000,
+          "slots": 0
+        }
+      },
+      {
+        "name": "slots-uplink-spent",
+        "kind": "negative",
+        "note": "The device's own call uses all of its headroom: no spare uplink, zero slots, whatever it is willing to carry.",
+        "input": {
+          "op": "slots",
+          "offer": {
+            "reachability": "public",
+            "capacity": {
+              "uplinkBps": 4000000,
+              "peers": 4,
+              "perPeerBps": 1000000
+            },
+            "relaying": 0,
+            "maxRelayed": 3
+          },
+          "headroom": null
+        },
+        "output": {
+          "cost": 2000000,
+          "slots": 0
+        }
+      },
+      {
+        "name": "rank-mixed-roster",
+        "kind": "positive",
+        "note": "Eight roster entries. Ranked, best first: the public volunteers with at least one slot, by best score over their slots, descending. Passed over: the volunteer whose offer is `nat`, the one with no slots left, the one whose offer has a fractional `peers` (so it has no offer at all), and one end of the pair itself. Each of the first three would outscore the winner with three slots, so passing them over changes the answer. Entries are given in mixed case and ranked in lower case. The order of the roster does not matter.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "slots": 2,
+              "bestScore": "f6da9ce184ecdbd1"
+            },
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "slots": 3,
+              "bestScore": "f3db8db7629354fe"
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "slots": 1,
+              "bestScore": "d1a4b348acd57ea4"
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "slots": 3,
+              "bestScore": "b74c9de67039399c"
+            }
+          ],
+          "selected": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c"
+        }
+      },
+      {
+        "name": "rank-with-exclude",
+        "kind": "positive",
+        "note": "The same roster with the winner of `rank-mixed-roster` excluded, given in upper case: it drops out and the rest keep their relative order, so the next volunteer is chosen. `exclude` is case-folded.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": [
+            "7F2BF7FF8E5C728C3588DC2926B8C79A5CAAF6B9199680F7B89A066DC6BD5D1C"
+          ],
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "slots": 3,
+              "bestScore": "f3db8db7629354fe"
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "slots": 1,
+              "bestScore": "d1a4b348acd57ea4"
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "slots": 3,
+              "bestScore": "b74c9de67039399c"
+            }
+          ],
+          "selected": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551"
+        }
+      },
+      {
+        "name": "rank-reversed-roster",
+        "kind": "positive",
+        "note": "The same roster in reverse order gives the same ranking: nothing depends on array order from the wire.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "slots": 2,
+              "bestScore": "f6da9ce184ecdbd1"
+            },
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "slots": 3,
+              "bestScore": "f3db8db7629354fe"
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "slots": 1,
+              "bestScore": "d1a4b348acd57ea4"
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "slots": 3,
+              "bestScore": "b74c9de67039399c"
+            }
+          ],
+          "selected": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c"
+        }
+      },
+      {
+        "name": "rank-custom-headroom",
+        "kind": "positive",
+        "note": "The same roster with a headroom of 0.5: smaller uplinks fall to fewer slots or none, which changes who is eligible and how many slots each enters the draw with.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": 0.5
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "slots": 1,
+              "bestScore": "f6da9ce184ecdbd1"
+            },
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "slots": 3,
+              "bestScore": "f3db8db7629354fe"
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "slots": 3,
+              "bestScore": "b74c9de67039399c"
+            }
+          ],
+          "selected": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c"
+        }
+      },
+      {
+        "name": "rank-pair-argument-order",
+        "kind": "positive",
+        "note": "The pair given the other way round ranks identically and has the same pair key.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177",
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68"
+          ],
+          "volunteers": [
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "slots": 2,
+              "bestScore": "f6da9ce184ecdbd1"
+            },
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "slots": 3,
+              "bestScore": "f3db8db7629354fe"
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "slots": 1,
+              "bestScore": "d1a4b348acd57ea4"
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "slots": 3,
+              "bestScore": "b74c9de67039399c"
+            }
+          ],
+          "selected": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c"
+        }
+      },
+      {
+        "name": "rank-exclude-everyone",
+        "kind": "negative",
+        "note": "Every volunteer is excluded: the ranking is empty and nobody is selected.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 20000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 5000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 1,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 3000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1.5,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 12000000,
+                  "peers": 2,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": [
+            "8A3D998333460174405ED8EF8C18C65CEA873B064EDCB317656CA25CD44BC551",
+            "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+            "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+            "f56981cd18dcd3af7fe069a8ca45d1f1d71ba0f7b39bd5c8b80b68081d57a1a1",
+            "826feb3ef2b48c48de1171d7cbab70dc5da23b8f3cf52e4b4cd3353e3932a34c",
+            "E010F95514299DB47CAB0B4858B7A7C80EE00CE83E1141D6017367854DE6CA68",
+            "2bb83979e8eed2e7388f9241439ec7ed3811136b42397fd9af35a255b6e02df3",
+            "96bd73811e9390e1b1c81f7ecef7ba99715524384d600a590a98ee6c6dcddff0"
+          ],
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [],
+          "selected": null
+        }
+      },
+      {
+        "name": "rank-non-public-only",
+        "kind": "negative",
+        "note": "Everybody is behind a NAT or of unknown reachability: nobody can be reached by the NATed end, so the ranking is empty. (`nat`, `symmetric` and `unknown` are each passed over.)",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "offer": {
+                "reachability": "nat",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "symmetric",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7abc1014ed43198fe2c181bc7b2dcc0b25fd25a56b539161368e4cc148d34775",
+              "offer": {
+                "reachability": "unknown",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [],
+          "selected": null
+        }
+      },
+      {
+        "name": "rank-no-slots-left",
+        "kind": "negative",
+        "note": "Public volunteers that cannot take a pair: one is carrying its maximum, one has no spare uplink. Nobody is selected.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "8a3d998333460174405ed8ef8c18c65cea873b064edcb317656ca25cd44bc551",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 3,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "7f2bf7ff8e5c728c3588dc2926b8c79a5caaf6b9199680f7b89a066dc6bd5d1c",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 4000000,
+                  "peers": 4,
+                  "perPeerBps": 1000000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [],
+          "selected": null
+        }
+      },
+      {
+        "name": "rank-only-the-pair",
+        "kind": "negative",
+        "note": "The only volunteers are the two ends of the pair: neither is a third party, so nobody is selected.",
+        "input": {
+          "op": "rank",
+          "pair": [
+            "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+            "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177"
+          ],
+          "volunteers": [
+            {
+              "device": "e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            },
+            {
+              "device": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177",
+              "offer": {
+                "reachability": "public",
+                "capacity": {
+                  "uplinkBps": 50000000,
+                  "peers": 1,
+                  "perPeerBps": 500000
+                },
+                "relaying": 0,
+                "maxRelayed": 3
+              }
+            }
+          ],
+          "exclude": null,
+          "headroom": null
+        },
+        "output": {
+          "pairKey": "ae8a160bfed42f37bd12adb5fd558aef5d13ec3343738c96d69fdbc33fd69177:e010f95514299db47cab0b4858b7a7c80ee00ce83e1141d6017367854de6ca68",
+          "ranking": [],
+          "selected": null
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",

@@ -40,7 +40,7 @@ import { deriveChannel } from '../src/chat.js'
 import { verifyDeviceCredential, createDeviceCredential } from '../src/credential.js'
 import type { ParticipantIdentity } from '../src/identity.js'
 import { decodeRosterEvent } from '../src/roster.js'
-import { sanitiseAssistOffer } from '../src/peer-assist.js'
+import { assistCostBps, assistPairKey, assistSlots, rankAssistants, sanitiseAssistOffer, selectAssistant, spareUplinkBps } from '../src/peer-assist.js'
 import { sanitiseDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../src/display-name.js'
 import { unwrapSignalEvent, unwrapSignal } from '../src/signal.js'
 import { evaluateAccess, issueKindredProof } from '../src/access.js'
@@ -651,6 +651,106 @@ describe('spry device key', () => {
       } else expect(sanitiseSpryKey(v.input.spryKey) ?? null).toBe(v.output.rosterSpryKey)
     })
   }
+})
+
+describe('assistSelection', () => {
+  // `slotScore` is not exported, so it is recomputed here from the documented
+  // string. The ranking below is the real `rankAssistants`; the recorded best
+  // scores are what a port compares against.
+  const slotScore = (pairKey: string, device: string, slot: number): string =>
+    bytesToHex(sha256(new TextEncoder().encode(`kithmoot/v1/assist|${pairKey}|${device}|${slot}`))).slice(0, 16)
+  const bestScore = (pairKey: string, device: string, slots: number): string => {
+    let best = ''
+    for (let slot = 0; slot < slots; slot += 1) {
+      const score = slotScore(pairKey, device, slot)
+      if (score > best) best = score
+    }
+    return best
+  }
+  const assist = groups.assistSelection
+
+  it('pins the case count and carries both outcomes', () => {
+    expect(assist).toHaveLength(39)
+    expect(assist.some((v) => v.kind === 'positive')).toBe(true)
+    expect(assist.some((v) => v.kind === 'negative')).toBe(true)
+    expect(new Set(assist.map((v) => v.input.op))).toEqual(new Set(['pairKey', 'slotScores', 'spare', 'sanitise', 'slots', 'rank']))
+    expect(new Set(assist.map((v) => v.name)).size).toBe(assist.length)
+  })
+
+  for (const v of assist) {
+    it(`${v.name}`, () => {
+      const i = v.input
+      switch (i.op) {
+        case 'pairKey': {
+          expect(assistPairKey(i.a, i.b)).toBe(v.output.pairKey)
+          expect(assistPairKey(i.b, i.a)).toBe(v.output.swappedPairKey)
+          expect(v.output.pairKey).toBe(v.output.swappedPairKey)
+          expect(v.output.pairKey).toBe((v.output.pairKey as string).toLowerCase())
+          break
+        }
+        case 'slotScores': {
+          const pairKey = assistPairKey(i.pair[0], i.pair[1])
+          expect(pairKey).toBe(v.output.pairKey)
+          const scores = Array.from({ length: i.slots }, (_, slot) => slotScore(pairKey, i.device, slot))
+          expect(scores).toEqual(v.output.scores)
+          for (const score of scores) expect(score).toMatch(/^[0-9a-f]{16}$/)
+          expect(bestScore(pairKey, i.device, i.slots)).toBe(v.output.best)
+          break
+        }
+        case 'spare': {
+          const spare = i.headroom === null ? spareUplinkBps(i.capacity) : spareUplinkBps(i.capacity, i.headroom)
+          expect(spare).toBe(v.output.spareBps)
+          expect(spare).toBeGreaterThanOrEqual(0)
+          break
+        }
+        case 'sanitise': {
+          const offer = sanitiseAssistOffer(JSON.parse(i.offerJson)) ?? null
+          expect(offer).toEqual(v.output.offer)
+          expect(v.kind === 'negative').toBe(offer === null)
+          break
+        }
+        case 'slots': {
+          expect(assistCostBps(i.offer)).toBe(v.output.cost)
+          const slots = i.headroom === null ? assistSlots(i.offer) : assistSlots(i.offer, i.headroom)
+          expect(slots).toBe(v.output.slots)
+          expect(v.kind === 'negative').toBe(slots === 0)
+          break
+        }
+        case 'rank': {
+          const options: { exclude?: string[]; headroom?: number } = {}
+          if (i.exclude !== null) options.exclude = i.exclude
+          if (i.headroom !== null) options.headroom = i.headroom
+          const pairKey = assistPairKey(i.pair[0], i.pair[1])
+          expect(pairKey).toBe(v.output.pairKey)
+          const ranking = rankAssistants(i.pair, i.volunteers, options).map((c) => ({ device: c.device, slots: c.slots, bestScore: bestScore(pairKey, c.device, c.slots) }))
+          expect(ranking).toEqual(v.output.ranking)
+          for (let n = 1; n < ranking.length; n += 1) expect(ranking[n - 1].bestScore > ranking[n].bestScore).toBe(true)
+          expect(selectAssistant(i.pair, i.volunteers, options)?.device ?? null).toBe(v.output.selected)
+          expect(v.output.selected).toBe(ranking[0]?.device ?? null)
+          expect(v.kind === 'negative').toBe(ranking.length === 0)
+          break
+        }
+        default:
+          throw new Error(`unknown assistSelection op ${i.op}`)
+      }
+    })
+  }
+
+  it('the exclusion case drops exactly the winner and keeps the order of the rest', () => {
+    const all = vec('assistSelection', 'rank-mixed-roster').output.ranking
+    const without = vec('assistSelection', 'rank-with-exclude').output.ranking
+    expect(without).toEqual(all.slice(1))
+  })
+
+  it('roster order, pair order and device case do not change the ranking', () => {
+    const base = vec('assistSelection', 'rank-mixed-roster').output
+    for (const name of ['rank-reversed-roster', 'rank-pair-argument-order']) expect(vec('assistSelection', name).output).toEqual(base)
+  })
+
+  it('the boundary pair differs by one slot', () => {
+    expect(vec('assistSelection', 'slots-floor-just-below-boundary').output.slots).toBe(2)
+    expect(vec('assistSelection', 'slots-floor-at-boundary').output.slots).toBe(3)
+  })
 })
 
 describe('epoch request admission', () => {

@@ -83,12 +83,13 @@ import { resolveConversation, mentionsOf, mentionedBy } from '../dist/src/messag
 import { decodeReadPositions, readPositionId, readPositionPlaintext, localSelfCrypt, mergeReadPositions, READ_POSITION_KIND, READ_POSITION_LABEL } from '../dist/src/read-position.js'
 import { openInvite, localPeerCrypt, dmPolicy } from '../dist/src/dm.js'
 import { renameRoomOp, carryRoomNameOp, roomNameFromMessage, compareRoomNames, RoomNameBook } from '../dist/src/room-name.js'
+import { assistPairKey, spareUplinkBps, assistCostBps, assistSlots, sanitiseAssistOffer, rankAssistants, selectAssistant } from '../dist/src/peer-assist.js'
 import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCallBellEvent, CALL_BELL_TTL_SECONDS } from '../dist/src/call-bell.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [], spryDeviceKey: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [], spryDeviceKey: [], assistSelection: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -3582,6 +3583,247 @@ for (const [name, roomKey, a, b, note] of [
     output: openLog({ current: 2, left: [{ epoch: 1, leftAt: T - HISTORY_WINDOW_SECONDS - 1 }], events }),
   })
 }
+
+// ===========================================================================
+// Peer assist selection (src/peer-assist.ts): which member of the room carries
+// a pair that cannot connect.
+//
+// Every operation here is a pure function of its input, so the real
+// implementation from `dist/` is called directly. `slotScore` and `bestScore`
+// are not exported, so the per-slot scores are recomputed below from the
+// documented string; the ranking, which the real `rankAssistants` produces, is
+// then checked against them before anything is recorded. Device keys are fixed
+// hex strings, never generated.
+// ===========================================================================
+
+// BEGIN assistSelection
+{
+  const assistDevice = (label) => bytesToHex(sha256(utf8Bytes(`assist-vector-device-${label}`)))
+  const assistScore = (pairKey, device, slot) => bytesToHex(sha256(utf8Bytes(`kithmoot/v1/assist|${pairKey}|${device}|${slot}`))).slice(0, 16)
+  const assistBest = (pairKey, device, slots) => {
+    let best = ''
+    for (let slot = 0; slot < slots; slot += 1) {
+      const score = assistScore(pairKey, device, slot)
+      if (score > best) best = score
+    }
+    return best
+  }
+  const offerOf = (reachability, uplinkBps, peers, perPeerBps, relaying, maxRelayed) => ({ reachability, capacity: { uplinkBps, peers, perPeerBps }, relaying, maxRelayed })
+  const push = (name, kind, note, input, output) => vectors.assistSelection.push({ name, kind, note, input, output })
+
+  const END_A = assistDevice('end-a')
+  const END_B = assistDevice('end-b')
+  const PAIR_KEY = assistPairKey(END_A, END_B)
+
+  // --- Pair key --------------------------------------------------------------
+  {
+    const upperB = 'B'.repeat(64)
+    const lowerA = 'a'.repeat(64)
+    push('pair-key-mixed-case', 'positive',
+      'The pair key is the two device keys, lower-cased and then sorted, joined with `:`. Here the first argument is upper-case `B` and the second lower-case `a`: sorted before folding, `B` (0x42) would come before `a` (0x61); folded first, `a` comes first. Both argument orders give the same key, and the key is lower case throughout.',
+      { op: 'pairKey', a: upperB, b: lowerA },
+      { pairKey: assistPairKey(upperB, lowerA), swappedPairKey: assistPairKey(lowerA, upperB) })
+    push('pair-key-same-ends-either-order', 'positive',
+      'Two ordinary lower-case device keys: the smaller sorts first whichever end is asking, and the key is `<smaller>:<larger>`.',
+      { op: 'pairKey', a: END_B, b: END_A },
+      { pairKey: assistPairKey(END_B, END_A), swappedPairKey: assistPairKey(END_A, END_B) })
+  }
+
+  // --- Slot scores -----------------------------------------------------------
+  {
+    const device = assistDevice('scorer')
+    const scores = [0, 1, 2].map((slot) => assistScore(PAIR_KEY, device, slot))
+    let best = ''
+    for (const s of scores) if (s > best) best = s
+    push('slot-scores-three-slots', 'positive',
+      'SHA-256 of the UTF-8 string `kithmoot/v1/assist|<pairKey>|<device>|<slot>` (slot in decimal), lower-case hex, first 16 characters. A volunteer with three slots holds slots 0, 1 and 2; its best score is the greatest, compared as a string.',
+      { op: 'slotScores', pair: [END_A, END_B], device, slots: 3 },
+      { pairKey: PAIR_KEY, scores, best })
+  }
+
+  // --- Spare uplink ----------------------------------------------------------
+  {
+    const spareCase = (name, kind, note, capacity, headroom) => push(name, kind, note, { op: 'spare', capacity, headroom },
+      { spareBps: headroom === null ? spareUplinkBps(capacity) : spareUplinkBps(capacity, headroom) })
+    spareCase('spare-default-headroom', 'positive',
+      'Spare uplink is `uplinkBps * headroom - peers * perPeerBps`, with the default headroom 0.8 when none is given: 10 Mbit/s of uplink, two peers at 500 kbit/s each.',
+      { uplinkBps: 10000000, peers: 2, perPeerBps: 500000 }, null)
+    spareCase('spare-explicit-headroom', 'positive',
+      'The same capacity with a headroom of 0.5.',
+      { uplinkBps: 10000000, peers: 2, perPeerBps: 500000 }, 0.5)
+    spareCase('spare-floored-at-zero', 'negative',
+      'The call already costs more than the headroom allows: the result is 0, never negative.',
+      { uplinkBps: 2000000, peers: 4, perPeerBps: 500000 }, null)
+    spareCase('spare-headroom-above-one', 'negative',
+      'A headroom above 1 is not a fraction: the result is 0, whatever the uplink.',
+      { uplinkBps: 10000000, peers: 0, perPeerBps: 500000 }, 1.5)
+    spareCase('spare-headroom-zero', 'negative',
+      'A headroom of 0 offers nothing: the result is 0.',
+      { uplinkBps: 10000000, peers: 0, perPeerBps: 500000 }, 0)
+  }
+
+  // --- Offer sanitising ------------------------------------------------------
+  {
+    const sanitiseCase = (name, kind, note, offerJson) => {
+      const offer = sanitiseAssistOffer(JSON.parse(offerJson))
+      push(name, kind, note, { op: 'sanitise', offerJson }, { offer: offer ?? null })
+    }
+    sanitiseCase('sanitise-valid-offer', 'positive',
+      'A well-formed public offer is kept as it is, with the member order `reachability`, `capacity`, `relaying`, `maxRelayed`.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":1,"maxRelayed":3}')
+    sanitiseCase('sanitise-integer-valued-doubles', 'positive',
+      'Integer-valued doubles on the wire (`2.0`, `1.0`, `3.0`) are integers: the offer is kept. A reader that treats a decimal point as "not an integer" drops an offer this implementation believes. `uplinkBps` and `perPeerBps` may be any finite non-negative number, so `1e7` is read as ten million.',
+      '{"reachability":"public","capacity":{"uplinkBps":1e7,"peers":2.0,"perPeerBps":500000.0},"relaying":1.0,"maxRelayed":3.0}')
+    sanitiseCase('sanitise-max-relayed-clamped', 'positive',
+      '`maxRelayed` above 3 is clamped to 3, not refused: a client with a different cap is not hostile. `relaying` is not clamped.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":0,"maxRelayed":100}')
+    sanitiseCase('sanitise-non-public-kept', 'positive',
+      'A `nat` offer is a well-formed offer and survives sanitising; it is the ranking, not the sanitiser, that passes it over.',
+      '{"reachability":"nat","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-unknown-reachability', 'negative',
+      'A reachability outside `public`, `nat`, `symmetric` and `unknown` drops the whole offer.',
+      '{"reachability":"open","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-fractional-peers', 'negative',
+      '`peers` of 2.5 is not an integer: the whole offer is dropped, not rounded.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":2.5,"perPeerBps":500000},"relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-fractional-relaying', 'negative',
+      '`relaying` of 1.5 is not an integer: the whole offer is dropped.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":1.5,"maxRelayed":3}')
+    sanitiseCase('sanitise-fractional-max-relayed', 'negative',
+      '`maxRelayed` of 2.5 is not an integer: the whole offer is dropped, not floored.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":2,"perPeerBps":500000},"relaying":0,"maxRelayed":2.5}')
+    sanitiseCase('sanitise-string-number', 'negative',
+      'A number carried as a JSON string (`"2"`) is not a number: the whole offer is dropped.',
+      '{"reachability":"public","capacity":{"uplinkBps":10000000,"peers":"2","perPeerBps":500000},"relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-negative-uplink', 'negative',
+      'A negative `uplinkBps` drops the whole offer.',
+      '{"reachability":"public","capacity":{"uplinkBps":-1,"peers":2,"perPeerBps":500000},"relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-missing-capacity', 'negative',
+      'No `capacity` object drops the whole offer.',
+      '{"reachability":"public","relaying":0,"maxRelayed":3}')
+    sanitiseCase('sanitise-not-an-object', 'negative',
+      'A JSON array is not an offer. (`null` and non-objects are dropped the same way.)',
+      '[1,2,3]')
+  }
+
+  // --- Slots -----------------------------------------------------------------
+  {
+    const slotCase = (name, kind, note, offer, headroom) => push(name, kind, note, { op: 'slots', offer, headroom },
+      { cost: assistCostBps(offer), slots: headroom === null ? assistSlots(offer) : assistSlots(offer, headroom) })
+    slotCase('slots-limited-by-uplink', 'positive',
+      'The smaller of what the spare uplink pays for and what is left of `maxRelayed`. Spare is 2,200,000 bit/s and one pair costs `perPeerBps * 2` = 1,000,000, so two pairs are affordable while three are allowed: two slots.',
+      offerOf('public', 4000000, 2, 500000, 0, 3), null)
+    slotCase('slots-limited-by-willingness', 'positive',
+      'Plenty of uplink, but one pair already carried of three allowed: two slots.',
+      offerOf('public', 50000000, 1, 500000, 1, 3), null)
+    slotCase('slots-max-relayed-above-cap', 'positive',
+      '`maxRelayed` of 100 is read as 3: three slots however much uplink there is, and never more.',
+      offerOf('public', 500000000, 1, 500000, 0, 100), null)
+    slotCase('slots-cost-zero-trusts-willingness', 'positive',
+      'No per-peer bitrate means no stated cost: the volunteer is believed, and the remainder of `maxRelayed` is the answer. Cost is 0.',
+      offerOf('public', 1000000, 0, 0, 1, 3), null)
+    slotCase('slots-custom-headroom', 'positive',
+      'A headroom of 0.5 on the same offer as `slots-limited-by-uplink` leaves spare of 1,000,000 and so one slot instead of two.',
+      offerOf('public', 4000000, 2, 500000, 0, 3), 0.5)
+    slotCase('slots-floor-just-below-boundary', 'positive',
+      'Spare uplink is 2,992,000 bit/s against a cost of 1,000,000 per pair: 2.992 pairs, floored to 2. The spare is not rounded up to the next pair.',
+      offerOf('public', 4990000, 2, 500000, 0, 3), null)
+    slotCase('slots-floor-at-boundary', 'positive',
+      'Ten thousand bit/s more uplink makes spare exactly 3,000,000: three pairs. Together with the previous case this pins the floor on the boundary.',
+      offerOf('public', 5000000, 2, 500000, 0, 3), null)
+    slotCase('slots-none-left', 'negative',
+      'Already relaying as many pairs as it allows: zero slots, and the offer is still well-formed.',
+      offerOf('public', 50000000, 1, 500000, 3, 3), null)
+    slotCase('slots-relaying-above-clamped-max', 'negative',
+      '`maxRelayed` of 100 is clamped to 3 before the remainder is taken, so relaying 5 leaves a negative remainder, read as zero.',
+      offerOf('public', 500000000, 1, 500000, 5, 100), null)
+    slotCase('slots-uplink-spent', 'negative',
+      'The device\'s own call uses all of its headroom: no spare uplink, zero slots, whatever it is willing to carry.',
+      offerOf('public', 4000000, 4, 1000000, 0, 3), null)
+  }
+
+  // --- Ranking and selection -------------------------------------------------
+  {
+    const rankCase = (name, kind, note, volunteers, { exclude, headroom = null, pair = [END_A, END_B] } = {}) => {
+      const options = {}
+      if (exclude !== undefined) options.exclude = exclude
+      if (headroom !== null) options.headroom = headroom
+      const key = assistPairKey(pair[0], pair[1])
+      const ranking = rankAssistants(pair, volunteers, options).map((c) => ({ device: c.device, slots: c.slots, bestScore: assistBest(key, c.device, c.slots) }))
+      for (let i = 1; i < ranking.length; i += 1) {
+        if (!(ranking[i - 1].bestScore > ranking[i].bestScore)) throw new Error(`assistSelection ${name}: ranking is not strictly descending by best score`)
+      }
+      const selected = selectAssistant(pair, volunteers, options)?.device ?? null
+      if (selected !== (ranking[0]?.device ?? null)) throw new Error(`assistSelection ${name}: selectAssistant disagrees with the head of rankAssistants`)
+      push(name, kind, note, { op: 'rank', pair, volunteers, exclude: exclude ?? null, headroom }, { pairKey: key, ranking, selected })
+    }
+
+    const V1 = assistDevice('volunteer-1')
+    const V2 = assistDevice('volunteer-2')
+    const V3 = assistDevice('volunteer-3')
+    const V4 = assistDevice('nat-5')
+    const V5 = assistDevice('full-7')
+    const V6 = assistDevice('bad-5')
+    const V7 = assistDevice('volunteer-7')
+    const big = offerOf('public', 20000000, 2, 500000, 0, 3)
+    const partlyBusy = offerOf('public', 5000000, 2, 500000, 1, 3)
+    const small = offerOf('public', 3000000, 2, 500000, 0, 3)
+
+    const roster = [
+      { device: V1.toUpperCase(), offer: big },
+      { device: V2, offer: partlyBusy },
+      { device: V3, offer: small },
+      { device: V4, offer: offerOf('nat', 50000000, 1, 500000, 0, 3) },
+      { device: V5, offer: offerOf('public', 50000000, 1, 500000, 3, 3) },
+      { device: END_A.toUpperCase(), offer: offerOf('public', 50000000, 1, 500000, 0, 3) },
+      { device: V6, offer: { ...offerOf('public', 50000000, 1.5, 500000, 0, 3) } },
+      { device: V7, offer: offerOf('public', 12000000, 2, 500000, 0, 3) },
+    ]
+    rankCase('rank-mixed-roster', 'positive',
+      'Eight roster entries. Ranked, best first: the public volunteers with at least one slot, by best score over their slots, descending. Passed over: the volunteer whose offer is `nat`, the one with no slots left, the one whose offer has a fractional `peers` (so it has no offer at all), and one end of the pair itself. Each of the first three would outscore the winner with three slots, so passing them over changes the answer. Entries are given in mixed case and ranked in lower case. The order of the roster does not matter.',
+      roster)
+    const head = rankAssistants([END_A, END_B], roster)[0]
+    const winner = head.device
+    for (const passedOver of [V4, V5, V6]) {
+      if (!(assistBest(PAIR_KEY, passedOver, 3) > assistBest(PAIR_KEY, winner, head.slots))) throw new Error('assistSelection: a passed-over volunteer would not have outscored the winner')
+    }
+    rankCase('rank-with-exclude', 'positive',
+      'The same roster with the winner of `rank-mixed-roster` excluded, given in upper case: it drops out and the rest keep their relative order, so the next volunteer is chosen. `exclude` is case-folded.',
+      roster, { exclude: [winner.toUpperCase()] })
+    rankCase('rank-reversed-roster', 'positive',
+      'The same roster in reverse order gives the same ranking: nothing depends on array order from the wire.',
+      [...roster].reverse())
+    rankCase('rank-custom-headroom', 'positive',
+      'The same roster with a headroom of 0.5: smaller uplinks fall to fewer slots or none, which changes who is eligible and how many slots each enters the draw with.',
+      roster, { headroom: 0.5 })
+    rankCase('rank-pair-argument-order', 'positive',
+      'The pair given the other way round ranks identically and has the same pair key.',
+      roster, { pair: [END_B, END_A] })
+    rankCase('rank-exclude-everyone', 'negative',
+      'Every volunteer is excluded: the ranking is empty and nobody is selected.',
+      roster, { exclude: roster.map((v) => v.device) })
+    rankCase('rank-non-public-only', 'negative',
+      'Everybody is behind a NAT or of unknown reachability: nobody can be reached by the NATed end, so the ranking is empty. (`nat`, `symmetric` and `unknown` are each passed over.)',
+      [
+        { device: V1, offer: offerOf('nat', 50000000, 1, 500000, 0, 3) },
+        { device: V2, offer: offerOf('symmetric', 50000000, 1, 500000, 0, 3) },
+        { device: V3, offer: offerOf('unknown', 50000000, 1, 500000, 0, 3) },
+      ])
+    rankCase('rank-no-slots-left', 'negative',
+      'Public volunteers that cannot take a pair: one is carrying its maximum, one has no spare uplink. Nobody is selected.',
+      [
+        { device: V1, offer: offerOf('public', 50000000, 1, 500000, 3, 3) },
+        { device: V2, offer: offerOf('public', 4000000, 4, 1000000, 0, 3) },
+      ])
+    rankCase('rank-only-the-pair', 'negative',
+      'The only volunteers are the two ends of the pair: neither is a third party, so nobody is selected.',
+      [
+        { device: END_A, offer: offerOf('public', 50000000, 1, 500000, 0, 3) },
+        { device: END_B, offer: offerOf('public', 50000000, 1, 500000, 0, 3) },
+      ])
+  }
+}
+// END assistSelection
 
 // ===========================================================================
 // Write out

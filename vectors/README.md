@@ -137,6 +137,7 @@ directly, with no reimplementation involved.
 | `accessEvaluation` | a `RoomPolicy` + participant + proof + now → `{ admitted, reason }` | `src/access.ts` |
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
 | `spryDeviceKey` | room device secret → Spry signing secret and the `spryKey` a roster entry announces; malformed claims dropped | `src/spry-key.ts` |
+| `assistSelection` | peer assist: pair key, per-slot rendezvous scores, spare uplink, offer sanitising, slot count, and ranking with and without `exclude` | `src/peer-assist.ts` |
 | `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
 | `roomEpoch` | epoch → `id` + `key`; a kind-1462 rekey read by a kept device, by a removed one, and refused; the authority-signed admin list | `src/epoch.ts` |
 | `epochRequestAdmission` | the `admission` proof inside a kind-20468 epoch request, derived from the epoch-0 room key; a full request decoded by the desk, and the three ways it refuses one | `src/epoch.ts` |
@@ -593,3 +594,45 @@ or enable a service. See [the service draft](../docs/protocol/service-admission.
 
 `serviceAudience` pins canonical HTTPS origins/endpoints, including IPv6, port
 normalisation and malformed or ambiguous URL rejection in both languages.
+
+## What `assistSelection` pins
+
+`assistSelection` pins which member of a room carries a pair that cannot
+connect, so that a browser and a native client in the same room choose the
+same relay from the same roster. Every case has an `input.op`:
+
+- `pairKey`: both device keys lower-cased, sorted, joined with `:`. The mixed
+  case vector is built so that sorting before folding gives a different answer.
+- `slotScores`: the first 16 hex characters of the SHA-256 of
+  `kithmoot/v1/assist|<pairKey>|<device>|<slot>` for slots 0, 1 and 2, and the
+  best of them, compared as a string.
+- `spare`: `spareUplinkBps`, `uplinkBps * headroom - peers * perPeerBps`
+  floored at 0, with the default headroom, an explicit one and two that are
+  out of range.
+- `sanitise`: `sanitiseAssistOffer` over the offer as the JSON text a peer
+  would send, in `offerJson`. It is text on purpose: `2.0` is an integer and
+  `2.5` is not, and a JSON number type that has already parsed the value cannot
+  show that. `maxRelayed` above 3 is clamped to 3; any other malformed field
+  drops the whole offer.
+- `slots`: `assistSlots`, the smaller of what the spare uplink pays for
+  (`floor(spare / (perPeerBps * 2))`) and what is left of `maxRelayed`, with the
+  floor tested either side of an exact boundary.
+- `rank`: `rankAssistants` and `selectAssistant` over a roster, with and
+  without `exclude`, in either pair order, in reverse roster order and with a
+  custom headroom. The output carries each candidate's slots and best score,
+  best first.
+
+It does not pin:
+
+- Whether a device should offer at all (`assistDecision`, `buildAssistOffer`),
+  which is a local consent decision and not part of the selection.
+- The local filters a client applies before ranking, such as only considering
+  volunteers it holds a connected link to.
+- Ties. Two equal 64-bit scores would fall back to the lower device key, but
+  no vector can be built that reaches it.
+- Non-finite numbers, which JSON cannot carry.
+
+`slotScore` and `bestScore` are not exported by `src/peer-assist.ts`, so
+`generate.mjs` and `verify.test.ts` recompute them from the string above and
+check that the order the real `rankAssistants` returns is strictly descending
+in them.
