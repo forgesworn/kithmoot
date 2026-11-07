@@ -360,9 +360,9 @@ agent useful can then zap that address from their own wallet, after the fact,
 by choice.
 
 The trust model is the name's. The address is self-asserted: nothing checks
-that it belongs to whoever runs the agent, so the app shows it in full and
-says "Goes to whoever runs this agent. Asserted by nobody." Whose agent it is
-comes only from a verified ownership proof, never from the address. The app
+that it belongs to whoever runs the agent, so the app shows it in full, names
+the agent with its short key beside it, and says "Asserted by nobody." Whose
+agent it is comes only from a verified ownership proof, never from the address. The app
 offers Copy and an "Open in wallet" `lightning:` link, and makes no network
 request of any kind for this, so the maker's Lightning provider never learns a
 viewer's address. Nothing ForgeSworn runs creates, relays or receives a
