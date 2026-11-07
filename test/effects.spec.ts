@@ -304,6 +304,52 @@ test('blur is on by default and genuinely blurs the room', async ({ page }) => {
   expect(blurred.face).toBeLessThan(raw.face * 0.35)
 })
 
+/**
+ * WebKit's 2D context, as far as blur goes, inside Chromium.
+ *
+ * WebKit has no canvas `filter`: assigning one makes an ordinary property
+ * that reads back as written and draws nothing differently. Every browser
+ * on an iPhone is WebKit, and before the downscale fallback "Blur" published
+ * the plain camera there. Shadowing the native accessor with a plain one
+ * reproduces exactly that, and lets the same published-pixel measurement
+ * run against the fallback with Chromium's fake camera.
+ */
+async function ignoreCanvasFilter(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const values = new WeakMap<object, string>()
+    Object.defineProperty(CanvasRenderingContext2D.prototype, 'filter', {
+      configurable: true,
+      get(this: object) {
+        return values.get(this) ?? 'none'
+      },
+      set(this: object, value: unknown) {
+        values.set(this, String(value))
+      },
+    })
+  })
+}
+
+test('blur still blurs the room and the face where the canvas filter does nothing', async ({ page }) => {
+  await ignoreCanvasFilter(page)
+  await openCamera(page)
+  await settle(page)
+  await expect(page.locator('#effectMode')).toHaveText('blur')
+  await expect(page.locator('#effectDegradedNotice')).toContainText('Others see a full blur, not you')
+
+  await page.waitForTimeout(1500)
+  const blurred = await measure(page)
+  expect((await routes(page)).passthrough).toBe(0)
+
+  await page.locator('#effectModes button[data-mode="off"]').click()
+  await expect(page.locator('#effectMode')).toHaveText('off')
+  await page.waitForTimeout(1000)
+  const raw = await measure(page)
+
+  expect(raw.background).toBeGreaterThan(50)
+  expect(blurred.background).toBeLessThan(raw.background * 0.35)
+  expect(blurred.face).toBeLessThan(raw.face * 0.35)
+})
+
 test('full-picture fallback explains its fixed strength and disables adjustment', async ({ page }) => {
   await openCamera(page)
   await settle(page)

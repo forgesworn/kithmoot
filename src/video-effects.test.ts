@@ -77,6 +77,28 @@ class FakeContext implements Context2DLike {
   createImageData(w: number, h: number): ImageDataLike {
     return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }
   }
+
+  /**
+   * Just enough readback for `probeFilterBlur` to find a filter that works,
+   * which is what these tests assume of the browser: a soft ramp after a
+   * draw through `blur(...)`, a sharp black/white edge otherwise. The
+   * WebKit case, and the readback itself, are exercised against a real
+   * rasteriser in video-effects-blur.test.ts.
+   */
+  getImageData(_sx: number, _sy: number, w: number, h: number): ImageDataLike {
+    const last = [...this.ops].reverse().find((o) => o.op === 'drawImage')
+    const soft = !!last && last.filter.startsWith('blur(')
+    const data = new Uint8ClampedArray(w * h * 4)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4
+        const v = soft ? Math.round((255 * x) / Math.max(1, w - 1)) : x < w / 2 ? 0 : 255
+        data[i] = data[i + 1] = data[i + 2] = v
+        data[i + 3] = 255
+      }
+    }
+    return { width: w, height: h, data }
+  }
 }
 
 class FakeCanvas implements CanvasLike {
