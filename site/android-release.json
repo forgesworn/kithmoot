@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.136",
-  "versionCode": 159,
+  "versionName": "0.6.137",
+  "versionCode": 160,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74388044,
-  "apkSha256": "b643cec058c9c28dc684499253164dfe6beb84e54113b8ae6d761dcccfa4fd77",
+  "apkBytes": 74429004,
+  "apkSha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.136-production.apk",
+  "downloadFilename": "kithmoot-0.6.137-production.apk",
   "releaseNotes": [
-    "Calls recover using fresh node access and connect media only between devices in the same call, including muted listeners.",
-    "Video tracks and camera views close safely during recovery and room teardown.",
-    "Removal and room closure complete the saved-room and device-identity wipe after stopping the call."
+    "Updates MLS engine interoperability while keeping the existing invitation and account-network defaults.",
+    "Private invitation previews remain disabled. Legacy joins without authenticated group context are still refused.",
+    "Uses the existing production signing certificate. Update over the installed app on Android 13 or later."
   ]
 }
