@@ -15895,6 +15895,10 @@ async function openZapDialog(address: string, agent: string): Promise<void> {
   wallet.className = 'zapWallet'
   wallet.textContent = 'Open in wallet'
   wallet.href = `lightning:${address}`
+  // The confirmation dialog cycles Tab through its own list of controls, and
+  // a link is not on it unless it says so; without this only a mouse reaches
+  // the wallet.
+  wallet.tabIndex = 0
   content.append(shownAddress, wallet)
   const copy = await confirmAction({
     title: 'Zap',
