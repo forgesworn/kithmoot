@@ -45,21 +45,26 @@
  * already have.** Anyone who does not want a particular person seeing their
  * camera has a problem that peer assist neither creates nor solves.
  *
- * What `deriveMediaKey(roomKey, senderDevice)` does buy here is the other
- * half, and it is the half a relay could otherwise abuse: a volunteer cannot
- * present one member's media as another's, because the receiving end derives
- * the key for the device it believes a track belongs to, and a relabelled
- * stream fails its tag. A volunteer can drop a track - it could always do
- * that by not relaying - and it cannot forge one. See `media-crypto.ts`.
+ * What a volunteer can do that it could not before is relabel. Nothing on
+ * this path checks who made a frame: there is no encoded-frame layer here
+ * (that runs on the server forwarder path only, see `media-crypto.ts`), each
+ * hop is DTLS-SRTP that ends at the volunteer, and even with a frame layer
+ * every member can derive every sender's media key. The receiving end
+ * attributes a carried track because the volunteer's offer names it in
+ * `carry` and the receiving end asked that volunteer to carry exactly that
+ * person, which an honest or confused volunteer cannot get wrong silently
+ * and a dishonest one can. So a volunteer can drop a track - it could always
+ * do that by not relaying - and, until each sender signs their own frames,
+ * it could show its own camera under another member's name.
  *
- * ## Where this sits beside the encryption transform
+ * ## Where this sits beside the other transforms
  *
- * A sender or receiver has room for one transform, and on a volunteer's
- * connections both this and `installTransforms` want it. They compose rather
- * than compete: on an inbound receiver the one transform copies the raw
- * ciphertext into `accept()` for relaying and *then* decrypts in place for
- * this device's own screen. On the outbound side there is no contest at all,
- * because the relayed stream rides its own clock track and its own sender.
+ * A sender or receiver has room for one transform. On the mesh path nothing
+ * else wants it: the encryption transform is only installed on connections
+ * to a server forwarder. The receiver side here is a tee - each frame is
+ * copied into the relay and then handed on to this device's own decoder,
+ * because a volunteer is on the call and still sees and hears the people it
+ * carries. The sender side rides its own clock track and its own sender.
  *
  * ## What the browsers actually do
  *
@@ -72,6 +77,7 @@
 import type { EncodedFrameLike, FrameType } from './media-crypto.js'
 import { assistPairKey, MAX_ASSISTED_PAIRS } from './peer-assist.js'
 import { normaliseHex } from './hex.js'
+import type { TrackRole } from './types.js'
 
 export type { EncodedFrameLike } from './media-crypto.js'
 
@@ -223,14 +229,38 @@ function emptyStats(): RelayStats {
  * about them is their length, for the byte counters that tell a person what
  * they are actually spending.
  */
+export interface FrameRelayOptions {
+  queue?: number
+  /**
+   * Treat the stream as video with key and delta frames.
+   *
+   * A delta frame is only any use to a decoder that has the frames it refers
+   * to, so a video leg forwards nothing until a key frame arrives, and when
+   * its queue overflows it drops back to the newest key frame rather than
+   * shedding the oldest delta - which would leave the far end decoding
+   * references to a frame it never got. Audio frames carry no type and are
+   * independent, so an audio leg leaves this off.
+   */
+  keyFrames?: boolean
+  /** A video leg is waiting for a key frame it does not have. The caller
+   *  asks the source for one; this may be called often, so rate limit it. */
+  onKeyFrameNeeded?: () => void
+}
+
 export class FrameRelay {
   readonly #queue: Array<{ data: ArrayBuffer; type?: FrameType }> = []
   readonly #limit: number
   readonly #stats = emptyStats()
+  readonly #keyFrames: boolean
+  readonly #onKeyFrameNeeded?: () => void
+  #awaitingKey: boolean
   #closed = false
 
-  constructor(opts: { queue?: number } = {}) {
+  constructor(opts: FrameRelayOptions = {}) {
     this.#limit = opts.queue !== undefined && opts.queue > 0 ? Math.floor(opts.queue) : DEFAULT_RELAY_QUEUE
+    this.#keyFrames = opts.keyFrames === true
+    this.#awaitingKey = this.#keyFrames
+    this.#onKeyFrameNeeded = opts.onKeyFrameNeeded
   }
 
   get stats(): Readonly<RelayStats> {
@@ -239,6 +269,11 @@ export class FrameRelay {
 
   get queued(): number {
     return this.#queue.length
+  }
+
+  /** True while a video leg has nothing it can start a decoder on. */
+  get awaitingKeyFrame(): boolean {
+    return this.#awaitingKey
   }
 
   /**
@@ -274,12 +309,47 @@ export class FrameRelay {
     const data = frame.data
     this.#stats.received += 1
     this.#stats.bytesIn += data.byteLength
+    if (this.#keyFrames) {
+      if (frame.type === 'key') this.#awaitingKey = false
+      else if (this.#awaitingKey) {
+        this.#stats.dropped += 1
+        this.#wantKeyFrame()
+        return
+      }
+    }
     // Copied, because the frame object belongs to the inbound pipeline and is
     // recycled the moment this returns.
     this.#queue.push({ data: data.slice(0), type: frame.type })
-    while (this.#queue.length > this.#limit) {
-      this.#queue.shift()
-      this.#stats.dropped += 1
+    if (this.#queue.length <= this.#limit) return
+    if (!this.#keyFrames) {
+      while (this.#queue.length > this.#limit) {
+        this.#queue.shift()
+        this.#stats.dropped += 1
+      }
+      return
+    }
+    // Video: keep the newest key frame and what follows it, or nothing.
+    let key = -1
+    for (let i = this.#queue.length - 1; i >= 0; i -= 1) {
+      if (this.#queue[i]!.type === 'key') {
+        key = i
+        break
+      }
+    }
+    const cut = key > 0 && this.#queue.length - key <= this.#limit ? key : this.#queue.length
+    this.#queue.splice(0, cut)
+    this.#stats.dropped += cut
+    if (this.#queue.length === 0) {
+      this.#awaitingKey = true
+      this.#wantKeyFrame()
+    }
+  }
+
+  #wantKeyFrame(): void {
+    try {
+      this.#onKeyFrameNeeded?.()
+    } catch {
+      // Asking for a key frame is a courtesy to the far end's decoder.
     }
   }
 
@@ -320,7 +390,17 @@ export class FrameRelay {
       return false
     }
     frame.data = next.data
-    if (next.type !== undefined) frame.type = next.type
+    // A browser's encoded video frame has a read-only `type`, and assigning
+    // it throws in a module. The packetiser reads the codec's own bitstream
+    // for what kind of frame it is, so this is for frames that are plain
+    // objects, and harmless to skip.
+    if (next.type !== undefined) {
+      try {
+        frame.type = next.type
+      } catch {
+        // Read-only on a real frame.
+      }
+    }
     this.#stats.forwarded += 1
     this.#stats.bytesOut += next.data.byteLength
     return true
@@ -344,6 +424,11 @@ export class RelayPair {
   readonly a: string
   readonly b: string
   readonly #legs: Map<string, FrameRelay>
+  /** Counters for a leg pumped somewhere this object cannot see - a worker
+   *  - reported with `report`. Replace that leg's own counters. */
+  readonly #reported = new Map<string, RelayStats>()
+  /** The ends that have asked for this pair. See `asked`. */
+  readonly #asked = new Set<string>()
   #closed = false
 
   constructor(a: string, b: string, opts: { queue?: number } = {}) {
@@ -354,6 +439,32 @@ export class RelayPair {
       [this.a, new FrameRelay(opts)],
       [this.b, new FrameRelay(opts)],
     ])
+  }
+
+  /**
+   * Record that one end has asked for this pair to be carried.
+   *
+   * Consent runs per direction: a volunteer carries X's media to Y because X
+   * asked, and for no other reason. An end that did not ask may have refused
+   * the other one - blocked them, or kept its media from an agent - and its
+   * media must never reach them through somebody else. `Mesh` only accepts
+   * once both have asked, and the pump only wires a leg whose source asked.
+   */
+  ask(from: string): void {
+    const device = normaliseHex(from)
+    if (device === this.a || device === this.b) this.#asked.add(device)
+  }
+
+  /** Whether `from` has asked, and so whether its leg may be carried. */
+  asked(from: string): boolean {
+    return this.#asked.has(normaliseHex(from))
+  }
+
+  /** Counters for `from`'s leg from a pump running elsewhere. */
+  report(from: string, stats: RelayStats): void {
+    const device = normaliseHex(from)
+    if (this.#closed || !this.#legs.has(device)) return
+    this.#reported.set(device, { ...stats })
   }
 
   /** The leg carrying `from`'s media towards the other end. Null for a device
@@ -378,8 +489,8 @@ export class RelayPair {
   /** Both legs added together: what carrying this pair has actually cost. */
   get stats(): RelayStats {
     const total = emptyStats()
-    for (const leg of this.#legs.values()) {
-      const stats = leg.stats
+    for (const [device, leg] of this.#legs) {
+      const stats = this.#reported.get(device) ?? leg.stats
       total.received += stats.received
       total.forwarded += stats.forwarded
       total.dropped += stats.dropped
@@ -395,6 +506,58 @@ export class RelayPair {
     this.#closed = true
     for (const leg of this.#legs.values()) leg.close()
   }
+}
+
+/**
+ * One of a source's tracks, carried one way through this device.
+ *
+ * `source` is the receiver on this device's connection to `from`, where
+ * `from`'s own media already arrives because this device is on the call with
+ * them. `sink` is the clock: a clone of that same received track, sent on
+ * this device's connection to `to` so the encoder ticks at the source's own
+ * rate, with every frame it produces replaced by one of the source's.
+ */
+export interface RelayLeg {
+  pair: RelayPair
+  from: string
+  to: string
+  role: TrackRole
+  source: { track: MediaStreamTrack; receiver: unknown }
+  sink: { clock: MediaStreamTrack; sender: unknown; transceiver?: unknown }
+  /** This leg cannot be carried after all - a codec that turned out not to
+   *  match, a transform the browser took back. The pair is dropped and both
+   *  ends told, so they find another route rather than waiting on this one. */
+  fail(reason: string): void
+}
+
+export interface RelayLegHandle {
+  close(): void
+}
+
+/**
+ * The browser half of carrying a pair: the encoded-frame transforms that
+ * take a source's frames off one connection and put them on another.
+ *
+ * A seam rather than code here for the same reason as the forwarder's media
+ * pipeline: a script transform needs a worker, and the worker's URL belongs
+ * to the application's bundler. Without one, `Mesh` refuses every request to
+ * carry a pair, because accepting a pair and then carrying nothing is the
+ * failure peer assist was paused for.
+ */
+export interface RelayMediaPipeline {
+  /** Whether this pipeline can carry anything at all, right now. */
+  readonly ready: boolean
+  /**
+   * A receiver this device might later be asked to tap. Called for every
+   * track that arrives on a direct connection while this device is
+   * offering, so a transform can be claimed before it is needed. Optional:
+   * a pipeline that can attach late need not.
+   */
+  prepare?(receiver: unknown, track: MediaStreamTrack): void
+  /** Start one leg. Null when it cannot be carried; the caller removes the
+   *  clock and carries the pair's other tracks without it. */
+  carry(leg: RelayLeg): RelayLegHandle | null
+  close?(): void
 }
 
 export interface PeerRelayOptions {

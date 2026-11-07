@@ -96,9 +96,10 @@ export interface CapacityEstimate {
  * volunteer is a member of the room and holds the key - and has to be
  * directly connected to both ends of a pair to carry them, which is how it
  * receives their media as an ordinary participant anyway. **Relaying gives it
- * nothing it did not already have.** What it still cannot do is present one
- * member's media as another's, because `deriveMediaKey(roomKey, sender)`
- * binds a frame to whoever sent it. See `peer-relay.ts`.
+ * nothing it did not already have.** What it can do is drop a track, and,
+ * until each sender signs their own frames, show something else under
+ * another member's name: nothing on the assist path checks who made a frame.
+ * See `peer-relay.ts`.
  */
 export interface AssistOffer {
   /**

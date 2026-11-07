@@ -33,7 +33,7 @@ import type { RelayTestRequest, RelayTestResult } from './relay-test.js'
 import type { ForwarderMediaPipeline } from './mesh.js'
 import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
-import type { PeerRelay, RelayPair } from './peer-relay.js'
+import type { PeerRelay, RelayMediaPipeline, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
 import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf } from './chat.js'
@@ -344,6 +344,10 @@ export interface RoomSessionBaseOptions {
    *  carry anybody, whatever `assist` says: a text-only room is built this
    *  way, and so is any room that has no call. */
   relay?: PeerRelay
+  /** The encoded-frame pumps that carry a pair. Handed to the mesh - see
+   *  `MeshOptions.relayMedia`. Without one this device refuses every request
+   *  to carry, whatever `assist` and `relay` say. */
+  relayMedia?: RelayMediaPipeline
   /**
    * Whether a failing pair may be routed through a member who volunteered.
    * Defaults to on. Passed to the mesh as `MeshOptions.assist`. An app that
@@ -950,7 +954,7 @@ export class RoomSession {
       if (!node || node.room !== roomId || opts.authority !== node.authority || opts.endsAt !== undefined && opts.endsAt !== node.endsAt) throw new Error('Node room policy does not match this room')
       assertNodeRoomTransport(this.#admissionTransport, node, getPublicKey(opts.deviceSk))
       if (opts.factory) assertNodeCallFactory(opts.factory, node, getPublicKey(opts.deviceSk))
-      if (opts.relay || opts.assist || opts.forwarders?.length || opts.forwarderMedia || opts.forwarderMediaPipeline || opts.preferForwarder || opts.uplink || opts.peerAssist === true) throw new Error('Node rooms use only their own call relay')
+      if (opts.relay || opts.relayMedia || opts.assist || opts.forwarders?.length || opts.forwarderMedia || opts.forwarderMediaPipeline || opts.preferForwarder || opts.uplink || opts.peerAssist === true) throw new Error('Node rooms use only their own call relay')
       opts = { ...opts, node, endsAt: node.endsAt, peerAssist: false }
     }
     this.roomId = roomId
@@ -1521,6 +1525,7 @@ export class RoomSession {
         routeTimeoutMs: this.#opts.routeTimeoutMs,
         turnRouteTimeoutMs: this.#opts.turnRouteTimeoutMs,
         relay: this.#opts.relay,
+        relayMedia: this.#opts.relayMedia,
         assist: () => this.#opts.peerAssist !== false,
         expiresAt: this.#eventExpiration(),
         // Consent, checked at the moment of the request rather than at
@@ -2794,8 +2799,12 @@ export class RoomSession {
     // Stops carrying anybody before announcing that we no longer will, so
     // there is no window in which the room believes an offer this device has
     // already withdrawn.
-    if (this.#assist() === null) this.#opts.relay?.close()
-    else this.#opts.relay?.reopen()
+    // Through the mesh when there is one, so each pair is ended properly:
+    // its pumps stopped, `onRelayStop` fired, and both ends told to move on.
+    if (this.#assist() === null) {
+      if (this.#mesh) this.#mesh.stopRelaying()
+      else this.#opts.relay?.close()
+    } else this.#opts.relay?.reopen()
     if (this.#self && !this.#left) await this.#publishEntry(true)
   }
 

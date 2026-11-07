@@ -27,6 +27,12 @@ export interface ScreenAnnotation {
 export type SignalType = 'offer' | 'answer' | 'ice' | 'assist' | 'annotation' | 'ack' | 'health' | 'sync' | 'relay-test' | 'relay-test-result'
 const SIGNAL_TYPES: readonly SignalType[] = ['offer', 'answer', 'ice', 'assist', 'annotation', 'ack', 'health', 'sync', 'relay-test', 'relay-test-result']
 
+/** One carried m-line: whose media it is, and which of their tracks. */
+export interface CarryEntry {
+  device: string
+  role: TrackRole
+}
+
 export interface SignalBody {
   /**
    * `assist` is not a negotiation step: it is one member asking another to
@@ -77,8 +83,33 @@ export interface SignalBody {
   /** For an `assist` signal: present on the reply and absent on the request.
    *  A refusal is an ordinary answer - a volunteer with no slots left - and
    *  saying so at once is what lets the asker fall to the next rung rather
-   *  than waiting out a timeout. */
+   *  than waiting out a timeout. A volunteer that stops carrying a pair it
+   *  had accepted says `accept: false` again, to each end still there. */
   accept?: boolean
+  /**
+   * For an `assist` signal from one end of a pair to the volunteer carrying
+   * it: this end has stopped using the route, so the volunteer can drop the
+   * pair rather than carry media nobody is watching for.
+   *
+   * Always sent with `accept: false` as well, so a volunteer from before this
+   * field existed reads it as a reply to a request it never made and ignores
+   * it, rather than as a fresh request to carry the pair again.
+   */
+  release?: true
+  /**
+   * For an offer from a volunteer to one end of a pair it carries: which of
+   * the offer's m-lines carry somebody else's media, and whose. Keyed by
+   * transceiver mid.
+   *
+   * Needed because a browser cannot choose a sender's track id, so a carried
+   * stream can never match the source's roster advert by id. The receiving
+   * end attributes a carried m-line only when its own route for `device` is
+   * through this volunteer and `device`'s roster entry advertises `role`.
+   * Optional and additive: an old reader's JSON parse ignores it. Malformed
+   * entries are dropped on decode, not the whole signal - see
+   * `sanitiseCarry`.
+   */
+  carry?: Record<string, CarryEntry>
   /** Temporary screen-share markup. It uses signalling because that path is
    * encrypted, live and already addressed to every room device. */
   annotation?: ScreenAnnotation
@@ -211,6 +242,37 @@ export const MAX_BATCHED_CANDIDATES = 64
 export const MAX_CANDIDATE_LENGTH = 2048
 const MAX_MID_LENGTH = 16
 
+/** The most carried m-lines one offer may name. Three pairs with a camera
+ *  and a microphone each is six; eight leaves room for a shared screen. */
+export const MAX_CARRY_ENTRIES = 8
+const DEVICE_RE = /^[0-9a-f]{64}$/i
+
+/**
+ * Keep the well-formed entries of an offer's `carry` map and drop the rest.
+ *
+ * Entry by entry rather than all or nothing, unlike the profile-2 fields:
+ * one bad entry says nothing about the others, and the worst a dropped one
+ * costs is a carried track that is not shown, which is the safe failure.
+ * Undefined for anything that is not a map, for a map with more than
+ * `MAX_CARRY_ENTRIES` entries (which no honest volunteer sends), and for a
+ * map with nothing left in it.
+ */
+export function sanitiseCarry(value: unknown): Record<string, CarryEntry> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (entries.length > MAX_CARRY_ENTRIES) return undefined
+  const out: Record<string, CarryEntry> = {}
+  for (const [mid, entry] of entries) {
+    if (mid.length < 1 || mid.length > MAX_MID_LENGTH) continue
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
+    const { device, role } = entry as { device?: unknown; role?: unknown }
+    if (typeof device !== 'string' || !DEVICE_RE.test(device)) continue
+    if (typeof role !== 'string' || !TRACK_ROLES.includes(role as TrackRole)) continue
+    out[mid] = { device: normaliseHex(device), role: role as TrackRole }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
 function isPositiveInt(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1
 }
@@ -291,6 +353,7 @@ export function validSignalExtensions(body: SignalBody): boolean {
   if (body.restart !== undefined && body.restart !== true) return false
   if (body.slots !== undefined && !validSlotMap(body.slots)) return false
   if (body.rx !== undefined && !validRx(body.rx)) return false
+  if (body.release !== undefined && body.release !== true) return false
   // The two new types that carry no other required field are meaningless
   // without the one field that is their whole point.
   if (body.type === 'sync' && !isPositiveInt(body.gen)) return false
@@ -340,6 +403,12 @@ export function unwrapSignalEvent(
     if (body.type === 'relay-test' && !validRelayTestRequest(body.relayTest)) return null
     if (body.type === 'relay-test-result' && !validRelayTestResult(body.relayTest)) return null
     if (!validSignalExtensions(body)) return null
+    // `carry` is cleaned rather than judged: see `sanitiseCarry`.
+    if (body.carry !== undefined) {
+      const carry = sanitiseCarry(body.carry)
+      if (carry) body.carry = carry
+      else delete body.carry
+    }
     // Canonicalise the two connection-id fields the same way every other hex
     // identifier on this wire is canonicalised - see `normaliseHex` - so a
     // later `(conn, seq)` dedup or equality check is correct by construction.

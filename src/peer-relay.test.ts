@@ -245,6 +245,83 @@ describe('FrameRelay', () => {
   })
 })
 
+describe('FrameRelay carrying video', () => {
+  it('forwards nothing until a key frame, and asks for one meanwhile', () => {
+    let asked = 0
+    const relay = new FrameRelay({ keyFrames: true, onKeyFrameNeeded: () => (asked += 1) })
+    relay.accept(frame(1))
+    relay.accept(frame(2))
+    expect(relay.queued).toBe(0)
+    expect(asked).toBe(2)
+    expect(relay.awaitingKeyFrame).toBe(true)
+
+    relay.accept(frame(3, 8, 'key'))
+    relay.accept(frame(4))
+    expect(relay.awaitingKeyFrame).toBe(false)
+    const out = frame(0)
+    expect(relay.fill(out)).toBe(true)
+    expect(bytesOf(out)[0]).toBe(3)
+  })
+
+  it('drops back to the newest key frame when it overflows, never to a stray delta', () => {
+    const relay = new FrameRelay({ queue: 3, keyFrames: true })
+    relay.accept(frame(1, 8, 'key'))
+    relay.accept(frame(2))
+    relay.accept(frame(3, 8, 'key'))
+    relay.accept(frame(4))
+    // Four held against a limit of three: everything before the newest key
+    // frame goes, so the far end's decoder never gets a delta whose
+    // reference it was not sent.
+    expect(relay.queued).toBe(2)
+    const out = frame(0)
+    relay.fill(out)
+    expect(bytesOf(out)[0]).toBe(3)
+  })
+
+  it('starts again from a key frame when there is none to fall back to', () => {
+    let asked = 0
+    const relay = new FrameRelay({ queue: 2, keyFrames: true, onKeyFrameNeeded: () => (asked += 1) })
+    relay.accept(frame(1, 8, 'key'))
+    relay.accept(frame(2))
+    relay.accept(frame(3))
+    expect(relay.queued).toBe(0)
+    expect(relay.awaitingKeyFrame).toBe(true)
+    expect(asked).toBe(1)
+  })
+
+  it('does not throw when a browser frame will not take a type', () => {
+    const relay = new FrameRelay()
+    relay.accept(frame(1, 8, 'key'))
+    const out = { data: new ArrayBuffer(1) } as EncodedFrameLike
+    Object.defineProperty(out, 'type', { get: () => 'delta' })
+    expect(() => relay.fill(out)).not.toThrow()
+    expect(bytesOf(out)[0]).toBe(1)
+  })
+})
+
+describe('RelayPair consent and counters', () => {
+  const a = 'a'.repeat(64)
+  const b = 'b'.repeat(64)
+
+  it('carries a direction only once its source has asked', () => {
+    const pair = new RelayPair(a, b)
+    expect(pair.asked(a)).toBe(false)
+    pair.ask(a.toUpperCase())
+    expect(pair.asked(a)).toBe(true)
+    expect(pair.asked(b)).toBe(false)
+    pair.ask('c'.repeat(64))
+    expect(pair.asked('c'.repeat(64))).toBe(false)
+  })
+
+  it('counts what a pump elsewhere reported, in place of its own idle legs', () => {
+    const pair = new RelayPair(a, b)
+    pair.report(a, { received: 10, forwarded: 9, dropped: 1, starved: 0, bytesIn: 1_000, bytesOut: 900 })
+    expect(pair.stats).toMatchObject({ forwarded: 9, bytesOut: 900 })
+    pair.report('c'.repeat(64), { received: 1, forwarded: 1, dropped: 0, starved: 0, bytesIn: 1, bytesOut: 1 })
+    expect(pair.stats.bytesOut).toBe(900)
+  })
+})
+
 describe('RelayPair', () => {
   const A = 'a'.repeat(64)
   const B = 'b'.repeat(64)

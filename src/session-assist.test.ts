@@ -9,6 +9,8 @@ import { deriveRoom } from './room.js'
 import { decodeRosterEvent } from './roster.js'
 import { MAX_ASSISTED_PAIRS } from './peer-assist.js'
 import { PeerRelay } from './peer-relay.js'
+import type { RelayPair } from './peer-relay.js'
+import { getPublicKey } from 'nostr-tools/pure'
 import type { AssistOffer } from './types.js'
 
 const NOW = 1_800_000_000
@@ -40,6 +42,7 @@ interface Fixture {
   /** Built the way the app builds a text-only room: no relay registry. */
   chatOnly?: boolean
   factory?: ReturnType<typeof createFakeFactory>
+  onRelayStop?: (pair: RelayPair) => void
 }
 
 function session(fixture: Fixture): RoomSession {
@@ -53,6 +56,7 @@ function session(fixture: Fixture): RoomSession {
     assist: fixture.assist,
     relay: fixture.chatOnly ? undefined : (fixture.peerRelay ?? new PeerRelay()),
     factory: fixture.factory,
+    onRelayStop: fixture.onRelayStop,
   })
 }
 
@@ -264,6 +268,24 @@ describe('revoking mid-call', () => {
     // withdrawn.
     expect(peerRelay.relaying).toBe(0)
     expect(entries(relay).at(-1)!.assist).toBeUndefined()
+    s.leave()
+  })
+
+  it('says it has stopped carrying each pair, so the app can take the pumps down', async () => {
+    const relay = new SimRelay()
+    const peerRelay = new PeerRelay()
+    const stopped: string[] = []
+    const s = session({ relay, factory: createFakeFactory(), peerRelay, assist: () => offer(), onRelayStop: (pair) => stopped.push(pair.key) })
+    await s.join([], {})
+    const ends = Array.from({ length: 4 }, () => getPublicKey(generateSecretKey()))
+    const first = peerRelay.admit(ends[0]!, ends[1]!)!
+    const second = peerRelay.admit(ends[2]!, ends[3]!)!
+
+    await s.setAssist(null)
+
+    // Closing the registry on its own used to fire nothing at all.
+    expect(stopped.sort()).toEqual([first.key, second.key].sort())
+    expect(peerRelay.relaying).toBe(0)
     s.leave()
   })
 

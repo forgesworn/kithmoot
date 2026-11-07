@@ -5,7 +5,9 @@
 // panel says, and when the timer runs. The browser side is test/peer-assist.spec.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoomSession } from '../../src/index.js'
-import { bitrate, blockSentence, installPeerAssist, quantity } from './call-assist.js'
+import { assistSessionOptions, bitrate, blockSentence, installPeerAssist, PEER_ASSIST_PAUSED, quantity } from './call-assist.js'
+import { PeerRelay } from '../../src/peer-relay.js'
+import { assistSlots } from '../../src/peer-assist.js'
 import type { PeerAssistHooks } from './call-assist.js'
 
 const A = 'a'.repeat(64)
@@ -492,13 +494,104 @@ describe('connection keys', () => {
 })
 
 describe('while peer assist is paused', () => {
-  it('hides the control and ignores a press, by default', async () => {
-    const { paused: _ignored, ...rest } = hooks()
-    const assist = installPeerAssist(rest)
+  it('is not paused by default any more', () => {
+    expect(PEER_ASSIST_PAUSED).toBe(false)
+  })
+
+  it('hides the control and ignores a press when paused', async () => {
+    const assist = installPeerAssist({ ...hooks(), paused: () => true })
     onScreen = fakeSession()
     assist.render()
     expect(document.getElementById('assist')!.hidden).toBe(true)
     await assist.toggle()
     expect(assist.offer()).toBeNull()
+  })
+})
+
+describe('carrying under load', () => {
+  const SRFLX = 'candidate:1 1 udp 1686052607 93.184.216.34 54321 typ srflx raddr 93.184.216.34 rport 54321'
+
+  it('keeps the offer, closed to new pairs, when carrying uses up the spare uplink', async () => {
+    vi.useFakeTimers()
+    stubCapableDesktop()
+    const assist = installPeerAssist(hooks())
+    assist.noteCandidate(SRFLX)
+    // 2 Mbps per peer against 5 Mbps available: not enough spare for a pair.
+    connections.set('direct:x:1', fakeConnection(500_000, 5_000_000))
+    assist.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    await assist.toggle()
+
+    // Carrying nobody, it is an ordinary block, and nothing is offered.
+    expect(assist.offer()).toBeNull()
+
+    // Carrying a pair is what used the spare up. Withdrawing now would drop
+    // that pair mid-call because of its own load; instead the offer stays
+    // with no slots, so nobody new is routed here.
+    assist.relay.admit(A, B)
+    const held = assist.offer()
+    expect(held).not.toBeNull()
+    expect(held!.relaying).toBe(1)
+    expect(assistSlots(held!)).toBe(0)
+  })
+
+  it('still withdraws for anything other than load, carrying or not', async () => {
+    vi.useFakeTimers()
+    stubCapableDesktop()
+    const assist = installPeerAssist(hooks())
+    // Never measured reachable.
+    connections.set('direct:x:1', fakeConnection(500_000, 5_000_000))
+    assist.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    await assist.toggle()
+    assist.relay.admit(A, B)
+    expect(assist.offer()).toBeNull()
+  })
+
+  it('does not offer on a browser whose pumps cannot run', async () => {
+    vi.useFakeTimers()
+    stubCapableDesktop()
+    const assist = installPeerAssist({ ...hooks(), canPump: () => false })
+    assist.noteCandidate(SRFLX)
+    connections.set('direct:x:1', fakeConnection(500_000, 20_000_000))
+    assist.start()
+    await vi.advanceTimersByTimeAsync(4000)
+    await assist.toggle()
+    expect(assist.offer()).toBeNull()
+  })
+})
+
+describe('what a room session is told', () => {
+  const base = {
+    roomNode: false,
+    chatOnly: false,
+    relayOnly: false,
+    passOn: true,
+    paused: false,
+    offer: () => null,
+    relay: new PeerRelay(),
+  }
+
+  it('may ask and may offer in an ordinary call', () => {
+    const options = assistSessionOptions(base)
+    expect(options.peerAssist).toBeUndefined()
+    expect(options.relay).toBe(base.relay)
+    expect(options.assist).toBe(base.offer)
+  })
+
+  it('with Hide my IP on, never asks and never offers', () => {
+    expect(assistSessionOptions({ ...base, relayOnly: true })).toEqual({ peerAssist: false })
+  })
+
+  it('with "Let members pass my call on" off, never asks but may still help others', () => {
+    const options = assistSessionOptions({ ...base, passOn: false })
+    expect(options.peerAssist).toBe(false)
+    expect(options.relay).toBe(base.relay)
+  })
+
+  it('never in a node room, a chat-only room, or while paused', () => {
+    for (const over of [{ roomNode: true }, { chatOnly: true }, { paused: true }]) {
+      expect(assistSessionOptions({ ...base, ...over })).toEqual({ peerAssist: false })
+    }
   })
 })

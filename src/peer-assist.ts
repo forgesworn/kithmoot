@@ -434,8 +434,26 @@ export function assistDecision(env: AssistEnvironment, enabled?: boolean): Assis
  * `assistSlots`.
  */
 export function buildAssistOffer(env: AssistEnvironment, relaying: number, enabled?: boolean): AssistOffer | null {
-  if (!assistDecision(env, enabled).offering) return null
   const carried = Number.isInteger(relaying) && relaying >= 0 ? relaying : 0
+  const decision = assistDecision(env, enabled)
+  if (!decision.offering) {
+    // Hysteresis. Carrying raises this device's own send rate, which is
+    // exactly what `no-spare-uplink` measures, so without this an offer could
+    // withdraw itself because of the pairs it is carrying and drop every one
+    // of them mid-call. While it is carrying anybody and nothing else stands
+    // in the way, the offer stays, closed to new pairs: `maxRelayed` equal to
+    // `relaying` leaves no slots, so nobody else is routed here, and the
+    // pairs already carried keep their route.
+    const hard = decision.blocks.filter((block) => HARD_BLOCKS.includes(block))
+    const onlyLoad = enabled === true && carried > 0 && hard.length === 1 && hard[0] === 'no-spare-uplink'
+    if (!onlyLoad) return null
+    return sanitiseAssistOffer({
+      reachability: env.reachability,
+      capacity: env.capacity,
+      relaying: carried,
+      maxRelayed: Math.min(carried, MAX_ASSISTED_PAIRS),
+    }) ?? null
+  }
   return sanitiseAssistOffer({
     reachability: env.reachability,
     capacity: env.capacity,

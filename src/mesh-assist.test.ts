@@ -3,6 +3,7 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { Mesh } from './mesh.js'
 import type { MeshOptions, MeshSession, RouteView } from './mesh.js'
 import { PeerRelay } from './peer-relay.js'
+import type { RelayLeg, RelayMediaPipeline } from './peer-relay.js'
 import { MAX_ASSISTED_PAIRS } from './peer-assist.js'
 import { unwrapSignal, wrapSignal } from './signal.js'
 import { createFakeFactory } from '../test/fake-rtc.js'
@@ -71,9 +72,9 @@ interface Harness {
   close(): void
 }
 
-function harness(over: Partial<MeshOptions> = {}): Harness {
+function harness(over: Partial<MeshOptions> = {}, factoryOptions: Parameters<typeof createFakeFactory>[0] = {}): Harness {
   const session = new FakeSession()
-  const factory = createFakeFactory()
+  const factory = createFakeFactory(factoryOptions)
   const relay = new SimRelay()
   const local = device()
   const routes: Array<{ device: string; route: RouteView }> = []
@@ -127,6 +128,67 @@ function assistSignals(relay: SimRelay, recipientSk: Uint8Array): Array<{ assist
 
 function unwrap(event: Parameters<typeof unwrapSignal>[0], sk: Uint8Array) {
   return unwrapSignal(event, { recipientSk: sk, roomId: ROOM_ID })
+}
+
+/** The full assist signals this mesh has published to one recipient. */
+function assistBodies(relay: SimRelay, recipientSk: Uint8Array): Array<{ assist?: string; accept?: boolean; release?: true }> {
+  const out: Array<{ assist?: string; accept?: boolean; release?: true }> = []
+  for (const event of relay.published) {
+    const unwrapped = unwrap(event, recipientSk)
+    if (unwrapped?.body.type === 'assist') out.push({ assist: unwrapped.body.assist, accept: unwrapped.body.accept, release: unwrapped.body.release })
+  }
+  return out
+}
+
+/** A pump that records what it was asked to carry, as the app's would. */
+function fakePipeline(ready = true): RelayMediaPipeline & { legs: RelayLeg[]; closed: RelayLeg[]; prepared: unknown[] } {
+  const legs: RelayLeg[] = []
+  const closed: RelayLeg[] = []
+  const prepared: unknown[] = []
+  return {
+    ready,
+    legs,
+    closed,
+    prepared,
+    prepare: (receiver) => void prepared.push(receiver),
+    carry: (leg) => {
+      legs.push(leg)
+      return { close: () => void closed.push(leg) }
+    },
+  }
+}
+
+/** A track good enough to be cloned into a clock and stopped. */
+function mediaTrack(id: string, kind: 'audio' | 'video' = 'video'): MediaStreamTrack {
+  const track = {
+    id,
+    kind,
+    muted: false,
+    readyState: 'live' as MediaStreamTrackState,
+    ended: 0,
+    clone: () => mediaTrack(`${id}-clock`, kind),
+    stop: () => {
+      track.readyState = 'ended'
+    },
+    dispatchEvent: (event: Event) => {
+      if (event.type === 'ended') track.ended += 1
+      return true
+    },
+  }
+  return track as unknown as MediaStreamTrack
+}
+
+/** A receiver whose inbound byte count a test moves by hand. */
+function receiver(): { bytes: number; getStats(): Promise<Map<string, Record<string, unknown>>> } {
+  const r = {
+    bytes: 0,
+    getStats: async () => new Map([['in', { type: 'inbound-rtp', bytesReceived: r.bytes }]]),
+  }
+  return r
+}
+
+function signal(h: Harness, from: { sk: Uint8Array; pub: string }, body: Omit<Parameters<typeof wrapSignal>[0], 'roomId'>): void {
+  h.relay.publish(wrapSignal({ ...body, roomId: ROOM_ID } as Parameters<typeof wrapSignal>[0], { senderSk: from.sk, recipientPubkey: h.local.pub }))
 }
 
 
@@ -466,27 +528,39 @@ describe('a volunteer vanishing mid-call', () => {
     h.close()
   })
 
-  it('takes yes for an answer', async () => {
-    const volunteer = device()
-    const remote = device()
-    const h = harness()
+  it('does not count a yes as connected, and gives the first media a fresh budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const volunteer = device()
+      const remote = device()
+      const h = harness({ routeTimeoutMs: 10_000 })
+      h.session.setViews([
+        person(volunteer.pub, offer()),
+        { ...person(remote.pub), tracks: [{ trackId: 'cam-remote', role: 'camera', device: remote.pub }] },
+      ])
+      await vi.advanceTimersByTimeAsync(0)
+      h.state(volunteer.pub, 'connected')
+      h.state(remote.pub, 'failed')
+      await vi.advanceTimersByTimeAsync(0)
 
-    h.session.setViews([person(volunteer.pub, offer()), person(remote.pub)])
-    await settle()
-    h.state(volunteer.pub, 'connected')
-    h.state(remote.pub, 'failed')
-    await settle()
+      // Most of the request's budget goes on the volunteer holding it for the
+      // other end, then it says yes.
+      await vi.advanceTimersByTimeAsync(7_000)
+      signal(h, volunteer, { type: 'assist', assist: remote.pub, accept: true })
+      await vi.advanceTimersByTimeAsync(0)
 
-    h.relay.publish(
-      wrapSignal(
-        { type: 'assist', roomId: ROOM_ID, assist: remote.pub, accept: true },
-        { senderSk: volunteer.sk, recipientPubkey: h.local.pub },
-      ),
-    )
-    await settle()
-
-    expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'assist', connected: true })
-    h.close()
+      // A yes is not media: the route is not connected...
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'assist', endpoint: volunteer.pub, connected: false })
+      // ...and the budget for the first media starts again from the yes, so
+      // the 3 s left of the request's would not have been enough.
+      await vi.advanceTimersByTimeAsync(9_000)
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('assist')
+      await vi.advanceTimersByTimeAsync(1_500)
+      expect(h.mesh.routes.get(remote.pub)?.tier).not.toBe('assist')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -495,6 +569,11 @@ describe('being the volunteer', () => {
     h.relay.publish(
       wrapSignal({ type: 'assist', roomId: ROOM_ID, assist: far }, { senderSk: from.sk, recipientPubkey: h.local.pub }),
     )
+  }
+  /** Both ends ask, as they do when the pair really cannot connect. */
+  function askBoth(h: Harness, a: { sk: Uint8Array; pub: string }, b: { sk: Uint8Array; pub: string }): void {
+    ask(h, a, b.pub)
+    ask(h, b, a.pub)
   }
 
   it('refuses when this device never volunteered', async () => {
@@ -539,17 +618,18 @@ describe('being the volunteer', () => {
     const b = device()
     const relay = new PeerRelay()
     const started: string[] = []
-    const h = harness({ relay, onRelayStart: (pair) => started.push(pair.key) })
+    const h = harness({ relay, relayMedia: fakePipeline(), onRelayStart: (pair) => started.push(pair.key) })
 
     h.session.setViews([person(a.pub), person(b.pub)])
     await settle()
     h.state(a.pub, 'connected')
     h.state(b.pub, 'connected')
 
-    ask(h, a, b.pub)
+    askBoth(h, a, b)
     await settle()
 
     expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: true })
+    expect(assistSignals(h.relay, b.sk).at(-1)).toEqual({ assist: a.pub, accept: true })
     expect(relay.relaying).toBe(1)
     expect(started).toHaveLength(1)
     expect(h.mesh.relaying).toBe(1)
@@ -590,18 +670,18 @@ describe('being the volunteer', () => {
   it('refuses past the cap, so volunteering never ruins its own call', async () => {
     const people = Array.from({ length: MAX_ASSISTED_PAIRS * 2 + 2 }, () => device())
     const relay = new PeerRelay()
-    const h = harness({ relay })
+    const h = harness({ relay, relayMedia: fakePipeline() })
 
     h.session.setViews(people.map((p) => person(p.pub)))
     await settle()
     for (const p of people) h.state(p.pub, 'connected')
 
-    for (let i = 0; i < MAX_ASSISTED_PAIRS; i += 1) ask(h, people[i * 2]!, people[i * 2 + 1]!.pub)
+    for (let i = 0; i < MAX_ASSISTED_PAIRS; i += 1) askBoth(h, people[i * 2]!, people[i * 2 + 1]!)
     await settle()
     expect(relay.relaying).toBe(MAX_ASSISTED_PAIRS)
 
     const overflowA = people.at(-2)!
-    ask(h, overflowA, people.at(-1)!.pub)
+    askBoth(h, overflowA, people.at(-1)!)
     await settle()
 
     expect(assistSignals(h.relay, overflowA.sk).at(-1)).toMatchObject({ accept: false })
@@ -614,13 +694,13 @@ describe('being the volunteer', () => {
     const b = device()
     const relay = new PeerRelay()
     const stopped: string[] = []
-    const h = harness({ relay, onRelayStop: (pair) => stopped.push(pair.key) })
+    const h = harness({ relay, relayMedia: fakePipeline(), onRelayStop: (pair) => stopped.push(pair.key) })
 
     h.session.setViews([person(a.pub), person(b.pub)])
     await settle()
     h.state(a.pub, 'connected')
     h.state(b.pub, 'connected')
-    ask(h, a, b.pub)
+    askBoth(h, a, b)
     await settle()
     expect(relay.relaying).toBe(1)
 
@@ -629,6 +709,9 @@ describe('being the volunteer', () => {
 
     expect(relay.relaying).toBe(0)
     expect(stopped).toHaveLength(1)
+    // The end still here is told, so it moves on now rather than when the
+    // media runs dry.
+    expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: false })
     h.close()
   })
 
@@ -636,14 +719,15 @@ describe('being the volunteer', () => {
     const a = device()
     const b = device()
     const relay = new PeerRelay()
-    const h = harness({ relay })
+    const h = harness({ relay, relayMedia: fakePipeline() })
 
     h.session.setViews([person(a.pub), person(b.pub)])
     await settle()
     h.state(a.pub, 'connected')
     h.state(b.pub, 'connected')
-    ask(h, a, b.pub)
+    askBoth(h, a, b)
     await settle()
+    expect(relay.relaying).toBe(1)
 
     h.close()
     expect(relay.relaying).toBe(0)
@@ -1119,6 +1203,392 @@ describe('resting longer each time', () => {
       expect(events[after + 1]).toMatchObject({ what: 'retry' })
       expect(events[after + 1]!.at - events[after]!.at).toBe(1_000)
       mesh.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('connected means media', () => {
+  /** A pair on the assist rung through `volunteer`, with the far end
+   *  advertising a camera and the volunteer's yes already in. */
+  async function carriedRoute(over: Partial<MeshOptions> = {}) {
+    const volunteer = device()
+    const remote = device()
+    const h = harness({ routeTimeoutMs: 10_000, assistSampleMs: 100, assistStallMs: 1_000, ...over })
+    h.session.setViews([
+      person(volunteer.pub, offer()),
+      { ...person(remote.pub), tracks: [{ trackId: 'cam-remote', role: 'camera', device: remote.pub }] },
+    ])
+    await vi.advanceTimersByTimeAsync(0)
+    h.state(volunteer.pub, 'connected')
+    h.state(remote.pub, 'failed')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'assist', endpoint: volunteer.pub })
+    signal(h, volunteer, { type: 'assist', assist: remote.pub, accept: true })
+    await vi.advanceTimersByTimeAsync(0)
+    return { h, volunteer, remote }
+  }
+
+  /** The volunteer offers with a carried m-line, and it arrives. */
+  async function deliver(h: Harness, volunteer: { sk: Uint8Array; pub: string }, carried: string, mid = '7') {
+    signal(h, volunteer, { type: 'offer', sdp: 'offer-sdp-carry', carry: { [mid]: { device: carried, role: 'camera' } } })
+    await vi.advanceTimersByTimeAsync(0)
+    const track = mediaTrack(`recv-${mid}`)
+    const r = receiver()
+    h.factory.to(volunteer.pub)!.ontrack?.({ track, receiver: r, transceiver: { mid } as never })
+    await vi.advanceTimersByTimeAsync(0)
+    return { track, r }
+  }
+
+  it('does not mark an assist route connected when the volunteer connection comes back', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      // An ICE restart on the volunteer's own link, say.
+      h.state(volunteer.pub, 'connected')
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'assist', connected: false })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('counts the route connected on the first carried media, and not before', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      const seen: Array<{ device: string; via: string; role?: string }> = []
+      h.mesh.onRemoteTrack(({ device: d, via, role }) => seen.push({ device: d, via, role }))
+      const { r } = await deliver(h, volunteer, remote.pub)
+
+      // Attributed through the carry map, to the person it belongs to.
+      expect(seen).toEqual([{ device: remote.pub, via: 'assist', role: 'camera' }])
+      await vi.advanceTimersByTimeAsync(300)
+      expect(h.mesh.routes.get(remote.pub)?.connected).toBe(false)
+
+      r.bytes = 1_200
+      await vi.advanceTimersByTimeAsync(150)
+      expect(h.mesh.routes.get(remote.pub)).toMatchObject({ tier: 'assist', connected: true })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('moves on, and does not try that volunteer again, when no media arrives in the budget', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      await vi.advanceTimersByTimeAsync(10_500)
+
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      // The volunteer is told, and its connection to us is left alone: it
+      // was only ever being asked.
+      expect(assistBodies(h.relay, volunteer.sk).at(-1)).toEqual({ assist: remote.pub, accept: false, release: true })
+      expect(h.factory.to(volunteer.pub)?.closed).toBe(false)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('moves on when carried media stops arriving after it started', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      const { r } = await deliver(h, volunteer, remote.pub)
+      r.bytes = 1_000
+      await vi.advanceTimersByTimeAsync(150)
+      expect(h.mesh.routes.get(remote.pub)?.connected).toBe(true)
+
+      // The volunteer stays in the roster and its connection stays up, but
+      // nothing more arrives.
+      await vi.advanceTimersByTimeAsync(1_300)
+      expect(h.mesh.routes.get(remote.pub)?.tier).not.toBe('assist')
+      expect(assistBodies(h.relay, volunteer.sk).at(-1)).toMatchObject({ release: true })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reopens a connection to the far end when the assist rung fails', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      // Entering assist closed the direct peer.
+      expect(h.factory.to(remote.pub)).toBeUndefined()
+      signal(h, volunteer, { type: 'assist', assist: remote.pub, accept: false })
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+      expect(h.factory.to(remote.pub)?.context?.tier).toBe('turn')
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends what the volunteer carried when the route moves on, so nobody is shown twice', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      const { track } = await deliver(h, volunteer, remote.pub)
+      signal(h, volunteer, { type: 'assist', assist: remote.pub, accept: false })
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(track.readyState).toBe('ended')
+      expect((track as unknown as { ended: number }).ended).toBe(1)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops a carried m-line it did not ask this volunteer for, rather than showing it as the volunteer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer } = await carriedRoute()
+      const stranger = device()
+      const seen: string[] = []
+      h.mesh.onRemoteTrack(({ device: d }) => seen.push(d))
+      await deliver(h, volunteer, stranger.pub)
+      expect(seen).toEqual([])
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the valid carry entries of an offer and drops a malformed one', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, volunteer, remote } = await carriedRoute()
+      const seen: Array<{ device: string; via: string }> = []
+      h.mesh.onRemoteTrack(({ device: d, via }) => seen.push({ device: d, via }))
+      signal(h, volunteer, {
+        type: 'offer',
+        sdp: 'offer-sdp-carry',
+        carry: { '7': { device: remote.pub, role: 'camera' }, '8': { device: 'not-a-key', role: 'camera' } } as never,
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const pc = h.factory.to(volunteer.pub)!
+      pc.ontrack?.({ track: mediaTrack('m7'), receiver: receiver(), transceiver: { mid: '7' } as never })
+      pc.ontrack?.({ track: mediaTrack('m8'), receiver: receiver(), transceiver: { mid: '8' } as never })
+      // Mid 7 is the far end's; mid 8 named nobody, so it is the volunteer's
+      // own m-line as far as this device can tell.
+      expect(seen).toEqual([
+        { device: remote.pub, via: 'assist' },
+        { device: volunteer.pub, via: 'direct' },
+      ])
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('who asks', () => {
+  it('never asks for a far end its own audience refuses', async () => {
+    const volunteer = device()
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(volunteer.pub, offer()), person(remote.pub)])
+    await settle()
+    // Media for everybody except `remote`: an agent its person keeps from
+    // hearing them, say.
+    h.mesh.publish([mediaTrack('mine', 'audio')], (view) => view.participant !== `p-${remote.pub.slice(0, 8)}`)
+    await settle()
+    h.state(volunteer.pub, 'connected')
+    h.state(remote.pub, 'failed')
+    await settle()
+
+    expect(assistSignals(h.relay, volunteer.sk)).toEqual([])
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('turn')
+    h.close()
+  })
+
+  it('asks with its camera and microphone off, so it can still receive', async () => {
+    const volunteer = device()
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(volunteer.pub, offer()), person(remote.pub)])
+    await settle()
+    h.state(volunteer.pub, 'connected')
+    h.state(remote.pub, 'failed')
+    await settle()
+    expect(assistSignals(h.relay, volunteer.sk)).toEqual([{ assist: remote.pub, accept: undefined }])
+    h.close()
+  })
+
+  it('takes its request back when its audience stops admitting the far end', async () => {
+    const volunteer = device()
+    const remote = device()
+    const h = harness()
+    h.session.setViews([person(volunteer.pub, offer()), person(remote.pub)])
+    await settle()
+    h.state(volunteer.pub, 'connected')
+    h.state(remote.pub, 'failed')
+    await settle()
+    expect(h.mesh.routes.get(remote.pub)?.tier).toBe('assist')
+
+    h.mesh.publish([mediaTrack('mine', 'audio')], (view) => view.participant !== `p-${remote.pub.slice(0, 8)}`)
+    await settle()
+    expect(assistBodies(h.relay, volunteer.sk).at(-1)).toEqual({ assist: remote.pub, accept: false, release: true })
+    expect(h.mesh.routes.get(remote.pub)?.tier).not.toBe('assist')
+    h.close()
+  })
+})
+
+describe('the mutual request', () => {
+  function ask(h: Harness, from: { sk: Uint8Array; pub: string }, far: string): void {
+    signal(h, from, { type: 'assist', assist: far })
+  }
+
+  /** A volunteer directly connected to `a` and `b`, each sending it a camera. */
+  async function volunteering(over: Partial<MeshOptions> = {}) {
+    const a = device()
+    const b = device()
+    const relay = new PeerRelay()
+    const pipeline = fakePipeline()
+    const started: string[] = []
+    const stopped: string[] = []
+    const h = harness(
+      { relay, relayMedia: pipeline, assistHoldMs: 8_000, onRelayStart: (pair) => started.push(pair.key), onRelayStop: (pair) => stopped.push(pair.key), ...over },
+      { structuredSdp: true },
+    )
+    h.session.setViews([
+      { ...person(a.pub), tracks: [{ trackId: 'cam-a', role: 'camera', device: a.pub }] },
+      { ...person(b.pub), tracks: [{ trackId: 'cam-b', role: 'camera', device: b.pub }] },
+    ])
+    await vi.advanceTimersByTimeAsync(0)
+    h.state(a.pub, 'connected')
+    h.state(b.pub, 'connected')
+    h.factory.to(a.pub)!.ontrack?.({ track: mediaTrack('cam-a'), receiver: { from: 'a' } })
+    h.factory.to(b.pub)!.ontrack?.({ track: mediaTrack('cam-b'), receiver: { from: 'b' } })
+    await vi.advanceTimersByTimeAsync(0)
+    return { h, a, b, relay, pipeline, started, stopped }
+  }
+
+  it('holds the first request, and refuses it once the hold is up if the other end never asks', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, relay, pipeline } = await volunteering()
+      ask(h, a, b.pub)
+      await vi.advanceTimersByTimeAsync(7_900)
+      expect(assistSignals(h.relay, a.sk)).toEqual([])
+      expect(pipeline.legs).toEqual([])
+
+      await vi.advanceTimersByTimeAsync(200)
+      expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: false })
+      expect(relay.relaying).toBe(0)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('carries once both have asked, and pumps each direction from the end that asked for it', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, pipeline, started } = await volunteering()
+      ask(h, a, b.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(pipeline.legs).toEqual([])
+      expect(started).toEqual([])
+
+      ask(h, b, a.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(started).toHaveLength(1)
+      expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: true })
+      expect(assistSignals(h.relay, b.sk).at(-1)).toEqual({ assist: a.pub, accept: true })
+
+      const legs = pipeline.legs.map((leg) => ({ from: leg.from, to: leg.to, role: leg.role, asked: leg.pair.asked(leg.from) }))
+      expect(legs).toEqual(
+        expect.arrayContaining([
+          { from: a.pub, to: b.pub, role: 'camera', asked: true },
+          { from: b.pub, to: a.pub, role: 'camera', asked: true },
+        ]),
+      )
+      expect(legs).toHaveLength(2)
+      // Each leg taps its source's own receiver, on the connection to it.
+      expect(pipeline.legs.find((leg) => leg.from === a.pub)?.source.receiver).toEqual({ from: 'a' })
+
+      // The offer that carries a's camera to b names it, by mid.
+      const offers = h.relay.published
+        .map((event) => unwrap(event, b.sk))
+        .filter((u) => u?.body.type === 'offer' && u.body.carry)
+      expect(Object.values(offers.at(-1)!.body.carry!)).toEqual([{ device: a.pub, role: 'camera' }])
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refuses outright when it has no way to pump the frames', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, relay } = await volunteering({ relayMedia: undefined })
+      ask(h, a, b.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: false })
+      expect(relay.relaying).toBe(0)
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drops the pair when one end releases it, fires onRelayStop and tells the other end', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, relay, pipeline, stopped } = await volunteering()
+      ask(h, a, b.pub)
+      ask(h, b, a.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(relay.relaying).toBe(1)
+
+      signal(h, a, { type: 'assist', assist: b.pub, accept: false, release: true })
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(relay.relaying).toBe(0)
+      expect(stopped).toHaveLength(1)
+      expect(pipeline.closed).toHaveLength(2)
+      expect(assistSignals(h.relay, b.sk).at(-1)).toEqual({ assist: a.pub, accept: false })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops carrying everybody at once when this device stops helping, and tells both ends', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, relay, pipeline, stopped } = await volunteering()
+      ask(h, a, b.pub)
+      ask(h, b, a.pub)
+      await vi.advanceTimersByTimeAsync(0)
+
+      h.mesh.stopRelaying()
+      expect(relay.relaying).toBe(0)
+      expect(relay.closed).toBe(true)
+      expect(stopped).toHaveLength(1)
+      expect(pipeline.closed).toHaveLength(2)
+      expect(assistSignals(h.relay, a.sk).at(-1)).toEqual({ assist: b.pub, accept: false })
+      expect(assistSignals(h.relay, b.sk).at(-1)).toEqual({ assist: a.pub, accept: false })
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('claims receivers early while offering, so a later pair can tap them', async () => {
+    vi.useFakeTimers()
+    try {
+      const { pipeline, h } = await volunteering()
+      expect(pipeline.prepared).toEqual([{ from: 'a' }, { from: 'b' }])
+      h.close()
     } finally {
       vi.useRealTimers()
     }

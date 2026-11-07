@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import {
   wrapSignal, unwrapSignal, SIGNAL_MAX_AGE_SECONDS, MAX_ANNOTATION_POINTS,
-  MAX_BATCHED_CANDIDATES, MAX_CANDIDATE_LENGTH, validSignalExtensions, type SignalBody,
+  MAX_BATCHED_CANDIDATES, MAX_CANDIDATE_LENGTH, MAX_CARRY_ENTRIES, sanitiseCarry, validSignalExtensions, type SignalBody,
 } from './signal.js'
 import { KINDS } from './kinds.js'
 
@@ -229,5 +229,47 @@ describe('profile 2 wire fields', () => {
   it('an unknown type is still rejected exactly as before', () => {
     const body = { type: 'bogus', roomId: ROOM } as unknown as SignalBody
     expect(roundTrip(body)).toBeNull()
+  })
+})
+
+describe('peer assist wire fields', () => {
+  const A = 'A'.repeat(64)
+
+  it('keeps well-formed carry entries, lower-cased, and drops the malformed ones one by one', () => {
+    expect(
+      sanitiseCarry({
+        '0': { device: A, role: 'camera' },
+        '1': { device: 'b'.repeat(64), role: 'mic' },
+        '2': { device: 'not hex', role: 'camera' },
+        '3': { device: 'c'.repeat(64), role: 'everything' },
+        '': { device: 'd'.repeat(64), role: 'screen' },
+        ['9'.repeat(17)]: { device: 'e'.repeat(64), role: 'screen' },
+        '4': 'camera',
+      }),
+    ).toEqual({ '0': { device: 'a'.repeat(64), role: 'camera' }, '1': { device: 'b'.repeat(64), role: 'mic' } })
+  })
+
+  it('drops a carry map that is not a map, is too long, or has nothing left in it', () => {
+    expect(sanitiseCarry([{ device: A, role: 'camera' }])).toBeUndefined()
+    expect(sanitiseCarry('camera')).toBeUndefined()
+    expect(sanitiseCarry({ '0': { device: 'x', role: 'camera' } })).toBeUndefined()
+    const tooMany = Object.fromEntries(Array.from({ length: MAX_CARRY_ENTRIES + 1 }, (_, i) => [String(i), { device: A, role: 'camera' }]))
+    expect(sanitiseCarry(tooMany)).toBeUndefined()
+  })
+
+  it('cleans carry on the way in rather than refusing the offer it rides on', () => {
+    const { senderSk, recipientSk, recipient } = fixture()
+    const body = { type: 'offer', roomId: ROOM, sdp: 'offer', carry: { '0': { device: A, role: 'camera' }, '1': { device: 'no', role: 'mic' } } } as unknown as SignalBody
+    const result = unwrapSignal(wrapSignal(body, { senderSk, recipientPubkey: recipient }), { recipientSk, roomId: ROOM })
+    expect(result?.body.carry).toEqual({ '0': { device: 'a'.repeat(64), role: 'camera' } })
+    const empty = { type: 'offer', roomId: ROOM, sdp: 'offer', carry: { '1': { device: 'no', role: 'mic' } } } as unknown as SignalBody
+    const second = unwrapSignal(wrapSignal(empty, { senderSk, recipientPubkey: recipient }), { recipientSk, roomId: ROOM })
+    expect(second?.body.sdp).toBe('offer')
+    expect(second?.body).not.toHaveProperty('carry')
+  })
+
+  it('accepts release only as true', () => {
+    expect(validSignalExtensions({ type: 'assist', roomId: ROOM, assist: A, accept: false, release: true })).toBe(true)
+    expect(validSignalExtensions({ type: 'assist', roomId: ROOM, assist: A, release: 'yes' } as unknown as SignalBody)).toBe(false)
   })
 })

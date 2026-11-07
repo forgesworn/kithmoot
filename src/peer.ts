@@ -380,8 +380,10 @@ export interface PeerOptions {
    */
   revealLocalAddresses?: boolean
   /** `receiver` is the browser receiver when the factory exposes it. It is
-   * deliberately optional so Node and existing test factories stay valid. */
-  onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole) => void
+   * deliberately optional so Node and existing test factories stay valid.
+   * `mid` is the transceiver's, when the connection reports one: the only
+   * name a carried m-line has (see `SignalBody.carry`). */
+  onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole, mid?: string) => void
   /**
    * Called immediately after a local track is added and before this peer can
    * offer it. A browser embedding can install an encoded-frame sender
@@ -487,7 +489,7 @@ export class Peer implements NegotiatingPeer {
   readonly polite: boolean
   readonly #pc: RTCPeerConnectionLike
   readonly #onSignal: (body: SignalBody) => void
-  readonly #onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole) => void
+  readonly #onTrack: (track: MediaStreamTrack, receiver?: unknown, role?: TrackRole, mid?: string) => void
   readonly #mustOfferFirst: boolean
   #makingOffer = false
   #hasRemoteDescription = false
@@ -512,6 +514,9 @@ export class Peer implements NegotiatingPeer {
    *  set on every toggle, not just what changed - never re-adds one. A real
    *  `RTCPeerConnection` throws if the same track is added twice. */
   #addedTracks = new Set<MediaStreamTrack>()
+  /** Tracks sent for somebody else - see `carryTrack`. Never in
+   *  `#addedTracks`, so publishing this device's own set never removes one. */
+  readonly #carried = new Set<MediaStreamTrack>()
   readonly #opts: PeerOptions
   readonly #graceMs: number
   readonly #timeoutMs: number
@@ -625,7 +630,7 @@ export class Peer implements NegotiatingPeer {
     this.#mustOfferFirst = opts.mustOfferFirst ?? false
     this.#pc = opts.factory(opts.context ?? { tier: 'direct', remoteDevice: opts.remoteDevice })
 
-    this.#pc.ontrack = (event) => this.#onTrack(event.track, event.receiver)
+    this.#pc.ontrack = (event) => this.#onTrack(event.track, event.receiver, undefined, event.transceiver?.mid ?? undefined)
 
     /**
      * The other half of perfect negotiation, and the half this class was
@@ -1547,6 +1552,49 @@ export class Peer implements NegotiatingPeer {
     this.#pc.onicecandidate = null
     this.#pc.onnegotiationneeded = null
     this.#pc.onconnectionstatechange = null
+  }
+
+  /**
+   * Send a track that is not this device's own: a volunteer's clock, whose
+   * encoded frames are replaced with somebody else's (see `peer-relay.ts`).
+   *
+   * Added outside `start`, so the published set never touches it: publishing
+   * a camera, or an audience change that empties the list, leaves a carried
+   * pair alone. The renegotiation it needs comes from `negotiationneeded`, as
+   * every other change on this connection does. Returns the sender and, where
+   * the connection exposes it, the transceiver, which the caller needs for
+   * codec preferences and for the `carry` map's mid. Null on a connection
+   * that is closed or that would not take the track.
+   */
+  carryTrack(track: MediaStreamTrack): { sender: unknown; transceiver?: RtpTransceiverLike } | null {
+    if (this.#closed || this.#retiring || this.#carried.has(track)) return null
+    try {
+      const sender = this.#pc.addTrack(track) ?? this.#pc.getSenders?.().find((candidate) => candidate.track === track)
+      if (!sender) return null
+      this.#carried.add(track)
+      const transceiver = this.#pc.getTransceivers?.().find((candidate) => candidate.sender === sender)
+      return transceiver ? { sender, transceiver } : { sender }
+    } catch {
+      return null
+    }
+  }
+
+  /** Stop sending a carried track. The re-offer follows from
+   *  `negotiationneeded`, and the far end's receiver for it goes quiet. */
+  dropCarriedTrack(track: MediaStreamTrack): void {
+    if (!this.#carried.delete(track) || this.#closed) return
+    const sender = this.#pc.getSenders?.().find((candidate) => candidate.track === track)
+    try {
+      if (sender) this.#pc.removeTrack?.(sender)
+    } catch {
+      // A connection closing underneath us has dropped it anyway.
+    }
+  }
+
+  /** The mid of the m-line a carried track rides on, once a description that
+   *  contains it has been applied. Null before that. */
+  midOf(track: MediaStreamTrack): string | null {
+    return this.#pc.getTransceivers?.().find((candidate) => candidate.sender.track === track)?.mid ?? null
   }
 
   /** Step the camera video this connection sends down to a rung (or, with

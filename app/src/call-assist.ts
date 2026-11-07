@@ -14,6 +14,7 @@
  */
 import { ReachabilityProbe } from '../../src/reachability.js'
 import { PeerRelay, detectRelayCapability } from '../../src/peer-relay.js'
+import type { RelayMediaPipeline } from '../../src/peer-relay.js'
 import {
   ASSIST_STREAMS_PER_PAIR,
   MAX_ASSISTED_PAIRS,
@@ -49,6 +50,10 @@ export interface PeerAssistHooks {
   /** Whether assist is paused. Defaults to `PEER_ASSIST_PAUSED`; tests of the
    *  control itself pass `() => false`. */
   paused?: () => boolean
+  /** Whether this browser can actually run the frame pumps: a worker and
+   *  the standard script transform both there. Absent reads as yes, for
+   *  tests that are about the panel rather than the pumps. */
+  canPump?: () => boolean
 }
 
 export interface PeerAssist {
@@ -163,14 +168,59 @@ export function blockSentence(block: AssistBlock, measured: boolean, form: Assis
 const HARD_ASSIST_BLOCKS: readonly AssistBlock[] = ['no-relay-support', 'not-publicly-reachable', 'no-spare-uplink']
 
 /**
- * Peer assist is paused (28 October 2026). The library hands a carried pair
- * to `onRelayStart`, but the app only redraws the indicator there and never
- * pumps the pair's frames, so a volunteer accepted pairs and carried nothing
- * while the pair stopped looking for another route. Until the frame pumps are
- * wired and a route counts only once relayed media arrives, this device
- * neither offers nor asks, and the control is hidden.
+ * Peer assist was paused on 28 October 2026, because the app never pumped a
+ * carried pair's frames: a volunteer accepted pairs and carried nothing while
+ * the pair stopped looking for another route. It is back on now that the
+ * pumps are wired (`peer-relay-media.ts`), a route counts as connected only
+ * once carried media arrives, and a volunteer carries a pair only when both
+ * ends have asked. Kept as a switch: setting it true hides the control and
+ * stops this device offering or asking, as before.
  */
-export const PEER_ASSIST_PAUSED = true
+export const PEER_ASSIST_PAUSED = false
+
+/** What a room session is told about peer assist when it is built. */
+export interface AssistSessionInput {
+  /** A room hosted on a KithMoot node: its own relay, never assist. */
+  roomNode: boolean
+  /** A room with no calls, which includes every Bothy room. */
+  chatOnly: boolean
+  /** Hide my IP address is on for this call. */
+  relayOnly: boolean
+  /** "Let members pass my call on", on unless the person turned it off. */
+  passOn: boolean
+  paused: boolean
+  offer: () => AssistOffer | null
+  relay: PeerRelay
+  relayMedia?: RelayMediaPipeline
+}
+
+export interface AssistSessionOptions {
+  peerAssist?: false
+  assist?: () => AssistOffer | null
+  relay?: PeerRelay
+  relayMedia?: RelayMediaPipeline
+}
+
+/**
+ * The peer-assist half of a room session's options.
+ *
+ * Two separate questions, and they are kept apart. Whether this device may
+ * be carried is `peerAssist`: off for Hide my IP, whose promise is that the
+ * call goes only through a relay, and off when the person said members may
+ * not pass their call on. Whether it may carry anybody is `assist` and
+ * `relay`: never with Hide my IP either, because the reachability it would
+ * advertise is measured across the whole device and another call's
+ * candidates must not make this one look reachable.
+ */
+export function assistSessionOptions(input: AssistSessionInput): AssistSessionOptions {
+  if (input.roomNode || input.chatOnly || input.paused || input.relayOnly) return { peerAssist: false }
+  return {
+    assist: input.offer,
+    relay: input.relay,
+    ...(input.relayMedia ? { relayMedia: input.relayMedia } : {}),
+    ...(input.passOn ? {} : { peerAssist: false as const }),
+  }
+}
 
 export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
   const paused = hooks.paused ?? (() => PEER_ASSIST_PAUSED)
@@ -228,7 +278,7 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
   function assistEnvironment(): AssistEnvironment {
     return {
       reachability: reachability.reachability,
-      canRelay: relayCapability.canForwardFrames,
+      canRelay: relayCapability.canForwardFrames && (hooks.canPump?.() ?? true),
       capacity: uplink.capacity(),
       formFactor: formFactor(),
       onBattery,
