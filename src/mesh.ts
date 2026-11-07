@@ -256,6 +256,10 @@ export interface MeshOptions {
   assistStallMs?: number
   /** How often carried media is checked for. See `ASSIST_SAMPLE_MS`. */
   assistSampleMs?: number
+  /** How often a carried end asks again. See `ASSIST_RENEW_MS`. */
+  assistRenewMs?: number
+  /** How long a volunteer carries without a renewal. See `ASSIST_LEASE_MS`. */
+  assistLeaseMs?: number
   /** A conference room's end: every signal wrap this mesh publishes is
    *  lowered to it if it would outlive it. See `withExpiration`. */
   expiresAt?: ExpirationDeadline
@@ -373,12 +377,13 @@ interface AssistState {
   /** The budget for the volunteer to answer, then for the first media. */
   timer?: ReturnType<typeof setTimeout>
   sampler?: ReturnType<typeof setInterval>
-  /** Tracks attributed to this device that arrived through the volunteer. */
-  tracks: Array<{ track: MediaStreamTrack; receiver?: unknown }>
-  /** Bytes received on those tracks when last sampled. */
-  bytes: number
-  /** When the byte count last moved, in `Date.now()` milliseconds. */
-  progressAt: number
+  /** Asks again while carried. See `ASSIST_RENEW_MS`. */
+  renew?: ReturnType<typeof setInterval>
+  /** Tracks attributed to this device that arrived through the volunteer,
+   *  each with its own high-water mark: a receiver whose report vanishes
+   *  must not pull the others' total down, and a camera that stops while
+   *  the microphone flows is still a stall. */
+  tracks: Array<{ track: MediaStreamTrack; receiver?: unknown; role?: TrackRole; bytes: number; progressAt: number }>
 }
 
 interface Route extends RouteView {
@@ -506,6 +511,26 @@ export const ASSIST_STALL_MS = 6_000
 /** How often a carried route's receivers are asked whether bytes are
  *  arriving: first to count the route connected, then to notice a stall. */
 export const ASSIST_SAMPLE_MS = 1_000
+
+/**
+ * How often an end that is being carried asks again.
+ *
+ * Carrying is a lease, not a one-off yes. Each end's request is its consent
+ * to its own media going to the other end through the volunteer, and consent
+ * taken back has to stop the carrying even when the one signal saying so is
+ * lost on a relay. So an end keeps asking while it is carried, checking each
+ * time that it still sends to the far end, and a volunteer drops a pair whose
+ * ends have stopped asking: see `ASSIST_LEASE_MS`.
+ */
+export const ASSIST_RENEW_MS = 10_000
+
+/** How long a volunteer carries a pair after an end last asked. Three
+ *  renewals, so one or two lost signals never cost a working route. */
+export const ASSIST_LEASE_MS = 30_000
+
+/** The most tracks held unattributed at once. A volunteer offering m-lines
+ *  nobody can place is not a reason to hold them all for ever. */
+export const MAX_PARKED_TRACKS = 16
 
 /**
  * How long the direct rung may sit checking candidates without connecting
@@ -758,6 +783,24 @@ export class Mesh {
   /** As one end of a pair: every device this one has asked to be carried,
    *  and what has arrived. */
   readonly #assisted = new Map<string, AssistState>()
+  /** As a volunteer: the pairs this mesh admitted. The relay registry is
+   *  shared with any other room session of this app, and this mesh answers
+   *  only for its own. */
+  readonly #ownPairs = new Set<string>()
+  /** As a volunteer: when each end of each pair last asked. See
+   *  `ASSIST_LEASE_MS`. */
+  readonly #leases = new Map<string, Map<string, number>>()
+  #leaseSweep?: ReturnType<typeof setInterval>
+  /** As a volunteer: legs the pipeline refused, by leg id, with the source
+   *  track refused. Not retried until that source changes. */
+  readonly #refusedLegs = new Map<string, MediaStreamTrack>()
+  /** As one end: tracks that arrived on a volunteer's connection and could
+   *  not be attributed yet - the roster or the `carry` map may still be on
+   *  its way. Re-checked on every reconcile. */
+  #parked: Array<{ endpoint: string; track: MediaStreamTrack; receiver: unknown; mid?: string }> = []
+  /** When each unexpected carry was last answered with a release, so a
+   *  volunteer re-offering is not answered on every offer. */
+  readonly #releasedAt = new Map<string, number>()
   /** Signals that arrived for a device this mesh has no peer for yet, by
    *  sending device, oldest first. See `#holdSignal`. */
   readonly #pendingSignals = new Map<string, { body: SignalBody; createdAt: number }[]>()
@@ -1030,7 +1073,12 @@ export class Mesh {
     for (const device of [...this.#assisted.keys()]) this.#leaveAssist(device, false)
     this.#endpointMedia.clear()
     this.#carryIn.clear()
-    this.#opts.relay?.close()
+    this.#parked = []
+    // Only this mesh's own pairs. The registry may be shared with another
+    // room session - a docked call - whose pairs are not this mesh's to end,
+    // and closing it would drop them with nobody told.
+    for (const pair of this.#ownPairList()) this.#endPair(pair, [], 'this room closed')
+    this.#stopLeaseSweep()
     this.#routes.clear()
     this.#volunteers.clear()
     this.#pendingSignals.clear()
@@ -1207,6 +1255,7 @@ export class Mesh {
     // own is owed its first media.
     this.#syncCarry()
     this.#armAssistTimersForMedia()
+    this.#recheckParked()
   }
 
   /**
@@ -1354,6 +1403,7 @@ export class Mesh {
     // from it or attributed through it any more.
     this.#endpointMedia.delete(endpoint)
     this.#carryIn.delete(endpoint)
+    this.#parked = this.#parked.filter((held) => held.endpoint !== endpoint)
     for (const [device, state] of this.#assisted) {
       if (state.volunteer !== endpoint) continue
       this.#endAssistTracks(state)
@@ -1362,7 +1412,8 @@ export class Mesh {
         route.connected = false
         this.#announceRoute(device, route)
       }
-      if (state.accepted && state.timer === undefined) this.#armAssistTimer(device)
+      // Owed its media again on the rebuilt connection - if there is any.
+      if (state.accepted && state.timer === undefined && this.#advertises(device)) this.#armAssistTimer(device)
     }
     this.#closingEndpoints.add(endpoint)
     try {
@@ -1789,15 +1840,32 @@ export class Mesh {
     return false
   }
 
+  /** Whether this device is offering to carry, right now. A source that
+   *  throws has not said yes. */
+  #isOffering(): boolean {
+    try {
+      return this.#opts.offering?.() ?? true
+    } catch {
+      return false
+    }
+  }
+
   #requestAssist(device: string, assistant: string): void {
     this.#leaveAssist(device, false)
-    this.#assisted.set(device, { volunteer: assistant, accepted: false, tracks: [], bytes: 0, progressAt: 0 })
-    this.#send(assistant, { type: 'assist', assist: device })
+    this.#assisted.set(device, { volunteer: assistant, accepted: false, tracks: [] })
+    this.#ask(device, assistant)
     // The request gets the same budget a connection attempt does, on a timer
     // of its own. It used to share the volunteer's route timer, and that
     // timer's failure closes the connection to the volunteer: a slow answer
     // tore down a working direct link to somebody who was only being asked.
     this.#armAssistTimer(device)
+  }
+
+  /** One request, saying this end reads `carry` - without which a volunteer
+   *  refuses, because an end that cannot read it would show the far end's
+   *  media under the volunteer's name. */
+  #ask(device: string, assistant: string): void {
+    this.#send(assistant, { type: 'assist', assist: device, readsCarry: true })
   }
 
   #armAssistTimer(device: string): void {
@@ -1833,6 +1901,24 @@ export class Mesh {
   }
 
   /**
+   * Keep asking while carried - see `ASSIST_RENEW_MS`. Each renewal checks
+   * again that this device still sends to the far end, so consent taken back
+   * stops the carrying even if the release itself never arrives.
+   */
+  #startRenewal(device: string, state: AssistState): void {
+    if (state.renew !== undefined) return
+    state.renew = setInterval(() => {
+      if (this.#closed || this.#assisted.get(device) !== state) return
+      if (!this.#mayAsk(device)) {
+        this.#assistFailed(device, 'this device no longer sends to them')
+        return
+      }
+      this.#ask(device, state.volunteer)
+    }, this.#opts.assistRenewMs ?? ASSIST_RENEW_MS)
+    ;(state.renew as unknown as { unref?: () => void }).unref?.()
+  }
+
+  /**
    * This device has stopped being carried to `device` by its volunteer, for
    * whatever reason.
    *
@@ -1841,7 +1927,7 @@ export class Mesh {
    * and a stale copy beside the live one is somebody shown twice. The
    * volunteer is told unless it was the one that ended it, so it can give
    * the slot to somebody else instead of carrying media nobody is waiting
-   * for.
+   * for. If that word is lost, the lease runs out instead.
    */
   #leaveAssist(device: string, tellVolunteer: boolean): void {
     const state = this.#assisted.get(device)
@@ -1850,7 +1936,10 @@ export class Mesh {
     this.#clearAssistTimer(state)
     if (state.sampler !== undefined) clearInterval(state.sampler)
     state.sampler = undefined
+    if (state.renew !== undefined) clearInterval(state.renew)
+    state.renew = undefined
     this.#endAssistTracks(state)
+    this.#parked = this.#parked.filter((held) => held.endpoint !== state.volunteer || [...this.#assisted.values()].some((other) => other.volunteer === state.volunteer))
     if (tellVolunteer && !this.#closed) this.#send(state.volunteer, { type: 'assist', assist: device, accept: false, release: true })
   }
 
@@ -1866,7 +1955,6 @@ export class Mesh {
       }
     }
     state.tracks = []
-    state.bytes = 0
   }
 
   /** A carried route did not work, or stopped working: off this volunteer,
@@ -1915,38 +2003,47 @@ export class Mesh {
   }
 
   async #sampleAssist(device: string, state: AssistState): Promise<void> {
-    let bytes = 0
-    let measured = false
-    for (const { receiver } of [...state.tracks]) {
-      const received = await bytesReceived(receiver)
-      if (received === undefined) continue
-      measured = true
-      bytes += received
-    }
+    const readings = await Promise.all(state.tracks.map(async (held) => ({ held, received: await bytesReceived(held.receiver) })))
     if (this.#closed || this.#assisted.get(device) !== state) return
     const route = this.#routes.get(device)
     if (!route || route.tier !== 'assist') return
     const now = Date.now()
+    let measured = false
+    let moved = false
+    for (const { held, received } of readings) {
+      if (received === undefined) continue
+      measured = true
+      // Each receiver against its own best, so one whose report has gone
+      // cannot make the rest look stalled.
+      if (received > held.bytes) {
+        held.bytes = received
+        held.progressAt = now
+        moved = true
+      }
+    }
     if (!measured) {
       // A connection that will not report bytes - a test double, a Node
       // adapter - is judged by the only other sign there is.
       if (state.tracks.some(({ track }) => track.muted === false)) this.#assistMediaArrived(device)
       return
     }
-    if (bytes > state.bytes) {
-      state.bytes = bytes
-      state.progressAt = now
-      this.#assistMediaArrived(device)
-      return
-    }
+    if (moved) this.#assistMediaArrived(device)
     if (!route.connected) return
-    // Nothing advertised means nothing to send: quiet, not stalled.
-    if (!this.#advertises(device)) {
-      state.progressAt = now
-      return
-    }
-    if (now - state.progressAt >= (this.#opts.assistStallMs ?? ASSIST_STALL_MS)) {
-      this.#assistFailed(device, 'carried media stopped arriving')
+    // Judged per role the far end advertises, on the newest track for it: a
+    // camera that stops while the microphone flows is still a stall, and a
+    // role nobody advertises any more is quiet, not stalled.
+    const newest = new Map<TrackRole, (typeof state.tracks)[number]>()
+    for (const held of state.tracks) if (held.role !== undefined) newest.set(held.role, held)
+    const stallMs = this.#opts.assistStallMs ?? ASSIST_STALL_MS
+    for (const [role, held] of newest) {
+      if (!this.#advertises(device, role)) {
+        held.progressAt = now
+        continue
+      }
+      if (now - held.progressAt >= stallMs) {
+        this.#assistFailed(device, `carried ${role} stopped arriving`)
+        return
+      }
     }
   }
 
@@ -1966,7 +2063,15 @@ export class Mesh {
     const device = normaliseHex(far)
     const route = this.#routes.get(device)
     const state = this.#assisted.get(device)
-    if (!route || route.tier !== 'assist' || route.endpoint !== from || state?.volunteer !== from) return
+    const ours = route?.tier === 'assist' && route.endpoint === from && state?.volunteer === from
+    if (!ours || !state) {
+      // A yes nobody here is waiting for: a request that outlived its
+      // release, or a hold that ended after this device moved on. Whatever it
+      // is, this device's consent is not current, so it is taken back now
+      // rather than left to the lease.
+      if (accepted) this.#releaseUnexpected(from, device)
+      return
+    }
     if (!accepted) {
       // A refusal, or a volunteer that has stopped carrying. Either way it
       // needs no telling.
@@ -1975,6 +2080,7 @@ export class Mesh {
     }
     if (state.accepted) return
     state.accepted = true
+    this.#startRenewal(device, state)
     // Yes is not media. The volunteer may have held our request for up to
     // `ASSIST_HOLD_MS` and still has to renegotiate, so the first media gets
     // a fresh budget from here - when there is any to wait for.
@@ -1982,21 +2088,34 @@ export class Mesh {
     if (this.#advertises(device)) this.#armAssistTimer(device)
   }
 
+  /** Tell a volunteer to stop carrying `device` for this device, at most
+   *  once every few seconds per pair. */
+  #releaseUnexpected(volunteer: string, device: string): void {
+    const key = `${volunteer}|${device}`
+    const now = Date.now()
+    if (now - (this.#releasedAt.get(key) ?? -Infinity) < 5_000) return
+    this.#releasedAt.set(key, now)
+    while (this.#releasedAt.size > 64) {
+      const oldest = this.#releasedAt.keys().next().value
+      if (oldest === undefined) break
+      this.#releasedAt.delete(oldest)
+    }
+    this.#send(volunteer, { type: 'assist', assist: device, accept: false, release: true })
+  }
+
   // -------------------------------------------------------------------------
   // Being the volunteer
   // -------------------------------------------------------------------------
 
+  /** The pairs this mesh is carrying. Not every pair in a shared registry. */
+  #ownPairList(): RelayPair[] {
+    return (this.#opts.relay?.pairs ?? []).filter((pair) => this.#ownPairs.has(pair.key))
+  }
+
   /** Whether this device can carry `a` and `b` for each other right now. */
   #canCarry(a: string, b: string): boolean {
     const relay = this.#opts.relay
-    if (!relay || relay.closed) return false
-    let offering = true
-    try {
-      offering = this.#opts.offering?.() ?? true
-    } catch {
-      offering = false
-    }
-    if (!offering) return false
+    if (!relay || relay.closed || !this.#isOffering()) return false
     // Without pumps a yes would be the very failure peer assist was paused
     // for: a pair told it is carried, and nothing moving.
     if (this.#opts.relayMedia?.ready !== true) return false
@@ -2011,27 +2130,33 @@ export class Mesh {
   /**
    * Somebody has asked this device to carry a pair.
    *
-   * Refused unless this device volunteered, can pump frames, and is directly
-   * connected to both ends. Otherwise held until the other end asks too,
-   * because each end's request is its consent to its own media being
-   * carried: carrying A to B only because B asked would send A's media
-   * somewhere A may have refused. A refusal is answered at once, because the
-   * asker's alternative is waiting out a timeout.
+   * Refused unless the asker reads `carry`, this device volunteered, can
+   * pump frames, and is directly connected to both ends. Otherwise held
+   * until the other end asks too, because each end's request is its consent
+   * to its own media being carried: carrying A to B only because B asked
+   * would send A's media somewhere A may have refused. A refusal is answered
+   * at once, because the asker's alternative is waiting out a timeout. An
+   * ask for a pair already carried renews that end's lease.
    */
-  #handleAssistRequest(from: string, far: string): void {
+  #handleAssistRequest(from: string, far: string, readsCarry: boolean): void {
     const relay = this.#opts.relay
     const other = normaliseHex(far)
-    if (!relay || !this.#canCarry(from, other)) {
+    if (!relay || !readsCarry || !this.#canCarry(from, other)) {
       this.#send(from, { type: 'assist', assist: other, accept: false })
       return
     }
 
-    // Carried already - this end asking again after a blip - is a yes.
     const existing = relay.get(from, other)
-    if (existing) {
+    if (existing && this.#ownPairs.has(existing.key)) {
       existing.ask(from)
+      this.#leases.get(existing.key)?.set(from, Date.now())
       this.#send(from, { type: 'assist', assist: other, accept: true })
       this.#syncCarry()
+      return
+    }
+    if (existing) {
+      // Carried by another room session of this app. Not ours to answer for.
+      this.#send(from, { type: 'assist', assist: other, accept: false })
       return
     }
 
@@ -2055,6 +2180,10 @@ export class Mesh {
     }
     pair.ask(from)
     pair.ask(other)
+    this.#ownPairs.add(pair.key)
+    const now = Date.now()
+    this.#leases.set(pair.key, new Map([[from, now], [other, now]]))
+    this.#armLeaseSweep()
     for (const end of [from, other]) this.#send(end, { type: 'assist', assist: end === from ? other : from, accept: true })
     try {
       this.#opts.onRelayStart?.(pair)
@@ -2074,6 +2203,36 @@ export class Mesh {
     for (const end of pending.asked) this.#send(end, { type: 'assist', assist: end === pending.a ? pending.b : pending.a, accept: false })
   }
 
+  /** Drop any pair an end has stopped asking for. See `ASSIST_LEASE_MS`. */
+  #armLeaseSweep(): void {
+    if (this.#leaseSweep !== undefined) return
+    const lease = this.#opts.assistLeaseMs ?? ASSIST_LEASE_MS
+    this.#leaseSweep = setInterval(() => {
+      if (this.#closed) return
+      const now = Date.now()
+      // A pair another session dropped from the shared registry is not ours
+      // to keep counting.
+      const held = new Set((this.#opts.relay?.pairs ?? []).map((pair) => pair.key))
+      for (const key of [...this.#ownPairs]) {
+        if (held.has(key)) continue
+        this.#ownPairs.delete(key)
+        this.#leases.delete(key)
+      }
+      for (const pair of this.#ownPairList()) {
+        const asks = this.#leases.get(pair.key)
+        const lapsed = !asks || [pair.a, pair.b].some((end) => now - (asks.get(end) ?? -Infinity) > lease)
+        if (lapsed) this.#endPair(pair, [pair.a, pair.b], 'an end stopped asking')
+      }
+      if (this.#ownPairs.size === 0) this.#stopLeaseSweep()
+    }, Math.max(1, Math.floor(lease / 3)))
+    ;(this.#leaseSweep as unknown as { unref?: () => void }).unref?.()
+  }
+
+  #stopLeaseSweep(): void {
+    if (this.#leaseSweep !== undefined) clearInterval(this.#leaseSweep)
+    this.#leaseSweep = undefined
+  }
+
   /** One end of a pair has stopped using this device as its route. */
   #handleAssistRelease(from: string, far: string): void {
     const other = normaliseHex(far)
@@ -2087,7 +2246,7 @@ export class Mesh {
       }
     }
     const pair = this.#opts.relay?.get(from, other)
-    if (pair) this.#endPair(pair, [other], 'released by one end')
+    if (pair && this.#ownPairs.has(pair.key)) this.#endPair(pair, [other], 'released by one end')
   }
 
   /**
@@ -2097,6 +2256,9 @@ export class Mesh {
    */
   #endPair(pair: RelayPair, tell: string[], reason: string): void {
     for (const [id, leg] of [...this.#legs]) if (leg.pairKey === pair.key) this.#closeLeg(id)
+    for (const id of [...this.#refusedLegs.keys()]) if (id.startsWith(`${pair.key}|`)) this.#refusedLegs.delete(id)
+    this.#ownPairs.delete(pair.key)
+    this.#leases.delete(pair.key)
     this.#opts.relay?.drop(pair.a, pair.b)
     this.#diagnose({ kind: 'relay-pair-ended', device: pair.a, detail: `${pair.b.slice(0, 8)}: ${reason}` })
     try {
@@ -2104,6 +2266,7 @@ export class Mesh {
     } catch {
       // As above.
     }
+    if (this.#ownPairs.size === 0) this.#stopLeaseSweep()
     if (this.#closed) return
     for (const end of tell) {
       const otherEnd = pair.other(end)
@@ -2121,9 +2284,7 @@ export class Mesh {
         if (end !== device) this.#send(end, { type: 'assist', assist: device, accept: false })
       }
     }
-    const relay = this.#opts.relay
-    if (!relay) return
-    for (const pair of relay.pairs) {
+    for (const pair of this.#ownPairList()) {
       if (pair.a !== device && pair.b !== device) continue
       const survivor = pair.other(device)
       this.#endPair(pair, survivor ? [survivor] : [], 'an end left or its connection failed')
@@ -2138,7 +2299,8 @@ export class Mesh {
    * same path as any other ending: pumps and clock senders removed,
    * `onRelayStop` fired, both ends told. Closing the registry on its own
    * fired nothing and told nobody; the pair found out only when the roster
-   * dropped the offer.
+   * dropped the offer. The taps on this device's receivers are given back
+   * too, since nothing will be carried from them.
    */
   stopRelaying(): void {
     for (const [key, pending] of [...this.#pendingAsks]) {
@@ -2146,8 +2308,24 @@ export class Mesh {
       this.#pendingAsks.delete(key)
       for (const end of pending.asked) this.#send(end, { type: 'assist', assist: end === pending.a ? pending.b : pending.a, accept: false })
     }
-    for (const pair of this.#opts.relay?.pairs ?? []) this.#endPair(pair, [pair.a, pair.b], 'this device stopped helping')
+    for (const pair of this.#ownPairList()) this.#endPair(pair, [pair.a, pair.b], 'this device stopped helping')
+    // Consent is the device's, not this room's: anything else in the
+    // registry goes too, and is reported, though its ends hear of it from
+    // the session that admitted it, or when the media stops.
+    for (const pair of this.#opts.relay?.pairs ?? []) {
+      this.#opts.relay?.drop(pair.a, pair.b)
+      try {
+        this.#opts.onRelayStop?.(pair)
+      } catch {
+        // As above.
+      }
+    }
     this.#opts.relay?.close()
+    try {
+      this.#opts.relayMedia?.release?.()
+    } catch {
+      // Giving taps back is tidying, not consent.
+    }
   }
 
   /**
@@ -2157,39 +2335,30 @@ export class Mesh {
    * any order: the pair is accepted, the source's track arrives on its own
    * connection, the roster says which role that track plays, the connection
    * to the other end is rebuilt. Each of those calls this, and this makes
-   * the legs match: one per pair, per direction the source asked for, per
-   * role the source is sending. Nothing is carried for a direction whose
-   * source did not ask.
+   * the legs match: one per pair, per direction whose source asked (see
+   * `RelayPair.directions`), per role the source is sending.
    */
   #syncCarry(): void {
     const relay = this.#opts.relay
     const pipeline = this.#opts.relayMedia
     const wanted = new Map<string, { pair: RelayPair; from: string; to: string; role: TrackRole; track: MediaStreamTrack; receiver: unknown }>()
-    if (relay && pipeline?.ready === true && !this.#closed) {
-      // Helping turned on after the call began: claim the receivers that
-      // arrived before, so the first pair does not depend on attaching a
-      // transform to a stream that is already flowing. The pipeline taps
-      // each receiver once, so repeating this costs nothing.
-      let offering = false
+    if (relay && pipeline && !this.#closed && this.#isOffering()) {
+      // Start the pumps' worker and claim the receivers that arrived before
+      // helping was turned on, so the first pair does not depend on attaching
+      // a transform to a stream that is already flowing. The pipeline taps
+      // each receiver once, and only once its worker is running.
       try {
-        offering = this.#opts.offering?.() ?? true
-      } catch {
-        offering = false
-      }
-      if (offering && pipeline.prepare) {
-        for (const media of this.#endpointMedia.values()) {
-          for (const { track, receiver } of media.values()) {
-            try {
-              pipeline.prepare(receiver, track)
-            } catch {
-              // An optimisation, as at arrival.
-            }
-          }
+        pipeline.warm?.()
+        if (pipeline.prepare) {
+          for (const media of this.#endpointMedia.values()) for (const { track, receiver } of media.values()) pipeline.prepare(receiver, track)
         }
+      } catch {
+        // An optimisation, as at arrival.
       }
-      for (const pair of relay.pairs) {
-        for (const [from, to] of [[pair.a, pair.b], [pair.b, pair.a]] as const) {
-          if (!pair.asked(from)) continue
+    }
+    if (relay && pipeline?.ready === true && !this.#closed) {
+      for (const pair of this.#ownPairList()) {
+        for (const [from, to] of pair.directions()) {
           // Latest track per role wins: a camera turned off and on again is a
           // new track on a new m-line, and only the new one is moving.
           const byRole = new Map<TrackRole, { track: MediaStreamTrack; receiver: unknown }>()
@@ -2210,6 +2379,9 @@ export class Mesh {
 
     for (const [id, want] of wanted) {
       if (this.#legs.has(id)) continue
+      // Refused once for this source: not again until the source changes,
+      // or every signal would add and remove a clock.
+      if (this.#refusedLegs.get(id) === want.track) continue
       const peer = this.#peers.get(want.to)
       if (!(peer instanceof Peer) || !pipeline) continue
       let towards = 0
@@ -2244,6 +2416,7 @@ export class Mesh {
       }
       if (!handle) {
         this.#diagnose({ kind: 'relay-leg-refused', device: want.from, detail: `${want.role} towards ${want.to.slice(0, 8)}` })
+        this.#refusedLegs.set(id, want.track)
         this.#closeLeg(id)
         continue
       }
@@ -2273,8 +2446,7 @@ export class Mesh {
   #legFailed(id: string, reason: string): void {
     const leg = this.#legs.get(id)
     if (!leg) return
-    const relay = this.#opts.relay
-    const pair = relay?.pairs.find((candidate) => candidate.key === leg.pairKey)
+    const pair = this.#ownPairList().find((candidate) => candidate.key === leg.pairKey)
     if (!pair) {
       this.#closeLeg(id)
       return
@@ -2908,32 +3080,17 @@ export class Mesh {
    * volunteer's own offer names the m-line in `carry`, and it is attributed
    * to that person only if this device asked that volunteer to carry exactly
    * them and their roster entry - signed by them, encrypted to the room key -
-   * says they publish that role. A carried m-line that fails any of those is
-   * dropped, never shown as the volunteer's own.
+   * says they publish that role. A carried m-line is never shown as the
+   * volunteer's own.
    */
   #onEndpointTrack(endpoint: string, track: MediaStreamTrack, role?: TrackRole, receiver?: unknown, mid?: string): void {
-    if (mid !== undefined) {
-      const entry = this.#carryIn.get(endpoint)?.[mid]
-      if (entry) {
-        const state = this.#assisted.get(entry.device)
-        const route = this.#routes.get(entry.device)
-        if (route?.tier === 'assist' && route.endpoint === endpoint && state?.volunteer === endpoint && this.#advertises(entry.device, entry.role)) {
-          this.#carried(entry.device, state, track, receiver, entry.role)
-        }
-        return
-      }
+    const verdict = this.#attribute(endpoint, track, receiver, mid)
+    if (verdict === 'park') {
+      this.#parked.push({ endpoint, track, receiver, ...(mid !== undefined ? { mid } : {}) })
+      while (this.#parked.length > MAX_PARKED_TRACKS) this.#parked.shift()
+      return
     }
-    const owner = this.#trackOwner.get(track.id)
-    if (owner !== undefined && owner !== endpoint) {
-      const route = this.#routes.get(owner)
-      const state = this.#assisted.get(owner)
-      if (route?.tier === 'assist' && route.endpoint === endpoint && state?.volunteer === endpoint) {
-        // A carrier that can choose its track ids - not a browser - and the
-        // roster agrees. The same checks as `carry`, by another name.
-        this.#carried(owner, state, track, receiver, this.#trackRoles.get(track.id))
-        return
-      }
-    }
+    if (verdict !== 'own') return
     // The endpoint's own media. Kept, while this device is volunteering, as
     // something a carried leg may later tap.
     if (this.#opts.relay && role === undefined && this.#peers.get(endpoint) instanceof Peer) {
@@ -2941,13 +3098,7 @@ export class Mesh {
       media.delete(track.id)
       media.set(track.id, { track, receiver })
       this.#endpointMedia.set(endpoint, media)
-      let offering = false
-      try {
-        offering = this.#opts.offering?.() ?? true
-      } catch {
-        offering = false
-      }
-      if (offering) {
+      if (this.#isOffering()) {
         try {
           this.#opts.relayMedia?.prepare?.(receiver, track)
         } catch {
@@ -2959,9 +3110,67 @@ export class Mesh {
     this.#emitTrack(endpoint, track, 'direct', role)
   }
 
+  /**
+   * Whose a track on `endpoint`'s connection is: `carried` (and already
+   * emitted as that person's), `own` (the endpoint's), `park` (cannot be
+   * told yet), or `drop`.
+   *
+   * Parked rather than guessed when the endpoint is carrying somebody for
+   * this device: the far end's roster advert may be a moment behind the
+   * volunteer's offer, and an m-line the volunteer switched on in an answer
+   * reaches here with no `carry` map at all. Shown as the volunteer's, either
+   * would put one person's camera on another person's tile.
+   */
+  #attribute(endpoint: string, track: MediaStreamTrack, receiver: unknown, mid: string | undefined, parked = false): 'carried' | 'own' | 'park' | 'drop' {
+    const carryMap = this.#carryIn.get(endpoint)
+    const entry = mid !== undefined && carryMap && Object.hasOwn(carryMap, mid) ? carryMap[mid] : undefined
+    if (entry) {
+      const state = this.#assisted.get(entry.device)
+      const route = this.#routes.get(entry.device)
+      if (route?.tier !== 'assist' || route.endpoint !== endpoint || state?.volunteer !== endpoint) return 'drop'
+      if (!this.#advertises(entry.device, entry.role)) return 'park'
+      this.#carried(entry.device, state, track, receiver, entry.role)
+      return 'carried'
+    }
+    const owner = this.#trackOwner.get(track.id)
+    if (owner !== undefined && owner !== endpoint) {
+      const route = this.#routes.get(owner)
+      const state = this.#assisted.get(owner)
+      if (route?.tier === 'assist' && route.endpoint === endpoint && state?.volunteer === endpoint) {
+        // A carrier that can choose its track ids - not a browser - and the
+        // roster agrees. The same checks as `carry`, by another name.
+        this.#carried(owner, state, track, receiver, this.#trackRoles.get(track.id))
+        return 'carried'
+      }
+    }
+    if (owner === endpoint) return 'own'
+    const carriesForUs = [...this.#assisted.values()].some((state) => state.volunteer === endpoint)
+    if (carriesForUs) return 'park'
+    // Nobody is being carried through this endpoint, so it is its own -
+    // unless it was parked as possibly carried, which it now cannot be.
+    return parked ? 'drop' : 'own'
+  }
+
+  /** Try every parked track again: the roster, the `carry` map or the route
+   *  may have caught up. */
+  #recheckParked(): void {
+    if (this.#parked.length === 0) return
+    const parked = this.#parked
+    this.#parked = []
+    for (const held of parked) {
+      if (held.track.readyState === 'ended') continue
+      const verdict = this.#attribute(held.endpoint, held.track, held.receiver, held.mid, true)
+      if (verdict === 'park') this.#parked.push(held)
+      else if (verdict === 'own') this.#emitTrack(held.endpoint, held.track, 'direct')
+    }
+  }
+
   /** A track carried for `device` has arrived through its volunteer. */
   #carried(device: string, state: AssistState, track: MediaStreamTrack, receiver: unknown, role?: TrackRole): void {
-    if (!state.tracks.some((held) => held.track === track)) state.tracks.push({ track, receiver })
+    if (!state.tracks.some((held) => held.track === track)) {
+      // A fresh track gets the whole stall window from its arrival.
+      state.tracks.push({ track, receiver, ...(role !== undefined ? { role } : {}), bytes: 0, progressAt: Date.now() })
+    }
     this.#emitTrack(device, track, 'assist', role)
     this.#watchAssist(device)
   }
@@ -3059,7 +3268,7 @@ export class Mesh {
       const far = unwrapped.body.assist
       if (typeof far !== 'string' || far === '') return
       if (unwrapped.body.release === true) this.#handleAssistRelease(unwrapped.from, far)
-      else if (unwrapped.body.accept === undefined) this.#handleAssistRequest(unwrapped.from, far)
+      else if (unwrapped.body.accept === undefined) this.#handleAssistRequest(unwrapped.from, far, unwrapped.body.readsCarry === true)
       else this.#handleAssistReply(unwrapped.from, far, unwrapped.body.accept === true)
       return
     }
@@ -3099,8 +3308,16 @@ export class Mesh {
     // `ontrack` for the m-lines it names. Every offer replaces the map: one
     // with no `carry` says this sender carries nobody to us any more.
     if (unwrapped.body.type === 'offer') {
-      if (unwrapped.body.carry) this.#carryIn.set(unwrapped.from, unwrapped.body.carry)
-      else this.#carryIn.delete(unwrapped.from)
+      if (unwrapped.body.carry) {
+        this.#carryIn.set(unwrapped.from, unwrapped.body.carry)
+        // Carrying somebody to this device that it is not asking for - a
+        // release that was lost, a hold that outlived it - is consent this
+        // device no longer gives. Taken back at once.
+        for (const entry of Object.values(unwrapped.body.carry)) {
+          const state = this.#assisted.get(entry.device)
+          if (state?.volunteer !== unwrapped.from) this.#releaseUnexpected(unwrapped.from, entry.device)
+        }
+      } else this.#carryIn.delete(unwrapped.from)
     }
 
     // §2.3's roster-lag rule, and it has to run before the peer is looked up:
@@ -3147,7 +3364,13 @@ export class Mesh {
    */
   #followRung(device: string): void {
     const route = this.#routes.get(device)
-    if (!route || route.tier !== 'direct' || route.connected) return
+    if (!route || route.connected) return
+    // A route through a volunteer that never brought anything is no reason
+    // to stay put when the far end has moved on: with an old volunteer that
+    // ignores `release` and a far end with nothing to send, nothing else
+    // would ever move it.
+    if (route.tier === 'assist') this.#leaveAssist(device, true)
+    else if (route.tier !== 'direct') return
     const peer = this.#peers.get(device)
     if (peer) this.#closePeer(device, peer)
     route.tier = 'turn'

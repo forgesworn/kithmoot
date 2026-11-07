@@ -313,6 +313,15 @@ describe('RelayPair consent and counters', () => {
     expect(pair.asked('c'.repeat(64))).toBe(false)
   })
 
+  it('offers a direction to carry only for an end that asked', () => {
+    const pair = new RelayPair(a, b)
+    expect(pair.directions()).toEqual([])
+    pair.ask(b)
+    expect(pair.directions()).toEqual([[b, a]])
+    pair.ask(a)
+    expect(pair.directions()).toEqual([[a, b], [b, a]])
+  })
+
   it('counts what a pump elsewhere reported, in place of its own idle legs', () => {
     const pair = new RelayPair(a, b)
     pair.report(a, { received: 10, forwarded: 9, dropped: 1, starved: 0, bytesIn: 1_000, bytesOut: 900 })

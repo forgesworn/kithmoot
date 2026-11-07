@@ -81,7 +81,7 @@ export interface RTCPeerConnectionLike {
   /** Open an m-line with nothing in it. Optional only because a Node adapter
    *  or a test double written before fixed slots existed has no need of one;
    *  every browser has it, and `supportsSlots` is what checks. */
-  addTransceiver?(kind: 'audio' | 'video', init?: { direction?: RTCRtpTransceiverDirection }): RtpTransceiverLike
+  addTransceiver?(trackOrKind: MediaStreamTrack | 'audio' | 'video', init?: { direction?: RTCRtpTransceiverDirection }): RtpTransceiverLike
   /** The connection's m-lines, in order. Optional for the same reason. */
   getTransceivers?(): readonly RtpTransceiverLike[]
   /**
@@ -1568,12 +1568,16 @@ export class Peer implements NegotiatingPeer {
    */
   carryTrack(track: MediaStreamTrack): { sender: unknown; transceiver?: RtpTransceiverLike } | null {
     if (this.#closed || this.#retiring || this.#carried.has(track)) return null
+    // A new send-only m-line of its own, never `addTrack`: that can reuse an
+    // m-line already negotiated, and then an answer to the far end's offer
+    // could switch it on before any offer of ours had named it in `carry` -
+    // carried media with no name on it. A new m-line can only appear in an
+    // offer of ours, which always carries the map.
+    if (typeof this.#pc.addTransceiver !== 'function') return null
     try {
-      const sender = this.#pc.addTrack(track) ?? this.#pc.getSenders?.().find((candidate) => candidate.track === track)
-      if (!sender) return null
+      const transceiver = this.#pc.addTransceiver(track, { direction: 'sendonly' })
       this.#carried.add(track)
-      const transceiver = this.#pc.getTransceivers?.().find((candidate) => candidate.sender === sender)
-      return transceiver ? { sender, transceiver } : { sender }
+      return { sender: transceiver.sender, transceiver }
     } catch {
       return null
     }
@@ -1583,9 +1587,15 @@ export class Peer implements NegotiatingPeer {
    *  `negotiationneeded`, and the far end's receiver for it goes quiet. */
   dropCarriedTrack(track: MediaStreamTrack): void {
     if (!this.#carried.delete(track) || this.#closed) return
-    const sender = this.#pc.getSenders?.().find((candidate) => candidate.track === track)
+    const transceiver = this.#pc.getTransceivers?.().find((candidate) => candidate.sender.track === track)
     try {
-      if (sender) this.#pc.removeTrack?.(sender)
+      if (transceiver) {
+        void transceiver.sender.replaceTrack(null).catch(() => {})
+        transceiver.direction = 'inactive'
+      } else {
+        const sender = this.#pc.getSenders?.().find((candidate) => candidate.track === track)
+        if (sender) this.#pc.removeTrack?.(sender)
+      }
     } catch {
       // A connection closing underneath us has dropped it anyway.
     }

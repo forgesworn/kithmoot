@@ -97,6 +97,17 @@ export interface SignalBody {
    */
   release?: true
   /**
+   * For an `assist` request: this end reads `carry`, so a carried m-line
+   * reaching it is attributed to the person it belongs to.
+   *
+   * Required by a volunteer before it carries anything. Web and desktop
+   * builds from before the 7 November 2026 re-enable asked for assist too,
+   * and they attribute a track by its id alone: a carried clock's id matches
+   * nobody's advert, so one of them would show the far end's camera on the
+   * volunteer's tile. A request without this is refused.
+   */
+  readsCarry?: true
+  /**
    * For an offer from a volunteer to one end of a pair it carries: which of
    * the offer's m-lines carry somebody else's media, and whose. Keyed by
    * transceiver mid.
@@ -261,7 +272,9 @@ export function sanitiseCarry(value: unknown): Record<string, CarryEntry> | unde
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const entries = Object.entries(value as Record<string, unknown>)
   if (entries.length > MAX_CARRY_ENTRIES) return undefined
-  const out: Record<string, CarryEntry> = {}
+  // No prototype, so a mid such as `__proto__` or `constructor` is only ever
+  // an own key, and a lookup by mid can never land on `Object.prototype`.
+  const out = Object.create(null) as Record<string, CarryEntry>
   for (const [mid, entry] of entries) {
     if (mid.length < 1 || mid.length > MAX_MID_LENGTH) continue
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
@@ -354,6 +367,7 @@ export function validSignalExtensions(body: SignalBody): boolean {
   if (body.slots !== undefined && !validSlotMap(body.slots)) return false
   if (body.rx !== undefined && !validRx(body.rx)) return false
   if (body.release !== undefined && body.release !== true) return false
+  if (body.readsCarry !== undefined && body.readsCarry !== true) return false
   // The two new types that carry no other required field are meaningless
   // without the one field that is their whole point.
   if (body.type === 'sync' && !isPositiveInt(body.gen)) return false

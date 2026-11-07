@@ -460,6 +460,15 @@ export class RelayPair {
     return this.#asked.has(normaliseHex(from))
   }
 
+  /** The directions that may be carried, `[from, to]`: one for each end that
+   *  has asked, and none for an end that has not. */
+  directions(): Array<readonly [string, string]> {
+    const out: Array<readonly [string, string]> = []
+    if (this.#asked.has(this.a)) out.push([this.a, this.b])
+    if (this.#asked.has(this.b)) out.push([this.b, this.a])
+    return out
+  }
+
   /** Counters for `from`'s leg from a pump running elsewhere. */
   report(from: string, stats: RelayStats): void {
     const device = normaliseHex(from)
@@ -547,6 +556,12 @@ export interface RelayLegHandle {
 export interface RelayMediaPipeline {
   /** Whether this pipeline can carry anything at all, right now. */
   readonly ready: boolean
+  /** This device is offering: get ready to carry, without carrying yet - a
+   *  browser starts its worker here, so `ready` can become true. */
+  warm?(): void
+  /** This device has stopped offering: give back every receiver claimed by
+   *  `prepare` that no leg is using. */
+  release?(): void
   /**
    * A receiver this device might later be asked to tap. Called for every
    * track that arrives on a direct connection while this device is
