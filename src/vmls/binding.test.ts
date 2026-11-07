@@ -40,7 +40,7 @@ const signerSees = (c: Case): string => {
 describe('VMLS/1 unsigned leaf-binding reader', () => {
   it('derives every framed vector body exactly: valid signatures verify over its digest', () => {
     const valid = framed.filter(c => c.expect.ok)
-    expect(valid.length).toBeGreaterThanOrEqual(4)
+    expect(valid.length).toBe(6)
     for (const c of valid) {
       const body = unsignedOf(c.bindingHex)
       const binding = readUnsignedBinding(body)
