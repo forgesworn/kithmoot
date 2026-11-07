@@ -15294,6 +15294,1574 @@
         }
       }
     ],
+    "assistSignals": [
+      {
+        "name": "carry-two-entries",
+        "kind": "positive",
+        "note": "An offer from a volunteer with a `carry` map of two entries, keyed by transceiver mid, each naming the device whose media the m-line carries and which of its slots it is. Both are well formed, so the decoded body is the body as sent.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "4": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "mic"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "4f7467b8ec0b041c8bd180e1a0f2c8a81fbcdbe38e16f04f9bc842af9aef8cfc",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "a1f162c51cae3dc0b2e3552af9d66a68708f98b0a44f94c28e4439290d7268d6",
+          "outerAuxRandHex": "f09da4152b0f020158baf8cb64e1ab50131f5096d4bd13ee6c355cca6e7780d6",
+          "nip44NonceHex": "d7d9419e48df09b9ac9efb5fa71060a2d6dfa4a0fa41285fed2c2aed10cbeb08"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"4\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"mic\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "37ca09063294b364f4ea59e461fc2fbe9d0379eb4806796c4d4036c2f62e8199",
+            "sig": "616bff311ae8a4cd790611599cbef684c0934dc0f6b0658d6d512c6c7a3b10f02f13bfb8b5e907cb0ad140386d7255e1ac73792b3bd6aafdb40b14c6ec6b488d"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AtfZQZ5I3wm5rJ77X6cQYKLW36Sg+kEoX+0sKu0Qy+sINDovU6SRCwn0BxM4MyETYGeZFsIAPUmd4aP+iv/jMBWPznphsKpTjvqy0m7HGS1QBkqTDDaPxcNw4X7OLu0X89oGfEPWLdT7axXAwfhJaCo9NBvX+wA4L+AGp0xPO7ifrxGksn/aGifYQfJQR+gZ7umHcE2nOyaxhzufKIK4C+UA7y71/T5Fya2ocGh2yAlOLv5+C1/RlqoDQkjdTnyVJHW5UmQ7mJUpWnYwA7cBmVlLWZBwMnG2vjhvJGoRY32juOpEqpdbMAP1UsTZo1AvnE6yePI3L5USK2Ac7hlcNpL1nNmhog9jBDdZlELLqm/NmNgx2x/yqaHrTQrvqWQp44dhjd+IAaQ1MnSnYa2/xVg/hcNydu7ONrgiOYUJKYRpq81gOFgTx8kVHGsUB8ol1jdpgax5uN/GtiKug1wvKTQvJR+K/pp9PwSn6CNyY0x2Tw8ipoDpjxHfm4jNjrUGCURAx2zTGNNMazG5MI1GKVbKAL0bdHekItdcfr20BLIElHx4HeT7sKEo/154oWeadbhWkol1boVgAZdExeCe5RCz+s0icd4AOxmHnbWvNkJxnHMtkcuJNj9lBhPv8Xkr78PdmYfzeFRfNOovzP4vfQk9vJfk87oOu43tgeuEwS9q3uGc88ZorjyD7ncU1+OGRzWnRuO5ykizMhXcJ3xH//GsCSbtFQvk+j6lc1cKBPN6KOKZ5Um/L1uA9Hu2doCN+ICd4P1hb5xyLNKqtyP1huqqlYjgtt1GHcph5ifP1AzscegKDzOLgyrN86h8gKTuhlsFR4ukphqay3hFYM0+INd+g1N7MstUgh0ouQtArLwyNq5Pgs6rVUD0/mVEwf1YsTuZ8yekAWSRkT1vXD0P7IO8wyrkxQrhjNZvTgBmIUK+YxR+z5MrDGB2PlqTTuPSpq+egWu00Zpl2ZRr7KeKjl5l8T83e7RCbA5/Rby/97O5iYgD10oCHyzYVWR8xobUNte2iI21hHHTFhQUZPYgZ3kmkkngXeOu486SmJzbVmbTqb0EdZZnZ7sJOYxOngFHzCySPsU8gBTAe9IP6rx8emcMxroR5Okr3AS0dOpABTExOKkCSy+jMgS/LC6tzSOcIH9qpKy7zWYwnXuWlqIkXw6826JcNUaeWk5ordNB4d9N+D8Skw7aijxq1YAuIP2dghwD8yCZqdKZN/+TNIXbiTYATd+eQOzX9fxr6Hfp2MaF0en6HrjHAs7tCEzKrP4p5kMugqo+KRaa9S76dgkHMD5JXh4DzqnFIMPXM63o2u5EL1eexIziFKt3B3GpdbQMpZc43/2TGn3bf64o2KKFIAwNiY2/MbjZgQZzgLgwICt2uulNCaJ0l5sZHG0Cd6HWmOq9fK8ps6D6sEUV2V7y5EKXVPuXg4YTLIYuaUg6P5uJXuc=",
+            "pubkey": "5619f30640c68aa81c1a2c877a3e8b9c374e0ad04d739d1799522f195401b766",
+            "id": "6300c84d365a1ffaafdf9497ca3d18c47b5b04e316117910a12ffc1449dc815a",
+            "sig": "fd56f7b37bdb0b2b988dc17c57ca5694917ef4f2cabfd8501aa6b56101c1a4049e5dd9da171b737ad77236eb24001ea380dcc8327047b57a511591e35ec165a8"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "3": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "camera"
+                },
+                "4": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "mic"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-malformed-entry-dropped",
+        "kind": "positive",
+        "note": "One entry has a `role` outside camera, mic, screen and screen-audio; the other is well formed. The bad entry is dropped on its own and the offer is accepted with the good one.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "4": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "webcam"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "084f24ae7dd570986c7e0d25578a917c549f57c640b4a5a71b20ad817beba87d",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "6b3d8197c7b0e3515c5249622c94d36fbc619d42dcc1276ae61c3e7aba317e62",
+          "outerAuxRandHex": "fe23f548ea52e5fb5e56a1479eaa574061f4d8111c24616bc6e7adaacaeaa2cd",
+          "nip44NonceHex": "1543757dc23737ff5741493a5ab87ea10cafca25024fad9b0f0fd81980e5e574"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"4\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"webcam\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "ee2367356539181654f572b8fd38332c45810ec49aa1a66d7ee1c601c81fa5e9",
+            "sig": "9c269efab38431c315f8f12aaab7b78941ea967c7eb09ff73d551229a891e09df828240079f8eadd002fb94fd73e7d47f62e5a6ed3bdedf9bfa0edb6ea1ff94e"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AhVDdX3CNzf/V0FJOlq4fqEMr8olAk+tmw8P2BmA5eV0A3+nQSUcZA8+F4+mVK/OiygGZj4F4erzCNa87ut43ACUA6Nw8tg01/ZKoolIgKkQV9AudapraGklloTN0nWqHB8qfl6V6j32sBVMzV9Ny7vSMcZYUgof1nh5rQTMDerDc88DRBn3r5PZB3Q3GNN3/Se4XuKmH8SP+FYbrpvYASwIdhHh9Geg5UaYYNu0D82e4YeUCF3Qu2R4wOk6q8f/DZ6D16ci1+exIz8xFeu4AiDM+0OexOM9O6JtOeJTbHtf4pN9FWEgxMcUMq+J9iLrRJnvfeoplxxWjuOyzaMAP/gopLusD5ALC/B2awB6K5P2tlWuG1iAkZdDxkUvQhH9sDlDtM9kke3vuSN9dKXaJ4JppyAAXca4BtIAnxy3FyvXvVBceg5vwmR0/LeyrUvSpNseuq9j2NYb20Y+L1MdMRV2SwZZUeTFXJgSagK7ZeBZd54LOU8iXgM6K3l3VvImfQrKdnNtVlQjgdfMfPFVY3innfVOCLdMobNNj0Lt5YkjQJ8PtjWEZH9qa0Ih3ZLTAe8d0sthsembpOqAU0w+XEka6mONPAlTsTMrucHAkk9qEx4K41Ewg3FnHSRdRkQ4tElJz1DUjzzonE83AvI7u7CIMLQ8ovKiRdYFbUD7BymO/TP1srvmf1G/HEqZSxjPYIRgNfNcYaD5SrQqGcu3k81K9Pbybr9jgRt/VAyE/0ufZvC8zdfWuLOF5UAm7SLi7I5f/Mo/k7J2ItKJtoFs42HDYcPQw8dnfoX0YJkVEMRmLqAvEl1i8xoMZd3vJXhsGafDZuy3rpJVskmes+mKCjIe5O9icyHgMoKxBrVwUeV8XFVuPyzkx/zZ286gkaRfceWpJFitLSPBP7sS9IH/dXwfBMPV63pUPAPMV/pXJ0GcMi8HmpVR1DbW+nNBzTG+KwHeeUScMtp31k3mTfL6fGHTeuMBLuj4E/P0G0T2Lwu5P+kekLDzdp8moN0RsMsSDZ4wenvNzeanEWCkQx5/cUYETJyzU/4jtDDhSj9hIgzpo4fPWzTVnMLGOAIv/WnqJLzPt38xXRQoEY85SUdTVue8CTOYTxO8i2ahGd3AR4AkIqBjPiaXJd3Nk+FjrWNwzymZxoGNn4k90W/IYFOtsL8Rqrl0SXyEtkLZFc0+7XJoCqTUsLS90VHVNkzGkDhab8lSwiMnK8fU1Jgc/jV1HoDLQiwDOJQZW1F4GBrkGEbfjFlmWOUOhqN5Aq7mIgvreBf+KFPeGFtgIul92GpcEduvzAaCQjXjMfBDVLBM6MwRA7/W5Y46o5uOHLhJievpbJbixbkKe+/5i+B9AIPMhiV3Cm+gm+U570DfUSea6banP5xJYVbmr1npD8T/ED8btQDj0kjAdA4cIALRUbPH/ga750xqFp2r8t9edh4IsCZuiHM=",
+            "pubkey": "07b3ea998d58fd6b4168ee805d5d00c43c67fd48f450da6058174c8f1e30b2f9",
+            "id": "5fa24e9395bd84826c7b5a86f72d7ec865dc55bee3713a4c7236c58d98d9c50a",
+            "sig": "988c7f7b453c8916c59967ace386b8dabb7ec0486d910f92220491ba3b7726269d1f26f6de225ed72f93a7b40f0f266f7b7d0cfa75b83e6d787ed334a389f065"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "3": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "camera"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-each-malformed-entry-dropped",
+        "kind": "positive",
+        "note": "Seven entries beside one good one, each wrong in a different way: a mid of 17 characters, an empty mid, a `device` of 63 hex characters, a `device` that is not a string, a `role` that is not a string, an entry that is an array, and an entry that is null. Every one is dropped on its own; only mid `3` survives. A mid of exactly 16 characters is the longest kept (see `carry-longest-mid-kept`).",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "screen"
+              },
+              "5": {
+                "device": "54b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "6": {
+                "device": 7,
+                "role": "camera"
+              },
+              "7": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": 9
+              },
+              "8": [
+                "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "camera"
+              ],
+              "9": null,
+              "m234567890123456x": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "5f60585853a06596349f7b83622741478fd608fc03dc59d2a15350f84674544b",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "7eb1c69d6d27228a85c7b33dc130c0a744143f7ed71cb0f20e31b1d2c384b09d",
+          "outerAuxRandHex": "1832834242a522e2ceae00596715f2605e88d03d0fa23dd5bdaaa2c5cbfdc11c",
+          "nip44NonceHex": "c310f557c1e3cfd4ef17b60ffd57bff37bf8b8b78ff26310e546e1b10fcfbff2"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"screen\"},\"5\":{\"device\":\"54b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"6\":{\"device\":7,\"role\":\"camera\"},\"7\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":9},\"8\":[\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"camera\"],\"9\":null,\"m234567890123456x\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "f9dda8c114be05554e774be3e67a9de53b4271ccfc262839fdac0a238c0d8560",
+            "sig": "432dd41a4a28d6c1e574e39cf43564c6eb7c44b1522bbb29cf0a873f34a606047140501a64f331af38a68acdefa1dc3e17da4c0ba8463f62ce5f310be288c1c6"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AsMQ9VfB48/U7xe2D/1Xv/N7+Li3j/JjEOVG4bEPz7/yzRNsxQLGaELjal6wcrZ/QKFu1N/0yFtlp4/OnhpSQFb0ZJmcB2YyiylvEsxHUpBB1YVRBC/fHnscSuhJQDEvZicX6bUhxlJwLB6s/rl7Q48nS4/3XWuU4ICxewx8ShbrfbTjxGvPQNez5sJNBhMcTwMCoA9Y5kB456nlXyyLjfPlIbbFmTE6XSljYIhTjN9aCsxkXBhkTctVZy0i+FgsinEK4aK+QL2IoAgtTj6C33uoRjV1LZCwzXfDGrUcjx9to6/DgVk/caBIHcRlaCNZ+kSDVnH3/rPBAV9qfjwPztPdJtd9+P01XsSNuzl6aQ7I4f/XO80q2DU5/heG4q2ZoVkjWf0NEC6ZWzpMdO3tgJuLNsVPzWrLv9XMCDkLyAcjMvsc2tlNRqKJ9h/Mcj1MNaGGDOgaI5rdtJ3m8xaKNLhmC7BAtnaz5c5eGV5V/r33KM1+aCeZUIHJxT0A0qA7QDTR19qkMHMTYYzOvsGv0rFiUBlNfkSvR+tm/xCUiSuXhvg7pGS9/Iso1kgMif8km5FOkv3jUEiAL5UdXtYpBMNhk+uVWtOQRj1WP1FuMz5mcAJVQrcee32f8Lwg76sBHhqLuRyqrknHGbgrbBoEBMcIupWMg7wtIXalA08AtZziRQQop2X9WjJV8tgmbZwqVf/jjqPsF2/r7FfxN9osZ01d7oekY7m0MG8cNWOcl00ZOXA1wCwS+XWGa0GcsnJRYVv0KgPPHUyD/SQUEI5ZbA5MAY5Tvkj1D7JpZIy4FSk/e9oiJW6ZLss3zcvHHCTgU3OJt5clHL1tStxG3Ziz31wXpclIEQmG3shJjJ75lQfHOBiwrOZWW1ffmWkdtDleXenFHxz/yqwgbIdiE+1XkbcmBnzRDg7/SonjRPjfq20FRhbPHEkT9darTU7UJ/RNOGdjnlu7lDC+0cEkZfjUQva29hOo9r3VYLNlHO5sv8f2tvrb8qABZyPBc9zJLNu1HCv4kVxTAXTXR7rCLos1koHGzafe+KjEevVngCwqoUgvMch0PV7qc9YEjK5tnE2ccjuzlSPuEgO/OqL9FZSvf6Z3ZPVxr3BTQLBW26PdSBDsGkYAroCexWmSgCllOmLqj7zOjydfhbO34YSDAjxFpUjcXjxh0JSV1BdvPLTQ1Q5cP5Xhv/82xhvUrs3dAWgLhZt4sv85DwdLkz49zLgYF1OgynmRq1admOFCPKoju4tn6V0/MwZhXGLxmj5lsljVNCZ/2w15RHnpHKTobAPnnSy9KfP2BaHIekmqy3NQF37drFMzY1+/dC0gUwOkhWxfIyM8R81l2IXPWS/Y9oNNp1XdnIU10pNmiH+cx8mivwePPIvps67OAt6sjHp5uPDsJSy8wmlhDkRKZrAgZ735M3y0Hjb8SinJisaWLJmgzsfdUN0r3q8C6yY5+YA49HrvJyRFc47zNjGKTHGK/LDn7d8h3xnHGcd3PW6smhnovopEpe7CaC5R2VTK7EgBAi8uYCFlTMPQpACJCNSQEW10taYapcY4618+j7eDBfVuq6W2Nrb35s9i08f/mG9mz5BMduDQKXDMvHbtTebLmt2PhEcjmCn61g4pn1sLXFaU7JEa9KVZ84Tk+xdeboWrDrI72G13I9bad12Re1J6Hc/81ZzbidWHdMkMCDq4ix3ixH4phxAVYpjW+/6pD3YuRv8EZXxYZaIMDsdv3Z+gg+KreIzRKNtj1yvW48At4KHOOW0pR0Sm0ZxISLHCjeS4CuTq4Zj+bBvr1oCcTv+fdTNenirtn6zBwZRVGFOOLFIb2HWzNTWPalJ3eUx7hk6uR3aGNT0y8gff+ml/zs0s4jpc2g1h9FI1CXkqYCOpFqSl6KcveBXNDmeHWSAZB6u9tcrT48Sp4LQAw1ai5k9ufQnWJbWzSp88woNzGmal0+qr6XaQuv6YdV2abwGuW0AgxxZCQAAWtdSrNl/TQntJo0laGGJ03koNL6Kxqgy23U52Pk48N2rBZj0CVsMWEgGlHbqoUMgqCm0M1l3Uav39D8m6OWL4hsfH079Z2kiqtT/QbgJ7CpfUxt8rWLF/LwG/qCqILI6WEvBJyC8vdv9vWLITdAyljQ==",
+            "pubkey": "531c6aec77482a75a33ed1660a508b73763f51fea934c4c983bf75a9a2f86b23",
+            "id": "7b26ed86ce7d07e9a3148f10366d2cc652401001488129d90abf6b9afd5bc359",
+            "sig": "86fcc7dcc9b8c96e8ff8e8099753a8bb4c06fda6d8f109a0a2356e4de3fdaec30137c10b8c688a97f611b848b27f30d77400b9e370d9a70657033a34cf5e15e2"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "3": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "screen"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-longest-mid-kept",
+        "kind": "positive",
+        "note": "A mid of exactly 16 characters is the longest a `carry` key may be and is kept, with the `screen-audio` role.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "m234567890123456": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "screen-audio"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "eeca1dcd271949169fcd047e42245baba2e857ae54c13a6b8834b6c1757e680b",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "c9c9ae1e8eb0dd77bea8c6cd54fba909969674f915ff2db2e630e0712f625048",
+          "outerAuxRandHex": "90198decd5fc7038873f3ce436baee3a8ae01f964d222d6f9650556b49195f4a",
+          "nip44NonceHex": "964d1d169249bb1cfcc57fc1cb333f5e54ac64c5529400490025e635c1fe0c88"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"m234567890123456\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"screen-audio\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "6cb957fbc30e3763de36b6675fbe689b5f280c734d9533445c80900a4356d0aa",
+            "sig": "ebcfdb4035c7cccb7b53773c62faa02896a9a7f64b25ea9441234b868c187c5b6d8af1bbccfca644db2afc7595146be0dd628204037f3d9ae2049975c5781708"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "ApZNHRaSSbsc/MV/wcszP15UrGTFUpQASQAl5jXB/gyIPg4ME/8hTODpCfOP3IHUnKpl1UPu8o1SezrpmZQE29/pmQSzT10ufiibQhlrqUj3J0dzou9wXUmteHNt0fUxFeim80CbXHQYljdVAE3had0khoim7ivLNcfDX0mq+WB5Yan/7XX65tTbmP+a5VEWTQusu3Km9OQCTt6neRqC7+pUzUmrqQSVEImertp7PnXEOAl7wwHpgF1eaF5aFlNwchc6SvHX92Mt7Lnfy2AXRgNwADl6nrJmifFKtUhQQe8gyqDSOYoK0uJCd/PRCLmKwZi+XXpKGuhLJ+0WzgfGd91RekySfaXzqdkysvSRyQBhMhPfL7X9C77pLw00LCmWqqpwyWRPnUxAZziAplKNJYInLOwpQUfPvNSzHCI9wB6B/SfCXYoelMXhPleUBHvVLRIG6Yz09+9eZyrIxBWx0MgzFVSCqdygOhvXyJe93I6C4LHOQ1sh4wZLAstXu3tmAmxgmPQMBLFTkyEd/zoFQJjWf2ywA6K+o8wqVfdHxnr8BsoF5T35pr7GTgdY8zSo7JQcd4vrO53dGTEEsz2dBux/xD2f3V9MzlTDoufPLCMgxy0Za3Rcs1ED4O7BJ8FEPlawJpEPa/rt659lZRZCLDU3Hj+mZHvEDyIhkcoa6C5BjjenC4hLNebI7AWtYzIQU04zEXwUueBGEOt8wPdlV53Nav+JMVCaCOA6mrJtr140PQw8F6sDc0SJpv89buZk5MHsw8lEOIO0XBDNdZa4RE2KPiGpRDSerayqFX4cahjIivOBvHO1HsUW6nvCtdO8Rqj1I+M8Ex5siQa6+ob3keeiIIwuzfxGFqQFeB8jenjh/mfgFAovL/t4mI6GzCH8eX23PKO+xIu6urD0p4TVDFaS2938WUUH0O6b52mc1bLEOQMzCdJFuylZhs4YYdjgP4BtafnumcOAgm0wsJZS+upSOnxFOCgMTDfyX/3p8rOWBWoztl6Fld3cTHPVatYW8I9+fYJFhOVYQwotKb45Y3UexFBR1L72A4IGwMlDDOk061ZeRdv2oQWGXPfxnq5V+lajtxNFibCHcqVwJNzCkvC5QkvrV5U02S3+BQN0f7rR/yt9D+Mc4IfPbsuXQ6fCCwFM01gCMuKW+CeiP0RN4XecuebYTEu3QRvta3Ea55ldZi5XhCAqziNXSXd2v4FLyo/6L5n5h5E5nc1FaEaldjLgRSFtZfp+uP6u5IGyoNbnve6JpTbwe+JbrNcdF6VgGpRkQdlHc12M/tKqFVRTo0OneY0Y/OH/jPWuGSFdtJ9HnsWyO0N9zn99skrjPNUZNhf/IORdekb+NDbyGV4JFs1QcPgunT/txHQJa3yJqf2utTSLbeF3TP1+T5JWkez3z2cm81MBEQM5uVjjDiW22v6nxXCRYwKkYVOw+Yi6mIE6vL4=",
+            "pubkey": "866cb8d76e44080005f4be013a5d961135861e36b9847d2a42760d2a83af5542",
+            "id": "29490a9afbf2f286fb9801770f96610334ade66350a5c442b20e8e33585f49ff",
+            "sig": "3443d94d3f823c0d9ecf5c9f30dea55ebc9f98c36da184549391d9134cf769c2e5d479997ff2ed4904eacf5d2e840dc75d33092d62e35dae4643644b811dbd42"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "m234567890123456": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "screen-audio"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-eight-entries-kept",
+        "kind": "positive",
+        "note": "Eight entries, the most a map may hold (`MAX_CARRY_ENTRIES`), all well formed: all kept.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "1": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "2": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "mic"
+              },
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "screen"
+              },
+              "4": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "screen-audio"
+              },
+              "5": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "6": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "mic"
+              },
+              "7": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "screen"
+              },
+              "8": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "screen-audio"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "ba0eeec25e3a4ab9432925b51a79669b6bba7d9aece566d97f60b9364030e9c0",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "cd17e87abc13ea53084952c8ce12b957f401a9fddafd5d717b3537899bb5d359",
+          "outerAuxRandHex": "aae8d02e35a8bd70138e2c0890e3822e417b283fd51fd2a48b1309eaa2c7fd60",
+          "nip44NonceHex": "87098d86347b8425cfe9fa2513c54969b480b20972c19798dbb3edabdac31dbf"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"1\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"2\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"mic\"},\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"screen\"},\"4\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"screen-audio\"},\"5\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"6\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"mic\"},\"7\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"screen\"},\"8\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"screen-audio\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "b2f3c4416c1df6e090b6c9e5ecf01edbdb1ea4a4ff9e005ccf04aed3ee5ae2d7",
+            "sig": "0603832520f84bf0e0aaede6ef272f2d3d3e289fd7f96e0510384df2318a7cd36b9f1ea70064694e4ad61e32ebd225dfcc3deca2d264339eea6bfba690c96329"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "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",
+            "pubkey": "212515aaf095d64bab958cffedf95a809aeddf212a53c6b9f6ed9c992d0b0189",
+            "id": "1997d9b0c0301be3b989db622a289e5d40b93af6d42fb458cfec265dfc8cb5d3",
+            "sig": "67c86dea29f15336d092446d1c9339f1066c422f2f9e1f596f5624fea65dfe6190029f5df899032481f50b3065be57859260d242cf6b6666bd55bdc603d2aabd"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "1": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "camera"
+                },
+                "2": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "mic"
+                },
+                "3": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "screen"
+                },
+                "4": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "screen-audio"
+                },
+                "5": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "camera"
+                },
+                "6": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "mic"
+                },
+                "7": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "screen"
+                },
+                "8": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "screen-audio"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-too-many-entries",
+        "kind": "positive",
+        "note": "Nine well-formed entries. A map over eight entries is not something an honest volunteer sends, so the whole `carry` is removed rather than trimmed, and the offer is still accepted. The count is of entries as sent, before any are dropped.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "1": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "2": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "mic"
+              },
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "screen"
+              },
+              "4": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "screen-audio"
+              },
+              "5": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              },
+              "6": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "mic"
+              },
+              "7": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "screen"
+              },
+              "8": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "screen-audio"
+              },
+              "9": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "47e6ddedca5492cb990f8a80ef9c294e77da1401a9df43c84b9a06352cd715a1",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "89e10b62ef66547968e0e8bf528d3ff0cef9d0fcf66ce604733b16383e655671",
+          "outerAuxRandHex": "8a44ce24f2a0702048f9ffb002d41d00d33424ba6ec15182c0ab751448d2d591",
+          "nip44NonceHex": "412014cd85a36ac7c7640189fb6b1b08a7f2682c2e5664d8975c555301bb95d5"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"1\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"2\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"mic\"},\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"screen\"},\"4\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"screen-audio\"},\"5\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"},\"6\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"mic\"},\"7\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"screen\"},\"8\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"screen-audio\"},\"9\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "d642ae4de7043bd3a56268a4f2197a7dd44f465ed13dd5feb294c79c64e115ec",
+            "sig": "184d21db08195f633ef0024c6d0a20c938c87cd27644e8e5f8b8617312bc4584949ffb532871abb0213f48f4233db249ff01876a6d1132e683c9ad628674f633"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AkEgFM2Fo2rHx2QBiftrGwin8mgsLlZk2JdcVVMBu5XV5U+YxrHvXLxnMHpLUf215T/kclhN1fPQlLHdopFkdPk9JWqCaVcekK+GHS4raN7c26WhDHF+yJMuN4Cl0gY41eoGzaezj9tNgOWTyvTW8yOWFRg/9cYIWDSXtJW18udEN3Kvir7TikpxRPeg4O86KHEbydDrWgkv+w+k6TtaADKy01Hx07yo0GmLYnOJ+3pnLwhI5ZV+jCb8UvtV3/cbC7FuTj2Ap5EB6cgDBi1CglK9uTs3j6tk98fx/N0LTDBailVt3paOzmBcHR9243CnNrLv42feiLBPQ1vZLT40SMkFu5TGtc2ukwZ5rcy3ykKgWj/fXEKbJ+LyX68Pb2kCRVwnQYfo69TxhOWrKFv7hugcqtsaoBh41KLxItrOmZIMYHNeqjX9pfazZkvIXbV40s1GNvO8fLNnYX3qDi9FGKWkGB3mmRUlbPEvU8Ag2joSuxHuIEt5H5nE5ePkeDVE+qNYs570OOsrPePnhIVeb3v0gINHeCLhbyrbF7rywN9D2H+xlK2bkMHnB3IneWElpQ1gvFEUYKt+m5MXjFCPr9AZpxRFWlEXD7dJkNs/M9ZMLSMHWC9XmwmLYyUNG8NlGUJJJe4xCjwz7fxXWPws2YTy01pEujrpv0znnoqdD4vk5vWVxoTjCiZ09ueREIS1ZhSGefHwkKSJuNH20fdP0sWz8TlSDKmFGqlQHqJTyvuqoKMhgxElBFDAOSAcOiGlPBpxwOJZ3Fm3fxYUiXnH0CMTyqJnZH2XpYNOBlpMDpUBEOkEYOXN56poCn+HxsJl2HvstOhMXXWvurL2ab7NXBB+mLOfWM3GQFwLmsrp32ax99AnzHk+5K5OO9tAjmELek51sjeHrkjssU4zAHatIS5Ll19zHHJDgy5HN3b3TxyQs7guXX4SwKNB57LIhE2Yx85SXF86PC6OhToPbarTNIEIVz5lz38TieI/DAoTKoBlIAu9gcXSys/HYT6T/+SN6O6JJoqiAbOr792wbS520Ncj4TmVYLgxXHJj07VJxjcWyj2phlO8pNBQGh2PbrC1+npOCe+ZjA2xG6YFULBNuuGCAF0yIHGYcMqFpPObGO6g96OGKQ36wE3v4kKOvz2jrxJDh2G2Z+9WlReqHWz2aQVQYM9BuFApccqGZJMbo0deRG2Y5pCebvYOGYKyMigmXgNChk/tSrp5YP00H42wDKAHxQEHVUMacCml45ctuB+87gyfoZXpo2q7UJQeRS8n41HCwHxT9Q3mN+MII9htGra+oiicq3LGJryBsCz0hYeQFY4qyZJdFdMogoMpgd1T0Nw7RrV2cKy32IzDCnX1+ZTLG78s96HdWfPTkWwcc1HArFBFfpClT35DkCzMhZ1eR3nXfR+v8geydtqcMDu+84YYys2c41H0zJosHdrcmmhALexfufFHHlIm/e5y5JFfrK+1RnQ6ubyh0lE7zuJsK0LGu01E3ch+e+z40aARxYen6dazX3dZy9FMcxMdr46Xvw0gJwjSka+wTOzN2qD/22mY1lvH1XUgimPcjWOVoXr7eXudzKNgF2NStXRiFuEPlh0Qg37Xh79bZYKxzmFnm3XzCwsjVxeQpA95uPLmTv7pEPcPPHArpLJ9mw2I/iusxXh8FZ5ExbzPPyOChGhkJRngdG0Xxgwe9hue7o5vgcstfqDKrwfIXj17RZjb+0+NG2TzGW+cjsAKIztB9JPTq+DL+beSQdAGYx3AnWopm6xhflyEMHOVAUyUeao1b46xqljrC++8aw0hgRg77QTW/O8X65hF9eK0zpvF7o32cRvXNVEf1OTe7u0uu/nPSmm4QtKEN0gDN0DGGgpVagBeYT4xRwNPI8R1PS8g20ghoHbSIquRVBF2IovwHdd3b/WwzWgO1J7ZXWY+kl1XrndQfh1qFASqyXAVaEe10pDWtxYL1KKEiG5qkL4tLChVt5hnflmZPY1ow+VVMt/qQy7AkdeHUQip5dV+kBjvpgZnCZygR7Bq5ILSdaZE231Ay8lDTMAgXxSNvYiKGqP9++5BbZT+5yOGoUrnQVs5o78hNBXUNzQdgd9+VkLhOfQplaLmLGY8rZVBRRzXVKiybTM4pMX2oIIgH9m49c4rGQwYcNRAcUAeSp0oiT45BQO0xXQC7LJ2XwFsyiUN7PJFJcgSDOJw/WYtif4G6AF/FYaVMBEqYLOkCst8yAoxKPfjiyuW7vQEdregs0IDo+jCEB+lONh/KmaeY1NKA67ryD0SQp5UbBuPYxa0QifDrZ4UA+K2MgbOUrs0bP8+ZZw1xYL8LKEEiJD2UJkuWxXQsUaWTs1QGJf4ns4tTOeiFBllp69UAw2SrEEGzgxqgvz0hR+HMukzTlqxj3WOJrVIOtmLFSBYiz4IEnHu0XZqUHe/3b5wx+fGKbyKLoN5mH0LVvESJlkp4gWUMtatTvhmC0OBxCqXvtI=",
+            "pubkey": "92862e0a6ee677097ef3b76f2d2d47e563e2184fd862932d7a255c6c7b12258b",
+            "id": "5ae38955ceca33f4c6bcc18bad9561c91319834d8c4848c2d348673b44cbdf27",
+            "sig": "49d459f13acc2789b1e7bbb1b6273678b2aa5ac51e810fa91287e98c99c11d0f4dac925214e2db6627fe0f3c0b86818fde194b04a681adccdc53fa486a5c8425"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host"
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-upper-case-device",
+        "kind": "positive",
+        "note": "A `device` in upper-case hex is valid and is lower-cased on decode, as every other hex identifier on the wire is.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "054B19287CFF82007050C1C36E2D8FE9007A3635CD4E4188A63E024B5F07BAEB",
+                "role": "camera"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "5d41123293c55319f4bfa5a5372ecd5373071d2aee05054407c0a27f780a28c4",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "25e5a82e78b6e8861facb99faf747d185a214d99a7dae8bbf1001517d0aeee23",
+          "outerAuxRandHex": "fb3e21a0a9e44e062dbc37367b802f5250948b14c48909dec9a541b6607a1425",
+          "nip44NonceHex": "2b010df423a5dcc93f04fc2e1f95c93d1315c0cea2c7585eed707c58df5e61ae"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"054B19287CFF82007050C1C36E2D8FE9007A3635CD4E4188A63E024B5F07BAEB\",\"role\":\"camera\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "52bb87e098234ed61d9f0b469a51990eabd63d77b659623d413effb8ef220962",
+            "sig": "4752389f8629308bf54285509d0ff49b468eaba0037f5058083f1db3eb8f892d982bd0f77aa9c503400d6d3ecab3aca6f19fa74ad7bf19a3d2bf5094a3346486"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AisBDfQjpdzJPwT8Lh+VyT0TFcDOosdYXu1wfFjfXmGuYW+lcu68t/ro3aq6IGmS1ciyazxqXFL1TPWBhUI9Hr95iSslg+Mo1PAdFnMBUA1YmqFU88RksTdvO6DFNG56l4yQWtxib7CY6SUl9BvEyfHBR86G5qkk7wHgrfE+xcHQlY7oRGazmflHgNSB5RSwJVd8IwBXWRkX0v02SQZzJdA82YuBtFJGqAt9je4bQjWnBE00AeRSw3agOQJPb4uQtneLtX5dGqT0KxturNCPAcw/8iwVDs/GG/9i8nUahid719gMs8MH9QeP9qzePcoM0NIkxbQxCFZ7lf1PIGLOQ4GaQ6O3AgmySTK2e6XCSemIGL3Wlf/mqSrOa6xqXeGSPqOQkCamyrV/+nrhJqBojmvh0GRpOKtPQrsSZpFGqeYH8WNwCw3JQoIWIrWtbH2YFEH3Um4/o91TFxMMeAPpVmDwdk3XLUBPcsjpoS0XDwlGXoW/IM6IRIxuW5k9qzCqLGDlr/Z7nMFV8+RoNefOupDMKw0qCV0+A9CLwQl3a6gRjmlSN1qzVQaXRmkQZsLZLiGVjvndPeF8+OedY3pZygUTGHVBJvmH2KNOk8wE3gAu9AsLHvqkfc6z9A830z4wLT7XBA3gqtv5ghs7pOmknaLNFPNKfVUEzMFKBH7jVql9NTWF4ltV50SHkAijMxa9R/o3/lwior6OkYmyEmtR7e0kB9pZhOxGQ/828qxNYvkmS8EN+ijfTUKllWd4B7EcoCe4533YI56FGUWAED7bRgn2QK0zhP8LAKGTJzs8KVuzT5icjC9RVK6a3EUIU6+gSUcSLsob5qohxs/hLIDoeBtP+uH61LHU8blvYp+t2iXZwF4lWC+cKAbRiwdaQ7+VFSVVKzE0JLSn53eLQdb20Fk4gfNr1lvuTnmuXXN71ChHahwtvnYmoE0+h2u9vioOziZSljge3PvrZR4xJIiZCUZhZjUp2fva2Y0xhxHiZyhH3c8S0OKR+sR6EkF15FZOvYNP3zzlPhfeqfT2PsBAdW47/j/BVc/gmpwDNusL0zmYHVYYDoBGS+cKfe4U3H+GpYuAdOIos3A5Ukq0Y/qHSpNAgRdxlbKPu+iinVB+wJKHg9F9eAqrU2LFLbZbH3+5TKaiQVr+tl0peSFssrTpoe1p3csmSwe9AQviG8JBS19K1UQMNT63do9oKHBzL0i0+zO4YWNd1EXzxzONDSk45eRSjvbeJFzSJWUn6CnTYNtkntfapPcbvky/cdhoFEQmZ+C3",
+            "pubkey": "3c2e221d02c518cd47e71afeffe5451b192283f59216ac7cdf02b022779a0f40",
+            "id": "2f9b926d1ae087f12f23bae5c42fbfd1cb7812f4612276d4eb5c97ee767caac2",
+            "sig": "265157cad778b26fa29be6720dcd5f8dd6b41edf0c63d67dc09b59aef240df21b64e79e203afb5044f8ba35dc987c35cdf9c67fdb52a2750f18056ffaa04c8f8"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "3": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "camera"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-no-valid-entry",
+        "kind": "positive",
+        "note": "Every entry is malformed (a `role` outside the four, and a `device` that is not 64 hex), so nothing is left: `carry` is removed and the offer is still accepted.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "video"
+              },
+              "4": {
+                "device": "not-a-device",
+                "role": "mic"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "b4c422fc04a767da1509834ee8463fe777bd0d500c8a5c1277f293761f49cd19",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "d37d2600a76446b72bfcf31aef07b7faf6b7b6bf5b7a8958c857327f001c7f72",
+          "outerAuxRandHex": "1a10ae23349eab94b5f6a7d6881494d7c3becab62fbfa9a6a4d98756f8699ed6",
+          "nip44NonceHex": "cc57c5ea38e00fb67c0f8c17b40c112466412b436ddf14ce67c52d9def9de1d3"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"video\"},\"4\":{\"device\":\"not-a-device\",\"role\":\"mic\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "7f388f2978a20fc1e55084896f124a4619078b0d9baa9fd5fac493d9dc7074f8",
+            "sig": "932652fcda6363b4c79a4b78fce9c5315e72c461a61288d84622ec3de77c1bfbd4d26326aa44ddbc5d5b3141a4eeec5445658968b83e7a649ac8103d6f6ab3a1"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AsxXxeo44A+2fA+MF7QMESRmQStDbd8UzmfFLZ3vneHTzlQ6PkQzAP4SuAagL1o/FDogN/pokVgzQFfX8HNWlMDPwDVAJzjZRH9dB4SLXzUgmhUm5vtFaPlldjwT1ad61i7wHSxbY386sR863TeHMJ6NscPHs6aHtUaBIieF2S8uPC5Evvuny89/evDzTVdy8aZ4b3NQFYkEogTUqSr0FPAaHQlDspy3fNrg6IOqHWcKhO4QdnAEJ1vevck2nUr0nGvD/hrBPzlOkwpg1P50lCO2EH6RZKb//5PjNHBHbmMlGs0CNmxZa2zsmzxgHiSVqbsQ0LL8mp351MGpGp/b5ZQxY+q0ko99M1FGgagCWTpND6lmQ9okt4oRHerC617q5a7gkGzDTtrp0BOR5QNRR12BbolEzSbFYN5IrYLOtBtUrfOPv+nfnv+UBCdx6CRTz0W9KhDa/z9U4Lub8JEe2tJ01OZrqW4AAFdb6OPyY9fdyyw/o8zQZT4oiUnWC7kT2M89WeDrH8/zbmBCxCoomtjWpD5TEhjhWWcIhZeg/8C1CPHic3d7n9xV0PA53mEuzBw9UF9lzJngLND2pxDblaqXHkPd1q3rTTQRBzcCyp2cm0lBBB4vTxsvmUe2ZPkBe2Indd+P32EkxymESdnZrUQu6IYhzjPpbDBrwSpr46gZsuMzn7mW65dWiRd3Byejo6Ol0rTkZ+YykDAIfXVl5LoxiMcVvRArRllZ3a/ySeDjgPPvMBiqOsP3+3UsfHfM2wHCrwY3WVszvbWIBkkXtJ/ydnua0JAPTwS5hywsWgrCufLK8gi8436XbM8jw0wZHbtZQ9uPFUU/uYV0YticKbIBn99C5uj6eKL2dHqrUx9By3vF8VquNdNXL8KzfBd1r6Paq2sFFiwJ0BXVyI2mxL7bLbXXaAk9shNi+b7PCLjJ+ZlYXbmDpQwKP1JAwqK/QMnIy1MqU0GQnuI4DIU60eu4vOk87mQpHRcni8mrVAp2hWxyVrK5fLHl7iS/N1okOdQNJznAb6WVJcFikAhyMgA4RIh0LfAjN1CTJF3SPNpGdOM+XXczv2z+VjAHBZ4eL3pzAJDuoxmPk0PyG71C6BVoY5OitbIcEU0amFBWaNSaxoGzOW271Vld1+gkEPS5kudI8jNctcBGoixsYegHwYEa9gskttFdCoo9t7VYa8rGXOUR/VYCYnNhVMVrx8w8nvq87b++Ag2IvEo/qph42tpUV9Ba6sua4bQvwneW2ezSajEyUFvehz3HehmPePHMqeThn5eFylEzmOtvEfIFxztep2jQDHnY/Q4BueewNknLuO6BjSucMZP5lJXyR2pU/IVZsG/QXZI4HAb8jlWnntFCTBSDJScnry3tdG9DV91mKIxjQcQOPL9yEeUu4MOI3Wgz3MT1dbgjCwuVbw5Xi3xG2hhHBq7cz6maxt/3i+T/YdY=",
+            "pubkey": "86753487dc1dfca26c276a1ba758555ef1473f08f462893ff472b8ee428c4a5d",
+            "id": "1f12e6bb5ccfcced16e2d0bbf5fcd6dde0637210cd75af5d40cfbe6abf8eb61a",
+            "sig": "206f5169bb9400b66d9223f5ad1593ebbd46f4e6fa0f591dc89ac072e8b9dc37bfedc6d4796977208762b7e92274433d75842566fb47c830a78f9e26a518f4ab"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host"
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-not-a-map",
+        "kind": "positive",
+        "note": "A `carry` that is an array rather than a map is removed and the offer is still accepted.",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": [
+              {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "camera"
+              }
+            ]
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "fe26b8cddf709a647f943c592f3706e995dc1ddd53c00ec7f9a12838aca5eb2c",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "02e1abbb13f414abd7cfc4339d7f8378eb00898fdbb1f5977b13dab5022357fe",
+          "outerAuxRandHex": "da8d49c6c5d92a76790a8ad1b267a869edde1a3cc5d740b307ce8f6ba203cc4a",
+          "nip44NonceHex": "d40ff5ac9f4a8dd283190bd41d20105bf9f53b2757713a0c3584fbb318dfe66e"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":[{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"camera\"}]}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "253554fddf541ddbb8fb3bdb151c884268bbe546e326c68d50c6d9b2295b4635",
+            "sig": "85bc8811cd5592652aef543aa64d78629107aadc1a1510eeb8e62ca17c59634fdb2a277967d546950f65cbbdf539a06b8aed0dcc2f574a5ea8de33eb9483a25c"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AtQP9ayfSo3SgxkL1B0gEFv59TsnV3E6DDWE+7MY3+Zu1o8CE8nbTRAdMUhCsNMaqEI2/3+7I/9ZXTeuGhOZUTP51Ax99bB3SQVFLsjPN3jv3rxD2mO4aoMYjteL/cn4fA1hPdDzvHW1kp/o/cdIAQXQ6i18QJjJAFVUmUODS1NYzJeLMm0lauFVCpHpqEcDaffYpAgp5OBfCq3KACG+/PYBWIvmQ6O59ibiYLty2J2U74VZkYMTtIrqZph9kdUk0dTAgSAgriWHJTAuaHp29uL4SBQqJPW31wCuZn5rYuKxEQu45Np2qfUyJTVAbR5RS3biO9yOmBgnz25BUrjn0tNGzcem8LOo/glG4CJjoK8NfKuX9nXW4vi/QMAvc4wfzUWFUFYI/Y6VmnVEmXdo5wTFOtQNIcxasjiTdl8ebqZOB8zXwMTQ57SHJI7K4iTukPAzpxCyWhyEy/xxZYz0EOiqDcU9yDWNifXcOLCiB18OZdSckMWnNvuqDatRD9qy7J+CywEDF2FPzhHRHY3gJl46MYYXwdmkxBvcOlQrGREDO2/Q5sRjMRtjh9CU4oZ4xFq5NvmL9PkezwCHPzIbCU+Br9WKwybpkhokXlvwbfTR8TBFaW84QHghvvXgeVGxTNxC7t15VPOz4dbLALFQUEWLiliNS7J/Anr0aB0XdnMKnvmZLWA2pvqK63ZG2s474/5D2wjR7frq+eiev1qImrTrchUyP5eBZ3OFt+wcteGolp7GonIbtJLxYK0xRaDpBAaEE6dSwxBQsrVVoNXM3npZf5oWSQMPuoZKEx4mGiSzuxBLYc8Zeo3NcL7CQLKmbyFteuM/slggKwmMozskVDS9//b1jHji7+jekqPpByU92QxNE1yTtBJ7gqR3BcoUVeCY9BeWoTc0L5JEEZQppmokUIa/S1hjio7pIdfBcvtGX4CFyalslOrc92WX6UheDWp05Ol9Ps3sFVpfKVsWz+TbtUnZrgN9XNRkGafaQWBKhN6Uwq3iNNqV1I7RW0O2QYx9QPF75zsmRkUERZAG8RpQS7faRAnnEYjVj7PU/cfR7XiVWDs66GepJvqltGh2UhGpUyR8+YOT1pp4yzqydhmd52qjodS72M40VAi4MZByzJNGliWnWg0OKfovNU/cS51b07iHIrFwwptftk/RtlsiafC1KQFfilTdepGDG4INsLx7P77INV4+i/ExEsc45PGzu0cf2fQWyJpp63w7wAPZqcihuSjxzCkl/7QuwJN1yFRvgjwGCqU6VDqaP6IxYxD1",
+            "pubkey": "606fab40e35f83a3f54bb2565f5307382c8e2e18d4dbc9b670ee6ecd0644ef05",
+            "id": "15f1dbe83e68df129e9a13f954cf519ba6ad4b796dbc7798e21000f15ae7b50b",
+            "sig": "f202f44ba526b19bacae8945c5eb1e85a5411ad38ccd11790f25c7e2909ba300f6b39d9650887ac69b6c9bb6b2cd113a88d8fe4823fda41b1d0fe8b2398bc424"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host"
+            }
+          }
+        }
+      },
+      {
+        "name": "carry-proto-key-is-an-own-key",
+        "kind": "positive",
+        "note": "A mid of `__proto__` is an ordinary key: kept as an own key of the decoded map, which must not be looked up through a prototype chain and must not change the map's prototype. (The body is built from JSON text, because an object literal with that key would set a prototype instead.)",
+        "input": {
+          "body": {
+            "type": "offer",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+            "carry": {
+              "3": {
+                "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                "role": "camera"
+              },
+              "__proto__": {
+                "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                "role": "mic"
+              }
+            }
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "42d6b690087bc16fa5f156643a7a20f4d252503ca88485e9ca2cf4351370f229",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "ad32a86f32ef2395ebdbe8aa5ef6cde957049a1a74db8305cfc6068e6370bcd7",
+          "outerAuxRandHex": "f2901b7d401ef014fa6dc69c5c5959efbc8d90b6d396f7f454ace78195a01318",
+          "nip44NonceHex": "c1dfe670ac8a216ff392a56c4f1fc2e1060369dd668002de04ff508f09be0ef9"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"offer\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"sdp\":\"v=0\\r\\no=- 1 1 IN IP4 192.168.1.42\\r\\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host\",\"carry\":{\"3\":{\"device\":\"a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643\",\"role\":\"camera\"},\"__proto__\":{\"device\":\"054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb\",\"role\":\"mic\"}}}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "c7ea93d26c4befaaec9aaeb4a75a5e883e3c9a080455e1ce0e2f3bf5ab1085fb",
+            "sig": "4c1ece68eabba0b99cac26df34a44f19c7e7aec44095fc69ca8b86be7ea6b93fedf2ab9c0e3dc3fc2275bd878e53d45b56941ab6355ff7d3fa0c4f3a506712f8"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AsHf5nCsiiFv85KlbE8fwuEGA2ndZoAC3gT/UI8Jvg75+vloTkc1b3S7+rF8vNtby3Nxf5IM41hyqCSxnXmWPVN/3N/xjECiD1OKa3q29vwa28RP2ipmRUZHtpT9HxxL3HOPlo7763Wv5xz6UGsMaKsN3uChQM9hid785DtJO6nQ6Xlyf+URz9LSErgZeJs2EDXrLbrCctS/Jyg3NEOyDK+duA3T6x7CcsLMk3q5/iEBKcv4JX1a2lu9jBdCkNkvPtvSFJ1AzrsmXBSQ1sI8ChLqcc/p+s22lM0bHgbKgDZUXPXTARThTnqw1K/WsQktlpGJCJVmHrb4DeX8OlCyaGXwhW0mPc8F8UR23e8Plc1rPOWSHijvl/6xZrQACursjVqzpSc73CSqHWsGfP+sNWU1qOzBJbkBXJyE8k7yimdhfIk20WwKCzi+nimodcT5jKEqAnsp2nrize52DklCmnblkF0wVpgtSjGA1vdJmYMMRTatVOUYbJ7KOBLtkv+QsMdBjY2yEuMflh/NHi7Qe5oJGIATlcd0i2BYGIvZ5CUqu6/VRVKz+zw3lObunmVSnYLxorzQJRP9UpvgK9rGs5Jlzs4/1Ci6WbiACFd0E5Se0b4i8CKsD7Q6Ujhxo8jmnahIS0ZXhydzjdK86ln7mWMJu7wjI+pZNYBNKnHDUa2GeyrVUbsPxf6aMGSpVhS4MOwNP4LhCYjtudSc3qBhYtQ/HCzID9j0Lp4mMQyuIyHTdPmWIYiofcSW2JMQ9/VjUL111w0IyFlaEHFlKTTHt9kuYvzSwT+olqH5V7d/4a1dfVmTYA5o/j6KgCP9X+KyQ6LHGsFBt4iNWt0e54i6nvOD0+qhI6gksBDDRTXuw75XUikCssUw0u5PtPJmxQiO/5ljYbBMgr2+QQIA/eDNhG6gGWceK3RcQn08WWf4coq0dhmSPpBbzxg15AHLttnNBkl18lNAR11syiL0RRuFa2KTs6qTl+TPCGJyBjTyM8IlfX3ceex6EkIvhcIWonTmh67H6dT0BsNK7VbB958rpglAeR4qsBdWBjUJzeYrFxLd060AvI14jK8w4CCg+Sm3OVqrD610rf3COienTKwxKljOi8SSNSQjkdjzgnBIP5nU/aNwn6rAU+8BI2yiXagbEpccTbC+kPYa2ekk4B5IvhJc2PEzVYp2XNtD/WdinDqP629cejf+nSFnQXWfLLwHH+XvBWcBxTpeP83C9KxRbk1WuKqmPRJ4TTK2IbnhU9KusGBj8P8uC08/XCNQClvsVBTxutNMw0LjE0ZPZrc0mmQ6wPV4NHibY/PrV1sbxWd0Of3fb3ztYxO8+JoX/fmJNIFxbiUjiq0468Ce/qf4NcyYVrKBoLVhwbZUEB9i9i9pnPleOYHYENzhQqWVvqIBdc3lIUcxggDPY/pt8RMRcUN1TZD6Gn+8Ccq4SNkYnRpPqLM=",
+            "pubkey": "e464d85d8ee0320060aac32cc882c1135adf91f42325dadad22665946222d2cd",
+            "id": "e985131750d25caa5651643d594b0e3c66260e6924b21d976c8eebd69f0d046d",
+            "sig": "7ed247f99f71e91193738d6938f1ded6c3bc48aec9450b74fab148dcf47a8a40bb892edb067a21eaf40a540481e276dc9708dbc523ec831674801022e92d59d6"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "offer",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "sdp": "v=0\r\no=- 1 1 IN IP4 192.168.1.42\r\na=candidate:1 1 udp 2130706431 192.168.1.42 54321 typ host",
+              "carry": {
+                "3": {
+                  "device": "a5fba9d3550185f6b725d9708d548b1747649d95c28ad520250e6a5b941b1643",
+                  "role": "camera"
+                },
+                "__proto__": {
+                  "device": "054b19287cff82007050c1c36e2d8fe9007a3635cd4e4188a63e024b5f07baeb",
+                  "role": "mic"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "assist-release-true",
+        "kind": "positive",
+        "note": "An `assist` signal from one end of a pair to the volunteer with `release: true` and `accept: false`: this end has stopped using the route. Accepted and decoded as sent.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "accept": false,
+            "release": true
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "7183c2472d457d364302a9f46e900889d69c48bddc22bda47efc04570db1dc5a",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "ed9d1b0a8e5f0dcb48f2aea07580892fa15ed649c973595894f69aadc4988fb1",
+          "outerAuxRandHex": "33edeaa6ab3ecb067428bfb07bf39fbd7cd5d939ba8c56d7858e3598412293d6",
+          "nip44NonceHex": "a14a29d6fa1006bb57874467d01ba2980b4db3d0fa51ffb259382a5bea7804b8"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"accept\":false,\"release\":true}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "3bd3bdf97d78b728b45aa878ed10fd2f200975670c33896d3526088c1eed8189",
+            "sig": "d039736bcbb11271557fb046ce7afa0dd42f7dbc1c4b158867700f3f1c21bb6fadcde66e2dd300f71335a29988565f38d7671c6e19035c9bcd9fcd3fce653401"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AqFKKdb6EAa7V4dEZ9AbopgLTbPQ+lH/slk4KlvqeAS4PevSunemCMGHvR7PzddEI70ybN3RDRudykwXsL24qSstd8+HZBwt24eLRMqsIKG4uItaxNIdY2tso2pjwKDqn5TDHtjAzzxqrkGEd33k2+gOQStD9E0d0n/OJNI42D9mO6sbvEkevOXE8kx22viK7m9w7+JNCOD2H/R0Oav8qvdzuOuI5ThLz+c62THI+vog6d3126FX/pT4uEcO2nIsnM4JqjjiW2sWPs+FMy9r3zoItc/4MeAE0PBm+sR0FvMgnBB2/I6y8ABB0CXFM0HUaUR9zdLYw2pO07sSeCo0Sx6v3ks+6p+W4JJNBOvpTu/fbSykmV17yoOxhHnjmXJNR75FN6RSa7gJKsFwIglfEIRfUmuHSKnwlcWbrAf+YDGjILNQ8mJQzWKwJnKXWcb95K1ifHx1+sFi1RzhZZHpRt066gyrU5nmF6XPfAuGrimQA8PCdZnkAVebSjkigTYoCq/G+cfWbz8qwF4VhQJq3V8HiL4bKAmat7yy63wz82Av1ia1SpSXqNSrJM74SdSTmBIHiqeU3qkcGZ9sUGrKclOGR8kTnv+ZvexrThOBgqT530vQuthdlTlUeH0+7ypn9wipgWk5gctcd/tsaXGNXLTjiLrqsPF37LMSbqOyRFBaPgRFhrJFfBTWgJlrlw2biENbyYfI70TEIdfVsrLXqBvwNH+YlLhBLSnLyB04YImjcKJTTxFZ9jaLn/0w7jL++6Nv63fRAYlstreeMNVrQuoyZQSv/ej17+GyANXIzyfFb5ZUUEMncrv3STetCRorWuNoxVIkRYUYzaQqpIc/IAeoFNqW0nH3MSWF8uoPRR7HaFXOeIC7+B5kRduirnQtHxgIxlcM4mrbUTXuMI5tgE5vcVpxZaErWHYJfECuYbFDAcODfl4r9E0y5x67ieHhFKHe40TcjHgM6hk/lO1vd78rxlsGi7uMnB8lbWbUODj/tvjK17h/Xmtp9skVtQAfL8LZ29GyfUmYx5WGgVzD8HOyXU924JTL8wQnKpEABc6H0Q/Gb5F4DOz5VkFGcXEkLsvpIqkW7qfxBgIswa1+kp8REA==",
+            "pubkey": "c139256d9bcdf700c8d2dbc3ac3fe78ab7a11481a57acf73c99a950c889ec45b",
+            "id": "84f5ef089dacb89a6d428be07019d29bd627499923b68e60864e9bcb434887be",
+            "sig": "95f60693cbd14729b53fdd3b843f57275a79cbeadea2afeca011712e1410293f0ec200bcfe89354fa110b717c58ae132dc75bc099a6737e9243d2fc2450a26c1"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "assist",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+              "accept": false,
+              "release": true
+            }
+          }
+        }
+      },
+      {
+        "name": "assist-release-yes",
+        "kind": "negative",
+        "note": "`release` is the string `\"yes\"`. Only `true` is valid, so the whole signal is rejected (the decoder returns null).",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "accept": false,
+            "release": "yes"
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "4c4ba9eeac779b2f7c5f592a4ea74e2e797def4d4f6cd7c22b1996360c854ce6",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "493b43c02964d4332dd6d350d11023eac39613fd3bf813483e483a84ec5039bd",
+          "outerAuxRandHex": "8dc1b78bd77c96e5eff1adb74cdec5b4c35f2fff187f79a2c7beece36440aff9",
+          "nip44NonceHex": "ec806d442d72d1a8a50ce09312877dc99e100c4977f86b6344c6f5ed7be75851"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"accept\":false,\"release\":\"yes\"}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "cb6f3f52c6ac53ad30179ae2caf306c6c005c42d8628e121f34e4d4f775f1769",
+            "sig": "caedc39157c3e654584f455a302b02af95d03061a4928b0f83ae5a58db7a5ce29db9369173e5fbdce8e9fed424e71354f6987745cb51ed760ef461a7bcc07908"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AuyAbUQtctGopQzgkxKHfcmeEAxJd/hrY0TG9e1751hR+haampZZRofm6Wo5TroXEZ5y0QR4dwXl66taoHEKv83pjllV0VFx4Ru7cpntsSz5lVEZz5lHiVvlV7kb9cuIXt80gehUhspeAbevFOHCJE7HyPce3NAOn0fiEze4QbguKhvjqQML+RcFpsiFZBwFdYDDw3ubzmgG5r3VyPG12haKVdjjgM7FH3wwsxWMGdjMnUxkMLNP3RSDKD6O751dLu8SemGId8szzb4jVH2vlgExTrnVpivFRu0Duhe9AFwGpdVfwvKXFmA5F8HLXd2sDYBeJ2pPoKnUIuabhO+7IV3vczBvFx2fypHPKqRnCqWl8pFZINe2FciSbrrxCpgrFxcu6f0aBj2RpQwMDGJKsvxDVrjEBV7P/uwL0qNR6MqsQrvDUDn8VjAzMQ7czmxKeWvpwP9zXOAOON1fU+jQ9E58uZNNpEfWflyDM3otMuw2zsc9zuv2kqmpmBCZtU6mTSRLsH/XDr3MH3sg9up0MxqiM7f8/qpDWpvjutOCdVdtP5YMAJT62spFGgvAHQjYtR4iSB020Bzn/EX32oPvwmUauiTvuHMvUosQvkiyf5QI56Ge3iHrNvSNDBUsYBl6Cmh6Yr7puSKSmR0XdaF5Ks8RjCTkPzOh0QSFYhKopk3mHrqAR6ik1P9tJZZ11GnmwowssKCoAqtOhIR7xTKtmp86YFIQK2Vqb8UnPZ/WXGzWM8n0gQ0QkE4pAFwihmw/ZpFeZjsUIfpw2NcxYXCIdpDlE9dmIdH0SczQXgnnylbXJQyX0h2kjni1RXjI1ssYVzU2T3HgriUjucVf02W+adLVvMTFG77gV3rusZS/bTrmYy3JSjwGY8T5q9YSTYOyVepeuMvTHFOJnKDw8HAwFFMMCzybYyq0mi+Vsw9s8oh8Y0mTMwsjlKbBmizN+D5u2FdNa2G4anDMq3XlqPEFqrDW6sJKqrg9O5dvwK2Uc4r1TLTMqBbstI0Rfh+aVcaxWQufjJW7VuacxKgWfiBV7irZybPtppizuoQO/Vx7AOFKvy0ikLCX8EE9G6hTCuJfYiZQ9pvQX/bA/ogmiO+2G9PVng==",
+            "pubkey": "1b2ef486a4f0ed160c0e4b5a89a658ff4e9cfa37d32707e96cbbd7a2b1b35cc8",
+            "id": "363504d385fd312d831eafdf0d0c63d1d7384db9b2cb35ff52a4cfe712559fa0",
+            "sig": "28aae2e894edb69ee84142fa3e89fae681fb10b7b122d2106c5f5300115d5011952c088c3fa826fdf58726595681cf63a69c75dc680ba17757f9c49b6e1ad43c"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "assist-release-false",
+        "kind": "negative",
+        "note": "`release: false` is rejected as well: the field is `true` or absent, never `false`.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "accept": false,
+            "release": false
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "fdd840a0806d20c7166d77fb36013ad564907063973b9aa6d59c24b0111e8cc1",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "780d90023caa100d5c6263a681e56d7d0999db3d05881f90d7ccfc902d799533",
+          "outerAuxRandHex": "e1fc23347ff5d067889f0812b013b8c160efaf7e585d62da4b1df24990eceb86",
+          "nip44NonceHex": "fbb2cc9ec0d4fc06688aba6417a7fa250540910bf88221634f19e7ea679993de"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"accept\":false,\"release\":false}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "c6492038adeef2f6cb49290513dff4d2277a61d267212f9d67a807ad0ddb9f16",
+            "sig": "7b130adeff83289d9cfe4eb58c4b2a0778c60f4ee5292af313cb5986e00bd7f586ef10518b7f695e631071b49f63a9fe223a902a1ea6b6f359360d07353e115f"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AvuyzJ7A1PwGaIq6ZBen+iUFQJEL+IIhY08Z5+pnmZPeEXvxGOfbZ3RETQHaMcHslPpuVBYEv5NwrN6BfLO2nMqg61anx55bcIDrq8tU8dh3lyiyNuCWktwIJOo39bJeHEungFsiKCT1pCug2xBRkD5xIvHzvNm0LuTFEZ4AP0NeNwhNIdI6aVQfsXn6RDewDAtH2dVkzrK8V9s3bGF0I0W5nK45idsMSbCruJWI2F+R8xB6TQzP5sMmyITMMKpHZrgLlCa2zjPB5fFLGDBxflnxue2lK3VOuLj1soJlsOZutkDehxDDisy/XBo0BgYQzRnnR1dWQdcc0GEqpavHI7WFq7oEpi9bsKNoXmH0zoL30k2P8swayhFSVZWvYy0gr6Awutl7bwCIll6xMzFJb/stFIFOY/LwLnur45rfAGnf6R6xPWSmkISg+PBJVARjtElnMTLhVNVnaBkGh4cf5F1Qz5nGN+4pxTQW6zAAJTym7Fw5sXMyK3K1NyURvcRCiXBu9gmA7xmfHKf4cVDa4u6t7zxm0Faplhq2Qs+sfCQ8DAmLnZJQHQcoR3hc6BLW6E+4KTX/Iq4maCzMotA8sn0xtYjQaYTW4ucqILFVbNL3qG5PQ0kKIYKDOHrvwbAmk3wPQsZmdFVodqb5XbQpuwBwJ2MwVxl0xsRZSr15Y0Og3aJuVP9hNegnXi1LohTdO9H+xqhLYPxjRriCfML/7jqHg9/BYQOAhVN/UC2dwZ24bn3cEXdtbQrsKbdi0MOpHOk29yB40HijF/1TNxUBVrIHoSwjjQVWxMbdY6oHSm+2QC+ri9V4PHQ/eMIMpX7R7PLCw8bIcqfQ9oobEAfABFjD2ttZzCgcN7IJUCeuUZ6k2/+RgenxP0p8HepEdhotpMx5M/cvuxQWbEfnlfAcVeZoJ5aIAI9Ac6SxJJwGoMDgn+07QYLAPA2jaOEGZT4AZBibLEcgaoVdSRrMRmvsYUF0bHWt8ImL+4gWdcQrQa3NYSOyBuFHA2Yz3STo0G0IeE/H3u1YWSf2n5KUknYld0yZLdf5V8tdHZcszudQY0lxgDdjhbDVjmg4Sx/rq7HborH6qayzCeULKT+WTozWvbiyOA==",
+            "pubkey": "928668b5786b5ce7120b27b2b9a7a8eb3d0f58aac55b35c1d71671ea98563094",
+            "id": "3cea5fdd54a8b8bf53b025d8b76c0713c9d20fd097eac98ae8b2e711b8c07c7e",
+            "sig": "752eff18d00c38509376f3c66b939be7e57c34b0b5ef6348d1c5c622019dfca73a3de3a097d2e6bdcab6cb43497532fa510278f328e4dc378f682cc0323c95ce"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "assist-reads-carry-true",
+        "kind": "positive",
+        "note": "An `assist` request with `readsCarry: true`: this end attributes a carried m-line by `carry`. Accepted and decoded as sent.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "readsCarry": true
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "8e6b1e6df78760b103c6fbd158a7569f417d55f647c72ed4deed44723d25e857",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "63764b9ab5c223170cf07bf29ef0125a1720403f6cb4d96721e34e0c5f095911",
+          "outerAuxRandHex": "43a3dc95ab395633d9ced95135c0146307c3d031e9aa865a14d945ae8d0380e9",
+          "nip44NonceHex": "e4495b2b7538cd74441a00a030135f1842a4019be0c352ac546ecd6514043f3d"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"readsCarry\":true}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "6eadbb48325dd620334fc078e6475e038fd1e04108c171dbf53428ad3a80ac8c",
+            "sig": "3d57ac41504149ff77bd52d161e1e42495503db12d1c17c5d8f3aae4f1346a4d14c2143ca9ea83f17d0b238eeea246f00e700c060e59545394a109b6e3b52b5e"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AuRJWyt1OM10RBoAoDATXxhCpAGb4MNSrFRuzWUUBD89NJ5z8PqDtWIHrMybtC+k2RsPFr4wxregNMCp7DaAZMCBxIGglhFrJzcZ2oq4Koyu63AumO/QsTGD0GSXSzqpNCBESWS54VKlQRAFnd7cXLUcpyYW0dg7HnFDUWAnFReVmd6MVEE/OsM6N50/2ysiGRS+Jw75K5K3PrhHagz4qZ1qFWLcOTaQ1FsgvXobs77FcsHRbYSlrRZNjcO2SQwSUEsanYwCTII3zfomg9+fwg9l5oxe7ikfg0p5mVe28ZdIvqjaxZvg0aA4Hcvts9gNyBcA29QWsDwbZQIr5f1C4G6Si19tCvkz58bj3pWjla+iDEX8WkqaOLwHtbpOUgMB8wqoDDN0xyLgt+6yn9HZZuHM/n7nkHysyM0lcwwp/fT7n2q6fHe0SFT8fE6vLTyrDIoVR7Icc4UaI/baD1ePFO2uPpNlcnrVnVsuU9/tM8FUatxVf91FiV0V8E8BKEUH4cPB5ROOgikZCJHvlJGJjSP+PeZn3sVj11YujafGEshrzYn10RwH2GJB6MaGNwzXgGR+vWodDGp0Lh5ML26YUgpoxlR6/mhXYYKzOK0mEGU2rCH76mt0ps9j7mPAhqW2vA02/197tna5BBhQRaI9GnptE9blI89xgz0TTq4RGCRqsyifx1Kjo5jqOCNMsfeXLoSRyEZha1ODgA4G8cZD2MaTiChrkB10GMmOLJO1y0pyUHEgovoPlEKHsV8dk2InOPrDOPPB7L0kjJoXPRGKabKmnb7ncbpbgDmLkRYG0ocOwcvKNRJlxBP/HV53qJ2LfolCA/DEpMxdRPrr7feIBPMaJLQVyB4bcfXneYUJK12asMNhDL9lMcqpU+1IRNSusRYlHbrprh6apTncIj1U5bwyjrLAErxGIR3rX72GpbpMiI6/WEuvWAApPzOITISNeaJkzgqZvSm2fyIt5YQcqtYFbQ6iBz7JfLhRG6CfAd3dMG0ejBHYCQd3mQtgkX4K8TMaJtf4mKMwKq3nMSC9IVrx6u9DtgjyLQnvFQrOO+CvyiAoDaH6RUyxi/blSV/Mci/5y+qmLcgl3+mxvxLqcjmtGA==",
+            "pubkey": "cf99b41d0f459ff9d9d5295ac5c033c99a0dcc8ea99bc4ef99f1a76ce58f0aa0",
+            "id": "c3bffd9cbedd5252c0318ba2120be66b6f5e4f8a1fdb6c8e7e7baa92423c3c50",
+            "sig": "258cdbed66c0c4771bd194816d4db8a1cfccd3f19d78ef017510d0007b90daf272ef332e594274378628b3c22a6a2b94de761ce57d3bfeece180057c28fc55ed"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "assist",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+              "readsCarry": true
+            }
+          }
+        }
+      },
+      {
+        "name": "assist-reads-carry-absent",
+        "kind": "positive",
+        "note": "An `assist` request without `readsCarry` decodes unchanged. Whether a volunteer carries for a request that lacks it is its own decision and not part of the wire shape.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28"
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "462862e51b9f99de53affd6d2f6ae386805cb16fcf294b995c2c6d3f870de006",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "3e71fd473001613aacdd2ce6a8e6bf84784c8a6ec264d2f56aa21e76b766c7aa",
+          "outerAuxRandHex": "a076e435d2410744163fa1e8419b9890cf6b5603788b43964b2b2e49bfd82fcd",
+          "nip44NonceHex": "558d28d084f0adca0fbe1f46e3bc8286015ea9b19c9e32fdc6d85b0318c8b080"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\"}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "204c5e7e5dca75896b48f926bd29532ad5a0167dbe4d874735d0ae6c1c56fd96",
+            "sig": "7e0451e956ba1ce861bcdaa60cecd089a2cdacae8257983a0a1cf8224ec05f4a21874c82b645e5c87f343327fb927e9874353402e05dc7fc61d9b9aea8698931"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "AlWNKNCE8K3KD74fRuO8goYBXqmxnJ4y/cbYWwMYyLCA0S3t8mjwulp0NjGbYoL87AincaSN0qbEWwtlxaOlOFUq830kHQiBQnUsbpE0NlnY4c5X9bUrSNfw2+DZtTnYI9Ea08AXcz5P6Ak5WikuWZ4Sb27ojfWOOoNSpdvnU+4N0NuztNEECSe9mSTAoQr4FKreU4hs8OYcFeVlEKyJAbMO2C4yoBl6+criBNfttDorzTUmWGM50RbN7dII83QinI+9+dCWyeV7u8J9hrlOwRm7XIRKlXI0JI/zDy2x3hmJmgniEklEHBOlUhJNhtHLmb0ck2Dm93U+7n3aPF7Bdxg4v15uowZymdxKRpkLIPiZRESJQB1lugQPk/IaT+9hSkOSXU/JXxD5hC2pOuaQzAf1qxZSGx+J/GnciLTs0zj04D05uDmNP+ZUIdpoxPH0/UAMUmIy8AYWxN1UGr57LIJ5a4MiVarbS+lzhmYOAFqwGYLKCw9cGTGLY3bf1C9XOT3dY5KRceYCgRSt0jCotRoL0ELMAvq8qhvbQPwFTfEf/3+2bnsOTZUpQbVU9ZewbTGHgOMHpjuiYRxvC8OrEw9WaJoYp0L4ZjyHJivu19weoGdPvSLiYOC35/qWgm8IW8Dc/8tgvJ4pl9+MP7itSqryhkJKbB1Axa7P1CrNlLJ92BMVUW8gwxAdOZqqap4r1g+WJvqSKYVD6TsFcPxBFSSvJj+cKyfJt1aT6uL8yuAjSeSOeQJZQj274BqdPlCqQtre/6JeCs7+WgX2VimmkSMYKmR93uuiXh922Y4exYus1VLyeH9dQMhmuwjXeA3jYo3DFPVqP8u1dgMgPMGMmaOG3r7OtRRtj/US+H6Kw33hjLLNhhaM0vkG1XBoEsw/HiynnUJkefu4FDQodcOReIH9T/Jo6C2Uk9s/5w4SY/qoHGq2l/i/EgkeGt44Bf1D2Z8XfRtJbHTZ/Ibrjwwp7uou4Q0JK42TQESSxR6EsWWTB19HtDIXliMo2vKpL1hWg9+l3N8FBm8S6zsyB1w3fj/5H3EDB+X4saR6KotHOCLqY238Z/YGZXm6Ae6SLwhBzbqwjUZBLMW+b3SuS59WUbyLEA==",
+            "pubkey": "0670da34c53782fb8518360d16097e50d67957e6ad561f066fd2e8af46ad2388",
+            "id": "ad893f0c0314017a9cf185d273fe6886f6b6975de28a38d56bf9a52e363481ed",
+            "sig": "68f0c9366c60709085c6c640bb17a97d38657a8d559a2d613806415608f67ba61b498a10b965a99e38837680464611f741bf53d57b9a2cd3aede86559cd3c97f"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": {
+            "from": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "body": {
+              "type": "assist",
+              "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+              "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28"
+            }
+          }
+        }
+      },
+      {
+        "name": "assist-reads-carry-one",
+        "kind": "negative",
+        "note": "`readsCarry` is the number `1`. Only `true` is valid, so the whole signal is rejected.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "readsCarry": 1
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "0553875dd31d7ceb3b4b8c4ff2c082dfab3464549faeb655b28d4492b2ce992a",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "39cfa16ea17a08d6f2a62b457083ca95a2f33fb64c18914f90b2fe9466b138e8",
+          "outerAuxRandHex": "e02448c99605b8021d6860c40ca12db31cc01eedc6fd5caa0c746edcd5a12a26",
+          "nip44NonceHex": "948adc35a0354fc6d634333874d2cfa9afe2ecb5cf267e539661f6cdc54c9164"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"readsCarry\":1}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "474f06d844645dac56c9ffd64ef2f2275b029dfee2ebcc72fdb85fd5cb254281",
+            "sig": "38c27b9ab2b4eb8031499ab006a6e5ddc44dd707f26a1d2330a5213b0641841951cf3c1924ad948d3a43def6436e2d310b30aa3e93ee565e852ba342c108d38f"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "ApSK3DWgNU/G1jQzOHTSz6mv4uy1zyZ+U5Zh9s3FTJFkAKGoFrlZkicfLty9oQQka0cdvv+MAW7mHfDQowfKjLplaAII7NM6TzWKtAPm1mLxR9RhooNWFulPIGJbgHU6ikdVQsiUvg1Z+F1nH1vTvmNG0WCs4TWNRH9YSwian+NUAAi3Esa34BGf9g9xsNC7CGUReubZIJmxvbJzwLelyicGVmFlLOyFq79SePv5UgU/bUYVWaTF9M51tXHOBlvftVp5r1x4fmGqWRzOgB8uKM/HOT64fREthru2/jqYB8ejzXnQcHDdUJZuVSHxZHGsNELg8vRE7d9cMx2NEjm1+adoubgFRsQH3fSA1WKb89jnHmt6HXAFuF7oc1R7epUekZ9EdmrfkzCznPH5TxkO35sz9EZSod09y3xkZIvEFQtOSekCuPmTpPm05sCucWavr+geU3aa/odUu8TxMc66cMSeRRXQ/QeoikX/AiZ7fBFeAOheV8/EVa1Ap31+DP+kPSc5kdJ8HpIuKJ0ekJmIuaQSrm88hhM3/onokUysTqqvW2nFpUgHbBwbvSgL7wFOPGXd+oEimdxC82+5du56HfjOAMxjHAWBSRNbXf3XwZlDfU44iy++ZUWpB3CqsQ/OUfW8MyBTm4awSlInKgduUu/ArcZYmgJvzw3qZ082sk6Eq6ygbT2H5qVP+zVSk6TQqIxXuZMsgChlquOfiTqZWpc1niLKJdc1l9mjX73MvLT/MtnlFU9W0hRLqTo+OOevW3geE+f2ZwRgr6pRvP7bm4Vnpi15Qh8aIIQ/aHy1C1uvOT8xQt6bz2abeZ9KnBaoz5H9E+nio0bGZ6n8TYTdlTRn68X76d53BIHldGs+5LqY9egkC+MN1C8j/909btFvGz5m3Yu21+cKgssljZb8BB5IruyJAfEqjkpyJzPITPaqJs8Mr8Ghs9Da5pdvG3EhxchRkJzBvbPg9o+BQo6Fy9h69XaUi0WyNeaPzqrAdmCRFlLCF5jCF0zMHNvd/wyq7HAMT4b6vQnfcLkcLiyxVzc3PA5Cc0Gdh7zePhorvL3i5byGvWwbtLScYEPTMHZOXmpw1rn4vu0eDG1Xpt73wv1l4A==",
+            "pubkey": "fab0ba7ce26de9127b27d18bda3320c999af10dcd1c52b1142017d2ef3e39597",
+            "id": "d3284e630c6530e24d7598227a2ebdf25db7b20547eff91af45409c9d9e5c655",
+            "sig": "da68bc48b6732c78f5a632d1a34750fc22efbee18fab2b19b3556658b44693b8b2ecc53979a1f2b6228d6b839b3feb59d578e074ef28f6004678cc45c8e82e73"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": null
+        }
+      },
+      {
+        "name": "assist-reads-carry-false",
+        "kind": "negative",
+        "note": "`readsCarry: false` is rejected: the field is `true` or absent, never `false`.",
+        "input": {
+          "body": {
+            "type": "assist",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "assist": "c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28",
+            "readsCarry": false
+          },
+          "senderSkHex": "10d4cef60c5b6c022fb483cad4fb659192677742bd89901aa15d44f64c83144a",
+          "recipientPubkey": "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3",
+          "ephemeralSkHex": "9c6dd3533c68f28264a2cfb0388f4221f474f6392129d17fbb12890e70b57fbb",
+          "createdAt": 1799995000,
+          "innerAuxRandHex": "f4cd46a44709bb77b8028708fc3ef942b258a57f01ed0af29f103ab9cad6ddc7",
+          "outerAuxRandHex": "6a1ca0aaff777bb3dd2aae8146a4f4bba8094e52ad172153e279c0c59b22805b",
+          "nip44NonceHex": "b6db315b9b89386acb216a06f20e39875f4593458b97816397f49521c2b14ac9"
+        },
+        "output": {
+          "inner": {
+            "kind": 20462,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "call-id",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "alt",
+                "KithMoot call signalling"
+              ],
+              [
+                "kithmoot",
+                "1"
+              ]
+            ],
+            "content": "{\"type\":\"assist\",\"roomId\":\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\",\"assist\":\"c73c04bf968f510b2eb2fda533dc5ef64d2c1ea4e276814852d2311579d72b28\",\"readsCarry\":false}",
+            "pubkey": "48eb780ce5c8de6f440981be7c55206854f23f6b075653e3a4b79bd488bf974f",
+            "id": "469630fed6fd841730d18c9eb3f2acf4c79d61c9b7b8d0da5fb0a704cc26e16a",
+            "sig": "71230999de0f637f4cd17444a77b4f20b5bd53756b07596d922971622e61eb1b7398a87f4288d8e539d68933d9e92f99e678bc9804f00718f2b6e096a6155a14"
+          },
+          "outer": {
+            "kind": 21059,
+            "created_at": 1799995000,
+            "tags": [
+              [
+                "p",
+                "92458af997898d9adcde9e439963693ed8b3e5d5d38dc6a3013c55306d3c48c3"
+              ],
+              [
+                "expiration",
+                "1799995060"
+              ]
+            ],
+            "content": "ArbbMVubiThqyyFqBvIOOYdfRZNFi5eBY5f0lSHCsUrJUA/NowspVrlk3yxYbDzWS2pawQcmB93HnsXorWIdcKfiAwULw0dGh3QGpDtP9tn5Q2sl+7eC2W7GRVsMaEdqkoBE97aKVYMgCW7agXOaJMVYRgW5RllCoEKG/D/dc4lWcx0Jwg55VO+pXCAOjgIrkb298ro9IerfXu92ZIBq+gEI1Kfr3xd+/1FPum3+QL80rtGiAeZb5kgd7cfAMNpoJ5XGiUwTjVqaLLESx7/C04eGQku5BHD+UjmzSIT/vU6xjPC58vUKy+Rl+zXhMDoZZJ/MgylwdtGwxMJ6mjah3E5UW+kxfKar7QQkjOA4vWcvpgRIORceM30pa9Ml2WfLB8QjhdePUDthA/EgLqnItBzzHjdxLRe0EWZl+ugzKUG9bY1YAFaHgj/6YQBkZmfa4zX0nYU8864MjlcqcxWofpOFOkU2LJgNqsGAXVCY+tLn6in5VpoqbvWQFigwlNRaczS+gVnL/RgInWDKqDcFb8TYjYK497ig0nlbAZ4hdnCm1gSWYG3b/z7CePy06YN8Zt9ItX1IHUuisiGsFlbAKlo/TH5ADAToBTMmfVEfoMzyDrwd/yl6j69gIb/hDKK7AZiCEqbN+IplCDHRhwdJupxLe9TaXDWJC3ToNz3TmuC8dYxtSCSfzBYsE2rEwrLGzeQBwBTlrqYzw4rtUkig8POScKtyOw6gBbUodpCID9V8YFtbqaJl4USPYu76ctmb+oEAqbM7N23xi7Qo+dYmcBOtRLZ3L7QHxnoRRrdHbTRMs5RkL/SHe6EM6hCAoG9FMh/dpvlXd02wKYBfiOiF8d3S3v0dZ5qm6wtj7ZcbVI3/3yhz8v0dDhIzSpjWencaJHlLGb32t6/P1GOmTLcYw1SSMn4gJOifb+VmujZmiZbSyOH4ZkF7vmys9XGRbZB/1Llki6A6V9hAj7DF8hemaKck7Xzz9WqtODx3buKNgs/Ks5JXCihBp3qgwE4dko+DJPuUP+8Ajvzm7V2hPl4Z5SYM2ESy2Gj7zoOCkXTUiT1lf7vuY/2WhhuHLZbnIwdFe1sn6x26xLehHoI5F1PCPZov2Q==",
+            "pubkey": "5d9b5487bf6558fa00fbc98e14c719492b9acae0ab76615084490afe02a2eafb",
+            "id": "09477a8dc44bdd8465353593de527a61c27940cb4d0b50792120342f11bb0639",
+            "sig": "ed79223f3a4b9a19cadf504b311fd56355948b868c382d9f0ffaad96064f39c60149a92771dfb82e5771673ba2b877df4cbab3cd27baf8e38dc761e145e09dda"
+          }
+        },
+        "expected": {
+          "unwrap": {
+            "recipientSkHex": "f70ab04b59c9208a376eb9241d64992756c9e73551e3e74ac661993ed32e4aab",
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          },
+          "result": null
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",

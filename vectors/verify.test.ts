@@ -107,7 +107,7 @@ describe('vector file shape', () => {
   })
 
   it('every group that has a verify/decode/throw path includes at least one negative case', () => {
-    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomStorage', 'roomName', 'chatHistory', 'chatEnvelope2']) {
+    for (const group of ['deviceCredential', 'rosterEvent', 'signalWrap', 'accessEvaluation', 'joinUrl', 'roomDescriptor', 'roomEpoch', 'epochRequestAdmission', 'agentOwnership', 'chatAttachment', 'approvalControl', 'chatThread', 'chatEdit', 'chatOrder', 'chatRetract', 'chatMention', 'chatInvite', 'readPosition', 'callBell', 'roomStorage', 'roomName', 'chatHistory', 'chatEnvelope2', 'assistSignals']) {
       const negatives = groups[group].filter((v) => v.kind === 'negative')
       expect(negatives.length, `${group} has no negative vectors`).toBeGreaterThan(0)
     }
@@ -1520,6 +1520,67 @@ describe('call bell', () => {
       if (v.kind === 'negative') expect(v.output.result).toBeNull()
     })
   }
+})
+
+describe('assistSignals', () => {
+  const opts = (v: Vector) => ({ recipientSk: hexToBytes(v.expected.unwrap.recipientSkHex), roomId: v.expected.unwrap.roomId, now: v.input.createdAt })
+
+  for (const v of groups.assistSignals) {
+    it(`${v.name}: reproduces the exact wrap, and the real decoder gives the recorded result`, () => {
+      const { inner, outer } = rebuildSignalWrap(v)
+      expect(inner).toEqual(v.output.inner)
+      expect(outer).toEqual(v.output.outer)
+      const result = unwrapSignal(outer, opts(v))
+      expect(result).toEqual(v.expected.result)
+      if (v.kind === 'negative') expect(result).toBeNull()
+      else expect(result).toEqual({ from: fx.SENDER, body: expect.anything() })
+    })
+  }
+
+  it('has both positive and negative cases, for release and for readsCarry', () => {
+    expect(groups.assistSignals.some((v) => v.kind === 'positive')).toBe(true)
+    for (const field of ['release', 'readsCarry']) {
+      const withField = groups.assistSignals.filter((v) => field in v.input.body)
+      expect(withField.some((v) => v.kind === 'positive'), `${field} positive`).toBe(true)
+      expect(withField.some((v) => v.kind === 'negative'), `${field} negative`).toBe(true)
+    }
+  })
+
+  const decodedCarry = (name: string) => unwrapSignal(vec('assistSignals', name).output.outer as Event, opts(vec('assistSignals', name)))!.body.carry
+
+  it('carry: a malformed entry is dropped on its own, never the offer', () => {
+    expect(Object.keys(decodedCarry('carry-malformed-entry-dropped')!)).toEqual(['3'])
+    expect(Object.keys(decodedCarry('carry-each-malformed-entry-dropped')!)).toEqual(['3'])
+  })
+
+  it('carry: the size limit is on entries as sent, eight kept and nine removed', () => {
+    expect(Object.keys(decodedCarry('carry-eight-entries-kept')!)).toHaveLength(8)
+    expect(Object.keys(vec('assistSignals', 'carry-too-many-entries').input.body.carry)).toHaveLength(9)
+    expect(decodedCarry('carry-too-many-entries')).toBeUndefined()
+  })
+
+  it('carry: removed when nothing valid is left or it is not a map, and the offer is still accepted', () => {
+    for (const name of ['carry-no-valid-entry', 'carry-not-a-map']) {
+      const v = vec('assistSignals', name)
+      const result = unwrapSignal(v.output.outer as Event, opts(v))
+      expect(result?.body.type).toBe('offer')
+      expect('carry' in result!.body).toBe(false)
+    }
+  })
+
+  it('carry: devices are lower-cased on decode', () => {
+    const v = vec('assistSignals', 'carry-upper-case-device')
+    const sent = v.input.body.carry['3'].device as string
+    expect(sent).toBe(sent.toUpperCase())
+    expect(decodedCarry('carry-upper-case-device')!['3']!.device).toBe(sent.toLowerCase())
+  })
+
+  it('carry: __proto__ stays an own key and the map has no prototype to inherit from', () => {
+    const carry = decodedCarry('carry-proto-key-is-an-own-key')!
+    expect(Object.keys(carry).sort()).toEqual(['3', '__proto__'])
+    expect(Object.getPrototypeOf(carry)).toBeNull()
+    expect(Object.getOwnPropertyDescriptor(carry, '__proto__')?.value).toEqual({ device: expect.stringMatching(/^[0-9a-f]{64}$/), role: 'mic' })
+  })
 })
 
 describe('M2 signal compatibility vectors', () => {

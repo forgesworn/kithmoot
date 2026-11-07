@@ -138,6 +138,7 @@ directly, with no reimplementation involved.
 | `turnCredential` | secret + ttl + fixed now → coturn REST `{ username, credential }` | `src/turn.ts` |
 | `spryDeviceKey` | room device secret → Spry signing secret and the `spryKey` a roster entry announces; malformed claims dropped | `src/spry-key.ts` |
 | `assistSelection` | peer assist: pair key, per-slot rendezvous scores, spare uplink, offer sanitising, slot count, and ranking with and without `exclude` | `src/peer-assist.ts` |
+| `assistSignals` | a peer-assist signal body (`carry`, `release`, `readsCarry`) → gift wrap, and what the decoder returns | `src/signal.ts` |
 | `roomDescriptor` | a `RoomDescriptor` (forwarders + ICE servers) + room key → encrypted kind-20465 event | `src/descriptor.ts` |
 | `roomEpoch` | epoch → `id` + `key`; a kind-1462 rekey read by a kept device, by a removed one, and refused; the authority-signed admin list | `src/epoch.ts` |
 | `epochRequestAdmission` | the `admission` proof inside a kind-20468 epoch request, derived from the epoch-0 room key; a full request decoded by the desk, and the three ways it refuses one | `src/epoch.ts` |
@@ -636,3 +637,31 @@ It does not pin:
 `generate.mjs` and `verify.test.ts` recompute them from the string above and
 check that the order the real `rankAssistants` returns is strictly descending
 in them.
+
+## What `assistSignals` pins
+
+`assistSignals` pins how a decoder treats the three optional peer-assist fields
+on a signal. Each vector has the same shape as `signalWrap`: the body and the
+fixed keys and randomness that rebuild the wrap, the wrap itself, and the
+result of opening it (`null` when the signal is rejected). The recorded body is
+what was sent; `expected.result.body` is what a decoder must return. The wraps
+are stamped with a fixed time, so open them with `now` set to `createdAt`.
+
+- `carry`, on an `offer`: a map from transceiver mid to `{ device, role }`. It
+  is cleaned entry by entry and the offer is always accepted. An entry is
+  dropped when its mid is empty or over 16 characters, its `device` is not 64
+  hex characters, its `role` is not one of `camera`, `mic`, `screen` or
+  `screen-audio`, or the entry is not an object. `device` is lower-cased. A map
+  with more than 8 entries as sent is removed whole, not trimmed (eight is
+  kept), and so is a map with nothing valid left or one that is not a map. A
+  mid of `__proto__` is an ordinary key: a port must not let it reach a
+  prototype. Key order inside a map carries no meaning (integer-like keys sort
+  first in some languages).
+- `release`, on an `assist` signal: `true` or absent. Any other value, such as
+  `"yes"` or `false`, rejects the whole signal.
+- `readsCarry`, on an `assist` request: `true` or absent. Any other value, such
+  as `1` or `false`, rejects the whole signal.
+
+It does not pin whether a volunteer carries for a request that lacks
+`readsCarry`, or whether `release` or `carry` belongs on a given signal type.
+Those are behaviour above the wire shape, as with the profile 2 fields.

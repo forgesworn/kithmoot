@@ -89,7 +89,7 @@ import { callBellTag, callBellDay, callBellContentKey, callBellMessage, decodeCa
 const here = dirname(fileURLToPath(import.meta.url))
 const outFile = join(here, 'kithmoot-vectors.json')
 
-const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [], spryDeviceKey: [], assistSelection: [] }
+const vectors = { roomDerivation: [], channelDerivation: [], joinUrl: [], deviceCredential: [], rosterEvent: [], signalWrap: [], signalCompatibility: [], kindredProof: [], accessEvaluation: [], turnCredential: [], roomDescriptor: [], roomEpoch: [], epochRequestAdmission: [], agentOwnership: [], chatAttachment: [], approvalControl: [], verificationWords: [], chatThread: [], chatEdit: [], chatOrder: [], chatRetract: [], chatMention: [], chatInvite: [], readPosition: [], callBell: [], roomRelays: [], roomStorage: [], roomName: [], meeting: [], chatHistory: [], chatEnvelope2: [], spryDeviceKey: [], assistSelection: [], assistSignals: [] }
 
 // ===========================================================================
 // 1. Room derivation - secret -> { roomId, roomKey } (dist/src/room.js)
@@ -3824,6 +3824,127 @@ for (const [name, roomKey, a, b, note] of [
   }
 }
 // END assistSelection
+
+// BEGIN assistSignals
+// ===========================================================================
+// 5b. Peer-assist signal fields (src/signal.ts): `carry` on an offer, and
+//     `release` / `readsCarry` on an `assist` signal. The same signalWrap
+//     machinery and vector shape as 5a. `carry` is cleaned entry by entry on
+//     decode (`sanitiseCarry`) and the offer is still accepted; `release` and
+//     `readsCarry` are strict, and a present value other than `true` rejects
+//     the whole signal. Expected results are written out by hand and checked
+//     against the real decoder, not copied from it.
+// ===========================================================================
+
+{
+  const hexOf = (label) => bytesToHex(sha256(utf8Bytes(`assist-signal-vector-device-${label}`)))
+  const DEV_1 = hexOf('source-1')
+  const DEV_2 = hexOf('source-2')
+  const FAR_END = hexOf('far-end')
+  const offer = (extra) => ({ type: 'offer', roomId: ROOM_1.roomId, sdp: fx.SDP_FIXTURE, ...extra })
+  const assistReq = (extra) => ({ type: 'assist', roomId: ROOM_1.roomId, assist: FAR_END, ...extra })
+
+  function assistSignalVector(name, kind, note, body, expectedBody) {
+    const ephemeralSk = deriveSecretKey(`signal-ephemeral-assist-${name}`)
+    const wrap = buildSignalWrap({
+      body, senderSk: fx.SENDER_SK, recipientPubkey: fx.RECIPIENT, ephemeralSk, createdAt: fx.SIGNAL_CREATED_AT,
+      innerAuxLabel: `signal-assist-${name}-inner`, outerAuxLabel: `signal-assist-${name}-outer-aux`, nonceLabel: `signal-assist-${name}-outer-nonce`,
+    })
+    const result = unwrapSignal(wrap.outer, { recipientSk: fx.RECIPIENT_SK, roomId: ROOM_1.roomId, now: fx.SIGNAL_CREATED_AT })
+    const expected = expectedBody === null ? null : { from: fx.SENDER, body: expectedBody }
+    if (JSON.stringify(result) !== JSON.stringify(expected)) throw new Error('assistSignals disagreement: ' + name)
+    vectors.assistSignals.push({
+      name, kind, note,
+      input: {
+        body, senderSkHex: bytesToHex(fx.SENDER_SK), recipientPubkey: fx.RECIPIENT,
+        ephemeralSkHex: bytesToHex(ephemeralSk), createdAt: fx.SIGNAL_CREATED_AT,
+        innerAuxRandHex: wrap.innerAuxHex, outerAuxRandHex: wrap.outerAuxHex, nip44NonceHex: wrap.nonceHex,
+      },
+      output: { inner: wrap.inner, outer: wrap.outer },
+      expected: { unwrap: { recipientSkHex: bytesToHex(fx.RECIPIENT_SK), roomId: ROOM_1.roomId }, result: expected },
+    })
+  }
+
+  // --- carry (decoded entry by entry; the offer is always accepted) ----------
+  const carryTwo = { '3': { device: DEV_1, role: 'camera' }, '4': { device: DEV_2, role: 'mic' } }
+  assistSignalVector('carry-two-entries', 'positive',
+    'An offer from a volunteer with a `carry` map of two entries, keyed by transceiver mid, each naming the device whose media the m-line carries and which of its slots it is. Both are well formed, so the decoded body is the body as sent.',
+    offer({ carry: carryTwo }), offer({ carry: carryTwo }))
+
+  assistSignalVector('carry-malformed-entry-dropped', 'positive',
+    'One entry has a `role` outside camera, mic, screen and screen-audio; the other is well formed. The bad entry is dropped on its own and the offer is accepted with the good one.',
+    offer({ carry: { '3': { device: DEV_1, role: 'camera' }, '4': { device: DEV_2, role: 'webcam' } } }),
+    offer({ carry: { '3': { device: DEV_1, role: 'camera' } } }))
+
+  assistSignalVector('carry-each-malformed-entry-dropped', 'positive',
+    'Seven entries beside one good one, each wrong in a different way: a mid of 17 characters, an empty mid, a `device` of 63 hex characters, a `device` that is not a string, a `role` that is not a string, an entry that is an array, and an entry that is null. Every one is dropped on its own; only mid `3` survives. A mid of exactly 16 characters is the longest kept (see `carry-longest-mid-kept`).',
+    offer({ carry: { '3': { device: DEV_1, role: 'screen' }, 'm234567890123456x': { device: DEV_1, role: 'camera' }, '': { device: DEV_1, role: 'camera' }, '5': { device: DEV_1.slice(1), role: 'camera' }, '6': { device: 7, role: 'camera' }, '7': { device: DEV_1, role: 9 }, '8': [DEV_1, 'camera'], '9': null } }),
+    offer({ carry: { '3': { device: DEV_1, role: 'screen' } } }))
+
+  assistSignalVector('carry-longest-mid-kept', 'positive',
+    'A mid of exactly 16 characters is the longest a `carry` key may be and is kept, with the `screen-audio` role.',
+    offer({ carry: { 'm234567890123456': { device: DEV_2, role: 'screen-audio' } } }),
+    offer({ carry: { 'm234567890123456': { device: DEV_2, role: 'screen-audio' } } }))
+
+  const eight = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [String(i + 1), { device: i % 2 ? DEV_2 : DEV_1, role: ['camera', 'mic', 'screen', 'screen-audio'][i % 4] }]))
+  assistSignalVector('carry-eight-entries-kept', 'positive',
+    'Eight entries, the most a map may hold (`MAX_CARRY_ENTRIES`), all well formed: all kept.',
+    offer({ carry: eight }), offer({ carry: eight }))
+
+  const nine = { ...eight, '9': { device: DEV_1, role: 'camera' } }
+  assistSignalVector('carry-too-many-entries', 'positive',
+    'Nine well-formed entries. A map over eight entries is not something an honest volunteer sends, so the whole `carry` is removed rather than trimmed, and the offer is still accepted. The count is of entries as sent, before any are dropped.',
+    offer({ carry: nine }), offer())
+
+  assistSignalVector('carry-upper-case-device', 'positive',
+    'A `device` in upper-case hex is valid and is lower-cased on decode, as every other hex identifier on the wire is.',
+    offer({ carry: { '3': { device: DEV_1.toUpperCase(), role: 'camera' } } }),
+    offer({ carry: { '3': { device: DEV_1, role: 'camera' } } }))
+
+  assistSignalVector('carry-no-valid-entry', 'positive',
+    'Every entry is malformed (a `role` outside the four, and a `device` that is not 64 hex), so nothing is left: `carry` is removed and the offer is still accepted.',
+    offer({ carry: { '3': { device: DEV_1, role: 'video' }, '4': { device: 'not-a-device', role: 'mic' } } }),
+    offer())
+
+  assistSignalVector('carry-not-a-map', 'positive',
+    'A `carry` that is an array rather than a map is removed and the offer is still accepted.',
+    offer({ carry: [{ device: DEV_1, role: 'camera' }] }), offer())
+
+  assistSignalVector('carry-proto-key-is-an-own-key', 'positive',
+    'A mid of `__proto__` is an ordinary key: kept as an own key of the decoded map, which must not be looked up through a prototype chain and must not change the map\'s prototype. (The body is built from JSON text, because an object literal with that key would set a prototype instead.)',
+    JSON.parse(`{"type":"offer","roomId":"${ROOM_1.roomId}","sdp":${JSON.stringify(fx.SDP_FIXTURE)},"carry":{"__proto__":{"device":"${DEV_1}","role":"mic"},"3":{"device":"${DEV_2}","role":"camera"}}}`),
+    JSON.parse(`{"type":"offer","roomId":"${ROOM_1.roomId}","sdp":${JSON.stringify(fx.SDP_FIXTURE)},"carry":{"__proto__":{"device":"${DEV_1}","role":"mic"},"3":{"device":"${DEV_2}","role":"camera"}}}`))
+
+  // --- release and readsCarry (strict: only `true`, or absent) ---------------
+  assistSignalVector('assist-release-true', 'positive',
+    'An `assist` signal from one end of a pair to the volunteer with `release: true` and `accept: false`: this end has stopped using the route. Accepted and decoded as sent.',
+    assistReq({ accept: false, release: true }), assistReq({ accept: false, release: true }))
+
+  assistSignalVector('assist-release-yes', 'negative',
+    '`release` is the string `"yes"`. Only `true` is valid, so the whole signal is rejected (the decoder returns null).',
+    assistReq({ accept: false, release: 'yes' }), null)
+
+  assistSignalVector('assist-release-false', 'negative',
+    '`release: false` is rejected as well: the field is `true` or absent, never `false`.',
+    assistReq({ accept: false, release: false }), null)
+
+  assistSignalVector('assist-reads-carry-true', 'positive',
+    'An `assist` request with `readsCarry: true`: this end attributes a carried m-line by `carry`. Accepted and decoded as sent.',
+    assistReq({ readsCarry: true }), assistReq({ readsCarry: true }))
+
+  assistSignalVector('assist-reads-carry-absent', 'positive',
+    'An `assist` request without `readsCarry` decodes unchanged. Whether a volunteer carries for a request that lacks it is its own decision and not part of the wire shape.',
+    assistReq(), assistReq())
+
+  assistSignalVector('assist-reads-carry-one', 'negative',
+    '`readsCarry` is the number `1`. Only `true` is valid, so the whole signal is rejected.',
+    assistReq({ readsCarry: 1 }), null)
+
+  assistSignalVector('assist-reads-carry-false', 'negative',
+    '`readsCarry: false` is rejected: the field is `true` or absent, never `false`.',
+    assistReq({ readsCarry: false }), null)
+}
+// END assistSignals
 
 // ===========================================================================
 // Write out
