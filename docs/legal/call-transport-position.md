@@ -20,6 +20,50 @@ written against this branch, the operator's relay position note as corrected
 on 2 November 2026, and the decision record of that date; where it and any
 older section disagree, it governs.
 
+## 7 November 2026: peer assist re-enabled (web and desktop)
+
+Written against branch `fix/peer-assist-reenable` from kithmoot `13c8df98`.
+
+A member who turns on Help other people connect may carry call media between
+two members of the same group call who are both already connected to them
+and cannot connect to each other (`src/mesh.ts`, `src/peer-relay.ts`,
+`app/src/peer-relay-media.ts`). The volunteer is a member: it holds the room
+key, the assist path has no encoded-frame layer, and it can see and hear what
+it carries, as it already does as a participant. It can drop a track and,
+until per-sender signing exists, could present media under another member's
+name; the helped side's details say so. Each end consents per direction by
+asking, and the volunteer accepts only once both ends have asked, holding
+the first request for at most 8 seconds. An end asks only for a far end its
+own audience rule admits, so a person's media is never carried to an agent
+or anybody else they keep it from. A person can stop their device asking at
+all ("Let members pass my call on", on by default). A relay-only (Hide my IP)
+session never asks or offers. A route counts as working only once carried
+media arrives, and is given up when it stalls.
+
+ForgeSworn runs no part of the data or control path and receives nothing:
+selection uses the room's encrypted roster, and requests travel as ordinary
+encrypted call signals over the room's Nostr relays. This does not change
+ForgeSworn's position, which turns on the public TURN default (2 November
+2026 section); public wording describes peer assist alongside that default,
+not in place of it. Peer assist does nothing for one-to-one calls or for Hide
+my IP, and it needs a third member who measures as publicly reachable on a
+Chromium-based desktop browser or the desktop app.
+
+For the volunteer, note 2.11's forwarding-for-unrelated-users role and notes
+3.9, 5.1, 7 and 4.1 remain `[U]`. The volunteer is a narrower case than the
+built-in relay: no ports opened, no grants or stored state, and only within
+one call, but anyone with a room's link can join, so the pair may be people
+the volunteer does not know, and the volunteer does not control admission
+(2.2). The volunteer's notes carry a lighter form of the built-in relay's
+line about the laws that apply to them and their internet provider's terms.
+The law note still has no scoping row for clients that relay for each other
+(item 8 under "Gaps in the law note"); not researched here.
+
+What would change this reading: carrying for anyone not on the same call;
+opening a connection for assist; any ForgeSworn selection, probe or count;
+relaying under Hide my IP; turning assist on for anyone who did not press the
+switch. Note verified 28 September 2026.
+
 ## 3 November 2026: private hosted-node candidate
 
 The [node release gap check](kithmoot-node-release-gate.md) records the new
