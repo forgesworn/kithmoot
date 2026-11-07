@@ -1272,13 +1272,14 @@ export class NostrRelayPool implements RelayTransport {
         // History finishes on EOSE, the dependency's timeout, or a close.
         // Only an answer inside that wait, with no close heard after it, is
         // the relay's: the `REQ` went out after `requestedAt`.
+        // The relay's own EOSE, however slowly it came: everything it held
+        // when the request went out has been sent. True even if it closes the
+        // request next. Only nostr-tools' own timeout arrives this late.
+        if (closedBy === undefined && active() && Date.now() - requestedAt < HISTORY_EOSE_WAIT_MS) {
+          sub.caughtUp.set(url, Math.floor(requestedAt / 1000))
+          if (!narrowed) sub.wideAt.set(url, requestedAt)
+        }
         if (Date.now() - requestedAt < SUBSCRIBE_EOSE_DEADLINE_MS) {
-          // The relay's own EOSE: everything it held when the request went
-          // out has been sent. True even if it closes the request next.
-          if (closedBy === undefined && active()) {
-            sub.caughtUp.set(url, Math.floor(requestedAt / 1000))
-            if (!narrowed) sub.wideAt.set(url, requestedAt)
-          }
           queueMicrotask(() => {
             if (closedBy !== undefined || !active() || this.#authError(url)) return
             binding.readEvidence = 'confirmed'
@@ -1299,7 +1300,10 @@ export class NostrRelayPool implements RelayTransport {
         // prevents an old reader's EOSE identifier satisfying a new binding.
         id: bytesToHex(randomBytes(16)),
         abort: this.#abort.signal,
-        eoseTimeout: SUBSCRIBE_EOSE_DEADLINE_MS,
+        // Long enough to hear a relay's real EOSE after a slow replay; the
+        // reader is told history has loaded at `SUBSCRIBE_EOSE_DEADLINE_MS`
+        // regardless (`sub.deadline`), and silence is `stall`'s to catch.
+        eoseTimeout: HISTORY_EOSE_WAIT_MS,
         oneose: ended,
         // An id this subscription already delivered, from this relay or
         // another, is dropped before nostr-tools parses and verifies it: a
@@ -1544,6 +1548,12 @@ export const RESUME_OVERLAP_SECONDS = 15 * 60
  *  and published only now (a message an outbox kept through a reload) would
  *  otherwise not be heard from that relay until the room was reopened. */
 export const WIDE_REFRESH_MS = 15 * 60_000
+
+/** How long a relay may take to finish replaying history and still have its
+ *  EOSE count as a full answer, for `caughtUp`. A month of a busy room over a
+ *  phone's link can take well past `SUBSCRIBE_EOSE_DEADLINE_MS`; a relay that
+ *  never says EOSE is never taken as caught up, and is asked in full. */
+const HISTORY_EOSE_WAIT_MS = 60_000
 
 /** `filters` asked from `from` (unix seconds) on, where that is later than
  *  what they ask already. Only a filter that names a `since` is narrowed: one

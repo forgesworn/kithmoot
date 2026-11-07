@@ -52,6 +52,22 @@ function dropsAfterAnswering(relay: FakeRelayServer, afterMs: number): void {
   }
 }
 
+/** A relay on a slow link: history trickles out over `overMs`, EOSE last,
+ *  then the socket drops `dropAfterMs` later. */
+function slowThenDrops(relay: FakeRelayServer, overMs: number, dropAfterMs: number): void {
+  const receive = relay.receive.bind(relay)
+  relay.receive = (socket, frame) => {
+    const message = JSON.parse(frame) as unknown[]
+    if (message[0] !== 'REQ' || !JSON.stringify(message).includes('1460')) { receive(socket, frame); return }
+    relay.frames.push(frame)
+    const filters = message.slice(2) as Parameters<typeof matchFilters>[0]
+    const events = relay.stored.filter(event => matchFilters(filters, event))
+    events.forEach((event, i) => setTimeout(() => socket.deliver(JSON.stringify(['EVENT', message[1], event])), Math.floor((i * overMs) / Math.max(1, events.length))))
+    setTimeout(() => socket.deliver(JSON.stringify(['EOSE', message[1]])), overMs)
+    setTimeout(() => socket.dropped(), overMs + dropAfterMs)
+  }
+}
+
 describe('NostrRelayPool resubscription', () => {
   let a: FakeRelayServer
   let b: FakeRelayServer
@@ -98,6 +114,16 @@ describe('NostrRelayPool resubscription', () => {
     expect(a.attempts).toBeGreaterThan(3)
     expect(eventsAskedFor(a)).toBeLessThan(2 * HISTORY)
     expect(heard.size).toBe(HISTORY)
+  })
+
+  it('resumes from a relay whose history takes longer than the reader waits for', async () => {
+    slowThenDrops(a, 12_000, 3_000)
+    const heard = open()
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(heard.size).toBe(HISTORY)
+    const requests = a.requestedFilters().filter(f => f[0]?.kinds?.includes(1460))
+    expect(requests.length).toBeGreaterThan(3)
+    expect(requests.slice(1).every(f => f[0]!.since! > nowSeconds() - MONTH + 86_400)).toBe(true)
   })
 
   it('still hears what was published while the socket was down', async () => {
