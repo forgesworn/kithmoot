@@ -104,6 +104,31 @@ checks. Linux and Windows packages have matching renderer content and verified
 downloads, with runtime acceptance still separate. No private Shelter release
 or official Archy UI submission is included.
 
+## Android 0.6.137 native interoperability candidate, 7 November 2026
+
+Version **0.6.137**, code **160**, carries the reviewed merged VMLS 0.1.2
+bundle and the platform-aware capability and invitation API migration.
+Invitation and account-network defaults are unchanged. Legacy admissions
+without an authenticated MLS group id remain refused, as in 0.6.136; this
+publication does not enable the disabled private invitation preview.
+
+The production-signed APK is 74,429,004 bytes, SHA-256
+`2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246`,
+with the existing production certificate and preview lineage. The physical
+Pixel's in-place 0.6.135-to-0.6.137 update retained UID and install dates;
+two VMLS ABI tests, one no-capture WebRTC native check and launch/resume passed.
+A temporary WebPKI WSS box lab passed three positive creator/direct guest
+exchange cases and one explicit refusal of unpinned legacy admission. Failed
+preceding attempts are retained. Its tunnel, relay, fixture, emulator and AVD
+were removed. The old positive two-device legacy flow remains unqualified;
+owner vault/account correctness and physical media/roaming acceptance are
+separate. See the [candidate record](evidence/android-0.6.137-candidate-20261107.json).
+
+Use this same immutable APK for all publication channels. Publish only the
+Android metadata/download changes and APK over the existing live tree;
+preserve every other PWA and desktop byte. Final-source CI and each public
+channel's readback are separate publication requirements.
+
 ## Website placeholder, 2 November 2026
 
 The homepage now shows Coming soon. Android publication copy and its
