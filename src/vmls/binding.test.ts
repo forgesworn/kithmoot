@@ -40,7 +40,7 @@ const signerSees = (c: Case): string => {
 describe('VMLS/1 unsigned leaf-binding reader', () => {
   it('derives every framed vector body exactly: valid signatures verify over its digest', () => {
     const valid = framed.filter(c => c.expect.ok)
-    expect(valid.length).toBeGreaterThanOrEqual(4)
+    expect(valid.length).toBe(6)
     for (const c of valid) {
       const body = unsignedOf(c.bindingHex)
       const binding = readUnsignedBinding(body)
@@ -62,8 +62,9 @@ describe('VMLS/1 unsigned leaf-binding reader', () => {
     })
   }
 
-  it('covers most of the suite through the framed cases', () => {
-    expect(framed.length).toBeGreaterThanOrEqual(suite.cases.length - 6)
+  it('accounts for every unframed vector through the fixed hostile cases', () => {
+    const unframed = suite.cases.filter(c => !framed.includes(c)).map(c => c.name)
+    expect(unframed).toEqual(['missing-signature', 'indefinite-map', 'trailing-byte', 'truncated', 'oversize'])
   })
 
   it('refuses a signed eight-key binding, a trailing byte, truncation, an indefinite map and oversize', () => {

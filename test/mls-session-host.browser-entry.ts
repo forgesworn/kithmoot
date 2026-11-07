@@ -153,8 +153,8 @@ async function proposeAdd() {
     const envelope = made.step.outbound[0].envelope
     introducing = wasm.prepareIntroduction(platform, now, rz, 0n)
     const req = introducing.request()
-    introduction = introducing.complete(now, req.operation, secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
-    return await host.step(context(), ids[0], s => step(s.add(now, [introduction.openCapability(now, envelope)])))
+    introduction = introducing.complete(platform, now, req.operation, secp256k1.getSharedSecret(secret, concatBytes(Uint8Array.of(2), req.peerRz)).slice(1))
+    return await host.step(context(), ids[0], s => step(s.add(now, [introduction.openCapability(platform, now, envelope)])))
   } finally { guest?.free(); introduction?.free(); introducing?.free(); joining.free(); guestPlatform.free() }
 }
 

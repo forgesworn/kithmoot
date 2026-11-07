@@ -1,12 +1,12 @@
 {
   "sourceRepository": "https://github.com/forgesworn/vennel",
-  "sourceCommit": "6df0803012ad194f033ecbad27ad2858df26477e",
+  "sourceCommit": "c154087ecfc43ee9404fa4d548cdc94c0789afef",
   "rust": "1.94.1",
   "wasmBindgen": "0.2.129",
   "target": "web",
   "files": {
-    "vmls_wasm.d.ts": "bc599ed4ba430fb1eca9b133b3e65aa97f10e9f0cab7e61d7c17b203b58a8ec5",
-    "vmls_wasm.js": "e841d7e5d224c2be4fcfc4428e7248246f3d02f2503fdcc18480657f886ad13e",
-    "vmls_wasm_bg.wasm": "4512a67b288644b7e7b9977eadb7effc31b77882f76a8e46b29f2d794202718d"
+    "vmls_wasm.d.ts": "60eb73438adaf3c582f33855b4f06d147036898e4c54c28e67b6613c17ad5007",
+    "vmls_wasm.js": "25a9f7dca37e6dc2320d1dabb74b5f3b64b34d52cd43f1edb55ae0230c43c02d",
+    "vmls_wasm_bg.wasm": "7f2544dcfdacfa7aa350b077969aebc0c9f8879fd5a80edc83404dafefbd2faf"
   }
 }
