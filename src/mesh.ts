@@ -2142,7 +2142,11 @@ export class Mesh {
     const relay = this.#opts.relay
     const other = normaliseHex(far)
     if (!relay || !readsCarry || !this.#canCarry(from, other)) {
-      this.#send(from, { type: 'assist', assist: other, accept: false })
+      // A renewal refused - helping turned off, an end no longer reachable -
+      // ends a pair already carried now, not when its lease runs out.
+      const carried = relay?.get(from, other)
+      if (carried && this.#ownPairs.has(carried.key)) this.#endPair(carried, [from, other], 'no longer able to carry')
+      else this.#send(from, { type: 'assist', assist: other, accept: false })
       return
     }
 
@@ -3090,9 +3094,12 @@ export class Mesh {
       while (this.#parked.length > MAX_PARKED_TRACKS) this.#parked.shift()
       return
     }
-    if (verdict !== 'own') return
-    // The endpoint's own media. Kept, while this device is volunteering, as
-    // something a carried leg may later tap.
+    if (verdict === 'own') this.#ownTrack(endpoint, track, receiver, role)
+  }
+
+  /** The endpoint's own media. Kept, while this device is volunteering, as
+   *  something a carried leg may later tap. */
+  #ownTrack(endpoint: string, track: MediaStreamTrack, receiver: unknown, role?: TrackRole): void {
     if (this.#opts.relay && role === undefined && this.#peers.get(endpoint) instanceof Peer) {
       const media = this.#endpointMedia.get(endpoint) ?? new Map<string, { track: MediaStreamTrack; receiver: unknown }>()
       media.delete(track.id)
@@ -3161,7 +3168,7 @@ export class Mesh {
       if (held.track.readyState === 'ended') continue
       const verdict = this.#attribute(held.endpoint, held.track, held.receiver, held.mid, true)
       if (verdict === 'park') this.#parked.push(held)
-      else if (verdict === 'own') this.#emitTrack(held.endpoint, held.track, 'direct')
+      else if (verdict === 'own') this.#ownTrack(held.endpoint, held.track, held.receiver)
     }
   }
 
