@@ -2,6 +2,7 @@
 
 ## Unreleased, 6 November 2026
 
+- **Camera blur works in Safari and on iPhone.** Safari ignores the canvas blur filter the camera effect used, so with Blur on the camera picture was sent unblurred while the app said it was blurred. Where the filter does nothing, the picture is now blurred by reducing it to a few pixels and scaling it back up; where no blur can be shown to work, a plain cover is sent and the notice says so. Chrome, Edge, Firefox and the desktop app are unchanged.
 - **Zap the maker.** A self-hosted agent can carry its operator's Lightning address on its roster entry (`kithmoot-agent join ... --zap you@your-wallet.example`). Where an agent's message is open in the message menu and the agent is still in the room with an address, a Zap item shows the address in full with Copy and Open in wallet. The address is declared, not verified, like the name. The app makes no network request for it, and nothing ForgeSworn runs touches the payment.
 - **Group calls use far less upload.** Each person sent their camera to every other person at the one-to-one rate, so on an emulated six-person call everyone uploaded about 8.6 Mbit/s. The camera now steps down as the call grows, on the same steps as the Android app: 800 kbit/s at up to 24 frames a second for two or three other people, and 500 kbit/s at up to 15 frames a second and 360 lines for four or more. On the same emulated calls upload fell to about 2.7 Mbit/s at four people and 2.8 Mbit/s at six, and the browser used about 40% less CPU at six. One-to-one calls and screen shares are unchanged.
 

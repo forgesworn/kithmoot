@@ -2,6 +2,7 @@ import {
   BLUR_ON_BY_DEFAULT,
   DEFAULT_BLUR_STRENGTH,
   VideoEffect,
+  type BlurPath,
   type EffectMode,
   type FrameAction,
   type VideoEffectState,
@@ -344,6 +345,12 @@ export class CameraPipeline {
 
   get untrustworthy(): boolean {
     return this.#effect.untrustworthy
+  }
+
+  /** How this browser blurs the camera picture, so the wording can say what
+   *  is really sent - see `VideoEffect.blurPath`. */
+  get blurPath(): BlurPath {
+    return this.#effect.blurPath
   }
 
   get track(): MediaStreamTrack | undefined {
