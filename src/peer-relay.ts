@@ -570,7 +570,7 @@ export interface RelayMediaPipeline {
    * helping is turned on would carry nothing. The pipeline decides whether
    * this device could ever help, and ignores the call if not.
    */
-  prepare?(receiver: unknown, track: MediaStreamTrack): void
+  prepare?(receiver: unknown, track?: MediaStreamTrack): void
   /** Start one leg. Null when it cannot be carried; the caller removes the
    *  clock and carries the pair's other tracks without it. */
   carry(leg: RelayLeg): RelayLegHandle | null

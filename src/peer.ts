@@ -392,6 +392,16 @@ export interface PeerOptions {
    */
   onSender?: (track: MediaStreamTrack, sender: unknown) => boolean | void
   /**
+   * The receiver of an m-line this side has just made, for its own track,
+   * before any description that contains it has been written.
+   *
+   * The far end may send on that m-line later, and a receiver made here has
+   * its `ontrack` only once the answer arrives, which in Chromium is too late
+   * to attach an encoded-frame transform that will see any frames. A volunteer
+   * claims such a receiver here instead. Optional.
+   */
+  onReceiver?: (receiver: unknown) => void
+  /**
    * Whether this side has to open the conversation even with nothing to
    * send.
    *
@@ -910,6 +920,16 @@ export class Peer implements NegotiatingPeer {
         throw new Error('media pipeline refused sender')
       }
       if (sender !== undefined) tuneShareSender(track, sender)
+      if (sender !== undefined && this.#opts.onReceiver) {
+        const receiver = this.#pc.getTransceivers?.().find((candidate) => candidate.sender === sender)?.receiver
+        if (receiver) {
+          try {
+            this.#opts.onReceiver(receiver)
+          } catch {
+            // A caller's pipeline is not allowed to stop this side publishing.
+          }
+        }
+      }
       if (sender !== undefined && this.#cameraRung !== undefined) this.#capSender(sender)
       this.#addedTracks.add(track)
       if (track.kind === 'audio') this.#armAudioSenderStartCheck()

@@ -1752,6 +1752,22 @@ describe('the mutual request', () => {
     }
   })
 
+  it('claims the receiver of an m-line it makes for its own track, before the far end answers', async () => {
+    const remote = device()
+    const pipeline = fakePipeline()
+    const h = harness({ relay: new PeerRelay(), relayMedia: pipeline })
+    h.session.setViews([person(remote.pub)])
+    await settle()
+    h.mesh.publish([mediaTrack('mine')])
+    await settle()
+    // The far end may later send on this m-line; its receiver is claimed now,
+    // not when the answer turns it on.
+    const transceivers = h.factory.to(remote.pub)!.getTransceivers()
+    expect(transceivers.length).toBeGreaterThan(0)
+    expect(pipeline.prepared).toContain(transceivers[0]!.receiver)
+    h.close()
+  })
+
   it('starts the pumps when the room is built, so they are running before the first track', () => {
     let warmed = 0
     const h = harness({ relay: new PeerRelay(), offering: () => false, relayMedia: { ...fakePipeline(), warm: () => void (warmed += 1) } })

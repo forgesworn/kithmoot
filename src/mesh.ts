@@ -3075,6 +3075,10 @@ export class Mesh {
       onSender: forwarder
         ? (track, sender) => this.#protectForwarderSender(sender, track)
         : undefined,
+      // An m-line this side makes for its own track may carry the far end's
+      // media back, and its receiver has to be claimed now - see
+      // `PeerOptions.onReceiver` and `#ownTrack`.
+      onReceiver: forwarder || !this.#opts.relay ? undefined : (receiver) => this.#claimReceiver(receiver),
       // A forwarder never offers, so this side has to - even with nothing to
       // send, which is how a device with its camera and microphone off is
       // admitted at all.
@@ -3203,6 +3207,16 @@ export class Mesh {
       const verdict = this.#attribute(held.endpoint, held.track, held.receiver, held.mid, true)
       if (verdict === 'park') this.#parked.push(held)
       else if (verdict === 'own') this.#ownTrack(held.endpoint, held.track, held.receiver)
+    }
+  }
+
+  /** Offer a receiver to the pumps before its first frame. */
+  #claimReceiver(receiver: unknown): void {
+    if (!receiver) return
+    try {
+      this.#opts.relayMedia?.prepare?.(receiver, (receiver as { track?: MediaStreamTrack }).track ?? undefined)
+    } catch {
+      // A pipeline that cannot claim it only means this one is not carried.
     }
   }
 
