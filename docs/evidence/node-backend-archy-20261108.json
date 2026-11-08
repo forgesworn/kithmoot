@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-08",
+  "scope": "Private Archy backend upgrade; existing-room client cutover still pending",
+  "baseImage": "c9c22524d768035859ec85a8a390d5ea34714914b96c61ac244b09536f74dfb5",
+  "image": "da0f33d6584e320db097ce983a112a43143998dda5b3f97aaaae621ec7ff4115",
+  "tag": "localhost/kithmoot-node:0.1.0-rc.1-existing-979c4e4b",
+  "manifestSha256": "979c4e4bff09e9c1ce19599994c33b76a51a6e1905da7f2d13d9ea02fcb9fff0",
+  "bothyCommit": "93dabf4e3b12a24bf15a347b2d7f1516ffe93590",
+  "runningRelaySha256": "703aea53150920bee79ee617484b7a46ed5b6d9da25bc53212e61b7a00114ed0",
+  "build": {
+    "rust": "1.94.1",
+    "network": "offline locked vendored dependencies",
+    "jobs": 1,
+    "releaseLto": false,
+    "capacityQualification": "not measured by this upgrade"
+  },
+  "checks": {
+    "allReleaseFileHashes": 11,
+    "unchangedControllerAndDashboardFiles": 6,
+    "publicInfoExistingRooms": true,
+    "publicStatus": {
+      "ready": true,
+      "paired": true,
+      "rooms": 1,
+      "devices": 10,
+      "pending": 0
+    },
+    "ledger": {
+      "schema": 2,
+      "quickCheck": "ok"
+    },
+    "roomStore": {
+      "schema": 4,
+      "quickCheck": "ok"
+    },
+    "publicTurn": "credential service, certificate timer and coturn remain active"
+  },
+  "rollback": {
+    "stoppedStateBackup": "Archy /root/kithmoot-node-migration-20261108-backup/state.tar",
+    "sha256": "afbda5b7936f0abfc4cf5caad90e579a727225acb365518498d17a21b5adcd76",
+    "requires": "Stop node, restore original state and prior running image together. Original and rollback quadlets retained beside backup.",
+    "originalQuadletDrift": "Original quadlet and generated unit named capacity-8b815bbabe06; actual running image was grant-cap-4fd6e276. Rollback quadlet pins the actual previous running image."
+  },
+  "notYetProven": [
+    "existing ordinary rooms moved",
+    "simultaneous desktop Android web cutover",
+    "physical peer media call",
+    "new performance or capacity claims"
+  ]
+}

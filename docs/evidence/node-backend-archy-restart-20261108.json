@@ -1,0 +1,18 @@
+{
+  "date": "2026-11-08",
+  "scope": "Private Archy node restart recovery and existing supported room capacity",
+  "imageSha256": "6359f641ea703bf58b355f1d0ee2e51a1c68776b27ae5b91b7136b18154a84a5",
+  "migrationTag": "localhost/kithmoot-node:0.1.0-rc.1-existing-087b561c",
+  "configuredTag": "localhost/kithmoot-node:0.1.0-rc.1-capacity-8b815bbabe06",
+  "configuredTagNowResolvesToMigrationImage": true,
+  "priorConfiguredTagImageSha256": "2ccdc2b17784f9df107080279c112e565a5a1615f85336e92d6842c1ecf08ef5",
+  "priorImageRetainedAs": "localhost/kithmoot-node:0.1.0-rc.1-capacity-before-migration-20261108",
+  "restartFinding": "The service manager regenerated the earlier capacity image reference on restart. That older image could not open the upgraded state and the node API returned 502. Restoring configuration alone did not restore the runtime. The locally configured tag was then pointed at the verified migration image, retaining its old image under a separate rollback tag. The subsequent restart and capacity update used the verified migration image and became healthy.",
+  "canonicalManagerImageReferenceUpdatePending": true,
+  "capacity": { "previous": 4, "current": 8, "existingDashboardChoice": true },
+  "afterRestart": { "ready": true, "paired": true, "rooms": 1, "devices": 10, "pending": 0, "existingRooms": true },
+  "privateEvidenceDirectory": "/root/kithmoot-node-room-capacity-20261108",
+  "ownerRoomsMigrated": false,
+  "publicTurnStopped": false,
+  "physicalMediaQualified": false
+}

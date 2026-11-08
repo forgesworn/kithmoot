@@ -7,6 +7,7 @@ import { MAX_DISPLAY_NAME_LENGTH, sanitiseDisplayName } from './display-name.js'
 import { canonicalSpeakers, isRecordingCapture, type RecordingCaptureNotice } from './meeting.js'
 import { readRoomLogoOp, type RoomLogoOp } from './room-logo-payload.js'
 import { GROUP_GRANT_KIND, type GroupEvent } from './group-grants.js'
+import { readNodeMigrationFrame, type NodeMigrationFrame } from '@forgesworn/fold-kit/node-migration'
 import { readNodeRoom } from '@forgesworn/fold-kit/node-room'
 import type { Event } from 'nostr-tools/pure'
 
@@ -52,6 +53,7 @@ export interface RunningAgent {
 }
 
 export type ControlMessage =
+  | NodeMigrationFrame
   /** An admitted member's logo change; pixels ride separately inside the same
    * encrypted message. Existing clients ignore this unfamiliar operation. */
   | RoomLogoOp
@@ -438,6 +440,8 @@ export function decodeControl(text: string): ControlMessage | null {
       // Strict: the web app's snapshot custody refuses a control message whose
       // decoded form differs from what was sent, so nothing may be dropped.
       return Object.keys(m).length === 1 ? { op: 'storage-grant?' } : null
+    case 'node-migration':
+      return readNodeMigrationFrame(m)
     case 'node': {
       if (Object.keys(m).length !== 2 || !m.event || typeof m.event !== 'object' || Array.isArray(m.event)) return null
       const event = m.event as Event

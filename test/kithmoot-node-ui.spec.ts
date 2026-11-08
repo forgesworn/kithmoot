@@ -1,9 +1,14 @@
-import { test, expect, chromium, type Browser, type BrowserContext } from '@playwright/test'
+import { test, expect, chromium, _electron as electron, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { join as joinPath } from 'node:path'
+import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join } from './browser.js'
 import { signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
-import { readNodeRoom, signNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { openRoomUrl } from './relays.js'
+import { readNodeRoom, signNodeRoom, parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { localIdentity } from '../src/identity.js'
 import { buildGrant } from '../src/group-grants.js'
 import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
@@ -408,5 +413,190 @@ test('one disconnected participant does not replace a healthy participant connec
   } finally {
     for (const context of contexts) await context.close()
     await browser.close(); await fixture.close()
+  }
+})
+
+
+// Real supervisor, device proof and private relay; synthetic TURN credentials
+// make this deliberately chat-only. Native/physical media are separate gates.
+test('three concurrent account devices and a peer move an existing room onto its node without changing room or device identity', async ({ baseURL, browserName }, info) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'concurrent room transition qualification')
+  test.setTimeout(240_000)
+  const desktopExecutable = process.env.E2E_MIGRATION_DESKTOP_EXECUTABLE
+  const androidSerial = process.env.E2E_MIGRATION_ANDROID_SERIAL
+  const adb = process.env.E2E_MIGRATION_ADB
+  if (androidSerial) expect(androidSerial).toMatch(/^emulator-[0-9]{4,5}$/)
+  const desktopHome = 'https://kithmoot.forgesworn.dev/j/'
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true,
+    sourceRelayPort: androidSerial ? Number(process.env.E2E_RELAY_PORT) : undefined,
+    additionalOrigins: desktopExecutable ? [new URL(desktopHome).origin] : [], turnPorts: { udpTcp: 34790, tls: 53499 } })
+  expect(fixture.chatOnly).toBe(true)
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], ownerKey = generateSecretKey()
+  const scratch = mkdtempSync(joinPath(tmpdir(), 'kithmoot-existing-node-'))
+  let desktopApp: Awaited<ReturnType<typeof electron.launch>> | undefined, native: ChildProcess | undefined, nativeLog = ''
+  const deviceCommand = (...args: string[]) => execFileSync(adb!, ['-s', androidSerial!, ...args], { encoding: 'utf8', timeout: 60_000 })
+  const clientLink = (page: Page, url: string) => desktopApp && page.context() === desktopApp.context() ? desktopHome + new URL(url).hash : url
+  try {
+    async function device(key: Uint8Array, desktop = false) {
+      let context: BrowserContext
+      if (desktop) {
+        const profile = joinPath(scratch, 'desktop-profile')
+        desktopApp = await electron.launch({ executablePath: desktopExecutable!, args: [
+          '--ignore-certificate-errors', `--user-data-dir=${profile}`, '--host-resolver-rules=MAP node.example 127.0.0.1'],
+          env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
+        context = desktopApp.context()
+        await desktopApp.evaluate(({ net, dialog }, { desk, calls }) => {
+          const fetch = net.fetch.bind(net)
+          net.fetch = async (input: RequestInfo | URL, options?: RequestInit & { bypassCustomProtocolHandlers?: boolean }) => {
+            const request = new Request(input, options), url = new URL(request.url)
+            if (url.origin !== 'https://node.example') return fetch(input, options)
+            const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
+            return fetch((url.pathname === '/v1/credentials' ? calls : desk) + url.pathname,
+              { ...options, method: request.method, headers: request.headers, body })
+          }
+          const show = dialog.showMessageBox.bind(dialog)
+          dialog.showMessageBox = ((...args: unknown[]) => {
+            if ((args.at(-1) as { message?: string }).message === 'Allow connections on your local network?') return Promise.resolve({ response: 1, checkboxChecked: false })
+            return Reflect.apply(show, dialog, args)
+          }) as typeof dialog.showMessageBox
+        }, { desk: fixture.desk, calls: fixture.calls })
+      } else context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+      contexts.push(context)
+      await context.exposeFunction('migrationPublicKey', () => getPublicKey(key))
+      await context.exposeFunction('migrationSign', (template: EventTemplate) => finalizeEvent(template, key))
+      const accountRelay = new URL('/__test-relay', baseURL!); accountRelay.protocol = 'wss:'
+      await context.addInitScript(({ node, relay }) => {
+        const w = window as typeof window & { migrationPublicKey(): Promise<string>; migrationSign(value: unknown): Promise<unknown>; __migrationAuth: unknown[] }
+        Object.defineProperty(window, 'nostr', { configurable: true, value: { getPublicKey: () => w.migrationPublicKey(), signEvent: (value: unknown) => w.migrationSign(value) } })
+        const Native = window.WebSocket; w.__migrationAuth = []
+        window.WebSocket = class extends Native {
+          private readonly nodeSocket: boolean
+          constructor(url: string | URL, protocols?: string | string[]) {
+            const target = String(url), privateNode = target === 'wss://node.example/events'
+            super(privateNode ? node : target.startsWith('wss://') && !target.includes('localhost') ? relay : target, protocols)
+            this.nodeSocket = privateNode
+          }
+          override send(data: Parameters<WebSocket['send']>[0]) {
+            if (this.nodeSocket && typeof data === 'string') { try { const frame = JSON.parse(data); if (frame[0] === 'AUTH') w.__migrationAuth.push(frame[1]) } catch {} }
+            super.send(data)
+          }
+        }
+      }, { node: fixture.websocket, relay: accountRelay.href })
+      if (!desktop) await context.route('https://node.example/**', async route => {
+        const path = new URL(route.request().url()).pathname
+        const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
+        await route.fulfill({ response })
+      })
+      await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+      const page = desktopApp && desktop ? await desktopApp.firstWindow() : await context.newPage()
+      page.on('pageerror', error => console.error('migration page:', error.message))
+      page.on('console', message => { if (message.type() === 'error') console.error('migration app:', message.text()) })
+      await signInAccount(page, desktop ? desktopHome : baseURL!)
+      return page
+    }
+    const keeper = await device(ownerKey)
+    await openCallSettings(keeper, 'Your KithMoot node')
+    await keeper.locator('#nodePairingInput').fill(fixture.pairing())
+    await keeper.locator('#nodePair').click(); await keeper.locator('#actionConfirm').click()
+    await expect(keeper.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(keeper)
+    await keeper.locator('#homeNewRoom').click()
+    await keeper.locator('#roomName').fill('Existing shared chat')
+    if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Keeper')
+    await keeper.locator('#create').click()
+    await expect(keeper.locator('#chatInput')).toBeVisible()
+    await expect.poll(() => keeper.locator('#shareUrl').inputValue()).not.toBe('')
+    const originalLink = await keeper.locator('#shareUrl').inputValue()
+    expect(parseNodeRoomLink(originalLink, Math.floor(Date.now() / 1000))).toBeNull()
+    const pages = [keeper]
+    for (const key of [ownerKey, ownerKey, generateSecretKey()]) {
+      const page = await device(key, !!desktopExecutable && pages.length === 1); pages.push(page)
+      await openRoomUrl(page, clientLink(page, originalLink))
+      if (await page.locator('#displayName').isVisible()) await page.locator('#displayName').fill('Member')
+      await join(page); await expect(page.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    }
+    const before = await Promise.all(pages.map(page => page.evaluate(() => {
+      const keys = Object.keys(localStorage).filter(key => key.startsWith('kithmoot.device.'))
+      return Object.fromEntries(keys.map(key => [key, JSON.parse(localStorage.getItem(key)!).sk]))
+    })))
+    for (const held of before) expect(Object.keys(held).length).toBeGreaterThan(0)
+    for (let i = 0; i < pages.length; i++) {
+      await pages[i]!.locator('#chatInput').fill(`Before move from device ${i}`); await pages[i]!.locator('#chatInput').press('Enter')
+    }
+    for (const page of pages) await expect(page.locator('#chatLog')).toContainText('Before move from device 3')
+    if (androidSerial) {
+      expect(adb).toBeTruthy()
+      expect(deviceCommand('shell', 'getprop', 'ro.hardware').trim()).toMatch(/^(ranchu|goldfish)$/)
+      const source = await keeper.evaluate(() => (window as unknown as { __kithmootMigrationFixture(): { secret: string; authority: string } }).__kithmootMigrationFixture())
+      const path = joinPath(scratch, 'native.json')
+      writeFileSync(path, JSON.stringify({ ...fixture.native, ...source, ownerKey: Buffer.from(ownerKey).toString('hex') }), { mode: 0o600 })
+      deviceCommand('shell', 'run-as', 'dev.forgesworn.kithmoot', 'mkdir', '-p', 'files')
+      deviceCommand('push', path, '/data/local/tmp/kithmoot-existing-node.json')
+      deviceCommand('shell', 'run-as', 'dev.forgesworn.kithmoot', 'cp', '/data/local/tmp/kithmoot-existing-node.json', 'files/node-cross-config.json')
+      deviceCommand('shell', 'rm', '/data/local/tmp/kithmoot-existing-node.json')
+      native = spawn(adb!, ['-s', androidSerial, 'shell', 'am', 'instrument', '-w', '-e', 'class',
+        'dev.forgesworn.kithmoot.node.ExistingNodeInteropTest', '-e', 'nodeConfig', '/data/user/0/dev.forgesworn.kithmoot/files/node-cross-config.json',
+        'dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner'])
+      for (const stream of [native.stdout, native.stderr]) stream?.on('data', chunk => { nativeLog = (nativeLog + String(chunk)).slice(-200_000) })
+      await expect(keeper.locator('#chatLog')).toContainText('Android before move', { timeout: 60_000 })
+    }
+    await openRoomInfoPage(keeper, 'Privacy and connection')
+    await expect(keeper.locator('#moveRoomToNode')).toBeEnabled()
+    await keeper.screenshot({ path: info.outputPath('existing-room-node-control.png') })
+    await keeper.locator('#moveRoomToNode').click()
+    await expect.poll(() => fixture.ledger.rooms().length).toBe(1)
+    const room = fixture.ledger.rooms()[0]!
+    expect(room.existing).toBe(true)
+    await keeper.waitForTimeout(2000)
+    console.log('Migration state:', await Promise.all(pages.map(page => page.evaluate(() =>
+      (window as unknown as { __kithmootNodeMigrationState?(): unknown }).__kithmootNodeMigrationState?.() ?? { productionDesktop: true }))))
+    for (const page of pages) {
+      await expect.poll(async () => parseNodeRoomLink(await page.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 60_000 }).toBe(room.room)
+      await expect(page.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+      await expect(page.locator('#attachToggle')).toBeVisible()
+      await expect(page.locator('#chatLog')).toContainText('Before move from device 3')
+    }
+    expect(fixture.ledger.devices()).toHaveLength(androidSerial ? 5 : 4)
+    for (let i = 0; i < pages.length; i++) {
+      await pages[i]!.locator('#chatInput').fill(`After move from device ${i}`); await pages[i]!.locator('#chatInput').press('Enter')
+    }
+    for (const page of pages) for (let i = 0; i < pages.length; i++) await expect(page.locator('#chatLog')).toContainText(`After move from device ${i}`)
+    if (androidSerial) for (const page of pages) await expect(page.locator('#chatLog')).toContainText('Android after move', { timeout: 60_000 })
+    for (let i = 0; i < pages.length; i++) {
+      expect(await pages[i]!.evaluate(keys => Object.fromEntries(Object.keys(keys).map(key => [key, JSON.parse(localStorage.getItem(key)!).sk])), before[i]!)).toEqual(before[i])
+    }
+    for (const page of pages.slice(1)) {
+      const auth = await page.evaluate(() => (window as unknown as { __migrationAuth: Array<{ tags: string[][] }> }).__migrationAuth)
+      expect(auth.length).toBeGreaterThan(0)
+      expect(auth.every(event => event.tags.some(tag => tag[0] === 'mode' && tag[1] === 'room'))).toBe(true)
+    }
+    // A fresh profile has no local archive or public room link. Its copy of
+    // the pre-move conversation must come from the private node itself.
+    const fresh = await device(generateSecretKey())
+    await openRoomUrl(fresh, await keeper.locator('#shareUrl').inputValue())
+    await fresh.locator('#actionConfirm').click()
+    await expect(keeper.locator('.approvalCard.knock')).toBeVisible()
+    await keeper.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(fresh.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    for (let i = 0; i < pages.length; i++) await expect(fresh.locator('#chatLog')).toContainText(`Before move from device ${i}`)
+    await keeper.context().close()
+    if (androidSerial) {
+      await pages[3]!.locator('#chatInput').fill('Keeper offline; reconnect Android'); await pages[3]!.locator('#chatInput').press('Enter')
+      await expect(pages[3]!.locator('#chatLog')).toContainText('Android returned with original identity', { timeout: 60_000 })
+      await expect.poll(() => nativeLog, { timeout: 30_000 }).toMatch(/^OK \(1 test\)$/m)
+    }
+    await openRoomUrl(pages[2]!, originalLink); await join(pages[2]!)
+    await expect(pages[2]!.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    await pages[2]!.locator('#chatInput').fill('Returned through the original bookmark'); await pages[2]!.locator('#chatInput').press('Enter')
+    await expect(pages[3]!.locator('#chatLog')).toContainText('Returned through the original bookmark')
+  } finally {
+    native?.kill('SIGTERM')
+    if (androidSerial && adb) { try { deviceCommand('shell', 'am', 'force-stop', 'dev.forgesworn.kithmoot') } catch {} }
+    writeFileSync(info.outputPath('native-existing-migration.txt'), nativeLog)
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await desktopApp?.close().catch(() => {}); await browser.close(); await fixture.close()
+    rmSync(scratch, { recursive: true, force: true })
   }
 })

@@ -36,6 +36,9 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
    *  carriers, writes. Applied above a shared socket, so it gates this
    *  pool's frames only. */
   sendGuard?: () => boolean
+  /** A per-frame publication fence, checked at the actual socket send,
+   * including queued retries and guarded carriers. Reads may stay open. */
+  frameGuard?: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => boolean
 }
 
 /** The transport seam shared by real relays and the in-process simulator. */
@@ -381,7 +384,9 @@ export class NostrRelayPool implements RelayTransport {
     const raw = this.options.websocketImplementation ?? globalThis.WebSocket
     this.#sharing = !!(this.options.sharedSockets && raw && this.#authentication.size === 0 && this.options.profile !== 'tor')
     const transport = this.#sharing ? this.options.sharedSockets!.socketClass : this.options.websocketImplementation
-    const guard = this.options.sendGuard
+    const guard = this.options.sendGuard || this.options.frameGuard
+      ? (data: string | ArrayBufferLike | Blob | ArrayBufferView) => (this.options.sendGuard?.() ?? true) && (this.options.frameGuard?.(data) ?? true)
+      : undefined
     const own = transport && guard ? guardedWebSocket(transport, guard) : transport ?? (guard && raw ? guardedWebSocket(raw, guard) : undefined)
     const configured = own && (this.#sharing ? own : handshakeObservedWebSocket(own, refusedUpgrade))
     const base = configured ?? (globalThis.WebSocket && handshakeObservedWebSocket(globalThis.WebSocket, refusedUpgrade))

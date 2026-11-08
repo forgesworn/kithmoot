@@ -57,7 +57,7 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     const path = request.url ?? ''
     const reply = (value: unknown) => { response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(value)) }
     if (request.method === 'GET' && path === '/node/v1/info') return reply({ v: 1, profile: 'kithmoot-node/1', version: NODE_VERSION, origin: options.origin,
-      serviceKey: options.serviceKey, relay: `wss://${audience.host}/events`, files: 'off', calls: 'relay-only', ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) })
+      serviceKey: options.serviceKey, relay: `wss://${audience.host}/events`, files: 'off', calls: 'relay-only', existingRooms: true, ...(ports.udpTcp === 3478 && ports.tls === 5349 ? {} : { turnPorts: ports }) })
     if (request.method === 'GET' && path === '/node/v1/status') return reply(supervisor.status())
     if (request.method !== 'POST' || !['/node/v1/claim', '/node/v1/enrol', '/groups/v1/events', '/node/v1/access', '/node/v1/close', '/node/v1/operation', '/node/v1/status'].includes(path)) throw new NodeRefusal(404, 'not-found')
     if (!/^application\/json(?:;\s*charset=utf-8)?$/i.test(request.headers['content-type'] ?? '') || request.headers['content-encoding']) throw new NodeRefusal(415, 'json-required')
@@ -86,7 +86,7 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
         return reply({ paired: true })
       }
       case '/node/v1/enrol': {
-        owner(); object(value, ['room', 'authority', 'inviter', 'ends'])
+        owner(); object(value, ['room', 'authority', 'inviter', 'ends', 'existing'])
         await supervisor.enrol(value as unknown as NodeRoom); return reply({ enrolled: true })
       }
       case '/groups/v1/events': {
@@ -95,7 +95,18 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
       }
       case '/node/v1/access': {
         object(value, ['room', 'grant'])
-        if (typeof value.room !== 'string' || !/^[0-9a-f]{64}$/.test(value.room) || typeof value.grant !== 'string' || !/^[0-9a-f]{32}$/.test(value.grant)) throw new NodeRefusal(400, 'invalid-request')
+        if (typeof value.room !== 'string' || !/^[0-9a-f]{64}$/.test(value.room) || value.grant !== undefined && (typeof value.grant !== 'string' || !/^[0-9a-f]{32}$/.test(value.grant))) throw new NodeRefusal(400, 'invalid-request')
+        if (value.grant === undefined) {
+          // NIP-98 already proves ownership of the asking device key. An
+          // existing-room migration can provision that key before announcing
+          // its destination, so no extra grant carrier or online keeper is needed.
+          const room = supervisor.ledger.room(value.room)
+          if (!room?.existing || room.state !== 'active') throw new NodeRefusal(403, 'access-required')
+          const own = supervisor.ledger.active().filter(g => g.roomId === value.room && g.device === actor)
+            .sort((a, b) => b.createdAt - a.createdAt)[0]
+          if (!own) throw new NodeRefusal(403, 'access-required')
+          return reply({ state: 'active', event: own.event, ...(own.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor) } : {}) })
+        }
         const closed = supervisor.ledger.closedProof(value.room)
         if (closed) return reply({ state: 'closed', ...closed })
         const revoked = supervisor.ledger.revocation(value.room, actor, value.grant)

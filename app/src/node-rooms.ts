@@ -69,8 +69,20 @@ export function nodeDeviceKeyFor(store: DeviceStore, participant: string, room: 
   try { store.set(key, bytesToHex(secret)); return secret } catch (error) { secret.fill(0); throw error }
 }
 
+/** Preserve an existing room's own device key when its route changes. */
+export function adoptExistingNodeDeviceKey(store: DeviceStore, node: NodeRoomRecord, participant: string, deviceSk: Uint8Array): void {
+  if (!node.existing) throw Error('This is not an existing-room node destination')
+  const device = getPublicKey(deviceSk)
+  if ([node.authority, node.serviceKey].includes(device)) throw Error('Invalid room device identity')
+  const key = slot(NODE_DEVICE_PREFIX, participant, node.room), saved = store.get(key), value = bytesToHex(deviceSk)
+  if (saved !== null && saved !== value) throw Error('Another node device identity is already saved for this room')
+  if (saved === null) store.set(key, value)
+}
+
 export interface BrowserNodeRoom {
   node: NodeRoomRecord
+  /** The original route remains available for explicit recovery. */
+  source?: { link: string; activated: boolean }
   participant: string
   secret: Uint8Array
   deviceSk: Uint8Array
@@ -84,7 +96,7 @@ export interface BrowserNodeRoom {
   name?: string
 }
 interface StoredNodeRoom {
-  v: 1; node: Event; participant: string; secret: string; authoritySk?: string
+  v: 1; node: Event; source?: { link: string; activated: boolean }; participant: string; secret: string; authoritySk?: string
   phase: 'creating' | 'active'; grant?: Event; epochHint: number; startsAt: number; name?: string
 }
 function decodeRoom(raw: StoredNodeRoom, store: DeviceStore, participant: string, room: string, now: number): BrowserNodeRoom | undefined {
@@ -97,6 +109,9 @@ function decodeRoom(raw: StoredNodeRoom, store: DeviceStore, participant: string
     // evidence never grants access: the access controller checks the real clock.
     const node = readNodeRoom(raw.node, Math.min(now, raw.node.created_at))
     if (!node || node.room !== room) return undefined
+    if (raw.source !== undefined && (!node.existing || typeof raw.source.link !== 'string' || raw.source.link.length > 32768
+      || !raw.source.link.includes('#') || typeof raw.source.activated !== 'boolean'
+      || Object.keys(raw.source).sort().join(',') !== 'activated,link')) return undefined
     secret = hexToBytes(raw.secret); const derived = deriveRoom(secret)
     const matches = derived.roomId === room; derived.roomKey.fill(0)
     if (!matches) return undefined
@@ -113,7 +128,7 @@ function decodeRoom(raw: StoredNodeRoom, store: DeviceStore, participant: string
       const expiration = raw.grant?.tags.find(tag => tag[0] === 'expiration')?.[1]
       if (!expiration || !verifyNodeRoomGrant(raw.grant, node, getPublicKey(deviceSk), Math.min(now, Number(expiration) - 1))) return undefined
     }
-    const value: BrowserNodeRoom = { node, participant, secret, deviceSk, ...(authoritySk ? { authoritySk } : {}), phase: raw.phase,
+    const value: BrowserNodeRoom = { node, ...(raw.source ? { source: { ...raw.source } } : {}), participant, secret, deviceSk, ...(authoritySk ? { authoritySk } : {}), phase: raw.phase,
       ...(raw.grant ? { grant: raw.grant } : {}), epochHint: raw.epochHint, startsAt: raw.startsAt,
       ...(sanitiseDisplayName(raw.name) ? { name: sanitiseDisplayName(raw.name) } : {}) }
     secret = undefined; authoritySk = undefined; deviceSk = undefined
@@ -127,7 +142,7 @@ export function loadNodeRoom(store: DeviceStore, participant: string, room: stri
   try { return decodeRoom(JSON.parse(raw), store, participant, room, now) } catch { return undefined }
 }
 export function storeNodeRoom(store: DeviceStore, value: BrowserNodeRoom, now = Math.floor(Date.now() / 1000)): void {
-  const raw: StoredNodeRoom = { v: 1, node: value.node.event, participant: value.participant, secret: bytesToHex(value.secret),
+  const raw: StoredNodeRoom = { v: 1, node: value.node.event, ...(value.source ? { source: { ...value.source } } : {}), participant: value.participant, secret: bytesToHex(value.secret),
     ...(value.authoritySk ? { authoritySk: bytesToHex(value.authoritySk) } : {}), phase: value.phase, ...(value.grant ? { grant: value.grant } : {}),
     epochHint: value.epochHint, startsAt: value.startsAt, ...(value.name ? { name: sanitiseDisplayName(value.name) } : {}) }
   const checked = decodeRoom(raw, store, value.participant, value.node.room, now)

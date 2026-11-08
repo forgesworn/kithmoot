@@ -26,6 +26,18 @@ describe('authority-sensitive relay publication', () => {
     socket.close()
   })
 
+  it('applies a publication frame fence to ordinary and temporary guarded carriers', async () => {
+    pool.close()
+    pool = new NostrRelayPool([url], undefined, { websocketImplementation: Base, dialGate: new RelayDialGate(),
+      frameGuard: data => typeof data === 'string' && JSON.parse(data)[0] !== 'EVENT' })
+    const relay = fakeRelay(url)
+    const sent = pool.publishGuarded(event(), () => true).then(() => true, () => false)
+    await vi.advanceTimersByTimeAsync(21_000)
+    expect(await sent).toBe(false)
+    expect(relay.stored).toHaveLength(0)
+    expect(relay.frames.every(raw => JSON.parse(raw)[0] !== 'EVENT')).toBe(true)
+  })
+
   it('publishes a current decision, then closes its temporary carrier without closing the parent', async () => {
     const relay = fakeRelay(url), reply = event()
     const send = pool.publishGuarded(reply, () => true)

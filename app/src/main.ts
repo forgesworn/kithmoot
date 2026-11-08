@@ -1,9 +1,12 @@
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
-import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
+import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
+import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
+import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
-import { nodeRoomTransport } from '../../src/kithmoot-node.js'
+import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, adoptExistingNodeDeviceKey, type BrowserNodeRoom } from './node-rooms.js'
+import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
 import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
@@ -1481,7 +1484,7 @@ function forgetCredential(): void {
  *  different for every room, so a relay cannot follow one browser from room
  *  to room by the key that signs its roster entries. */
 function deviceKey(): Uint8Array {
-  if (nodeRoom) return nodeRoom.deviceSk
+  if (nodeRoom) return nodeRoom.deviceSk.slice()
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to hold a device key for')
   return deviceKeyFor(deviceStore, roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
@@ -5076,9 +5079,11 @@ async function roomFromLocation(): Promise<boolean> {
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
   // person chose to keep it here, readable from there.
+  const destination = loadNodeRoom(deviceStore, currentIdentity().pubkey, currentRoomId() ?? '')
+  if (destination?.source?.activated && matchesExistingBrowserRoom(destination.node, { secret: roomSecret, authority: roomAuthority() ?? '', endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy })) adoptNodeRoom(destination)
   rememberCurrentRoom()
   refreshKeptAdmission()
-  if (invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
+  if (!nodeRoom && invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
   return true
 }
 
@@ -5188,11 +5193,175 @@ const peerAssist = installPeerAssist({
  *  you are; only having been here when the room was made does. */
 let startedHere = false
 
+const existingNodeFrames = new WeakMap<RoomSession, NodeMigrationFrameReceiver>()
+const existingNodeGrants = new WeakMap<RoomSession, Map<string, NostrEvent>>()
+const existingNodeDestinations = new WeakMap<RoomSession, NodeRoomRecord>()
+const existingNodeOpening = new WeakSet<RoomSession>()
+let pendingExistingNodeActivation: { source: RoomSession; state: BrowserNodeRoom } | undefined
+let movingExistingRoom = false
+
+if (import.meta.env.VITE_TEST_DIAGNOSTICS === 'true') {
+  Object.defineProperty(window, '__kithmootNodeMigrationState', { value: () => {
+    const destination = session && existingNodeDestinations.get(session)
+    return { selected: !!nodeRoom, destinationSeen: !!destination, joining, moving: movingExistingRoom,
+      session: !!session, opening: !!session && existingNodeOpening.has(session),
+      authorityMatches: !!destination && destination.authority === roomAuthority(),
+      roomMatches: !!destination && destination.room === currentRoomId(),
+      policyMatches: !!destination && JSON.stringify(destination.existing?.policy) === JSON.stringify(roomPolicy),
+      endMatches: !!destination && destination.endsAt === roomEndsAt,
+      destructMatches: !!destination && destination.existing?.destruct === roomDestruct }
+  } })
+}
+
+function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
+  if (session !== s || nodeRoom || !roomAuthority()) throw Error('Open the original room before moving it')
+  const devices = s.nodeMigrationDevices()
+  const own = devices.find(device => device.device === s.device)
+  if (!own) throw Error('This device needs a current room pass')
+  return { authority: roomAuthority()!, ...(invitationAuthoritySk ? { authoritySk: invitationAuthoritySk.slice() } : {}),
+    secret: roomSecret.slice(), deviceSk: deviceKey(), credential: own.credential, participant: s.participant,
+    epoch: s.epoch, endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy, name: roomName,
+    startsAt: roomStartsAt ?? nowSeconds(), link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
+    devices, members: s.memberList(), removed: [...s.removed] }
+}
+// An explicit loopback-only build shares synthetic fixture input with the
+// independent native implementation. This branch is absent from releases.
+if (import.meta.env.VITE_NODE_MIGRATION_FIXTURE === 'true' && ['localhost', '127.0.0.1'].includes(location.hostname)) {
+  Object.defineProperty(window, '__kithmootMigrationFixture', { value: () => {
+    if (!session || nodeRoom || roomPolicy) throw Error('Open the synthetic ordinary fixture room first')
+    return { secret: bytesToHex(roomSecret), authority: roomAuthority() }
+  } })
+}
+function clearExistingSource(source: ExistingBrowserRoom): void {
+  source.secret.fill(0); source.deviceSk.fill(0); source.authoritySk?.fill(0)
+}
+async function backfillExistingNodeHistory(s: RoomSession, state: BrowserNodeRoom, current: () => boolean): Promise<void> {
+  // Quiet archives contain the inner events. Keep those local until their
+  // original sealed carriers can be recovered; never publish them bare.
+  if (isQuietPolicy(roomPolicy)) return
+  const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...channels])
+  const logs = [s.chat, ...[...names].map(name => s.channel(name))]
+  const snapshots = await Promise.all(logs.map(log => log.retainedHistory()))
+  const accepted = new Set(snapshots.flatMap(snapshot => snapshot.entries.map(entry => entry.event.id)))
+  const target = nodeRoomTransport(state.node, localIdentity(state.deviceSk), 'room', { allowed: current })
+  try {
+    await copyNodeMigrationHistory({ snapshots, target: nodeMigrationHistoryTarget(state.node, s.device, target),
+      accept: event => accepted.has(event.id), now: nowSeconds, current })
+  } finally { target.close() }
+}
+async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom): Promise<void> {
+  if (session !== s || nodeRoom || state.node.room !== s.roomId) return
+  if (callWanted || leavingCall || joining) {
+    pendingExistingNodeActivation = { source: s, state }
+    setStatus(`This room is moving to ${new URL(state.node.origin).hostname}. This device will follow after its call ends.`, 'progress')
+    return
+  }
+  const generation = roomGeneration, participant = currentParticipant()
+  const epoch = s.epoch
+  const current = () => session === s && roomGeneration === generation && !nodeRoom && currentParticipant() === participant && s.epoch === epoch
+  await backfillExistingNodeHistory(s, state, current)
+  if (!current()) return
+  if (callWanted || leavingCall || joining) {
+    pendingExistingNodeActivation = { source: s, state }
+    return
+  }
+  if (state.source) state.source.activated = true
+  storeNodeRoom(deviceStore, state, nowSeconds())
+  await closeRoomSession({ preservePrivate: true })
+  if (roomGeneration !== generation + 1 || session || currentParticipant() !== participant || currentRoomId() !== state.node.room) return
+  pendingExistingNodeActivation = undefined
+  adoptNodeRoom(state)
+  history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
+  rememberCurrentRoom()
+  renderShareControls()
+  await startSession()
+  if ((session as RoomSession | undefined)?.roomId === state.node.room) setStatus(`This room now uses ${new URL(state.node.origin).hostname} for messages and calls.`, 'done')
+}
+function followPendingExistingNode(): void {
+  const pending = pendingExistingNodeActivation
+  if (pending && session === pending.source && !callWanted && !leavingCall && !joining) {
+    void activateExistingNodeRoom(pending.source, pending.state).catch(error => setStatus(describeError(error)))
+  }
+}
+async function followExistingNodeDestination(s: RoomSession): Promise<void> {
+  const node = existingNodeDestinations.get(s)
+  if (!node || nodeRoom || session !== s || movingExistingRoom || existingNodeOpening.has(s)) return
+  if (joining) return
+  existingNodeOpening.add(s)
+  let source: ExistingBrowserRoom | undefined
+  try {
+    source = existingBrowserRoomSource(s)
+    if (!matchesExistingBrowserRoom(node, source)) return
+    const current = () => session === s && !nodeRoom && currentParticipant() === source!.participant
+    let grant = [...(existingNodeGrants.get(s)?.values() ?? [])].find(event => verifyNodeRoomGrant(event, node, s.device, nowSeconds()))
+    if (!grant) {
+      try {
+        const access = await queryNodeAccess(node, undefined, localIdentity(source.deviceSk), { allowed: current })
+        if (access.state !== 'active') throw Error('This device no longer has access to the destination')
+        grant = access.grant.event
+      } catch (error) {
+        // A device absent during preparation asks its original keeper. A
+        // network or validation failure never chooses another route.
+        if (!(error instanceof KithmootNodeError) || ![400, 403].includes(error.status)) throw error
+      }
+    }
+    let state: BrowserNodeRoom
+    if (grant) state = acceptExistingBrowserNodeRoom(deviceStore, node, source, grant, nowSeconds(), false)
+    else {
+      // Keep this room's device identity when an offline device asks its
+      // original keeper for a new grant at the announced destination.
+      adoptExistingNodeDeviceKey(deviceStore, node, source.participant, source.deviceSk)
+      const answer = await askBrowserNodeRoom(deviceStore, node, currentIdentity(), { allowed: current, name: joiningName() ?? 'Guest' })
+      if (!current()) return
+      state = acceptExistingBrowserNodeRoom(deviceStore, node, source, answer.grant!, nowSeconds(), false)
+    }
+    if (current()) await activateExistingNodeRoom(s, state)
+  } catch (error) {
+    if (session === s) setStatus(`The room's node destination is saved in its history. This device has not moved yet: ${describeError(error)}`)
+  } finally { if (source) clearExistingSource(source); existingNodeOpening.delete(s) }
+}
+function observeExistingNodeDestination(s: RoomSession, event: NostrEvent): void {
+  if (nodeRoom || session !== s || !roomAuthority()) return
+  const node = readNodeRoom(event, nowSeconds(), roomAuthority())
+  if (!node?.existing || node.room !== s.roomId) return
+  const held = existingNodeDestinations.get(s)
+  if (held && held.event.created_at > node.event.created_at) return
+  existingNodeDestinations.set(s, node)
+  void followExistingNodeDestination(s)
+}
+$('moveRoomToNode').addEventListener('click', async () => {
+  const s = session, owner = nostrSession?.signer, pair = owner && loadPairedNode(deviceStore, owner.pubkey)
+  if (!s || nodeRoom || movingExistingRoom) return
+  if (!owner || !pair || !isRoomAuthority()) { setStatus('The original room owner must pair their KithMoot node first.'); return }
+  if (callWanted || leavingCall) { setStatus('End this device’s call before moving the room. Other devices can finish their calls before following.'); return }
+  movingExistingRoom = true; renderRoomInfo()
+  let source: ExistingBrowserRoom | undefined
+  try {
+    source = existingBrowserRoomSource(s)
+    const current = () => session === s && !nodeRoom && nostrSession?.signer === owner && s.epoch === source!.epoch
+    setStatus(`Preparing ${new URL(pair.origin).hostname} for this room…`, 'progress')
+    const prepared = await prepareExistingBrowserNodeRoom(deviceStore, pair, owner, source, { allowed: current })
+    setStatus('Copying this device’s retained room history to your node…', 'progress')
+    await backfillExistingNodeHistory(s, prepared.state, current)
+    const control = s.channel(CONTROL_CHANNEL)
+    let announcement: string[]
+    try { announcement = [encodeControl({ op: 'node', event: prepared.state.node.event })] }
+    catch { announcement = encodeNodeMigrationFrames(prepared.state.node.event).map(encodeControl) }
+    for (const message of announcement) { if (!current()) throw Error('The room or account changed'); await control.send(message) }
+    if (!current()) return
+    const state = acceptExistingBrowserNodeRoom(deviceStore, prepared.state.node, source, prepared.state.grant!, nowSeconds(), false)
+    await activateExistingNodeRoom(s, state)
+  } catch (error) { if (session === s) setStatus(`This device has not moved yet: ${describeError(error)}`) }
+  finally { if (source) clearExistingSource(source); movingExistingRoom = false; if (currentRoomId()) renderRoomInfo(); if (session === s && !nodeRoom) void followExistingNodeDestination(s) }
+})
+
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
-  nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = true
-  roomStartsAt = held.startsAt; roomName = held.name; roomPolicy = undefined; roomInvitationCapability = undefined
-  invitationAuthoritySk = held.authoritySk; invitationDelegation = []; admittedRoom = undefined; expectedEpoch = held.epochHint
+  nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = held.node.existing?.destruct ?? true
+  roomStartsAt = held.startsAt; roomName = held.name
+  if (held.node.existing) roomPolicy = held.node.existing.policy
+  else { roomPolicy = undefined; roomInvitationCapability = undefined; invitationDelegation = []; admittedRoom = undefined }
+  invitationAuthoritySk = held.authoritySk; expectedEpoch = held.epochHint
   startedHere = !!held.authoritySk; roomRelayScope = `room:${held.node.room}`
   relays = [held.node.relay]; roomRelayConfig = [{ url: held.node.relay, read: true, write: true }]; roomRelayHints = []
   iceUrls = []; roomUsesBothy = false
@@ -5878,6 +6047,7 @@ async function leaveCall(reason: 'user' | 'preempted' = 'user'): Promise<void> {
   }
   updateUi()
   repaint()
+  followPendingExistingNode()
 }
 
 /**
@@ -6160,6 +6330,10 @@ function renderRoomInfo(): void {
   $('openContext').hidden = !!nodeRoom
   setInfoSub('infoSubCards', contacts(deviceStore).length ? `${contacts(deviceStore).length} saved` : '')
   $('leave').textContent = peer ? 'Leave private chat…' : 'Leave room…'
+  const move = $('moveRoomToNode') as HTMLButtonElement
+  move.hidden = !!nodeRoom || roomUsesBothy || !isRoomAuthority()
+  move.disabled = movingExistingRoom || !session || !nostrSession || !loadPairedNode(deviceStore, nostrSession.pubkey)
+  setInfoSub('moveRoomToNodeNote', movingExistingRoom ? 'Preparing your node…' : move.disabled ? 'Pair your KithMoot node in Settings first' : 'Keep this room and its history; move messages and calls')
   $('roomRelaySettings').hidden = roomUsesBothy || !!nodeRoom
   // First activation must be reachable before a room has selected Bothy.
   // The panel still checks account, device, room scope and explicit consent.
@@ -8890,7 +9064,7 @@ const STORAGE_GRANT_ASK_MS = 10 * 60_000
 
 function startRoomGroup(s: RoomSession): void {
   stopRoomGroup()
-  if (nodeRoom) return
+  if (nodeRoom && !nodeRoom.node.existing) return
   const authority = roomAuthority()
   if (!authority) return
   const roomId = s.roomId
@@ -10721,12 +10895,27 @@ function ingestControl(messages: ChatMessage[]): void {
     if (!control) continue
     switch (control.op) {
       case 'node-grant': {
+        if (session && !nodeRoom) {
+          let grants = existingNodeGrants.get(session)
+          if (!grants) { grants = new Map(); existingNodeGrants.set(session, grants) }
+          grants.set(control.event.id, control.event)
+          if (grants.size > 128) grants.delete(grants.keys().next().value!)
+          void followExistingNodeDestination(session)
+        }
         const runtime = session && nodeRuntimes.get(session)
         void runtime?.observe(control.event).catch(() => {})
         break
       }
+      case 'node-migration': {
+        if (!session || nodeRoom) break
+        let frames = existingNodeFrames.get(session)
+        if (!frames) { frames = new NodeMigrationFrameReceiver(); existingNodeFrames.set(session, frames) }
+        const event = frames.push(control, m.device, nowSeconds())
+        if (event) observeExistingNodeDestination(session, event)
+        break
+      }
       case 'node': {
-        if (!nodeRoom) break
+        if (!nodeRoom) { if (session) observeExistingNodeDestination(session, control.event); break }
         const record = readNodeRoom(control.event, nowSeconds(), nodeRoom.node.authority)
         if (!record || record.room !== nodeRoom.node.room || record.event.created_at < nodeRoom.node.event.created_at) break
         if (record.event.id !== nodeRoom.node.event.id) setStatus('The keeper announced a different node record. Ask for the current invite link. This room stays on its pinned node.')
@@ -14298,15 +14487,15 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         withdrawn: reason => {
           if (!created) {
             if (generation === roomGeneration && ['closed', 'removed', 'ended'].includes(reason)) {
-              markRoomDestruct(roomNode.node.room); markEnded(deviceStore, roomNode.node.room, nowSeconds())
+              if (roomNode.node.existing?.destruct !== false) markRoomDestruct(roomNode.node.room); markEnded(deviceStore, roomNode.node.room, nowSeconds())
               if (bookmarks) markEnded(bookmarks.rooms, roomNode.node.room, nowSeconds())
               void runDueDestructs()
             }
             return
           }
           if (reason === 'closed' || reason === 'removed' || reason === 'ended') {
-            if (session === created) roomWasClosed({ destruct: true })
-            else if (dockedCall?.session === created) dockedRoomClosed(created.roomId, { destruct: true })
+            if (session === created) roomWasClosed(roomNode.node.existing?.destruct === false ? {} : { destruct: true })
+            else if (dockedCall?.session === created) dockedRoomClosed(created.roomId, roomNode.node.existing?.destruct === false ? {} : { destruct: true })
           } else if (session === created) void leaveWithNotice('Room access has been reset. Ask the person managing the room for a fresh invitation.')
         },
         unavailable: () => { if (generation === roomGeneration) setStatus('Reconnecting to your KithMoot node. Your room stays here.', 'progress') },
@@ -14482,7 +14671,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const kept = loadKeptRoomEpoch(deviceStore, sessionRoomId)
     const keptEpoch = kept ? { epoch: kept.epoch, pastEpochs: kept.past } : {}
     quietTransport = isQuietPolicy(roomPolicy)
-      ? quietRoomTransport(pool, {
+      ? (roomNode ? (inner: RelayTransport, options: Parameters<typeof quietRoomTransport>[1]) => nodeQuietRoomTransport(roomNode.node, localIdentity(roomNode.deviceSk), inner, options) : quietRoomTransport)(pool, {
           policy: roomPolicy!,
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,
@@ -14507,7 +14696,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const roomCallProfile = roomNode ? readCallProfile(location.search, localStorage, sessionStorage, 2) : callProfile
     const s = credential
       ? new RoomSession({
-          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
+          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.node.existing && !roomNode.authoritySk } : {}),
           isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
@@ -14541,7 +14730,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
-            if (roomNode && created && session === created) { roomWasClosed({ destruct: true }); return }
+            if (roomNode && created && session === created) { roomWasClosed(roomNode.node.existing ? notice : { destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
@@ -14561,7 +14750,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onDiagnostic: (event) => callTimeline.record(event.kind, short(event.device), event.detail),
         })
       : new RoomSession({
-          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.authoritySk } : {}),
+          ...(roomNode ? { node: roomNode.node, requireFreshEpoch: !roomNode.node.existing && !roomNode.authoritySk } : {}),
           isBlocked: contactIsBlocked,
           transport,
           secret: roomSecret,
@@ -14607,7 +14796,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
-            if (roomNode && created && session === created) { roomWasClosed({ destruct: true }); return }
+            if (roomNode && created && session === created) { roomWasClosed(roomNode.node.existing ? notice : { destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
           },
@@ -14926,7 +15115,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     void ingestChecks()
     const control = s.channel(CONTROL_CHANNEL)
     control.onChange((messages) => { if (session === s) ingestControl(messages) })
-    if (roomNode?.authoritySk) void control.send(encodeControl({ op: 'node', event: roomNode.node.event })).catch(() => {})
+    if (roomNode?.authoritySk) void (async () => { if (roomNode.node.existing) { for (const frame of encodeNodeMigrationFrames(roomNode.node.event)) await control.send(encodeControl(frame)) } else await control.send(encodeControl({ op: 'node', event: roomNode.node.event })) })().catch(() => {})
     startRoomGroup(s)
     ingestControl(control.messages())
     followSharedRoomName(s)
@@ -15046,6 +15235,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       joinBtn.disabled = false
       $('joinRoomForm').removeAttribute('aria-busy')
       renderIdentity()
+      if (session && !nodeRoom) void followExistingNodeDestination(session)
+      followPendingExistingNode()
     }
   }
 }
@@ -22397,7 +22588,7 @@ function deviceFileDestination(): FileDestination {
  * for the places that route the `group` result.
  */
 function fileDestination(): FileDestination {
-  if (nodeRoom) return { kind: 'off', reason: 'chosen' }
+  if (nodeRoom && !nodeRoom.node.existing) return { kind: 'off', reason: 'chosen' }
   const record = roomStorageRecord()
   return resolveFileDestination({
     store: localStorage, roomUsesBothy,
@@ -22460,7 +22651,7 @@ function renderRoomFilesLine(): void {
   line.hidden = destination.kind === 'bothy'
   if (destination.kind === 'bothy') return
   line.textContent = destination.kind === 'off'
-    ? nodeRoom ? 'Files are off in this hosted room.' : 'Files: you’ve turned uploads off on this device.'
+    ? nodeRoom && !nodeRoom.node.existing ? 'Files are off in this hosted room.' : 'Files: you’ve turned uploads off on this device.'
     : destination.kind === 'group' ? 'Files in this room go to the group’s own storage.'
     : destination.kind === 'withdrawn' ? 'This group has no storage right now.'
     : `Files you send in this room go to ${fileHost(destination.origin)}.`
@@ -22605,7 +22796,7 @@ function dropProgress(draft: ConversationDraft, stage: string, file: File): void
  * The key goes into the staged attachment and nowhere else.
  */
 async function shareDroppedFile(file: File, draft: ConversationDraft, signal: AbortSignal, server: string, settled?: (file: File) => void): Promise<void> {
-  if (nodeRoom) throw Error('Files are off in this hosted room.')
+  if (nodeRoom && !nodeRoom.node.existing) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   // A room that names its own storage never announces an upload as a bare kind
   // 1063, and never sends a file anywhere this device chose: its files go
@@ -22734,7 +22925,7 @@ const GROUP_STORAGE_OUT_OF_REACH = 'The group’s storage is not somewhere this 
  * waiting for anything that will change, so those say so in the tray instead.
  */
 async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, signal: AbortSignal, settled?: (file: File) => void): Promise<void> {
-  if (nodeRoom) throw Error('Files are off in this hosted room.')
+  if (nodeRoom && !nodeRoom.node.existing) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   const startGeneration = roomGeneration
   const record = roomStorageRecord()
@@ -23006,7 +23197,7 @@ function useLongText(draft: ConversationDraft, fullText: string): boolean {
  * device until a person acts.
  */
 async function shareDroppedFiles(files: FileList | File[] | null): Promise<void> {
-  if (nodeRoom) { setStatus('Files are off in this hosted room.'); return }
+  if (nodeRoom && !nodeRoom.node.existing) { setStatus('Files are off in this hosted room.'); return }
   const generation = roomGeneration, privateRoute = bothyFiles()
   const draft = captureDraft()
   if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
@@ -23207,7 +23398,7 @@ wireMenu($('attachToggle'), $('attachMenu'), {
   },
 })
 function renderAttachButton(destination: FileDestination): void {
-  $('attachToggle').hidden = !!nodeRoom
+  $('attachToggle').hidden = !!nodeRoom && !nodeRoom.node.existing
   const wanted = destination.kind === 'server' && destination.via !== 'default'
   if (wanted === attachMenuMode && $('attachToggle').hasAttribute('popovertarget') === wanted) return
   attachMenuMode = wanted

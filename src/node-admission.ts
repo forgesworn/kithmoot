@@ -18,6 +18,9 @@ export interface NodeKeeperAdmissions {
   admit(request: unknown, approveUnknown?: true): Promise<Event>
   deny(request: unknown): Event
   authoriseKeeperDevice(credential: Event): Promise<GroupEvent>
+  /** Existing-room migration only: the embedding must attest current admitted
+   * membership from the source session, not from a self-signed credential. */
+  authoriseExistingDevice(credential: Event): Promise<GroupEvent>
   remove(participant: string): Promise<void>
   /** Replays committed grants/revocations after a lost acknowledgement. */
   retry(): Promise<void>
@@ -72,7 +75,7 @@ export function beginNodeJoin(opts: { node: NodeRoomRecord; deviceSk: Uint8Array
  * the desk before an admission answer can contain that key. This class never
  * publishes bearer welcomes and never treats an HTTP failure as admission. */
 export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; authoritySk: Uint8Array; roomSecret: Uint8Array;
-  keeperParticipant: string; epochHint: () => number; store: NodeKeeperStore; onGrant?: (event: GroupEvent) => Promise<void> } & NodeClientOptions): Promise<NodeKeeperAdmissions> {
+  keeperParticipant: string; initialMembers?: readonly string[]; initialRemoved?: readonly string[]; epochHint: () => number; acceptsExistingDevice?: (device: string, participant: string) => boolean; store: NodeKeeperStore; onGrant?: (event: GroupEvent) => Promise<void> } & NodeClientOptions): Promise<NodeKeeperAdmissions> {
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000)), node = readNodeRoom(opts.node.event, now(), getPublicKey(opts.authoritySk))
   const derived = deriveRoom(opts.roomSecret)
   const matches = derived.roomId === node?.room; derived.roomKey.fill(0)
@@ -85,7 +88,7 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
   let state: NodeKeeperSnapshot
   try {
     const saved = await opts.store.load()
-    state = saved === undefined ? { v: 1, descriptor: node.event.id, members: [opts.keeperParticipant], removed: [], grants: [] } : structuredClone(saved)
+    state = saved === undefined ? { v: 1, descriptor: node.event.id, members: [...new Set([opts.keeperParticipant, ...(opts.initialMembers ?? [])])], removed: [...new Set(opts.initialRemoved ?? [])], grants: [] } : structuredClone(saved)
     if (state.v !== 1 || state.descriptor !== node.event.id || !Array.isArray(state.members) || !Array.isArray(state.removed) || !Array.isArray(state.grants)
       || state.members.length > MAX_RECORDS || state.removed.length > MAX_RECORDS || state.grants.length > MAX_RECORDS
       || [...state.members, ...state.removed].some(p => !KEY.test(p)) || new Set(state.members).size !== state.members.length
@@ -119,7 +122,7 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
   const inspect = (raw: unknown) => {
     if (!live()) return null
     const request = decodeNodeJoinRequest({ node, authoritySk, event: raw, now: now() })
-    if (!request || state.removed.includes(request.participant)) return null
+    if (!request || state.removed.includes(request.participant) || node.existing?.policy?.members && !node.existing.policy.members.includes(request.participant)) return null
     return { request, known: state.members.includes(request.participant) }
   }
   const issue = async (credential: Event, participant: string): Promise<GroupEvent> => {
@@ -163,6 +166,15 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
     }),
     deny(raw) { requireLive(); return encodeNodeJoinAnswer({ node, authoritySk, request: raw, now: now() }) },
     authoriseKeeperDevice: credential => enqueue(() => issue(credential, opts.keeperParticipant)),
+    authoriseExistingDevice: credential => enqueue(async () => {
+      requireLive()
+      const proof = verifyDeviceCredential(credential, { roomId: node.room, now: now() })
+      if (!node.existing || !proof.ok || opts.acceptsExistingDevice?.(proof.device, proof.participant) !== true) throw new KithmootNodeError(403, 'refused')
+      const event = await issue(credential, proof.participant)
+      requireLive()
+      if (opts.acceptsExistingDevice?.(proof.device, proof.participant) !== true) throw new KithmootNodeError(403, 'refused')
+      return event
+    }),
     remove: participant => enqueue(async () => {
       requireLive()
       if (!KEY.test(participant) || participant === opts.keeperParticipant) throw new KithmootNodeError(403, 'refused')

@@ -95,7 +95,7 @@ export class ShelterBackend implements RelayBackend {
     })
   }
   async sync(rooms: NodeRoom[], devices: DeviceAccess[]): Promise<void> {
-    await this.#request({ op: 'sync', rooms: rooms.map(r => ({ room: r.room, inviter: r.inviter, ends: r.ends ?? null })),
+    await this.#request({ op: 'sync', rooms: rooms.map(r => ({ room: r.room, inviter: r.inviter, ends: r.ends ?? null, ...(r.existing ? { existing: true } : {}) })),
       grants: devices.filter(d => d.read || d.write).map(d => ({ room: d.room, device: d.device, expires: d.expires, read: d.read, write: d.write })) })
   }
   async publish(room: string, events: Event[]): Promise<void> {

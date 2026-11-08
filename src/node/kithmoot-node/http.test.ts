@@ -79,4 +79,24 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   const accepted = await (await post('/node/v1/access', access, proof('/node/v1/access', access, device))).json()
   expect(accepted).toMatchObject({ state: 'active', event: confirmation, offer: { expiresAt: now + 3600 } })
   expect(ledger.devices()[0]?.expires).toBe(now + 3600)
+  // A pre-authorised migrating device knows its room and owns its device key;
+  // it need not receive another encrypted grant message from an online keeper.
+  const strictLookup = JSON.stringify({ room: JSON.parse(room).room })
+  expect((await post('/node/v1/access', strictLookup, proof('/node/v1/access', strictLookup, device))).status).toBe(403)
+  const existingDevice = generateSecretKey(), existingRoom = '02'.repeat(32), enrolExisting = JSON.stringify({ room: existingRoom, authority: getPublicKey(authority), inviter: getPublicKey(authority), existing: true })
+  expect((await post('/node/v1/enrol', enrolExisting, proof('/node/v1/enrol', enrolExisting))).status).toBe(200)
+  const lookup = JSON.stringify({ room: existingRoom })
+  expect((await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, existingDevice))).status).toBe(403)
+  const existingGrant = buildGrant({ authoritySk: authority, roomId: existingRoom, device: getPublicKey(existingDevice), server: 'node.example',
+    scopes: ['turn', 'relay-read', 'relay-write'], grantId: '02'.repeat(16), createdAt: now, expiration: now + 3600 })
+  const existingGrantBody = JSON.stringify(existingGrant)
+  expect((await post('/groups/v1/events', existingGrantBody, proof('/groups/v1/events', existingGrantBody, authority))).status).toBe(200)
+  expect(await (await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, existingDevice))).json()).toMatchObject({ state: 'active', event: existingGrant })
+  for (const actor of [owner, foreign, device]) expect((await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, actor))).status).toBe(403)
+  const revokedExisting = buildGrant({ authoritySk: authority, roomId: existingRoom, device: getPublicKey(existingDevice), server: 'node.example',
+    scopes: ['turn', 'relay-read', 'relay-write'], grantId: '02'.repeat(16), createdAt: now + 1, expiration: now + 3600, status: 'revoked' })
+  const revokedBody = JSON.stringify(revokedExisting)
+  expect((await post('/groups/v1/events', revokedBody, proof('/groups/v1/events', revokedBody, authority))).status).toBe(200)
+  expect((await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, existingDevice))).status).toBe(403)
+
 })

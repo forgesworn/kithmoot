@@ -1,3 +1,4 @@
+import { quietRoomTransport, type QuietRoomOptions, type QuietRoomTransport } from './quiet.js'
 import { base64urlnopad } from '@scure/base'
 import { randomBytes } from '@noble/hashes/utils'
 import { readNodeRoom, readNodeTurnPorts, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
@@ -119,7 +120,7 @@ export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRe
   const pairedPorts = readNodeTurnPorts(pair.turnPorts), roomPorts = readNodeTurnPorts(node.turnPorts)
   if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey || !pairedPorts || !roomPorts
     || pairedPorts.udpTcp !== roomPorts.udpTcp || pairedPorts.tls !== roomPorts.tls) return invalid()
-  const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
+  const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }), ...(node.existing ? { existing: true } : {}) }, owner, options)
   if (result.enrolled !== true) return invalid()
 }
 export async function queryKithmootNodeStatus(pair: PairedKithmootNode, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeOwnerStatus> {
@@ -141,11 +142,11 @@ export async function postNodeGrant(record: NodeRoomRecord, event: GroupEvent, a
   const result = await request(node.origin, '/groups/v1/events', event, authority, options)
   if (result.accepted !== true) return invalid()
 }
-export async function queryNodeAccess(record: NodeRoomRecord, grantId: string, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeDeviceAccess> {
+export async function queryNodeAccess(record: NodeRoomRecord, grantId: string | undefined, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeDeviceAccess> {
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
   if (node.endsAt !== undefined && node.endsAt <= now) return { state: 'ended' }
-  if (!/^[a-f0-9]{32}$/.test(grantId)) return invalid()
-  const value = await request(node.origin, '/node/v1/access', { room: node.room, grant: grantId }, device, options)
+  if (grantId === undefined ? !node.existing : !/^[a-f0-9]{32}$/.test(grantId)) return invalid()
+  const value = await request(node.origin, '/node/v1/access', { room: node.room, ...(grantId === undefined ? {} : { grant: grantId }) }, device, options)
   if (value.state === 'closed') {
     const closure = recoverNodeClosure(value.proof, node, now)
     return closure ? { state: 'closed', closure } : invalid()
@@ -154,7 +155,7 @@ export async function queryNodeAccess(record: NodeRoomRecord, grantId: string, d
   if (!parsed.ok || parsed.parsed.roomId !== node.room) return invalid()
   const grant = parsed.parsed
   if (value.state === 'reset' && grant.type === 'reset') return { state: 'reset', reset: grant }
-  if (grant.type !== 'grant' || grant.device !== device.pubkey || grant.grantId !== grantId) return invalid()
+  if (grant.type !== 'grant' || grant.device !== device.pubkey || grantId !== undefined && grant.grantId !== grantId) return invalid()
   if (value.state === 'removed' && grant.status === 'revoked') return { state: 'removed', grant }
   const offer = value.offer as Partial<SpryOffer> | undefined
   if (value.state !== 'active' || !verifyNodeRoomGrant(value.event, node, device.pubkey, now) || !offer || offer.v !== 1 || offer.endpoint !== node.origin
@@ -208,6 +209,17 @@ const factories = new WeakMap<PeerFactory, string>()
 export function assertNodeRoomTransport(transport: RelayTransport, node: NodeRoomRecord, device: string): void {
   if (transports.get(transport) !== `${node.event.id}:${device}`) throw new Error('A node room needs its pinned, authenticated relay transport.')
 }
+/** A quiet existing room keeps its sealed carriers on the same authenticated
+ * node partition. Construct the wrapper here so a public transport cannot be
+ * mistaken for an authorised node connection. */
+export function nodeQuietRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, base: RelayTransport, options: QuietRoomOptions): QuietRoomTransport {
+  const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
+  if (!node.existing?.policy?.quiet || JSON.stringify(node.existing.policy) !== JSON.stringify(options.policy)) return invalid()
+  assertNodeRoomTransport(base, node, identity.pubkey)
+  const quiet = quietRoomTransport(base, options)
+  transports.set(quiet, `${node.event.id}:${identity.pubkey}`)
+  return quiet
+}
 export function assertNodeCallFactory(factory: PeerFactory, node: NodeRoomRecord, device: string): void {
   if (factories.get(factory) !== `${node.event.id}:${device}`) throw new Error('A node room needs its relay-only call factory.')
 }
@@ -224,8 +236,11 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
   const checkEvent = (event: Event): void => {
       if (!allowed() || [27541, 27542, 27543, 27544].includes(event.kind)) throw new KithmootNodeError(403, 'refused')
       const expiration = event.tags.filter(t => t[0] === 'expiration')
+      const existingRoom = node.existing && mode === 'room'
+      if (existingRoom && expiration.length === 0) return
+      const limit = existingRoom ? node.endsAt ?? Infinity : Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
       if (expiration.length !== 1 || expiration[0]!.length !== 2 || !/^[1-9][0-9]*$/.test(expiration[0]![1]!)
-        || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
+        || !Number.isSafeInteger(Number(expiration[0]![1])) || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > limit
         || mode === 'ask' && event.kind !== 1059) return invalid()
   }
   const transport: RelayPoolClient = {

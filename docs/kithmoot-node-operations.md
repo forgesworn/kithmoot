@@ -88,6 +88,10 @@ codes. Unknown request fields and routes fail closed.
   pending and the identical signed event is safe to retry.
 * `POST /node/v1/access` takes `room` and `grant`. A device can retrieve only
   its own current grant and Spry offer, signed revocation, or room reset.
+  For an existing-room partition, `grant` may be omitted: the NIP-98
+  signing device can retrieve only its own already-authorised active grant.
+  Strict partitions, unknown devices, expired/revoked access and another
+  room are refused. This does not admit a device or release room keys.
   A closed room returns its compact signed closure proof. A refused connection alone
   is never evidence authorising deletion on a device.
 * `POST /node/v1/close` takes `operation` (random 16-byte hex), `room`, an

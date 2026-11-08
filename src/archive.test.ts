@@ -25,6 +25,11 @@ class MemoryArchive implements EventArchive {
       .filter(e => e.kind === q.kind && archiveTag(e) === q.d && (q.since === undefined || e.created_at >= q.since) && (!q.before || olderThan(e, q.before)))
       .sort(compareArchived).slice(0, q.limit)
   }
+  async migrationSnapshot(streams: readonly Pick<ArchiveQuery, 'kind' | 'd'>[]) {
+    return { complete: true as const, entries: [...this.events.values()]
+      .filter(event => streams.some(stream => stream.kind === event.kind && stream.d === archiveTag(event)))
+      .map(event => ({ event, ...this.meta.get(event.id) })) }
+  }
 }
 
 async function room(seed = 7) {
@@ -67,6 +72,18 @@ describe('reseed decisions', () => {
 })
 
 describe('a chat log over an archive', () => {
+  it('keeps quiet provenance and rejects foreign ciphertext in a retained migration snapshot', async () => {
+    const r = await room(), other = await room(8), archive = new MemoryArchive()
+    const good = r.message('retained')
+    archive.keep(good, { quiet: true })
+    const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
+    try {
+      expect(await log.retainedHistory()).toEqual({ complete: true, entries: [{ event: good, quiet: true }] })
+      archive.keep(finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', log.stream]], content: other.message('foreign').content }, other.deviceSk))
+      await expect(log.retainedHistory()).rejects.toThrow('retained history')
+    } finally { log.close() }
+  })
+
   it('opens on what the device kept when every relay has forgotten', async () => {
     const r = await room()
     const archive = new MemoryArchive()
