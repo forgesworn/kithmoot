@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-08",
+  "scope": "Private Archy backend follow-up: authenticated existing-room own-grant lookup; owner room cutover remains pending",
+  "baseImage": "c9c22524d768035859ec85a8a390d5ea34714914b96c61ac244b09536f74dfb5",
+  "image": "6359f641ea703bf58b355f1d0ee2e51a1c68776b27ae5b91b7136b18154a84a5",
+  "tag": "localhost/kithmoot-node:0.1.0-rc.1-existing-087b561c",
+  "manifestSha256": "087b561c91e7fa87a2058e04545b6623f90d301f062d7ad2c455d25fd3016fec",
+  "bothyCommit": "93dabf4e3b12a24bf15a347b2d7f1516ffe93590",
+  "runningRelaySha256": "703aea53150920bee79ee617484b7a46ed5b6d9da25bc53212e61b7a00114ed0",
+  "build": {
+    "rust": "1.94.1",
+    "network": "offline locked vendored dependencies",
+    "jobs": 1,
+    "releaseLto": false,
+    "capacityQualification": "not measured by this upgrade"
+  },
+  "checks": {
+    "allReleaseFileHashes": 11,
+    "unchangedControllerAndDashboardFiles": 6,
+    "publicInfoExistingRooms": true,
+    "publicStatus": {
+      "ready": true,
+      "paired": true,
+      "rooms": 1,
+      "devices": 10,
+      "pending": 0
+    },
+    "publicTurn": "Not changed by this deployment; final closure remains gated on physical peer media proof."
+  },
+  "rollback": {
+    "stoppedStateBackup": "Archy /root/kithmoot-node-migration-v2-20261108-backup/state.tar",
+    "sha256": "f6928d5c3fb5a0b401d552f035a4bc45001f08f25f25f948a8533b9cbb6b51a3",
+    "requires": "Stop node and restore the stopped state plus prior running image together. Original and rollback quadlets retained beside backup.",
+    "originalQuadletDrift": "The running image was existing-979c4e4b while the persisted quadlet still named capacity-8b815bbabe06. The follow-up now pins existing-087b561c; rollback pins the actual prior running image.",
+    "preflightFailure": "First attempt stopped before service or state mutation because the persisted image reference differed; corrected only after inspecting the actual running image and quadlet."
+  },
+  "notYetProven": [
+    "existing ordinary rooms moved",
+    "simultaneous desktop Android web cutover",
+    "physical peer media call",
+    "new performance or capacity claims"
+  ],
+  "priorRunningImage": "da0f33d6584e320db097ce983a112a43143998dda5b3f97aaaae621ec7ff4115",
+  "clientSourceCommit": "c8c8ac4932173f166eb47f576507ad3b8a6e9e0b"
+}

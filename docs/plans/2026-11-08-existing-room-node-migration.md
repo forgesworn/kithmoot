@@ -78,7 +78,8 @@ transport; strict new rooms retain keeper-only admission.
 
 Android now has the same codec, original-record custody, independent follower
 and owner move control under Privacy and connection. Focused node/runtime
-checks and packaging remain in progress. Original quiet policy, file settings,
+checks, the full protocol suite and the full app unit suite pass. Lint and
+APK packaging remain in progress. Original quiet policy, file settings,
 removal state and agent admission evidence are retained. Node traffic uses
 its quiet wrapper directly rather than delegating new writes to an old
 external cadence box; old lease/counter/pending records remain for recovery.
@@ -86,9 +87,13 @@ Quiet carrier backfill, full history qualification, mixed-client media,
 physical device and owner-account acceptance remain unproven. The optional
 coordinated migration engine remains a tested foundation and is not activated.
 
-The grant-id-optional existing-room access API is implemented and tested but
-still needs the next backend bundle deployment before client release. The
-currently deployed receipt is docs/evidence/node-backend-archy-20261108.json.
+The grant-id-optional existing-room access API is implemented, tested and
+deployed on Archy. All 11 release files match the candidate manifest, all six
+controller/dashboard files remain unchanged, and the public health readback
+retains one room and ten devices. The current receipt is
+docs/evidence/node-backend-archy-followup-20261108.json. JavaScript node checks
+pass 174 tests; the real-relay browser test passes with the keeper offline.
+Client releases, owner room migration and physical media proof remain pending.
 
 The private Linux relay was built on Archy from Bothy 93dabf4 with locked,
 offline vendored dependencies and Rust 1.94.1, one job, release LTO disabled to
