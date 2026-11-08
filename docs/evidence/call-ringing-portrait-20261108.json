@@ -1,0 +1,104 @@
+{
+  "date": "2026-11-08",
+  "desktop": {
+    "functionalSource": "820e5b5187ef2123034a4baf470db2b0dad79515",
+    "files": [
+      {
+        "filename": "KithMoot-0.1.134-mac-arm64.zip",
+        "bytes": 193104299,
+        "sha256": "e5366607b70eddcaf64456b64e4afa53a50636b8fecfb5bd01a1648e53ee445a",
+        "version": "0.1.134"
+      },
+      {
+        "filename": "KithMoot-0.1.134-linux-x64.tar.gz",
+        "bytes": 186485555,
+        "sha256": "e7c860d1092dcde744119938d860e945e52ac9b6a766dc23b437fc65a97220b9",
+        "version": "0.1.134"
+      },
+      {
+        "filename": "KithMoot-0.1.134-linux-arm64.tar.gz",
+        "bytes": 187359334,
+        "sha256": "4871beef432b4d047480cdaa4192c497da4b856fd0e96a2dd2643b3a03270cfa",
+        "version": "0.1.134"
+      },
+      {
+        "filename": "KithMoot-0.1.134-windows-x64.zip",
+        "bytes": 221628896,
+        "sha256": "4529f0106992f73ef826ef2fca4599144ea3db8d62a557f3bef25b0cc77dd051",
+        "version": "0.1.134"
+      },
+      {
+        "filename": "kithmoot_0.1.134_amd64.deb",
+        "bytes": 151112724,
+        "sha256": "3b5e74fefe69a8b2c2e897b12e442251fd629fda21d4769780286f6882bb74cf",
+        "version": "0.1.134"
+      },
+      {
+        "filename": "kithmoot_0.1.134_arm64.deb",
+        "bytes": 145558288,
+        "sha256": "697b435f62b67b03dfee99318dc2770efe2569211e8f47d84402f51fa58b0579",
+        "version": "0.1.134"
+      }
+    ],
+    "macNotarisation": {
+      "status": "Accepted",
+      "id": "9ada7bbe-be5a-4535-b603-b640f7214fec",
+      "message": "Processing complete"
+    }
+  },
+  "android": {
+    "sourceCommit": "dfafb32cd65b190d4b4349e369847f0ee59c8ef4",
+    "versionName": "0.6.139",
+    "versionCode": 162,
+    "apkSha256": "d194d592dce3cbc8d2b09ae48cbd11fea2e853a4623156f19de58c84c9af8aa7",
+    "apkBytes": 74461772,
+    "mappingSha256": "a9a1af473aea1eab145cce30e6d4944f97e27947063078137af2e850ba6b6b4d",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "zipalign16KiB": true,
+    "tests": {
+      "protocol": {
+        "tests": 694,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "app": {
+        "tests": 6785,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 2
+      }
+    }
+  },
+  "qualification": {
+    "webFullLocalUnitTestsPassed": 9017,
+    "webLocalUnitTestsSkipped": 8,
+    "focusedCameraAndRingTestsPassed": 151,
+    "finalLayoutCameraAndRingTestsPassed": 76,
+    "chromiumWebAndDesktopAcceptancePassed": 12,
+    "chromiumWebOnlyLayoutSkippedOnDesktop": 1,
+    "webReceivedMediaWithEffectsOffPassed": true,
+    "desktopUnitTestsPassed": 302,
+    "desktopUnitTestsSkipped": 1,
+    "packagedMacSmokePassed": true,
+    "rendererFilesVerifiedPerDesktopPackage": 594,
+    "physicalSameAccountRingingAccepted": false,
+    "physicalPeerVpnMediaAccepted": false
+  },
+  "serverSpace": {
+    "removedReleaseCopies": 160,
+    "retainedReleaseCopies": 18,
+    "retainedFileHashesVerified": 11455,
+    "publishedDownloadFilesUnchanged": 401,
+    "freeBytesBefore": 82534400,
+    "freeBytesAfter": 10119634944,
+    "reclaimedBytes": 10037100544
+  },
+  "limits": [
+    "Browser calls used synthetic capture and a local test relay.",
+    "Desktop Linux packages and Windows executable/ASAR were verified on macOS; physical Linux and Windows acceptance is separate.",
+    "Physical multi-device ringing and actual two-person VPN media remain field checks.",
+    "Public TURN remains enabled pending actual peer media proof."
+  ]
+}

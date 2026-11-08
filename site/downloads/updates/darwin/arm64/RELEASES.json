@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.133",
+  "currentRelease": "0.1.134",
   "releases": [
     {
-      "version": "0.1.133",
+      "version": "0.1.134",
       "updateTo": {
-        "version": "0.1.133",
-        "name": "0.1.133",
-        "pub_date": "2026-11-08T16:01:23Z",
-        "notes": "Move existing rooms to your paired KithMoot node while keeping room identities and retained history. Devices follow independently.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.133/KithMoot-0.1.133-mac-arm64.zip",
-        "sha256": "28ed0efb27cea715d5a5bb5f202e91520fb985ec7cea030788e46d78d8aec2af",
-        "size": 193103546
+        "version": "0.1.134",
+        "name": "0.1.134",
+        "pub_date": "2026-11-08T19:59:03Z",
+        "notes": "Calls started on one device ring your other devices signed into the same account.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.134/KithMoot-0.1.134-mac-arm64.zip",
+        "sha256": "e5366607b70eddcaf64456b64e4afa53a50636b8fecfb5bd01a1648e53ee445a",
+        "size": 193104299
       }
     }
   ]
