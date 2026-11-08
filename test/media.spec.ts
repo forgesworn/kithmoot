@@ -70,6 +70,13 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     await expectToSeeAndHear(pageA, 'Ada')
     await expectToSeeAndHear(pageB, 'Bob')
 
+    // Web cameras send a tall frame, including the no-effects fast path.
+    // Assert decoded dimensions at the receiving end, not preview styling.
+    for (const page of [pageA, pageB]) {
+      const video = page.locator('#room .participant[data-self="false"] video:not(.screenPreview)').first()
+      await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth / v.videoHeight)).toBeCloseTo(9 / 16, 3)
+    }
+
     // Laptop faces must be readable and the chat tools must remain separate.
     // Your own picture is the exception on purpose: in a call of two it
     // floats small over the other person (app/src/call-stage.ts), as it does

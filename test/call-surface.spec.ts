@@ -91,8 +91,13 @@ test('portrait cameras stay whole and another chat defaults to a gallery with wo
     await expect(viewer.locator('#roomTitle')).toHaveText('Side chat')
     await viewer.screenshot({path: info.outputPath('docked-gallery-and-chat.png')})
     await phone.evaluate(() => {const canvas = (window as unknown as {portraitCamera: HTMLCanvasElement}).portraitCamera; canvas.width = 720; canvas.height = 480})
-    await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoWidth > v.videoHeight)).toBe(true)
-    await expect(camera).not.toHaveAttribute('data-camera-orientation', 'portrait')
+    if (info.project.name === 'chromium-desktop') {
+      await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoWidth > v.videoHeight)).toBe(true)
+      await expect(camera).not.toHaveAttribute('data-camera-orientation', 'portrait')
+    } else {
+      await expect.poll(() => camera.evaluate((v: HTMLVideoElement) => v.videoWidth / v.videoHeight)).toBeCloseTo(9 / 16, 3)
+      await expect(camera).toHaveAttribute('data-camera-orientation', 'portrait')
+    }
     await popup.close()
   } finally {await Promise.all(contexts.map(context => context.close()))}
 })
