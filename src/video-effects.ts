@@ -35,7 +35,10 @@
  * sent because something broke: when the effect cannot be trusted - the
  * segmenter is degraded, missing, or its mask is absent or stale - a replace
  * mode covers the whole frame with the chosen backdrop and no person, and a
- * blur mode blurs the whole frame at maximum strength. Degraded is not for
+ * blur mode blurs the whole frame at maximum strength. "Blurs" is checked,
+ * not assumed: where the canvas filter is silently ignored (WebKit) the
+ * frame is shrunk and scaled back up instead, and where no blur can be shown
+ * to work the frame is covered solid (`BlurPath`). Degraded is not for
  * ever either: the segmenter is retried with backoff for as long as the
  * mode stays on, and the failure is surfaced to the person outside the
  * folded effect controls, not only inside them.
@@ -74,6 +77,10 @@ export interface Context2DLike {
   drawImage(image: FrameSourceLike, dx: number, dy: number, dw: number, dh: number): void
   putImageData(image: ImageDataLike, dx: number, dy: number): void
   createImageData(width: number, height: number): ImageDataLike
+  /** Only the blur probes read pixels back, and only once. Optional so a
+   *  double that only records draws still fits; a context without it is
+   *  treated as one whose blur cannot be shown to work. */
+  getImageData?(sx: number, sy: number, sw: number, sh: number): ImageDataLike
 }
 
 export interface CanvasLike {
@@ -350,6 +357,303 @@ export function blurRadiusPx(strength: number, frameWidth: number): number {
   const s = clampStrength(strength)
   const fraction = MIN_BLUR_RADIUS_FRACTION + s * (MAX_BLUR_RADIUS_FRACTION - MIN_BLUR_RADIUS_FRACTION)
   return Math.max(2, Math.round(fraction * Math.max(1, frameWidth)))
+}
+
+// ---------------------------------------------------------------------------
+// Blur that does not depend on `ctx.filter`
+//
+// WebKit's 2D context has no `filter`. Assigning `ctx.filter = 'blur(6px)'`
+// there creates an ordinary property, reads back as written, and changes
+// nothing: the frame is drawn sharp. Every browser on an iPhone is WebKit,
+// so "Blur" published the plain camera picture there while the notice said
+// it was blurred. Property presence cannot tell the two apart, so support is
+// decided by drawing and reading back, once, and where the filter does not
+// blur the frame is blurred by shrinking it and scaling it back up instead.
+// ---------------------------------------------------------------------------
+
+/**
+ * How the whole-frame blur is painted on this context type.
+ *
+ * - `filter`: `ctx.filter = 'blur(...)'`, proven to blur by `probeFilterBlur`.
+ * - `downscale`: shrink to a few pixels, scale back up. Used where the
+ *   filter does not blur.
+ * - `solid`: neither could be shown to work, so an opaque cover is painted
+ *   and no camera pixel at all.
+ */
+export type BlurPath = 'filter' | 'downscale' | 'solid'
+
+/**
+ * Longest edge, in pixels, of the small picture the untrusted full blur is
+ * reduced to on the downscale path.
+ *
+ * At full strength the filter blur keeps about nine pixels' worth of detail
+ * across the frame (see `downscaleSize`). The width-based radius leaves a
+ * tall portrait frame a little more than that vertically; this cap keeps it
+ * to twelve. A face filling a third of a 12 px picture is four pixels
+ * across, far below the detail a face needs to be recognised.
+ */
+export const FORCE_MAX_BLUR_LONG_EDGE_PX = 12
+
+/** What `solid` paints: the face-privacy cover's colour, fully opaque. */
+export const SOLID_COVER_COLOUR = '#101820'
+
+/**
+ * The small size a frame is reduced to so that scaling it back up looks
+ * like a blur of `radiusPx`.
+ *
+ * A Gaussian of standard deviation r keeps frequencies up to about
+ * 1/(2 pi r) cycles per pixel; a picture reduced by a factor k can hold up to
+ * 1/(2k). Matching the two gives k = pi r. `maxLongEdge` caps the result
+ * further. Never below 2 px an edge, never above half the frame, so the
+ * smallest canvas is always a real reduction.
+ */
+export function downscaleSize(
+  width: number,
+  height: number,
+  radiusPx: number,
+  maxLongEdge = Number.POSITIVE_INFINITY,
+): { width: number; height: number } {
+  const w0 = Math.max(1, Math.floor(width))
+  const h0 = Math.max(1, Math.floor(height))
+  const k = Math.PI * Math.max(1, radiusPx)
+  let w = w0 / k
+  let h = h0 / k
+  const longEdge = Math.max(w, h)
+  if (longEdge > maxLongEdge) {
+    w = (w * maxLongEdge) / longEdge
+    h = (h * maxLongEdge) / longEdge
+  }
+  const fit = (value: number, full: number): number =>
+    Math.max(1, Math.min(Math.max(1, Math.floor(full / 2)), Math.max(2, Math.round(value))))
+  return { width: fit(w, w0), height: fit(h, h0) }
+}
+
+/**
+ * The canvas sizes the downscale passes through, largest first and ending
+ * at `target`. Each step at most halves, because a drawImage reduction of
+ * exactly two averages each 2x2 block, while a large jump in one draw
+ * samples a few source pixels and lets the rest flicker through as
+ * sparkle.
+ */
+export function downscaleSteps(
+  width: number,
+  height: number,
+  target: { width: number; height: number },
+): { width: number; height: number }[] {
+  const steps: { width: number; height: number }[] = []
+  let w = Math.max(1, Math.floor(width))
+  let h = Math.max(1, Math.floor(height))
+  while (Math.ceil(w / 2) > target.width || Math.ceil(h / 2) > target.height) {
+    w = Math.max(target.width, Math.ceil(w / 2))
+    h = Math.max(target.height, Math.ceil(h / 2))
+    steps.push({ width: w, height: h })
+  }
+  steps.push({ width: target.width, height: target.height })
+  return steps
+}
+
+/** One scratch canvas in a downscale chain, at the size it was asked for. */
+export interface DownscaleLevel {
+  readonly canvas: CanvasLike
+  readonly ctx: Context2DLike
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Blur by shrinking and scaling back up.
+ *
+ * `source` is drawn into `levels[0]`, each level into the next, and only the
+ * last, smallest one is drawn onto `out`, stretched over `width` x `height`.
+ * Whatever the browser does with smoothing, nothing reaches `out` but that
+ * small picture, so no more detail can leave than it holds. Throws if a
+ * level is not the size it claims, rather than drawing through it.
+ */
+export function paintDownscaleBlur(
+  out: Context2DLike,
+  source: FrameSourceLike,
+  width: number,
+  height: number,
+  levels: readonly DownscaleLevel[],
+): void {
+  if (levels.length === 0) throw new Error('a downscale blur needs at least one level')
+  let previous: FrameSourceLike = source
+  for (const level of levels) {
+    if (level.canvas.width !== level.width || level.canvas.height !== level.height) {
+      throw new Error('a downscale canvas is not the size it was given')
+    }
+    const c = level.ctx
+    c.globalCompositeOperation = 'source-over'
+    c.filter = 'none'
+    c.imageSmoothingEnabled = true
+    c.imageSmoothingQuality = 'high'
+    c.clearRect(0, 0, level.width, level.height)
+    c.drawImage(previous, 0, 0, level.width, level.height)
+    previous = level.canvas
+  }
+  out.globalCompositeOperation = 'source-over'
+  out.filter = 'none'
+  out.imageSmoothingEnabled = true
+  out.imageSmoothingQuality = 'high'
+  out.drawImage(previous, 0, 0, width, height)
+}
+
+/** A scratch canvas that has taken the size it was given, or a throw. */
+function sizedCanvas(createCanvas: CanvasFactory, width: number, height: number): { canvas: CanvasLike; ctx: Context2DLike } {
+  const canvas = createCanvas(width, height)
+  if (canvas.width !== width) canvas.width = width
+  if (canvas.height !== height) canvas.height = height
+  if (canvas.width !== width || canvas.height !== height) {
+    throw new Error('a scratch canvas did not take its size')
+  }
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('a scratch canvas has no 2D context')
+  return { canvas, ctx }
+}
+
+/** Every level of a downscale chain, as fresh scratch canvases. */
+export function createDownscaleLevels(
+  createCanvas: CanvasFactory,
+  steps: readonly { width: number; height: number }[],
+): DownscaleLevel[] {
+  return steps.map((step) => {
+    const { canvas, ctx } = sizedCanvas(createCanvas, step.width, step.height)
+    return { canvas, ctx, width: step.width, height: step.height }
+  })
+}
+
+function readPixels(ctx: Context2DLike, width: number, height: number): Uint8ClampedArray {
+  if (typeof ctx.getImageData !== 'function') throw new Error('this context cannot read pixels back')
+  const image = ctx.getImageData(0, 0, width, height)
+  if (!image || image.width !== width || image.height !== height || image.data.length < width * height * 4) {
+    throw new Error('the readback is not the size that was asked for')
+  }
+  return image.data
+}
+
+const PROBE_EDGE_W = 32
+const PROBE_EDGE_H = 8
+const PROBE_BLUR_PX = 3
+const PROBE_CHECKER_PX = 32
+const PROBE_CHECKER_TARGET_PX = 4
+/** Values at or below this count as black, at or above 255 minus it as
+ *  white: wide enough for readback noise some browsers add on purpose. */
+const PROBE_TOLERANCE = 40
+/** Largest step between neighbouring pixels a blurred checkerboard may
+ *  keep. A sharp one steps by 255. */
+const PROBE_MAX_STEP = 64
+
+/**
+ * Does `ctx.filter = 'blur(...)'` actually blur on this context type?
+ *
+ * Draws a sharp black/white edge, reads it back as a control, draws it
+ * through a blur into a second canvas and reads that back. True only when
+ * the control reads as drawn and the copy has grey pixels across the edge.
+ * A WebKit context, where `filter` is an ignored expando, leaves the copy
+ * sharp and returns false. So does anything that throws, has no
+ * `getImageData`, or whose readback does not show what was drawn (some
+ * privacy defences randomise it). Never throws.
+ */
+export function probeFilterBlur(createCanvas: CanvasFactory): boolean {
+  try {
+    const w = PROBE_EDGE_W
+    const h = PROBE_EDGE_H
+    const half = w / 2
+    const src = sizedCanvas(createCanvas, w, h)
+    src.ctx.globalCompositeOperation = 'source-over'
+    src.ctx.filter = 'none'
+    src.ctx.fillStyle = '#000'
+    src.ctx.fillRect(0, 0, half, h)
+    src.ctx.fillStyle = '#fff'
+    src.ctx.fillRect(half, 0, w - half, h)
+
+    const row = Math.floor(h / 2) * w * 4
+    const control = readPixels(src.ctx, w, h)
+    for (let x = 0; x < w; x++) {
+      const r = control[row + x * 4]!
+      const a = control[row + x * 4 + 3]!
+      if (a < 255 - PROBE_TOLERANCE) return false
+      if (x < half ? r > PROBE_TOLERANCE : r < 255 - PROBE_TOLERANCE) return false
+    }
+
+    const dst = sizedCanvas(createCanvas, w, h)
+    dst.ctx.globalCompositeOperation = 'source-over'
+    dst.ctx.clearRect(0, 0, w, h)
+    dst.ctx.filter = `blur(${PROBE_BLUR_PX}px)`
+    dst.ctx.drawImage(src.canvas, 0, 0, w, h)
+    dst.ctx.filter = 'none'
+    const blurred = readPixels(dst.ctx, w, h)
+    let grey = 0
+    for (let x = half - 6; x < half + 6; x++) {
+      const r = blurred[row + x * 4]!
+      if (r > PROBE_TOLERANCE && r < 255 - PROBE_TOLERANCE) grey += 1
+    }
+    return grey >= 3
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Does the downscale blur work on this context type?
+ *
+ * Pushes a one-pixel checkerboard through `paintDownscaleBlur`, exactly as a
+ * frame goes, and checks the result is opaque with no sharp step left in
+ * it. A browser that ignores smoothing still passes, with flat blocks: a
+ * mosaic is not a camera picture. Never throws.
+ */
+export function probeDownscaleBlur(createCanvas: CanvasFactory): boolean {
+  try {
+    const n = PROBE_CHECKER_PX
+    const src = sizedCanvas(createCanvas, n, n)
+    const image = src.ctx.createImageData(n, n)
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const i = (y * n + x) * 4
+        const v = (x + y) % 2 === 0 ? 0 : 255
+        image.data[i] = v
+        image.data[i + 1] = v
+        image.data[i + 2] = v
+        image.data[i + 3] = 255
+      }
+    }
+    src.ctx.putImageData(image, 0, 0)
+    if (maxStep(readPixels(src.ctx, n, n), n, n) < 255 - PROBE_TOLERANCE) return false
+
+    const dst = sizedCanvas(createCanvas, n, n)
+    dst.ctx.clearRect(0, 0, n, n)
+    const target = { width: PROBE_CHECKER_TARGET_PX, height: PROBE_CHECKER_TARGET_PX }
+    const levels = createDownscaleLevels(createCanvas, downscaleSteps(n, n, target))
+    paintDownscaleBlur(dst.ctx, src.canvas, n, n, levels)
+    const out = readPixels(dst.ctx, n, n)
+    for (let i = 3; i < out.length; i += 4) if (out[i]! < 255 - PROBE_TOLERANCE) return false
+    return maxStep(out, n, n) <= PROBE_MAX_STEP
+  } catch {
+    return false
+  }
+}
+
+/** Largest difference between horizontally or vertically adjacent pixels,
+ *  over the red, green and blue channels. */
+function maxStep(data: Uint8ClampedArray, width: number, height: number): number {
+  let max = 0
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4
+      for (let c = 0; c < 3; c++) {
+        if (x + 1 < width) max = Math.max(max, Math.abs(data[i + c]! - data[i + 4 + c]!))
+        if (y + 1 < height) max = Math.max(max, Math.abs(data[i + c]! - data[i + width * 4 + c]!))
+      }
+    }
+  }
+  return max
+}
+
+/** Which blur this context type can be trusted with. Never throws. */
+export function probeBlurPath(createCanvas: CanvasFactory): BlurPath {
+  if (probeFilterBlur(createCanvas)) return 'filter'
+  if (probeDownscaleBlur(createCanvas)) return 'downscale'
+  return 'solid'
 }
 
 export interface MaskAlphaOptions {
@@ -954,6 +1258,11 @@ export class VideoEffect {
   #maskCtx: Context2DLike | null = null
   #maskImage: ImageDataLike | null = null
 
+  /** Found by `probeBlurPath` the first time a blur is needed - see the
+   *  `blurPath` getter. */
+  #blurPath: BlurPath | null = null
+  #blurLevels: DownscaleLevel[] = []
+
   constructor(opts: VideoEffectOptions) {
     this.#output = opts.output
     const ctx = opts.output.getContext('2d')
@@ -983,6 +1292,18 @@ export class VideoEffect {
 
   get lastError(): string | undefined {
     return this.#error
+  }
+
+  /**
+   * How a blur is painted here: by the canvas filter, by shrinking and
+   * scaling back up where the filter does not blur (WebKit), or as a solid
+   * cover where neither could be shown to work. Probed on first use, on
+   * the same kind of scratch canvas the frames are drawn with, and then
+   * kept: the answer belongs to the browser, not to the frame.
+   */
+  get blurPath(): BlurPath {
+    if (this.#blurPath === null) this.#blurPath = probeBlurPath(this.#createCanvas)
+    return this.#blurPath
   }
 
   /**
@@ -1218,6 +1539,7 @@ export class VideoEffect {
     this.#maskValid = false
     this.#lastMaskAt = null
     this.#smoother?.reset()
+    this.#blurLevels = []
   }
 
   // -- internals ------------------------------------------------------------
@@ -1328,13 +1650,68 @@ export class VideoEffect {
    *  blur the person picked for a good mask is not a safe blur for no mask
    *  at all. */
   #paintBlurAll(source: FrameSourceLike, width: number, height: number, forceMax = false): void {
-    const ctx = this.#outCtx
     const radius = blurRadiusPx(forceMax ? 1 : this.#strength, width)
-    const pad = radius * OVERDRAW_RADII
+    this.#paintBlurred(source, width, height, radius, forceMax ? FORCE_MAX_BLUR_LONG_EDGE_PX : undefined)
+  }
+
+  /**
+   * The whole frame, blurred by `radius`, by whichever means this browser
+   * can be trusted with - see `blurPath`. If painting throws part-way, the
+   * frame is covered solid instead: a half-drawn blur is not allowed to
+   * leave the camera picture, or a stale one, showing.
+   */
+  #paintBlurred(
+    source: FrameSourceLike,
+    width: number,
+    height: number,
+    radius: number,
+    maxLongEdge?: number,
+  ): void {
+    const ctx = this.#outCtx
+    try {
+      const path = this.blurPath
+      if (path === 'filter') {
+        const pad = radius * OVERDRAW_RADII
+        ctx.globalCompositeOperation = 'source-over'
+        ctx.filter = `blur(${radius}px)`
+        ctx.drawImage(source, -pad, -pad, width + pad * 2, height + pad * 2)
+        ctx.filter = 'none'
+        return
+      }
+      if (path === 'downscale') {
+        const levels = this.#ensureBlurLevels(width, height, downscaleSize(width, height, radius, maxLongEdge))
+        paintDownscaleBlur(ctx, source, width, height, levels)
+        return
+      }
+    } catch (err) {
+      this.#error = errorMessage(err)
+    }
+    this.#paintSolid(width, height)
+  }
+
+  /** An opaque cover over the whole frame, and no camera pixel. */
+  #paintSolid(width: number, height: number): void {
+    const ctx = this.#outCtx
     ctx.globalCompositeOperation = 'source-over'
-    ctx.filter = `blur(${radius}px)`
-    ctx.drawImage(source, -pad, -pad, width + pad * 2, height + pad * 2)
     ctx.filter = 'none'
+    ctx.fillStyle = SOLID_COVER_COLOUR
+    ctx.fillRect(0, 0, width, height)
+  }
+
+  /** The downscale chain for this frame size and target, reusing the
+   *  canvases from the last frame when the sizes have not changed. */
+  #ensureBlurLevels(
+    width: number,
+    height: number,
+    target: { width: number; height: number },
+  ): DownscaleLevel[] {
+    const steps = downscaleSteps(width, height, target)
+    const current = this.#blurLevels
+    const same =
+      current.length === steps.length &&
+      steps.every((step, i) => current[i]!.width === step.width && current[i]!.height === step.height)
+    if (!same) this.#blurLevels = createDownscaleLevels(this.#createCanvas, steps)
+    return this.#blurLevels
   }
 
   /**
@@ -1436,10 +1813,8 @@ export class VideoEffect {
     } else {
       // Also the fallback when replace is on but no background has loaded:
       // blurred is the safe thing to show, never the room.
-      const radius = blurRadiusPx(this.#strength, width)
-      const pad = radius * OVERDRAW_RADII
-      ctx.filter = `blur(${radius}px)`
-      ctx.drawImage(source, -pad, -pad, width + pad * 2, height + pad * 2)
+      this.#paintBlurred(source, width, height, blurRadiusPx(this.#strength, width))
+      ctx.globalCompositeOperation = 'source-over'
       ctx.filter = 'none'
     }
 

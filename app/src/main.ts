@@ -6929,13 +6929,16 @@ function renderEffectState(state: VideoEffectState): void {
     line.textContent = 'The room behind you is going out as it is.'
     line.classList.add('working')
   } else if (state.status === 'degraded') {
-    line.textContent = `Background effects have stopped working: ${state.error ?? 'the model would not load'}. Your camera is not being shown - only your backdrop or a full blur is, while it keeps retrying.`
+    const fallback = camera?.blurPath === 'solid' ? 'your backdrop or a plain cover' : 'your backdrop or a full blur'
+    line.textContent = `Background effects have stopped working: ${state.error ?? 'the model would not load'}. Your camera is not being shown - only ${fallback} is, while it keeps retrying.`
     line.classList.add('broken')
   } else if (state.status === 'loading' || state.status === 'idle') {
     line.textContent =
       state.mode === 'replace'
         ? 'Loading the background model. Your backdrop is covering the frame until it arrives.'
-        : 'Loading the background model. Everything is blurred until it arrives.'
+        : camera?.blurPath === 'solid'
+          ? 'Loading the background model. The picture is covered until it arrives.'
+          : 'Loading the background model. Everything is blurred until it arrives.'
     line.classList.add('working')
   } else {
     line.textContent = 'Running.'
@@ -6979,10 +6982,15 @@ function renderEffectFailureNotice(): void {
     return
   }
   outer.hidden = false
+  // Worded from what was painted, not from the mode: replace with no
+  // backdrop loaded yet paints the full blur, and a browser that cannot blur
+  // a canvas (`blurPath` 'solid') paints a plain cover instead.
   outer.textContent =
-    camera!.mode === 'replace'
+    action === 'cover'
       ? 'Others see only your backdrop, not you. Background cut-outs are unavailable.'
-      : 'Others see a full blur, not you. Background cut-outs are unavailable.'
+      : camera!.blurPath === 'solid'
+        ? 'Others see a plain cover, not you. This browser cannot blur the camera picture.'
+        : 'Others see a full blur, not you. Background cut-outs are unavailable.'
 }
 
 function renderVoiceState(state: MicState): void {
