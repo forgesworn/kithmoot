@@ -1637,6 +1637,51 @@ describe('the mutual request', () => {
     }
   })
 
+  it('carries a source whose receiver ids match no advert, by kind, when each kind has one role', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, pipeline } = await volunteering()
+      // b's media arrived on m-lines this device offered first, so its
+      // receivers kept local ids that b's roster never names.
+      h.factory.to(b.pub)!.ontrack?.({ track: mediaTrack('local-id-1', 'audio'), receiver: { from: 'b-mic' } })
+      h.session.setViews([
+        { ...person(a.pub), tracks: [{ trackId: 'cam-a', role: 'camera', device: a.pub }] },
+        { ...person(b.pub), tracks: [{ trackId: 'cam-b', role: 'camera', device: b.pub }, { trackId: 'mic-b', role: 'mic', device: b.pub }] },
+      ])
+      await vi.advanceTimersByTimeAsync(0)
+      ask(h, a, b.pub)
+      ask(h, b, a.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      const fromB = pipeline.legs.filter((leg) => leg.from === b.pub).map((leg) => leg.role).sort()
+      expect(fromB).toEqual(['camera', 'mic'])
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not guess between a camera and a shared screen whose ids it cannot match', async () => {
+    vi.useFakeTimers()
+    try {
+      const { h, a, b, pipeline } = await volunteering()
+      h.factory.to(b.pub)!.ontrack?.({ track: mediaTrack('local-id-2'), receiver: { from: 'b-video' } })
+      h.session.setViews([
+        { ...person(a.pub), tracks: [{ trackId: 'cam-a', role: 'camera', device: a.pub }] },
+        { ...person(b.pub), tracks: [{ trackId: 'cam-b', role: 'camera', device: b.pub }, { trackId: 'scr-b', role: 'screen', device: b.pub }] },
+      ])
+      await vi.advanceTimersByTimeAsync(0)
+      ask(h, a, b.pub)
+      ask(h, b, a.pub)
+      await vi.advanceTimersByTimeAsync(0)
+      // Only b's own matched camera ('cam-b' from the fixture) is carried; the
+      // unmatched video is not guessed into either role.
+      expect(pipeline.legs.filter((leg) => leg.from === b.pub && leg.source.receiver !== undefined && (leg.source.receiver as { from?: string }).from === 'b-video')).toEqual([])
+      h.close()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses outright when it has no way to pump the frames', async () => {
     vi.useFakeTimers()
     try {

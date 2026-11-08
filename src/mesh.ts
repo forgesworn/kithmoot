@@ -2376,9 +2376,9 @@ export class Mesh {
           // new track on a new m-line, and only the new one is moving.
           const byRole = new Map<TrackRole, { track: MediaStreamTrack; receiver: unknown }>()
           for (const [trackId, source] of this.#endpointMedia.get(from) ?? []) {
-            const role = this.#trackRoles.get(trackId)
-            if (!role || this.#trackOwner.get(trackId) !== from || source.track.readyState === 'ended') continue
-            byRole.set(role, source)
+            if (source.track.readyState === 'ended') continue
+            const role = this.#sourceRole(from, trackId, source.track)
+            if (role) byRole.set(role, source)
           }
           for (const [role, source] of byRole) wanted.set(`${pair.key}|${from}|${role}`, { pair, from, to, role, ...source })
         }
@@ -2435,6 +2435,27 @@ export class Mesh {
       }
       leg.handle = handle
     }
+  }
+
+  /**
+   * Which of `from`'s advertised roles a track arriving on the direct
+   * connection to `from` plays.
+   *
+   * By track id when the roster names it. Not always possible: measured in
+   * Chromium, a receiver keeps the id it was given when its m-line was made,
+   * so on an m-line this device offered first and the far end then sent on,
+   * the id is this device's own and matches no advert. Then by kind, when
+   * `from` advertises exactly one role of that kind - a microphone, a camera.
+   * Two of one kind (a camera and a shared screen) cannot be told apart that
+   * way, and are not carried rather than carried under the wrong name.
+   */
+  #sourceRole(from: string, trackId: string, track: MediaStreamTrack): TrackRole | undefined {
+    const byId = this.#trackRoles.get(trackId)
+    if (byId) return this.#trackOwner.get(trackId) === from ? byId : undefined
+    const roles = new Set<TrackRole>()
+    for (const view of this.#views) for (const advert of view.tracks) if (advert.device === from) roles.add(advert.role)
+    const sameKind = [...roles].filter((role) => (role === 'mic' || role === 'screen-audio' ? 'audio' : 'video') === track.kind)
+    return sameKind.length === 1 ? sameKind[0] : undefined
   }
 
   #closeLeg(id: string): void {
