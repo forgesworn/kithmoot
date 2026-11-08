@@ -99,7 +99,7 @@ import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
 import { installAgentsHear } from './call-agents-hear.js'
 import { assistSessionOptions, installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
-import { BrowserRelayMediaPipeline } from './peer-relay-media.js'
+import { BrowserRelayMediaPipeline, type RelayMediaScope } from './peer-relay-media.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
@@ -14510,8 +14510,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       : {}
     sessionAuthority = roomAuthority()
     const roomCallProfile = roomNode ? readCallProfile(location.search, localStorage, sessionStorage, 2) : callProfile
-    // One pump per session, closed with its mesh. Its worker starts when
-    // this device offers to help, and taps nothing until it is running.
+    // One pump per session, closed with its mesh. On a device that could ever
+    // help, its worker starts with the room and every receiver is tapped as
+    // it arrives (a tap put on later carries nothing in Chromium).
     const assistOptions = assistSessionOptions({
       roomNode: !!roomNode,
       chatOnly: !!chatOnly,
@@ -14520,7 +14521,12 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       paused: PEER_ASSIST_PAUSED,
       offer: peerAssist.offer,
       relay: peerAssist.relay,
-      relayMedia: new BrowserRelayMediaPipeline(),
+      relayMedia: new BrowserRelayMediaPipeline({
+        RTCRtpScriptTransform: (globalThis as unknown as RelayMediaScope).RTCRtpScriptTransform,
+        RTCRtpReceiver: (globalThis as unknown as RelayMediaScope).RTCRtpReceiver,
+        Worker: typeof Worker === 'undefined' ? undefined : Worker,
+        eligible: () => peerAssist.mayTap(),
+      }),
     })
     const s = credential
       ? new RoomSession({

@@ -107,6 +107,20 @@ describe('BrowserRelayMediaPipeline', () => {
     pipeline.close()
   })
 
+  it('starts nothing and taps nothing on a device that could never help', () => {
+    const fake = scope()
+    const pipeline = new BrowserRelayMediaPipeline({ ...fake.value, eligible: () => false })
+    const created = vi.fn(fake.value.createWorker)
+    const gated = new BrowserRelayMediaPipeline({ ...fake.value, createWorker: created, eligible: () => false })
+    const l = leg()
+    gated.warm()
+    gated.prepare(l.receiver)
+    expect(created).not.toHaveBeenCalled()
+    expect(l.receiver.transform).toBeNull()
+    pipeline.close()
+    gated.close()
+  })
+
   it('taps the source, drives the clock, and holds the clock to the source codec', () => {
     const fake = scope()
     const pipeline = new BrowserRelayMediaPipeline(fake.value)

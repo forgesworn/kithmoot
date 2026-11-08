@@ -561,6 +561,29 @@ describe('carrying under load', () => {
   })
 })
 
+describe('whether receivers are worth tapping', () => {
+  const SRFLX_NAT = 'candidate:1 1 udp 1686052607 93.184.216.34 40000 typ srflx raddr 192.168.1.5 rport 50000'
+
+  it('says yes on a capable desktop whose reachability is not yet known', () => {
+    stubCapableDesktop()
+    expect(installPeerAssist(hooks()).mayTap()).toBe(true)
+  })
+
+  it('says no once the device is measured behind a NAT', () => {
+    stubCapableDesktop()
+    const assist = installPeerAssist(hooks())
+    assist.noteCandidate('candidate:2 1 udp 2122260223 192.168.1.5 50000 typ host')
+    assist.noteCandidate(SRFLX_NAT)
+    expect(assist.mayTap()).toBe(false)
+  })
+
+  it('says no on a browser that cannot forward frames, or while paused', () => {
+    expect(installPeerAssist(hooks()).mayTap()).toBe(false)
+    stubCapableDesktop()
+    expect(installPeerAssist({ ...hooks(), paused: () => true }).mayTap()).toBe(false)
+  })
+})
+
 describe('what a room session is told', () => {
   const base = {
     roomNode: false,

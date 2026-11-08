@@ -1694,21 +1694,30 @@ describe('the mutual request', () => {
     }
   })
 
-  it('claims receivers that arrived before helping was turned on', async () => {
+  it('claims every receiver as it arrives, before helping is turned on, because a later tap carries nothing', async () => {
     vi.useFakeTimers()
     try {
-      let offering = false
+      const offering = false
       const { pipeline, h } = await volunteering({ offering: () => offering })
-      expect(pipeline.prepared).toEqual([])
-      offering = true
-      // The republished offer is a roster change, which reconciles.
-      h.session.setViews(h.session.participants())
-      await vi.advanceTimersByTimeAsync(0)
+      // Not offering at all, and both receivers are claimed already.
       expect(pipeline.prepared).toEqual(expect.arrayContaining([{ from: 'a' }, { from: 'b' }]))
       h.close()
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('starts the pumps when the room is built, so they are running before the first track', () => {
+    let warmed = 0
+    const h = harness({ relay: new PeerRelay(), offering: () => false, relayMedia: { ...fakePipeline(), warm: () => void (warmed += 1) } })
+    // At construction, before any roster or track, and whether or not it is offering.
+    expect(warmed).toBe(1)
+    h.close()
+    let without = 0
+    const none = harness({ relayMedia: { ...fakePipeline(), warm: () => void (without += 1) } })
+    // No relay registry: this device never helps, and nothing is started.
+    expect(without).toBe(0)
+    none.close()
   })
 
   it('claims receivers early while offering, so a later pair can tap them', async () => {

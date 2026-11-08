@@ -681,10 +681,18 @@ test.describe('peer assist through Mesh', () => {
     await page.addScriptTag({ content: assistBundle })
   })
 
-  for (const ending of ['toggles off', 'closes its tab'] as const) {
-    test(`a pair that cannot connect is carried by a volunteer, and moves on when the volunteer ${ending}`, async ({ page }) => {
+  // `late`: helping is turned on after the volunteer is already receiving both ends' media, as it always is in the app
+  // (the switch is off at every join). Measured in Chromium 151, a receiver transform attached then carries nothing, so the
+  // volunteer has to have claimed its receivers as they arrived.
+  const cases = [
+    { ending: 'toggles off', late: false },
+    { ending: 'closes its tab', late: false },
+    { ending: 'toggles off', late: true },
+  ] as const
+  for (const { ending, late } of cases) {
+    test(`a pair that cannot connect is carried by a volunteer${late ? ' who turned helping on mid-call' : ''}, and moves on when the volunteer ${ending}`, async ({ page }) => {
       test.setTimeout(120_000)
-      const result = await page.evaluate<MeshRunResult, { worker: string; ending: string }>(async ({ worker, ending }) => {
+      const result = await page.evaluate<MeshRunResult, { worker: string; ending: string; late: boolean }>(async ({ worker, ending, late }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const K = (window as any).Assist
         const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -722,7 +730,7 @@ test.describe('peer assist through Mesh', () => {
           }
           const camA = painting()
           const camB = painting()
-          let volunteering = true
+          let volunteering = !late
           let present = true
           const offer = { reachability: 'public', capacity: { uplinkBps: 100_000_000, peers: 2, perPeerBps: 600_000 }, relaying: 0, maxRelayed: 3 }
           const views = () => [
@@ -781,6 +789,12 @@ test.describe('peer assist through Mesh', () => {
           mA.publish([camA])
           mB.publish([camB])
           emit()
+          // Media is flowing to the volunteer before it offers.
+          if (late) {
+            await wait(1_500)
+            volunteering = true
+            emit()
+          }
 
           const routeAtB = () => mB.routes.get(A.pub) as { tier: string; endpoint: string; connected: boolean } | undefined
           const connectedAfterMs = await until(() => routeAtB()?.tier === 'assist' && routeAtB()!.connected, 45_000)
@@ -830,10 +844,10 @@ test.describe('peer assist through Mesh', () => {
           error = String(err)
           return { error, route: null, volunteerIsV: false, connectedAfterMs: -1, carriedMid: null, carriedBytes: 0, carriedFramesDecoded: 0, directABConnected: false, movedOnAfterMs: -1, tierAfter: null }
         }
-      }, { worker: assistWorker, ending })
+      }, { worker: assistWorker, ending, late })
 
       // eslint-disable-next-line no-console
-      console.log(`assist through Mesh (${ending}):`, JSON.stringify(result))
+      console.log(`assist through Mesh (${ending}${late ? ', late' : ''}):`, JSON.stringify(result))
       expect(result.error).toBeNull()
       // B reached A through V, and the route counted only once media came.
       expect(result.connectedAfterMs).toBeGreaterThan(0)

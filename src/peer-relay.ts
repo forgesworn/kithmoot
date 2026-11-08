@@ -556,17 +556,19 @@ export interface RelayLegHandle {
 export interface RelayMediaPipeline {
   /** Whether this pipeline can carry anything at all, right now. */
   readonly ready: boolean
-  /** This device is offering: get ready to carry, without carrying yet - a
-   *  browser starts its worker here, so `ready` can become true. */
+  /** Get ready to carry, without carrying: a browser starts its worker
+   *  here, so it is running before the first receiver needs tapping. */
   warm?(): void
   /** This device has stopped offering: give back every receiver claimed by
    *  `prepare` that no leg is using. */
   release?(): void
   /**
    * A receiver this device might later be asked to tap. Called for every
-   * track that arrives on a direct connection while this device is
-   * offering, so a transform can be claimed before it is needed. Optional:
-   * a pipeline that can attach late need not.
+   * track that arrives on a direct connection of a device with a relay
+   * registry, whether or not it is offering yet: in Chromium a receiver's
+   * transform has to be in place before its first frame, so one claimed when
+   * helping is turned on would carry nothing. The pipeline decides whether
+   * this device could ever help, and ignores the call if not.
    */
   prepare?(receiver: unknown, track: MediaStreamTrack): void
   /** Start one leg. Null when it cannot be carried; the caller removes the

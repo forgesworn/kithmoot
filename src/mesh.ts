@@ -854,6 +854,15 @@ export class Mesh {
       (event) => this.#onSignalEvent(event),
     )
 
+    // The pumps' worker has to be running before the first remote track
+    // arrives, so that track can be tapped in time - see `#ownTrack`.
+    if (opts.relay) {
+      try {
+        opts.relayMedia?.warm?.()
+      } catch {
+        // No pumps: this device will refuse to carry, as it would anyway.
+      }
+    }
     this.#unsubSession = opts.session.onChange((views) => this.#reconcile(views))
     this.#reconcile(opts.session.participants())
   }
@@ -3105,12 +3114,16 @@ export class Mesh {
       media.delete(track.id)
       media.set(track.id, { track, receiver })
       this.#endpointMedia.set(endpoint, media)
-      if (this.#isOffering()) {
-        try {
-          this.#opts.relayMedia?.prepare?.(receiver, track)
-        } catch {
-          // Claiming a receiver early is an optimisation, not a requirement.
-        }
+      // Claimed now, offering or not. Measured in Chromium 151: a receiver
+      // transform attached after media has started gets no frames at all,
+      // audio or video, key-frame request or not, while the decoder carries
+      // on underneath. Helping is off at every join, so it is always turned
+      // on after these receivers exist; a tap put on then would carry
+      // nothing. The pipeline decides whether this device could ever help.
+      try {
+        this.#opts.relayMedia?.prepare?.(receiver, track)
+      } catch {
+        // A pipeline that cannot claim it only means this one is not carried.
       }
       this.#syncCarry()
     }

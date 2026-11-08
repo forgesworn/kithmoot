@@ -21,17 +21,22 @@
  * - **Key frames from the source.** A far end that needs one asks the clock;
  *   the worker turns that into a request to the source, where the browser
  *   allows it.
- * - **A transform claimed before it is needed.** Receivers are tapped as they
- *   arrive while this device is offering, through `prepare`, so a pair that
- *   asks later finds the tap already there - but only once the worker has
- *   said it is running, because a tap on a worker that never loaded would
- *   stop the volunteer's own picture and sound. If the worker fails later,
- *   every transform is taken off again.
+ * - **A transform claimed before it is needed.** Measured in Chromium 151: a
+ *   receiver transform attached after media has started receives no frames,
+ *   audio or video, even after a key-frame request. So every receiver of a
+ *   device that could help is tapped as it arrives, through `prepare`,
+ *   whether helping is on yet or not; until a leg uses it the tap passes
+ *   every frame straight on. Only once the worker has said it is running,
+ *   because a tap on a worker that never loaded would stop the device's own
+ *   picture and sound, and the worker is started when the room is built so
+ *   it is running before the first track arrives. If the worker fails, every
+ *   transform is taken off again.
  *
- * What is not measured: whether every browser lets a receiver's transform be
- * attached after its media has started (only needed when `prepare` came too
- * late), key-frame requests in browsers without `sendKeyFrameRequest`, and
- * audio and video drift when the source's frames are replaced one for one.
+ * What is not measured: the CPU cost of the pass-through taps on a device
+ * that never helps, whether a receiver whose tap is taken off after a worker
+ * failure goes back to its decoder, key-frame requests in browsers without
+ * `sendKeyFrameRequest`, and audio and video drift when the source's frames
+ * are replaced one for one.
  */
 import type { RelayLeg, RelayLegHandle, RelayMediaPipeline, RelayStats } from '../../src/peer-relay.js'
 
@@ -46,12 +51,20 @@ interface CodecLike {
   sdpFmtpLine?: string
 }
 
-interface RelayMediaScope {
+export interface RelayMediaScope {
   RTCRtpScriptTransform?: ScriptTransformConstructor
   RTCRtpReceiver?: { getCapabilities?: (kind: string) => { codecs: CodecLike[] } | null }
   Worker?: unknown
   /** The worker, for a test to supply; a browser uses the bundled one. */
   createWorker?: () => Worker
+  /**
+   * Whether this device could ever help, asked before any worker starts or
+   * receiver is tapped. Taps go on every receiver of such a device from the
+   * moment it arrives, helping on or not, so this keeps them off a device
+   * that never could: a phone on mobile data, a browser that cannot forward
+   * frames, a device measured behind a NAT. Absent means yes.
+   */
+  eligible?: () => boolean
 }
 
 /** How long after a leg starts the codecs on its two hops are compared. */
@@ -156,6 +169,14 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
     this.#scope = scope
   }
 
+  #eligible(): boolean {
+    try {
+      return this.#scope.eligible?.() ?? true
+    } catch {
+      return false
+    }
+  }
+
   /** Whether this browser has what the pumps need. Does not start the worker. */
   get available(): boolean {
     return !this.#closed && !this.#broken && this.#scope.RTCRtpScriptTransform !== undefined && (this.#scope.createWorker !== undefined || this.#scope.Worker !== undefined)
@@ -169,7 +190,7 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
   /** Started when this device offers, so a call nobody is helping in costs
    *  no worker. */
   warm(): void {
-    this.#ensureWorker()
+    if (this.#eligible()) this.#ensureWorker()
   }
 
   #ensureWorker(): Worker | undefined {
@@ -190,7 +211,7 @@ export class BrowserRelayMediaPipeline implements RelayMediaPipeline {
   }
 
   prepare(receiver: unknown): void {
-    if (!receiver || typeof receiver !== 'object' || !this.available) return
+    if (!receiver || typeof receiver !== 'object' || !this.available || !this.#eligible()) return
     if (!this.#workerReady) {
       this.#ensureWorker()
       this.#pending.add(receiver)

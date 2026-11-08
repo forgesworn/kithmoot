@@ -64,6 +64,15 @@ export interface PeerAssist {
   offer(): AssistOffer | null
   /** Feed in one gathered ICE candidate for the reachability measurement. */
   noteCandidate(candidate: string): void
+  /**
+   * Whether this device could ever help, so its receivers are worth tapping
+   * as they arrive (see `BrowserRelayMediaPipeline`). False for a browser
+   * that cannot forward frames, a phone on mobile data, and a device measured
+   * behind a NAT or a symmetric one. Unknown reachability is not a no: the
+   * measurement may not have come in yet, and a tap that missed the first
+   * frame cannot be put on later.
+   */
+  mayTap(): boolean
   /** A key unique to one connection, for `connections` and `forget`. */
   connectionKey(tier: string, remote: string): string
   /** Stop counting a connection's uplink. */
@@ -478,6 +487,11 @@ export function installPeerAssist(hooks: PeerAssistHooks): PeerAssist {
     offer: currentAssistOffer,
     noteCandidate: (candidate) => {
       reachability.add({ candidate })
+    },
+    mayTap: () => {
+      if (paused() || !relayCapability.canForwardFrames || !assistOfferable()) return false
+      const measured = reachability.reachability
+      return measured !== 'nat' && measured !== 'symmetric'
     },
     connectionKey: (tier, remote) => `${tier}:${remote}:${++connectionSeq}`,
     forget: (key) => uplink.forget(key),
