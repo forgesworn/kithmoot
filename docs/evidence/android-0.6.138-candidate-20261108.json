@@ -1,0 +1,43 @@
+{
+  "state": "verified",
+  "buildSourceCommit": "b23104e96aed9fe435027797abba5e22f58c28e1",
+  "versionName": "0.6.138",
+  "versionCode": 161,
+  "package": "dev.forgesworn.kithmoot",
+  "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+  "mappingSha256": "e18950dc698dc79a99320d51b1718ef0e76206260731a14cb66d502f9b7db8c8",
+  "signature": "v3 only",
+  "minSdk": 33,
+  "targetSdk": 35,
+  "debuggable": false,
+  "apk": {
+    "size": 74461772,
+    "sha256": "d45530f7cae427df84f43dc19885823cdd412a0b80ad5ef83c13d0ff04ed3304"
+  },
+  "localQualification": {
+    "protocol": {
+      "tests": 694,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 3399,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    }
+  },
+  "allRequiredLocalTasksPassed": true,
+  "mixedChatFixture": {
+    "nativeSource": "cdd2f1d6fc2df64dfe8188794b57ba99a618f871",
+    "packagedDesktop": "0.1.133",
+    "nativeAndroidAndBrowserPassed": true,
+    "newFreshLinkFix": "Unit regression qualified on final b23104e9; not a ViewModel UI runtime claim",
+    "syntheticAccounts": true,
+    "physicalMedia": false
+  },
+  "hostedChecks": "Pending final 17-job run 42498342217",
+  "publicTurnStopped": false
+}
