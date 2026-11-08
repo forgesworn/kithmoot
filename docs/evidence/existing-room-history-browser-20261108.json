@@ -12,7 +12,7 @@
   "focusedUnitFiles": 5,
   "focusedUnitTestsPassed": 106,
   "typecheckPassed": true,
-  "failedAttempt": "The fresh profile initially navigated within the same document and never opened its node admission dialog. The fixture now uses the existing forced-reload room-navigation helper. The first timed-out trace is retained privately.",
+  "failedAttempt": "The fresh profile initially navigated within the same document and never opened its node admission dialog. The fixture now uses the existing forced-reload room-navigation helper. The first timed-out run log is retained privately; subsequent runs replaced its Playwright trace.",
   "privateLogs": [
     "/private/tmp/kithmoot-node-browser-history-20261108.log",
     "/private/tmp/kithmoot-node-browser-history-retry-20261108.log",

@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.132",
+  "currentRelease": "0.1.133",
   "releases": [
     {
-      "version": "0.1.132",
+      "version": "0.1.133",
       "updateTo": {
-        "version": "0.1.132",
-        "name": "0.1.132",
-        "pub_date": "2026-11-06T21:00:33Z",
-        "notes": "Node calls connect only devices in the same call; camera bitrate and size adapt to the number of recipients.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.132/KithMoot-0.1.132-mac-arm64.zip",
-        "sha256": "2234eb3503d716b91254441f50ae995b39f3be6723dea0d77e50bc6d16893796",
-        "size": 193011488
+        "version": "0.1.133",
+        "name": "0.1.133",
+        "pub_date": "2026-11-08T16:01:23Z",
+        "notes": "Move existing rooms to your paired KithMoot node while keeping room identities and retained history. Devices follow independently.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.133/KithMoot-0.1.133-mac-arm64.zip",
+        "sha256": "28ed0efb27cea715d5a5bb5f202e91520fb985ec7cea030788e46d78d8aec2af",
+        "size": 193103546
       }
     }
   ]

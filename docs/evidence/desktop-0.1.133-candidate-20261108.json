@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-08",
+  "version": "0.1.133",
+  "verifiedSourceCommit": "70345ae8254fabd34d69d3736c9aa61a65ef7cc7",
+  "webFilesPerPlatform": 594,
+  "runtimeFilesPerPlatform": 37,
+  "allFourPackagedAppsMatchSource": true,
+  "packagedPackageMetadataMatchesSource": true,
+  "packagePruning": "Only private, scripts and devDependencies are removed from package.json by the packager.",
+  "allSixArchivePayloadsMatchPackagedApps": true,
+  "mac": {
+    "developerIdSigned": true,
+    "notarised": true,
+    "stapled": true,
+    "gatekeeperAccepted": true
+  },
+  "desktopBoundaryTests": {
+    "passed": 302,
+    "skipped": 1
+  },
+  "packagedMacAndBrowserMigrationSeconds": 37.7,
+  "mixedAndroidDesktopBrowserMigrationPassed": true,
+  "files": [
+    {
+      "filename": "KithMoot-0.1.133-mac-arm64.zip",
+      "bytes": 193103546,
+      "sha256": "28ed0efb27cea715d5a5bb5f202e91520fb985ec7cea030788e46d78d8aec2af",
+      "asarSha256": "37acf4b3334dd74a3087227d9e4c3b95fa477c52642776804dd38a94c9d5a435"
+    },
+    {
+      "filename": "KithMoot-0.1.133-linux-x64.tar.gz",
+      "bytes": 186480661,
+      "sha256": "d9b736be5cfd1e1cca0927ecc85732c3edb5781898722a51e4000cd07dd29d1a",
+      "asarSha256": "1c92b8c1a2134566df6c807a5f71f273a1ed4049965439ffe8dde29e8628fd21"
+    },
+    {
+      "filename": "KithMoot-0.1.133-linux-arm64.tar.gz",
+      "bytes": 187362567,
+      "sha256": "255756864c373d9d6adcb6b97f1eac3e0cbd17849cf15d8f0f0989f844a70dd6",
+      "asarSha256": "1c92b8c1a2134566df6c807a5f71f273a1ed4049965439ffe8dde29e8628fd21"
+    },
+    {
+      "filename": "KithMoot-0.1.133-windows-x64.zip",
+      "bytes": 221627421,
+      "sha256": "5aa6fbd591467d94ff09831b803f6c607c32b6b00ba0b75ef54bf4454d693ca6",
+      "asarSha256": "b9edc5258ef14271b482cc3440ddd2475521b7cbc2d8295f238f78d6d50fea52"
+    },
+    {
+      "filename": "kithmoot_0.1.133_amd64.deb",
+      "bytes": 151104660,
+      "sha256": "da0ece0c695f7bcb3b76c6953e63b0b5d90ac863eba32528862767bf8af0ebf7",
+      "asarSha256": "1c92b8c1a2134566df6c807a5f71f273a1ed4049965439ffe8dde29e8628fd21"
+    },
+    {
+      "filename": "kithmoot_0.1.133_arm64.deb",
+      "bytes": 145567248,
+      "sha256": "f31ae267452b6adc6e4925844bfe3127308ad3690b79c155ef78a6f6da543e9e",
+      "asarSha256": "1c92b8c1a2134566df6c807a5f71f273a1ed4049965439ffe8dde29e8628fd21"
+    }
+  ],
+  "limits": [
+    "Chat migration and reconnect qualification uses synthetic accounts and a private native relay.",
+    "The Android runtime check uses a debug APK on an emulator.",
+    "No physical peer media or Linux and Windows physical desktop acceptance is claimed."
+  ]
+}
