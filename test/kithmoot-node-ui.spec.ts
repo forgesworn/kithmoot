@@ -449,7 +449,7 @@ test('three concurrent account devices and a peer move an existing room onto its
         context = desktopApp.context()
         await desktopApp.evaluate(({ net, dialog }, { desk, calls }) => {
           const fetch = net.fetch.bind(net)
-          net.fetch = async (input, options) => {
+          net.fetch = async (input: RequestInfo | URL, options?: RequestInit & { bypassCustomProtocolHandlers?: boolean }) => {
             const request = new Request(input, options), url = new URL(request.url)
             if (url.origin !== 'https://node.example') return fetch(input, options)
             const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer()
