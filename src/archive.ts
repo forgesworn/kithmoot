@@ -24,7 +24,15 @@ export interface EventArchive {
   read(query: ArchiveQuery): Promise<Event[]>
   /** Nobody is reading this conversation now: an archive that holds it in
    *  memory may let it go. */
+  /** Strict, complete copy of the retained events in explicitly named streams.
+   * Used by migrations; must reject unreadable records and storage failures. */
+  migrationSnapshot?(streams: readonly Pick<ArchiveQuery, 'kind' | 'd'>[]): Promise<RetainedArchiveSnapshot>
   release?(query: Pick<ArchiveQuery, 'kind' | 'd'>): void
+}
+
+export interface RetainedArchiveSnapshot {
+  complete: true
+  entries: { event: Event; quiet?: boolean }[]
 }
 
 /** What an archive records beside an event, sealed with it. */

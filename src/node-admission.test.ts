@@ -9,9 +9,9 @@ import { parseGroupEvent } from './group-grants.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperSnapshot } from './node-admission.js'
 
 const NOW = 1_900_000_000
-async function fixture(endsAt?: number) {
+async function fixture(endsAt?: number, existing = false) {
   const authoritySk = generateSecretKey(), roomSecret = generateSecretKey(), keeper = localIdentity(generateSecretKey()), guest = localIdentity(generateSecretKey())
-  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW, ...(endsAt === undefined ? {} : { endsAt }) }), NOW)!
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW, ...(existing ? { existing: { destruct: false } } : {}), ...(endsAt === undefined ? {} : { endsAt }) }), NOW)!
   let saved: NodeKeeperSnapshot | undefined, failSave = false, failPost = false, clock = NOW
   const posts: Event[] = [], accepted = new Map<string, Event>(), onGrant = vi.fn(async () => {})
   const store = { load: async () => structuredClone(saved), save: vi.fn(async (value: NodeKeeperSnapshot) => { if (failSave) throw Error('disk'); saved = structuredClone(value) }) }
@@ -181,4 +181,23 @@ describe('keeper node admission journal', () => {
       expect(f.posts).toEqual([capped]); expect(f.saved()!.grants[0]!.event).toEqual(capped)
     } finally { keeper.close() }
   })
+})
+
+it('migrates only source-admitted devices and never treats a self-signed credential as membership', async () => {
+  const f = await fixture(undefined, true), accepted = new Set<string>()
+  const keeper = await openNodeKeeperAdmissions({ ...f.options, acceptsExistingDevice: device => accepted.has(device) })
+  try {
+    const request = await f.ask()
+    await expect(keeper.authoriseExistingDevice(request.credential)).rejects.toMatchObject({ reason: 'refused' })
+    accepted.add(getPublicKey(request.deviceSk))
+    const grant = await keeper.authoriseExistingDevice(request.credential)
+    expect(f.posts.some(e => e.id === grant.id)).toBe(true)
+    const parsed = parseGroupEvent(grant)
+    expect(parsed.ok && parsed.parsed.type === 'grant' && parsed.parsed.device).toBe(getPublicKey(request.deviceSk))
+    accepted.clear()
+    await expect(keeper.authoriseExistingDevice(request.credential)).rejects.toMatchObject({ reason: 'refused' })
+  } finally { keeper.close() }
+  const legacy = await fixture(), strict = await openNodeKeeperAdmissions({ ...legacy.options, acceptsExistingDevice: () => true })
+  try { await expect(strict.authoriseExistingDevice((await legacy.ask()).credential)).rejects.toMatchObject({ reason: 'refused' }) }
+  finally { strict.close() }
 })

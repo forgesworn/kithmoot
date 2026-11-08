@@ -24,7 +24,7 @@
  */
 import { getEventHash, type Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
-import { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS, type ArchiveMeta, type ArchiveQuery, type EventArchive } from '../../src/archive.js'
+import { archiveTag, compareArchived, olderThan, reseedCandidates, MAX_RESEED_EVENTS, type ArchiveMeta, type ArchiveQuery, type EventArchive, type RetainedArchiveSnapshot } from '../../src/archive.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import type { RelayConfig } from '../../src/relay-pool.js'
 
@@ -153,6 +153,40 @@ export class RoomArchive implements EventArchive {
       .sort(compareArchived)
       .slice(0, query.limit)
       .map(copyEvent)
+  }
+
+  /** A migration must never confuse a failed disk read with an empty archive,
+   * or the newest session cache with all retained history. Read every stored
+   * record afresh; keep quiet provenance so no caller republishes it bare. */
+  async migrationSnapshot(streams: readonly Pick<ArchiveQuery, 'kind' | 'd'>[]): Promise<RetainedArchiveSnapshot> {
+    if (!streams.length || streams.length > 4096) throw Error('Invalid migration archive streams')
+    await this.flushed()
+    if (this.#warned) throw Error('Archive storage failed before migration')
+    const entries = new Map<string, Sealed>()
+    const seen = new Set<string>()
+    const keys = await this.storage.keys()
+    for (const query of streams) {
+      if (!Number.isSafeInteger(query.kind) || query.kind < 0 || query.kind > 65535 || !/^[a-f0-9]{64}$/.test(query.d)) throw Error('Invalid migration archive stream')
+      const name = streamName(query.kind, query.d)
+      if (seen.has(name)) continue
+      seen.add(name)
+      if (this.#forgetting.has(name)) throw Error('Archive is being forgotten')
+      if (keys) {
+        const stream = await this.#streamHandle(query.kind, query.d)
+        for (const record of await this.storage.stream(stream)) {
+          const kept = await this.#unseal(record, stream, keys.seal)
+          if (!kept || kept.event.kind !== query.kind || archiveTag(kept.event) !== query.d) throw Error('Migration archive record cannot be read')
+          const previous = entries.get(kept.event.id)
+          entries.set(kept.event.id, previous?.quiet ? previous : kept)
+        }
+      }
+      for (const { kept } of this.#session.get(name)?.values() ?? []) {
+        const previous = entries.get(kept.event.id)
+        entries.set(kept.event.id, previous?.quiet ? previous : kept)
+      }
+      if (this.#forgetting.has(name) || this.#warned) throw Error('Archive changed during migration')
+    }
+    return { complete: true, entries: [...entries.values()].map(kept => ({ event: copyEvent(kept.event), ...(kept.quiet ? { quiet: true } : {}) })) }
   }
 
   release(query: Pick<ArchiveQuery, 'kind' | 'd'>): void {

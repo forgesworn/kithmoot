@@ -1626,7 +1626,7 @@ export class RoomSession {
       ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
       ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
       expiresAt: this.#eventExpiration(),
-      ...(this.#opts.node ? { files: 'off' as const } : {}),
+      ...(this.#opts.node && !this.#opts.node.existing ? { files: 'off' as const } : {}),
       protocol: this.#opts.protocol,
     })
     }
@@ -1681,7 +1681,7 @@ export class RoomSession {
   }
 
   #eventExpiration(): ExpirationDeadline | undefined {
-    if (!this.#opts.node) return this.#opts.endsAt
+    if (!this.#opts.node || this.#opts.node.existing) return this.#opts.endsAt
     return () => {
       const now = this.#now(), ends = this.#opts.endsAt
       if (ends !== undefined && ends <= now) throw new Error('This room has ended')
@@ -3603,7 +3603,7 @@ export class RoomSession {
       ...(this.#opts.receipts ? { receipts: this.#opts.receipts } : {}),
       ...(this.#opts.onChatAccepted ? { onAccepted: this.#opts.onChatAccepted } : {}),
       expiresAt: this.#eventExpiration(),
-      ...(this.#opts.node ? { files: 'off' as const } : {}),
+      ...(this.#opts.node && !this.#opts.node.existing ? { files: 'off' as const } : {}),
       protocol: this.#opts.protocol,
     })
     this.#channels.set(name, log)
@@ -3809,6 +3809,24 @@ export class RoomSession {
     for (const [device, held] of this.#blockedSpry) {
       if (held.seen < cutoff || this.#removed.has(held.row.participant)) { this.#blockedSpry.delete(device); continue }
       if (!rows.has(device)) rows.set(device, { ...held.row })
+    }
+    return [...rows.values()]
+  }
+
+  /** Every admitted page/app session, without participant or device-key
+   * collapsing. Migration must cover all of them, including blocked people
+   * (a local block must not remove their room access). Older sessions without
+   * a session ID cannot participate safely and require an app update. */
+  nodeMigrationRoster(): { device: string; sid: string; participant: string; credential: DeviceCredential; call?: string }[] {
+    if (this.#left || this.#closed || !this.#self) throw Error('Open this room before migrating it')
+    const entries = [...this.#presentEntries(true).filter(entry => !this.#removed.has(entry.participant)), { ...this.#self, device: this.device, sid: this.sid, participant: this.participant }]
+    const rows = new Map<string, { device: string; sid: string; participant: string; credential: DeviceCredential; call?: string }>()
+    for (const entry of entries) {
+      if (!entry.sid || !/^[A-Za-z0-9_-]{8,128}$/.test(entry.sid)) throw Error('Every active client needs an update before this room can migrate')
+      const proof = verifyDeviceCredential(entry.credential, { roomId: this.roomId, now: this.#now() })
+      if (!proof.ok || proof.device !== entry.device || proof.participant !== entry.participant) throw Error('An active device must renew its room credential before migrating')
+      rows.set(`${entry.device}:${entry.sid}`, { device: entry.device, sid: entry.sid, participant: entry.participant,
+        credential: JSON.parse(JSON.stringify(entry.credential)) as DeviceCredential, ...(entry.call ? { call: entry.call.id } : {}) })
     }
     return [...rows.values()]
   }

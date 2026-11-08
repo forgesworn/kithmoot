@@ -119,7 +119,7 @@ export async function enrolNodeRoom(pair: PairedKithmootNode, record: NodeRoomRe
   const pairedPorts = readNodeTurnPorts(pair.turnPorts), roomPorts = readNodeTurnPorts(node.turnPorts)
   if (pair.owner !== owner.pubkey || pair.origin !== node.origin || pair.serviceKey !== node.serviceKey || !pairedPorts || !roomPorts
     || pairedPorts.udpTcp !== roomPorts.udpTcp || pairedPorts.tls !== roomPorts.tls) return invalid()
-  const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }) }, owner, options)
+  const result = await request(node.origin, '/node/v1/enrol', { room: node.room, authority: node.authority, inviter: node.authority, ...(node.endsAt === undefined ? {} : { ends: node.endsAt }), ...(node.existing ? { existing: true } : {}) }, owner, options)
   if (result.enrolled !== true) return invalid()
 }
 export async function queryKithmootNodeStatus(pair: PairedKithmootNode, owner: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeOwnerStatus> {
@@ -224,8 +224,11 @@ export function nodeRoomTransport(record: NodeRoomRecord, identity: ParticipantI
   const checkEvent = (event: Event): void => {
       if (!allowed() || [27541, 27542, 27543, 27544].includes(event.kind)) throw new KithmootNodeError(403, 'refused')
       const expiration = event.tags.filter(t => t[0] === 'expiration')
+      const existingRoom = node.existing && mode === 'room'
+      if (existingRoom && expiration.length === 0) return
+      const limit = existingRoom ? node.endsAt ?? Infinity : Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
       if (expiration.length !== 1 || expiration[0]!.length !== 2 || !/^[1-9][0-9]*$/.test(expiration[0]![1]!)
-        || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > Math.min(now() + 30 * 86400, node.endsAt ?? Infinity)
+        || !Number.isSafeInteger(Number(expiration[0]![1])) || Number(expiration[0]![1]) <= now() || Number(expiration[0]![1]) > limit
         || mode === 'ask' && event.kind !== 1059) return invalid()
   }
   const transport: RelayPoolClient = {

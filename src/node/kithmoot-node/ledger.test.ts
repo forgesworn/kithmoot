@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { buildGrant, buildReset, buildRevocation, parseGroupEvent, MAX_GRANT_SECONDS } from '../../group-grants.js'
 import { NodeLedger } from './ledger.js'
@@ -132,4 +133,32 @@ describe('node authorisation ledger', () => {
     const reopened = new NodeLedger(f.path, f.options); ledgers.push(reopened)
     expect(reopened.rooms()).toHaveLength(1)
   })
+})
+
+// Migrating a room changes custody, not its identity or retention policy.
+it('persists an immutable existing-room profile and rejects a downgrade on retry', () => {
+  const f = fixture(), room = '03'.repeat(32)
+  const record = { room, authority: getPublicKey(f.authority), inviter: getPublicKey(f.authority), existing: true as const }
+  f.ledger.enrol(record)
+  expect(f.ledger.room(room)).toMatchObject({ existing: true })
+  expect(() => f.ledger.enrol({ ...record, existing: undefined })).toThrow('room-already-enrolled')
+  expect(() => f.ledger.enrol({ ...record, existing: false } as never)).toThrow('invalid-room')
+  ledgers.splice(ledgers.indexOf(f.ledger), 1); f.ledger.close()
+  const reopened = new NodeLedger(f.path, f.options); ledgers.push(reopened)
+  expect(reopened.room(room)).toMatchObject({ existing: true })
+  expect(reopened.room(f.room)).not.toHaveProperty('existing')
+})
+it('upgrades version-one room state atomically and marks it incompatible with old writers', () => {
+  const f = fixture(); f.ledger.apply(f.grant())
+  ledgers.splice(ledgers.indexOf(f.ledger), 1); f.ledger.close()
+  const db = new DatabaseSync(f.path)
+  // A real v1 rooms table has no profile column.
+  db.exec('ALTER TABLE rooms DROP COLUMN existing; PRAGMA user_version=1')
+  db.close()
+  const reopened = new NodeLedger(f.path, f.options); ledgers.push(reopened)
+  expect(reopened.room(f.room)).not.toHaveProperty('existing')
+  expect(reopened.devices()).toHaveLength(1)
+  const read = new DatabaseSync(f.path)
+  expect(read.prepare('PRAGMA user_version').get()?.user_version).toBe(2)
+  read.close()
 })

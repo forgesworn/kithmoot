@@ -153,3 +153,11 @@ describe('control messages', () => {
     })
   })
 })
+
+it('carries bounded migration fragments inside the encrypted control message schema', () => {
+  const frame = { op: 'node-migration' as const, v: 1 as const, id: 'ab'.repeat(32), part: 0, total: 1, data: 'YWJj' }
+  expect(decodeControl(encodeControl(frame))).toEqual(frame)
+  for (const raw of [{ ...frame, total: 1_000_000 }, { ...frame, data: 'x'.repeat(2000) }, { ...frame, extra: true }, { ...frame, part: -1 }]) {
+    expect(decodeControl(JSON.stringify(raw))).toBeNull()
+  }
+})

@@ -2,10 +2,11 @@
  * is deliberate: nostr-tools schedules send() in a promise callback without
  * catching a thrown socket error. The owner closes the connection and rejects
  * the operation separately. This wrapper owns no queue or retry. */
-export function guardedWebSocket(Base: typeof WebSocket, current: () => boolean): typeof WebSocket {
+export type WebSocketFrame = string | ArrayBufferLike | Blob | ArrayBufferView
+export function guardedWebSocket(Base: typeof WebSocket, current: (data: WebSocketFrame) => boolean): typeof WebSocket {
   return class extends Base {
     override send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
-      if (!current()) return
+      try { if (!current(data)) return } catch { return }
       super.send(data)
     }
   }

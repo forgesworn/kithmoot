@@ -7,7 +7,7 @@ import { parseGroupEvent, isHostName, MAX_GRANT_SECONDS, type GroupEvent, type P
 export class NodeRefusal extends Error {
   constructor(readonly status: number, readonly code: string) { super(code) }
 }
-export interface NodeRoom { room: string; authority: string; inviter: string; ends?: number }
+export interface NodeRoom { room: string; authority: string; inviter: string; ends?: number; existing?: true }
 export interface DeviceAccess { room: string; device: string; expires: number; turn: boolean; read: boolean; write: boolean }
 export interface NodeOperation { id: string; room: string; binding: string; phase: string; payload: Record<string, unknown>; result: Record<string, unknown> }
 type RoomRow = NodeRoom & { state: 'active' | 'closing' }
@@ -64,7 +64,7 @@ export class NodeLedger {
     this.#db = db
     try {
       const version = Number(db.prepare('PRAGMA user_version').get()?.user_version)
-      if (version !== 0 && version !== 1) throw new Error('Unsupported node state version')
+      if (![0, 1, 2].includes(version)) throw new Error('Unsupported node state version')
       db.exec(`PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON; PRAGMA synchronous=FULL; PRAGMA journal_mode=WAL;
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS rooms (room TEXT PRIMARY KEY,authority TEXT NOT NULL,inviter TEXT NOT NULL,ends INTEGER,state TEXT NOT NULL);
@@ -74,7 +74,12 @@ export class NodeLedger {
         CREATE TABLE IF NOT EXISTS children (room TEXT NOT NULL REFERENCES rooms(room) ON DELETE CASCADE,name TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(room,name));
         CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY,room TEXT NOT NULL,binding TEXT NOT NULL,phase TEXT NOT NULL,payload TEXT NOT NULL,result TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS closed (room_hash TEXT PRIMARY KEY,closed_at INTEGER NOT NULL,proof TEXT);
-        PRAGMA user_version=1;`)
+        `)
+      // One durable schema step prevents an older daemon interpreting a migrated
+      // room as the restricted v1 profile after a restart or rollback.
+      if (version < 2) this.#transaction(() => {
+        db.exec("ALTER TABLE rooms ADD COLUMN existing INTEGER NOT NULL DEFAULT 0 CHECK(existing IN (0,1)); PRAGMA user_version=2")
+      })
       const identity = hash(canonical({ host: this.#host, service: this.#serviceKey, salt: this.#salt }))
       const storedIdentity = this.meta('identity')
       if (storedIdentity && storedIdentity !== identity) throw new Error('Node state identity changed')
@@ -105,25 +110,26 @@ export class NodeLedger {
   room(room: string): RoomRow | undefined {
     const row = this.#db.prepare('SELECT * FROM rooms WHERE room=?').get(room)
     return row ? { room: String(row.room), authority: String(row.authority), inviter: String(row.inviter),
-      ...(row.ends === null ? {} : { ends: Number(row.ends) }), state: row.state as RoomRow['state'] } : undefined
+      ...(row.ends === null ? {} : { ends: Number(row.ends) }), ...(row.existing === 1 ? { existing: true as const } : {}), state: row.state as RoomRow['state'] } : undefined
   }
   rooms(): RoomRow[] { return (this.#db.prepare('SELECT room FROM rooms ORDER BY room').all() as { room: string }[]).map(r => this.room(r.room)!) }
   enrol(room: NodeRoom): void {
     const now = this.#clock()
     if (!KEY.test(room.room) || !KEY.test(room.authority) || room.inviter !== room.authority || room.authority === this.#serviceKey
+      || room.existing !== undefined && room.existing !== true
       || room.ends !== undefined && (!Number.isSafeInteger(room.ends) || room.ends <= now || room.ends > now + 30 * 86400)) refusal(400, 'invalid-room')
     this.#transaction(() => {
       if (this.meta('deleting') === '1') refusal(409, 'node-deleting')
       if (this.#db.prepare('SELECT 1 FROM closed WHERE room_hash=?').get(this.#roomHash(room.room))) refusal(409, 'room-closed')
       const old = this.room(room.room)
       if (old) {
-        if (old.authority !== room.authority || old.inviter !== room.inviter || old.ends !== room.ends || old.state !== 'active') refusal(409, 'room-already-enrolled')
+        if (old.authority !== room.authority || old.inviter !== room.inviter || old.ends !== room.ends || old.existing !== room.existing || old.state !== 'active') refusal(409, 'room-already-enrolled')
         return
       }
       if (this.rooms().length >= this.#maxRooms) refusal(429, 'too-many-rooms')
       if (this.#db.prepare('SELECT 1 FROM grants WHERE device=? AND expiration>?').get(room.authority, now)) refusal(403, 'authority-is-device')
-      this.#db.prepare('INSERT INTO rooms(room,authority,inviter,ends,state) VALUES(?,?,?,?,?)')
-        .run(room.room, room.authority, room.inviter, room.ends ?? null, 'active')
+      this.#db.prepare('INSERT INTO rooms(room,authority,inviter,ends,state,existing) VALUES(?,?,?,?,?,?)')
+        .run(room.room, room.authority, room.inviter, room.ends ?? null, 'active', room.existing ? 1 : 0)
     })
   }
   apply(value: unknown): { changed: boolean; room: string } {

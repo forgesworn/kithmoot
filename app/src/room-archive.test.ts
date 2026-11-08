@@ -362,3 +362,28 @@ describe('reseeding forgetful relays', () => {
     expect(closed.published).toEqual([])
   })
 })
+
+describe('strict migration archive snapshot', () => {
+  it('reads all retained records beyond the session cache and preserves quiet provenance', async () => {
+    const storage = new MemoryStorage(), archive = new RoomArchive(storage, crypt, { sessionEvents: 1 })
+    const one = chat('older', 10), two = chat('newer', 11)
+    archive.keep(one, { quiet: true }); archive.keep(two)
+    archive.keep(chat('another room', 12, OTHER))
+    await archive.flushed()
+    const copy = await archive.migrationSnapshot([{ kind: 1460, d: ROOM }])
+    expect(copy.complete).toBe(true); expect(copy.entries).toHaveLength(2)
+    expect(copy.entries.find(e => e.event.id === one.id)?.quiet).toBe(true)
+    expect(copy.entries.find(e => e.event.id === two.id)?.quiet).toBeUndefined()
+  })
+  it('rejects unreadable disk data and failed reads instead of returning a partial session copy', async () => {
+    const storage = new MemoryStorage(), archive = new RoomArchive(storage, crypt)
+    archive.keep(chat('retained', 10)); await archive.flushed()
+    const original = storage.stream.bind(storage)
+    storage.stream = async () => { throw Error('disk read failed') }
+    await expect(archive.migrationSnapshot([{ kind: 1460, d: ROOM }])).rejects.toThrow('disk read failed')
+    storage.stream = original
+    const record = [...storage.records.values()][0]!
+    record.ciphertext = new Uint8Array([1, 2, 3]).buffer
+    await expect(archive.migrationSnapshot([{ kind: 1460, d: ROOM }])).rejects.toThrow('cannot be read')
+  })
+})
