@@ -9,6 +9,7 @@ import {
 } from '../../src/video-effects.js'
 import { ReefBackground, type FishSprite } from '../../src/reef-scene.js'
 import { OwnedCameraVision } from './owned-camera-vision.js'
+import { createBundledSegmenter } from './bundled-segmenter.js'
 import { AutoFramer, personBox } from './auto-frame.js'
 import { FacePrivacy, type FacePrivacyState } from './face-privacy.js'
 import { HiddenCameraScheduler } from './hidden-camera-scheduler.js'
@@ -316,7 +317,7 @@ export class CameraPipeline {
         canvas.height = height
         return canvas
       },
-      loadSegmenter: async () => this.#vision.segmenter(),
+      loadSegmenter: createBundledSegmenter,
       mode: opts.mode ?? (BLUR_ON_BY_DEFAULT ? 'blur' : 'off'),
       strength: opts.strength ?? DEFAULT_BLUR_STRENGTH,
       onStateChange: (state) => this.#onStateChange?.(state),

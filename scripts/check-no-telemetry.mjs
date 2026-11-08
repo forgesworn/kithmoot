@@ -1,12 +1,12 @@
 // Fails the build if a known third-party telemetry endpoint has made it
 // into the built app.
 //
-// The old MediaPipe stack is removed. Keep checking the built bytes for
-// its usage logger and camera-model assets so it cannot return silently.
+// Bundled person segmentation is allowed; usage reporting is not. The pinned
+// runtime bytes are checked separately by prepare-camera-vision.mjs.
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const FORBIDDEN = ['odml.pa.googleapis.com', 'x-goog-api-key', '_mediapipeLoggerGetEncodedApiKey', '@mediapipe/tasks-vision', 'selfie_segmenter.tflite', 'blaze_face_short_range.tflite']
+const FORBIDDEN = ['odml.pa.googleapis.com', 'x-goog-api-key', '_mediapipeLoggerGetEncodedApiKey']
 
 const dir = process.argv[2]
 if (!dir) throw new Error('Usage: check-no-telemetry.mjs <built-output-dir>')

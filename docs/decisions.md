@@ -2619,3 +2619,39 @@ for it; see the position note's in-and-out record.
 signs in by NIP-42 (heartwood-esp32#251, proven live on 2 November), bray's
 clients auto-auth (#134), the bridge tier has the merged support
 (heartwood#24). The user's working software does not need the default.
+
+## Bundled web background separation, 8 November 2026
+
+Web and desktop's camera factory still threw "The owned foreground model is
+not yet qualified", so Blur covered the person as well as the room and
+replacement backgrounds covered the complete picture. Restore local foreground
+segmentation with the same square Selfie Segmenter already shipped by Android.
+
+Tasks Vision is pinned to 0.10.35. The four shipped SIMD/non-SIMD runtime assets
+are SHA-256 pinned in `scripts/camera-vision-runtime.json`; the model is pinned
+at `191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b`.
+The reviewed JS and WASM contain none of the old usage logger's endpoint,
+encoded-key export or API-key markers. JS network calls load explicitly supplied
+model/graph/runtime assets; the Emscripten filesystem loaders remain generic,
+so static strings alone are not the runtime proof. The browser regression
+observes inference past the old 60-second batching timer and through close,
+rejecting any request outside the app and local test relay. Future runtime
+updates require repeating the byte review and these checks.
+
+Runtime and model are packaged locally, served from the app origin and included
+in the service-worker precache. Increasing the precache per-file limit to 12 MiB
+accommodates each 11 MiB WASM variant; it adds about 22 MiB of runtime files to a
+fresh install. Apache-2.0 licence and provenance ship beside the model. No model
+CDN or hosted inference is configured.
+
+CPU inference uses IMAGE mode, so repeated timestamps and camera changes cannot
+carry model state between frames. The returned foreground buffer is copied before
+releasing its SDK result. Existing compositor rules still cover a missing,
+loading, invalid or failed mask; Off remains the explicit raw-camera choice.
+Portrait cropping remains after the privacy-safe composite. Face privacy's
+unqualified detector is unchanged and still covers rather than exposing faces.
+
+The public-domain NASA astronaut fixture checks foreground/background direction
+and actual model inference; it is never shipped as app content or used for
+training. It does not establish quality on the owner's moving camera, difficult
+lighting, hair or held objects, or sustained-call performance.

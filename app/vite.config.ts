@@ -136,8 +136,8 @@ export default defineConfig({
       disable: desktop,
       registerType: 'prompt',
       workbox: {
-        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        globPatterns: ['**/*.{js,wasm,css,html}', 'girnel/assets/*.svg', 'assets/600-*.webp'],
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
+        globPatterns: ['**/*.{js,wasm,css,html}', 'camera-vision/*.{tflite,md}', 'camera-vision/LICENSE', 'girnel/assets/*.svg', 'assets/600-*.webp'],
         globIgnores: ['**/link-web/**', '**/vmls-wasm/**', '**/vmls-wasm-admin2-candidate/**', 'notify-sw.js', 'ordinary-state-sw.js', 'original-artwork-sw.js'],
         // Plain public scripts arrive with the worker rather than entering
         // the precache. Original-artwork migration runs before activation.

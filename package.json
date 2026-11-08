@@ -65,7 +65,7 @@
     "brand:site": "node scripts/build-site-brand.mjs",
     "artwork:generate": "node scripts/build-artwork-derivatives.mjs",
     "artwork:check": "node scripts/build-original-chat-art.mjs --check && node scripts/build-artwork-derivatives.mjs --check",
-    "build": "node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && npm run artwork:check && vite build --config app/vite.config.ts && node scripts/build-artwork-derivatives.mjs --check-built && node scripts/check-no-telemetry.mjs app/dist",
+    "build": "node scripts/prepare-camera-vision.mjs && node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && npm run artwork:check && vite build --config app/vite.config.ts && node scripts/build-artwork-derivatives.mjs --check-built && node scripts/check-no-telemetry.mjs app/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "build:realtime": "node scripts/build-realtime.mjs",
     "test:realtime": "node test/realtime-call.mjs",
@@ -97,7 +97,7 @@
     "vision:lab:build": "node scripts/build-vision-lab.mjs",
     "verify:android-publication": "node deploy/verify-android-publication.mjs",
     "verify:zapstore-publication": "node deploy/verify-zapstore-publication.mjs",
-    "predemo": "npm run build:context"
+    "predemo": "node scripts/prepare-camera-vision.mjs && npm run build:context"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -105,6 +105,7 @@
     "@forgesworn/context-tools": "0.2.0",
     "@forgesworn/fold-kit": "github:forgesworn/fold-kit#df95505669beb4a573ca2f2281e57d24cb137598",
     "@forgesworn/signet-contacts": "github:forgesworn/signet-contacts#fbb13cdeefb3e07421228ab3245b7e17e403ecab",
+    "@mediapipe/tasks-vision": "0.10.35",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@noble/ciphers": "2.1.1",
     "@noble/curves": "2.0.1",
