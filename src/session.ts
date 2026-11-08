@@ -2217,7 +2217,7 @@ export class RoomSession {
    *  cannot be built (a credential that no longer verifies), which leaves
    *  the authority's answer as the only one. */
   #memberSource(credential: DeviceCredential, authority: string): MemberEpochSource | undefined {
-    if (this.#opts.node) return undefined
+    if (this.#opts.node && !this.#opts.node.existing) return undefined
     try {
       return memberEpochSource({
         transport: this.#opts.transport,
@@ -2299,7 +2299,7 @@ export class RoomSession {
    * whenever this device is not itself in step.
    */
   #openMemberDesk(): void {
-    if (this.#opts.node) return
+    if (this.#opts.node && !this.#opts.node.existing) return
     if (this.#memberDesk || this.#opts.memberEpochDesk === false) return
     if (!this.#unsub || this.#left || this.#closed || this.#epoch.epoch === 0) return
     const authority = this.#opts.authority
@@ -3817,6 +3817,23 @@ export class RoomSession {
    * collapsing. Migration must cover all of them, including blocked people
    * (a local block must not remove their room access). Older sessions without
    * a session ID cannot participate safely and require an app update. */
+  /** Provision current source devices without requiring a coordinated
+   * session-id readiness barrier. Invalid or expired remote passes receive no
+   * grant; their original members can renew and ask the keeper later. */
+  nodeMigrationDevices(): { device: string; participant: string; credential: DeviceCredential }[] {
+    if (this.#left || this.#closed || !this.#self) throw Error('Open this room before moving it')
+    const entries = [...this.#presentEntries(true), { ...this.#self, device: this.device, participant: this.participant }]
+    const devices = new Map<string, { device: string; participant: string; credential: DeviceCredential }>()
+    for (const entry of entries) {
+      if (this.#removed.has(entry.participant)) continue
+      const proof = verifyDeviceCredential(entry.credential, { roomId: this.roomId, now: this.#now() })
+      if (!proof.ok || proof.device !== entry.device || proof.participant !== entry.participant) continue
+      devices.set(entry.device, { device: entry.device, participant: entry.participant, credential: JSON.parse(JSON.stringify(entry.credential)) as DeviceCredential })
+    }
+    if (!devices.has(this.device)) throw Error('This device must renew its room pass before moving')
+    return [...devices.values()]
+  }
+
   nodeMigrationRoster(): { device: string; sid: string; participant: string; credential: DeviceCredential; call?: string }[] {
     if (this.#left || this.#closed || !this.#self) throw Error('Open this room before migrating it')
     const entries = [...this.#presentEntries(true).filter(entry => !this.#removed.has(entry.participant)), { ...this.#self, device: this.device, sid: this.sid, participant: this.participant }]

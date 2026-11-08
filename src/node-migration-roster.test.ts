@@ -26,5 +26,8 @@ it('requires each concurrent app and each tab even when they belong to the same 
     const expanded = sessions[0]!.nodeMigrationRoster()
     expect(expanded).toHaveLength(4)
     expect(new Set(expanded.map(row => row.device)).size).toBe(3)
+    const devices = sessions[0]!.nodeMigrationDevices()
+    expect(devices).toHaveLength(3)
+    expect(new Set(devices.map(row => row.participant)).size).toBe(1)
   } finally { await Promise.all(sessions.map(session => session.leave())) }
 })

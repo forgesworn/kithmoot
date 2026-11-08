@@ -95,7 +95,18 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
       }
       case '/node/v1/access': {
         object(value, ['room', 'grant'])
-        if (typeof value.room !== 'string' || !/^[0-9a-f]{64}$/.test(value.room) || typeof value.grant !== 'string' || !/^[0-9a-f]{32}$/.test(value.grant)) throw new NodeRefusal(400, 'invalid-request')
+        if (typeof value.room !== 'string' || !/^[0-9a-f]{64}$/.test(value.room) || value.grant !== undefined && (typeof value.grant !== 'string' || !/^[0-9a-f]{32}$/.test(value.grant))) throw new NodeRefusal(400, 'invalid-request')
+        if (value.grant === undefined) {
+          // NIP-98 already proves ownership of the asking device key. An
+          // existing-room migration can provision that key before announcing
+          // its destination, so no extra grant carrier or online keeper is needed.
+          const room = supervisor.ledger.room(value.room)
+          if (!room?.existing || room.state !== 'active') throw new NodeRefusal(403, 'access-required')
+          const own = supervisor.ledger.active().filter(g => g.roomId === value.room && g.device === actor)
+            .sort((a, b) => b.createdAt - a.createdAt)[0]
+          if (!own) throw new NodeRefusal(403, 'access-required')
+          return reply({ state: 'active', event: own.event, ...(own.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor) } : {}) })
+        }
         const closed = supervisor.ledger.closedProof(value.room)
         if (closed) return reply({ state: 'closed', ...closed })
         const revoked = supervisor.ledger.revocation(value.room, actor, value.grant)

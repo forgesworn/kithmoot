@@ -142,11 +142,11 @@ export async function postNodeGrant(record: NodeRoomRecord, event: GroupEvent, a
   const result = await request(node.origin, '/groups/v1/events', event, authority, options)
   if (result.accepted !== true) return invalid()
 }
-export async function queryNodeAccess(record: NodeRoomRecord, grantId: string, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeDeviceAccess> {
+export async function queryNodeAccess(record: NodeRoomRecord, grantId: string | undefined, device: ParticipantIdentity, options: NodeClientOptions = {}): Promise<NodeDeviceAccess> {
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
   if (node.endsAt !== undefined && node.endsAt <= now) return { state: 'ended' }
-  if (!/^[a-f0-9]{32}$/.test(grantId)) return invalid()
-  const value = await request(node.origin, '/node/v1/access', { room: node.room, grant: grantId }, device, options)
+  if (grantId === undefined ? !node.existing : !/^[a-f0-9]{32}$/.test(grantId)) return invalid()
+  const value = await request(node.origin, '/node/v1/access', { room: node.room, ...(grantId === undefined ? {} : { grant: grantId }) }, device, options)
   if (value.state === 'closed') {
     const closure = recoverNodeClosure(value.proof, node, now)
     return closure ? { state: 'closed', closure } : invalid()
@@ -155,7 +155,7 @@ export async function queryNodeAccess(record: NodeRoomRecord, grantId: string, d
   if (!parsed.ok || parsed.parsed.roomId !== node.room) return invalid()
   const grant = parsed.parsed
   if (value.state === 'reset' && grant.type === 'reset') return { state: 'reset', reset: grant }
-  if (grant.type !== 'grant' || grant.device !== device.pubkey || grant.grantId !== grantId) return invalid()
+  if (grant.type !== 'grant' || grant.device !== device.pubkey || grantId !== undefined && grant.grantId !== grantId) return invalid()
   if (value.state === 'removed' && grant.status === 'revoked') return { state: 'removed', grant }
   const offer = value.offer as Partial<SpryOffer> | undefined
   if (value.state !== 'active' || !verifyNodeRoomGrant(value.event, node, device.pubkey, now) || !offer || offer.v !== 1 || offer.endpoint !== node.origin

@@ -2,8 +2,8 @@
 
 Owner request, 8 November 2026: retain the existing rooms, history and access
 while using the owner's Archy for messaging, STUN and TURN. Desktop, Android
-and web run simultaneously in the same rooms. No live migration or public
-TURN closure has run. The clipboard fix is separately held in Archy draft PR54.
+and web run simultaneously in the same rooms. The private Archy backend has
+been upgraded; no owner room migration or public TURN closure has run. The clipboard fix is separately held in Archy draft PR54.
 
 ## Contract
 
@@ -60,13 +60,35 @@ running controller and dashboard bytes exactly.
 
 ## Implementation status
 
-Protocol, relay and client transition foundations are under development. No
-client UI or automatic room migration is enabled yet. Original policy is signed
-in the destination and reproduced by TypeScript/Kotlin shared vectors. Browser
-staging preserves the original device key, room identity and recovery link,
-seeds original membership and grants current devices before activation. Full
-browser/desktop and Android runtime wiring, quiet carrier history, offline
-catch-up and real mixed-client media acceptance remain outstanding.
+The browser and standalone desktop path now prepares current valid device
+credentials without a session-readiness barrier, ACKs node grants, publishes
+one encrypted signed destination (bounded fragments only when required),
+and lets each device follow independently. An active call delays only that
+device. Each current device retrieves its own pre-authorised grant by NIP-98
+proof; unknown/expired/revoked devices gain nothing. No grant or room key is
+publicly discoverable. The source route and archives remain available locally.
+
+A local Chromium acceptance test uses the actual native private relay and
+supervisor with three independent contexts on one account plus a peer. All
+four retain their room/device identities and history, exchange messages on
+the node, and an old bookmark reopens after the keeper closes. TURN is
+synthetic in this chat-only fixture: this is not Android, Electron or media
+acceptance. Normal existing-room member epoch catch-up stays on the private
+transport; strict new rooms retain keeper-only admission.
+
+Android now has the same codec, original-record custody, independent follower
+and owner move control under Privacy and connection. Focused node/runtime
+checks and packaging remain in progress. Original quiet policy, file settings,
+removal state and agent admission evidence are retained. Node traffic uses
+its quiet wrapper directly rather than delegating new writes to an old
+external cadence box; old lease/counter/pending records remain for recovery.
+Quiet carrier backfill, full history qualification, mixed-client media,
+physical device and owner-account acceptance remain unproven. The optional
+coordinated migration engine remains a tested foundation and is not activated.
+
+The grant-id-optional existing-room access API is implemented and tested but
+still needs the next backend bundle deployment before client release. The
+currently deployed receipt is docs/evidence/node-backend-archy-20261108.json.
 
 The private Linux relay was built on Archy from Bothy 93dabf4 with locked,
 offline vendored dependencies and Rust 1.94.1, one job, release LTO disabled to

@@ -1014,3 +1014,17 @@ it('keeps quiet existing-room carriers bound to their authenticated node and ref
     expect(() => assertNodeRoomTransport(quiet, node, participant)).toThrow()
   } finally { quiet.close() }
 })
+
+
+it('retrieves only this existing-room device’s signed grant with its authenticated room lookup', async () => {
+  const f = fixture()
+  const node = readNodeRoom(signNodeRoom({ authoritySk: f.authority, room: f.room, origin: f.node.origin, serviceKey: f.node.serviceKey,
+    existing: { destruct: false }, now: NOW }), NOW)!
+  const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    expect(JSON.parse(String(init?.body))).toEqual({ room: f.room })
+    return response({ state: 'active', event: f.grant, offer: f.access.offer })
+  }) as unknown as typeof fetch
+  expect(await queryNodeAccess(node, undefined, f.identity, { fetcher, now: () => NOW })).toMatchObject({ state: 'active', grant: { event: f.grant } })
+  await expect(queryNodeAccess(f.node, undefined, f.identity, { fetcher, now: () => NOW })).rejects.toThrow()
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
