@@ -977,6 +977,7 @@
     "nextCreatedAt",
     "nodeCallFactory",
     "nodeKeeperInbox",
+    "nodeQuietRoomTransport",
     "nodeRoomTransport",
     "nodeTurnCredentials",
     "normaliseAgentOwnership",

@@ -79,11 +79,16 @@ transport; strict new rooms retain keeper-only admission.
 Android now has the same codec, original-record custody, independent follower
 and owner move control under Privacy and connection. Focused node/runtime
 checks, the full protocol suite and the full app unit suite pass. Lint and
-APK packaging remain in progress. Original quiet policy, file settings,
+APK packaging passed before the 0.6.138 version allocation and native history
+follow-up. The exact 0.6.138 checks are running. Original quiet policy, file settings,
 removal state and agent admission evidence are retained. Node traffic uses
 its quiet wrapper directly rather than delegating new writes to an old
 external cadence box; old lease/counter/pending records remain for recovery.
-Quiet carrier backfill, full history qualification, mixed-client media,
+Ordinary browser history is copied and read back on the private node before
+cutover; a fresh profile recovers the pre-move messages without an old link or
+archive. The notarised desktop 0.1.133 package passes the same migration test
+alongside the browser clients. Native Android migration/reconnect qualification
+is being added. Quiet carrier backfill, mixed-client media,
 physical device and owner-account acceptance remain unproven. The optional
 coordinated migration engine remains a tested foundation and is not activated.
 
@@ -94,6 +99,16 @@ retains one room and ten devices. The current receipt is
 docs/evidence/node-backend-archy-followup-20261108.json. JavaScript node checks
 pass 174 tests; the real-relay browser test passes with the keeper offline.
 Client releases, owner room migration and physical media proof remain pending.
+
+Archy now has the existing eight-room setting. Restart exposed the service
+manager restoring its older configured image reference; the verified migration
+image is now also pinned under that local reference, with the old image saved
+under a separate rollback tag. The subsequent restart retained the migration
+image, readiness, one room and ten devices. The manager's canonical reference
+still needs updating. See docs/evidence/node-backend-archy-restart-20261108.json.
+Fold-kit PR34 and Bothy PR165 are merged. The KithMoot CI run had 9,012 passing
+tests and one stale export snapshot assertion; its deliberate snapshot update
+passes all 22 API checks locally and will receive a fresh CI run.
 
 The private Linux relay was built on Archy from Bothy 93dabf4 with locked,
 offline vendored dependencies and Rust 1.94.1, one job, release LTO disabled to

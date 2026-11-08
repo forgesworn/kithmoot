@@ -20,7 +20,7 @@ async function freePort() {
 }
 /** Real supervisor, Spry and Shelter. Only the browser's production host
  * routing is replaced; signatures keep their production HTTPS/WSS audiences. */
-export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?: boolean; relayIp?: string; turnPorts?: { udpTcp: number; tls: number };
+export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?: boolean; relayIp?: string; sourceRelayPort?: number; additionalOrigins?: string[]; turnPorts?: { udpTcp: number; tls: number };
   onRequest?: (value: { method: string; path: string; origin?: string }) => void } = {}) {
   const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
   if (!shelter || !options.chatOnly && !spry) throw Error('Set checked native fixture executables; chat-only qualification needs Shelter and supplies no real TURN service')
@@ -83,7 +83,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     }
     ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: randomBytes(32).toString('hex') })
     supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', key)
-    http = nodeHttp(supervisor, { origin, origins: [appOrigin], serviceKey, turnPorts }); await new Promise<void>(r => http!.listen(0, '127.0.0.1', r))
+    http = nodeHttp(supervisor, { origin, origins: [appOrigin, ...(options.additionalOrigins ?? [])], serviceKey, turnPorts }); await new Promise<void>(r => http!.listen(0, '127.0.0.1', r))
     const address = http.address(); if (!address || typeof address === 'string') throw Error('http listener')
     const desk = `http://127.0.0.1:${address.port}`
     if (options.chatOnly) {
@@ -115,10 +115,11 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
       request.on('error', () => upstream.destroy()); request.pipe(upstream)
     })
     bridge.on('upgrade', (request, socket, head) => {
-      const upstream = connect(relayPort, '127.0.0.1'); sockets.add(socket); sockets.add(upstream)
+      const source = request.url === '/source' && options.sourceRelayPort
+      const upstream = connect(source || relayPort, '127.0.0.1'); sockets.add(socket); sockets.add(upstream)
       socket.once('close', () => { sockets.delete(socket); upstream.destroy() }); upstream.once('close', () => { sockets.delete(upstream); socket.destroy() })
       upstream.once('connect', () => {
-        upstream.write(`${request.method} ${request.url} HTTP/1.1\r\n${Object.entries(request.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`)
+        upstream.write(`${request.method} ${source ? '/' : request.url} HTTP/1.1\r\n${Object.entries(request.headers).map(([k, v]) => `${k}: ${v}`).join('\r\n')}\r\n\r\n`)
         if (head.length) upstream.write(head); socket.pipe(upstream); upstream.pipe(socket)
       })
       upstream.on('error', () => socket.destroy()); socket.on('error', () => upstream.destroy())

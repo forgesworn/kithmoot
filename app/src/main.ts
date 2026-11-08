@@ -5224,6 +5224,14 @@ function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
     startsAt: roomStartsAt ?? nowSeconds(), link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
     devices, members: s.memberList(), removed: [...s.removed] }
 }
+// An explicit loopback-only build shares synthetic fixture input with the
+// independent native implementation. This branch is absent from releases.
+if (import.meta.env.VITE_NODE_MIGRATION_FIXTURE === 'true' && ['localhost', '127.0.0.1'].includes(location.hostname)) {
+  Object.defineProperty(window, '__kithmootMigrationFixture', { value: () => {
+    if (!session || nodeRoom || roomPolicy) throw Error('Open the synthetic ordinary fixture room first')
+    return { secret: bytesToHex(roomSecret), authority: roomAuthority() }
+  } })
+}
 function clearExistingSource(source: ExistingBrowserRoom): void {
   source.secret.fill(0); source.deviceSk.fill(0); source.authoritySk?.fill(0)
 }
