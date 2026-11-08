@@ -210,6 +210,15 @@ type Subscription = {
    *  may be resent there: backoff with jitter, not a flat 15 s. */
   closes: Map<string, number>
   resendAt: Map<string, number>
+  /** Per relay, when (unix seconds) the last request it answered in full
+   *  was sent: everything it held then has been heard. A rebind there asks
+   *  from this point, less `RESUME_OVERLAP_SECONDS`, rather than the whole
+   *  window again. Kept across rebinds and `setRelays`; a new subscription
+   *  starts with none. */
+  caughtUp: Map<string, number>
+  /** Per relay, when (ms) the original filters last had a full answer there.
+   *  A narrowed binding is widened again once `WIDE_REFRESH_MS` has passed. */
+  wideAt: Map<string, number>
 }
 
 export class NostrRelayPool implements RelayTransport {
@@ -1155,7 +1164,7 @@ export class NostrRelayPool implements RelayTransport {
     if (this.#paused) throw new Error('pool is suspended')
     if (history && (!Number.isSafeInteger(history.deadlineAt) || history.deadlineAt < 0 || typeof history.loaded !== 'boolean')) throw new Error('invalid subscription history deadline')
     const sub: Subscription = { filters, onEvent, onEose, seen: new Set(), bindings: new Map(), eosed: new Set(),
-      stuck: new Set(), closes: new Map(), resendAt: new Map(), eoseSent: history?.loaded ?? false, ...(history ? { deadlineAt: Math.min(history.deadlineAt, Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS) } : {}) }
+      stuck: new Set(), closes: new Map(), resendAt: new Map(), caughtUp: new Map(), wideAt: new Map(), eoseSent: history?.loaded ?? false, ...(history ? { deadlineAt: Math.min(history.deadlineAt, Date.now() + SUBSCRIBE_EOSE_DEADLINE_MS) } : {}) }
     this.#subscriptions.add(sub)
     this.#start(sub, history !== undefined)
     return () => { this.#subscriptions.delete(sub); this.#stop(sub) }
@@ -1205,10 +1214,10 @@ export class NostrRelayPool implements RelayTransport {
     }
     let stopped = false
     const active = () => !stopped && !this.#closed && !this.#paused && generation === this.#generation && this.#subscriptions.has(sub) && sub.bindings.get(url) === binding
-    let stall: ReturnType<typeof setTimeout> | undefined, handle: { close(): void } | undefined
+    let stall: ReturnType<typeof setTimeout> | undefined, wide: ReturnType<typeof setTimeout> | undefined, handle: { close(): void } | undefined
     binding.stop = () => {
       if (stopped) return
-      stopped = true; clearTimeout(stall)
+      stopped = true; clearTimeout(stall); clearTimeout(wide)
       if (!binding.closed) handle?.close()
     }
     // Do not queue REQs, or retry their supposed silence, while connection
@@ -1219,6 +1228,16 @@ export class NostrRelayPool implements RelayTransport {
       if (!active()) return
       this.#pool.onRelayConnectionSuccess?.(url)
       const requestedAt = Date.now(), startedAt = since ?? requestedAt
+      // A relay that has already answered this subscription in full is asked
+      // only for what it may have gained since, not the whole window again:
+      // a chat log's `since` is a month back, and a relay that closes or
+      // drops after answering was otherwise asked for that month every few
+      // seconds. Once `WIDE_REFRESH_MS` has passed since the last full answer
+      // the original filters go out again, so an event signed long ago and
+      // published late (an outbox send after a reload) is still found.
+      const caughtUp = sub.caughtUp.get(url), wideAt = sub.wideAt.get(url) ?? -Infinity
+      const narrowed = caughtUp !== undefined && requestedAt - wideAt < WIDE_REFRESH_MS
+      const filters = narrowed ? resumeFilters(sub.filters, caughtUp - RESUME_OVERLAP_SECONDS) : sub.filters.map(filter => ({ ...filter }))
       let closedBy: string | undefined
       // A `REQ` sent the instant a reopened socket connects can land in the
       // gap before a relay that was still recovering actually starts
@@ -1241,11 +1260,25 @@ export class NostrRelayPool implements RelayTransport {
         if (!active() || this.#authError(url) || this.#dials.readHeld(url) || Date.now() - startedAt >= SUBSCRIBE_STALL_BUDGET_MS) return
         void this.#background(async () => this.#startRelay(sub, url, startedAt)).catch(() => {})
       }, SUBSCRIBE_STALL_MS)
+      if (narrowed) {
+        wide = setTimeout(() => {
+          if (!active() || this.#authError(url) || this.#dials.readHeld(url)) return
+          void this.#background(async () => this.#startRelay(sub, url)).catch(() => {})
+        }, Math.max(0, wideAt + WIDE_REFRESH_MS - requestedAt))
+        ;(wide as unknown as { unref?: () => void }).unref?.()
+      }
       const ended = () => {
         clearTimeout(stall)
         // History finishes on EOSE, the dependency's timeout, or a close.
         // Only an answer inside that wait, with no close heard after it, is
         // the relay's: the `REQ` went out after `requestedAt`.
+        // The relay's own EOSE, however slowly it came: everything it held
+        // when the request went out has been sent. True even if it closes the
+        // request next. Only nostr-tools' own timeout arrives this late.
+        if (closedBy === undefined && active() && Date.now() - requestedAt < HISTORY_EOSE_WAIT_MS) {
+          sub.caughtUp.set(url, Math.floor(requestedAt / 1000))
+          if (!narrowed) sub.wideAt.set(url, requestedAt)
+        }
         if (Date.now() - requestedAt < SUBSCRIBE_EOSE_DEADLINE_MS) {
           queueMicrotask(() => {
             if (closedBy !== undefined || !active() || this.#authError(url)) return
@@ -1262,13 +1295,27 @@ export class NostrRelayPool implements RelayTransport {
           sub.onEose?.()
         }
       }
-      handle = relay.subscribe(sub.filters.map(filter => ({ ...filter })), {
+      handle = relay.subscribe(filters, {
         // Dependency relay serials restart on fresh sockets. A fresh wire ID
         // prevents an old reader's EOSE identifier satisfying a new binding.
         id: bytesToHex(randomBytes(16)),
         abort: this.#abort.signal,
-        eoseTimeout: SUBSCRIBE_EOSE_DEADLINE_MS,
+        // Long enough to hear a relay's real EOSE after a slow replay; the
+        // reader is told history has loaded at `SUBSCRIBE_EOSE_DEADLINE_MS`
+        // regardless (`sub.deadline`), and silence is `stall`'s to catch.
+        eoseTimeout: HISTORY_EOSE_WAIT_MS,
         oneose: ended,
+        // An id this subscription already delivered, from this relay or
+        // another, is dropped before nostr-tools parses and verifies it: a
+        // relay replaying history sends hundreds. It still shows the relay
+        // is answering, so a replay of known events is not taken for silence.
+        alreadyHaveEvent: id => {
+          if (!sub.seen.has(id)) return false
+          clearTimeout(stall)
+          if (generation === this.#generation) this.#heard(url)
+          if (generation === this.#generation && this.#dials.failing(url)) this.#answered(url)
+          return true
+        },
         onevent: event => {
           clearTimeout(stall)
           if (generation === this.#generation) this.#heard(url)
@@ -1283,7 +1330,7 @@ export class NostrRelayPool implements RelayTransport {
         onclose: reason => {
           if (binding.closed) return
           binding.closed = true
-          clearTimeout(stall)
+          clearTimeout(stall); clearTimeout(wide)
           closedBy = reason
           ended()
           if (!active()) return
@@ -1488,6 +1535,33 @@ const RETRY_DELAYS_MS = [1_000, 3_000]
  *  response time, so an unusually slow but working `REQ` is not mistaken
  *  for a dropped one. */
 const SUBSCRIBE_STALL_MS = 5_000
+
+/** How far before a relay's last full answer a rebind there asks from: the
+ *  room's senders' clocks may run behind this device's, and a publish can
+ *  take a while to land. Twice the chat log's future-skew allowance, and
+ *  then some; what it costs is a quarter of an hour of events, once. */
+export const RESUME_OVERLAP_SECONDS = 15 * 60
+
+/** How long a rebound subscription may go on asking a relay only for what is
+ *  new before the original filters are sent there again. A narrowed `since`
+ *  narrows a relay's live stream too, so an event signed earlier than that
+ *  and published only now (a message an outbox kept through a reload) would
+ *  otherwise not be heard from that relay until the room was reopened. */
+export const WIDE_REFRESH_MS = 15 * 60_000
+
+/** How long a relay may take to finish replaying history and still have its
+ *  EOSE count as a full answer, for `caughtUp`. A month of a busy room over a
+ *  phone's link can take well past `SUBSCRIBE_EOSE_DEADLINE_MS`; a relay that
+ *  never says EOSE is never taken as caught up, and is asked in full. */
+const HISTORY_EOSE_WAIT_MS = 60_000
+
+/** `filters` asked from `from` (unix seconds) on, where that is later than
+ *  what they ask already. Only a filter that names a `since` is narrowed: one
+ *  without (rekeys, signals) never asked for a window, and keeps asking for
+ *  what it did. */
+export function resumeFilters(filters: readonly Filter[], from: number): Filter[] {
+  return filters.map(filter => filter.since === undefined || from <= filter.since ? { ...filter } : { ...filter, since: from })
+}
 
 /** A liveness probe is only sent on a socket that has been quiet this long. */
 export const PROBE_QUIET_MS = 30_000
