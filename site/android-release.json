@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.137",
-  "versionCode": 160,
+  "versionName": "0.6.138",
+  "versionCode": 161,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74429004,
-  "apkSha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
+  "apkBytes": 74461772,
+  "apkSha256": "d45530f7cae427df84f43dc19885823cdd412a0b80ad5ef83c13d0ff04ed3304",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.137-production.apk",
+  "downloadFilename": "kithmoot-0.6.138-production.apk",
   "releaseNotes": [
-    "Updates MLS engine interoperability while keeping the existing invitation and account-network defaults.",
-    "Private invitation previews remain disabled. Legacy joins without authenticated group context are still refused.",
-    "Uses the existing production signing certificate. Update over the installed app on Android 13 or later."
+    "Move an existing room to your paired KithMoot node while keeping its identity, members and local history.",
+    "Devices follow independently when their own call ends. Retained ordinary-room messages are copied before the move.",
+    "Fresh node links preserve saved device identities. Update over your existing app to keep your account and rooms."
   ]
 }
