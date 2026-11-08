@@ -23,10 +23,11 @@ export interface ExistingBrowserRoom {
   startsAt: number
   link: string
   devices: { device: string; participant: string; credential: Event }[]
+  members?: readonly string[]
   removed: readonly string[]
 }
 const samePolicy = (a?: RoomPolicy, b?: RoomPolicy) => JSON.stringify(a) === JSON.stringify(b)
-function matchesSource(node: NodeRoomRecord, source: ExistingBrowserRoom): boolean {
+export function matchesExistingBrowserRoom(node: NodeRoomRecord, source: Pick<ExistingBrowserRoom, 'secret' | 'authority' | 'endsAt' | 'destruct' | 'policy'>): boolean {
   const derived = deriveRoom(source.secret)
   try { return !!node.existing && node.room === derived.roomId && node.authority === source.authority
     && node.endsAt === source.endsAt && node.existing.destruct === source.destruct && samePolicy(node.existing.policy, source.policy) }
@@ -43,7 +44,7 @@ export async function prepareExistingBrowserNodeRoom(store: DeviceStore, pair: P
   if (options.allowed?.() === false || options.signal?.aborted) throw Error('The room changed before moving')
   const derived = deriveRoom(source.secret), room = derived.roomId; derived.roomKey.fill(0)
   let state = loadNodeRoom(store, source.participant, room, at)
-  if (state && (!matchesSource(state.node, source) || state.node.origin !== pair.origin || state.node.serviceKey !== pair.serviceKey)) throw Error('A different destination is already saved for this room')
+  if (state && (!matchesExistingBrowserRoom(state.node, source) || state.node.origin !== pair.origin || state.node.serviceKey !== pair.serviceKey)) throw Error('A different destination is already saved for this room')
   if (!state) {
     const node = readNodeRoom(signNodeRoom({ authoritySk: source.authoritySk, room, origin: pair.origin, serviceKey: pair.serviceKey,
       turnPorts: pair.turnPorts, endsAt: source.endsAt, existing: { destruct: source.destruct, ...(source.policy ? { policy: source.policy } : {}) }, now: at }), at)!
@@ -58,7 +59,7 @@ export async function prepareExistingBrowserNodeRoom(store: DeviceStore, pair: P
   const approved = new Map(source.devices.map(device => [device.device, device.participant]))
   approved.set(getPublicKey(source.deviceSk), source.participant)
   const removed = new Set(source.removed)
-  const members = [...new Set([source.participant, ...(source.policy?.members ?? []), ...approved.values()])].filter(member => !removed.has(member))
+  const members = [...new Set([source.participant, ...(source.policy?.members ?? []), ...(source.members ?? []), ...approved.values()])].filter(member => !removed.has(member))
   const grants = new Map<string, Event>()
   const keeper = await openNodeKeeperAdmissions({ ...options, node: destination.node, authoritySk: source.authoritySk, roomSecret: source.secret,
     keeperParticipant: source.participant, initialMembers: members, initialRemoved: source.removed, epochHint: () => source.epoch,
@@ -80,7 +81,7 @@ export async function prepareExistingBrowserNodeRoom(store: DeviceStore, pair: P
  * activate the node route. Original identity, keys, policy and local history
  * stay in their existing stores. */
 export function acceptExistingBrowserNodeRoom(store: DeviceStore, record: NodeRoomRecord, source: ExistingBrowserRoom, grant: Event, now: number): BrowserNodeRoom {
-  if (!matchesSource(record, source) || !verifyNodeRoomGrant(grant, record, getPublicKey(source.deviceSk), now)) throw Error('This node destination is not authorised for the existing room')
+  if (!matchesExistingBrowserRoom(record, source) || !verifyNodeRoomGrant(grant, record, getPublicKey(source.deviceSk), now)) throw Error('This node destination is not authorised for the existing room')
   adoptExistingNodeDeviceKey(store, record, source.participant, source.deviceSk)
   const state: BrowserNodeRoom = { node: record, participant: source.participant, secret: source.secret.slice(), deviceSk: source.deviceSk.slice(),
     ...(source.authoritySk && getPublicKey(source.authoritySk) === record.authority ? { authoritySk: source.authoritySk.slice() } : {}),

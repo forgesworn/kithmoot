@@ -1001,7 +1001,7 @@ it('refuses room enrolment when its signed port profile differs from the paired 
 
 it('keeps quiet existing-room carriers bound to their authenticated node and refuses a public wrapper', () => {
   const f = fixture(), participant = getPublicKey(generateSecretKey())
-  const policy = { tier: 'open' as const, members: [participant], quiet: true }
+  const policy = { tier: 'open' as const, members: [participant], quiet: true as const }
   const node = readNodeRoom(signNodeRoom({ authoritySk: f.authority, room: f.room, origin: f.node.origin,
     serviceKey: f.node.serviceKey, existing: { destruct: false, policy }, now: NOW }), NOW)!
   const base = nodeRoomTransport(node, f.identity, 'room', { now: () => NOW })
