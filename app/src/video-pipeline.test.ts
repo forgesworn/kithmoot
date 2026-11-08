@@ -101,6 +101,7 @@ function setup(withRequestFrame = true) {
 
   return {
     document,
+    video,
     images,
     outputTrack,
     sources,
@@ -111,8 +112,8 @@ function setup(withRequestFrame = true) {
       if (!callback) throw new Error('no decoded-frame callback scheduled')
       callback(performance.now())
     },
-    async start() {
-      const pipeline = new CameraPipeline({ mode: 'off', facePrivacy: 'off', framing: false })
+    async start(opts: { portrait?: boolean } = {}) {
+      const pipeline = new CameraPipeline({ mode: 'off', facePrivacy: 'off', framing: false, portrait: opts.portrait })
       running.push(pipeline)
       await pipeline.start()
       return pipeline
@@ -240,7 +241,7 @@ class FakeFrame {
   close() { this.closed = true }
 }
 
-function setupFrameApi(opts: { mode?: 'off' | 'blur' } = {}) {
+function setupFrameApi(opts: { mode?: 'off' | 'blur'; portrait?: boolean } = {}) {
   const f = setup()
   const cameras = new Map<unknown, ReadableStreamDefaultController<FakeFrame>>()
   const cancelled: unknown[] = []
@@ -279,7 +280,7 @@ function setupFrameApi(opts: { mode?: 'off' | 'blur' } = {}) {
       return frame
     },
     async start() {
-      const pipeline = new CameraPipeline({ mode: opts.mode ?? 'off', facePrivacy: 'off', framing: false })
+      const pipeline = new CameraPipeline({ mode: opts.mode ?? 'off', facePrivacy: 'off', framing: false, portrait: opts.portrait })
       running.push(pipeline)
       const track = await pipeline.start()
       return { pipeline, track }
@@ -392,4 +393,44 @@ test('stop ends the generator and the camera reader', async () => {
   await vi.advanceTimersByTimeAsync(0)
   expect(track.readyState).toBe('ended')
   expect(f.cancelled).toContain(f.sources[0])
+})
+
+
+test('portrait publication centre-crops the processed picture and remains portrait while hidden', async () => {
+  const f = setup()
+  const pipeline = await f.start({ portrait: true })
+  f.decode()
+  expect(f.output().width).toBe(270)
+  expect(f.output().height).toBe(480)
+  expect(f.output().ctx.drawImage).toHaveBeenLastCalledWith(f.stage(), 185, 0, 270, 480, 0, 0, 270, 480)
+  f.document.visibilityState = 'hidden'
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(pipeline.stats.keepAliveCount).toBe(1)
+  expect(f.output().ctx.drawImage).toHaveBeenLastCalledWith(f.stage(), 185, 0, 270, 480, 0, 0, 270, 480)
+})
+
+test('portrait publication cannot bypass the crop through the native frame generator', async () => {
+  const f = setupFrameApi({ portrait: true })
+  const { pipeline } = await f.start()
+  const raw = await f.cameraFrame()
+  f.decode()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(raw.closed).toBe(true)
+  expect(cameraFrames(f)).toHaveLength(0)
+  expect(canvasFrames(f).length).toBeGreaterThan(0)
+  expect(pipeline.stats.directFrameCount).toBe(0)
+  expect(f.output().width / f.output().height).toBe(9 / 16)
+})
+
+test('portrait publication follows a camera size change without stretching', async () => {
+  const f = setup()
+  const pipeline = await f.start({ portrait: true })
+  f.decode()
+  f.video.videoWidth = 720
+  f.video.videoHeight = 1280
+  await pipeline.useCamera({ deviceId: 'portrait-camera' })
+  f.decode()
+  expect(f.output().ctx.drawImage).toHaveBeenLastCalledWith(f.stage(), 0, 0, 720, 1280, 0, 0, 720, 1280)
+  expect(f.output().width).toBe(720)
+  expect(f.output().height).toBe(1280)
 })

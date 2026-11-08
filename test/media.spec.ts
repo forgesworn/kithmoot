@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { openRoomUrl, withRelays } from './relays.js'
-import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia, chooseCallMore, join } from './browser.js'
+import { createRoom, expectToSeeAndHear, inbound, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openCallEffects, leaveRoom, remoteAudioCount, remotePictures, startSlowAckRelay, turnOnMedia, chooseCallMore, join } from './browser.js'
 
 /**
  * Can you actually see and hear the other person?
@@ -68,6 +68,21 @@ test('two people in a room can see and hear each other', async ({ browser, baseU
     // Both directions. A one-way call is a bug that has shipped before in
     // other projects precisely because only one side was ever asserted.
     await expectToSeeAndHear(pageA, 'Ada')
+    await expectToSeeAndHear(pageB, 'Bob')
+
+    // Web cameras send a tall frame, including the no-effects fast path.
+    // Assert decoded dimensions at the receiving end, not preview styling.
+    for (const page of [pageA, pageB]) {
+      const video = page.locator('#room .participant[data-self="false"] video:not(.screenPreview)').first()
+      await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth / v.videoHeight)).toBeCloseTo(9 / 16, 3)
+    }
+
+    await openCallEffects(pageA, 'Background')
+    await pageA.locator('#effectModes button[data-mode="off"]').click()
+    await expect(pageA.locator('#effectMode')).toHaveText('off')
+    await pageA.keyboard.press('Escape')
+    await expect.poll(() => pageB.locator('#room .participant[data-self="false"] video:not(.screenPreview)').first()
+      .evaluate((v: HTMLVideoElement) => v.videoWidth / v.videoHeight)).toBeCloseTo(9 / 16, 3)
     await expectToSeeAndHear(pageB, 'Bob')
 
     // Laptop faces must be readable and the chat tools must remain separate.

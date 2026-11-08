@@ -162,6 +162,8 @@ export interface CameraPipelineOptions {
   strength?: number
   /** Keep the person in the middle of the picture - see `auto-frame.ts`. */
   framing?: boolean
+  /** Publish a centred 9:16 crop of the processed camera picture. */
+  portrait?: boolean
 }
 
 export interface CameraStats {
@@ -194,6 +196,8 @@ export interface CameraStats {
   running: boolean
   stageWidth: number
   stageHeight: number
+  outputWidth: number
+  outputHeight: number
   /** Watchdog liveness and the published track's state: a hidden tab that
    *  stops producing frames is one of the three, and this says which. */
   watchdogTicks: number
@@ -239,6 +243,7 @@ export class CameraPipeline {
   readonly #framer = new AutoFramer()
   readonly #hiddenFrames = new HiddenCameraScheduler()
   #framing: boolean
+  readonly #portrait: boolean
   readonly #onStateChange?: (state: VideoEffectState) => void
   readonly #onSourceEnded?: () => void
 
@@ -283,6 +288,7 @@ export class CameraPipeline {
   #lastWatchdogAt = 0
 
   constructor(opts: CameraPipelineOptions = {}) {
+    this.#portrait = opts.portrait === true
     this.#onStateChange = opts.onStateChange
     this.#onSourceEnded = opts.onSourceEnded
 
@@ -292,8 +298,8 @@ export class CameraPipeline {
     this.#video.autoplay = true
 
     this.#canvas = document.createElement('canvas')
-    this.#canvas.width = 640
-    this.#canvas.height = 480
+    this.#canvas.width = this.#portrait ? 360 : 640
+    this.#canvas.height = this.#portrait ? 640 : 480
     const ctx = this.#canvas.getContext('2d')
     if (!ctx) throw new Error('the camera canvas has no 2D context')
     this.#canvasCtx = ctx
@@ -396,6 +402,8 @@ export class CameraPipeline {
       running: this.#running,
       stageWidth: this.#stage.width,
       stageHeight: this.#stage.height,
+      outputWidth: this.#canvas.width,
+      outputHeight: this.#canvas.height,
       watchdogTicks: this.#watchdogTicks,
       lastWatchdogAt: this.#lastWatchdogAt,
       outputTrackState: this.track?.readyState ?? 'none',
@@ -747,7 +755,7 @@ export class CameraPipeline {
     // engine once the page is hidden; redrawing keeps the canvas dirty at
     // trivial cost, since no effect re-runs. requestFrame() is still asked,
     // for engines where it helps.
-    if (!this.#frame(this.#canvas.width, this.#canvas.height)) {
+    if (!this.#frame(this.#stage.width, this.#stage.height)) {
       this.#hiddenFrames.invalidate()
       return
     }
@@ -759,10 +767,29 @@ export class CameraPipeline {
   /** Copy the effect's finished frame out, cropped around the person. */
   #frame(width: number, height: number): boolean {
     if (this.#stage.width !== width || this.#stage.height !== height) return false
-    if (this.#canvas.width !== width) this.#canvas.width = width
-    if (this.#canvas.height !== height) this.#canvas.height = height
     const crop = this.#framing && this.#facePrivacy.mode === 'off' ? this.#framer.next(personBox(this.#effect.personMask)) : { x: 0, y: 0, width: 1, height: 1 }
-    this.#canvasCtx.drawImage(this.#stage, crop.x * width, crop.y * height, crop.width * width, crop.height * height, 0, 0, width, height)
+    let x = crop.x * width, y = crop.y * height
+    let sourceWidth = crop.width * width, sourceHeight = crop.height * height
+    let outputWidth = width, outputHeight = height
+    if (this.#portrait) {
+      // Crop only the finished privacy-safe stage. Equal source and output
+      // aspect ratios preserve proportions; even dimensions suit encoders.
+      if (sourceWidth / sourceHeight > 9 / 16) {
+        const narrower = sourceHeight * 9 / 16
+        x += (sourceWidth - narrower) / 2
+        sourceWidth = narrower
+      } else {
+        const shorter = sourceWidth * 16 / 9
+        y += (sourceHeight - shorter) / 2
+        sourceHeight = shorter
+      }
+      const units = Math.max(1, Math.floor(Math.min(sourceWidth / 18, sourceHeight / 32)))
+      outputWidth = 18 * units
+      outputHeight = 32 * units
+    }
+    if (this.#canvas.width !== outputWidth) this.#canvas.width = outputWidth
+    if (this.#canvas.height !== outputHeight) this.#canvas.height = outputHeight
+    this.#canvasCtx.drawImage(this.#stage, x, y, sourceWidth, sourceHeight, 0, 0, outputWidth, outputHeight)
     if (this.#generator && !this.#sendsCameraDirectly()) this.#writeCanvas()
     return true
   }
@@ -771,7 +798,7 @@ export class CameraPipeline {
    *  asked of the picture. Read for every frame at the moment it is
    *  written, so changing either setting takes effect on the next one. */
   #sendsCameraDirectly(): boolean {
-    return this.#running && this.#effect.mode === 'off' && this.#facePrivacy.mode === 'off'
+    return this.#running && !this.#portrait && this.#effect.mode === 'off' && this.#facePrivacy.mode === 'off'
   }
 
   /** Read the camera's own frames for the generator, for as long as `track`

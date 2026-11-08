@@ -46,18 +46,17 @@ export function ringBannerSeconds(since: number, now: number): number {
 /**
  * Turns the room's repeated presence snapshots into one incoming-call edge.
  * A recipient's device rings once per call id, stops when that device joins
- * or the call ends, and never rings for a call started by another device of
- * the same person, nor for a new call within `QUIET_AFTER_CALL_MS` of this
- * device being on one.
+ * or the call ends. Other devices of the caller ring too; only this device
+ * joining or having just left a call keeps it quiet.
  */
 export class IncomingCallTracker {
   #seen = new Set<string>()
   #ringing: string | undefined
   #lastOnAt: number | undefined
 
-  update(call: IncomingCall | undefined, self: string | undefined, joined: boolean, now = Date.now()): IncomingCallChange | undefined {
+  update(call: IncomingCall | undefined, joined: boolean, now = Date.now()): IncomingCallChange | undefined {
     if (joined) this.#lastOnAt = now
-    if (!call || joined || call.caller === self) {
+    if (!call || joined) {
       if (call) this.#seen.add(call.id)
       if (this.#ringing === undefined) return undefined
       this.#ringing = undefined

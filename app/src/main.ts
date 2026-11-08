@@ -6157,7 +6157,7 @@ function renderCallState(views: ParticipantView[]): void {
     .filter(view => view.call?.id === current.id)
     .sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0) || a.participant.localeCompare(b.participant))[0]
   const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
-  const callChange = incomingCallTracker.update(incoming, mediaMe() || currentParticipant(), mineOn)
+  const callChange = incomingCallTracker.update(incoming, mineOn)
   if (callChange && callChange.type !== 'stop') {
     logCall('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
   }
@@ -6999,6 +6999,7 @@ async function toggleCamera(): Promise<void> {
   } else {
     const { CameraPipeline: CameraPipelineCtor } = await import('./video-pipeline.js')
     const pipeline = new CameraPipelineCtor({
+      portrait: import.meta.env.VITE_DESKTOP !== 'true',
       mode: savedEffectMode,
       facePrivacy: savedFacePrivacyMode,
       onFacePrivacyChange: state => { if (generation === callGeneration) renderFacePrivacyState(state) },

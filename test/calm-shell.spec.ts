@@ -1204,6 +1204,64 @@ async function ringSetup(browser: Browser, baseURL: string, beforeCall?: (ada: P
   return { keeper, ada, priya, close: async () => { await ada.context.close(); await priya.context.close(); await keeper.leave() } }
 }
 
+test('a resting call gallery leaves the room controls and composer inside the browser window', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name === 'chromium-desktop', 'Desktop bounds and collapses its resting gallery separately')
+  const { ada, close } = await ringSetup(browser, baseURL!)
+  const page = ada.page
+  try {
+    await expect(page.locator('#ringBanner')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'resting')
+    await expect(page.locator('#whoIsHere')).toBeVisible()
+    for (const size of [{ width: 1728, height: 927 }, { width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+      await page.setViewportSize(size)
+      for (const selector of ['#roomIdentity', '#callToggle', '#chatInput', '#chatForm button[type="submit"]']) {
+        await expect(page.locator(selector), selector).toBeInViewport({ ratio: 1 })
+      }
+      await expect.poll(async () => (await box(page, '#chatViewport')).height).toBeGreaterThanOrEqual(160)
+    }
+  } finally { await close() }
+})
+
+test('starting a call rings the same account on its other devices once and leaves the caller quiet', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const keeper = await RoomAgent.create({ base: baseURL!, roomName: 'My devices', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
+  const contexts: BrowserContext[] = []
+  const pages: Page[] = []
+  try {
+    for (let n = 0; n < 3; n++) {
+      const context = await accountDevice(browser, baseURL!, secret)
+      contexts.push(context)
+      const page = await context.newPage(); pages.push(page)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await signInAccount(page, baseURL!)
+      await page.goto('about:blank'); await page.goto(keeper.url)
+      await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
+      await page.locator('#join').click()
+      await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    }
+    const [caller, answered, declined] = pages as [Page, Page, Page]
+    await caller.locator('#callToggle').click()
+    await expect(caller.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    await expect(caller.locator('#ringBanner')).toBeHidden()
+    for (const page of [answered, declined]) await expect(page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    await declined.locator('#ringDecline').click()
+    await expect(declined.locator('#ringBanner')).toBeHidden()
+    await expect(declined.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call')
+    await answered.locator('#ringAnswer').click()
+    await expect(answered.locator('#ringBanner')).toBeHidden()
+    await expect(answered.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    await expect(answered.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+    await expect(answered.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+    // A fresh roster from the joined device must not re-ring the declined
+    // device, nor the caller or the device that has just answered.
+    await answered.locator('#toggleMic').click()
+    await expect(declined.locator('#ringBanner')).toBeHidden()
+    await expect(caller.locator('#ringBanner')).toBeHidden()
+    await expect(answered.locator('#ringBanner')).toBeHidden()
+  } finally { await Promise.all(contexts.map(context => context.close())); await keeper.leave() }
+})
+
 test('a call started in the open room rings as a banner over everything: focus on Answer, Escape declines and nothing is sent', async ({ browser, baseURL }) => {
   const { ada, priya, close } = await ringSetup(browser, baseURL!)
   try {

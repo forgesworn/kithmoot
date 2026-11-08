@@ -6,6 +6,33 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.139 and desktop 0.1.134, 8 November 2026
+
+The signed candidates ring other devices signed into the caller's account;
+the joined device stays quiet. Android also follows the room's ring choice
+while its room is open, with Answer and Decline stopping the platform ring.
+Notification choices, expiry and the recent-call cooldown remain in force.
+
+Web cameras publish a centre-cropped 9:16 picture after effects and privacy
+processing, including with effects off. The browser's resting gallery is
+bounded so that room controls and the composer stay in the window. Portrait
+self-views retain a readable width. Desktop camera geometry and screen shares
+keep their existing behaviour.
+
+The [qualification record](evidence/call-ringing-portrait-20261108.json) identifies
+the six desktop packages, production APK, source revisions, signature and
+local/browser checks. Mac passed notarisation, stapling, Gatekeeper and the
+packaged smoke check. Android passed debug/release tests, lints, packaging and
+16 KiB ZIP alignment with the existing production certificate and lineage.
+Physical same-account ringing and a two-person call over the actual VPNs
+remain field checks; public TURN stays enabled until that media proof passes.
+
+Server cleanup removed 160 old site copies and retained 18 rollback releases:
+the newest six plus daily points over the preceding fortnight. Retained files
+were re-hashed and published installers were preserved. It reclaimed
+10,037,100,544 bytes. Published installer history is separate from site-copy
+retention; do not prune APK/desktop downloads when pruning site releases.
+
 ## Android 0.6.136 and desktop 0.1.132, 6 November 2026
 
 Android 0.6.136 (159) and desktop 0.1.132 are published on GitHub and both
