@@ -1,10 +1,11 @@
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
+import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, forgetNodeRoom, adoptExistingNodeDeviceKey, type BrowserNodeRoom } from './node-rooms.js'
+import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, adoptExistingNodeDeviceKey, type BrowserNodeRoom } from './node-rooms.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
@@ -5226,6 +5227,20 @@ function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
 function clearExistingSource(source: ExistingBrowserRoom): void {
   source.secret.fill(0); source.deviceSk.fill(0); source.authoritySk?.fill(0)
 }
+async function backfillExistingNodeHistory(s: RoomSession, state: BrowserNodeRoom, current: () => boolean): Promise<void> {
+  // Quiet archives contain the inner events. Keep those local until their
+  // original sealed carriers can be recovered; never publish them bare.
+  if (isQuietPolicy(roomPolicy)) return
+  const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...channels])
+  const logs = [s.chat, ...[...names].map(name => s.channel(name))]
+  const snapshots = await Promise.all(logs.map(log => log.retainedHistory()))
+  const accepted = new Set(snapshots.flatMap(snapshot => snapshot.entries.map(entry => entry.event.id)))
+  const target = nodeRoomTransport(state.node, localIdentity(state.deviceSk), 'room', { allowed: current })
+  try {
+    await copyNodeMigrationHistory({ snapshots, target: nodeMigrationHistoryTarget(state.node, s.device, target),
+      accept: event => accepted.has(event.id), now: nowSeconds, current })
+  } finally { target.close() }
+}
 async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom): Promise<void> {
   if (session !== s || nodeRoom || state.node.room !== s.roomId) return
   if (callWanted || leavingCall || joining) {
@@ -5234,6 +5249,16 @@ async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom):
     return
   }
   const generation = roomGeneration, participant = currentParticipant()
+  const epoch = s.epoch
+  const current = () => session === s && roomGeneration === generation && !nodeRoom && currentParticipant() === participant && s.epoch === epoch
+  await backfillExistingNodeHistory(s, state, current)
+  if (!current()) return
+  if (callWanted || leavingCall || joining) {
+    pendingExistingNodeActivation = { source: s, state }
+    return
+  }
+  if (state.source) state.source.activated = true
+  storeNodeRoom(deviceStore, state, nowSeconds())
   await closeRoomSession({ preservePrivate: true })
   if (roomGeneration !== generation + 1 || session || currentParticipant() !== participant || currentRoomId() !== state.node.room) return
   pendingExistingNodeActivation = undefined
@@ -5273,14 +5298,14 @@ async function followExistingNodeDestination(s: RoomSession): Promise<void> {
       }
     }
     let state: BrowserNodeRoom
-    if (grant) state = acceptExistingBrowserNodeRoom(deviceStore, node, source, grant, nowSeconds())
+    if (grant) state = acceptExistingBrowserNodeRoom(deviceStore, node, source, grant, nowSeconds(), false)
     else {
       // Keep this room's device identity when an offline device asks its
       // original keeper for a new grant at the announced destination.
       adoptExistingNodeDeviceKey(deviceStore, node, source.participant, source.deviceSk)
       const answer = await askBrowserNodeRoom(deviceStore, node, currentIdentity(), { allowed: current, name: joiningName() ?? 'Guest' })
       if (!current()) return
-      state = acceptExistingBrowserNodeRoom(deviceStore, node, source, answer.grant!, nowSeconds())
+      state = acceptExistingBrowserNodeRoom(deviceStore, node, source, answer.grant!, nowSeconds(), false)
     }
     if (current()) await activateExistingNodeRoom(s, state)
   } catch (error) {
@@ -5308,13 +5333,15 @@ $('moveRoomToNode').addEventListener('click', async () => {
     const current = () => session === s && !nodeRoom && nostrSession?.signer === owner && s.epoch === source!.epoch
     setStatus(`Preparing ${new URL(pair.origin).hostname} for this room…`, 'progress')
     const prepared = await prepareExistingBrowserNodeRoom(deviceStore, pair, owner, source, { allowed: current })
+    setStatus('Copying this device’s retained room history to your node…', 'progress')
+    await backfillExistingNodeHistory(s, prepared.state, current)
     const control = s.channel(CONTROL_CHANNEL)
     let announcement: string[]
     try { announcement = [encodeControl({ op: 'node', event: prepared.state.node.event })] }
     catch { announcement = encodeNodeMigrationFrames(prepared.state.node.event).map(encodeControl) }
     for (const message of announcement) { if (!current()) throw Error('The room or account changed'); await control.send(message) }
     if (!current()) return
-    const state = acceptExistingBrowserNodeRoom(deviceStore, prepared.state.node, source, prepared.state.grant!, nowSeconds())
+    const state = acceptExistingBrowserNodeRoom(deviceStore, prepared.state.node, source, prepared.state.grant!, nowSeconds(), false)
     await activateExistingNodeRoom(s, state)
   } catch (error) { if (session === s) setStatus(`This device has not moved yet: ${describeError(error)}`) }
   finally { if (source) clearExistingSource(source); movingExistingRoom = false; if (currentRoomId()) renderRoomInfo(); if (session === s && !nodeRoom) void followExistingNodeDestination(s) }

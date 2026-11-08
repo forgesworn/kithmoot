@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-08",
+  "scope": "Ordinary existing-room retained history and independent browser cutover; actual private native relay, synthetic accounts, chat-only credential issuer",
+  "concurrentSourceSessions": 4,
+  "sameAccountDevices": 3,
+  "freshProfileReadsPreMoveMessagesOnlyFromNode": true,
+  "originalDeviceKeysPreserved": true,
+  "originalRoomIdPreserved": true,
+  "filesSettingPreserved": true,
+  "keeperOfflineOriginalBookmarkRejoin": true,
+  "browserAcceptanceSeconds": 22.7,
+  "focusedUnitFiles": 5,
+  "focusedUnitTestsPassed": 106,
+  "typecheckPassed": true,
+  "failedAttempt": "The fresh profile initially navigated within the same document and never opened its node admission dialog. The fixture now uses the existing forced-reload room-navigation helper. The first timed-out trace is retained privately.",
+  "privateLogs": [
+    "/private/tmp/kithmoot-node-browser-history-20261108.log",
+    "/private/tmp/kithmoot-node-browser-history-retry-20261108.log",
+    "/private/tmp/kithmoot-node-history-final-unit-20261108.log",
+    "/private/tmp/kithmoot-node-history-final-typecheck-20261108.log"
+  ],
+  "limits": [
+    "This is browser chat acceptance, not native Android or Electron runtime acceptance.",
+    "The history proof covers retained ordinary-room originals, not events forgotten by every source.",
+    "Quiet-room history stays local pending original sealed-carrier recovery.",
+    "No public TURN or actual peer media acceptance is established."
+  ]
+}

@@ -1041,6 +1041,25 @@ export class ChatLog {
     return this.#stream
   }
 
+  /** Recheck the complete retained archive, including messages outside the
+   * visible page. Quiet provenance stays attached to the original event. */
+  async retainedHistory(): Promise<import('./archive.js').RetainedArchiveSnapshot> {
+    if (this.#closed || !this.#opts.archive?.migrationSnapshot) throw Error('The retained history cannot be read completely')
+    const epoch = this.#epoch
+    const streams = this.streams().map(stream => ({ kind: KINDS.CHAT, d: stream.d }))
+    const snapshot = await this.#opts.archive.migrationSnapshot(streams)
+    if (this.#closed || this.#epoch !== epoch) throw Error('The room changed while reading retained history')
+    for (const { event } of snapshot.entries) {
+      const d = event.tags.find(tag => tag[0] === 'd')?.[1]?.toLowerCase()
+      const past = d === this.#stream ? undefined : d === undefined ? undefined : this.#past.get(d)
+      const root = past ? past.root : epoch
+      const message = decodeChatEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey,
+        now: this.#now(), policy: this.#opts.policy, channel: this.#opts.channel, ...(root ? { epoch: root } : {}) })
+      if (!streams.some(stream => stream.d === d) || !message) throw Error('An event in the retained history does not belong to this conversation')
+    }
+    return snapshot
+  }
+
   #streamOf(epoch: EpochRoot | undefined): string {
     const root = rootOf({ roomId: this.#opts.roomId, roomKey: this.#opts.roomKey, epoch })
     return deriveChannel(root.id, root.key, this.#opts.channel).id

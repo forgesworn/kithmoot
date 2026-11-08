@@ -80,12 +80,12 @@ export async function prepareExistingBrowserNodeRoom(store: DeviceStore, pair: P
 /** Only a matching signed destination and this exact device's live grant may
  * activate the node route. Original identity, keys, policy and local history
  * stay in their existing stores. */
-export function acceptExistingBrowserNodeRoom(store: DeviceStore, record: NodeRoomRecord, source: ExistingBrowserRoom, grant: Event, now: number): BrowserNodeRoom {
+export function acceptExistingBrowserNodeRoom(store: DeviceStore, record: NodeRoomRecord, source: ExistingBrowserRoom, grant: Event, now: number, activated = true): BrowserNodeRoom {
   if (!matchesExistingBrowserRoom(record, source) || !verifyNodeRoomGrant(grant, record, getPublicKey(source.deviceSk), now)) throw Error('This node destination is not authorised for the existing room')
   adoptExistingNodeDeviceKey(store, record, source.participant, source.deviceSk)
   const state: BrowserNodeRoom = { node: record, participant: source.participant, secret: source.secret.slice(), deviceSk: source.deviceSk.slice(),
     ...(source.authoritySk && getPublicKey(source.authoritySk) === record.authority ? { authoritySk: source.authoritySk.slice() } : {}),
-    grant, phase: 'active', epochHint: source.epoch, startsAt: source.startsAt, name: source.name, source: { link: source.link, activated: true } }
+    grant, phase: 'active', epochHint: source.epoch, startsAt: source.startsAt, name: source.name, source: { link: source.link, activated } }
   storeNodeRoom(store, state, now)
   return state
 }

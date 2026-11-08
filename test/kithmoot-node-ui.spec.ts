@@ -517,6 +517,15 @@ test('three concurrent account devices and a peer move an existing room onto its
       expect(auth.length).toBeGreaterThan(0)
       expect(auth.every(event => event.tags.some(tag => tag[0] === 'mode' && tag[1] === 'room'))).toBe(true)
     }
+    // A fresh profile has no local archive or public room link. Its copy of
+    // the pre-move conversation must come from the private node itself.
+    const fresh = await device(generateSecretKey())
+    await openRoomUrl(fresh, await keeper.locator('#shareUrl').inputValue())
+    await fresh.locator('#actionConfirm').click()
+    await expect(keeper.locator('.approvalCard.knock')).toBeVisible()
+    await keeper.locator('.approvalCard.knock').getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(fresh.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    for (let i = 0; i < pages.length; i++) await expect(fresh.locator('#chatLog')).toContainText(`Before move from device ${i}`)
     await keeper.context().close()
     await openRoomUrl(pages[2]!, originalLink); await join(pages[2]!)
     await expect(pages[2]!.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
