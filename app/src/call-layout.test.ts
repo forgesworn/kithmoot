@@ -92,6 +92,20 @@ describe('layoutCall', () => {
     expect(landscape.width).toBeGreaterThan(landscape.height)
   })
 
+  test('a portrait self-view keeps a readable width and fits inside the other portrait camera', () => {
+    const input = { width: 1000, height: 700, view: 'gallery' as const, people: ['me', 'phone'], self: 'me', shares: [], portraitCameras: new Map([['phone', 9 / 16], ['me', 9 / 16]]) }
+    for (const selfCorner of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
+      const out = layoutCall({ ...input, selfCorner })
+      const main = out.people.get('phone')!, self = out.people.get('me')!
+      expect(self.width).toBeGreaterThanOrEqual(MIN_TILE_WIDTH)
+      expect(Math.abs(self.width / self.height - 9 / 16)).toBeLessThan(0.01)
+      expect(self.x).toBeGreaterThanOrEqual(main.x)
+      expect(self.y).toBeGreaterThanOrEqual(main.y)
+      expect(self.x + self.width).toBeLessThanOrEqual(main.x + main.width)
+      expect(self.y + self.height).toBeLessThanOrEqual(main.y + main.height)
+    }
+  })
+
   test('portrait tiles fit their gallery and strip slots without moving anybody else', () => {
     for (const view of ['gallery', 'speaker', 'share'] as const) {
       const input = { ...room, view, people: ['me', 'phone', 'friend'], self: 'me', featured: 'friend', shares: [{ id: 'screen' }] }

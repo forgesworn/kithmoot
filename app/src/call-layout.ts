@@ -225,9 +225,14 @@ export function layoutCall(input: LayoutInput): LayoutResult {
     const roomAspect = area.height > 0 ? area.width / area.height : TILE_ASPECT
     const main = cameraRect(other, area, Math.min(TILE_ASPECT, Math.max(SOLO_MIN_ASPECT, roomAspect)))
     people.set(other, main)
-    const width = Math.max(0, Math.min(main.width - 32, Math.max(STRIP_MIN_WIDTH, Math.min(280, Math.round(main.width * 0.22)))))
-    const height = Math.round(width / TILE_ASPECT)
-    people.set(input.self!, cameraRect(input.self!, cornerRect(main, input.selfCorner ?? 'bottom-right', width, height, 16)))
+    const selfAspect = input.portraitCameras?.get(input.self!)
+    const portrait = selfAspect !== undefined && Number.isFinite(selfAspect) && selfAspect > 0 && selfAspect < 1
+    const aspect = portrait ? selfAspect : TILE_ASPECT
+    // Size the floating tile in its camera's shape. Fitting a portrait
+    // inside the old 160x90 landscape slot made it only 50px wide.
+    const width = Math.max(0, Math.min(main.width - 32, portrait ? Math.max(0, main.height - 32) * aspect : Infinity, Math.max(STRIP_MIN_WIDTH, Math.min(280, Math.round(main.width * 0.22)))))
+    const height = Math.round(width / aspect)
+    people.set(input.self!, cornerRect(main, input.selfCorner ?? 'bottom-right', width, height, 16))
     result.floating = input.self
     result.featured = other
     return result

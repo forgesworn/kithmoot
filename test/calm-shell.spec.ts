@@ -1204,7 +1204,8 @@ async function ringSetup(browser: Browser, baseURL: string, beforeCall?: (ada: P
   return { keeper, ada, priya, close: async () => { await ada.context.close(); await priya.context.close(); await keeper.leave() } }
 }
 
-test('a resting call gallery leaves the room controls and composer inside the browser window', async ({ browser, baseURL }) => {
+test('a resting call gallery leaves the room controls and composer inside the browser window', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name === 'chromium-desktop', 'Desktop bounds and collapses its resting gallery separately')
   const { ada, close } = await ringSetup(browser, baseURL!)
   const page = ada.page
   try {
