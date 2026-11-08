@@ -14,18 +14,18 @@ TURN closure has run. The clipboard fix is separately held in Archy draft PR54.
   readers refuse the distinct profile. No new node file-storage service.
 - The root authority chooses one paired node. Account pairing alone cannot
   change a room and a delegated inviter cannot authorise its migration.
-- Prepare before cutover. Every currently connected endpoint (device and
-  session id, including the three client kinds) must freeze source writes,
-  obtain an acknowledged node grant, copy eligible original encrypted events
-  unchanged and acknowledge readiness. New/unsupported endpoints block commit.
-- A signed commit binds that exact preparation and every required endpoint's
-  signed readiness. Missing acknowledgements, refusals, expiry, cancellation,
-  account changes and incomplete history never mean success.
-- Before readiness, cancellation restores source writes. After readiness,
-  an uncertain client stays fenced until a verified shared decision; a signed
-  abort and reconciliation path is still required. After commit, room
-  traffic uses only the pinned node; outage must not route it to public
-  relays, public STUN/TURN or peer forwarding. Keep rollback explicit.
+- Owner steering later on 8 November prioritises moving rooms first and
+  resolving issues afterwards. Provision the destination and current device
+  grants, publish the root-signed destination through encrypted source control,
+  and let updated desktop, Android and web devices follow independently.
+  An offline client does not block the other devices. Defer a device's route
+  change until its active call ends. Keep its source recovery material.
+- The optional prepare/ready/commit coordinator remains available as a tested
+  foundation; it is not a prerequisite for this cutover. Never treat missing
+  delivery acknowledgements as proof that another device moved successfully.
+- A selected node route remains pinned: node outage must not silently send its
+  traffic through public relays or public STUN/TURN. Public TURN stays available
+  to rooms and clients that have not moved until real mixed-client calls pass.
 - Preserve archives and queued messages. Do not re-sign, extend expiry or
   publish quiet-room events as bare events. Backfill reports bounds and any
   missing data rather than claiming complete history from an empty read.
@@ -51,17 +51,25 @@ history and file metadata preserved; two-minute bidirectional media using
 Archy; TURN-renewal and reconnect tests with other clients still connected.
 Physical GrapheneOS and owner accounts remain distinct acceptance evidence.
 
-Affected UI will include room hosting/migration and node settings. Prepare
-exact builds, steps and captures for every material revision. Maintainer must
-review and approve UI work on the existing-room node migration and node
-settings screens before merging or approval. ZAT pending.
+The standalone KithMoot room migration controls need client review and test
+captures. They do not change Archipelago screens. The separate Archy dashboard
+clipboard change remains subject to its existing review pack: Maintainer must
+review and approve UI work on Archy KithMoot node Settings before merging or
+approval. ZAT pending. A backend-only private image upgrade must preserve the
+running controller and dashboard bytes exactly.
 
 ## Implementation status
 
 Protocol, relay and client transition foundations are under development. No
-client UI or automatic room migration is enabled. The transition engine,
-strict archive snapshot, original-history copy/readback, encrypted fragments
-and source publication fence have local tests. Source room policy, bearer
-admission, quiet carriers, full app wiring and signed cancellation/recovery
-must be finished before the feature is enabled. An expired preparation or a
-missing acknowledgement must never silently reopen an uncertain source route.
+client UI or automatic room migration is enabled yet. Original policy is signed
+in the destination and reproduced by TypeScript/Kotlin shared vectors. Browser
+staging preserves the original device key, room identity and recovery link,
+seeds original membership and grants current devices before activation. Full
+browser/desktop and Android runtime wiring, quiet carrier history, offline
+catch-up and real mixed-client media acceptance remain outstanding.
+
+The private Linux relay was built on Archy from Bothy 93dabf4 with locked,
+offline vendored dependencies and Rust 1.94.1, one job, release LTO disabled to
+bound RAM. This is a private engineering candidate, with no new throughput
+claim. The node ledger upgrades to schema 2 and Bothy's store to schema 4;
+rollback requires the stopped state-volume backup as well as the old image.

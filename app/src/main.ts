@@ -3,7 +3,7 @@ import { NodeSettings } from './node-settings.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
 import { loadPairedNode, loadNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
-import { nodeRoomTransport } from '../../src/kithmoot-node.js'
+import { nodeRoomTransport, nodeQuietRoomTransport } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
 import { retireAccountNetworkRooms, accountNetworkRoomOpening } from './account-network-rooms.js'
@@ -5190,9 +5190,11 @@ let startedHere = false
 
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
-  nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = true
-  roomStartsAt = held.startsAt; roomName = held.name; roomPolicy = undefined; roomInvitationCapability = undefined
-  invitationAuthoritySk = held.authoritySk; invitationDelegation = []; admittedRoom = undefined; expectedEpoch = held.epochHint
+  nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = held.node.existing?.destruct ?? true
+  roomStartsAt = held.startsAt; roomName = held.name
+  if (held.node.existing) roomPolicy = held.node.existing.policy
+  else { roomPolicy = undefined; roomInvitationCapability = undefined; invitationDelegation = []; admittedRoom = undefined }
+  invitationAuthoritySk = held.authoritySk; expectedEpoch = held.epochHint
   startedHere = !!held.authoritySk; roomRelayScope = `room:${held.node.room}`
   relays = [held.node.relay]; roomRelayConfig = [{ url: held.node.relay, read: true, write: true }]; roomRelayHints = []
   iceUrls = []; roomUsesBothy = false
@@ -14482,7 +14484,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     const kept = loadKeptRoomEpoch(deviceStore, sessionRoomId)
     const keptEpoch = kept ? { epoch: kept.epoch, pastEpochs: kept.past } : {}
     quietTransport = isQuietPolicy(roomPolicy)
-      ? quietRoomTransport(pool, {
+      ? (roomNode ? (inner: RelayTransport, options: Parameters<typeof quietRoomTransport>[1]) => nodeQuietRoomTransport(roomNode.node, localIdentity(roomNode.deviceSk), inner, options) : quietRoomTransport)(pool, {
           policy: roomPolicy!,
           participant: credential ? credential.pubkey : currentIdentity().pubkey,
           slot: credential ? 1 : 0,

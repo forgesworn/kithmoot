@@ -17,7 +17,7 @@ import { createDeviceCredential } from './credential.js'
 import { encodeRosterEvent } from './roster.js'
 import { SimRelay } from '../test/sim-relay.js'
 import { enrolNodeRoom, nodeTurnCredentials, queryNodeAccess, postNodeGrant, parseKithmootNodePairingLink, claimKithmootNode, nodeRoomTransport,
-  nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
+  nodeQuietRoomTransport, nodeCallFactory, nodeKeeperInbox, queryKithmootNodeStatus, assertNodeRoomTransport, assertNodeCallFactory, type NodeDeviceAccess } from './kithmoot-node.js'
 
 const NOW = 1_900_000_000
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
@@ -996,4 +996,21 @@ it('refuses room enrolment when its signed port profile differs from the paired 
   expect(fetcher).not.toHaveBeenCalled()
   await enrolNodeRoom({ ...pair, turnPorts: f.node.turnPorts }, f.node, f.identity, { fetcher, now: () => NOW })
   expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+
+it('keeps quiet existing-room carriers bound to their authenticated node and refuses a public wrapper', () => {
+  const f = fixture(), participant = getPublicKey(generateSecretKey())
+  const policy = { tier: 'open' as const, members: [participant], quiet: true }
+  const node = readNodeRoom(signNodeRoom({ authoritySk: f.authority, room: f.room, origin: f.node.origin,
+    serviceKey: f.node.serviceKey, existing: { destruct: false, policy }, now: NOW }), NOW)!
+  const base = nodeRoomTransport(node, f.identity, 'room', { now: () => NOW })
+  const options = { policy, participant, slot: 0, now: () => NOW, schedule: () => () => {} }
+  const quiet = nodeQuietRoomTransport(node, f.identity, base, options)
+  try {
+    expect(() => assertNodeRoomTransport(quiet, node, f.identity.pubkey)).not.toThrow()
+    expect(() => nodeQuietRoomTransport(node, f.identity, { publish: async () => {}, subscribe: () => () => {}, close: () => {} }, options)).toThrow('pinned, authenticated')
+    expect(() => nodeQuietRoomTransport(node, f.identity, base, { ...options, policy: { ...policy, members: [] } })).toThrow()
+    expect(() => assertNodeRoomTransport(quiet, node, participant)).toThrow()
+  } finally { quiet.close() }
 })

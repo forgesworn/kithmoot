@@ -1,3 +1,4 @@
+import { quietRoomTransport, type QuietRoomOptions, type QuietRoomTransport } from './quiet.js'
 import { base64urlnopad } from '@scure/base'
 import { randomBytes } from '@noble/hashes/utils'
 import { readNodeRoom, readNodeTurnPorts, recoverNodeClosure, readNodeCloseReceipt, readNodeOperationReceipt, verifyNodeRoomGrant,
@@ -207,6 +208,17 @@ const transports = new WeakMap<RelayTransport, string>()
 const factories = new WeakMap<PeerFactory, string>()
 export function assertNodeRoomTransport(transport: RelayTransport, node: NodeRoomRecord, device: string): void {
   if (transports.get(transport) !== `${node.event.id}:${device}`) throw new Error('A node room needs its pinned, authenticated relay transport.')
+}
+/** A quiet existing room keeps its sealed carriers on the same authenticated
+ * node partition. Construct the wrapper here so a public transport cannot be
+ * mistaken for an authorised node connection. */
+export function nodeQuietRoomTransport(record: NodeRoomRecord, identity: ParticipantIdentity, base: RelayTransport, options: QuietRoomOptions): QuietRoomTransport {
+  const node = pinned(record, (options.now ?? (() => Math.floor(Date.now() / 1000)))())
+  if (!node.existing?.policy?.quiet || JSON.stringify(node.existing.policy) !== JSON.stringify(options.policy)) return invalid()
+  assertNodeRoomTransport(base, node, identity.pubkey)
+  const quiet = quietRoomTransport(base, options)
+  transports.set(quiet, `${node.event.id}:${identity.pubkey}`)
+  return quiet
 }
 export function assertNodeCallFactory(factory: PeerFactory, node: NodeRoomRecord, device: string): void {
   if (factories.get(factory) !== `${node.event.id}:${device}`) throw new Error('A node room needs its relay-only call factory.')
