@@ -23,6 +23,11 @@ STUN listener stay open. Sections 1 to 6 are kept as written; where they
 say a surface whose later history changed is open or closed, the later
 sections govern.
 
+Updated 8 November 2026 at 23:40:31 UTC: the public STUN/TURN service and
+credential issuer closed again at the owner’s request (section 10). This latest
+entry governs the current call-relay position; earlier dated entries remain
+historical. Archy’s private relays and the shared TLS/RTMPS router were preserved.
+
 ## 1. What ForgeSworn ran
 
 From 24 August 2026 ForgeSworn ran default infrastructure on
@@ -295,3 +300,44 @@ terms pages distinguish them. Sections 7 and 8 remain dated records of the
 reopening and relay closure, rather than a current-web STUN inventory. The
 law note is still the one verified 28 September 2026; no new legal conclusion
 is made here.
+
+
+## 10. 8 November 2026: public STUN/TURN switched off
+
+At 23:40:31 UTC, the owner explicitly requested immediate shutdown after being
+informed that a successful two-person call with the intended other participant had not yet been proved.
+This supersedes the plan’s earlier requirement to wait for that call before
+closure; it does not turn an incomplete call test into a pass.
+
+| Surface | Verified state after closure |
+| --- | --- |
+| Public credential issuer | `turn-credentials.service` stopped and disabled. The Caddy `/turn` proxy was removed; both public website hosts return 404 and issue no login |
+| Public STUN/TURN | `docker compose down` removed `kithmoot-coturn`. Outside STUN probes no longer receive a response over UDP/TCP 3478, TLS 5349 or the TLS 443 TURN route |
+| Certificate copying | `kithmoot-turn-certs.timer` stopped and disabled. Certificates, secrets, compose configuration and the original Caddy vhost were retained for rollback |
+| Shared 443 router | `/etc/caddy/Caddyfile` has the same SHA-256 before and after. Its TURN route remains configured but has no coturn upstream. The external `ingest.forgesworn.dev:443` TLS/RTMP handshake succeeds; no stream was published for this check |
+| Web app | Both public hosts still serve the repaired desktop135-era web entry and their existing downloads |
+| Archy | Private Spry on 3478 and private node TURN on 34790 still answer STUN over both UDP and TCP. This is reachability evidence, not a real media acceptance test |
+
+Evidence: [`public-turn-closure-20261108.json`](../evidence/public-turn-closure-20261108.json).
+The public privacy, terms and report pages were updated with this change.
+
+**Client effect.** Installed desktop, Android and web builds can still request
+`/turn`; failure falls back according to each build’s device and room settings.
+The current web fallback includes Cloudflare STUN. This does not create a private
+relay for every user. A call without a direct path needs an available relay,
+including when Hide my IP is on. People without one can lose calls. A real call
+with the intended other participant, with both VPNs and two-way audio/video, remains unproved.
+
+**Rollback.** On the operator’s box, run `docker compose up -d` in
+`/opt/kithmoot-coturn`, re-enable `kithmoot-turn-certs.timer`, restore the saved
+Caddy vhost’s `/turn` block, and start and enable `turn-credentials.service`.
+Validate the complete Caddy configuration and reload it. Then verify from outside
+that `/turn` issues a login and STUN answers. The protected backup is named
+`kithmoot-public-turn-closure-20261108T233934Z` under root’s home; no secrets are
+published in this record. Keep the shared 443 router unchanged during rollback.
+
+**Scope of this update.** It records the observed shutdown, not a new legal
+classification. The underlying law note remains verified 28 September 2026, with
+the dated additions already cited above. Closing this facility does not settle
+any duties from its earlier operation, the closed Nostr relay or a separately
+operated private deployment. No assessment exemption or deadline reset is claimed.

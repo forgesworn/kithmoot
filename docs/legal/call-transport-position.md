@@ -18,7 +18,30 @@ to release the relay to everyone, off by default. The section "1 November
 2026: the relay closed again; the default-relay divergence settled" was
 written against this branch, the operator's relay position note as corrected
 on 2 November 2026, and the decision record of that date; where it and any
-older section disagree, it governs.
+older section disagree, the latest dated update governs.
+
+## 8 November 2026: public call relay closed
+
+The public coturn STUN/TURN service and anonymous `/turn` credential issuer
+closed at 23:40:31 UTC at the owner’s explicit request. This entry supersedes
+older statements that those services remain open. The closure record’s
+[section 10](closure-record.md#10-8-november-2026-public-stunturn-switched-off)
+and [outside readbacks](../evidence/public-turn-closure-20261108.json) record
+the stopped/disabled units, removed container and 404 credential endpoint.
+
+The shared port 443 router was left byte-for-byte unchanged, with an external
+TLS/RTMP ingest handshake still succeeding. Archy’s separate private Spry and
+node relay listeners still answer STUN over UDP/TCP. No real call with the intended other participant
+was proved before shutdown; this is an outstanding media/VPN acceptance test.
+
+Public clients still contain the issuer request and can receive 404. Ordinary
+calls need a direct route or a reachable device/member/room relay; Hide my IP
+requires a permitted relay. This is not a general migration of public users to
+Archy. Private node rooms retain their own operator’s transport and admission.
+No room-content key holder or Nostr-relay access policy changes in this shutdown.
+
+This is a factual update against the existing law note, verified 28 September 2026;
+it makes no new legal classification or claim about historical duties.
 
 ## 3 November 2026: private hosted-node candidate
 

@@ -1,0 +1,105 @@
+{
+  "closedAt": "2026-11-08T23:40:31.297016+00:00",
+  "ownerRequestedImmediateShutdown": true,
+  "realTwoPersonCallProofBeforeShutdown": false,
+  "publicHost": "kithmoot.forgesworn.dev",
+  "publicAddress": "62.238.98.53",
+  "publicCoturnStopped": true,
+  "credentialServiceStoppedAndDisabled": true,
+  "certificateTimerStoppedAndDisabled": true,
+  "shared443RouterHashBeforeAndAfter": "549bea3b2c2784803db64c297baec881e3b5d34e3d61856d0dbff1925051f56f",
+  "rollbackConfigurationSecretsAndCertificatesRetained": true,
+  "outsideReadbacks": {
+    "stunProbes": [
+      {
+        "host": "62.238.98.53",
+        "port": 3478,
+        "transport": "udp",
+        "stunAnswered": false,
+        "errorType": "ConnectionRefusedError"
+      },
+      {
+        "host": "62.238.98.53",
+        "port": 3478,
+        "transport": "tcp",
+        "stunAnswered": false,
+        "errorType": "ConnectionRefusedError"
+      },
+      {
+        "host": "62.238.98.53",
+        "port": 5349,
+        "transport": "tls",
+        "stunAnswered": false,
+        "errorType": "ConnectionRefusedError"
+      },
+      {
+        "host": "62.238.98.53",
+        "port": 443,
+        "transport": "tls",
+        "stunAnswered": false,
+        "bytesReceived": 0
+      },
+      {
+        "host": "95.216.164.146",
+        "port": 3478,
+        "transport": "udp",
+        "stunAnswered": true,
+        "bytesReceived": 40
+      },
+      {
+        "host": "95.216.164.146",
+        "port": 3478,
+        "transport": "tcp",
+        "stunAnswered": true,
+        "bytesReceived": 40
+      },
+      {
+        "host": "95.216.164.146",
+        "port": 34790,
+        "transport": "udp",
+        "stunAnswered": true,
+        "bytesReceived": 40
+      },
+      {
+        "host": "95.216.164.146",
+        "port": 34790,
+        "transport": "tcp",
+        "stunAnswered": true,
+        "bytesReceived": 40
+      }
+    ],
+    "rtmps": {
+      "host": "ingest.forgesworn.dev",
+      "tlsAndRtmpHandshake": true,
+      "bytesReceived": 3073,
+      "streamPublished": false
+    }
+  },
+  "httpReadbacks": [
+    {
+      "url": "https://kithmoot.forgesworn.dev/turn",
+      "status": 404,
+      "issuesCredentials": false
+    },
+    {
+      "url": "https://kithmoot.forgesworn.dev/j/",
+      "webEntry": "index-BXQRNH42.js",
+      "webStillServed": true
+    },
+    {
+      "url": "https://kithmoot.app/turn",
+      "status": 404,
+      "issuesCredentials": false
+    },
+    {
+      "url": "https://kithmoot.app/j/",
+      "webEntry": "index-BXQRNH42.js",
+      "webStillServed": true
+    }
+  ],
+  "limits": [
+    "RTMPS TLS/RTMP handshake checked; no stream was published.",
+    "Archy STUN UDP/TCP responds; this is not an authenticated allocation or real two-person media proof.",
+    "Installed clients may still request /turn and receive404; client defaults were not changed by this shutdown."
+  ]
+}
