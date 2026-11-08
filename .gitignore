@@ -1,4 +1,5 @@
 node_modules/
+app/public/camera-vision/vision_wasm_*
 app/public/realtime/
 .DS_Store
 .claude/

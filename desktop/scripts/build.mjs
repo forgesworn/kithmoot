@@ -6,6 +6,7 @@ const run = (cmd, args, env = {}) => {
   const result = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } })
   if (result.status !== 0) process.exit(result.status ?? 1)
 }
+run(process.execPath, [resolve(root, 'scripts/prepare-camera-vision.mjs')])
 run('npm', ['run', 'build:context'])
 run('npm', ['run', 'artwork:check'])
 run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true' })

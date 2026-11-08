@@ -40,8 +40,13 @@ writeFileSync(scenePath, writeScene(640, 480, 12))
 
 // Nothing here waits on a relay, so the 180s in playwright.config.ts - which
 // exists for real relay weather - is three minutes of nothing when something
-// is wrong. No camera model is downloaded in this build.
+// is wrong. These cases deliberately fail the bundled model load to check
+// covered output. camera-effects-no-phone-home.spec.ts exercises real inference.
 test.setTimeout(90_000)
+
+test.beforeEach(async ({ page }) => {
+  await page.route('**/camera-vision/selfie_segmenter.tflite', route => route.abort())
+})
 
 test.use({
   launchOptions: {
@@ -278,7 +283,7 @@ async function settle(page: Page): Promise<void> {
   await expect(page.locator('#effectStatus')).not.toContainText('Loading', { timeout: 60_000 })
 }
 
-test('blur is on by default and genuinely blurs the room', async ({ page }) => {
+test('blur is on by default and covers the full picture when the model fails', async ({ page }) => {
   await openCamera(page)
   await settle(page)
   await expect(page.locator('#effectMode')).toHaveText('blur')
@@ -291,8 +296,9 @@ test('blur is on by default and genuinely blurs the room', async ({ page }) => {
   await expect(page.locator('#effectMode')).toHaveText('off')
   await page.waitForTimeout(1000)
   const raw = await measure(page)
-  // Chromium publishes the camera's own frames once nothing is asked of them.
-  await expect.poll(async () => (await routes(page)).directFrames).toBeGreaterThan(0)
+  // Web keeps its portrait crop even with effects Off; the desktop can use
+  // Chromium's direct-frame shortcut. Both count this as passthrough.
+  await expect.poll(async () => (await routes(page)).passthrough).toBeGreaterThan(0)
 
   // The room behind the person: an order of magnitude of detail should be
   // gone. Anything less than a halving would not be a blur anybody would
@@ -505,7 +511,7 @@ test('the sea moves, and a still picture does not', async ({ page }) => {
   await expect(page.locator('#fishRow')).toBeHidden()
 })
 
-test('the unavailable owned segmenter uses a full blur and says so outside the folded panel', async ({ page }) => {
+test('a failed bundled segmenter uses a full blur and says so outside the folded panel', async ({ page }) => {
   await openCamera(page)
   await settle(page)
 

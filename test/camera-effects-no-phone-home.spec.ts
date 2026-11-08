@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { build } from 'esbuild'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, expect, type Page, type Request } from '@playwright/test'
@@ -10,10 +11,8 @@ import { openNewRoomForm, openCallEffects, nameCreator } from './browser.js'
 /**
  * A camera effect must never phone home.
  *
- * The old third-party camera SDK and weights have been removed. Until the
- * owned foreground model qualifies, the shipped blur covers the whole frame.
- * Exercise that actual path and teardown while watching all requests: adding
- * a camera SDK or model download must never silently add a remote endpoint.
+ * Exercise the real bundled model and teardown while watching requests.
+ * A camera dependency must never silently add an external endpoint.
  */
 
 const sceneDir = join(tmpdir(), 'kithmoot-phone-home')
@@ -22,6 +21,15 @@ const scenePath = join(sceneDir, 'synthetic-scene.y4m')
 writeFileSync(scenePath, writeScene(640, 480, 12))
 
 test.setTimeout(90_000)
+
+test.beforeEach(async ({ page, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+  // Pin the creator before first navigation too. Rewriting only the final
+  // invite lets initial room creation contact the public default relays.
+  await page.addInitScript(url => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({
+    default: [{ url, read: true, write: true }],
+  })), relay.href)
+})
 
 test.use({
   launchOptions: {
@@ -84,6 +92,10 @@ test('background blur never makes a request outside the app and the local relay'
   const appOrigin = new URL(baseURL).origin
   const allowedOrigins = new Set([appOrigin, new URL(TEST_RELAY_HTTP).origin, new URL(TEST_RELAY_WS.replace('ws://', 'http://')).origin])
   const stray: string[] = []
+  page.on('websocket', socket => {
+    const url = new URL(socket.url().replace(/^ws/, 'http'))
+    if (!allowedOrigins.has(url.origin)) stray.push(`WebSocket ${url.origin}`)
+  })
 
   await page.route('**/*', async (route) => {
     const request: Request = route.request()
@@ -102,11 +114,15 @@ test('background blur never makes a request outside the app and the local relay'
   await settle(page)
   await expect(page.locator('#effectMode')).toHaveText('blur')
 
-  // Confirm the fallback processes frames, rather than passing because no
-  // camera effect actually ran.
-  await page.waitForTimeout(3_000)
+  // Require real inference, rather than accepting whole-frame fallback as
+  // evidence that background separation works.
+  await expect.poll(async () => (await frameRoutes(page)).composite).toBeGreaterThan(0)
   const running = await frameRoutes(page)
   expect(running.composite + running.blurAll).toBeGreaterThan(0)
+
+  // The removed logger batched usage on a 60-second timer as well as close.
+  // Observe both boundaries against the actual pinned runtime.
+  await page.waitForTimeout(65_000)
 
   await page.locator('#effectModes button[data-mode="off"]').click()
   await expect(page.locator('#effectMode')).toHaveText('off')
@@ -114,4 +130,48 @@ test('background blur never makes a request outside the app and the local relay'
   await page.waitForTimeout(1_000)
 
   expect(stray, `requests outside the app and the local relay: ${stray.join(', ')}`).toEqual([])
+})
+
+test('the bundled model keeps a known person and rejects the background', async ({ page, baseURL }) => {
+  const requests: string[] = []
+  const origin = new URL(baseURL!).origin
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url())
+    if (url.origin !== origin) { requests.push(url.origin); await route.abort(); return }
+    await route.continue()
+  })
+  const bundle = await build({ stdin: {
+    contents: "export { createBundledSegmenter } from './app/src/bundled-segmenter.ts'",
+    resolveDir: process.cwd(), loader: 'ts',
+  }, bundle: true, write: false, format: 'esm', platform: 'browser',
+    define: { 'import.meta.env.BASE_URL': JSON.stringify('/j/') }, logLevel: 'silent' })
+  await page.route('**/__segmenter-fixture.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0]!.text }))
+  await page.route('**/__segmenter-photo.png', route => route.fulfill({ contentType: 'image/png', body: readFileSync('test/fixtures/segmentation/astronaut.png') }))
+  await page.goto(baseURL!)
+  const evidence = await page.evaluate(async () => {
+    const fixturePath = '/j/__segmenter-fixture.js'
+    const { createBundledSegmenter } = await import(fixturePath)
+    const image = new Image(); image.src = '/j/__segmenter-photo.png'; await image.decode()
+    const segmenter = await createBundledSegmenter()
+    const started = performance.now()
+    try {
+      const masks = [1, 1, 0, 2].map(stamp => segmenter.segment(image, stamp))
+      const mask = masks[0]!
+      const mean = (left: number, top: number, right: number, bottom: number) => {
+        let sum = 0, count = 0
+        for (let y = Math.floor(top * mask.height / 256); y < Math.floor(bottom * mask.height / 256); y++) {
+          for (let x = Math.floor(left * mask.width / 256); x < Math.floor(right * mask.width / 256); x++) { sum += mask.data[y * mask.width + x]; count++ }
+        }
+        return sum / count
+      }
+      return { person: mean(90, 35, 130, 85), background: mean(220, 10, 250, 35),
+        masksValid: masks.every(m => m && m.data.length === m.width * m.height && m.data.every(Number.isFinite)),
+        inferenceMs: (performance.now() - started) / masks.length }
+    } finally { segmenter.close() }
+  })
+  expect(evidence.person).toBeGreaterThan(0.75)
+  expect(evidence.background).toBeLessThan(0.25)
+  expect(evidence.masksValid).toBe(true)
+  expect(requests).toEqual([])
+  console.log('Bundled segmentation fixture measurements', evidence)
 })
