@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises'
+import { AUDIO_SINK_DIAGNOSTIC } from './audio-sink-diagnostic.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -1235,6 +1237,7 @@ test('three account devices and another participant can ring, answer and rejoin 
       contexts.push(context)
       await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
       await context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
+      await context.addInitScript(AUDIO_SINK_DIAGNOSTIC)
       await context.addInitScript(INSTRUMENT)
       await context.addInitScript(SYNTHETIC_MIC)
       const page = await context.newPage(); pages.push(page)
@@ -1251,6 +1254,7 @@ test('three account devices and another participant can ring, answer and rejoin 
     pages.push(guest.page)
     await guest.context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
     await guest.context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
+    await guest.context.addInitScript(AUDIO_SINK_DIAGNOSTIC)
     await guest.context.addInitScript(INSTRUMENT)
     await guest.context.addInitScript(SYNTHETIC_MIC)
     await guest.page.goto(keeper.url)
@@ -1378,7 +1382,14 @@ test('three account devices and another participant can ring, answer and rejoin 
       await info.attach(`account-device-${index}-diagnostics`, { contentType: 'application/json', body: await collectAppDiagnostics(page) })
     }
     throw error
-  } finally { await Promise.all(contexts.map(context => context.close())); await keeper.leave() }
+  } finally {
+    for (const [index, page] of pages.entries()) {
+      const path = info.outputPath(`audio-sink-${index}.json`)
+      await writeFile(path, JSON.stringify(await page.evaluate(() => (window as unknown as { __audioSinkDiagnostics: unknown }).__audioSinkDiagnostics)))
+      await info.attach(`audio-sink-${index}`, { contentType: 'application/json', path })
+    }
+    await Promise.all(contexts.map(context => context.close())); await keeper.leave()
+  }
 })
 
 test('a call started in the open room rings as a banner over everything: focus on Answer, Escape declines and nothing is sent', async ({ browser, baseURL }) => {
