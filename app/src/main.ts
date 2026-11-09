@@ -5079,8 +5079,7 @@ async function roomFromLocation(): Promise<boolean> {
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
   // person chose to keep it here, readable from there.
-  const destination = loadNodeRoom(deviceStore, currentIdentity().pubkey, currentRoomId() ?? '')
-  if (destination?.source?.activated && matchesExistingBrowserRoom(destination.node, { secret: roomSecret, authority: roomAuthority() ?? '', endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy })) adoptNodeRoom(destination)
+  restoreExistingNodeRoom()
   rememberCurrentRoom()
   refreshKeptAdmission()
   if (!nodeRoom && invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
@@ -5354,6 +5353,15 @@ $('moveRoomToNode').addEventListener('click', async () => {
   } catch (error) { if (session === s) setStatus(`This device has not moved yet: ${describeError(error)}`) }
   finally { if (source) clearExistingSource(source); movingExistingRoom = false; if (currentRoomId()) renderRoomInfo(); if (session === s && !nodeRoom) void followExistingNodeDestination(s) }
 })
+
+/** Read the selected identity's saved migration without creating a visitor
+ *  key. Rechecked at entry because the room link can arrive before sign-in. */
+function restoreExistingNodeRoom(): void {
+  if (nodeRoom || identityRestoring && !nostrSession && !accountPassForRoom()) return
+  const participant = joinIdentityNow()
+  const destination = participant ? loadNodeRoom(deviceStore, participant, currentRoomId() ?? '') : undefined
+  if (destination?.source?.activated && matchesExistingBrowserRoom(destination.node, { secret: roomSecret, authority: roomAuthority() ?? '', endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy })) adoptNodeRoom(destination)
+}
 
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
@@ -14428,8 +14436,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   try {
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
-    requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
-    if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
@@ -14448,6 +14454,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       ;($('join') as HTMLButtonElement).focus()
       return
     }
+    // Account restoration may reveal this identity's saved node route.
+    // Select it before checking which network the room needs or its key.
+    restoreExistingNodeRoom()
+    requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
+    if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     const deviceSk = deviceKey()
     // A device key is per room. Beside a docked call `myDeviceId` stays the
     // call's, because every media decision is made against it.
