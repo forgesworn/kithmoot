@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.136",
+  "currentRelease": "0.1.137",
   "releases": [
     {
-      "version": "0.1.136",
+      "version": "0.1.137",
       "updateTo": {
-        "version": "0.1.136",
-        "name": "0.1.136",
-        "pub_date": "2026-11-09T10:19:36Z",
-        "notes": "Saved node rooms wait for your account to restore. Calls ring after a late audio unlock, and cameras on your other devices keep separate tiles.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.136/KithMoot-0.1.136-mac-arm64.zip",
-        "sha256": "a252d974d66748158fa202cabfb9360999a21034efdfcac147444e9bcc274018",
-        "size": 200000725
+        "version": "0.1.137",
+        "name": "0.1.137",
+        "pub_date": "2026-11-09T16:10:53Z",
+        "notes": "Hosted-room invites reconnect your saved account instead of asking as a visitor after a signer timeout.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.137/KithMoot-0.1.137-mac-arm64.zip",
+        "sha256": "54f6b8faf89a805e2ae0300f23fb9f7c0a18ae2a02c66c2a7605878cb45d5559",
+        "size": 200000833
       }
     }
   ]
