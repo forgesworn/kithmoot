@@ -1309,6 +1309,65 @@ test('three account devices and another participant can ring, answer and rejoin 
     for (const page of [caller, guest.page]) await movingMedia(page)
     for (const page of [caller, answered, declined]) await expect(page.locator('#ringBanner')).toBeHidden()
     await guest.page.screenshot({ path: info.outputPath('rejoined-participant.png') })
+    // All three devices of the account can send a camera independently.
+    // Exercise real roster-created holders and WebRTC receivers, rather than
+    // inserting extra videos into the page as a layout-only fixture does.
+    await declined.locator('#callToggle').click()
+    await expect(declined.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    for (const page of [answered, declined]) {
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+      await page.locator('#toggleCamera').click()
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'true')
+    }
+    const accountTile = guest.page.locator(`#room > .participant[data-participant="${getPublicKey(secret)}"]`)
+    await expect(accountTile).toHaveCount(1)
+    const cameras = accountTile.locator('video')
+    await expect(cameras).toHaveCount(3)
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(video => {
+      const camera = video as HTMLVideoElement
+      return camera.videoWidth > 0 && camera.videoHeight > 0 && camera.readyState >= 2
+    }))).toBe(true)
+    const videoPeers = () => guest.page.evaluate(async () => {
+      const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+      const peers: { peer: number; framesDecoded: number }[] = []
+      for (const [peer, pc] of pcs.entries()) {
+        if (pc.connectionState !== 'connected') continue
+        const stats = await pc.getStats()
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video' && report.framesDecoded > 5) {
+            peers.push({ peer, framesDecoded: report.framesDecoded })
+          }
+        })
+      }
+      return peers
+    })
+    await expect.poll(async () => new Set((await videoPeers()).map(peer => peer.peer)).size).toBeGreaterThanOrEqual(3)
+    const beforeCameras = await cameras.evaluateAll(videos => videos.map(video => (video as HTMLVideoElement).currentTime))
+    const beforePeers = await videoPeers()
+    await expect.poll(() => cameras.evaluateAll((videos, before) => videos.length === 3 && videos.every((video, index) =>
+      (video as HTMLVideoElement).currentTime > before[index]! + 0.1), beforeCameras)).toBe(true)
+    await expect.poll(async () => {
+      const peers = await videoPeers()
+      return beforePeers.filter(before => peers.some(peer => peer.peer === before.peer && peer.framesDecoded > before.framesDecoded + 2)).length
+    }).toBeGreaterThanOrEqual(3)
+    await expect.poll(() => cameras.evaluateAll(videos => {
+      const boxes = videos.map(video => video.getBoundingClientRect())
+      return boxes.every(a => a.width > 0 && a.height > 0) && boxes.every((a, index) => boxes.slice(index + 1).every(b =>
+        Math.min(a.right, b.right) - Math.max(a.left, b.left) <= 1 || Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) <= 1))
+    })).toBe(true)
+    for (const camera of await cameras.all()) await expect(camera).toBeInViewport({ ratio: 1 })
+    for (const selector of ['#toggleMic', '#toggleCamera', '#callExtras', '#leaveCall']) {
+      await expect(guest.page.locator(selector)).toBeVisible()
+      await expect(guest.page.locator(selector)).toBeInViewport({ ratio: 1 })
+    }
+    await guest.page.screenshot({ path: info.outputPath('three-live-account-cameras.png') })
+    await info.attach('three-live-account-cameras', { contentType: 'application/json', body: JSON.stringify({
+      participant: getPublicKey(secret), cameraElements: await cameras.count(),
+      cameraTimesBefore: beforeCameras,
+      cameraTimesAfter: await cameras.evaluateAll(videos => videos.map(video => (video as HTMLVideoElement).currentTime)),
+      videoPeersBefore: beforePeers, videoPeersAfter: await videoPeers(),
+      rectangles: await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().toJSON())),
+    }) })
     await info.attach('three-account-devices-and-participant', { contentType: 'application/json', body: JSON.stringify({
       syntheticAccounts: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404,
       transport: 'local direct fixture; no Archy or VPN claim', participantReloadedAndRejoined: true,
