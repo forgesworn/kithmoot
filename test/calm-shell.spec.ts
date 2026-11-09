@@ -1,3 +1,4 @@
+import { nativeMicrophoneBrowser, audioFailureDiagnostics } from './native-microphone.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -1224,19 +1225,21 @@ test('a resting call gallery leaves the room controls and composer inside the br
   } finally { await close() }
 })
 
-test('three account devices and another participant can ring, answer and rejoin with the public relay off', async ({ browser, baseURL }, info) => {
+test('three account devices and another participant can ring, answer and rejoin with the public relay off', async ({ playwright, browserName, baseURL }, info) => {
   const secret = generateSecretKey()
-  const keeper = await RoomAgent.create({ base: baseURL!, roomName: 'My devices', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
+  const fixture = await nativeMicrophoneBrowser(playwright[browserName], info.project.use.launchOptions)
+  const browser = fixture.browser
+  let keeper: RoomAgent | undefined
   const contexts: BrowserContext[] = []
   const pages: Page[] = []
   try {
+    keeper = await RoomAgent.create({ base: baseURL!, roomName: 'My devices', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
     for (let n = 0; n < 3; n++) {
       const context = await accountDevice(browser, baseURL!, secret)
       contexts.push(context)
       await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
       await context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
       await context.addInitScript(INSTRUMENT)
-      await context.addInitScript(SYNTHETIC_MIC)
       const page = await context.newPage(); pages.push(page)
       await page.setViewportSize({ width: 1440, height: 900 })
       await signInAccount(page, baseURL!)
@@ -1252,7 +1255,6 @@ test('three account devices and another participant can ring, answer and rejoin 
     await guest.context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
     await guest.context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
     await guest.context.addInitScript(INSTRUMENT)
-    await guest.context.addInitScript(SYNTHETIC_MIC)
     await guest.page.goto(keeper.url)
     await guest.page.locator('#displayName').fill('Priya Natarajan')
     await join(guest.page)
@@ -1369,16 +1371,20 @@ test('three account devices and another participant can ring, answer and rejoin 
       rectangles: await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().toJSON())),
     }) })
     await info.attach('three-account-devices-and-participant', { contentType: 'application/json', body: JSON.stringify({
-      syntheticAccounts: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404,
+      syntheticAccounts: true, nativeFakeMicrophone: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404,
       transport: 'local direct fixture; no Archy or VPN claim', participantReloadedAndRejoined: true,
       media: await Promise.all([caller, guest.page].map(page => page.evaluate(inbound))),
     }) })
   } catch (error) {
     for (const [index, page] of pages.entries()) {
       await info.attach(`account-device-${index}-diagnostics`, { contentType: 'application/json', body: await collectAppDiagnostics(page) })
+      await info.attach(`account-device-${index}-audio`, { contentType: 'application/json', body: JSON.stringify(await page.evaluate(audioFailureDiagnostics)) })
     }
     throw error
-  } finally { await Promise.all(contexts.map(context => context.close())); await keeper.leave() }
+  } finally {
+    await Promise.allSettled(contexts.map(context => context.close()))
+    try { await keeper?.leave() } finally { await fixture.close() }
+  }
 })
 
 test('a call started in the open room rings as a banner over everything: focus on Answer, Escape declines and nothing is sent', async ({ browser, baseURL }) => {

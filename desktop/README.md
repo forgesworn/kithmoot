@@ -1,8 +1,8 @@
 # KithMoot desktop preview
 
-Version 0.1.126 bundles the current node-room client: pairing, admission, relay-only calls, TURN credential renewal and recovery after network changes. Calls use the room's node and its advertised ports, including TLS on 443. Temporary connection failures retain only an unexpired admission; removal and room closure stop access. Version 0.1.125 shows Tap to hear whenever the browser blocks remote sound and adds remote-audio mute state to call diagnostics.
+Version 0.1.136 bundles the room restoration, late ringing and multi-device camera fixes shared with the web client. Saved node rooms wait for the restored account and private route before opening invitations or discovering a relay.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews using Electron 44.9.3 and the bundled KithMoot client. Current release candidate: 0.1.126 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
+Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews use Electron 44.9.3. Current release: 0.1.136 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
