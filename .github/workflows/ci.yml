@@ -1,146 +1,87 @@
-name: CI quick qualification
-run-name: Quick gates for ${{ inputs.source_sha }}
-
+name: Focused gallery qualification
+run-name: Focused gallery for ${{ inputs.source_sha }}
 on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: Exact clean source commit SHA to qualify (40 lowercase hexadecimal characters)
-        type: string
+        description: Exact clean source commit SHA
         required: true
-
+        type: string
 permissions:
   contents: read
-
-concurrency:
-  group: ci-quick-qualification-${{ inputs.source_sha }}
-  cancel-in-progress: false
-
-# Artifact-only extraction of the normal PR quick gates. No browser jobs.
-# Workflow revision and checked-out source revision are distinct: the clean
-# source SHA is validated and printed before any unchanged gate executes.
 jobs:
-  test:
+  gallery:
+    name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-
+    container:
+      image: mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac
+      options: --init --ipc=host --user 1001
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22, 24]
-
+        include:
+          - { label: web call surface, project: chromium, spec: test/call-surface.spec.ts, grep: '.' }
+          - { label: desktop call surface, project: chromium-desktop, spec: test/call-surface.spec.ts, grep: '.' }
+          - { label: desktop missing recording, project: chromium-desktop, spec: test/recording-video.spec.ts, grep: 'screen-camera recording exports' }
     steps:
-      - name: Validate explicit source SHA
+      - name: Validate source SHA
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            printf 'source_sha must be an exact 40-character lowercase commit SHA.\n' >&2
-            exit 1
-          fi
-
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.source_sha }}
-
-      - name: Verify exact clean source checkout
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test -z "$(git status --porcelain --untracked-files=all)"
-          printf 'Qualified source SHA: %s\n' "$SOURCE_SHA"
-
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # The production dependency floor is a gate, not a memory: any new
-      # advisory in a shipped dependency fails the run. Dev-only advisories
-      # are out of scope for this check.
-      - name: Audit production dependencies
-        run: npm audit --omit=dev
-
-      - name: Type check
-        run: npm run typecheck
-
-      # npm test builds the library first via pretest - the forwarder and
-      # TURN-credential suites import it out of dist/, which is gitignored.
-      - name: Run tests
-        run: npm test
-
-      - name: Check desktop notification and security boundaries
-        run: node --test desktop/test/*.test.mjs
-
-      - name: Check Android publication metadata and website copy
-        run: npm run verify:android-publication
-
-      - name: Build app
-        run: npm run build
-
-      # npm run build already runs this as its last step; kept as its own
-      # step too so a telemetry regression shows up by name in CI rather
-      # than as an opaque build failure.
-      - name: Check for third-party telemetry in the built app
-        run: node scripts/check-no-telemetry.mjs app/dist
-
-      - name: Check independent context packages
-        run: npm run test:context-packages
-
-      - name: Check packaged library entry points
-        run: node test/package-smoke.mjs
-
-  admin2-candidate-distributions:
-    name: Default and guarded Admin2 distributions
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Validate explicit source SHA
-        env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
-        run: |
-          if [[ ! "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            printf 'source_sha must be an exact 40-character lowercase commit SHA.\n' >&2
-            exit 1
-          fi
-
+        run: test "${#SOURCE_SHA}" = 40 && test -z "$(printf '%s' "$SOURCE_SHA" | tr -d '0-9a-f')"
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-
-      - name: Verify exact clean source checkout
+      - name: Verify exact clean checkout
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test -z "$(git status --porcelain --untracked-files=all)"
           printf 'Qualified source SHA: %s\n' "$SOURCE_SHA"
-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Verify exact tracked native provenance and types
+      - name: Prepare external step reporter
         run: |
-          node --input-type=module -e "import { verifyCandidateDirectory } from './scripts/admin2-product-candidate.mjs'; verifyCandidateDirectory()"
-          npm run typecheck
-      - name: Build and check default distribution
-        run: |
-          npm run build
-          node scripts/check-admin2-product-distribution.mjs default
-      - name: Build and check selected Admin2 distribution
+          cat > "$RUNNER_TEMP/gallery-progress.cjs" <<'REPORTER'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          module.exports = class {
+            constructor() { this.steps = new Map(); this.counts = new Map() }
+            onBegin() { fs.mkdirSync('test-results', {recursive:true}) }
+            onStepBegin(test, result, step) {
+              const data = {at:new Date().toISOString(),test:test.title,category:step.category,title:step.title,location:step.location}
+              this.steps.set(test.id,data)
+              const count = this.counts.get(test.id) || 0
+              if(count < 1000) fs.appendFileSync('test-results/gallery-steps.jsonl',JSON.stringify({event:'begin',...data})+'\n')
+              this.counts.set(test.id,count+1)
+            }
+            onStepEnd(test,result,step) {
+              if(step.error) fs.appendFileSync('test-results/gallery-steps.jsonl',JSON.stringify({event:'step-error',at:new Date().toISOString(),test:test.title,title:step.title,location:step.location,error:String(step.error.message).slice(0,6000)})+'\n')
+            }
+            onTestEnd(test,result) {
+              const data = {at:new Date().toISOString(),test:test.title,status:result.status,duration:result.duration,lastStep:this.steps.get(test.id),errors:result.errors.map(e=>({message:String(e.message).slice(0,12000),stack:String(e.stack).slice(0,12000)}))}
+              fs.appendFileSync('test-results/gallery-results.jsonl',JSON.stringify(data)+'\n')
+              console.log('[gallery-result] '+JSON.stringify(data))
+            }
+          }
+          REPORTER
+      - name: Focused original tests with artifact headroom
+        timeout-minutes: 12
         env:
-          VITE_MLS_INVITATION_PROFILE: admin2
-          VITE_ACCOUNT_NETWORK_DEFAULT: private-invitations
-        run: |
-          npm run build
-          node scripts/check-admin2-product-distribution.mjs admin2
+          E2E_RELAYS: local
+          SPEC: ${{ matrix.spec }}
+          PROJECT: ${{ matrix.project }}
+          CASE_GREP: ${{ matrix.grep }}
+        run: timeout --signal=INT --kill-after=30s 660s npx playwright test "$SPEC" --project="$PROJECT" --grep="$CASE_GREP" --workers=1 --max-failures=1 --reporter="list,$RUNNER_TEMP/gallery-progress.cjs"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: focused-gallery-${{ matrix.project }}-${{ strategy.job-index }}
+          path: test-results/
+          retention-days: 3
+          if-no-files-found: warn
