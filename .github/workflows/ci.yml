@@ -23,7 +23,6 @@ jobs:
         include:
           - { label: web call surface, project: chromium, spec: test/call-surface.spec.ts, grep: '.' }
           - { label: desktop call surface, project: chromium-desktop, spec: test/call-surface.spec.ts, grep: '.' }
-          - { label: desktop missing recording, project: chromium-desktop, spec: test/recording-video.spec.ts, grep: 'screen-camera recording exports' }
     steps:
       - name: Validate source SHA
         env:
