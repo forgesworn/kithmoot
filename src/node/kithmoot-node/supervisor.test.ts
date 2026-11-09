@@ -53,6 +53,60 @@ function fixture(empty = false) {
   }
 }
 describe('node supervisor recovery', () => {
+  it('keeps seven rooms usable within the child write budget while four clients poll access', async () => {
+    const f = fixture(true), now = f.grant.created_at
+    let writes = 0
+    const write = () => { if (++writes > 60) throw Error('child write rate limit') }
+    const revisions = new Map<string, number>()
+    f.calls.offer = async room => ({ v: 1, endpoint: 'https://node.example', token: Buffer.from(room, 'hex').toString('base64url'), expiresAt: now + 86400 })
+    f.calls.register = async (token, revision, add, remove) => {
+      write(); expect(revision).toBeGreaterThan(revisions.get(token) ?? 0); revisions.set(token, revision)
+      for (const key of add) f.state.members.add(key)
+      for (const key of remove) f.state.members.delete(key)
+    }
+    f.calls.lease = async () => { write(); f.state.lease = true; f.state.leases++ }
+    for (let i = 1; i <= 7; i++) {
+      const room = i.toString(16).padStart(64, '0'), device = i === 1 ? f.device : getPublicKey(generateSecretKey())
+      f.ledger.enrol({ room, authority: getPublicKey(f.authority), inviter: getPublicKey(f.authority) })
+      await f.supervisor.apply(buildGrant({ authoritySk: f.authority, roomId: room, device, server: 'node.example',
+        scopes: ['turn', 'relay-read', 'relay-write'], grantId: i.toString(16).padStart(32, '0'), createdAt: now, expiration: now + 3600 }))
+    }
+    const firstRoom = '1'.padStart(64, '0')
+    for (let second = 0; second < 60; second++) {
+      f.advance(1)
+      if (second % 2 === 0) await f.supervisor.tick()
+      if (second % 5 === 0) for (let client = 0; client < 4; client++) {
+        await expect(f.supervisor.offer(firstRoom, f.device)).resolves.toMatchObject({ endpoint: 'https://node.example' })
+      }
+    }
+    expect(f.supervisor.status()).toMatchObject({ ready: true, rooms: 7, devices: 7 })
+    expect(writes).toBeLessThanOrEqual(60)
+  })
+  it('withholds cached offers after restart or failed reconciliation until both children recover', async () => {
+    const f = fixture(); await f.supervisor.apply(f.grant)
+    f.restart()
+    await expect(f.supervisor.offer(f.room, f.device)).rejects.toThrow('node-reconciling')
+    await f.supervisor.tick()
+    await expect(f.supervisor.offer(f.room, f.device)).resolves.toMatchObject({ endpoint: 'https://node.example' })
+    f.state.relayFail = true
+    await expect(f.supervisor.tick()).rejects.toThrow('node-reconciling')
+    await expect(f.supervisor.offer(f.room, f.device)).rejects.toThrow('node-reconciling')
+    f.state.relayFail = false; await f.supervisor.tick()
+    await expect(f.supervisor.offer(f.room, f.device)).resolves.toMatchObject({ endpoint: 'https://node.example' })
+    await expect(f.supervisor.offer(f.room, getPublicKey(generateSecretKey()))).rejects.toThrow('access-required')
+    const parsed = parseGroupEvent(f.grant); if (!parsed.ok || parsed.parsed.type !== 'grant') throw Error('fixture')
+    await f.supervisor.apply(buildRevocation(parsed.parsed, f.authority, f.grant.created_at + 1))
+    await expect(f.supervisor.offer(f.room, f.device)).rejects.toThrow('access-required')
+  })
+  it('does not return an expired cached offer while a longer device grant remains active', async () => {
+    const f = fixture()
+    await f.supervisor.apply(buildGrant({ authoritySk: f.authority, roomId: f.room, device: f.device, server: 'node.example',
+      scopes: ['turn', 'relay-read', 'relay-write'], grantId: '01'.repeat(16), createdAt: f.grant.created_at, expiration: f.grant.created_at + 28 * 86400 }))
+    f.advance(86401)
+    await expect(f.supervisor.offer(f.room, f.device)).rejects.toThrow('node-reconciling')
+    await f.supervisor.tick()
+    await expect(f.supervisor.offer(f.room, f.device)).resolves.toMatchObject({ endpoint: 'https://node.example' })
+  })
   it('refuses deletion while a room exists and leaves admission usable', async () => {
     const f = fixture(); await f.supervisor.tick()
     await expect(f.supervisor.prepareDeletion()).rejects.toThrow('close-rooms-before-delete')
