@@ -2917,7 +2917,9 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
   if (!crypt) {
     fail(nostrSession
       ? 'This signer cannot encrypt, so it cannot send an invite. Sign in with a signer that supports NIP-44.'
-      : 'A paired device cannot send an invite. Use the device that holds your identity.')
+      : accountPassForRoom()?.pubkey === s.participant
+        ? 'Reconnect your Nostr signer to send this invitation.'
+        : 'A paired device cannot send an invite. Use the device that holds your identity.')
     return
   }
   send.disabled = true
@@ -8748,7 +8750,9 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
   if (!crypt) {
     setStatus(nostrSession
       ? 'This signer cannot encrypt, so it cannot send a private invitation. Sign in with a signer that supports NIP-44.'
-      : 'A paired device cannot start a private conversation. Use the device that holds your identity.')
+      : accountPassForRoom()?.pubkey === s.participant
+        ? 'Reconnect your Nostr signer to start a private conversation.'
+        : 'A paired device cannot start a private conversation. Use the device that holds your identity.')
     return
   }
   startingDm = true
