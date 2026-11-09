@@ -14,7 +14,10 @@ export const AUDIO_SINK_DIAGNOSTIC = () => {
     }
   }
   const track = (t: MediaStreamTrack) => ({ id: t.id, kind: t.kind, enabled: t.enabled, muted: t.muted, state: t.readyState })
-  const element = (el: HTMLMediaElement) => ({ tag: el.tagName, id: el.dataset.track, connected: el.isConnected, paused: el.paused, muted: el.muted, volume: el.volume, time: el.currentTime, readyState: el.readyState, networkState: el.networkState, error: el.error?.message, tracks: el.srcObject instanceof MediaStream ? el.srcObject.getTracks().map(track) : [] })
+  const element = (el: HTMLMediaElement) => ({ tag: el.tagName, id: el.dataset.track, connected: el.isConnected, paused: el.paused, muted: el.muted, volume: el.volume, time: el.currentTime, readyState: el.readyState, networkState: el.networkState, error: el.error ? { code: el.error.code, message: el.error.message } : undefined, tracks: el.srcObject instanceof MediaStream ? el.srcObject.getTracks().map(track) : [] })
+  document.addEventListener('error', event => {
+    if (event.target instanceof HTMLMediaElement) record({ event: 'media-error', element: element(event.target) })
+  }, true)
   const nativePlay = HTMLMediaElement.prototype.play
   HTMLMediaElement.prototype.play = function () {
     const at = performance.now(); record({ event: 'play-request', at, element: element(this) })
@@ -34,4 +37,21 @@ export const AUDIO_SINK_DIAGNOSTIC = () => {
       if (state.samples.length > 150) state.samples.shift()
     })().catch(error => record({ event: 'sample-error', error: String(error) }))
   }, 1000)
+}
+
+/** Runs only AFTER the original assertion failed; never converts it to a pass. */
+export const AUDIO_SINK_EXPERIMENT = async () => {
+  const scope = window as unknown as { __audioSinkDiagnostics: { events: unknown[] }; __pcs?: RTCPeerConnection[] }
+  const measure = async () => {
+    const stats: unknown[] = []
+    for (const pc of scope.__pcs ?? []) (await pc.getStats()).forEach(s => { if (s.kind === 'audio' && ['inbound-rtp', 'media-playout'].includes(s.type)) stats.push(s) })
+    return { at: performance.now(), elements: [...document.querySelectorAll('audio')].filter(el => el.srcObject instanceof MediaStream).map(el => ({ time: el.currentTime, paused: el.paused, readyState: el.readyState, error: el.error ? { code: el.error.code, message: el.error.message } : undefined })), stats }
+  }
+  const results = [{ stage: 'failed-original', sample: await measure() }]
+  const elements = [...document.querySelectorAll('audio')].filter(el => el.srcObject instanceof MediaStream)
+  const settle = async () => { await Promise.race([Promise.allSettled(elements.map(el => el.play())), new Promise(resolve => setTimeout(resolve, 1500))]); await new Promise(resolve => setTimeout(resolve, 2000)) }
+  await settle(); results.push({ stage: 'unconditional-play', sample: await measure() })
+  for (const el of elements) el.srcObject = new MediaStream((el.srcObject as MediaStream).getTracks())
+  await settle(); results.push({ stage: 'same-element-stream-rebind', sample: await measure() })
+  return results
 }

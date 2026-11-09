@@ -20,12 +20,15 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Exact call regression, unchanged assertions
-        run: npx playwright test test/calm-shell.spec.ts --project=chromium --project=chromium-desktop --grep 'three account devices and another participant' --workers=1 --trace=on
+        run: npx playwright test test/calm-shell.spec.ts --project=chromium --grep 'three account devices and another participant' --workers=1 --trace=on --repeat-each=2
         env:
           E2E_RELAYS: local
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: focused-audio-sink-diagnostics
-          path: test-results/
+          path: |
+            test-results/**/audio-sink-*.json
+            test-results/**/attachments/*.json
+            test-results/**/error-context.md
           retention-days: 3

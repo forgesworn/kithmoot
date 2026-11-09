@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { AUDIO_SINK_DIAGNOSTIC } from './audio-sink-diagnostic.js'
+import { AUDIO_SINK_DIAGNOSTIC, AUDIO_SINK_EXPERIMENT } from './audio-sink-diagnostic.js'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
@@ -1381,6 +1381,10 @@ test('three account devices and another participant can ring, answer and rejoin 
     for (const [index, page] of pages.entries()) {
       await info.attach(`account-device-${index}-diagnostics`, { contentType: 'application/json', body: await collectAppDiagnostics(page) })
     }
+    const experiment = await pages[pages.length - 1]!.evaluate(AUDIO_SINK_EXPERIMENT)
+    const experimentPath = info.outputPath('audio-sink-experiment.json')
+    await writeFile(experimentPath, JSON.stringify(experiment))
+    await info.attach('audio-sink-experiment', { contentType: 'application/json', path: experimentPath })
     throw error
   } finally {
     for (const [index, page] of pages.entries()) {
