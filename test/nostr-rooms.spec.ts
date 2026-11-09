@@ -97,10 +97,15 @@ test('a saved paired credential cannot override a different signed-in Nostr acco
     const now = Math.floor(Date.now() / 1000)
     const deviceKey = deviceKeyFor(store, roomId, now, generateSecretKey)
     const credential = await createDeviceCredential({ identity: localIdentity(generateSecretKey()), devicePubkey: getPublicKey(deviceKey), roomId, expiresAt: now + 3600 })
+    expect(credential.pubkey, 'the retained secondary belongs to another participant').not.toBe(getPublicKey(secret))
     storeCredentialFor(store, roomId, credential)
     await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
     await page.goto(link)
     await page.reload()
+    // Observe completed startup and the actual door, so an arrival failure
+    // is reported here rather than as a later click timeout.
+    await expect(page.locator('html[data-ordinary-startup=ready]')).toBeVisible()
+    await expect(page.locator('#join')).toBeVisible({ timeout: 10_000 })
     // Signed in: the one primary continues as the account, never as a key.
     await expect(page.locator('#join')).toHaveText(/^Continue with your Nostr account|^Continue as /)
     await page.locator('#join').click()

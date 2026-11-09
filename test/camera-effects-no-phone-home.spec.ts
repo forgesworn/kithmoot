@@ -175,3 +175,82 @@ test('the bundled model keeps a known person and rejects the background', async 
   expect(requests).toEqual([])
   console.log('Bundled segmentation fixture measurements', evidence)
 })
+
+test('portrait publication keeps the person sharp while the bundled pipeline blurs the background', async ({ page, baseURL }, info) => {
+  const bundle = await build({ stdin: {
+    contents: "export { CameraPipeline } from './app/src/video-pipeline.ts'",
+    resolveDir: process.cwd(), loader: 'ts',
+  }, bundle: true, write: false, format: 'esm', platform: 'browser',
+    define: { 'import.meta.env.BASE_URL': JSON.stringify('/j/') }, logLevel: 'silent' })
+  await page.route('**/__pipeline-fixture.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle.outputFiles[0]!.text }))
+  await page.route('**/__segmenter-photo.png', route => route.fulfill({ contentType: 'image/png', body: readFileSync('test/fixtures/segmentation/astronaut.png') }))
+  await page.goto(baseURL!)
+  const evidence = await page.evaluate(async () => {
+    const fixturePath = '/j/__pipeline-fixture.js'
+    const { CameraPipeline } = await import(fixturePath)
+    const image = new Image(); image.src = '/j/__segmenter-photo.png'; await image.decode()
+    const source = document.createElement('canvas'); source.width = 512; source.height = 512
+    const ctx = source.getContext('2d')!
+    const paint = () => {
+      ctx.drawImage(image, 0, 0, 512, 512)
+      // A measurable synthetic pattern behind the known person, inside the
+      // portrait crop. It leaves the person's head and clothing untouched.
+      for (let y = 20; y < 70; y += 4) for (let x = 360; x < 400; x += 4) {
+        ctx.fillStyle = (x + y) % 8 ? '#202020' : '#eeeeee'; ctx.fillRect(x, y, 4, 4)
+      }
+    }
+    paint()
+    const timer = setInterval(paint, 80)
+    const stream = source.captureStream(12)
+    const native = navigator.mediaDevices.getUserMedia
+    navigator.mediaDevices.getUserMedia = async () => stream
+    const pipeline = new CameraPipeline({ mode: 'off', facePrivacy: 'off', framing: false, portrait: true })
+    const preview = document.createElement('video'); preview.muted = true; preview.autoplay = true; preview.playsInline = true
+    document.body.append(preview)
+    const waitFor = async (predicate: () => boolean) => {
+      const deadline = performance.now() + 30_000
+      while (!predicate()) {
+        if (performance.now() > deadline) throw new Error('Portrait pipeline did not produce the expected frame')
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+    }
+    const sample = () => {
+      const canvas = document.createElement('canvas'); canvas.width = preview.videoWidth; canvas.height = preview.videoHeight
+      const context = canvas.getContext('2d')!; context.drawImage(preview, 0, 0)
+      const sharpness = (x: number, y: number, width: number, height: number) => {
+        const pixels = context.getImageData(x, y, width, height).data
+        const luma = (index: number) => (pixels[index * 4]! + pixels[index * 4 + 1]! + pixels[index * 4 + 2]!) / 3
+        let square = 0, count = 0
+        for (let row = 1; row < height - 1; row++) for (let col = 1; col < width - 1; col++) {
+          const i = row * width + col
+          const laplacian = 4 * luma(i) - luma(i - 1) - luma(i + 1) - luma(i - width) - luma(i + width)
+          square += laplacian * laplacian; count++
+        }
+        return square / count
+      }
+      // A 512-square source becomes the centred 288x512 portrait crop.
+      return { person: sharpness(78, 90, 60, 70), background: sharpness(253, 25, 30, 40), image: canvas.toDataURL('image/png') }
+    }
+    try {
+      preview.srcObject = new MediaStream([await pipeline.start()]); await preview.play()
+      await waitFor(() => pipeline.totals.passthrough >= 3 && preview.videoWidth > 0)
+      const off = sample()
+      pipeline.setMode('blur')
+      await waitFor(() => pipeline.totals.composite >= 5)
+      await new Promise(resolve => setTimeout(resolve, 200))
+      const blurred = sample()
+      return { off, blurred, width: preview.videoWidth, height: preview.videoHeight, totals: pipeline.totals }
+    } finally {
+      pipeline.stop(); clearInterval(timer); for (const track of stream.getTracks()) track.stop()
+      preview.srcObject = null; preview.remove(); navigator.mediaDevices.getUserMedia = native
+    }
+  })
+  expect(evidence.width / evidence.height).toBeCloseTo(9 / 16, 3)
+  expect(evidence.blurred.person / evidence.off.person, 'the published person stays sharp').toBeGreaterThan(0.65)
+  expect(evidence.blurred.background / evidence.off.background, 'the published background loses fine detail').toBeLessThan(0.2)
+  expect(evidence.totals.composite).toBeGreaterThanOrEqual(5)
+  const capture = info.outputPath('portrait-background-blurred.png')
+  writeFileSync(capture, Buffer.from(evidence.blurred.image.split(',')[1]!, 'base64'))
+  await info.attach('portrait-background-blurred.png', { path: capture, contentType: 'image/png' })
+  console.log('Portrait background pipeline measurements', { ...evidence, off: { ...evidence.off, image: undefined }, blurred: { ...evidence.blurred, image: undefined } })
+})

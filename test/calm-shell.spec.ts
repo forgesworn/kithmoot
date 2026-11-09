@@ -6,7 +6,8 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 import { encodeRoomLink } from '../src/link.js'
 import { generateRoomSecret } from '../src/room.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
-import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings, openNewRoomForm, openRoomDetails, openMember } from './browser.js'
+import { collectAppDiagnostics } from './app-diagnostics.js'
+import { showChats, openRoomMenu, roomMenuItem, openRoomInfoPage, leaveRoom, openSettings, closeSettings, openNewRoomForm, openRoomDetails, openMember, INSTRUMENT, SYNTHETIC_MIC, inbound, join } from './browser.js'
 
 /**
  * The app shell (calm shell, stage 2): a fixed page with a rail, a list of
@@ -1223,7 +1224,7 @@ test('a resting call gallery leaves the room controls and composer inside the br
   } finally { await close() }
 })
 
-test('starting a call rings the same account on its other devices once and leaves the caller quiet', async ({ browser, baseURL }) => {
+test('three account devices and another participant can ring, answer and rejoin with the public relay off', async ({ browser, baseURL }, info) => {
   const secret = generateSecretKey()
   const keeper = await RoomAgent.create({ base: baseURL!, roomName: 'My devices', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
   const contexts: BrowserContext[] = []
@@ -1232,6 +1233,10 @@ test('starting a call rings the same account on its other devices once and leave
     for (let n = 0; n < 3; n++) {
       const context = await accountDevice(browser, baseURL!, secret)
       contexts.push(context)
+      await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
+      await context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
+      await context.addInitScript(INSTRUMENT)
+      await context.addInitScript(SYNTHETIC_MIC)
       const page = await context.newPage(); pages.push(page)
       await page.setViewportSize({ width: 1440, height: 900 })
       await signInAccount(page, baseURL!)
@@ -1241,10 +1246,21 @@ test('starting a call rings the same account on its other devices once and leave
       await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
     }
     const [caller, answered, declined] = pages as [Page, Page, Page]
+    const guest = await visitor(browser, baseURL!, { width: 1280, height: 800 }, { empty: true })
+    contexts.push(guest.context)
+    pages.push(guest.page)
+    await guest.context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
+    await guest.context.route('**/turn', route => route.fulfill({ status: 404, body: '' }))
+    await guest.context.addInitScript(INSTRUMENT)
+    await guest.context.addInitScript(SYNTHETIC_MIC)
+    await guest.page.goto(keeper.url)
+    await guest.page.locator('#displayName').fill('Priya Natarajan')
+    await join(guest.page)
+    await expect(guest.page.locator('#chatLog')).toBeVisible()
     await caller.locator('#callToggle').click()
     await expect(caller.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
     await expect(caller.locator('#ringBanner')).toBeHidden()
-    for (const page of [answered, declined]) await expect(page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    for (const page of [answered, declined, guest.page]) await expect(page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
     await declined.locator('#ringDecline').click()
     await expect(declined.locator('#ringBanner')).toBeHidden()
     await expect(declined.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call')
@@ -1253,12 +1269,115 @@ test('starting a call rings the same account on its other devices once and leave
     await expect(answered.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
     await expect(answered.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
     await expect(answered.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+    await guest.page.locator('#ringAnswer').click()
+    await expect(guest.page.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    // Linked devices deliberately share one microphone and one listening
+    // role. Choose the measured device through its controls, rather than
+    // depending on the random device keys' tie-break for the speaker.
+    if (await caller.locator('#listenHere').isVisible()) await caller.locator('#listenHere').click()
+    await expect(caller.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    if (await caller.locator('#claimMic').isVisible()) await caller.locator('#claimMic').click()
+    await expect(caller.locator('#micIndicator')).toHaveText('Mic: this device')
+    for (const page of [caller, guest.page]) await page.locator('#toggleCamera').click()
+    const movingMedia = async (page: Page) => {
+      await expect.poll(async () => {
+        const sample = await page.evaluate(inbound)
+        return sample.framesDecoded > 5 && sample.audioEnergy > 0
+      }, { timeout: 60_000 }).toBe(true)
+      const before = await page.evaluate(inbound)
+      await expect.poll(async () => {
+        const sample = await page.evaluate(inbound)
+        return sample.framesDecoded > before.framesDecoded + 2 && sample.audioEnergy > before.audioEnergy
+      }, { timeout: 30_000 }).toBe(true)
+    }
+    for (const page of [caller, guest.page]) await movingMedia(page)
     // A fresh roster from the joined device must not re-ring the declined
     // device, nor the caller or the device that has just answered.
     await answered.locator('#toggleMic').click()
     await expect(declined.locator('#ringBanner')).toBeHidden()
     await expect(caller.locator('#ringBanner')).toBeHidden()
     await expect(answered.locator('#ringBanner')).toBeHidden()
+    // The other participant can reload and join the same running call while
+    // all three account devices stay in the room. This is loopback media,
+    // not proof of an Archy allocation or a real VPN connection.
+    await guest.page.reload()
+    await join(guest.page)
+    await expect(guest.page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    await guest.page.locator('#ringAnswer').click()
+    await expect(guest.page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+    await guest.page.locator('#toggleCamera').click()
+    for (const page of [caller, guest.page]) await movingMedia(page)
+    for (const page of [caller, answered, declined]) await expect(page.locator('#ringBanner')).toBeHidden()
+    await guest.page.screenshot({ path: info.outputPath('rejoined-participant.png') })
+    // All three devices of the account can send a camera independently.
+    // Exercise real roster-created holders and WebRTC receivers, rather than
+    // inserting extra videos into the page as a layout-only fixture does.
+    await declined.locator('#callToggle').click()
+    await expect(declined.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    for (const page of [answered, declined]) {
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
+      await page.locator('#toggleCamera').click()
+      await expect(page.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'true')
+    }
+    const accountTile = guest.page.locator(`#room > .participant[data-participant="${getPublicKey(secret)}"]`)
+    await expect(accountTile).toHaveCount(1)
+    const cameras = accountTile.locator('video')
+    await expect(cameras).toHaveCount(3)
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(video => {
+      const camera = video as HTMLVideoElement
+      return camera.videoWidth > 0 && camera.videoHeight > 0 && camera.readyState >= 2
+    }))).toBe(true)
+    const videoPeers = () => guest.page.evaluate(async () => {
+      const pcs = (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs
+      const peers: { peer: number; framesDecoded: number }[] = []
+      for (const [peer, pc] of pcs.entries()) {
+        if (pc.connectionState !== 'connected') continue
+        const stats = await pc.getStats()
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video' && report.framesDecoded > 5) {
+            peers.push({ peer, framesDecoded: report.framesDecoded })
+          }
+        })
+      }
+      return peers
+    })
+    await expect.poll(async () => new Set((await videoPeers()).map(peer => peer.peer)).size).toBeGreaterThanOrEqual(3)
+    const beforeCameras = await cameras.evaluateAll(videos => videos.map(video => (video as HTMLVideoElement).currentTime))
+    const beforePeers = await videoPeers()
+    await expect.poll(() => cameras.evaluateAll((videos, before) => videos.length === 3 && videos.every((video, index) =>
+      (video as HTMLVideoElement).currentTime > before[index]! + 0.1), beforeCameras)).toBe(true)
+    await expect.poll(async () => {
+      const peers = await videoPeers()
+      return beforePeers.filter(before => peers.some(peer => peer.peer === before.peer && peer.framesDecoded > before.framesDecoded + 2)).length
+    }).toBeGreaterThanOrEqual(3)
+    await expect.poll(() => cameras.evaluateAll(videos => {
+      const boxes = videos.map(video => video.getBoundingClientRect())
+      return boxes.every(a => a.width > 0 && a.height > 0) && boxes.every((a, index) => boxes.slice(index + 1).every(b =>
+        Math.min(a.right, b.right) - Math.max(a.left, b.left) <= 1 || Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) <= 1))
+    })).toBe(true)
+    for (const camera of await cameras.all()) await expect(camera).toBeInViewport({ ratio: 1 })
+    for (const selector of ['#toggleMic', '#toggleCamera', '#callExtras', '#leaveCall']) {
+      await expect(guest.page.locator(selector)).toBeVisible()
+      await expect(guest.page.locator(selector)).toBeInViewport({ ratio: 1 })
+    }
+    await guest.page.screenshot({ path: info.outputPath('three-live-account-cameras.png') })
+    await info.attach('three-live-account-cameras', { contentType: 'application/json', body: JSON.stringify({
+      participant: getPublicKey(secret), cameraElements: await cameras.count(),
+      cameraTimesBefore: beforeCameras,
+      cameraTimesAfter: await cameras.evaluateAll(videos => videos.map(video => (video as HTMLVideoElement).currentTime)),
+      videoPeersBefore: beforePeers, videoPeersAfter: await videoPeers(),
+      rectangles: await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().toJSON())),
+    }) })
+    await info.attach('three-account-devices-and-participant', { contentType: 'application/json', body: JSON.stringify({
+      syntheticAccounts: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404,
+      transport: 'local direct fixture; no Archy or VPN claim', participantReloadedAndRejoined: true,
+      media: await Promise.all([caller, guest.page].map(page => page.evaluate(inbound))),
+    }) })
+  } catch (error) {
+    for (const [index, page] of pages.entries()) {
+      await info.attach(`account-device-${index}-diagnostics`, { contentType: 'application/json', body: await collectAppDiagnostics(page) })
+    }
+    throw error
   } finally { await Promise.all(contexts.map(context => context.close())); await keeper.leave() }
 })
 

@@ -224,8 +224,11 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       setAttr(box, 'data-featured', out.featured === person.id ? '' : null)
       setAttr(box, 'data-initials', initialsOf(person.name))
       setAttr(box, 'data-camera', person.cameras.length > 0 ? 'on' : 'off')
+      setStyle(box, '--camera-count', String(Math.max(1, person.cameras.length)))
       ensurePin(person, out)
-      for (const video of person.cameras) {
+      for (const [index, video] of person.cameras.entries()) {
+        setStyle(video, '--camera-index', String(index))
+        setAttr(video, 'data-camera-index', String(index))
         setAttr(video, 'data-camera-orientation', video.videoWidth > 0 && video.videoHeight > video.videoWidth ? 'portrait' : null)
         pageVideo(video, !rect)
       }
@@ -273,8 +276,12 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     for (const video of styled) unplaceVideo(video)
     styled.clear()
     for (const person of everyone) {
-      for (const name of ['left', 'top', 'width', 'height', '--tile-w', '--tile-h']) person.box.style.removeProperty(name)
+      for (const name of ['left', 'top', 'width', 'height', '--tile-w', '--tile-h', '--camera-count']) person.box.style.removeProperty(name)
       for (const attr of ['data-layout-hidden', 'data-floating', 'data-featured', 'data-initials', 'data-camera', 'data-tall']) person.box.removeAttribute(attr)
+      for (const video of person.cameras) {
+        video.style.removeProperty('--camera-index')
+        video.removeAttribute('data-camera-index')
+      }
       for (const expand of person.box.querySelectorAll<HTMLElement>(':scope > .shareExpand')) {
         expand.style.removeProperty('left'); expand.style.removeProperty('top'); expand.removeAttribute('data-on-stage')
         expand.removeAttribute('data-gallery-off-page')
@@ -335,8 +342,7 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setStyle(box, 'height', `${rect.height}px`)
     setStyle(box, '--tile-w', `${rect.width}px`)
     setStyle(box, '--tile-h', `${rect.height}px`)
-    // Which way a person with two cameras on splits their tile: see the
-    // two-angles rule in call-layout.css.
+    // Which way one person's cameras split their tile: see call-layout.css.
     const tall = String(rect.height > rect.width)
     if (box.getAttribute('data-tall') !== tall) box.setAttribute('data-tall', tall)
   }

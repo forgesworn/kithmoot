@@ -1727,6 +1727,9 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     wantProfiles([account.pubkey], 'public')
     renderIdentity()
     renderNudgeChoice()
+    // A room may already be open on this account's pass. Invitations that
+    // arrived while its signer was unavailable have not been decrypted yet.
+    if (session?.participant === account.pubkey) void handleInvites(conversationMessages(undefined))
     return true
   })
 }
@@ -2401,12 +2404,22 @@ function linkRelays(pool: string[]): string[] {
  * invitation or a timeout changes nothing, and it is tried again next visit.
  */
 function readRoomRelaysOnce(invitation: RoomInvitation, roomId: string): void {
-  if (!invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  if (nodeRoom || !invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  if (identityRestoring) {
+    const generation = roomGeneration
+    void identityReady.then(() => {
+      if (generation !== roomGeneration || currentRoomId() !== roomId) return
+      restoreExistingNodeRoom()
+      if (!nodeRoom) readRoomRelaysOnce(invitation, roomId)
+    }).catch(() => { /* A later visit can retry the lookup. */ })
+    return
+  }
+  if (needsAccountReconnect()) return
   const scope = roomRelayScope
   const pool = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, relays)
   requestPersistentRoomAdmission({ transport: pool, invitation })
     .then(admission => {
-      if (!admission.relays || roomRelayScope !== scope) return
+      if (nodeRoom || !admission.relays || roomRelayScope !== scope) return
       if (relayConnections.setRoomRelays(roomId, { fixed: admission.relays, signed: true })) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
     })
     .catch(() => { /* Read again on the next visit. */ })
@@ -2904,7 +2917,9 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
   if (!crypt) {
     fail(nostrSession
       ? 'This signer cannot encrypt, so it cannot send an invite. Sign in with a signer that supports NIP-44.'
-      : 'A paired device cannot send an invite. Use the device that holds your identity.')
+      : accountPassForRoom()?.pubkey === s.participant
+        ? 'Reconnect your Nostr signer to send this invitation.'
+        : 'A paired device cannot send an invite. Use the device that holds your identity.')
     return
   }
   send.disabled = true
@@ -5079,8 +5094,7 @@ async function roomFromLocation(): Promise<boolean> {
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
   // person chose to keep it here, readable from there.
-  const destination = loadNodeRoom(deviceStore, currentIdentity().pubkey, currentRoomId() ?? '')
-  if (destination?.source?.activated && matchesExistingBrowserRoom(destination.node, { secret: roomSecret, authority: roomAuthority() ?? '', endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy })) adoptNodeRoom(destination)
+  restoreExistingNodeRoom()
   rememberCurrentRoom()
   refreshKeptAdmission()
   if (!nodeRoom && invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
@@ -5354,6 +5368,15 @@ $('moveRoomToNode').addEventListener('click', async () => {
   } catch (error) { if (session === s) setStatus(`This device has not moved yet: ${describeError(error)}`) }
   finally { if (source) clearExistingSource(source); movingExistingRoom = false; if (currentRoomId()) renderRoomInfo(); if (session === s && !nodeRoom) void followExistingNodeDestination(s) }
 })
+
+/** Read the selected identity's saved migration without creating a visitor
+ *  key. Rechecked at entry because the room link can arrive before sign-in. */
+function restoreExistingNodeRoom(): void {
+  if (nodeRoom || identityRestoring && !nostrSession && !accountPassForRoom()) return
+  const participant = joinIdentityNow()
+  const destination = participant ? loadNodeRoom(deviceStore, participant, currentRoomId() ?? '') : undefined
+  if (destination?.source?.activated && matchesExistingBrowserRoom(destination.node, { secret: roomSecret, authority: roomAuthority() ?? '', endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy })) adoptNodeRoom(destination)
+}
 
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
@@ -8576,14 +8599,19 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
 /** NIP-44 between this participant and another: the signer's, or the local
  *  key's. Undefined on a paired secondary, which holds no participant key,
  *  and on a signer with no NIP-44. */
-function peerCrypt(): PeerCrypt | undefined {
+function peerCrypt(participant = session?.participant ?? currentParticipant()): PeerCrypt | undefined {
+  if (!participant) return undefined
   if (nostrSession) {
+    if (nostrSession.pubkey !== participant) return undefined
     const nip44 = nostrSession.signer.nip44
     if (!nip44) return undefined
     return { encrypt: (peer, text) => nip44.encrypt(peer, text), decrypt: (peer, text) => nip44.decrypt(peer, text) }
   }
   try {
-    return localPeerCrypt(participantKey())
+    // Encryption is a read of the identity already in use. A disconnected
+    // account's room pass cannot authorise a new or retained visitor key.
+    const key = loadParticipantKey()
+    return key && getPublicKey(key) === participant ? localPeerCrypt(key) : undefined
   } catch {
     return undefined
   }
@@ -8722,7 +8750,9 @@ async function startDirectMessage(peer: string, peerName: string | undefined, qu
   if (!crypt) {
     setStatus(nostrSession
       ? 'This signer cannot encrypt, so it cannot send a private invitation. Sign in with a signer that supports NIP-44.'
-      : 'A paired device cannot start a private conversation. Use the device that holds your identity.')
+      : accountPassForRoom()?.pubkey === s.participant
+        ? 'Reconnect your Nostr signer to start a private conversation.'
+        : 'A paired device cannot start a private conversation. Use the device that holds your identity.')
     return
   }
   startingDm = true
@@ -8779,7 +8809,7 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     if (knownRoom(roomStore(), m.invite.room)) { handledInvites.add(m.id); continue }
     // No key to open it with yet - a signer still restoring - is not a
     // decision, so the invitation is left for the next repaint.
-    const crypt = peerCrypt()
+    const crypt = peerCrypt(me)
     if (!crypt) continue
     handledInvites.add(m.id)
     const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })
@@ -14428,8 +14458,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
   try {
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
-    requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
-    if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
@@ -14448,6 +14476,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       ;($('join') as HTMLButtonElement).focus()
       return
     }
+    // Account restoration may reveal this identity's saved node route.
+    // Select it before checking which network the room needs or its key.
+    restoreExistingNodeRoom()
+    requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
+    if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     const deviceSk = deviceKey()
     // A device key is per room. Beside a docked call `myDeviceId` stays the
     // call's, because every media decision is made against it.
@@ -19160,7 +19193,10 @@ let spryFailedAt: number | undefined
 function callPathInput(): CallPathInput {
   let spry: CallPathInput['spry'] = { state: 'none' }
   try {
-    if (loadSpryPairing(localStorage, currentIdentity().pubkey)) spry = { state: 'paired', ...(spryFailedAt !== undefined ? { failedAt: spryFailedAt } : {}) }
+    // Rendering settings must not mint a visitor key before a saved account
+    // reconnects, or merely because somebody inspected their call options.
+    const participant = currentParticipant()
+    if (participant && loadSpryPairing(localStorage, participant)) spry = { state: 'paired', ...(spryFailedAt !== undefined ? { failedAt: spryFailedAt } : {}) }
   } catch { spry = { state: 'unreadable' } }
   let server: CallPathInput['server'] = { state: 'none' }
   try {
@@ -19215,7 +19251,8 @@ function renderSpryPage(): void {
   let head = ''
   let fact = ''
   try {
-    const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    const participant = currentParticipant()
+    const pairing = participant ? loadSpryPairing(localStorage, participant) : undefined
     if (pairing) {
       state = 'paired'
       head = `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}`
@@ -19421,7 +19458,10 @@ function cancelPublicRelayCheck(): void {
 /** Whether a Spry pairing or a hand-entered relay is set, in which case no
  *  discovery query or login request is made. */
 function publicRelaysOutranked(): boolean {
-  try { return !!ownSpryPairing(currentIdentity().pubkey) || !!loadCallRelay(localStorage) } catch { return true }
+  try {
+    const participant = currentParticipant()
+    return !!(participant && ownSpryPairing(participant)) || !!loadCallRelay(localStorage)
+  } catch { return true }
 }
 function renderPublicRelays(): void {
   const on = publicCallRelays.enabled

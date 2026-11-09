@@ -10,9 +10,9 @@ import { chooseCallLayout, createRoom, inbound, joinWithMedia, newDeviceContext,
  * boxes sized by a CSS grid, a screen share was whatever shape its picture
  * was, a camera that was off was a pill, and a share decoding late moved
  * everybody. This walks one call from two people to eight and asserts the
- * thing the eye notices first - every person's tile the same size as every
- * other's, camera on or off - and that nothing moves while nobody joins,
- * leaves or resizes anything.
+ * thing the eye notices first - equal gallery slots, with portrait cameras
+ * fitting their own shape at the same height - and that nothing moves while
+ * nobody joins, leaves or resizes anything.
  *
  * Two people are real: two browsers on a real call, so the tiles are the
  * ones `render()` builds and the share is a real share. Everybody past them
@@ -95,15 +95,17 @@ async function addStandIns(page: Page, people: [string, boolean][]): Promise<voi
 }
 
 /** Every tile the stage is showing, as the page lays it out. */
-async function tiles(page: Page): Promise<{ name: string; box: Box; floating: boolean; camera: string }[]> {
+async function tiles(page: Page): Promise<{ name: string; box: Box; floating: boolean; camera: string; portraitAspect: number | null }[]> {
   return page.locator('#room[data-layout] > .participant:not([data-layout-hidden])').evaluateAll(els => els.map(el => {
     const r = el.getBoundingClientRect()
     const box = el as HTMLElement
+    const cameras = box.querySelectorAll<HTMLVideoElement>('.media > video:not(.screenPreview)')
     return {
       name: box.dataset.name ?? '',
       box: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
       floating: box.hasAttribute('data-floating'),
       camera: box.dataset.camera ?? '',
+      portraitAspect: cameras.length === 1 && cameras[0]!.videoWidth > 0 && cameras[0]!.videoHeight > cameras[0]!.videoWidth ? cameras[0]!.videoWidth / cameras[0]!.videoHeight : null,
     }
   }))
 }
@@ -115,11 +117,15 @@ async function settle(page: Page, count: number): Promise<void> {
   await page.waitForTimeout(1500)
 }
 
-function expectSameBox(list: { name: string; box: Box }[], label: string): void {
+function expectSameBox(list: { name: string; box: Box; portraitAspect: number | null }[], label: string): void {
   const [first] = list
+  const landscape = list.find(tile => tile.portraitAspect === null)
   for (const tile of list) {
-    expect(Math.abs(tile.box.width - first.box.width), `${label}: ${tile.name} is ${tile.box.width}px wide, ${first.name} is ${first.box.width}px`).toBeLessThanOrEqual(1)
-    expect(Math.abs(tile.box.height - first.box.height), `${label}: ${tile.name} is ${tile.box.height}px tall, ${first.name} is ${first.box.height}px`).toBeLessThanOrEqual(1)
+    // Equal slots keep faces at the same height. A portrait camera fits
+    // inside that slot at its own aspect, rather than stretching to its width.
+    expect(Math.abs(tile.box.height - first.box.height), `${label}: ${tile.name} is ${tile.box.height}px tall, ${first.name} is ${first.box.height}px`).toBeLessThanOrEqual(2)
+    if (tile.portraitAspect !== null) expect(Math.abs(tile.box.width / tile.box.height - tile.portraitAspect), `${label}: portrait camera keeps its decoded shape`).toBeLessThan(0.01)
+    else if (landscape) expect(Math.abs(tile.box.width - landscape.box.width), `${label}: landscape slots have equal widths`).toBeLessThanOrEqual(1)
   }
 }
 
@@ -134,9 +140,17 @@ async function ringSettled(tile: import('@playwright/test').Locator): Promise<vo
 /** The strip is one column or one row, and no wider than about a fifth of
  *  the room's long side: the stage is what the room is looking at. */
 async function expectSlimStrip(page: Page, strip: { box: Box }[], label: string): Promise<void> {
-  const xs = new Set(strip.map(tile => tile.box.x))
-  const ys = new Set(strip.map(tile => tile.box.y))
-  expect(xs.size === 1 || ys.size === 1, `${label}: the strip is more than one column or row`).toBe(true)
+  const xs = strip.map(tile => tile.box.x + tile.box.width / 2)
+  const ys = strip.map(tile => tile.box.y + tile.box.height / 2)
+  // Portrait pictures are centred inside their equal slots: their left
+  // edges differ from a landscape neighbour, but the strip's centre stays.
+  const vertical = Math.max(...xs) - Math.min(...xs) <= 1
+  expect(vertical || Math.max(...ys) - Math.min(...ys) <= 1, `${label}: the strip is more than one column or row`).toBe(true)
+  const ordered = strip.map(tile => tile.box).sort((a, b) => vertical ? a.y - b.y : a.x - b.x)
+  for (let i = 1; i < ordered.length; i++) {
+    const before = ordered[i - 1]!, current = ordered[i]!
+    expect(vertical ? current.y : current.x, `${label}: neighbouring strip pictures overlap`).toBeGreaterThanOrEqual((vertical ? before.y + before.height : before.x + before.width) - 1)
+  }
   const room = await page.locator('#room').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight }))
   expect(strip[0].box.width, `${label}: strip tiles are ${strip[0].box.width}px in a ${room.width}px room`).toBeLessThanOrEqual(Math.max(162, Math.max(room.width, room.height) * 0.23))
 }
@@ -147,6 +161,86 @@ async function chooseView(page: Page, label: 'Gallery' | 'Speaker' | 'Screen'): 
   // button whether or not it is drawn.
   await expect(page.locator('#callView .callViewChoice button', { hasText: new RegExp(`^${label}$`) })).toHaveAttribute('aria-pressed', 'true')
 }
+
+test('three cameras belonging to one person have separate visible slots', async ({ browser, baseURL }, info) => {
+  test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic camera fixture needs Chromium')
+  const context = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1728, height: 996 })
+    const url = await createRoom(page, baseURL!)
+    await joinWithMedia(page, url, 'Ada')
+    // Same DOM contract as render(): one participant, a holder per device.
+    // Audio-only holders must not consume a camera slot.
+    await page.evaluate(() => {
+      const box = document.createElement('div')
+      box.className = 'participant onCall'
+      box.dataset.participant = 'three-camera-fixture'
+      box.dataset.name = 'Three devices'
+      const heading = document.createElement('h3'); heading.textContent = 'Three devices'; box.append(heading)
+      for (const [index, colour] of ['#3972c8', '#248556', '#c58b23'].entries()) {
+        const canvas = document.createElement('canvas'); canvas.width = 270; canvas.height = 480
+        const ctx = canvas.getContext('2d')!
+        ctx.fillStyle = colour; ctx.fillRect(0, 0, 270, 480)
+        ctx.fillStyle = '#fff'; ctx.font = '32px sans-serif'; ctx.fillText(['Desktop', 'Android', 'Web'][index]!, 24, 100)
+        const video = document.createElement('video')
+        video.muted = true; video.autoplay = true; video.playsInline = true
+        video.srcObject = canvas.captureStream(2)
+        const holder = document.createElement('div'); holder.className = 'media'; holder.append(video); box.append(holder)
+        const audioOnly = document.createElement('div'); audioOnly.className = 'media'; audioOnly.append(document.createElement('audio')); box.append(audioOnly)
+      }
+      document.getElementById('room')!.append(box)
+    })
+    const cameras = page.locator('[data-participant="three-camera-fixture"] video')
+    await expect(cameras).toHaveCount(3)
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(v => (v as HTMLVideoElement).videoWidth > 0))).toBe(true)
+    const overlaps = () => cameras.evaluateAll(videos => {
+      const boxes = videos.map(video => video.getBoundingClientRect())
+      return boxes.flatMap((a, i) => boxes.slice(i + 1).flatMap((b, j) => {
+        const width = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        return width > 1 && height > 1 ? [`cameras ${i} and ${i + j + 1} overlap`] : []
+      }))
+    })
+    for (const size of [{ width: 1728, height: 996 }, { width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+      await page.setViewportSize(size)
+      await expect.poll(overlaps, { message: `${size.width}: each device camera needs its own slot` }).toEqual([])
+      const partition = await cameras.evaluateAll(videos => {
+        const tile = videos[0]!.closest('.participant')!.getBoundingClientRect()
+        const tall = tile.height > tile.width
+        return videos.map(video => {
+          const box = video.getBoundingClientRect()
+          return { width: box.width, height: box.height, expectedWidth: tile.width / (tall ? 1 : videos.length), expectedHeight: tile.height / (tall ? videos.length : 1) }
+        })
+      })
+      for (const slot of partition) {
+        expect(Math.abs(slot.width - slot.expectedWidth)).toBeLessThanOrEqual(1)
+        expect(Math.abs(slot.height - slot.expectedHeight)).toBeLessThanOrEqual(1)
+      }
+      for (const camera of await cameras.all()) await expect(camera).toBeInViewport({ ratio: 1 })
+      for (const selector of ['#toggleMic', '#toggleCamera', '#callExtras', '#leaveCall']) {
+        await expect(page.locator(selector), `${size.width}: ${selector}`).toBeInViewport({ ratio: 1 })
+      }
+      await page.screenshot({ path: info.outputPath(`three-cameras-${size.width}.png`) })
+    }
+    // A camera ending closes its slot; later devices must not keep a stale index.
+    await cameras.nth(1).evaluate(video => {
+      const stream = (video as HTMLVideoElement).srcObject
+      if (stream instanceof MediaStream) for (const track of stream.getTracks()) track.stop()
+      video.parentElement!.remove()
+    })
+    await expect(cameras).toHaveCount(2)
+    await expect.poll(overlaps).toEqual([])
+    const widths = await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().width))
+    expect(Math.abs(widths[0]! - widths[1]!)).toBeLessThanOrEqual(1)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('#room')).not.toHaveAttribute('data-layout')
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(video => !video.hasAttribute('data-camera-index') && !(video as HTMLElement).style.getPropertyValue('--camera-index')))).toBe(true)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await expect(page.locator('#room')).toHaveAttribute('data-layout', 'solo')
+    await expect.poll(overlaps).toEqual([])
+  } finally { await context.close() }
+})
 
 for (const phone of [false, true]) {
   test(`gallery pages preserve live audio and an independent share viewer (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }) => {
@@ -350,7 +444,12 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     const theirs = two.find(tile => !tile.floating)!
     expect(mine, 'your own picture should float').toBeTruthy()
     expect(mine.name).toBe('Ada')
-    expect(theirs.box.width).toBeGreaterThan(mine.box.width * 3)
+    // Portrait publication makes a narrower main picture; the other person
+    // still gets most of the stage and our readable self-view stays smaller.
+    expect(theirs.box.height).toBeGreaterThan(mine.box.height * 2)
+    expect(theirs.box.width * theirs.box.height).toBeGreaterThan(mine.box.width * mine.box.height * 4)
+    expect(mine.box.x + mine.box.width).toBeLessThanOrEqual(theirs.box.x + theirs.box.width)
+    expect(mine.box.y + mine.box.height).toBeLessThanOrEqual(theirs.box.y + theirs.box.height)
     // Inside the other picture, in the bottom right by default.
     expect(mine.box.x).toBeGreaterThan(theirs.box.x + theirs.box.width / 2)
     expect(mine.box.y).toBeGreaterThan(theirs.box.y + theirs.box.height / 2)
@@ -371,7 +470,7 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await first.waitForTimeout(400)
     await shot(first, '2-one-to-one-top-right')
 
-    // Four, one of them with no camera: one box for all.
+    // Four, one of them with no camera: equal slots, each camera keeps its shape.
     await addStandIns(first, STAND_INS.slice(0, 2))
     await settle(first, 4)
     await expect(first.locator('#room')).toHaveAttribute('data-layout', 'gallery')
