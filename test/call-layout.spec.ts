@@ -148,6 +148,86 @@ async function chooseView(page: Page, label: 'Gallery' | 'Speaker' | 'Screen'): 
   await expect(page.locator('#callView .callViewChoice button', { hasText: new RegExp(`^${label}$`) })).toHaveAttribute('aria-pressed', 'true')
 }
 
+test('three cameras belonging to one person have separate visible slots', async ({ browser, baseURL }, info) => {
+  test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic camera fixture needs Chromium')
+  const context = await newDeviceContext(browser, baseURL!, { reducedMotion: 'reduce' })
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1728, height: 996 })
+    const url = await createRoom(page, baseURL!)
+    await joinWithMedia(page, url, 'Ada')
+    // Same DOM contract as render(): one participant, a holder per device.
+    // Audio-only holders must not consume a camera slot.
+    await page.evaluate(() => {
+      const box = document.createElement('div')
+      box.className = 'participant onCall'
+      box.dataset.participant = 'three-camera-fixture'
+      box.dataset.name = 'Three devices'
+      const heading = document.createElement('h3'); heading.textContent = 'Three devices'; box.append(heading)
+      for (const [index, colour] of ['#3972c8', '#248556', '#c58b23'].entries()) {
+        const canvas = document.createElement('canvas'); canvas.width = 270; canvas.height = 480
+        const ctx = canvas.getContext('2d')!
+        ctx.fillStyle = colour; ctx.fillRect(0, 0, 270, 480)
+        ctx.fillStyle = '#fff'; ctx.font = '32px sans-serif'; ctx.fillText(['Desktop', 'Android', 'Web'][index]!, 24, 100)
+        const video = document.createElement('video')
+        video.muted = true; video.autoplay = true; video.playsInline = true
+        video.srcObject = canvas.captureStream(2)
+        const holder = document.createElement('div'); holder.className = 'media'; holder.append(video); box.append(holder)
+        const audioOnly = document.createElement('div'); audioOnly.className = 'media'; audioOnly.append(document.createElement('audio')); box.append(audioOnly)
+      }
+      document.getElementById('room')!.append(box)
+    })
+    const cameras = page.locator('[data-participant="three-camera-fixture"] video')
+    await expect(cameras).toHaveCount(3)
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(v => (v as HTMLVideoElement).videoWidth > 0))).toBe(true)
+    const overlaps = () => cameras.evaluateAll(videos => {
+      const boxes = videos.map(video => video.getBoundingClientRect())
+      return boxes.flatMap((a, i) => boxes.slice(i + 1).flatMap((b, j) => {
+        const width = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+        const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+        return width > 1 && height > 1 ? [`cameras ${i} and ${i + j + 1} overlap`] : []
+      }))
+    })
+    for (const size of [{ width: 1728, height: 996 }, { width: 1440, height: 900 }, { width: 1280, height: 720 }]) {
+      await page.setViewportSize(size)
+      await expect.poll(overlaps, { message: `${size.width}: each device camera needs its own slot` }).toEqual([])
+      const partition = await cameras.evaluateAll(videos => {
+        const tile = videos[0]!.closest('.participant')!.getBoundingClientRect()
+        const tall = tile.height > tile.width
+        return videos.map(video => {
+          const box = video.getBoundingClientRect()
+          return { width: box.width, height: box.height, expectedWidth: tile.width / (tall ? 1 : videos.length), expectedHeight: tile.height / (tall ? videos.length : 1) }
+        })
+      })
+      for (const slot of partition) {
+        expect(Math.abs(slot.width - slot.expectedWidth)).toBeLessThanOrEqual(1)
+        expect(Math.abs(slot.height - slot.expectedHeight)).toBeLessThanOrEqual(1)
+      }
+      for (const camera of await cameras.all()) await expect(camera).toBeInViewport({ ratio: 1 })
+      for (const selector of ['#toggleMic', '#toggleCamera', '#callExtras', '#leaveCall']) {
+        await expect(page.locator(selector), `${size.width}: ${selector}`).toBeInViewport({ ratio: 1 })
+      }
+      await page.screenshot({ path: info.outputPath(`three-cameras-${size.width}.png`) })
+    }
+    // A camera ending closes its slot; later devices must not keep a stale index.
+    await cameras.nth(1).evaluate(video => {
+      const stream = (video as HTMLVideoElement).srcObject
+      if (stream instanceof MediaStream) for (const track of stream.getTracks()) track.stop()
+      video.parentElement!.remove()
+    })
+    await expect(cameras).toHaveCount(2)
+    await expect.poll(overlaps).toEqual([])
+    const widths = await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().width))
+    expect(Math.abs(widths[0]! - widths[1]!)).toBeLessThanOrEqual(1)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(page.locator('#room')).not.toHaveAttribute('data-layout')
+    await expect.poll(() => cameras.evaluateAll(videos => videos.every(video => !video.hasAttribute('data-camera-index') && !(video as HTMLElement).style.getPropertyValue('--camera-index')))).toBe(true)
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await expect(page.locator('#room')).toHaveAttribute('data-layout', 'solo')
+    await expect.poll(overlaps).toEqual([])
+  } finally { await context.close() }
+})
+
 for (const phone of [false, true]) {
   test(`gallery pages preserve live audio and an independent share viewer (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }) => {
     test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone, camera and touch input')

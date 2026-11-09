@@ -179,35 +179,25 @@
 /* Upright cameras stay whole. call-stage.ts also fits their tile to the
    decoded shape, so this does not leave bands inside a landscape box. */
 #room[data-layout] > .participant > .media > video[data-camera-orientation='portrait']:not(.screenPreview) { object-fit: contain; }
-/* Two of a person's devices with their cameras on: two angles, each half
-   of the tile, side by side in a wide tile and one above the other in a tall
-   one. It was a small picture in the corner of the first, which put a phone
-   held at someone's face in a postage stamp over a laptop pointing at an
-   empty chair. Everyone sees both, the person themselves included. */
-/* `:has()` cannot nest, so the first angle is the camera holder with a
-   later camera holder beside it. */
-#room[data-layout] > .participant > .media:has(> video:not(.screenPreview)):has(~ .media > video:not(.screenPreview)) > video:not(.screenPreview) {
-  inset: 0 50% 0 0;
-  width: 50%;
+/* Every camera belonging to one person gets its own slot. Counting cameras
+   in call-stage.ts excludes audio-only devices and shares; a third camera
+   must not inherit the same half-tile as the second. Keep the live holders
+   where render() put them, and divide the picture inside those holders. */
+#room[data-layout] > .participant > .media > video:not(.screenPreview) {
+  inset: 0 auto auto calc(100% * var(--camera-index, 0) / var(--camera-count, 1));
+  width: calc(100% / var(--camera-count, 1));
   height: 100%;
-}
-#room[data-layout] > .participant > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
-  inset: 0 0 0 50%;
-  width: 50%;
-  height: 100%;
-  z-index: 1;
-  border-left: 2px solid var(--tile-bg);
   box-sizing: border-box;
 }
-#room[data-layout] > .participant[data-tall='true'] > .media:has(> video:not(.screenPreview)):has(~ .media > video:not(.screenPreview)) > video:not(.screenPreview) {
-  inset: 0 0 50% 0;
-  width: 100%;
-  height: 50%;
+#room[data-layout] > .participant > .media > video[data-camera-index]:not([data-camera-index='0']):not(.screenPreview) {
+  border-left: 2px solid var(--tile-bg);
 }
-#room[data-layout] > .participant[data-tall='true'] > .media:has(> video:not(.screenPreview)) ~ .media > video:not(.screenPreview) {
-  inset: 50% 0 0 0;
+#room[data-layout] > .participant[data-tall='true'] > .media > video:not(.screenPreview) {
+  inset: calc(100% * var(--camera-index, 0) / var(--camera-count, 1)) auto auto 0;
   width: 100%;
-  height: 50%;
+  height: calc(100% / var(--camera-count, 1));
+}
+#room[data-layout] > .participant[data-tall='true'] > .media > video[data-camera-index]:not([data-camera-index='0']):not(.screenPreview) {
   border-left: 0;
   border-top: 2px solid var(--tile-bg);
 }
