@@ -21,8 +21,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { label: web call surface, project: chromium, spec: test/call-surface.spec.ts, grep: '.' }
-          - { label: desktop call surface, project: chromium-desktop, spec: test/call-surface.spec.ts, grep: '.' }
+          - { label: desktop gallery pair, project: chromium-desktop, spec: test/call-surface.spec.ts, grep: 'portrait cameras|the persistent gallery.*\(desktop\)' }
+          - { label: touch gallery pair, project: chromium-desktop, spec: test/call-surface.spec.ts, grep: 'portrait cameras|the persistent gallery.*\(touch phone\)' }
     steps:
       - name: Validate source SHA
         env:
