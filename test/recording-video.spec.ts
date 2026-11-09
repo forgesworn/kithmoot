@@ -44,7 +44,7 @@ async function syntheticMedia(page: Page, colour: string): Promise<void> {
 }
 
 /** Decode the actual saved file, rather than trusting a stream/notice flag. */
-async function exportedMedia(page: Page): Promise<{ duration: number; videoDuration: number; preview: string; energy: number; red: number; blue: number; yellow: number; green: number; width: number; height: number }> {
+async function exportedMedia(page: Page): Promise<{ duration: number; videoDuration: number; preview: string; energy: number; red: number; blue: number; yellow: number; green: number; width: number; height: number; cameraBlue: { samples: number; width: number; height: number } }> {
   return page.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
     const bytes = await (await fetch(link.href)).arrayBuffer()
     const audio = new AudioContext()
@@ -68,6 +68,7 @@ async function exportedMedia(page: Page): Promise<{ duration: number; videoDurat
     canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const context = canvas.getContext('2d')!
     const colours = { red: 0, blue: 0, yellow: 0, green: 0 }
+    let cameraBlue = { samples: 0, width: 0, height: 0 }
     // Play all frames, retaining colour evidence from before/after share
     // replacement and pause. Sample every 100ms to keep this bounded.
     await new Promise<void>((resolve, reject) => {
@@ -75,21 +76,32 @@ async function exportedMedia(page: Page): Promise<{ duration: number; videoDurat
         context.drawImage(video, 0, 0)
         const data = context.getImageData(0, 0, canvas.width, canvas.height).data
         const found = { red: 0, blue: 0, yellow: 0, green: 0 }
+        let cameraSamples = 0, left = canvas.width, right = 0, top = canvas.height, bottom = 0
         for (let i = 0; i < data.length; i += 16) {
           const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!
           if (r > 150 && g < 80 && b < 80) found.red++
-          if (b > 150 && r < 80 && g < 80) found.blue++
+          if (b > 150 && r < 80 && g < 80) {
+            found.blue++
+            const pixel = i / 4, x = pixel % canvas.width, y = Math.floor(pixel / canvas.width)
+            // The screen-camera export's camera inset, above its label.
+            // Evidence must come from this camera, not a blue shared screen.
+            if (x >= 976 && x < 1256 && y >= 502 && y < 642) {
+              cameraSamples++; left = Math.min(left, x); right = Math.max(right, x)
+              top = Math.min(top, y); bottom = Math.max(bottom, y)
+            }
+          }
           if (r > 150 && g > 100 && b < 80) found.yellow++
           if (g > 150 && r < 80 && b < 80) found.green++
         }
         for (const key of Object.keys(found) as Array<keyof typeof found>) colours[key] = Math.max(colours[key], found[key])
+        if (cameraSamples > cameraBlue.samples) cameraBlue = { samples: cameraSamples, width: right - left + 1, height: bottom - top + 1 }
       }, 100)
       const timeout = setTimeout(() => { clearInterval(timer); video.pause(); reject(new Error('saved video did not finish playback')) }, (duration + 10) * 1000)
       video.addEventListener('ended', () => { clearInterval(timer); clearTimeout(timeout); resolve() }, { once: true })
     })
     const videoDuration = video.currentTime
     video.pause(); video.removeAttribute('src'); video.load()
-    return { duration, videoDuration, preview: canvas.toDataURL('image/png'), energy, ...colours, width: canvas.width, height: canvas.height }
+    return { duration, videoDuration, preview: canvas.toDataURL('image/png'), energy, ...colours, width: canvas.width, height: canvas.height, cameraBlue }
   })
 }
 
@@ -113,6 +125,7 @@ for (const { layout, phone } of [
       await expect(b.locator('#callToggle')).toHaveText('Join call')
       await turnOnMedia(b)
       await expect.poll(async () => (await a.evaluate(remotePictures)).length).toBeGreaterThan(0)
+      const cameraAspect = await a.locator('#room .participant[data-name="Bob"] video:not(.screenPreview)').evaluate((video: HTMLVideoElement) => video.videoWidth / video.videoHeight)
       if (layout === 'screen-camera') {
         await openCall(b)
         await b.locator('#toggleScreen').click()
@@ -228,7 +241,15 @@ for (const { layout, phone } of [
       if (layout === 'screen-camera') {
         expect(exported.yellow).toBeGreaterThan(30_000)
         expect(exported.green).toBeGreaterThan(30_000)
-        expect(exported.blue).toBeGreaterThan(3000)
+        // The inset keeps the source's shape. A 9:16 camera fits at 78x138
+        // here, so an old landscape-only count of 3000 sampled blue pixels
+        // is larger than the entire portrait picture. Require most of the
+        // fitted camera to be blue, at the right place and dimensions.
+        const width = Math.floor(Math.min(280, 140 * cameraAspect))
+        const height = Math.floor(width / cameraAspect)
+        expect(exported.cameraBlue.samples).toBeGreaterThan(width * height / 4 * 0.85)
+        expect(Math.abs(exported.cameraBlue.width - width)).toBeLessThanOrEqual(4)
+        expect(Math.abs(exported.cameraBlue.height - height)).toBeLessThanOrEqual(2)
         expect(exported.red).toBeLessThan(1000)
       }
       if (soak) {

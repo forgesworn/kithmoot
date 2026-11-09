@@ -10,9 +10,9 @@ import { chooseCallLayout, createRoom, inbound, joinWithMedia, newDeviceContext,
  * boxes sized by a CSS grid, a screen share was whatever shape its picture
  * was, a camera that was off was a pill, and a share decoding late moved
  * everybody. This walks one call from two people to eight and asserts the
- * thing the eye notices first - every person's tile the same size as every
- * other's, camera on or off - and that nothing moves while nobody joins,
- * leaves or resizes anything.
+ * thing the eye notices first - equal gallery slots, with portrait cameras
+ * fitting their own shape at the same height - and that nothing moves while
+ * nobody joins, leaves or resizes anything.
  *
  * Two people are real: two browsers on a real call, so the tiles are the
  * ones `render()` builds and the share is a real share. Everybody past them
@@ -95,15 +95,17 @@ async function addStandIns(page: Page, people: [string, boolean][]): Promise<voi
 }
 
 /** Every tile the stage is showing, as the page lays it out. */
-async function tiles(page: Page): Promise<{ name: string; box: Box; floating: boolean; camera: string }[]> {
+async function tiles(page: Page): Promise<{ name: string; box: Box; floating: boolean; camera: string; portraitAspect: number | null }[]> {
   return page.locator('#room[data-layout] > .participant:not([data-layout-hidden])').evaluateAll(els => els.map(el => {
     const r = el.getBoundingClientRect()
     const box = el as HTMLElement
+    const cameras = box.querySelectorAll<HTMLVideoElement>('.media > video:not(.screenPreview)')
     return {
       name: box.dataset.name ?? '',
       box: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
       floating: box.hasAttribute('data-floating'),
       camera: box.dataset.camera ?? '',
+      portraitAspect: cameras.length === 1 && cameras[0]!.videoWidth > 0 && cameras[0]!.videoHeight > cameras[0]!.videoWidth ? cameras[0]!.videoWidth / cameras[0]!.videoHeight : null,
     }
   }))
 }
@@ -115,11 +117,15 @@ async function settle(page: Page, count: number): Promise<void> {
   await page.waitForTimeout(1500)
 }
 
-function expectSameBox(list: { name: string; box: Box }[], label: string): void {
+function expectSameBox(list: { name: string; box: Box; portraitAspect: number | null }[], label: string): void {
   const [first] = list
+  const landscape = list.find(tile => tile.portraitAspect === null)
   for (const tile of list) {
-    expect(Math.abs(tile.box.width - first.box.width), `${label}: ${tile.name} is ${tile.box.width}px wide, ${first.name} is ${first.box.width}px`).toBeLessThanOrEqual(1)
-    expect(Math.abs(tile.box.height - first.box.height), `${label}: ${tile.name} is ${tile.box.height}px tall, ${first.name} is ${first.box.height}px`).toBeLessThanOrEqual(1)
+    // Equal slots keep faces at the same height. A portrait camera fits
+    // inside that slot at its own aspect, rather than stretching to its width.
+    expect(Math.abs(tile.box.height - first.box.height), `${label}: ${tile.name} is ${tile.box.height}px tall, ${first.name} is ${first.box.height}px`).toBeLessThanOrEqual(2)
+    if (tile.portraitAspect !== null) expect(Math.abs(tile.box.width / tile.box.height - tile.portraitAspect), `${label}: portrait camera keeps its decoded shape`).toBeLessThan(0.01)
+    else if (landscape) expect(Math.abs(tile.box.width - landscape.box.width), `${label}: landscape slots have equal widths`).toBeLessThanOrEqual(1)
   }
 }
 
@@ -134,9 +140,17 @@ async function ringSettled(tile: import('@playwright/test').Locator): Promise<vo
 /** The strip is one column or one row, and no wider than about a fifth of
  *  the room's long side: the stage is what the room is looking at. */
 async function expectSlimStrip(page: Page, strip: { box: Box }[], label: string): Promise<void> {
-  const xs = new Set(strip.map(tile => tile.box.x))
-  const ys = new Set(strip.map(tile => tile.box.y))
-  expect(xs.size === 1 || ys.size === 1, `${label}: the strip is more than one column or row`).toBe(true)
+  const xs = strip.map(tile => tile.box.x + tile.box.width / 2)
+  const ys = strip.map(tile => tile.box.y + tile.box.height / 2)
+  // Portrait pictures are centred inside their equal slots: their left
+  // edges differ from a landscape neighbour, but the strip's centre stays.
+  const vertical = Math.max(...xs) - Math.min(...xs) <= 1
+  expect(vertical || Math.max(...ys) - Math.min(...ys) <= 1, `${label}: the strip is more than one column or row`).toBe(true)
+  const ordered = strip.map(tile => tile.box).sort((a, b) => vertical ? a.y - b.y : a.x - b.x)
+  for (let i = 1; i < ordered.length; i++) {
+    const before = ordered[i - 1]!, current = ordered[i]!
+    expect(vertical ? current.y : current.x, `${label}: neighbouring strip pictures overlap`).toBeGreaterThanOrEqual((vertical ? before.y + before.height : before.x + before.width) - 1)
+  }
   const room = await page.locator('#room').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight }))
   expect(strip[0].box.width, `${label}: strip tiles are ${strip[0].box.width}px in a ${room.width}px room`).toBeLessThanOrEqual(Math.max(162, Math.max(room.width, room.height) * 0.23))
 }
@@ -430,7 +444,12 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     const theirs = two.find(tile => !tile.floating)!
     expect(mine, 'your own picture should float').toBeTruthy()
     expect(mine.name).toBe('Ada')
-    expect(theirs.box.width).toBeGreaterThan(mine.box.width * 3)
+    // Portrait publication makes a narrower main picture; the other person
+    // still gets most of the stage and our readable self-view stays smaller.
+    expect(theirs.box.height).toBeGreaterThan(mine.box.height * 2)
+    expect(theirs.box.width * theirs.box.height).toBeGreaterThan(mine.box.width * mine.box.height * 4)
+    expect(mine.box.x + mine.box.width).toBeLessThanOrEqual(theirs.box.x + theirs.box.width)
+    expect(mine.box.y + mine.box.height).toBeLessThanOrEqual(theirs.box.y + theirs.box.height)
     // Inside the other picture, in the bottom right by default.
     expect(mine.box.x).toBeGreaterThan(theirs.box.x + theirs.box.width / 2)
     expect(mine.box.y).toBeGreaterThan(theirs.box.y + theirs.box.height / 2)
@@ -451,7 +470,7 @@ test('every face is one box, from a call of two to a call of eight', async ({ br
     await first.waitForTimeout(400)
     await shot(first, '2-one-to-one-top-right')
 
-    // Four, one of them with no camera: one box for all.
+    // Four, one of them with no camera: equal slots, each camera keeps its shape.
     await addStandIns(first, STAND_INS.slice(0, 2))
     await settle(first, 4)
     await expect(first.locator('#room')).toHaveAttribute('data-layout', 'gallery')
