@@ -178,13 +178,17 @@ for (const phone of [false, true]) {
       const ownerLabel = await ada!.locator('#callSurfaceOrigin').textContent()
       const continuous = async (): Promise<void> => {
         const energy = (await ada!.evaluate(inbound)).audioEnergy
-        await expect.poll(() => ada!.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy)
-        for (const popup of popups) {
-          const video = popup.locator('.shareStage > video')
-          const before = await video.evaluate((node: HTMLVideoElement) => node.currentTime)
-          await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime)).toBeGreaterThan(before)
-          await expect(popup.locator('audio')).toHaveCount(0)
-        }
+        // Independent sinks must all advance. Observe them together rather
+        // than serialising each decoder's wait and trace round trips.
+        await Promise.all([
+          expect.poll(() => ada!.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy),
+          ...popups.map(async popup => {
+            const video = popup.locator('.shareStage > video')
+            const before = await video.evaluate((node: HTMLVideoElement) => node.currentTime)
+            await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime)).toBeGreaterThan(before)
+            await expect(popup.locator('audio')).toHaveCount(0)
+          }),
+        ])
         await expect(ada!.locator('#room audio')).toHaveCount(audioCount)
         expect(await ada!.evaluate(() => {
           const saved = (window as unknown as { __callSurface: { stage: Element; room: Element; videos: Array<{ element: HTMLVideoElement; track: MediaStreamTrack }> } }).__callSurface
