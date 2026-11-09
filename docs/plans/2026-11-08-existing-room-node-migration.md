@@ -33,6 +33,17 @@ been upgraded; no owner room migration or public TURN closure has run. The clipb
   effects so restart can reconcile uncertain acknowledgements. Source data
   and room recovery material remain intact throughout.
 
+## 9 November: retained records that no longer decode
+
+The browser/desktop follower reads the complete local archive before transfer.
+A record in a requested stream that the current conversation decoder cannot
+verify stays in the local archive and is counted in the cutover message. It
+cannot block the transfer of verified history or be published by later relay
+reseeding. Strict snapshot callers continue to reject it. A failed disk read,
+another stream, a changed room, quiet provenance or failed destination readback
+still prevents the corresponding transfer; none becomes an empty success.
+Original records are never deleted or re-signed by this path.
+
 ## Operating and privacy boundary
 
 This is an operator-selected private node, not a new ForgeSworn public relay

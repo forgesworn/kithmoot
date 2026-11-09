@@ -477,6 +477,8 @@ export interface ReseedTarget {
   limit: number
   /** Only these signers: the authority, for rekeys. */
   authors?: string[]
+  /** Revalidate retained events under the conversation's current decoder. */
+  accept?: (event: Event) => boolean
 }
 
 /** What reseeding needs of a relay pool. `NostrRelayPool` has all of it. */
@@ -570,7 +572,7 @@ export async function reseedRelays(pool: ReseedPool, archive: EventArchive, targ
       // Unknown is not empty: no reseed and no verdict until it answers.
       if (!held || !opts.alive()) continue
       const candidates = reseedCandidates(
-        archived.filter(e => !target.authors || target.authors.includes(e.pubkey)),
+        archived.filter(e => (!target.authors || target.authors.includes(e.pubkey)) && (!target.accept || target.accept(e))),
         held.ids,
         Math.min(budget, MAX_RESEED_EVENTS),
         held.floor,

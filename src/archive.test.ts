@@ -9,6 +9,7 @@ import { createDeviceCredential } from './credential.js'
 import { localIdentity } from './identity.js'
 import { deriveRoom } from './room.js'
 import { RoomSession } from './session.js'
+import { copyNodeMigrationHistory } from './node-migration-history.js'
 import { KINDS } from './kinds.js'
 
 const NOW = 1_800_000_000
@@ -81,6 +82,53 @@ describe('a chat log over an archive', () => {
       expect(await log.retainedHistory()).toEqual({ complete: true, entries: [{ event: good, quiet: true }] })
       archive.keep(finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', log.stream]], content: other.message('foreign').content }, other.deviceSk))
       await expect(log.retainedHistory()).rejects.toThrow('retained history')
+    } finally { log.close() }
+  })
+
+  it('keeps undecodable records local while migrating every verified retained event', async () => {
+    const r = await room(), other = await room(8), archive = new MemoryArchive()
+    const good = r.message('retained')
+    const foreign = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW, tags: [['d', r.roomId]], content: other.message('foreign').content }, other.deviceSk)
+    archive.keep(good, { quiet: true }); archive.keep(foreign)
+    const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
+    try {
+      await expect(log.retainedHistory()).rejects.toThrow('does not belong')
+      expect(await log.retainedHistory({ unverified: 'keep-local' })).toEqual({
+        complete: true, entries: [{ event: good, quiet: true }], localOnlyEventIds: [foreign.id],
+      })
+      expect(archive.events.get(foreign.id)).toEqual(foreign)
+      expect(archive.events.get(good.id)).toEqual(good)
+    } finally { log.close() }
+  })
+
+  it('copies verified original ciphertext and leaves rejected history off the destination', async () => {
+    const r = await room(), other = await room(8), archive = new MemoryArchive()
+    const good = r.message('retained'), foreign = finalizeEvent({ kind: KINDS.CHAT, created_at: NOW,
+      tags: [['d', good.tags.find(tag => tag[0] === 'd')![1]!]], content: other.message('foreign').content }, other.deviceSk)
+    archive.keep(good); archive.keep(foreign)
+    const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
+    const destination = new Map<string, Event>()
+    try {
+      const snapshot = await log.retainedHistory({ unverified: 'keep-local' })
+      const proof = await copyNodeMigrationHistory({ snapshots: [snapshot],
+        target: { publish: async event => { destination.set(event.id, event) },
+          read: async ids => ({ events: ids.flatMap(id => destination.has(id) ? [destination.get(id)!] : []), complete: true }) },
+        accept: event => log.acceptsRetainedEvent(event), now: () => NOW, current: () => true })
+      expect(proof.events).toBe(1)
+      expect([...destination.values()]).toEqual([JSON.parse(JSON.stringify(good))])
+      expect(destination.has(foreign.id)).toBe(false)
+      expect(archive.events.get(foreign.id)).toEqual(foreign)
+    } finally { log.close() }
+  })
+
+  it('still refuses a snapshot from another stream or an unreadable archive in keep-local mode', async () => {
+    const r = await room(), other = await room(8), archive = new MemoryArchive()
+    const log = new ChatLog({ ...r, transport: new SimTransport(new SimRelay()), archive, now: () => NOW })
+    try {
+      archive.migrationSnapshot = async () => ({ complete: true, entries: [{ event: other.message('wrong stream') }] })
+      await expect(log.retainedHistory({ unverified: 'keep-local' })).rejects.toThrow('does not belong')
+      archive.migrationSnapshot = async () => { throw Error('disk read failed') }
+      await expect(log.retainedHistory({ unverified: 'keep-local' })).rejects.toThrow('disk read failed')
     } finally { log.close() }
   })
 
