@@ -40,3 +40,12 @@ it('accepts a separate node port range and refuses control-port and allocation c
     writeFileSync(file, JSON.stringify({ ...custom, ...patch })); expect(() => readFrontConfiguration(file)).toThrow()
   }
 })
+it('shares an explicit group allocation range with the runtime and refuses collisions anywhere in it', () => {
+  const { file, configuration } = fixture()
+  const group = { ...configuration, relayPortFirst: 49192, relayPortCount: 256 }
+  writeFileSync(file, JSON.stringify(group)); expect(readFrontConfiguration(file)).toEqual(group)
+  for (const patch of [{ relayPortCount: 0 }, { relayPortCount: 257 }, { relayPortCount: '256' }, { relayPortCount: null },
+    { relayPortFirst: 65281 }, { shelterPort: 49300 }]) {
+    writeFileSync(file, JSON.stringify({ ...group, ...patch })); expect(() => readFrontConfiguration(file)).toThrow()
+  }
+})

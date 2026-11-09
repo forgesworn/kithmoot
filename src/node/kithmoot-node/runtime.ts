@@ -11,6 +11,7 @@ import { SpryBackend, ShelterBackend } from './backends.js'
 import { nodeHttp, preparePairing } from './http.js'
 import { readNodeTurnPorts, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { NODE_VERSION } from './version.js'
+import { nodeRelayRange } from './relay-ports.js'
 
 export interface NodeConfiguration {
   v: 1
@@ -30,11 +31,12 @@ export interface NodeConfiguration {
   tlsGate?: true
   turnPorts?: NodeTurnPorts
   relayPortFirst?: number
+  relayPortCount?: number
   deskPort: number
   spryPort: number
   shelterPort: number
 }
-const fields = ['v', 'host', 'hosting', 'relayIp', 'publicIp', 'aggregateBytesPerSecond', 'maxBytes', 'minFreeBytes', 'maxRooms', 'origins', 'spryBinary', 'shelterBinary', 'certificate', 'certificateKey', 'deskPort', 'spryPort', 'shelterPort', 'tlsGate', 'turnPorts', 'relayPortFirst']
+const fields = ['v', 'host', 'hosting', 'relayIp', 'publicIp', 'aggregateBytesPerSecond', 'maxBytes', 'minFreeBytes', 'maxRooms', 'origins', 'spryBinary', 'shelterBinary', 'certificate', 'certificateKey', 'deskPort', 'spryPort', 'shelterPort', 'tlsGate', 'turnPorts', 'relayPortFirst', 'relayPortCount']
 function publicV4(value: unknown): boolean {
   if (typeof value !== 'string' || !/^(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}$/.test(value)) return false
   const [a, b, c] = value.split('.').map(Number)
@@ -45,7 +47,7 @@ function publicV4(value: unknown): boolean {
 }
 export function validateConfiguration(value: unknown): NodeConfiguration {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !fields.includes(k))) throw Error('Invalid node configuration')
-  const c = value as NodeConfiguration, ports = readNodeTurnPorts(c.turnPorts), first = c.relayPortFirst ?? 49160
+  const c = value as NodeConfiguration, ports = readNodeTurnPorts(c.turnPorts), range = nodeRelayRange(c)
   if (!ports) throw Error('Invalid node TURN ports')
   const integer = (v: unknown, min: number, max: number): boolean => typeof v === 'number' && Number.isSafeInteger(v) && v >= min && v <= max
   if (c.v !== 1 || typeof c.host !== 'string' || !isHostName(c.host) || !c.host.includes('.') || c.host.endsWith('.local')
@@ -54,8 +56,8 @@ export function validateConfiguration(value: unknown): NodeConfiguration {
     || !integer(c.aggregateBytesPerSecond, 1, 67108864) || !integer(c.maxBytes, 1048576, Number.MAX_SAFE_INTEGER)
     || !integer(c.minFreeBytes, 1048576, Number.MAX_SAFE_INTEGER) || !integer(c.maxRooms, 1, 64)
     || ![c.deskPort, c.spryPort, c.shelterPort].every(p => integer(p, 1024, 65535))
-    || new Set([c.deskPort, c.spryPort, c.shelterPort, ports.udpTcp, ports.tls, ...Array.from({ length: 32 }, (_, i) => first + i)]).size !== 37
-    || !integer(first, 1024, 65504) || c.tlsGate !== undefined && c.tlsGate !== true
+    || new Set([c.deskPort, c.spryPort, c.shelterPort, ports.udpTcp, ports.tls, ...Array.from({ length: range.count }, (_, i) => range.first + i)]).size !== range.count + 5
+    || c.tlsGate !== undefined && c.tlsGate !== true
     || c.tlsGate && (c.hosting !== 'archy' || c.certificate !== undefined || c.certificateKey !== undefined)
     || !Array.isArray(c.origins) || c.origins.length > 16) throw Error('Invalid node configuration')
   // The native backend parses/binds the actual interface. Never guess it from
@@ -201,11 +203,14 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
     await new Promise<void>((r, reject) => { http.once('error', reject); http.listen(c.deskPort, '127.0.0.1', r) })
     await new Promise<void>((r, reject) => { control.once('error', reject); control.listen(controlSocket, r) })
     const { chmodSync } = await import('node:fs'); chmodSync(controlSocket, 0o600)
+    const range = nodeRelayRange(c)
     launch(c.spryBinary, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: secret,
       SPRY_ROOM_SEAL: 'required', SPRY_PUBLIC: 'false', SPRY_RELAY_IP: c.relayIp, ...(c.publicIp ? { SPRY_PUBLIC_IP: c.publicIp } : {}),
       SPRY_HTTP_BIND: '127.0.0.1', SPRY_HTTP_PORT: String(c.spryPort), SPRY_STATE_FILE: join(directory, 'spry.json'),
       ...(c.tlsGate ? { SPRY_TLS_GATE: 'true' } : { SPRY_TLS_CERT_FILE: c.certificate, SPRY_TLS_KEY_FILE: c.certificateKey }), SPRY_TLS_443: 'true',
-      SPRY_TURN_PORT: String(ports.udpTcp), SPRY_TLS_PORT: String(ports.tls), SPRY_RELAY_PORTS: `${c.relayPortFirst ?? 49160}:${(c.relayPortFirst ?? 49160) + 31}`,
+      SPRY_TURN_PORT: String(ports.udpTcp), SPRY_TLS_PORT: String(ports.tls), SPRY_RELAY_PORTS: `${range.first}:${range.last}`,
+      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 32 ? 32 : 8)),
+      SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_AGGREGATE_BYTES_PER_SECOND: String(c.aggregateBytesPerSecond), SPRY_ALLOWED_ORIGINS: c.origins.join(',') })
     launch(c.shelterBinary, ['room-relay', '--data', join(directory, 'rooms'), '--control', relaySocket, '--listen', `127.0.0.1:${c.shelterPort}`,
       '--url', `wss://${c.host}/events`, '--max-bytes', String(c.maxBytes), '--min-free-bytes', String(c.minFreeBytes), '--max-rooms', String(c.maxRooms)], {})
