@@ -2,6 +2,7 @@
 let audio: AudioContext | undefined
 let lastBell = -Infinity
 let callRing: ReturnType<typeof setInterval> | undefined
+let callRingRequest: object | undefined
 export async function unlockZenChime(): Promise<void> {
   try { audio ??= new AudioContext(); if (audio.state === 'suspended') await audio.resume() } catch { /* Device may have no audio output. */ }
 }
@@ -32,8 +33,13 @@ export async function playZenChime(preview = false): Promise<void> {
 
 /** A short repeating two-note call sound, made locally like the Zen bell. */
 export async function startCallRing(): Promise<void> {
-  if (callRing !== undefined) return
+  if (callRingRequest !== undefined) return
+  const request = {}
+  callRingRequest = request
   await unlockZenChime()
+  // Answer, Decline or a room switch may stop this ring while the browser
+  // is still unlocking audio. Only the current request may start its timer.
+  if (callRingRequest !== request) return
   const pulse = (): void => {
     if (!audio || audio.state !== 'running') return
     const start = audio.currentTime
@@ -56,6 +62,7 @@ export async function startCallRing(): Promise<void> {
 }
 
 export function stopCallRing(): void {
+  callRingRequest = undefined
   if (callRing === undefined) return
   clearInterval(callRing)
   callRing = undefined
