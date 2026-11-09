@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.139",
-  "versionCode": 162,
+  "versionName": "0.6.140",
+  "versionCode": 163,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74461772,
-  "apkSha256": "d194d592dce3cbc8d2b09ae48cbd11fea2e853a4623156f19de58c84c9af8aa7",
+  "apkBytes": 74465868,
+  "apkSha256": "9e87433c4c42f512b62e6f7ef42491f9f69e4918b33b0eb0c76c60805c586dc0",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.139-production.apk",
+  "downloadFilename": "kithmoot-0.6.140-production.apk",
   "releaseNotes": [
-    "Calls started on one of your devices ring your other devices signed into the same account.",
-    "Calls ring while the room is open too, following your notification choice. Answer or Decline stops the ring.",
-    "Update over your existing app to keep your account and rooms."
+    "Ask to join a node room while another room stays open. Approval adds it to your rooms while keeping the current call in place.",
+    "Invitations beside a docked call appear in the chat you are viewing. Cancelling or changing rooms stops the old request.",
+    "Retries clear previous errors and ignore late replies. Update over your existing app to keep your account and rooms."
   ]
 }

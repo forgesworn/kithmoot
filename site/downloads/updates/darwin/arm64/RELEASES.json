@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.135",
+  "currentRelease": "0.1.136",
   "releases": [
     {
-      "version": "0.1.135",
+      "version": "0.1.136",
       "updateTo": {
-        "version": "0.1.135",
-        "name": "0.1.135",
-        "pub_date": "2026-11-08T23:09:00Z",
-        "notes": "Background blur and replacement keep you sharp using an on-device model. If the model cannot run, the whole picture stays covered.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.135/KithMoot-0.1.135-mac-arm64.zip",
-        "sha256": "a17356e0fd04a3fce7aee540e23d36bc56f3efcf5de88a4eeee57229aca608b3",
-        "size": 200000002
+        "version": "0.1.136",
+        "name": "0.1.136",
+        "pub_date": "2026-11-09T10:19:36Z",
+        "notes": "Saved node rooms wait for your account to restore. Calls ring after a late audio unlock, and cameras on your other devices keep separate tiles.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.136/KithMoot-0.1.136-mac-arm64.zip",
+        "sha256": "a252d974d66748158fa202cabfb9360999a21034efdfcac147444e9bcc274018",
+        "size": 200000725
       }
     }
   ]
