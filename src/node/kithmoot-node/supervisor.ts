@@ -60,9 +60,15 @@ export class NodeSupervisor {
   async offer(room: string, device: string): Promise<NodeOffer> {
     return this.#serial(async () => {
       const record = this.ledger.room(room)
-      if (!record || record.state !== 'active' || !this.ledger.devices().some(d => d.room === room && d.device === device && d.turn)) throw new NodeRefusal(403, 'access-required')
-      await this.#project()
-      return structuredClone((this.ledger.child(room, 'spry') as unknown as SpryState).offer)
+      const access = this.ledger.devices().find(d => d.room === room && d.device === device && d.turn)
+      if (!record || record.state !== 'active' || !access) throw new NodeRefusal(403, 'access-required')
+      // Access polls read the last acknowledged projection. Re-projecting all
+      // rooms here renews the child lease on every device poll, exhausting
+      // Spry's write budget and then amplifying the failure with retries.
+      // Mutations and the periodic tick own reconciliation and lease renewal.
+      const state = this.ledger.child(room, 'spry') as unknown as SpryState | undefined
+      if (!this.#ready || !state || state.offer.expiresAt <= this.now() || state.devices[device] !== access.expires) throw new NodeRefusal(503, 'node-reconciling')
+      return structuredClone(state.offer)
     })
   }
   tick(): Promise<void> {
