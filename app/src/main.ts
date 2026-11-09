@@ -2401,12 +2401,22 @@ function linkRelays(pool: string[]): string[] {
  * invitation or a timeout changes nothing, and it is tried again next visit.
  */
 function readRoomRelaysOnce(invitation: RoomInvitation, roomId: string): void {
-  if (!invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  if (nodeRoom || !invitation.persistent || relayConnections.roomRelays(roomId)?.signed) return
+  if (identityRestoring) {
+    const generation = roomGeneration
+    void identityReady.then(() => {
+      if (generation !== roomGeneration || currentRoomId() !== roomId) return
+      restoreExistingNodeRoom()
+      if (!nodeRoom) readRoomRelaysOnce(invitation, roomId)
+    }).catch(() => { /* A later visit can retry the lookup. */ })
+    return
+  }
+  if (needsAccountReconnect()) return
   const scope = roomRelayScope
   const pool = relayConnections.pool(`lookup:${deriveInvitationId(invitation)}`, relays)
   requestPersistentRoomAdmission({ transport: pool, invitation })
     .then(admission => {
-      if (!admission.relays || roomRelayScope !== scope) return
+      if (nodeRoom || !admission.relays || roomRelayScope !== scope) return
       if (relayConnections.setRoomRelays(roomId, { fixed: admission.relays, signed: true })) roomRelaysApplied(relayConnections.configuration(roomRelayScope, roomRelayConfig))
     })
     .catch(() => { /* Read again on the next visit. */ })
