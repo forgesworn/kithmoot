@@ -5,7 +5,7 @@ import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, adoptExistingNodeDeviceKey, type BrowserNodeRoom } from './node-rooms.js'
+import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
@@ -5332,8 +5332,9 @@ async function followExistingNodeDestination(s: RoomSession): Promise<void> {
     else {
       // Keep this room's device identity when an offline device asks its
       // original keeper for a new grant at the announced destination.
-      adoptExistingNodeDeviceKey(deviceStore, node, source.participant, source.deviceSk)
-      const answer = await askBrowserNodeRoom(deviceStore, node, currentIdentity(), { allowed: current, name: joiningName() ?? 'Guest' })
+      const answer = await askBrowserNodeRoom(deviceStore, node, waitingAccountIdentity(source.participant), {
+        allowed: current, name: joiningName() ?? 'Guest', existing: { deviceSk: source.deviceSk, credential: source.credential },
+      })
       if (!current()) return
       state = acceptExistingBrowserNodeRoom(deviceStore, node, source, answer.grant!, nowSeconds(), false)
     }

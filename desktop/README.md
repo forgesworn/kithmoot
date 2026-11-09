@@ -1,8 +1,7 @@
 # KithMoot desktop preview
 
-Version 0.1.136 bundles the room restoration, late ringing and multi-device camera fixes shared with the web client. Saved node rooms wait for the restored account and private route before opening invitations or discovering a relay.
+Version 0.1.137 lets an existing chat follow its saved private-node destination using its valid signed room pass, without a fresh account-signing request. Hosted-room invites reconnect a saved account when its signer did not restore, so admission uses the account identity. Existing room history and keeper approval are retained.
 
-Apple Silicon macOS, Linux x64/ARM64 and Windows x64 previews use Electron 44.9.3. Current release: 0.1.136 on every platform (Linux as tarballs and .deb). Mac signing: `source ~/.kithmoot-signing/release-env.sh` before `npm run package:mac`.
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
 ## 15 October 2026: relay read evidence
