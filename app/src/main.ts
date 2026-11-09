@@ -19999,10 +19999,9 @@ $('roomOnNode').addEventListener('change', () => {
 function openNewRoom(): void {
   const owner = nostrSession?.pubkey, paired = owner && loadPairedNode(deviceStore, owner)
   $('roomOnNodeRow').hidden = !paired
-  ;($('roomOnNode') as HTMLInputElement).checked = false
-  $('roomOnNodeHint').hidden = true
-  ;($('roomAsk') as HTMLInputElement).disabled = false
-  ;($('roomWhenEnds') as HTMLSelectElement).disabled = false
+  const onNode = $('roomOnNode') as HTMLInputElement
+  onNode.checked = !!paired
+  onNode.dispatchEvent(new Event('change'))
   // The name this device would go in under: asked here, once, when there is none.
   // A creator who will meet the door (an account to reconnect, an extension)
   // is asked there, so only the ones who go straight in are asked here.

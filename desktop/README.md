@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.137 lets an existing chat follow its saved private-node destination using its valid signed room pass, without a fresh account-signing request. Hosted-room invites reconnect a saved account when its signer did not restore, so admission uses the account identity. Existing room history and keeper approval are retained.
+Version 0.1.138 selects Host on my node by default when the current account already has a paired node. Admission and room-ending controls follow that choice; it can be turned off before creating a room. Existing rooms retain their routes.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 

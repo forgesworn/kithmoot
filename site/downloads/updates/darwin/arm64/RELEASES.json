@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.137",
+  "currentRelease": "0.1.138",
   "releases": [
     {
-      "version": "0.1.137",
+      "version": "0.1.138",
       "updateTo": {
-        "version": "0.1.137",
-        "name": "0.1.137",
-        "pub_date": "2026-11-09T16:56:54Z",
-        "notes": "Existing chats moving to a saved private-node destination reuse their valid room pass without asking the account signer to sign again. Hosted-room invites reconnect the saved account before requesting admission.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.137/KithMoot-0.1.137-mac-arm64.zip",
-        "sha256": "59ebf48f28e6e0e951939226dbfc860cb80e31a0d74ae96a4a7d660e7b5173b1",
-        "size": 200000031
+        "version": "0.1.138",
+        "name": "0.1.138",
+        "pub_date": "2026-11-09T17:44:10Z",
+        "notes": "New rooms use the node already paired with your account by default. You can turn off Host on my node before creating a room.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.138/KithMoot-0.1.138-mac-arm64.zip",
+        "sha256": "d6465d2730a83b489fec2fb62af63c1c282c3f38a0c7d3801146bb6b9a86ff96",
+        "size": 200000405
       }
     }
   ]
