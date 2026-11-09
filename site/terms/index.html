@@ -19,7 +19,7 @@
 <main id="main" class="wrap">
 <section class="legal-page">
 <h1>Terms of use</h1>
-<p class="dated">Draft published for review. Last updated 2 November 2026.</p>
+<p class="dated">Draft published for review. Last updated 8 November 2026.</p>
 <div class="draft-note">
 <p><strong>This page is a draft.</strong> It has not been reviewed by a lawyer and it is not final. It is published here so it can be checked against how KithMoot actually works, not because it is in force.</p>
 </div>
@@ -35,25 +35,22 @@
 <li>the web app, this website and the downloads as static files;</li>
 <li>the update information the desktop app checks for.</li>
 </ul>
-<p>Since 1 November 2026 we also run, for anyone using the app:</p>
-<ul>
-<li>a public call relay (TURN), with a login service that needs no account, which the apps use by default when a call cannot connect directly.</li>
-</ul>
+<p>Our public STUN/TURN call relay and its anonymous login service closed on 8 November 2026. The /turn endpoint no longer issues logins. A call now needs a direct route or a reachable relay supplied by the device, room or its members. Calls that cannot connect directly, including Hide my IP calls, can fail without one.</p>
 <p>We also run a Nostr relay, relay.trotters.cc, for the project's own work. It is closed, and it is not open to the public: since 2 November 2026, reading it and writing to it take a sign-in with a key on its list, and from anyone else it accepts only sealed messages and signer requests addressed to those keys. None of the relays the web app suggests is ours. Desktop 0.1.124 and 0.1.125, and the in-development Android app from 0.6.132, name it first; the project's own test devices hold the keys it answers.</p>
-<p>What each sees and keeps is in the <a href="/privacy/">privacy notice</a>, sections 4.5 and 7. Until 22 October 2026 we also ran a file store, a message-drop service and meeting codes. Those are closed, and our call relay was closed from 22 October to 1 November 2026. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
+<p>What each sees and keeps is in the <a href="/privacy/">privacy notice</a>, sections 4.5 and 7. Until 22 October 2026 we also ran a file store, a message-drop service and meeting codes. Those are closed, and our call relay was closed from 22 October to 1 November 2026, then reopened until 8 November 2026. What closed and when is set out in the <a href="https://github.com/forgesworn/kithmoot/blob/main/docs/legal/closure-record.md">closure record</a>.</p>
 <p>A separate authenticated private relay remains for an arranged personal call. Private deployments have separate operator and access arrangements, described in the <a href="/privacy/">privacy notice</a>, section 4.5.</p>
 
 <h2>3. Who runs your rooms</h2>
 <ul>
 <li>Rooms travel over Nostr relays. The web app suggests three by default, all run by other people: relay.primal.net, relay.ditto.pub and offchain.pub. Desktop 0.1.124 and 0.1.125, and the in-development Android app from 0.6.132, name relay.trotters.cc, which we run, first; since 2 November 2026 it answers only a sign-in with a key on its list, so a device without one cannot read it or write room events to it. A room's creator can choose others.</li>
-<li>Calls use the STUN and TURN settings chosen by the device, room or installed build. The corrected web app uses our call relay and Cloudflare's public STUN fallback; Google was removed from the automatic web fallback on 2 November 2026. Desktop 0.1.124 and 0.1.125 and Android from 0.6.132 can still use Google and Cloudflare because a web update does not change their installed defaults. You can set your own STUN server, and a relay supplied by an independent provider or one you run yourself, which replace ours. From desktop 0.1.120 and Android 0.6.130 you can also run a call relay on your own computer or phone; it is off until you turn it on, you run it, not us, and only you can stop it.</li>
+<li>Calls use the STUN and TURN settings chosen by the device, room or installed build. The corrected web app uses Cloudflare's public STUN fallback when no call-relay login is available; Google was removed from the automatic web fallback on 2 November 2026. Desktop 0.1.124 and 0.1.125 and Android from 0.6.132 can still use Google and Cloudflare because a web update does not change their installed defaults. You can set your own STUN server, and a relay supplied by an independent provider or one you run yourself, which supply your call transport. From desktop 0.1.120 and Android 0.6.130 you can also run a call relay on your own computer or phone; it is off until you turn it on, you run it, not us, and only you can stop it.</li>
 <li>In the web app and the desktop app, files you send go by default to a public file server run by somebody else (section 4), or to a server you choose.</li>
 <li>A room's link is its access control. Whoever creates a room decides who to send it to.</li>
 <li>Operators are responsible for what they run under the laws and agreements that apply to their deployment. Using a bundled app, running one login or forwarding encrypted packets does not by itself settle its legal classification. Transport infrastructure and control of the underlying communications service need separate analysis.</li>
 </ul>
 
 <h3>Optional hosted node rooms: private candidate</h3>
-<p>Hosted node rooms are available in the web app and Android 0.6.133. Node server packages remain private installation candidates, with no public signed node or installer release yet. A node room uses its keeper’s chosen rented server or an Archy hosted away from home. Its operator supplies the message relay and call transport; the keeper’s app controls admission and holds the room authority. The node is given no room-content key. This does not switch off ForgeSworn’s existing public call relay for ordinary rooms.</p>
+<p>Hosted node rooms are available in the web app and Android 0.6.133. Node server packages remain private installation candidates, with no public signed node or installer release yet. A node room uses its keeper’s chosen rented server or an Archy hosted away from home. Its operator supplies the message relay and call transport; the keeper’s app controls admission and holds the room authority. The node is given no room-content key. ForgeSworn’s public call relay for ordinary rooms closed on 8 November 2026; private node transport is separate.</p>
 <p>Hosted node rooms send messages and calls through that node, with no public fallback and no files. Only a keeper-signed grant admits a device. Removing a participant revokes their devices while retaining the room for others. Closing a room purges its records on the running node and sends a signed instruction for devices to delete their room state. Neither action guarantees erasure of screenshots, copied content, offline devices or hosting-provider backups. The <a href="/privacy/index.html#hosted-node">privacy notice</a> describes the node’s metadata and these limits. A node operator must set out their own service and privacy arrangements.</p>
 <!-- Private candidate facts and release gates: docs/legal/kithmoot-node-release-gate.md; src/node/kithmoot-node/{http,ledger,supervisor}.ts; app/src/node-room-runtime.ts. -->
 
