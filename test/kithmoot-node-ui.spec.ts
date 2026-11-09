@@ -5,7 +5,7 @@ import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, getConversationKey } from 'nostr-tools/nip44'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
@@ -19,6 +19,53 @@ import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
 import { createDeviceCredential, verifyDeviceCredential } from '../src/credential.js'
 import { memoryDeviceStore, deviceKeyFor, storeKeptAdmission } from '../app/src/device-store.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom } from '../app/src/existing-node-room.js'
+
+test('new rooms default to the paired account node and synchronise admission controls', async ({ browser, baseURL }, info) => {
+  const key = generateSecretKey(), owner = getPublicKey(key)
+  const context = await accountDevice(browser, baseURL!, key)
+  try {
+    const page = await context.newPage(), enrolRequests: string[] = []
+    page.on('request', request => { if (new URL(request.url()).pathname === '/node/v1/enrol') enrolRequests.push(request.url()) })
+    await signInAccount(page, baseURL!)
+    await openNewRoomForm(page)
+    await expect(page.locator('#roomOnNodeRow')).toBeHidden()
+    await expect(page.locator('#roomOnNode')).not.toBeChecked()
+    await expect(page.locator('#roomAsk')).toBeEnabled()
+    await page.locator('#roomAsk').check()
+    await page.locator('#cancelNewRoom').click()
+
+    // Existing pairing belongs to this account; opening the sheet must not enrol a room.
+    await page.evaluate(pair => localStorage.setItem('kithmoot.node-pair.v1.' + pair.owner, JSON.stringify(pair)), {
+      v: 1, owner, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()),
+    })
+    await openNewRoomForm(page)
+    await expect(page.locator('#roomOnNodeRow')).toBeVisible()
+    await expect(page.locator('#roomOnNode')).toBeChecked()
+    await expect(page.locator('#roomOnNodeHint')).toBeVisible()
+    await expect(page.locator('#roomAsk')).toBeDisabled()
+    await expect(page.locator('#roomAsk')).not.toBeChecked()
+    await expect(page.locator('#roomWhenEnds')).toBeDisabled()
+    await expect(page.locator('#roomWhenEnds')).toHaveValue('destruct')
+    await page.screenshot({ path: info.outputPath('paired-node-default.png') })
+
+    await page.locator('#roomOnNode').uncheck()
+    await expect(page.locator('#roomOnNodeHint')).toBeHidden()
+    await expect(page.locator('#roomAsk')).toBeEnabled()
+    await expect(page.locator('#roomWhenEnds')).toBeEnabled()
+    await page.locator('#cancelNewRoom').click()
+    await openNewRoomForm(page)
+    await expect(page.locator('#roomOnNode')).toBeChecked()
+    await expect(page.locator('#roomAsk')).toBeDisabled()
+    await page.locator('#cancelNewRoom').click()
+
+    await page.evaluate(owner => localStorage.removeItem('kithmoot.node-pair.v1.' + owner), owner)
+    await openNewRoomForm(page)
+    await expect(page.locator('#roomOnNodeRow')).toBeHidden()
+    await expect(page.locator('#roomOnNode')).not.toBeChecked()
+    await expect(page.locator('#roomAsk')).toBeEnabled()
+    expect(enrolRequests).toEqual([])
+  } finally { await context.close() }
+})
 
 for (const retainedVisitor of [false, true]) {
   test(`a hosted invite reconnects its saved account after signer failure (${retainedVisitor ? 'retained visitor' : 'no visitor'})`, async ({ browser, baseURL }) => {
@@ -266,7 +313,7 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     await keeper.locator('#homeNewRoom').click()
     await keeper.locator('#roomName').fill('Node room')
     if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Keeper')
-    await keeper.locator('#roomOnNode').check()
+    await expect(keeper.locator('#roomOnNode')).toBeChecked()
     await keeper.locator('#create').click()
     await expect(keeper.locator('#chatInput')).toBeVisible({ timeout: 30000 })
     const beforeReconnect = requests.filter(path => path === '/v1/credentials').length
