@@ -1,18 +1,117 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { readNodeRoom, signNodeRoom } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, signNodeRoom, encodeNodeJoinRequest, decodeNodeJoinAnswer, verifyNodeRoomGrant } from '@forgesworn/fold-kit/node-room'
 import { buildGrant } from '../../src/group-grants.js'
 import { deriveRoom } from '../../src/room.js'
 import { localIdentity } from '../../src/identity.js'
+import { createDeviceCredential } from '../../src/credential.js'
+import { beginNodeJoin, openNodeKeeperAdmissions } from '../../src/node-admission.js'
 import { memoryDeviceStore } from './device-store.js'
-import { createBrowserNodeRoom, openBrowserNodeRoom } from './node-room-runtime.js'
-import { NODE_ROOM_PREFIX, loadNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { askBrowserNodeRoom, createBrowserNodeRoom, openBrowserNodeRoom } from './node-room-runtime.js'
+import { NODE_ROOM_PREFIX, adoptExistingNodeDeviceKey, loadNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
 
 vi.mock('../../src/kithmoot-node.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../src/kithmoot-node.js')>(),
   nodeRoomTransport: () => ({ close: vi.fn(), probe: vi.fn(async () => {}), reconnect: vi.fn() }),
 }))
+vi.mock('../../src/node-admission.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../src/node-admission.js')>(),
+  beginNodeJoin: vi.fn(),
+}))
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+async function retainedPass(existing = true) {
+  const at = 1_900_000_000, secret = generateSecretKey(), authoritySk = generateSecretKey(), deviceSk = generateSecretKey()
+  const account = localIdentity(generateSecretKey()), room = deriveRoom(secret).roomId
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room, origin: 'https://node.example',
+    serviceKey: getPublicKey(generateSecretKey()), now: at, ...(existing ? { existing: { destruct: false } } : { endsAt: at + 7200 }) }), at)!
+  const credential = await createDeviceCredential({ identity: account, devicePubkey: getPublicKey(deviceSk), roomId: room,
+    now: () => at, expiresAt: at + 3600 })
+  const grant = buildGrant({ authoritySk, roomId: room, device: getPublicKey(deviceSk), server: 'node.example',
+    scopes: ['turn', 'relay-read', 'relay-write'], grantId: '02'.repeat(16), createdAt: at, expiration: at + 7200 })
+  const store = memoryDeviceStore()
+  if (existing) adoptExistingNodeDeviceKey(store, node, account.pubkey, deviceSk)
+  const signer = { pubkey: account.pubkey, signEvent: vi.fn(async () => { throw Error('nip46-sign_event-timeout') }) }
+  const answer = { secret: secret.slice(), grant, epochHint: 0, persistent: true as const, epoch: 0 as const,
+    destruct: false, relays: [node.relay], storage: [] as [], node }
+  vi.mocked(beginNodeJoin).mockReset().mockReturnValue({ requestId: '03'.repeat(16), expiresAt: at + 600,
+    result: Promise.resolve(answer), cancel: vi.fn() })
+  return { at, account, room, node, store, deviceSk, credential, signer, grant, answer, authoritySk, secret }
+}
+
+it('moves an existing member using its current signed room pass while the account signer is unavailable', async () => {
+  const f = await retainedPass()
+  // Replace only the transport: exercise the real request/answer crypto,
+  // membership inspection and keeper-signed grant with the retained pass.
+  vi.mocked(beginNodeJoin).mockImplementation(options => {
+    const request = encodeNodeJoinRequest({ ...options, now: f.at })
+    const result = (async () => {
+      const keeper = await openNodeKeeperAdmissions({ node: f.node, authoritySk: f.authoritySk, roomSecret: f.secret,
+        keeperParticipant: getPublicKey(generateSecretKey()), initialMembers: [f.account.pubkey], epochHint: () => 0,
+        store: { load: async () => undefined, save: async () => {} }, now: () => f.at,
+        fetcher: async () => new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } }) })
+      try {
+        const inspected = keeper.inspect(request.event)
+        expect(inspected?.known).toBe(true)
+        expect(inspected?.request.credential).toEqual(JSON.parse(JSON.stringify(f.credential)))
+        const event = await keeper.admit(request.event)
+        const answer = decodeNodeJoinAnswer({ node: f.node, deviceSk: f.deviceSk, event,
+          requestId: request.requestId, requestExpiresAt: request.expiresAt, now: f.at })
+        if (!answer || answer === 'denied') throw Error('Existing membership was not admitted')
+        return answer
+      } finally { keeper.close() }
+    })()
+    return { requestId: request.requestId, expiresAt: request.expiresAt, result, cancel: vi.fn() }
+  })
+  const options = { now: () => f.at, existing: { deviceSk: f.deviceSk, credential: f.credential } }
+  const state = await askBrowserNodeRoom(f.store, f.node, f.signer, options)
+  expect(f.signer.signEvent).not.toHaveBeenCalled()
+  expect(beginNodeJoin).toHaveBeenCalledWith(expect.objectContaining({ credential: f.credential, deviceSk: f.deviceSk }))
+  expect(state.deviceSk).toEqual(f.deviceSk)
+  expect(state.participant).toBe(f.account.pubkey)
+  expect(verifyNodeRoomGrant(state.grant, f.node, getPublicKey(f.deviceSk), f.at)).toBe(true)
+  expect(loadNodeRoom(f.store, f.account.pubkey, f.room, f.at)?.deviceSk).toEqual(f.deviceSk)
+})
+
+it.each(['expired', 'participant', 'room', 'device', 'signature', 'new node'] as const)('refuses a retained pass with a mismatched %s', async mismatch => {
+  const f = await retainedPass(mismatch !== 'new node')
+  let credential = f.credential
+  if (mismatch === 'signature') credential = { ...credential, content: 'changed after signing' }
+  else if (mismatch !== 'new node') credential = await createDeviceCredential({
+    identity: mismatch === 'participant' ? localIdentity(generateSecretKey()) : f.account,
+    devicePubkey: mismatch === 'device' ? getPublicKey(generateSecretKey()) : getPublicKey(f.deviceSk),
+    roomId: mismatch === 'room' ? getPublicKey(generateSecretKey()) : f.room,
+    now: () => mismatch === 'expired' ? f.at - 7200 : f.at,
+    expiresAt: mismatch === 'expired' ? f.at - 1 : f.at + 3600,
+  })
+  const before = f.store.keys().map(key => [key, f.store.get(key)])
+  await expect(askBrowserNodeRoom(f.store, f.node, f.signer, {
+    now: () => f.at, existing: { deviceSk: f.deviceSk, credential },
+  })).rejects.toThrow('This room pass does not authorise')
+  expect(f.signer.signEvent).not.toHaveBeenCalled()
+  expect(beginNodeJoin).not.toHaveBeenCalled()
+  expect(f.store.keys().map(key => [key, f.store.get(key)])).toEqual(before)
+})
+
+it('still requires the account signer for a new node invitation', async () => {
+  const f = await retainedPass(false)
+  await expect(askBrowserNodeRoom(f.store, f.node, f.signer, { now: () => f.at })).rejects.toThrow('nip46-sign_event-timeout')
+  expect(f.signer.signEvent).toHaveBeenCalledOnce()
+  expect(beginNodeJoin).not.toHaveBeenCalled()
+})
+
+it('does not save retained admission after the original room changes', async () => {
+  const f = await retainedPass()
+  let current = true
+  vi.mocked(beginNodeJoin).mockReturnValue({ requestId: '04'.repeat(16), expiresAt: f.at + 600, cancel: vi.fn(),
+    result: Promise.resolve().then(() => { current = false; return f.answer }) })
+  await expect(askBrowserNodeRoom(f.store, f.node, f.signer, {
+    now: () => f.at, allowed: () => current, existing: { deviceSk: f.deviceSk, credential: f.credential },
+  })).rejects.toThrow('The room changed before admission')
+  expect(loadNodeRoom(f.store, f.account.pubkey, f.room, f.at)).toBeUndefined()
+  expect(f.answer.secret.every(byte => byte === 0)).toBe(true)
+  expect(f.signer.signEvent).not.toHaveBeenCalled()
+})
 
 function admitted() {
   vi.useFakeTimers()

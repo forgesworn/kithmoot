@@ -2,7 +2,7 @@ import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
 import { signNodeRoom, readNodeRoom, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
 import { deriveRoom } from '../../src/room.js'
 import { localIdentity, type ParticipantIdentity } from '../../src/identity.js'
-import { createDeviceCredential } from '../../src/credential.js'
+import { createDeviceCredential, verifyDeviceCredential } from '../../src/credential.js'
 import { hostRoomEpoch } from '../../src/epoch.js'
 import type { RoomSession } from '../../src/session.js'
 import type { PeerContext } from '../../src/peer.js'
@@ -11,7 +11,7 @@ import { KithmootNodeError, enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, n
 import { openNodeDeviceAccess, type NodeDeviceAccessController } from '../../src/node-device-access.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperAdmissions, type NodeKeeperSnapshot } from '../../src/node-admission.js'
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../../src/node-room-close.js'
-import { nodeDeviceKeyFor, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
+import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
 
@@ -42,10 +42,25 @@ export async function resumeBrowserNodeCreation(store: DeviceStore, state: Brows
   } finally { keeper.close() }
 }
 export async function askBrowserNodeRoom(store: DeviceStore, node: NodeRoomRecord, participant: ParticipantIdentity,
-  options: NodeClientOptions & { name?: string } = {}): Promise<BrowserNodeRoom> {
-  const at = (options.now ?? now)(), deviceSk = nodeDeviceKeyFor(store, participant.pubkey, node.room)
-  const credential = await createDeviceCredential({ identity: participant, devicePubkey: getPublicKey(deviceSk), roomId: node.room,
-    expiresAt: Math.min(at + 86400, node.endsAt ?? Infinity) })
+  options: NodeClientOptions & { name?: string; existing?: { deviceSk: Uint8Array; credential: Event } } = {}): Promise<BrowserNodeRoom> {
+  if (options.signal?.aborted || options.allowed?.() === false) throw Error('The room changed before asking to join.')
+  const at = (options.now ?? now)()
+  let deviceSk: Uint8Array, credential: Event
+  if (options.existing) {
+    // Moving a live room does not create a new person or device. Its current
+    // participant-signed pass already binds that account and device without
+    // another trip to an external signer. The keeper still decides access.
+    const held = options.existing, proof = verifyDeviceCredential(held.credential, { roomId: node.room, now: at })
+    if (!node.existing || !proof.ok || proof.participant !== participant.pubkey || proof.device !== getPublicKey(held.deviceSk)) {
+      throw Error('This room pass does not authorise the existing node device.')
+    }
+    adoptExistingNodeDeviceKey(store, node, participant.pubkey, held.deviceSk)
+    deviceSk = held.deviceSk.slice(); credential = held.credential
+  } else {
+    deviceSk = nodeDeviceKeyFor(store, participant.pubkey, node.room)
+    credential = await createDeviceCredential({ identity: participant, devicePubkey: getPublicKey(deviceSk), roomId: node.room,
+      expiresAt: Math.min(at + 86400, node.endsAt ?? Infinity) })
+  }
   if (options.signal?.aborted || options.allowed?.() === false) throw Error('The room changed before asking to join.')
   const attempt = beginNodeJoin({ node, deviceSk, credential, name: options.name, now: options.now, allowed: options.allowed, signal: options.signal })
   const answer = await attempt.result
@@ -53,7 +68,7 @@ export async function askBrowserNodeRoom(store: DeviceStore, node: NodeRoomRecor
   if (options.signal?.aborted || options.allowed?.() === false) { answer.secret.fill(0); throw Error('The room changed before admission.') }
   const state: BrowserNodeRoom = { node, participant: participant.pubkey, deviceSk, secret: answer.secret, grant: answer.grant,
     phase: 'active', epochHint: answer.epochHint, startsAt: at }
-  storeNodeRoom(store, state); return state
+  storeNodeRoom(store, state, (options.now ?? now)()); return state
 }
 
 /** All node-only resources belong to one session, including a docked call.
