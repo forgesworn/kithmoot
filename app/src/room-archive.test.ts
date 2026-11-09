@@ -301,6 +301,15 @@ describe('reseeding forgetful relays', () => {
     expect(pool.published).toHaveLength(2)
   })
 
+  it('leaves a retained event local when the conversation no longer verifies it for reseeding', async () => {
+    const rejected = chat('unverified old payload', 100), verified = chat('verified', 200)
+    const archive = await kept(rejected, verified)
+    const pool = new FakePool(new Map([['wss://node', []]]), [both('wss://node')])
+    await reseedRelays(pool, archive, [{ kind: 1460, d: ROOM, limit: 500, accept: event => event.id === verified.id }], { alive: () => true, gapMs: 0 })
+    expect(pool.published).toEqual([{ url: 'wss://node', id: verified.id }])
+    expect((await archive.read({ kind: 1460, d: ROOM, limit: 10 })).map(event => event.id)).toContain(rejected.id)
+  })
+
   it('reads a relay that caps its answers to the end, and republishes nothing it holds', async () => {
     const events = Array.from({ length: 12 }, (_, i) => chat(`m${i}`, 100 + i))
     const archive = await kept(...events)

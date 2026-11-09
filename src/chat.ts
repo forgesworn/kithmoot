@@ -1041,23 +1041,41 @@ export class ChatLog {
     return this.#stream
   }
 
+  /** Recheck a retained event without adding it to the visible page. An
+   * archive may hold records that a newer decoder no longer accepts. */
+  acceptsRetainedEvent(event: Event): boolean {
+    if (this.#closed) return false
+    try {
+      const d = event.tags.find(tag => tag[0] === 'd')?.[1]?.toLowerCase()
+      if (d === undefined || !this.streams().some(stream => stream.d === d)) return false
+      const past = d === this.#stream ? undefined : this.#past.get(d)
+      const root = past ? past.root : this.#epoch
+      return decodeChatEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey,
+        now: this.#now(), policy: this.#opts.policy, channel: this.#opts.channel, ...(root ? { epoch: root } : {}) }) !== null
+    } catch { return false }
+  }
+
   /** Recheck the complete retained archive, including messages outside the
-   * visible page. Quiet provenance stays attached to the original event. */
-  async retainedHistory(): Promise<import('./archive.js').RetainedArchiveSnapshot> {
+   * visible page. Quiet provenance stays attached to the original event.
+   * Migration may leave undecodable records in the local archive; they are
+   * reported explicitly and never returned as exportable entries. */
+  async retainedHistory(options: { unverified?: 'keep-local' } = {}): Promise<import('./archive.js').RetainedArchiveSnapshot & { localOnlyEventIds?: string[] }> {
     if (this.#closed || !this.#opts.archive?.migrationSnapshot) throw Error('The retained history cannot be read completely')
     const epoch = this.#epoch
     const streams = this.streams().map(stream => ({ kind: KINDS.CHAT, d: stream.d }))
     const snapshot = await this.#opts.archive.migrationSnapshot(streams)
     if (this.#closed || this.#epoch !== epoch) throw Error('The room changed while reading retained history')
-    for (const { event } of snapshot.entries) {
+    const entries: typeof snapshot.entries = [], localOnlyEventIds: string[] = []
+    for (const entry of snapshot.entries) {
+      const { event } = entry
       const d = event.tags.find(tag => tag[0] === 'd')?.[1]?.toLowerCase()
-      const past = d === this.#stream ? undefined : d === undefined ? undefined : this.#past.get(d)
-      const root = past ? past.root : epoch
-      const message = decodeChatEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey,
-        now: this.#now(), policy: this.#opts.policy, channel: this.#opts.channel, ...(root ? { epoch: root } : {}) })
-      if (!streams.some(stream => stream.d === d) || !message) throw Error('An event in the retained history does not belong to this conversation')
+      if (!streams.some(stream => stream.d === d)) throw Error('An event in the retained history does not belong to this conversation')
+      if (!this.acceptsRetainedEvent(event)) {
+        if (options.unverified !== 'keep-local') throw Error('An event in the retained history does not belong to this conversation')
+        localOnlyEventIds.push(event.id)
+      } else entries.push(entry)
     }
-    return snapshot
+    return localOnlyEventIds.length ? { ...snapshot, entries, localOnlyEventIds } : snapshot
   }
 
   #streamOf(epoch: EpochRoot | undefined): string {

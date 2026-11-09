@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.138",
+  "currentRelease": "0.1.139",
   "releases": [
     {
-      "version": "0.1.138",
+      "version": "0.1.139",
       "updateTo": {
-        "version": "0.1.138",
-        "name": "0.1.138",
-        "pub_date": "2026-11-09T17:44:10Z",
-        "notes": "New rooms use the node already paired with your account by default. You can turn off Host on my node before creating a room.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.138/KithMoot-0.1.138-mac-arm64.zip",
-        "sha256": "d6465d2730a83b489fec2fb62af63c1c282c3f38a0c7d3801146bb6b9a86ff96",
-        "size": 200000405
+        "version": "0.1.139",
+        "name": "0.1.139",
+        "pub_date": "2026-11-09T20:02:18Z",
+        "notes": "Existing chats can finish moving to their private node when older cached records no longer verify. Verified history is copied unchanged; unverified records stay on this device and are reported.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.139/KithMoot-0.1.139-mac-arm64.zip",
+        "sha256": "6ce694376ebc8c1b65db1ed691f20f15bccc7723ca7d9994f60b34e79bdce90f",
+        "size": 200000969
       }
     }
   ]

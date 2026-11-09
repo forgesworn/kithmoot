@@ -5257,19 +5257,21 @@ if (import.meta.env.VITE_NODE_MIGRATION_FIXTURE === 'true' && ['localhost', '127
 function clearExistingSource(source: ExistingBrowserRoom): void {
   source.secret.fill(0); source.deviceSk.fill(0); source.authoritySk?.fill(0)
 }
-async function backfillExistingNodeHistory(s: RoomSession, state: BrowserNodeRoom, current: () => boolean): Promise<void> {
+async function backfillExistingNodeHistory(s: RoomSession, state: BrowserNodeRoom, current: () => boolean): Promise<number> {
   // Quiet archives contain the inner events. Keep those local until their
   // original sealed carriers can be recovered; never publish them bare.
-  if (isQuietPolicy(roomPolicy)) return
+  if (isQuietPolicy(roomPolicy)) return 0
   const names = new Set([AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL, ASSIGNMENT_CHANNEL, ...channels])
   const logs = [s.chat, ...[...names].map(name => s.channel(name))]
-  const snapshots = await Promise.all(logs.map(log => log.retainedHistory()))
+  const snapshots = await Promise.all(logs.map(log => log.retainedHistory({ unverified: 'keep-local' })))
   const accepted = new Set(snapshots.flatMap(snapshot => snapshot.entries.map(entry => entry.event.id)))
+  const localOnly = new Set(snapshots.flatMap(snapshot => snapshot.localOnlyEventIds ?? []).filter(id => !accepted.has(id))).size
   const target = nodeRoomTransport(state.node, localIdentity(state.deviceSk), 'room', { allowed: current })
   try {
     await copyNodeMigrationHistory({ snapshots, target: nodeMigrationHistoryTarget(state.node, s.device, target),
       accept: event => accepted.has(event.id), now: nowSeconds, current })
   } finally { target.close() }
+  return localOnly
 }
 async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom): Promise<void> {
   if (session !== s || nodeRoom || state.node.room !== s.roomId) return
@@ -5281,7 +5283,7 @@ async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom):
   const generation = roomGeneration, participant = currentParticipant()
   const epoch = s.epoch
   const current = () => session === s && roomGeneration === generation && !nodeRoom && currentParticipant() === participant && s.epoch === epoch
-  await backfillExistingNodeHistory(s, state, current)
+  const localOnly = await backfillExistingNodeHistory(s, state, current)
   if (!current()) return
   if (callWanted || leavingCall || joining) {
     pendingExistingNodeActivation = { source: s, state }
@@ -5297,7 +5299,10 @@ async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom):
   rememberCurrentRoom()
   renderShareControls()
   await startSession()
-  if ((session as RoomSession | undefined)?.roomId === state.node.room) setStatus(`This room now uses ${new URL(state.node.origin).hostname} for messages and calls.`, 'done')
+  if ((session as RoomSession | undefined)?.roomId === state.node.room) {
+    const retained = localOnly ? ` ${localOnly} unverified ${localOnly === 1 ? 'item remains' : 'items remain'} in this device’s local history.` : ''
+    setStatus(`This room now uses ${new URL(state.node.origin).hostname} for messages and calls.${retained}`, 'done')
+  }
 }
 function followPendingExistingNode(): void {
   const pending = pendingExistingNodeActivation
@@ -11485,7 +11490,8 @@ function scheduleReseed(s: RoomSession, pool: ManagedRelayPool, quiet: boolean, 
     const since = nowSeconds() - CHAT_RETENTION_SECONDS
     const logs = [s.chat, ...[AGENT_CHANNEL, TRANSCRIPT_CHANNEL, MINUTES_CHANNEL, CONTROL_CHANNEL].map(name => s.channel(name))]
     const targets: ReseedTarget[] = [
-      ...(quiet ? [] : logs.map(log => ({ kind: KINDS.CHAT, d: log.stream, since, limit: MAX_CHAT_MESSAGES }))),
+      ...(quiet ? [] : logs.map(log => ({ kind: KINDS.CHAT, d: log.stream, since, limit: MAX_CHAT_MESSAGES,
+        accept: (event: NostrEvent) => log.acceptsRetainedEvent(event) }))),
       ...(authority ? [{ kind: KINDS.ROOM_REKEY, d: s.roomId, limit: 1_000, authors: [authority] }] : []),
     ]
     reseedRelays(pool, archive, targets, { alive })
