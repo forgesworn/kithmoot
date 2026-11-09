@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.137 reconnects a saved Nostr account before requesting admission to a hosted room when its signer did not restore. It keeps the account identity and existing rooms; a matching display name never substitutes a visitor key for the account.
+Version 0.1.137 lets an existing chat follow its saved private-node destination using its valid signed room pass, without a fresh account-signing request. Hosted-room invites reconnect a saved account when its signer did not restore, so admission uses the account identity. Existing room history and keeper approval are retained.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 

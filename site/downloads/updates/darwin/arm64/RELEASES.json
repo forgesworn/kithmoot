@@ -6,11 +6,11 @@
       "updateTo": {
         "version": "0.1.137",
         "name": "0.1.137",
-        "pub_date": "2026-11-09T16:10:53Z",
-        "notes": "Hosted-room invites reconnect your saved account instead of asking as a visitor after a signer timeout.",
+        "pub_date": "2026-11-09T16:56:54Z",
+        "notes": "Existing chats moving to a saved private-node destination reuse their valid room pass without asking the account signer to sign again. Hosted-room invites reconnect the saved account before requesting admission.",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.137/KithMoot-0.1.137-mac-arm64.zip",
-        "sha256": "54f6b8faf89a805e2ae0300f23fb9f7c0a18ae2a02c66c2a7605878cb45d5559",
-        "size": 200000833
+        "sha256": "59ebf48f28e6e0e951939226dbfc860cb80e31a0d74ae96a4a7d660e7b5173b1",
+        "size": 200000031
       }
     }
   ]
