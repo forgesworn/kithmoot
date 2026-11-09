@@ -1727,6 +1727,9 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     wantProfiles([account.pubkey], 'public')
     renderIdentity()
     renderNudgeChoice()
+    // A room may already be open on this account's pass. Invitations that
+    // arrived while its signer was unavailable have not been decrypted yet.
+    if (session?.participant === account.pubkey) void handleInvites(conversationMessages(undefined))
     return true
   })
 }
@@ -8594,14 +8597,19 @@ function renderSheetRoster(views: ParticipantView[], me: string): void {
 /** NIP-44 between this participant and another: the signer's, or the local
  *  key's. Undefined on a paired secondary, which holds no participant key,
  *  and on a signer with no NIP-44. */
-function peerCrypt(): PeerCrypt | undefined {
+function peerCrypt(participant = session?.participant ?? currentParticipant()): PeerCrypt | undefined {
+  if (!participant) return undefined
   if (nostrSession) {
+    if (nostrSession.pubkey !== participant) return undefined
     const nip44 = nostrSession.signer.nip44
     if (!nip44) return undefined
     return { encrypt: (peer, text) => nip44.encrypt(peer, text), decrypt: (peer, text) => nip44.decrypt(peer, text) }
   }
   try {
-    return localPeerCrypt(participantKey())
+    // Encryption is a read of the identity already in use. A disconnected
+    // account's room pass cannot authorise a new or retained visitor key.
+    const key = loadParticipantKey()
+    return key && getPublicKey(key) === participant ? localPeerCrypt(key) : undefined
   } catch {
     return undefined
   }
@@ -8797,7 +8805,7 @@ async function handleInvites(messages: ChatMessage[]): Promise<void> {
     if (knownRoom(roomStore(), m.invite.room)) { handledInvites.add(m.id); continue }
     // No key to open it with yet - a signer still restoring - is not a
     // decision, so the invitation is left for the next repaint.
-    const crypt = peerCrypt()
+    const crypt = peerCrypt(me)
     if (!crypt) continue
     handledInvites.add(m.id)
     const link = await openInvite(m.invite, { self: me, sender: m.participant, crypt })

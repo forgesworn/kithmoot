@@ -1,7 +1,73 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
-import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator, chooseInviteRoom } from './browser.js'
-import { testRelaysFor } from './relays.js'
+import { newDeviceContext, openNewRoomForm, requestAdmission, leaveToChats, openMember, nameCreator, chooseInviteRoom, leaveRoom } from './browser.js'
+import { testRelaysFor, TEST_RELAY_WS } from './relays.js'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { bytesToHex } from '@noble/hashes/utils'
+import { accountDevice, signInAccount } from './nostr-account.js'
+import { RoomAgent } from '../src/agent.js'
+import { localIdentity } from '../src/identity.js'
+import { deriveRoom, generateRoomSecret } from '../src/room.js'
+import { encodeRoomLink } from '../src/link.js'
+import { localPeerCrypt, sealInvite } from '../src/dm.js'
+
+for (const retainedVisitor of [false, true]) {
+  test(`an account invite waits for its signer while the room opens on its pass (${retainedVisitor ? 'retained visitor key' : 'no visitor key'})`, async ({ browser, baseURL }) => {
+    const accountSk = generateSecretKey(), account = getPublicKey(accountSk), senderSk = generateSecretKey()
+    let gate = Promise.resolve(), release = () => {}, restoring = false, ciphertext = '', inviteDecrypts = 0
+    const context = await accountDevice(browser, baseURL!, accountSk, true, async () => { restoring = true; await gate }, undefined, undefined,
+      { started: (_peer, encrypted) => { if (encrypted === ciphertext) inviteDecrypts++ } })
+    const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Shared signed identity', relays: testRelaysFor(baseURL!)!, iceUrls: [] })
+    const sender = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', identity: localIdentity(senderSk), agent: false })
+    try {
+      const page = await context.newPage()
+      await signInAccount(page, baseURL!)
+      await page.goto(link); await page.reload()
+      await page.locator('#join').click()
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await leaveRoom(page)
+      if (await page.locator('#actionConfirm').isVisible()) await page.locator('#actionConfirm').click()
+      await expect(page.locator('#roomArea')).toBeHidden()
+
+      const guest = retainedVisitor ? bytesToHex(generateSecretKey()) : null
+      await page.evaluate(value => {
+        if (value) localStorage.setItem('kithmoot.participant', value)
+        else localStorage.removeItem('kithmoot.participant')
+      }, guest)
+      gate = new Promise<void>(resolve => { release = resolve }); restoring = false
+      await page.goto('about:blank'); await page.goto(link)
+      await expect.poll(() => restoring).toBe(true)
+      await page.locator('#join').click()
+      // The account's valid room pass works without waiting for its signer.
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await page.locator('#chatInput').fill('Still speaking as my account on its pass')
+      await page.locator('#chatInput').press('Enter')
+      await expect.poll(() => sender.chat.messages().find(message => message.text === 'Still speaking as my account on its pass')?.participant).toBe(account)
+      const targetSecret = generateRoomSecret(), targetRoom = deriveRoom(targetSecret).roomId
+      const targetLink = encodeRoomLink(baseURL!, { secret: targetSecret, name: 'Deferred invitation', relays: testRelaysFor(baseURL!)!, iceUrls: [] })
+      const invite = await sealInvite(targetLink, { to: account, room: targetRoom, crypt: localPeerCrypt(senderSk) })
+      ciphertext = invite.link
+      await sender.chat.send('Invited you to a room.', { invite })
+      // Sealed invite statements are deliberately absent from the chat log;
+      // a following ordinary message acknowledges the same live chat path.
+      await sender.chat.send('The invitation was sent to your account')
+      await expect(page.locator('#chatLog')).toContainText('The invitation was sent to your account')
+      expect(inviteDecrypts).toBe(0)
+      expect(await page.evaluate(value => localStorage.getItem('kithmoot.participant') === value, guest)).toBe(true)
+      const destinationKey = `kithmoot.account.${account}.kithmoot.room.${targetRoom}`
+      expect(await page.evaluate(key => localStorage.getItem(key), destinationKey)).toBeNull()
+
+      release()
+      // No reload or room switch: the same invitation must be retried when
+      // this account's signer is restored, never decrypted with a guest key.
+      await expect.poll(() => inviteDecrypts).toBeGreaterThan(0)
+      await expect.poll(() => page.evaluate(key => localStorage.getItem(key), destinationKey)).toContain('Deferred invitation')
+      await expect(page.locator('#roomArea')).toBeVisible()
+      await expect(page.locator('#roomTitle')).toHaveText('Shared signed identity')
+      expect(await page.evaluate(value => localStorage.getItem('kithmoot.participant') === value, guest)).toBe(true)
+    } finally { release(); await context.close(); await sender.leave() }
+  })
+}
 
 // A private room: a room that asks first, whose link is never handed out.
 // People get in by being invited from a room they share with somebody in
