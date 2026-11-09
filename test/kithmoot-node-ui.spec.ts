@@ -5,13 +5,109 @@ import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join } from './browser.js'
-import { signInAccount } from './nostr-account.js'
+import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
 import { readNodeRoom, signNodeRoom, parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { localIdentity } from '../src/identity.js'
 import { buildGrant } from '../src/group-grants.js'
 import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
+import { deriveRoom } from '../src/room.js'
+import { encodeRoomLink } from '../src/link.js'
+import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
+import { createDeviceCredential } from '../src/credential.js'
+import { memoryDeviceStore, deviceKeyFor, storeKeptAdmission } from '../app/src/device-store.js'
+import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom } from '../app/src/existing-node-room.js'
+
+test('a saved activated node route waits for account restoration and never falls back to ordinary room relays', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== 'chromium', 'one real browser is enough for this startup routing regression')
+  const at = Math.floor(Date.now() / 1000), accountKey = generateSecretKey(), owner = localIdentity(accountKey)
+  const secret = generateSecretKey(), authoritySk = generateSecretKey(), deviceSk = generateSecretKey()
+  const roomId = deriveRoom(secret).roomId, authority = getPublicKey(authoritySk)
+  const invitation = roomInvitation(generateSecretKey(), authority, true)
+  const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+  const link = encodeRoomLink(baseURL!, { invitation, relays: [relay.href], iceUrls: [] })
+  const credential = await createDeviceCredential({ identity: owner, devicePubkey: getPublicKey(deviceSk), roomId,
+    now: () => at, expiresAt: at + 3600 })
+  const source = { authority, authoritySk, secret, deviceSk, credential, participant: owner.pubkey,
+    epoch: 0, destruct: false, startsAt: at, link, name: 'Retained node route', removed: [],
+    devices: [{ device: getPublicKey(deviceSk), participant: owner.pubkey, credential }] }
+  // Create genuine signed custody with the production adapters. Only the
+  // enrolment/grant acknowledgements are synthetic; there is no live node.
+  const prepared = await prepareExistingBrowserNodeRoom(memoryDeviceStore(), {
+    v: 1, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), owner: owner.pubkey,
+  }, owner, source, { now: () => at, fetcher: (async (url: string | URL | Request) => new Response(
+    JSON.stringify(String(url).endsWith('/node/v1/enrol') ? { enrolled: true } : { accepted: true }),
+    { headers: { 'content-type': 'application/json' } },
+  )) as typeof fetch })
+  const store = memoryDeviceStore()
+  deviceKeyFor(store, roomId, at, () => deviceSk)
+  // This browser is a retained member, not the original invitation owner.
+  acceptExistingBrowserNodeRoom(store, prepared.state.node, { ...source, authoritySk: undefined }, prepared.state.grant!, at, true)
+  storeKeptAdmission(store, deriveInvitationId(invitation), { secret, persistent: true, epoch: 0 }, at)
+  let restoring = false, gate = Promise.resolve(), release = () => {}
+  const context = await accountDevice(browser, baseURL!, accountKey, true, async () => { restoring = true; await gate })
+  const nodePaths: string[] = [], nodeSigners: string[] = []
+  await context.route('https://node.example/**', async route => {
+    const headers = { 'Access-Control-Allow-Origin': new URL(baseURL!).origin,
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
+    if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers }); return }
+    nodePaths.push(new URL(route.request().url()).pathname)
+    const auth = route.request().headers().authorization
+    if (auth?.startsWith('Nostr ')) nodeSigners.push(JSON.parse(Buffer.from(auth.slice(6), 'base64').toString()).pubkey)
+    await route.fulfill({ status: 403, contentType: 'application/json', headers, body: '{}' })
+  })
+  await context.addInitScript(tags => {
+    const win = window as typeof window & { __savedNodeOrdinaryFrames: number }
+    win.__savedNodeOrdinaryFrames = 0
+    const Native = window.WebSocket
+    window.WebSocket = class extends Native {
+      override send(data: Parameters<WebSocket['send']>[0]) {
+        if (typeof data === 'string') try {
+          const frame = JSON.parse(data)
+          const filters = frame[0] === 'REQ' ? frame.slice(2) : []
+          if (filters.some((filter: Record<string, unknown>) => Array.isArray(filter['#d']) && filter['#d'].some(tag => tags.includes(String(tag))))) win.__savedNodeOrdinaryFrames++
+          if (frame[0] === 'EVENT' && frame[1]?.tags?.some((tag: string[]) => tag[0] === 'd' && tags.includes(tag[1]!))) win.__savedNodeOrdinaryFrames++
+        } catch { /* Non-room frames are unrelated to this routing check. */ }
+        super.send(data)
+      }
+    }
+  }, [roomId, deriveInvitationId(invitation)])
+  const page = await context.newPage()
+  const roomFrames = () => page.evaluate(() => (window as unknown as { __savedNodeOrdinaryFrames: number }).__savedNodeOrdinaryFrames)
+  try {
+    await signInAccount(page, baseURL!)
+    await page.evaluate(entries => { for (const [key, value] of entries) localStorage.setItem(key!, value!) }, store.keys().map(key => [key, store.get(key)]))
+    restoring = false; gate = new Promise<void>(resolve => { release = resolve })
+    await page.goto('about:blank'); await page.goto(link)
+    await expect.poll(() => restoring).toBe(true)
+    await expect(page.locator('#join')).toBeVisible()
+    await page.locator('#join').click()
+    await expect(page.locator('#status')).toContainText('Reconnecting your sign-in')
+    // Give an incorrectly eager ordinary lookup time to reach its socket
+    // while the account is deliberately still waiting on the signer.
+    await page.waitForTimeout(300)
+    expect(nodePaths).toEqual([])
+    expect(await roomFrames(), 'ordinary invitation/room traffic must wait for the saved identity').toBe(0)
+    release()
+    await expect.poll(() => nodePaths).toEqual(['/node/v1/access'])
+    await expect(page.locator('#status')).toContainText('Your KithMoot node refused this request.')
+    await expect(page.locator('#chatInput')).toBeHidden()
+    expect(nodeSigners).toEqual([getPublicKey(deviceSk)])
+    expect(await roomFrames(), 'a refused private node must not fall back to ordinary room relays').toBe(0)
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+    const keys = await page.evaluate(({ room, participant }) => ({
+      original: JSON.parse(localStorage.getItem('kithmoot.device.' + room)!).sk,
+      node: localStorage.getItem('kithmoot.node-device.v1.' + participant + '.' + room),
+    }), { room: roomId, participant: owner.pubkey })
+    expect(keys).toEqual({ original: Buffer.from(deviceSk).toString('hex'), node: Buffer.from(deviceSk).toString('hex') })
+    await info.attach('saved-node-route-refusal', { contentType: 'application/json', body: JSON.stringify({
+      delayedAccountRestore: true, persistentMemberInvitation: true, nodePaths, ordinaryRoomFrames: await roomFrames(),
+      privateNodeRefused: true, ordinaryRoomOpened: false, deviceKeyPreserved: true, visitorKeyCreated: false,
+      realNodeOrMediaProof: false,
+    }) })
+  } finally { release(); await context.close() }
+})
 
 test('a paired owner admits a guest without typing, exchanges chat and moving call media and closes the node room', async ({ baseURL, browserName }, info) => {
   test.skip(!process.env.E2E_NODE_SPRY_BINARY || !process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked Spry and private Shelter candidate executables')
