@@ -4838,8 +4838,12 @@ async function roomFromLocation(): Promise<boolean> {
   const node = parseNodeRoomLink(location.href, nowSeconds())
   if (node) {
     if (identityRestoring) await identityReady
-    const participant = currentIdentity(), generation = roomGeneration
-    const current = () => roomGeneration === generation && currentIdentity().pubkey === participant.pubkey
+    // A failed signer restore must not turn a returning account into a
+    // visitor before startSession gets its chance to require reconnection.
+    // Retained node custody can still be looked up as that same account.
+    const openingIdentity = () => nostrSession?.signer ?? (expectedAccount ? waitingAccountIdentity(expectedAccount) : currentIdentity())
+    const participant = openingIdentity(), generation = roomGeneration
+    const current = () => roomGeneration === generation && (nostrSession?.pubkey ?? expectedAccount ?? currentParticipant()) === participant.pubkey
     let held = loadNodeRoom(deviceStore, participant.pubkey, node.room)
     if (held && held.node.event.id !== node.event.id) throw Error('This room link names a different node record. Ask the keeper for the current link.')
     if (held?.phase === 'creating') {
@@ -4848,6 +4852,10 @@ async function roomFromLocation(): Promise<boolean> {
       await resumeBrowserNodeCreation(deviceStore, held, pair, participant, { allowed: current })
     }
     if (!held) {
+      if (expectedAccount && !nostrSession) {
+        await reconnectNostr()
+        if (!current() || accountDisconnected()) throw Error('Reconnect the same Nostr account before asking to join this room.')
+      }
       if (!await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
       const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
       const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()

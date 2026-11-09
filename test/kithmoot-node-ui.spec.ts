@@ -3,21 +3,85 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
-import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
+import { encrypt, getConversationKey } from 'nostr-tools/nip44'
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
-import { readNodeRoom, signNodeRoom, parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, signNodeRoom, parseNodeRoomLink, encodeNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { localIdentity } from '../src/identity.js'
 import { buildGrant } from '../src/group-grants.js'
 import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
 import { deriveRoom } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
-import { createDeviceCredential } from '../src/credential.js'
+import { createDeviceCredential, verifyDeviceCredential } from '../src/credential.js'
 import { memoryDeviceStore, deviceKeyFor, storeKeptAdmission } from '../app/src/device-store.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom } from '../app/src/existing-node-room.js'
+
+for (const retainedVisitor of [false, true]) {
+  test(`a hosted invite reconnects its saved account after signer failure (${retainedVisitor ? 'retained visitor' : 'no visitor'})`, async ({ browser, baseURL }) => {
+    const accountKey = generateSecretKey(), account = getPublicKey(accountKey)
+    const room = getPublicKey(generateSecretKey()), at = Math.floor(Date.now() / 1000)
+    const link = encodeNodeRoomLink(baseURL!, signNodeRoom({ authoritySk: generateSecretKey(), room,
+      origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), endsAt: at + 3600, now: at }), at)
+    let failRestore = false, restoreAttempted = false
+    let requestedCredential: Event | undefined
+    const context = await accountDevice(browser, baseURL!, accountKey, true, async () => {
+      if (failRestore) { restoreAttempted = true; throw Error('The saved signer is temporarily unavailable') }
+    }, undefined, {
+      encrypt: async (peer, text) => encrypt(text, getConversationKey(accountKey, peer)),
+      sign: async template => {
+        const event = finalizeEvent(template, accountKey)
+        if (template.tags.some(tag => tag[0] === 'd' && tag[1] === room)
+          && template.tags.some(tag => tag[0] === 'device')) requestedCredential = event
+        return event
+      },
+    })
+    try {
+      const page = await context.newPage()
+      await signInAccount(page, baseURL!)
+      const visitor = retainedVisitor ? Buffer.from(generateSecretKey()).toString('hex') : null
+      await page.evaluate(value => {
+        if (value) localStorage.setItem('kithmoot.participant', value)
+        else localStorage.removeItem('kithmoot.participant')
+      }, visitor)
+      failRestore = true
+      await page.goto('about:blank'); await page.goto(link)
+      await expect.poll(() => restoreAttempted).toBe(true)
+      const reconnect = page.getByRole('button', { name: /Browser extension/ })
+      const ask = page.getByRole('button', { name: 'Ask to join', exact: true })
+      await expect(reconnect.or(ask)).toBeVisible()
+      expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBe(visitor)
+      await expect(reconnect).toBeVisible()
+      await expect(ask).toBeHidden()
+      expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.node-device.v1.')))).toEqual([])
+
+      if (retainedVisitor) {
+        await page.locator('dialog[open] button[data-choice="cancel"]').click()
+        await expect(page.locator('#retryArrival')).toBeVisible()
+        await expect(ask).toBeHidden()
+        expect(requestedCredential).toBeUndefined()
+        expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBe(visitor)
+        await page.locator('#retryArrival').click()
+        await expect(reconnect).toBeVisible()
+      }
+      failRestore = false
+      await reconnect.click()
+      await expect(ask).toBeVisible()
+      await ask.click()
+      await expect.poll(() => requestedCredential?.pubkey).toBe(account)
+      const proof = verifyDeviceCredential(requestedCredential!, { roomId: room, now: Math.floor(Date.now() / 1000) })
+      expect(proof.ok && proof.participant).toBe(account)
+      await expect.poll(() => page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.node-device.v1.'))))
+        .toEqual([`kithmoot.node-device.v1.${account}.${room}`])
+      expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBe(visitor)
+      expect(await page.evaluate(() => localStorage.getItem('kithmoot.last-nostr-account'))).toBe(account)
+    } finally { await context.close() }
+  })
+}
+
 
 test('a saved activated node route waits for account restoration and never falls back to ordinary room relays', async ({ browser, baseURL }, info) => {
   test.skip(info.project.name !== 'chromium', 'one real browser is enough for this startup routing regression')
