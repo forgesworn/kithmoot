@@ -310,7 +310,7 @@ test('a paired owner admits a guest without typing, exchanges chat and moving ca
     expect(await keeper.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await keeper.setViewportSize({ width: 1280, height: 860 })
     await closeSettings(keeper)
-    await keeper.locator('#homeNewRoom').click()
+    await openNewRoomForm(keeper)
     await keeper.locator('#roomName').fill('Node room')
     if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Keeper')
     await expect(keeper.locator('#roomOnNode')).toBeChecked()
