@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { testRelaysFor } from './relays.js'
@@ -103,26 +103,38 @@ test('portrait cameras stay whole and another chat defaults to a gallery with wo
 })
 
 for (const phone of [false, true]) {
-  test(`the persistent gallery owns its call across rooms, home and collapsed views (${phone ? 'touch phone' : 'desktop'})`, async ({ browser, baseURL }, info) => {
-    test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic call media needs Chromium')
-    // This journey includes three encoded-media clients, two independent
-    // popouts and two recording lifecycles. Keep individual checks bounded
-    // by the ordinary expectation timeout; the whole journey needs room for
-    // those checks on a software-rendering runner. This is not a speed gate.
-    test.setTimeout(300_000)
-    const contexts = await Promise.all(Array.from({ length: 3 }, (_, i) => newDeviceContext(browser, baseURL!, i === 0 && phone ? { isMobile: true, hasTouch: true } : {})))
-    const sides = ['Side B', 'Side C'].map((name, i) => {
-      const secret = generateRoomSecret()
-      return { roomId: deriveRoom(secret).roomId, name, project: `Local group ${i + 2}`, link: encodeRoomLink(baseURL!, { secret, name, relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] }), openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
-    })
-    await contexts[0]!.addInitScript(rooms => {
-      for (const room of rooms) {
-        localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room))
-        localStorage.setItem('kithmoot.project.v1.visitor.' + room.roomId, room.project)
-      }
-    }, sides)
-    try {
-      const [ada, bo, cy] = await Promise.all(contexts.map(context => context.newPage()))
+  test.describe(`the persistent gallery owns its call across rooms, home and collapsed views (${phone ? 'touch phone' : 'desktop'})`, () => {
+    test.describe.configure({ mode: 'serial' })
+    const contexts: BrowserContext[] = []
+    const popups: Page[] = []
+    let ada: Page | undefined, bo: Page | undefined, cy: Page | undefined
+    let pager: Locator
+    let continuous: () => Promise<void>
+    let dockedIn: string
+
+    // Both tests keep the same pages, connections, tracks and pop-outs alive.
+    // Failure skips the dependent phase; all owned contexts still close.
+    test.afterAll(async () => { await Promise.allSettled(contexts.map(context => context.close())) })
+
+    test('navigation, collapse and sharing preserve media through a scoped video export', async ({ browser, baseURL }, info) => {
+      test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic call media needs Chromium')
+      // Establish the same three-client call once. Each semantic phase keeps
+      // the existing bound; every media and UI expectation keeps its own limit.
+      test.setTimeout(300_000)
+      const created = await Promise.allSettled(Array.from({ length: 3 }, (_, i) => newDeviceContext(browser, baseURL!, i === 0 && phone ? { isMobile: true, hasTouch: true } : {})))
+      for (const result of created) if (result.status === 'fulfilled') contexts.push(result.value)
+      for (const result of created) if (result.status === 'rejected') throw result.reason
+      const sides = ['Side B', 'Side C'].map((name, i) => {
+        const secret = generateRoomSecret()
+        return { roomId: deriveRoom(secret).roomId, name, project: `Local group ${i + 2}`, link: encodeRoomLink(baseURL!, { secret, name, relays: testRelaysFor(baseURL!) ?? [], iceUrls: [] }), openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
+      })
+      await contexts[0]!.addInitScript(rooms => {
+        for (const room of rooms) {
+          localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room))
+          localStorage.setItem('kithmoot.project.v1.visitor.' + room.roomId, room.project)
+        }
+      }, sides)
+      ;[ada, bo, cy] = await Promise.all(contexts.map(context => context.newPage()))
       await ada!.setViewportSize(phone ? { width: 390, height: 844 } : { width: 1440, height: 900 })
       const url = await createRoom(ada!, baseURL!)
       await joinWithMedia(ada!, url, 'Ada')
@@ -147,7 +159,6 @@ for (const phone of [false, true]) {
           card.append(name); document.getElementById('room')!.append(card)
         }
       })
-      const popups: Page[] = []
       for (const name of ['Bo', 'Cy']) {
         if (phone && name === 'Cy') await ada!.locator('#galleryPager').getByRole('button', { name: 'Next gallery page' }).click()
         await ada!.getByRole('button', { name: `Expand screen share from ${name}`, exact: true }).click()
@@ -166,7 +177,7 @@ for (const phone of [false, true]) {
         await expect(ada!.locator('#room .participant[data-name="Bo"]')).toHaveAttribute('data-featured', '')
         await chooseView(ada!, 'Gallery')
       }
-      const pager = ada!.locator('#galleryPager')
+      pager = ada!.locator('#galleryPager')
       await expect(pager).toBeVisible()
       await pager.getByRole('button', { name: 'Next gallery page' }).click()
       await expect(pager).toHaveAttribute('data-page', '2')
@@ -176,15 +187,19 @@ for (const phone of [false, true]) {
       })
       const audioCount = await ada!.locator('#room audio').count()
       const ownerLabel = await ada!.locator('#callSurfaceOrigin').textContent()
-      const continuous = async (): Promise<void> => {
+      continuous = async (): Promise<void> => {
         const energy = (await ada!.evaluate(inbound)).audioEnergy
-        await expect.poll(() => ada!.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy)
-        for (const popup of popups) {
-          const video = popup.locator('.shareStage > video')
-          const before = await video.evaluate((node: HTMLVideoElement) => node.currentTime)
-          await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime)).toBeGreaterThan(before)
-          await expect(popup.locator('audio')).toHaveCount(0)
-        }
+        // Independent sinks must all advance. Observe them together rather
+        // than serialising each decoder's wait and trace round trips.
+        await Promise.all([
+          expect.poll(() => ada!.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy),
+          ...popups.map(async popup => {
+            const video = popup.locator('.shareStage > video')
+            const before = await video.evaluate((node: HTMLVideoElement) => node.currentTime)
+            await expect.poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime)).toBeGreaterThan(before)
+            await expect(popup.locator('audio')).toHaveCount(0)
+          }),
+        ])
         await expect(ada!.locator('#room audio')).toHaveCount(audioCount)
         expect(await ada!.evaluate(() => {
           const saved = (window as unknown as { __callSurface: { stage: Element; room: Element; videos: Array<{ element: HTMLVideoElement; track: MediaStreamTrack }> } }).__callSurface
@@ -231,7 +246,7 @@ for (const phone of [false, true]) {
       await expect(bo!.getByRole('button', { name: 'Expand screen share from Ada', exact: true })).toHaveCount(0)
       // Recording uses the original call's device key and notice, while C's
       // own banner and the permission to share the resulting file stay separate.
-      const dockedIn = await startRecordingThenDock(ada!, 'gallery')
+      dockedIn = await startRecordingThenDock(ada!, 'gallery')
       await expect(bo!.locator('#recordingBanner')).toBeVisible()
       await expect(ada!.locator('#recordingBanner')).toBeHidden()
       await expect(ada!.locator('#chatLog')).not.toContainText('This call is being recorded.')
@@ -254,6 +269,11 @@ for (const phone of [false, true]) {
         return result
       })
       expect(dimensions).toEqual({ width: 1280, height: 720 })
+    })
+
+    test('the same call keeps recording ownership through home and shuts down from another room', async ({}, info) => {
+      test.skip(!['chromium', 'chromium-desktop'].includes(info.project.name), 'Synthetic call media needs Chromium')
+      test.setTimeout(300_000)
       // Docked again in the other room, the finished file is not offered there.
       await ada!.keyboard.press('Control+k')
       await switchToRoom(ada!, dockedIn)
@@ -315,9 +335,7 @@ for (const phone of [false, true]) {
         })
         throw error
       }
-    } finally {
-      await Promise.allSettled(contexts.map(context => context.close()))
-    }
+    })
   })
 }
 
