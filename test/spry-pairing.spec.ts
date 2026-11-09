@@ -1,12 +1,24 @@
 import { test, expect, type BrowserContext } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
-import { openCallSettings } from './browser.js'
+import { openCallSettings, closeSettings } from './browser.js'
 import { testRelaysFor } from './relays.js'
 
 function pairingHash() {
   return '#spry=' + Buffer.from(JSON.stringify({ v: 1, endpoint: 'https://relay.example:3744', code: 'a'.repeat(43), expiresAt: Math.floor(Date.now() / 1000) + 180 })).toString('base64url')
 }
+
+test('reading call relay settings does not create a visitor identity', async ({ page, baseURL }) => {
+  await page.goto(baseURL!)
+  await expect(page.locator('html[data-ordinary-startup=ready]')).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+  for (const section of ['Your Spry node', 'Public call relays'] as const) {
+    await openCallSettings(page, section)
+    if (section === 'Your Spry node') await expect(page.locator('#spryUnpaired')).toBeVisible()
+    expect(await page.evaluate(() => localStorage.getItem('kithmoot.participant'))).toBeNull()
+    await closeSettings(page)
+  }
+})
 
 test('a browser retains an unclaimed native pairing and offers a local phone QR', async ({ page, context, baseURL, browserName }) => {
   test.skip(browserName !== 'chromium', 'Clipboard inspection is a Chromium fixture; the device chooser is covered separately in Safari.')

@@ -19160,7 +19160,10 @@ let spryFailedAt: number | undefined
 function callPathInput(): CallPathInput {
   let spry: CallPathInput['spry'] = { state: 'none' }
   try {
-    if (loadSpryPairing(localStorage, currentIdentity().pubkey)) spry = { state: 'paired', ...(spryFailedAt !== undefined ? { failedAt: spryFailedAt } : {}) }
+    // Rendering settings must not mint a visitor key before a saved account
+    // reconnects, or merely because somebody inspected their call options.
+    const participant = currentParticipant()
+    if (participant && loadSpryPairing(localStorage, participant)) spry = { state: 'paired', ...(spryFailedAt !== undefined ? { failedAt: spryFailedAt } : {}) }
   } catch { spry = { state: 'unreadable' } }
   let server: CallPathInput['server'] = { state: 'none' }
   try {
@@ -19215,7 +19218,8 @@ function renderSpryPage(): void {
   let head = ''
   let fact = ''
   try {
-    const pairing = loadSpryPairing(localStorage, currentIdentity().pubkey)
+    const participant = currentParticipant()
+    const pairing = participant ? loadSpryPairing(localStorage, participant) : undefined
     if (pairing) {
       state = 'paired'
       head = `Paired with ${pairing.endpoint.startsWith('spry:') ? 'your Spry node' : new URL(pairing.endpoint).hostname}`
@@ -19421,7 +19425,10 @@ function cancelPublicRelayCheck(): void {
 /** Whether a Spry pairing or a hand-entered relay is set, in which case no
  *  discovery query or login request is made. */
 function publicRelaysOutranked(): boolean {
-  try { return !!ownSpryPairing(currentIdentity().pubkey) || !!loadCallRelay(localStorage) } catch { return true }
+  try {
+    const participant = currentParticipant()
+    return !!(participant && ownSpryPairing(participant)) || !!loadCallRelay(localStorage)
+  } catch { return true }
 }
 function renderPublicRelays(): void {
   const on = publicCallRelays.enabled
