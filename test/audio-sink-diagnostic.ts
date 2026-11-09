@@ -9,7 +9,7 @@ export const AUDIO_SINK_DIAGNOSTIC = () => {
   window.AudioContext = class extends NativeContext {
     constructor(...args: ConstructorParameters<typeof AudioContext>) {
       super(...args); contexts.push(this)
-      record({ context: contexts.length - 1, state: this.state, event: 'created' })
+      record({ context: contexts.length - 1, state: this.state, event: 'created', stack: new Error().stack })
       this.addEventListener('statechange', () => record({ context: contexts.indexOf(this), state: this.state, event: 'statechange' }))
     }
   }
@@ -18,6 +18,17 @@ export const AUDIO_SINK_DIAGNOSTIC = () => {
   document.addEventListener('error', event => {
     if (event.target instanceof HTMLMediaElement) record({ event: 'media-error', element: element(event.target) })
   }, true)
+  const enabled = Object.getOwnPropertyDescriptor(MediaStreamTrack.prototype, 'enabled')!
+  Object.defineProperty(MediaStreamTrack.prototype, 'enabled', { ...enabled, set(this: MediaStreamTrack, value: boolean) {
+    record({ event: 'track-enabled-write', track: track(this), value, stack: new Error().stack })
+    enabled.set!.call(this, value)
+  } })
+  const nativeDestination = AudioContext.prototype.createMediaStreamDestination
+  AudioContext.prototype.createMediaStreamDestination = function () {
+    const destination = nativeDestination.call(this)
+    record({ event: 'stream-destination', context: contexts.indexOf(this), tracks: destination.stream.getTracks().map(track) })
+    return destination
+  }
   const nativePlay = HTMLMediaElement.prototype.play
   HTMLMediaElement.prototype.play = function () {
     const at = performance.now(); record({ event: 'play-request', at, element: element(this) })
@@ -31,9 +42,9 @@ export const AUDIO_SINK_DIAGNOSTIC = () => {
       for (const [index, pc] of (scope.__pcs ?? []).entries()) {
         const stats: unknown[] = []
         ;(await pc.getStats()).forEach(s => { if ((s.kind === 'audio' || s.mediaType === 'audio') && ['inbound-rtp', 'outbound-rtp', 'media-source', 'media-playout'].includes(s.type)) stats.push(s) })
-        pcs.push({ index, state: pc.connectionState, receivers: pc.getReceivers().filter(r => r.track.kind === 'audio').map(r => ({ track: track(r.track), transform: Boolean((r as RTCRtpReceiver & { transform?: unknown }).transform) })), stats })
+        pcs.push({ index, state: pc.connectionState, senders: pc.getSenders().map(s => s.track ? track(s.track) : null), receivers: pc.getReceivers().filter(r => r.track.kind === 'audio').map(r => ({ track: track(r.track), transform: Boolean((r as RTCRtpReceiver & { transform?: unknown }).transform) })), stats })
       }
-      state.samples.push({ at: performance.now(), contexts: contexts.map(ctx => ({ state: ctx.state, time: ctx.currentTime, sampleRate: ctx.sampleRate })), elements: [...document.querySelectorAll('audio')].map(element), pcs })
+      state.samples.push({ at: performance.now(), labels: { mic: document.getElementById('micIndicator')?.textContent, voice: document.getElementById('voiceNote')?.textContent }, contexts: contexts.map(ctx => ({ state: ctx.state, time: ctx.currentTime, sampleRate: ctx.sampleRate })), elements: [...document.querySelectorAll('audio')].map(element), pcs })
       if (state.samples.length > 150) state.samples.shift()
     })().catch(error => record({ event: 'sample-error', error: String(error) }))
   }, 1000)
