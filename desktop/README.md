@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.140 lets a member's device that missed a room's move to its node follow on its own. Any of the owner's running devices lets known members in, even with that room closed, and chat messages written while waiting are sent once the device has moved.
+Version 0.1.141 lets every device signed in as the same account keep a room, not only the one that made it: the room's owner key travels in the account's encrypted room bookmark, with its members and removals, so any of the owner's running devices can let a member's device in after a move.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 

@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.140",
+  "currentRelease": "0.1.141",
   "releases": [
     {
-      "version": "0.1.140",
+      "version": "0.1.141",
       "updateTo": {
-        "version": "0.1.140",
-        "name": "0.1.140",
-        "pub_date": "2026-11-10T18:35:51Z",
-        "notes": "A member's device that missed a room's move to its node now follows by itself. Any of the owner's running devices lets known members in, even with that room closed, and chat messages written while waiting are sent once it has moved.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.140/KithMoot-0.1.140-mac-arm64.zip",
-        "sha256": "2f5add9920646fc96e33075cdd3741623ca50e8e3a1f85fa96a92a59fd93d2c6",
-        "size": 200003862
+        "version": "0.1.141",
+        "name": "0.1.141",
+        "pub_date": "2026-11-10T22:12:54Z",
+        "notes": "Every device signed in as the same account can now keep a room, not only the one that made it: the room's owner key travels in your encrypted room bookmarks, so any of your running devices can let a member's device in after a move.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.141/KithMoot-0.1.141-mac-arm64.zip",
+        "sha256": "0d0025499b857e10a75c528dac243d9ae59b5aee963778afaa93ea0e7d6754a7",
+        "size": 200007665
       }
     }
   ]
