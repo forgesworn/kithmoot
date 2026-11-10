@@ -6,6 +6,7 @@ import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesE
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
 import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { keepClosedNodeRooms } from './node-room-keepers.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
 import { findPublicCallRelays, type PublicRelayDiscoveryTrigger } from './public-call-relay-discovery.js'
@@ -1300,6 +1301,9 @@ function disconnectedAccountRooms(): KnownRoom[] {
 // `device-store.ts` for why a relay must never see one device key across
 // two rooms. The single shared key this replaces is forgotten on load.
 const deviceStore = browserDeviceStore(localStorage)
+/** Known members' devices get into this account's moved rooms whenever this
+ *  app is running, not only while the room is open here. */
+const closedRoomKeepers = keepClosedNodeRooms({ store: deviceStore, participant: () => nostrSession?.pubkey, blocked: participant => contactIsBlocked(participant) })
 /** Whether the relays kept this device's own messages: the tick. See delivery-state.ts. */
 const delivery = new DeliveryTicks({
   store: deviceStore,
@@ -1724,6 +1728,7 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
+    closedRoomKeepers.refresh()
     wantProfiles([account.pubkey], 'public')
     renderIdentity()
     renderNudgeChoice()
@@ -1890,6 +1895,7 @@ async function signInWithNostr(): Promise<void> {
     browserRoomRoutes.resume()
     rememberAccount(account)
     startRoomBookmarks(account)
+    closedRoomKeepers.refresh()
     wantProfiles([account.pubkey], 'public')
     renderIdentity()
     if (previous && previous !== account.pubkey) {

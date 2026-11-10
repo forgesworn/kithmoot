@@ -14,6 +14,7 @@ import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose 
 import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
+import { claimNodeKeeper } from './node-room-keepers.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
@@ -88,7 +89,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let access: NodeDeviceAccessController | undefined, timer: ReturnType<typeof setInterval> | undefined
   let inbox: ReturnType<typeof nodeKeeperInbox> | undefined, desk: ReturnType<typeof hostRoomEpoch> | undefined
   let calls: Awaited<ReturnType<typeof nodeCallFactory>> | undefined, refreshing = false
-  let connectionLost = false
+  let connectionLost = false, releaseKeeper: (() => void) | undefined
   const unavailable = () => { connectionLost = true; options.unavailable() }
   let reconnecting: Promise<void> | undefined
   const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string } }).connection
@@ -134,7 +135,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     if (stopped) return
     stopped = true; controller.abort(); clearInterval(timer)
     unwatchNetwork?.()
-    desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
+    desk?.close(); inbox?.close(); keeper?.close(); releaseKeeper?.(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
   }
   // Whoever this room already counts as a member stays known to its keeper
   // journal, so a device of theirs that missed a move is let in by any of
@@ -154,6 +155,8 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
       rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer }))
     if (state.authoritySk) {
+      // This open room keeps its own room; a closed-room keeper must not save the same journal.
+      releaseKeeper = claimNodeKeeper(state.node.room)
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
         keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint,

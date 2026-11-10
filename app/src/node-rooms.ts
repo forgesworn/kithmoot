@@ -141,6 +141,13 @@ export function loadNodeRoom(store: DeviceStore, participant: string, room: stri
   if (!raw || raw.length > 65536) return undefined
   try { return decodeRoom(JSON.parse(raw), store, participant, room, now) } catch { return undefined }
 }
+/** Every node room this participant holds on this device, decoded and checked. */
+export function listNodeRooms(store: DeviceStore, participant: string, now = Math.floor(Date.now() / 1000)): BrowserNodeRoom[] {
+  if (!KEY.test(participant)) return []
+  const prefix = NODE_ROOM_PREFIX + participant + '.'
+  return store.keys().filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)).filter(room => KEY.test(room))
+    .map(room => loadNodeRoom(store, participant, room, now)).filter((room): room is BrowserNodeRoom => room !== undefined)
+}
 export function storeNodeRoom(store: DeviceStore, value: BrowserNodeRoom, now = Math.floor(Date.now() / 1000)): void {
   const raw: StoredNodeRoom = { v: 1, node: value.node.event, ...(value.source ? { source: { ...value.source } } : {}), participant: value.participant, secret: bytesToHex(value.secret),
     ...(value.authoritySk ? { authoritySk: bytesToHex(value.authoritySk) } : {}), phase: value.phase, ...(value.grant ? { grant: value.grant } : {}),
