@@ -218,6 +218,7 @@ export function pendingStatusWords(item: PendingSend, sending: string, now: numb
   switch (item.state) {
     case 'waiting':
       // A storage problem waiting will not mend says so in its own words; otherwise a message that has tried and has files for the group's storage is waiting for that.
+      if (item.moving) return `Waiting to move${where}: it goes once this device has moved to the room’s node.`
       if (item.storage && item.stuck) return item.stuck
       if (item.storage && item.attempts) return GROUP_STORAGE_WAITING
       return item.attempts ? `Pending${where}: will send when a relay answers.` : `Pending${where}: will send when you are connected.`

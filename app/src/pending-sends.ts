@@ -52,6 +52,11 @@ import type { DeviceStore } from './device-store.js'
 import { CONVERSATION_MOVED, type ChatMessage, type SendOptions } from '../../src/chat.js'
 import { GROUP_STORAGE_WAITING } from '../../src/group-storage.js'
 
+/** Thrown by a publisher whose room has moved to a node this device has not
+ *  joined yet. Nothing is offered to the old route; the message goes from
+ *  the node session once the device has followed. */
+export const NODE_MOVE_WAITING = 'Waiting to move to the room’s node.'
+
 /** Thrown by a publisher that cannot put a message's files on the group's storage and will not be able to by waiting. Its message is what the row says. */
 export class StorageStuckError extends Error {
   constructor(words: string) {
@@ -82,6 +87,8 @@ export interface PendingSend {
   storage?: true
   /** Set while a storage problem that waiting will not mend stops it: the words the row shows. */
   stuck?: string
+  /** Set while it waits for this device to follow its room to a node. */
+  moving?: true
   /** Whether this row is kept across a reload. */
   durable: boolean
   /** A plain new message, which Edit can put back in the message box as it
@@ -121,7 +128,7 @@ export interface RenewedSend {
  *  shown to the person). */
 export type RenewSend = (item: PendingSend) => Promise<RenewedSend | 'acknowledged' | undefined>
 
-export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck' | 'gaveUp' | 'renewable'> & { publish?: (event: Event) => Promise<void>; renew?: RenewSend }
+export type PendingSendInput = Omit<PendingSend, 'state' | 'attempts' | 'retryAt' | 'acknowledged' | 'holdUntil' | 'ready' | 'held' | 'stuck' | 'moving' | 'gaveUp' | 'renewable'> & { publish?: (event: Event) => Promise<void>; renew?: RenewSend }
 type PrivatePendingSend = Omit<PendingSend, 'ready' | 'held' | 'renewable'> & { publish?: (event: Event) => Promise<void>; renew?: RenewSend }
 
 export interface PendingSendsOptions {
@@ -181,7 +188,7 @@ export function stateAfter(error: unknown): PendingState {
   const text = message(error)
   if (text === CONVERSATION_MOVED) return 'moved'
   // Not a relay's answer: no group computer has the files yet. Nothing has left, so it stays Delete-able.
-  if (text === GROUP_STORAGE_WAITING || error instanceof StorageStuckError) return 'waiting'
+  if (text === GROUP_STORAGE_WAITING || text === NODE_MOVE_WAITING || error instanceof StorageStuckError) return 'waiting'
   if (REFUSED.test(text) && !UNANSWERED.test(text)) return 'refused'
   return 'unknown'
 }
@@ -505,7 +512,8 @@ export class PendingSends {
         saved.state = stateAfter(error)
         saved.stuck = error instanceof StorageStuckError ? error.message : undefined
         if (saved.stuck !== undefined) saved.retryAt = undefined
-      } else { saved.acknowledged = true; saved.durable = false; saved.stuck = undefined }
+        saved.moving = message(error) === NODE_MOVE_WAITING ? true : undefined
+      } else { saved.acknowledged = true; saved.durable = false; saved.stuck = undefined; saved.moving = undefined }
       return true
     }, version)
     if (!failed && this.#items.get(item.id) === item) { try { this.#opts.onAcknowledged?.(this.#snapshot(item)) } catch { /* Rendering is not a custody receipt. */ } }

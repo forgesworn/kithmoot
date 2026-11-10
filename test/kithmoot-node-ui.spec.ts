@@ -807,3 +807,101 @@ test('three concurrent account devices and a peer move an existing room onto its
     rmSync(scratch, { recursive: true, force: true })
   }
 })
+
+test('a member device closed during a move follows on its own while the owner only has the app open, and nothing it sent waiting is lost', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'room transition qualification')
+  test.setTimeout(420_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = []
+  try {
+    async function device(key: Uint8Array): Promise<Page> {
+      const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+      contexts.push(context)
+      await context.exposeFunction('migrationPublicKey', () => getPublicKey(key))
+      await context.exposeFunction('migrationSign', (template: EventTemplate) => finalizeEvent(template, key))
+      const accountRelay = new URL('/__test-relay', baseURL!); accountRelay.protocol = 'wss:'
+      await context.addInitScript(({ node, relay }) => {
+        const w = window as typeof window & { migrationPublicKey(): Promise<string>; migrationSign(value: unknown): Promise<unknown> }
+        Object.defineProperty(window, 'nostr', { configurable: true, value: { getPublicKey: () => w.migrationPublicKey(), signEvent: (value: unknown) => w.migrationSign(value) } })
+        const Native = window.WebSocket
+        window.WebSocket = class extends Native {
+          constructor(url: string | URL, protocols?: string | string[]) {
+            const target = String(url)
+            super(target === 'wss://node.example/events' ? node : target.startsWith('wss://') && !target.includes('localhost') ? relay : target, protocols)
+          }
+        }
+      }, { node: fixture.websocket, relay: accountRelay.href })
+      await context.route('https://node.example/**', async route => {
+        const path = new URL(route.request().url()).pathname
+        await route.fulfill({ response: await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path }) })
+      })
+      await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+      const page = await context.newPage()
+      page.on('pageerror', error => console.error('straggler page:', error.message))
+      await signInAccount(page, baseURL!)
+      return page
+    }
+    // The room is older than the node, as a room moved later is.
+    let keeper = await device(generateSecretKey())
+    await keeper.locator('#homeNewRoom').click()
+    await keeper.locator('#roomName').fill('Straggler chat')
+    if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Keeper')
+    await keeper.locator('#create').click()
+    await expect(keeper.locator('#chatInput')).toBeVisible()
+    await expect.poll(() => keeper.locator('#shareUrl').inputValue()).not.toBe('')
+    const originalLink = await keeper.locator('#shareUrl').inputValue()
+    expect(parseNodeRoomLink(originalLink, Math.floor(Date.now() / 1000))).toBeNull()
+
+    const member = await device(generateSecretKey())
+    await openRoomUrl(member, originalLink)
+    if (await member.locator('#displayName').isVisible()) await member.locator('#displayName').fill('Member')
+    await join(member); await expect(member.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    await member.locator('#chatInput').fill('Before the move'); await member.locator('#chatInput').press('Enter')
+    await expect(keeper.locator('#chatLog')).toContainText('Before the move')
+    // The member's device goes quiet long enough to drop off the roster, so
+    // the move cannot hand it a grant: only a keeper can let it in later.
+    const memberContext = member.context()
+    await member.close()
+    await keeper.waitForTimeout(115_000)
+
+    await openCallSettings(keeper, 'Your KithMoot node')
+    await keeper.locator('#nodePairingInput').fill(fixture.pairing())
+    await keeper.locator('#nodePair').click(); await keeper.locator('#actionConfirm').click()
+    await expect(keeper.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(keeper)
+    await openRoomInfoPage(keeper, 'Privacy and connection')
+    await expect(keeper.locator('#moveRoomToNode')).toBeEnabled()
+    await keeper.locator('#moveRoomToNode').click()
+    await expect.poll(() => fixture.ledger.rooms().length).toBe(1)
+    const room = fixture.ledger.rooms()[0]!
+    await expect.poll(async () => parseNodeRoomLink(await keeper.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 60_000 }).toBe(room.room)
+    const devicesAfterMove = fixture.ledger.devices().length
+
+    // Nobody who can let it in is online: the member's device says what it
+    // waits for, and what it writes waits instead of going to the old relays.
+    const keeperContext = keeper.context()
+    await keeper.close()
+    const returning = await memberContext.newPage()
+    await openRoomUrl(returning, originalLink)
+    if (await returning.locator('#join').isVisible()) await join(returning)
+    await expect(returning.locator('#status')).toContainText('This room has moved to node.example', { timeout: 60_000 })
+    await returning.locator('#chatInput').fill('Written while waiting'); await returning.locator('#chatInput').press('Enter')
+    await expect(returning.locator('#outbox')).toContainText('Waiting to move', { timeout: 30_000 })
+
+    // The owner only opens the app. No room, no prompt, no link.
+    keeper = await keeperContext.newPage()
+    await keeper.goto(baseURL!)
+    await expect.poll(async () => parseNodeRoomLink(await returning.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 120_000 }).toBe(room.room)
+    expect(fixture.ledger.devices().length).toBe(devicesAfterMove + 1)
+    await expect(returning.locator('#outbox')).not.toContainText('Waiting to move', { timeout: 60_000 })
+    await openRoomUrl(keeper, originalLink)
+    await expect(keeper.locator('#chatLog')).toContainText('Written while waiting', { timeout: 60_000 })
+    await returning.locator('#chatInput').fill('After following'); await returning.locator('#chatInput').press('Enter')
+    await expect(keeper.locator('#chatLog')).toContainText('After following')
+  } finally {
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})

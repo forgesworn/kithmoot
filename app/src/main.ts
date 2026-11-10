@@ -86,7 +86,7 @@ import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends, StorageStuckError, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
+import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
@@ -555,6 +555,9 @@ async function queueSend(prepared: PreparedSend, channel: string, opts: { files?
     ...(prepared.message.artwork?.length ? { artwork: prepared.message.artwork } : {}),
     event: prepared.event, publish: async retained => {
       if (JSON.stringify(retained) !== JSON.stringify(prepared.event)) throw new Error('The prepared message changed while it was being saved.')
+      // Members who moved no longer read the old route. A kept message waits
+      // and goes from the node session once this device has followed.
+      if (opts.durable && waitingToMove(roomId)) throw new Error(NODE_MOVE_WAITING)
       await (opts.publish ?? prepared.publish)()
     }, durable: opts.durable ?? false,
     // Past a day, Retry signs it again: only a main-chat message sent the ordinary way, not a quiet room's or one with a publisher of its own.
@@ -3546,6 +3549,7 @@ async function resumePending(s: RoomSession): Promise<void> {
     if (isTickMessage(msg)) tickIds.add(msg.id)
     pendingSends.resume(item.id, async retained => {
       if (session !== s || s.epochKeys().epoch !== root.epoch) throw new Error(CONVERSATION_MOVED)
+      if (waitingToMove(roomId)) throw new Error(NODE_MOVE_WAITING)
       await transport.publish(retained)
     }, unsentRenewer(s))
   }
@@ -5225,6 +5229,25 @@ const existingNodeFrames = new WeakMap<RoomSession, NodeMigrationFrameReceiver>(
 const existingNodeGrants = new WeakMap<RoomSession, Map<string, NostrEvent>>()
 const existingNodeDestinations = new WeakMap<RoomSession, NodeRoomRecord>()
 const existingNodeOpening = new WeakSet<RoomSession>()
+/** Sessions whose room has a confirmed node destination this device has not
+ *  reached yet. Their ordinary messages wait for the node, not the old route. */
+const existingNodeWaiting = new WeakSet<RoomSession>()
+const existingNodeRetries = new WeakMap<RoomSession, { attempt: number; timer: ReturnType<typeof setTimeout> }>()
+/** How long a device that missed a move waits before asking again, then every five minutes. */
+const EXISTING_NODE_RETRY_SECONDS = [15, 30, 60, 120, 300]
+const movedWaitingWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}. This device will follow as soon as one of the owner’s devices is online. Messages you send meanwhile will go once it has moved.`
+const movedUnconfirmedWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}, but this device cannot confirm the move from its saved copy of the room. Open the room’s latest link to follow it.`
+function waitingToMove(roomId: string): boolean {
+  return !nodeRoom && !!session && currentRoomId() === roomId && existingNodeWaiting.has(session)
+}
+function retryExistingNodeDestination(s: RoomSession): void {
+  const held = existingNodeRetries.get(s)
+  if (held) clearTimeout(held.timer)
+  const attempt = held ? held.attempt + 1 : 0
+  const seconds = EXISTING_NODE_RETRY_SECONDS[Math.min(attempt, EXISTING_NODE_RETRY_SECONDS.length - 1)]!
+  existingNodeRetries.set(s, { attempt, timer: setTimeout(() => { if (session === s && !nodeRoom) void followExistingNodeDestination(s) }, seconds * 1000) })
+}
+window.addEventListener('online', () => { if (session && !nodeRoom && existingNodeWaiting.has(session)) void followExistingNodeDestination(session) })
 let pendingExistingNodeActivation: { source: RoomSession; state: BrowserNodeRoom } | undefined
 let movingExistingRoom = false
 
@@ -5319,18 +5342,27 @@ function followPendingExistingNode(): void {
 async function followExistingNodeDestination(s: RoomSession): Promise<void> {
   const node = existingNodeDestinations.get(s)
   if (!node || nodeRoom || session !== s || movingExistingRoom || existingNodeOpening.has(s)) return
-  if (joining) return
+  if (joining) { retryExistingNodeDestination(s); return }
   existingNodeOpening.add(s)
   let source: ExistingBrowserRoom | undefined
   try {
     source = existingBrowserRoomSource(s)
-    if (!matchesExistingBrowserRoom(node, source)) return
+    if (!matchesExistingBrowserRoom(node, source)) {
+      // Never silent: a device that cannot confirm the move says so and how to follow it.
+      existingNodeWaiting.delete(s); setStatus(movedUnconfirmedWords(node)); return
+    }
+    existingNodeWaiting.add(s)
     const current = () => session === s && !nodeRoom && currentParticipant() === source!.participant
     let grant = [...(existingNodeGrants.get(s)?.values() ?? [])].find(event => verifyNodeRoomGrant(event, node, s.device, nowSeconds()))
     if (!grant) {
       try {
         const access = await queryNodeAccess(node, undefined, localIdentity(source.deviceSk), { allowed: current })
-        if (access.state !== 'active') throw Error('This device no longer has access to the destination')
+        if (access.state !== 'active') {
+          // Removed, closed or reset: waiting will not mend it, so say so once and stop asking.
+          existingNodeWaiting.delete(s)
+          setStatus(`This room has moved to ${new URL(node.origin).hostname}, and this device no longer has access to it.`)
+          return
+        }
         grant = access.grant.event
       } catch (error) {
         // A device absent during preparation asks its original keeper. A
@@ -5341,8 +5373,10 @@ async function followExistingNodeDestination(s: RoomSession): Promise<void> {
     let state: BrowserNodeRoom
     if (grant) state = acceptExistingBrowserNodeRoom(deviceStore, node, source, grant, nowSeconds(), false)
     else {
+      if (session === s) setStatus(movedWaitingWords(node), 'progress')
       // Keep this room's device identity when an offline device asks its
-      // original keeper for a new grant at the announced destination.
+      // original keeper for a new grant at the announced destination. Any
+      // of the owner's running devices answers a known member.
       const answer = await askBrowserNodeRoom(deviceStore, node, waitingAccountIdentity(source.participant), {
         allowed: current, name: joiningName() ?? 'Guest', existing: { deviceSk: source.deviceSk, credential: source.credential },
       })
@@ -5350,12 +5384,21 @@ async function followExistingNodeDestination(s: RoomSession): Promise<void> {
       state = acceptExistingBrowserNodeRoom(deviceStore, node, source, answer.grant!, nowSeconds(), false)
     }
     if (current()) await activateExistingNodeRoom(s, state)
-  } catch (error) {
-    if (session === s) setStatus(`The room's node destination is saved in its history. This device has not moved yet: ${describeError(error)}`)
+  } catch {
+    // Not answered yet, or the network failed: keep the room as it is, say
+    // what it waits for, and ask again on a back-off while it stays open.
+    if (session === s && !nodeRoom) { setStatus(movedWaitingWords(node), 'progress'); retryExistingNodeDestination(s) }
   } finally { if (source) clearExistingSource(source); existingNodeOpening.delete(s) }
 }
 function observeExistingNodeDestination(s: RoomSession, event: NostrEvent): void {
-  if (nodeRoom || session !== s || !roomAuthority()) return
+  if (nodeRoom || session !== s) return
+  if (!roomAuthority()) {
+    // A copy with no pinned authority cannot check who signed the move.
+    // It is not followed, but it is not ignored in silence either.
+    const unpinned = readNodeRoom(event, nowSeconds())
+    if (unpinned?.existing && unpinned.room === s.roomId) setStatus(movedUnconfirmedWords(unpinned))
+    return
+  }
   const node = readNodeRoom(event, nowSeconds(), roomAuthority())
   if (!node?.existing || node.room !== s.roomId) return
   const held = existingNodeDestinations.get(s)
