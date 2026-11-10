@@ -22,6 +22,10 @@ export interface NodeKeeperAdmissions {
    * membership from the source session, not from a self-signed credential. */
   authoriseExistingDevice(credential: Event): Promise<GroupEvent>
   remove(participant: string): Promise<void>
+  /** Remember participants the room already counts as members, so this
+   * keeper, and a later one reading the same journal, lets their devices in
+   * without asking. A removed participant is never learned. */
+  learnMembers(participants: readonly string[]): Promise<void>
   /** Replays committed grants/revocations after a lost acknowledgement. */
   retry(): Promise<void>
   /** Renews signed grants with ten days left while this keeper is open. */
@@ -122,8 +126,11 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
   const inspect = (raw: unknown) => {
     if (!live()) return null
     const request = decodeNodeJoinRequest({ node, authoritySk, event: raw, now: now() })
-    if (!request || state.removed.includes(request.participant) || node.existing?.policy?.members && !node.existing.policy.members.includes(request.participant)) return null
-    return { request, known: state.members.includes(request.participant) }
+    const named = node.existing?.policy?.members
+    if (!request || state.removed.includes(request.participant) || named && !named.includes(request.participant)) return null
+    // A room whose policy lists its members has already said who belongs,
+    // whether or not this keeper's own journal has met them yet.
+    return { request, known: state.members.includes(request.participant) || named !== undefined }
   }
   const issue = async (credential: Event, participant: string): Promise<GroupEvent> => {
     requireLive()
@@ -191,6 +198,13 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
       try { await save() } catch (cause) { error = cause }
       for (const record of records) try { await push(record) } catch (cause) { error ??= cause }
       if (error) throw error
+    }),
+    learnMembers: participants => enqueue(async () => {
+      requireLive()
+      const fresh = [...new Set(participants)].filter(p => KEY.test(p) && !state.members.includes(p) && !state.removed.includes(p))
+      if (!fresh.length) return
+      state.members.push(...fresh.slice(0, Math.max(0, MAX_RECORDS - state.members.length)))
+      await save()
     }),
     retry: () => enqueue(async () => {
       requireLive(); let error: unknown

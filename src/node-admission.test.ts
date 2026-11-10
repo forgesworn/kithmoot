@@ -7,11 +7,13 @@ import { localIdentity } from './identity.js'
 import { deriveRoom } from './room.js'
 import { parseGroupEvent } from './group-grants.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperSnapshot } from './node-admission.js'
+import type { RoomPolicy } from './types.js'
 
 const NOW = 1_900_000_000
-async function fixture(endsAt?: number, existing = false) {
+async function fixture(endsAt?: number, existing: boolean | ((keeper: string, guest: string) => RoomPolicy) = false) {
   const authoritySk = generateSecretKey(), roomSecret = generateSecretKey(), keeper = localIdentity(generateSecretKey()), guest = localIdentity(generateSecretKey())
-  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW, ...(existing ? { existing: { destruct: false } } : {}), ...(endsAt === undefined ? {} : { endsAt }) }), NOW)!
+  const policy = typeof existing === 'function' ? existing(keeper.pubkey, guest.pubkey) : undefined
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room: deriveRoom(roomSecret).roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: NOW, ...(existing ? { existing: { destruct: false, ...(policy ? { policy } : {}) } } : {}), ...(endsAt === undefined ? {} : { endsAt }) }), NOW)!
   let saved: NodeKeeperSnapshot | undefined, failSave = false, failPost = false, clock = NOW
   const posts: Event[] = [], accepted = new Map<string, Event>(), onGrant = vi.fn(async () => {})
   const store = { load: async () => structuredClone(saved), save: vi.fn(async (value: NodeKeeperSnapshot) => { if (failSave) throw Error('disk'); saved = structuredClone(value) }) }
@@ -200,4 +202,41 @@ it('migrates only source-admitted devices and never treats a self-signed credent
   const legacy = await fixture(), strict = await openNodeKeeperAdmissions({ ...legacy.options, acceptsExistingDevice: () => true })
   try { await expect(strict.authoriseExistingDevice((await legacy.ask()).credential)).rejects.toMatchObject({ reason: 'refused' }) }
   finally { strict.close() }
+})
+
+describe('members a moved room already has', () => {
+  it('lets in a member a members-only room names without asking, and nobody it does not name', async () => {
+    const f = await fixture(undefined, (keeper, guest) => ({ tier: 'open', members: [keeper, guest] }))
+    const keeper = await openNodeKeeperAdmissions(f.options)
+    try {
+      const request = await f.ask()
+      expect(keeper.inspect(request.event)?.known).toBe(true)
+      const answer = await keeper.admit(request.event)
+      expect(decodeNodeJoinAnswer({ node: f.node, deviceSk: request.deviceSk, event: answer, requestId: request.requestId, requestExpiresAt: request.expiresAt, now: NOW })).toBeTruthy()
+      const stranger = await f.ask(localIdentity(generateSecretKey()))
+      expect(keeper.inspect(stranger.event)).toBeNull()
+      await expect(keeper.admit(stranger.event, true)).rejects.toMatchObject({ reason: 'refused' })
+    } finally { keeper.close() }
+  })
+
+  it('keeps members learned from the room for a later keeper, and never learns a removed person', async () => {
+    const f = await fixture(undefined, true), removed = localIdentity(generateSecretKey())
+    const keeper = await openNodeKeeperAdmissions(f.options)
+    try {
+      const request = await f.ask()
+      expect(keeper.inspect(request.event)?.known).toBe(false)
+      await keeper.learnMembers([f.guest.pubkey, removed.pubkey])
+      expect(keeper.inspect(request.event)?.known).toBe(true)
+      await keeper.remove(removed.pubkey)
+      await keeper.learnMembers([removed.pubkey, 'not a key'])
+      expect(keeper.inspect((await f.ask(removed)).event)).toBeNull()
+    } finally { keeper.close() }
+    const later = await openNodeKeeperAdmissions(f.options)
+    try {
+      const request = await f.ask()
+      expect(later.inspect(request.event)?.known).toBe(true)
+      await later.admit(request.event)
+      expect(f.saved()!.members).not.toContain('not a key')
+    } finally { later.close() }
+  })
 })

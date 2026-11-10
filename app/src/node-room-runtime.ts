@@ -136,6 +136,10 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     unwatchNetwork?.()
     desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
   }
+  // Whoever this room already counts as a member stays known to its keeper
+  // journal, so a device of theirs that missed a move is let in by any of
+  // the owner's devices, even with this room closed.
+  const learnMembers = async () => { if (keeper && s && live()) await keeper.learnMembers(s.memberList()) }
   const reconnect = () => {
     if (!live() || reconnecting) return
     reconnecting = (async () => {
@@ -181,7 +185,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       void Promise.all([pool.probe(), inbox?.probe()]).catch(unavailable)
       if (refreshing) return
       refreshing = true
-      void refresh().then(() => keeper?.renew()).catch(unavailable).finally(() => { refreshing = false })
+      void refresh().then(() => keeper?.renew()).then(() => learnMembers()).catch(unavailable).finally(() => { refreshing = false })
     }, 5000)
     unwatchNetwork = watchNodeNetwork(connectivity, network, reconnect)
     return {
@@ -196,6 +200,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
           members: () => journal?.members ?? [state.participant], closed: () => stopped,
           expiresAt: () => Math.min(now() + 30 * 86400, state.node.endsAt ?? Infinity) })
         session.rememberMembers(journal?.members ?? [state.participant]); session.forgetParticipants(journal?.removed ?? [])
+        void learnMembers().catch(() => {})
       },
       async remove(participant: string) {
         if (!keeper || !s || !state.authoritySk) throw Error('Only the person managing this room can remove people.')
