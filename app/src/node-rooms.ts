@@ -167,6 +167,17 @@ function jsonStore<T>(store: DeviceStore, key: string): { load(): Promise<T | un
 }
 export const nodeAccessStore = (store: DeviceStore, participant: string, room: string): NodeDeviceStore => jsonStore<NodeDeviceSnapshot>(store, slot(NODE_ACCESS_PREFIX, participant, room))
 export const nodeKeeperStore = (store: DeviceStore, participant: string, room: string): NodeKeeperStore => jsonStore<NodeKeeperSnapshot>(store, slot(NODE_KEEPER_PREFIX, participant, room))
+/** A device that followed its room's move with the room's authority starts
+ * its keeper journal from the members and removals the source room knew, so
+ * it recognises them as the moving device does. An existing journal is kept. */
+export function seedNodeKeeper(store: DeviceStore, participant: string, node: NodeRoomRecord, members: readonly string[], removed: readonly string[]): void {
+  const key = slot(NODE_KEEPER_PREFIX, participant, node.room)
+  if (store.get(key) !== null) return
+  const gone = [...new Set(removed.filter(p => KEY.test(p) && p !== participant))].slice(0, 4096)
+  const known = [...new Set([participant, ...members.filter(p => KEY.test(p))])].filter(p => !gone.includes(p)).slice(0, 4096)
+  const snapshot: NodeKeeperSnapshot = { v: 1, descriptor: node.event.id, members: known, removed: gone, grants: [] }
+  store.set(key, JSON.stringify(snapshot))
+}
 
 function referenceOnly(value: NodeCloseReference): NodeCloseReference {
   const node = publicPair(value?.node)

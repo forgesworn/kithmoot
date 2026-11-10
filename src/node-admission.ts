@@ -79,7 +79,9 @@ export function beginNodeJoin(opts: { node: NodeRoomRecord; deviceSk: Uint8Array
  * the desk before an admission answer can contain that key. This class never
  * publishes bearer welcomes and never treats an HTTP failure as admission. */
 export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; authoritySk: Uint8Array; roomSecret: Uint8Array;
-  keeperParticipant: string; initialMembers?: readonly string[]; initialRemoved?: readonly string[]; epochHint: () => number; acceptsExistingDevice?: (device: string, participant: string) => boolean; store: NodeKeeperStore; onGrant?: (event: GroupEvent) => Promise<void> } & NodeClientOptions): Promise<NodeKeeperAdmissions> {
+  keeperParticipant: string; initialMembers?: readonly string[]; initialRemoved?: readonly string[]; epochHint: () => number; acceptsExistingDevice?: (device: string, participant: string) => boolean; store: NodeKeeperStore; onGrant?: (event: GroupEvent) => Promise<void>
+  /** Removals the embedding's session knows of that this journal may not have recorded yet. */
+  removed?: (participant: string) => boolean } & NodeClientOptions): Promise<NodeKeeperAdmissions> {
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000)), node = readNodeRoom(opts.node.event, now(), getPublicKey(opts.authoritySk))
   const derived = deriveRoom(opts.roomSecret)
   const matches = derived.roomId === node?.room; derived.roomKey.fill(0)
@@ -127,7 +129,7 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
     if (!live()) return null
     const request = decodeNodeJoinRequest({ node, authoritySk, event: raw, now: now() })
     const named = node.existing?.policy?.members
-    if (!request || state.removed.includes(request.participant) || named && !named.includes(request.participant)) return null
+    if (!request || state.removed.includes(request.participant) || opts.removed?.(request.participant) === true || named && !named.includes(request.participant)) return null
     // A room whose policy lists its members has already said who belongs,
     // whether or not this keeper's own journal has met them yet.
     return { request, known: state.members.includes(request.participant) || named !== undefined }

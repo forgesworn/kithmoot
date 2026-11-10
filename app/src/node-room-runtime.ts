@@ -140,7 +140,12 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   // Whoever this room already counts as a member stays known to its keeper
   // journal, so a device of theirs that missed a move is let in by any of
   // the owner's devices, even with this room closed.
-  const learnMembers = async () => { if (keeper && s && live()) await keeper.learnMembers(s.memberList()) }
+  const learnMembers = async () => {
+    if (!keeper || !s || !live()) return
+    // Everyone the room shows has spoken in it, as well as its roster and rekey lists.
+    const removed = s.removed
+    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))])
+  }
   const reconnect = () => {
     if (!live() || reconnecting) return
     reconnecting = (async () => {
@@ -159,7 +164,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       releaseKeeper = claimNodeKeeper(state.node.room)
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
-        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint,
+        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true,
         store: { async load() { journal = await backing.load(); return journal }, async save(value) { await backing.save(value); journal = value } },
         onGrant: async event => { if (s) await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'node-grant', event })) } })
       await keeper.retry(); await keeper.renew()

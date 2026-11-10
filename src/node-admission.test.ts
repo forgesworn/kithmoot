@@ -219,6 +219,19 @@ describe('members a moved room already has', () => {
     } finally { keeper.close() }
   })
 
+  it('refuses someone the room has removed even before its journal has recorded the removal', async () => {
+    const f = await fixture(undefined, (keeper, guest) => ({ tier: 'open', members: [keeper, guest] }))
+    const gone = new Set<string>()
+    const keeper = await openNodeKeeperAdmissions({ ...f.options, removed: participant => gone.has(participant) })
+    try {
+      const request = await f.ask()
+      expect(keeper.inspect(request.event)?.known).toBe(true)
+      gone.add(f.guest.pubkey)
+      expect(keeper.inspect(request.event)).toBeNull()
+      await expect(keeper.admit(request.event, true)).rejects.toMatchObject({ reason: 'refused' })
+    } finally { keeper.close() }
+  })
+
   it('keeps members learned from the room for a later keeper, and never learns a removed person', async () => {
     const f = await fixture(undefined, true), removed = localIdentity(generateSecretKey())
     const keeper = await openNodeKeeperAdmissions(f.options)

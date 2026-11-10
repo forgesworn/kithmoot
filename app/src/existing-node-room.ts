@@ -6,7 +6,7 @@ import type { ParticipantIdentity } from '../../src/identity.js'
 import { enrolNodeRoom, type NodeClientOptions, type PairedKithmootNode } from '../../src/kithmoot-node.js'
 import { openNodeKeeperAdmissions } from '../../src/node-admission.js'
 import type { DeviceStore } from './device-store.js'
-import { adoptExistingNodeDeviceKey, loadNodeRoom, nodeKeeperStore, storeNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { adoptExistingNodeDeviceKey, loadNodeRoom, nodeKeeperStore, seedNodeKeeper, storeNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
 
 export interface ExistingBrowserRoom {
   authority: string
@@ -98,5 +98,10 @@ export function acceptExistingBrowserNodeRoom(store: DeviceStore, record: NodeRo
     ...(source.authoritySk && getPublicKey(source.authoritySk) === record.authority ? { authoritySk: source.authoritySk.slice() } : {}),
     grant, phase: 'active', epochHint: source.epoch, startsAt: source.startsAt, name: source.name, source: { link: source.link, activated } }
   storeNodeRoom(store, state, now)
+  // Another of the owner's devices following with the room's authority must
+  // know the room's members and removals, or it would ask about every member
+  // and could let a removed one back in.
+  if (state.authoritySk) seedNodeKeeper(store, source.participant, record,
+    [...(record.existing?.policy?.members ?? []), ...(source.members ?? []), ...source.devices.map(device => device.participant)], source.removed)
   return state
 }

@@ -2,7 +2,7 @@ import { localIdentity } from '../../src/identity.js'
 import { nodeKeeperInbox, type NodeClientOptions } from '../../src/kithmoot-node.js'
 import { openNodeKeeperAdmissions, type NodeKeeperAdmissions } from '../../src/node-admission.js'
 import type { DeviceStore } from './device-store.js'
-import { listNodeRooms, nodeKeeperStore } from './node-rooms.js'
+import { listNodeRooms, loadPendingNodeClose, nodeKeeperStore } from './node-rooms.js'
 
 /**
  * Lets known members' devices into the node rooms this device keeps while
@@ -74,7 +74,7 @@ export function keepClosedNodeRooms(opts: {
     void locks.request(lockName(room), { ifAvailable: true }, async lock => {
       if (!lock || !live()) { stop(); return }
       const held = listNodeRooms(store, participant, now()).find(value => value.node.room === room)
-      if (!held?.authoritySk || held.phase !== 'active') { stop(); return }
+      if (!held?.authoritySk || held.phase !== 'active' || loadPendingNodeClose(store, participant, room, now())) { stop(); return }
       const node = held.node
       authoritySk = held.authoritySk.slice()
       try {
@@ -109,7 +109,9 @@ export function keepClosedNodeRooms(opts: {
     if (participant !== owner) { stopAll(); owner = participant }
     if (!participant) return
     const due = new Set(listNodeRooms(store, participant, now()).filter(value => {
+      // A room being closed takes its reset floor from its last keeper: no new grant may follow it.
       const keep = !!value.authoritySk && value.phase === 'active' && (value.node.endsAt ?? Infinity) > now()
+        && !loadPendingNodeClose(store, participant, value.node.room, now())
       value.secret.fill(0); value.deviceSk.fill(0); value.authoritySk?.fill(0)
       return keep
     }).map(value => value.node.room))

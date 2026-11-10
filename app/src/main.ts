@@ -1941,6 +1941,8 @@ async function signOutOfNostr(): Promise<void> {
     readSync?.close()
     readSync = undefined
     nostrSession = undefined
+    // Signed out: the closed-room keepers drop this account's keys and sockets now.
+    closedRoomKeepers.refresh()
     browserRoomRoutes.resume()
     // Each one speaks for the account in a room; a session under another
     // identity would refuse them anyway, but they should not outlive it here.
@@ -2042,6 +2044,8 @@ async function forgetThisBrowserContents(): Promise<void> {
     readSync?.close()
     readSync = undefined
     nostrSession = undefined
+    // Signed out: the closed-room keepers drop this account's keys and sockets now.
+    closedRoomKeepers.refresh()
     browserRoomRoutes.resume()
     // clearPersistentClientKey: true, same as sign-out - a browser that is
     // being forgotten entirely must not keep the one thing plain sign-out
@@ -5235,10 +5239,11 @@ const existingNodeWaiting = new WeakSet<RoomSession>()
 const existingNodeRetries = new WeakMap<RoomSession, { attempt: number; timer: ReturnType<typeof setTimeout> }>()
 /** How long a device that missed a move waits before asking again, then every five minutes. */
 const EXISTING_NODE_RETRY_SECONDS = [15, 30, 60, 120, 300]
-const movedWaitingWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}. This device will follow as soon as one of the owner’s devices is online. Messages you send meanwhile will go once it has moved.`
-const movedUnconfirmedWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}, but this device cannot confirm the move from its saved copy of the room. Open the room’s latest link to follow it.`
+const movedWaitingWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}. This device will follow as soon as one of the owner’s devices is online. Chat messages you send meanwhile will go once it has moved.`
+const movedUnconfirmedWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}, but this device cannot confirm the move from its saved copy. Remove the room from this device, then open the room’s link again to rejoin it there.`
 function waitingToMove(roomId: string): boolean {
-  return !nodeRoom && !!session && currentRoomId() === roomId && existingNodeWaiting.has(session)
+  // Not while the move only waits for a call to end: that call's people are on this same route.
+  return !nodeRoom && !!session && currentRoomId() === roomId && existingNodeWaiting.has(session) && pendingExistingNodeActivation?.source !== session
 }
 function retryExistingNodeDestination(s: RoomSession): void {
   const held = existingNodeRetries.get(s)
@@ -5273,7 +5278,9 @@ function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
     secret: roomSecret.slice(), deviceSk: deviceKey(), credential: own.credential, participant: s.participant,
     epoch: s.epoch, endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy, name: roomName,
     startsAt: roomStartsAt ?? nowSeconds(), link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
-    devices, members: s.memberList(), removed: [...s.removed] }
+    // Members are everyone the room knows, including those who have only spoken in it.
+    devices, members: [...new Set([...s.memberList(), ...s.chat.messages().map(message => message.participant)])].filter(participant => !s.removed.has(participant)),
+    removed: [...s.removed] }
 }
 // An explicit loopback-only build shares synthetic fixture input with the
 // independent native implementation. This branch is absent from releases.
