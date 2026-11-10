@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.139 lets an existing chat finish moving to its private node when an older retained record no longer passes the conversation decoder. Verified history is copied unchanged; unverified records remain locally and are reported. Automatic relay history recovery rechecks the same decoder before publishing.
+Version 0.1.140 lets a member's device that missed a room's move to its node follow on its own. Any of the owner's running devices lets known members in, even with that room closed, and chat messages written while waiting are sent once the device has moved.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 

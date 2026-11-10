@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.141",
-  "versionCode": 164,
+  "versionName": "0.6.142",
+  "versionCode": 165,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74465868,
-  "apkSha256": "c980d6eb375bbd232f55059b76aef65c7f2e651d4e136070119863d1b1509981",
+  "apkBytes": 74490444,
+  "apkSha256": "9b6885ead57815aa4aa5851ce018ad5da49969a1ee838ca875d303d0bce72d1e",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.141-production.apk",
+  "downloadFilename": "kithmoot-0.6.142-production.apk",
   "releaseNotes": [
-    "Opening or switching chats refreshes notifications in the background, keeping that work off the screen thread.",
-    "Visibility and call-state changes reuse the accepted chat instead of reading its full history again.",
+    "A phone that missed its room's move to a node now follows by itself, asking again and saying what it waits for.",
+    "Chat messages written while it waits are held and sent once it has moved, instead of being lost.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
