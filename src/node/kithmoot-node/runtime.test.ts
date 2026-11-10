@@ -19,6 +19,16 @@ it('requires explicit hosted deployment and resource choices, refusing unsafe or
     expect(() => validateConfiguration({ ...configuration(), ...patch })).toThrow()
   }
 })
+it('accepts an explicit group allocation range but refuses invalid budgets and newly covered collisions', () => {
+  const group = { ...configuration(), relayPortFirst: 49192, relayPortCount: 512 }
+  expect(validateConfiguration(group)).toEqual(group)
+  expect(validateConfiguration({ ...group, relayPortFirst: 65024 }).relayPortCount).toBe(512)
+  for (const patch of [{ relayPortCount: 0 }, { relayPortCount: 513 }, { relayPortCount: 1.5 }, { relayPortCount: null },
+    { relayPortCount: '512' }, { relayPortFirst: 65025 }, { relayPortFirst: 3300 }, { spryPort: 49300 }]) {
+    expect(() => validateConfiguration({ ...group, ...patch }), JSON.stringify(patch)).toThrow()
+  }
+  expect(validateConfiguration(configuration()).relayPortCount).toBeUndefined()
+})
 it('creates private independent service secrets and never overwrites an existing installation', () => {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-init-')); paths.push(directory)
   initialise(directory, configuration())
@@ -100,10 +110,10 @@ it('imports only independent declared secrets and preserves them through interru
   }
 })
 
-it('launches the host-gated backend on separate ports without sending it host certificate paths', async () => {
+it.each([undefined, 256, 512])('launches the host-gated backend with allocation count %s and without host certificate paths', async (count) => {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-host-env-')); paths.push(directory)
   const binary = join(directory, 'backend'), capture = join(directory, 'ports.txt')
-  writeFileSync(binary, '#!/bin/sh\nif [ -n "${SPRY_TURN_PORT:-}" ]; then\n  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" > "' + capture + '"\nfi\nexec /bin/sleep 30\n', { mode: 0o700 })
+  writeFileSync(binary, '#!/bin/sh\nif [ -n "${SPRY_TURN_PORT:-}" ]; then\n  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "' + capture + '"\nfi\nexec /bin/sleep 30\n', { mode: 0o700 })
   const ports: number[] = []
   for (let i = 0; i < 3; i++) {
     const server = createServer(); await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
@@ -111,12 +121,13 @@ it('launches the host-gated backend on separate ports without sending it host ce
     ports.push(address.port); await new Promise<void>(r => server.close(() => r()))
   }
   const secrets = manifestSecrets()
-  initialise(directory, { ...hostConfiguration(), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] }, false, secrets)
+  initialise(directory, { ...hostConfiguration(), ...(count === undefined ? {} : { relayPortCount: count }), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] }, false, secrets)
   await expect(runNode(directory, { ...secrets, stateSalt: '44'.repeat(32) })).rejects.toThrow('Manifest secrets differ')
   const node = await runNode(directory, secrets)
   try {
     for (let i = 0; i < 500 && !existsSync(capture); i++) await new Promise(r => setTimeout(r, 10))
-    expect(readFileSync(capture, 'utf8').split('\n')).toEqual(['34790', '53499', '49192:49223', 'true', '', '', ''])
+    expect(readFileSync(capture, 'utf8').split('\n')).toEqual(['34790', '53499', `49192:${49191 + (count ?? 32)}`,
+      'true', '', '', String(count ?? 32), count === 512 ? '64' : count === 256 ? '32' : '8', String(Math.max(64, count ?? 32)), ''])
     const info = await (await fetch(`http://127.0.0.1:${ports[0]}/node/v1/info`)).json()
     expect(info.turnPorts).toEqual({ udpTcp: 34790, tls: 53499 })
     // The client half-closes its request before the serial operation resolves.

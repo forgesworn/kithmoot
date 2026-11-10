@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { operationLock, acmeName, acmeHook } from './operator.js'
+import { operationLock, acmeName, acmeHook, nodeFirewallRules } from './operator.js'
 
 it('serialises operator changes and releases the OS lock without deleting or trusting a PID file', () => {
   const directory = mkdtempSync(join(tmpdir(), 'node-operator-lock-')), path = join(directory, 'lock.sqlite')
@@ -23,4 +23,14 @@ it('scopes the renewal hook to its own ACME lineage and rejects shell input', ()
   expect(hook).toContain('/etc/letsencrypt/live/' + name + ')')
   expect(hook).toContain('"$RENEWED_LINEAGE/privkey.pem"')
   expect(() => acmeHook('x; touch /tmp/bad')).toThrow()
+})
+it('keeps the legacy firewall range and includes every explicitly configured group allocation port', () => {
+  const configuration = { v: 1 as const, host: 'node.example', hosting: 'rented' as const, relayIp: '8.8.8.8',
+    aggregateBytesPerSecond: 2000000, maxBytes: 1073741824, minFreeBytes: 1073741824, maxRooms: 8,
+    origins: ['https://app.example'], spryBinary: '/opt/node/spry-node', shelterBinary: '/opt/node/bothyd',
+    certificate: '/private/cert.pem', certificateKey: '/private/key.pem', deskPort: 3746, spryPort: 3744, shelterPort: 3745 }
+  expect(nodeFirewallRules(configuration)).toEqual(['443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49160:49191/udp'])
+  expect(nodeFirewallRules({ ...configuration, relayPortFirst: 49192, relayPortCount: 512 })).toEqual([
+    '443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49192:49703/udp',
+  ])
 })

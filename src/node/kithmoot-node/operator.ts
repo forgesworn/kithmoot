@@ -8,6 +8,7 @@ import { X509Certificate, createPrivateKey, randomBytes, createHash } from 'node
 import { validateConfiguration, type NodeConfiguration } from './runtime.js'
 import { stageRelease, activateRelease, protectedDirectory } from './installation.js'
 import { verifyRelease, type NodeRelease } from './release.js'
+import { nodeRelayRange } from './relay-ports.js'
 
 const paths = { installation: '/opt/kithmoot-node', releases: '/opt/kithmoot-node/releases', configuration: '/etc/kithmoot-node', state: '/var/lib/kithmoot-node', units: '/etc/systemd/system' }
 const units = ['kithmoot-node.service', 'kithmoot-node-front.service']
@@ -142,7 +143,7 @@ export async function installSystemNode(bundle: string, input: unknown, certific
   protectedDirectory(paths.state, 0o700); chownSync(paths.state, node.uid, node.gid); chmodSync(paths.state, 0o700)
   const installed: InstalledNode = { v: 1, phase: 'prepared', directory: staged.directory, release: staged.release, configuration, ...(management.acme ? { acme: management.acme } : {}), ...(management.firewall ? { firewall: [] } : {}) }; saveInstalled(installed)
   atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: configuration.host, relayIp: configuration.relayIp, deskPort: configuration.deskPort,
-    spryPort: configuration.spryPort, shelterPort: configuration.shelterPort, ...(configuration.turnPorts ? { turnPorts: configuration.turnPorts } : {}), ...(configuration.relayPortFirst ? { relayPortFirst: configuration.relayPortFirst } : {}), certificate: configuration.certificate, certificateKey: configuration.certificateKey }) + '\n', 0o644)
+    spryPort: configuration.spryPort, shelterPort: configuration.shelterPort, ...(configuration.turnPorts ? { turnPorts: configuration.turnPorts } : {}), ...(configuration.relayPortFirst ? { relayPortFirst: configuration.relayPortFirst } : {}), ...(configuration.relayPortCount ? { relayPortCount: configuration.relayPortCount } : {}), certificate: configuration.certificate, certificateKey: configuration.certificateKey }) + '\n', 0o644)
   const initial = join(paths.configuration, 'initial.json'); atomicFile(initial, JSON.stringify(configuration), 0o640, node.gid)
   const command = join(staged.directory, 'kithmoot-node')
   service('kithmoot-node', command, ['init', '--state', paths.state, '--configuration', initial]); unlinkSync(initial)
@@ -158,7 +159,7 @@ export async function resumeSystemNode(): Promise<void> {
   verifyRelease(installed.directory, installed.release)
   for (const name of units) if (existsSync(join(paths.units, name)) && !protectedRead(join(paths.units, name)).equals(protectedRead(join(installed.directory, 'deploy', name)))) throw Error('Modified service units need operator review before recovery')
   const c = installed.configuration
-  atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: c.host, relayIp: c.relayIp, deskPort: c.deskPort, spryPort: c.spryPort, shelterPort: c.shelterPort, ...(c.turnPorts ? { turnPorts: c.turnPorts } : {}), ...(c.relayPortFirst ? { relayPortFirst: c.relayPortFirst } : {}), certificate: c.certificate, certificateKey: c.certificateKey }) + '\n', 0o644)
+  atomicFile(join(paths.configuration, 'front.json'), JSON.stringify({ v: 1, host: c.host, relayIp: c.relayIp, deskPort: c.deskPort, spryPort: c.spryPort, shelterPort: c.shelterPort, ...(c.turnPorts ? { turnPorts: c.turnPorts } : {}), ...(c.relayPortFirst ? { relayPortFirst: c.relayPortFirst } : {}), ...(c.relayPortCount ? { relayPortCount: c.relayPortCount } : {}), certificate: c.certificate, certificateKey: c.certificateKey }) + '\n', 0o644)
   const command = join(installed.directory, 'kithmoot-node')
   if (existsSync(join(paths.state, 'initialising')) || !existsSync(join(paths.state, 'node.json'))) {
     const node = account('kithmoot-node', paths.state), initial = join(paths.configuration, 'initial.json')
@@ -255,8 +256,8 @@ export function manageAcme(name: string): void {
 }
 
 export function nodeFirewallRules(configuration: NodeConfiguration): string[] {
-  const ports = readNodeTurnPorts(configuration.turnPorts)!, first = configuration.relayPortFirst ?? 49160
-  return ['443/tcp', `${ports.udpTcp}/tcp`, `${ports.udpTcp}/udp`, `${ports.tls}/tcp`, `${first}:${first + 31}/udp`]
+  const ports = readNodeTurnPorts(configuration.turnPorts)!, range = nodeRelayRange(configuration)
+  return ['443/tcp', `${ports.udpTcp}/tcp`, `${ports.udpTcp}/udp`, `${ports.tls}/tcp`, `${range.first}:${range.last}/udp`]
 }
 const firewallComment = 'KithMoot-node-managed'
 export function checkManagedFirewall(): void {

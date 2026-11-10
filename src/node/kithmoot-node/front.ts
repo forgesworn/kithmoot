@@ -5,7 +5,7 @@ import { X509Certificate } from 'node:crypto'
 import { readNodeTurnPorts, type NodeTurnPorts } from '@forgesworn/fold-kit/node-room'
 import { isHostName } from '../../group-grants.js'
 
-export interface NodeFrontRoutes { host: string; relayIp: string; deskPort: number; spryPort: number; shelterPort: number; turnPorts?: NodeTurnPorts; relayPortFirst?: number }
+export interface NodeFrontRoutes { host: string; relayIp: string; deskPort: number; spryPort: number; shelterPort: number; turnPorts?: NodeTurnPorts; relayPortFirst?: number; relayPortCount?: number }
 type Certificate = Pick<SecureContextOptions, 'cert' | 'key'>
 const methods = new Map<string, readonly string[]>([
   ['/node/v1/info', ['GET', 'OPTIONS']], ['/node/v1/status', ['GET', 'POST', 'OPTIONS']],

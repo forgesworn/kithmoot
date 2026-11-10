@@ -1,0 +1,147 @@
+{
+  "schema": "kithmoot-node-group-qualification/1",
+  "date": "2026-11-10",
+  "qualifiedCandidate": true,
+  "productionActivationRecordedSeparately": true,
+  "soak": {
+    "passed": true,
+    "durationSeconds": 2703.299,
+    "directedVideoPairs": 42,
+    "profiles": 7,
+    "peopleModelled": 6,
+    "measuredCheckpoints": 85,
+    "maximumObservedAllocations": 212,
+    "maximumProofWindow": 3,
+    "credentialRequests": [
+      12,
+      12,
+      12,
+      12,
+      12,
+      12,
+      15
+    ],
+    "finalRelayMetrics": {
+      "ageMillis": 42,
+      "allocationQuotaRefusals": 0,
+      "droppedPackets": 573931,
+      "elapsedMillis": 2719803,
+      "forwardedPackets": 22898400,
+      "refusedStreams": 0,
+      "relayBindFailures": 0,
+      "streamAllocations": 0,
+      "streamConnections": 0,
+      "streamErrors": 0,
+      "streamForwardedBytes": 0,
+      "udpAllocations": 0,
+      "udpForwardedBytes": 5380448791,
+      "userQuotaRefusals": 0,
+      "v": 1
+    },
+    "applicationErrors": [],
+    "allocationPorts": 512,
+    "allocationsPerCredential": 64,
+    "tcpConnections": 512,
+    "aggregateBytesPerSecond": 2000000,
+    "rawEvidenceSha256": "64578d646b64419ac9ed225f1c75a8a616e9310d7d0edf92a7fdf6d8e3db9961",
+    "source": {
+      "test": "e8fa9a6bc9bb1c314821c539777d0e37f17c6acd",
+      "spry": "8753514debffab53e2a84b1d57069b2c79acdd52",
+      "shelter": "93dabf4e3b12a24bf15a347b2d7f1516ffe93590"
+    },
+    "scope": "Seven local Chromium profiles, synthetic media, native loopback backends and fixture ICE DNS mapping. Not physical desktop/Android, WAN/VPN handover, public DNS/TLS or perceived call quality. Browser offline emulation does not independently establish a UDP outage."
+  },
+  "nativeLinux": {
+    "schema": "kithmoot-node-backends/1",
+    "result": "passed",
+    "loopbackOnly": true,
+    "groupBudget": {
+      "allocationPorts": 512,
+      "concurrentAuthenticatedAllocations": 42
+    },
+    "binaryHashes": {
+      "spry": "d242346b60b9c6a6a672eb415a95963011a225433d2700ffd84a556c9105c248",
+      "shelter": "703aea53150920bee79ee617484b7a46ed5b6d9da25bc53212e61b7a00114ed0"
+    },
+    "checks": [
+      "owner pairing",
+      "authority grants",
+      "both child acknowledgements",
+      "four TURN URLs",
+      "signed expiry clamp",
+      "room partition isolation",
+      "rotating event author",
+      "removed WebSocket closure",
+      "removed credential refusal",
+      "UDP/TCP/TLS allocations",
+      "cached UDP Allocate/Refresh refused",
+      "cached TCP/TLS Allocate refused",
+      "active TCP/TLS removal under one second",
+      "other room TURN refresh survives",
+      "signed closing event delivery",
+      "scoped purge",
+      "durable close retry",
+      "SDK keeper grant journal",
+      "SDK guest ask door",
+      "SDK fresh root epoch admission",
+      "SDK encrypted chat",
+      "SDK durable close",
+      "SDK self-destruct rekey delivery",
+      "SDK public owner completion reference",
+      "SDK signed closure proof after purge"
+    ],
+    "revocationAcknowledgementToClosedStreamsMs": 61,
+    "internetNode": false,
+    "physicalGrapheneOS": false,
+    "tls443PublicRoute": false
+  },
+  "resourceProbe": {
+    "passed": true,
+    "authenticatedDevices": 7,
+    "allocationsPerCredential": 63,
+    "simultaneousAllocations": 441,
+    "memoryLimitBytes": 268435456,
+    "memoryCurrentBytes": 93396992,
+    "memoryPeakBytes": 93401088,
+    "scope": "Disposable candidate-image CLI protocol probe under a 256MB cgroup, including synthetic fixture clients. Uses a Node fixture entrypoint instead of the production controller; no media, owner state or full production memory acceptance."
+  },
+  "earlierProfiles": {
+    "legacy32": {
+      "authenticatedAttempts": 42,
+      "admitted": 32,
+      "refused": 10
+    },
+    "group256": {
+      "completed": true,
+      "durationSeconds": 2705.142,
+      "checkpoints": 86,
+      "maximumObservedAllocations": 216,
+      "finalRefusals": {
+        "allocationQuotaRefusals": 5,
+        "userQuotaRefusals": 8,
+        "relayBindFailures": 4
+      },
+      "activated": false
+    }
+  },
+  "nativeBinaryProvenance": {
+    "spry-node": {
+      "bytes": 4808808,
+      "sha256": "a742e9441783379ccebaee25a48374d06aaa1cd883a28948f49cf42fdcf6f4a3",
+      "source": "8753514debffab53e2a84b1d57069b2c79acdd52"
+    },
+    "spry-turn": {
+      "bytes": 1448136,
+      "sha256": "5675091a09bf08547a90aa9833d09be5c71d1ffc7836295d56a41b1a1707976b",
+      "source": "8753514debffab53e2a84b1d57069b2c79acdd52"
+    },
+    "bothyd": {
+      "bytes": 86798088,
+      "sha256": "dde08b49c512c982a615d0895238f6caab21a7343d68535c0e102f49fa116cdb",
+      "source": "93dabf4e3b12a24bf15a347b2d7f1516ffe93590",
+      "profile": "debug"
+    }
+  },
+  "keeperPortability": "Design proposal only; not implemented",
+  "fieldAcceptance": "Physical Android, packaged desktop, real owner/peer rooms and separate-network call acceptance remain pending"
+}

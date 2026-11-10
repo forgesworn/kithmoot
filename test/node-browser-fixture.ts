@@ -2,16 +2,17 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { randomBytes, createHash } from 'node:crypto'
+import { randomBytes, createHash, createHmac } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import { createServer as tcpServer, connect } from 'node:net'
 import { createServer as httpsServer } from 'node:https'
 import { request as httpRequest, createServer as httpServer } from 'node:http'
-import { generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, verifyEvent, finalizeEvent } from 'nostr-tools/pure'
 import { NodeLedger } from '../src/node/kithmoot-node/ledger.js'
 import { SpryBackend, ShelterBackend } from '../src/node/kithmoot-node/backends.js'
 import { NodeSupervisor } from '../src/node/kithmoot-node/supervisor.js'
 import { nodeHttp, preparePairing } from '../src/node/kithmoot-node/http.js'
+import { nodeRelayRange } from '../src/node/kithmoot-node/relay-ports.js'
 
 async function freePort() {
   const server = tcpServer(); await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
@@ -21,9 +22,13 @@ async function freePort() {
 /** Real supervisor, Spry and Shelter. Only the browser's production host
  * routing is replaced; signatures keep their production HTTPS/WSS audiences. */
 export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?: boolean; relayIp?: string; sourceRelayPort?: number; additionalOrigins?: string[]; turnPorts?: { udpTcp: number; tls: number };
+  relayPortCount?: number; aggregateBytesPerSecond?: number;
   onRequest?: (value: { method: string; path: string; origin?: string }) => void } = {}) {
   const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
   if (!shelter || !options.chatOnly && !spry) throw Error('Set checked native fixture executables; chat-only qualification needs Shelter and supplies no real TURN service')
+  const range = nodeRelayRange({ relayPortFirst: 49400, relayPortCount: options.relayPortCount })
+  const bandwidth = options.aggregateBytesPerSecond ?? 1000000
+  if (!Number.isSafeInteger(bandwidth) || bandwidth < 1 || bandwidth > 67108864) throw Error('Invalid fixture bandwidth budget')
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-browser-')), children: ChildProcess[] = []
   const sockets = new Set<Duplex>(), key = generateSecretKey(), serviceKey = getPublicKey(key), origin = 'https://node.example'
   let ledger: NodeLedger | undefined, supervisor: NodeSupervisor | undefined, http: ReturnType<typeof nodeHttp> | undefined
@@ -58,8 +63,10 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     }
     if (!options.chatOnly) start(spry!, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: turnSecret,
       SPRY_ROOM_SEAL: 'required', SPRY_LOCAL_TEST: 'true', SPRY_RELAY_IP: options.relayIp ?? '127.0.0.1', SPRY_HTTP_PORT: String(spryPort), SPRY_TURN_PORT: String(turnPort),
-      SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: '49400:49431', SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true',
-      SPRY_STATE_FILE: join(directory, 'spry.json'), SPRY_AGGREGATE_BYTES_PER_SECOND: '1000000', SPRY_ALLOWED_ORIGINS: appOrigin })
+      SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: `${range.first}:${range.last}`, SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true',
+      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
+      SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
+      SPRY_STATE_FILE: join(directory, 'spry.json'), SPRY_AGGREGATE_BYTES_PER_SECOND: String(bandwidth), SPRY_ALLOWED_ORIGINS: appOrigin })
     start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0'])
     // Explicit chat-only runs exercise real signed admission and the native
     // relay. Their synthetic credential issuer cannot qualify media or TURN.
@@ -127,7 +134,20 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     await new Promise<void>(r => bridge!.listen(0, '127.0.0.1', r))
     const tls = bridge.address(); if (!tls || typeof tls === 'string') throw Error('tls listener')
     heartbeat = setInterval(() => { void supervisor!.tick().catch(() => {}) }, 1000)
-    return { chatOnly: !!options.chatOnly, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
+    const relayMetrics = async () => {
+      if (options.chatOnly) return null
+      const path = '/v1/node/status', body = JSON.stringify({ v: 1,
+        pairing: createHmac('sha256', turnSecret).update(`spry-supervised-pairing-v1:${serviceKey}`).digest('base64url') })
+      const proof = finalizeEvent({ kind: 27235, created_at: Math.floor(Date.now() / 1000), content: '', tags: [
+        ['u', origin + path], ['method', 'POST'], ['payload', createHash('sha256').update(body).digest('hex')], ['nonce', randomBytes(32).toString('base64url')],
+      ] }, key)
+      const response = await fetch(`http://127.0.0.1:${spryPort}` + path, { method: 'POST', body,
+        headers: { 'content-type': 'application/json', authorization: `Nostr ${Buffer.from(JSON.stringify(proof)).toString('base64')}` }, signal: AbortSignal.timeout(4000) })
+      if (!response.ok) throw Error('Fixture relay metrics unavailable')
+      const value = await response.json()
+      return { allocations: value.allocations, metrics: value.metrics }
+    }
+    return { chatOnly: !!options.chatOnly, relayMetrics, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
       native: { origin, port: tls.port, certificate: readFileSync(cert, 'utf8') },
       pairing() { const pair = preparePairing(supervisor!); return '#kithmoot-node=' + Buffer.from(JSON.stringify({ v: 1, node: origin, code: pair.code, expiresAt: pair.expiresAt })).toString('base64url') } }
   } catch (error) { await close(); throw error }
