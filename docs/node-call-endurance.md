@@ -27,8 +27,8 @@ failure, not a passed or failed media call.
 
 The direct authenticated TURN test first establishes the allocation budget:
 seven devices need at least 42 allocations. The previous 32-port profile
-admitted 32 and refused 10. The group fixture explicitly configures 256
-allocation ports, 32 allocations per credential and 256 TCP connections,
+admitted 32 and refused 10. The group fixture explicitly configures 512
+allocation ports, 64 allocations per credential and 512 TCP connections,
 leaving room for replacement connections during credential renewal. Its
 aggregate bandwidth remains 2,000,000 bytes per second. Existing installations
 retain their 32-port default unless the operator configures the larger range;
@@ -53,8 +53,10 @@ must advance RTP packets. An inactive own-account monitor is not an echo
 requirement. The creator keeps one active microphone. The test moves the listening role
 to the creator's second device, then back.
 Rendered remote pictures must keep moving. The test also checks a camera
-stop/restart, a guest network interruption, final seven-way chat delivery and
-absence of room-event publications on account relays.
+stop/restart, a guest browser offline/reconnect, final seven-way chat delivery and
+absence of ordinary kind 1460 room-event publications on account relays.
+Browser network emulation does not independently establish a native UDP outage
+or a route change; VPN and Wi-Fi/cellular handover need separate checks.
 
 Playwright attaches per-connection samples, credential request counts and
 errors to `node-endurance.json`, including a final sample on failure. It
@@ -75,7 +77,7 @@ or perceived-camera result. Use `test/kithmoot-node-cross-client.spec.ts` for
 the separately guarded native-device qualification; finish with the actual
 owner and peer devices before calling the live call accepted.
 
-For a separately guarded Linux backend check, set `E2E_NODE_GROUP_BUDGET=256`
+For a separately guarded Linux backend check, set `E2E_NODE_GROUP_BUDGET=512`
 when running `test/kithmoot-node-backends.mjs`. It holds 42 admitted allocations
 across UDP, TCP and TLS before exercising removal, isolation and closure.
 This native protocol check does not measure perceived audio/video quality.

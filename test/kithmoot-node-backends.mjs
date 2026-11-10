@@ -30,7 +30,7 @@ import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose 
 const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
 if (!spry || !shelter) throw Error('Set E2E_NODE_SPRY_BINARY and E2E_NODE_SHELTER_BINARY to the locally built executables')
 const groupBudget = process.env.E2E_NODE_GROUP_BUDGET
-if (groupBudget !== undefined && groupBudget !== '256') throw Error('E2E_NODE_GROUP_BUDGET must be 256 when explicitly qualifying the group profile')
+if (groupBudget !== undefined && !['256', '512'].includes(groupBudget)) throw Error('E2E_NODE_GROUP_BUDGET must be 256 or 512 when explicitly qualifying the group profile')
 const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-backends-')), children = [], sockets = [], turnClients = [], sdkCleanups = []
 let ledger, http, supervisor
 const port = async () => {
@@ -69,8 +69,8 @@ try {
   execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=node.example', '-addext', 'subjectAltName=DNS:node.example,DNS:turn.node.example,IP:127.0.0.1', '-keyout', tlsKey, '-out', cert], { stdio: 'ignore' })
   start(spry, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: turnSecret,
     SPRY_ROOM_SEAL: 'required', SPRY_LOCAL_TEST: 'true', SPRY_RELAY_IP: '127.0.0.1', SPRY_HTTP_PORT: String(spryPort),
-    SPRY_TURN_PORT: String(turnPort), SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: groupBudget ? '50000:50255' : '49320:49351',
-    ...(groupBudget ? { SPRY_MAX_ALLOCATIONS: '256', SPRY_MAX_ALLOCATIONS_PER_USER: '32', SPRY_MAX_TCP_CONNECTIONS: '256' } : {}),
+    SPRY_TURN_PORT: String(turnPort), SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: groupBudget ? `50000:${49999 + Number(groupBudget)}` : '49320:49351',
+    ...(groupBudget ? { SPRY_MAX_ALLOCATIONS: groupBudget, SPRY_MAX_ALLOCATIONS_PER_USER: groupBudget === '512' ? '64' : '32', SPRY_MAX_TCP_CONNECTIONS: groupBudget } : {}),
     SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true', SPRY_STATE_FILE: join(directory, 'spry.json'),
     SPRY_AGGREGATE_BYTES_PER_SECOND: groupBudget ? '2000000' : '1000000' })
   const socket = join(directory, 'relay.sock')
@@ -238,7 +238,7 @@ try {
   assert.equal((await queryNodeAccess(node, admitted.grant.tags.find(t => t[0] === 'grant')[1], guestIdentity, options)).state, 'closed')
   assert.equal(ledger.room(sdkRoom), undefined); assert.equal((await relay.status()).rooms, 1)
   console.log(JSON.stringify({ schema: 'kithmoot-node-backends/1', result: 'passed', loopbackOnly: true,
-    groupBudget: groupBudget ? { allocationPorts: 256, concurrentAuthenticatedAllocations: 42 } : null,
+    groupBudget: groupBudget ? { allocationPorts: Number(groupBudget), concurrentAuthenticatedAllocations: 42 } : null,
     binaryHashes: { spry: hash(readFileSync(spry)), shelter: hash(readFileSync(shelter)) },
     checks: ['owner pairing', 'authority grants', 'both child acknowledgements', 'four TURN URLs', 'signed expiry clamp', 'room partition isolation',
       'rotating event author', 'removed WebSocket closure', 'removed credential refusal', 'UDP/TCP/TLS allocations', 'cached UDP Allocate/Refresh refused', 'cached TCP/TLS Allocate refused',

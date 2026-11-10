@@ -19,7 +19,7 @@ if (!Number.isInteger(duration) || duration < 120 || duration > 10_800) throw Er
 
 test('the configured node has enough authenticated TURN allocations for seven devices', async ({ baseURL }, info) => {
   test.skip(process.env.E2E_NODE_ENDURANCE !== 'local-only', 'explicit disposable local node qualification')
-  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { relayPortCount: 256, aggregateBytesPerSecond: 2000000 })
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { relayPortCount: 512, aggregateBytesPerSecond: 2000000 })
   const clients: Array<{ close(): void }> = []
   const results: Array<{ device: number; peer: number; type: number }> = []
   try {
@@ -110,7 +110,7 @@ test('seven node devices sustain every directed call pair through renewal, toggl
   expect(process.env.E2E_NODE_SPRY_BINARY).toBeTruthy(); expect(process.env.E2E_NODE_SHELTER_BINARY).toBeTruthy()
   test.setTimeout((duration + 600) * 1000)
   const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, {
-    turnPorts: { udpTcp: 34790, tls: 53499 }, relayPortCount: 256, aggregateBytesPerSecond: 2000000,
+    turnPorts: { udpTcp: 34790, tls: 53499 }, relayPortCount: 512, aggregateBytesPerSecond: 2000000,
   })
   const browser = await chromium.launch({ args: [
     '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-audio-output',
@@ -119,7 +119,7 @@ test('seven node devices sustain every directed call pair through renewal, toggl
     '--host-resolver-rules=MAP node.example 127.0.0.1,MAP turn.node.example 127.0.0.1',
   ] }).catch(async error => { await fixture.close(); throw error })
   const contexts: BrowserContext[] = [], pages: Page[] = [], errors: string[] = []
-  const checkpoints: unknown[] = [{ allocationPorts: 256, perCredentialAllocations: 32, tcpConnections: 256, aggregateBytesPerSecond: 2000000 }]
+  const checkpoints: unknown[] = [{ allocationPorts: 512, perCredentialAllocations: 64, tcpConnections: 512, aggregateBytesPerSecond: 2000000 }]
   const ownerKey = generateSecretKey()
   const credentials = Array.from({ length: 7 }, () => 0)
   try {

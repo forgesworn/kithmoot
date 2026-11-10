@@ -164,10 +164,10 @@ The default standalone profile still uses TURN UDP/TCP 3478, TLS 5349 and the
 bounded relay range 49160:49191. An optional `turnPorts:{udpTcp,tls}` selects
 two distinct unprivileged ports on the same node hostname;
 `relayPortFirst` selects the first allocation port. Optional `relayPortCount`
-selects 1–256 ports, defaulting to 32. A larger group needs an explicitly
+selects 1–512 ports, defaulting to 32. A larger group needs an explicitly
 configured budget and a compatible Spry build: seven devices require at least
-42 allocations before renewal overlap. A 256-port profile allows 32 allocations
-per credential and 256 TCP connections; the legacy profile retains its limits
+42 allocations before renewal overlap. A 512-port profile allows 64 allocations
+per credential and 512 TCP connections; the legacy profile retains its limits
 of 32 total, eight per credential and 64 TCP connections. The aggregate
 bandwidth limit remains independent. Firewall plans open exactly the configured
 UDP range. All internal

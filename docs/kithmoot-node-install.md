@@ -55,7 +55,11 @@ those values with `--hosting`, `--relay-ip`, `--bandwidth`, `--storage-bytes`,
 `--certificate-key`, or a version-1 configuration file with `--configuration`.
 All resource limits require explicit choices. `--public-ip` is optional.
 
-The firewall plan is TCP 443, TCP/UDP 3478, TCP 5349 and UDP 49160:49191.
+The default firewall plan is TCP 443, TCP/UDP 3478, TCP 5349 and UDP
+49160:49191. A configuration file can explicitly set `relayPortFirst` and
+`relayPortCount` (1–512); the firewall plan and backend allocation limits use
+that same range. The group profile needs a compatible Spry build; see
+[local group qualification](node-call-endurance.md).
 `--firewall ufw` adds tagged rules to an already active UFW firewall, preserving
 identical existing rules. It never enables UFW or changes SSH rules.
 `--firewall external` leaves host and provider firewall changes to the

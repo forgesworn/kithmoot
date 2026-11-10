@@ -209,7 +209,7 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
       SPRY_HTTP_BIND: '127.0.0.1', SPRY_HTTP_PORT: String(c.spryPort), SPRY_STATE_FILE: join(directory, 'spry.json'),
       ...(c.tlsGate ? { SPRY_TLS_GATE: 'true' } : { SPRY_TLS_CERT_FILE: c.certificate, SPRY_TLS_KEY_FILE: c.certificateKey }), SPRY_TLS_443: 'true',
       SPRY_TURN_PORT: String(ports.udpTcp), SPRY_TLS_PORT: String(ports.tls), SPRY_RELAY_PORTS: `${range.first}:${range.last}`,
-      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 32 ? 32 : 8)),
+      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
       SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_AGGREGATE_BYTES_PER_SECOND: String(c.aggregateBytesPerSecond), SPRY_ALLOWED_ORIGINS: c.origins.join(',') })
     launch(c.shelterBinary, ['room-relay', '--data', join(directory, 'rooms'), '--control', relaySocket, '--listen', `127.0.0.1:${c.shelterPort}`,

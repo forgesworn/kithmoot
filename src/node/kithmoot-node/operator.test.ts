@@ -30,7 +30,7 @@ it('keeps the legacy firewall range and includes every explicitly configured gro
     origins: ['https://app.example'], spryBinary: '/opt/node/spry-node', shelterBinary: '/opt/node/bothyd',
     certificate: '/private/cert.pem', certificateKey: '/private/key.pem', deskPort: 3746, spryPort: 3744, shelterPort: 3745 }
   expect(nodeFirewallRules(configuration)).toEqual(['443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49160:49191/udp'])
-  expect(nodeFirewallRules({ ...configuration, relayPortFirst: 49192, relayPortCount: 256 })).toEqual([
-    '443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49192:49447/udp',
+  expect(nodeFirewallRules({ ...configuration, relayPortFirst: 49192, relayPortCount: 512 })).toEqual([
+    '443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49192:49703/udp',
   ])
 })

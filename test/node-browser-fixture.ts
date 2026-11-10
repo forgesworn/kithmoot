@@ -64,7 +64,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     if (!options.chatOnly) start(spry!, [], { SPRY_PUBLIC_URL: origin, SPRY_OWNER_KEYS: serviceKey, SPRY_PAIRING_KEY: serviceKey, SPRY_TURN_SECRET: turnSecret,
       SPRY_ROOM_SEAL: 'required', SPRY_LOCAL_TEST: 'true', SPRY_RELAY_IP: options.relayIp ?? '127.0.0.1', SPRY_HTTP_PORT: String(spryPort), SPRY_TURN_PORT: String(turnPort),
       SPRY_TLS_PORT: String(tlsPort), SPRY_RELAY_PORTS: `${range.first}:${range.last}`, SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true',
-      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 32 ? 32 : 8)),
+      SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
       SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_STATE_FILE: join(directory, 'spry.json'), SPRY_AGGREGATE_BYTES_PER_SECOND: String(bandwidth), SPRY_ALLOWED_ORIGINS: appOrigin })
     start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0'])
