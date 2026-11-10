@@ -141,6 +141,13 @@ export function loadNodeRoom(store: DeviceStore, participant: string, room: stri
   if (!raw || raw.length > 65536) return undefined
   try { return decodeRoom(JSON.parse(raw), store, participant, room, now) } catch { return undefined }
 }
+/** Every node room this participant holds on this device, decoded and checked. */
+export function listNodeRooms(store: DeviceStore, participant: string, now = Math.floor(Date.now() / 1000)): BrowserNodeRoom[] {
+  if (!KEY.test(participant)) return []
+  const prefix = NODE_ROOM_PREFIX + participant + '.'
+  return store.keys().filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)).filter(room => KEY.test(room))
+    .map(room => loadNodeRoom(store, participant, room, now)).filter((room): room is BrowserNodeRoom => room !== undefined)
+}
 export function storeNodeRoom(store: DeviceStore, value: BrowserNodeRoom, now = Math.floor(Date.now() / 1000)): void {
   const raw: StoredNodeRoom = { v: 1, node: value.node.event, ...(value.source ? { source: { ...value.source } } : {}), participant: value.participant, secret: bytesToHex(value.secret),
     ...(value.authoritySk ? { authoritySk: bytesToHex(value.authoritySk) } : {}), phase: value.phase, ...(value.grant ? { grant: value.grant } : {}),
@@ -160,6 +167,17 @@ function jsonStore<T>(store: DeviceStore, key: string): { load(): Promise<T | un
 }
 export const nodeAccessStore = (store: DeviceStore, participant: string, room: string): NodeDeviceStore => jsonStore<NodeDeviceSnapshot>(store, slot(NODE_ACCESS_PREFIX, participant, room))
 export const nodeKeeperStore = (store: DeviceStore, participant: string, room: string): NodeKeeperStore => jsonStore<NodeKeeperSnapshot>(store, slot(NODE_KEEPER_PREFIX, participant, room))
+/** A device that followed its room's move with the room's authority starts
+ * its keeper journal from the members and removals the source room knew, so
+ * it recognises them as the moving device does. An existing journal is kept. */
+export function seedNodeKeeper(store: DeviceStore, participant: string, node: NodeRoomRecord, members: readonly string[], removed: readonly string[]): void {
+  const key = slot(NODE_KEEPER_PREFIX, participant, node.room)
+  if (store.get(key) !== null) return
+  const gone = [...new Set(removed.filter(p => KEY.test(p) && p !== participant))].slice(0, 4096)
+  const known = [...new Set([participant, ...members.filter(p => KEY.test(p))])].filter(p => !gone.includes(p)).slice(0, 4096)
+  const snapshot: NodeKeeperSnapshot = { v: 1, descriptor: node.event.id, members: known, removed: gone, grants: [] }
+  store.set(key, JSON.stringify(snapshot))
+}
 
 function referenceOnly(value: NodeCloseReference): NodeCloseReference {
   const node = publicPair(value?.node)

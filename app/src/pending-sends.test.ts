@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Event } from 'nostr-tools/pure'
 import { memoryDeviceStore } from './device-store.js'
-import { PendingSends, stateAfter, neverLeft, RETRY_SECONDS, CONNECT_POLL_MS, MAX_AUTO_ATTEMPTS, UNSENT_AUTO_RETRY_LIMIT_SECONDS, pastAutoRetryLimit, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
+import { PendingSends, stateAfter, neverLeft, NODE_MOVE_WAITING, RETRY_SECONDS, CONNECT_POLL_MS, MAX_AUTO_ATTEMPTS, UNSENT_AUTO_RETRY_LIMIT_SECONDS, pastAutoRetryLimit, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import type { ChatMessage } from '../../src/chat.js'
 import { pendingStatusWords } from './outbox.js'
 import { CONVERSATION_MOVED } from '../../src/chat.js'
@@ -158,6 +158,22 @@ describe('unsent messages', () => {
     await h.advance(RETRY_SECONDS[2]! * 1000)
     expect(publish).toHaveBeenCalledTimes(3)
     expect(h.pending.items(ROOM).find(saved => saved.id === item.id)?.acknowledged).toBe(true)
+  })
+
+  it('holds a message while its room waits to move, never as given up, and sends it once moved', async () => {
+    const h = harness()
+    let moved = false
+    const publish = vi.fn(async () => { if (!moved) throw new Error(NODE_MOVE_WAITING) })
+    const item = await add(h.pending, 'one', publish)
+    await flush()
+    for (let i = 0; i < MAX_AUTO_ATTEMPTS + 2; i++) await h.advance(RETRY_SECONDS.at(-1)! * 1000)
+    const held = h.pending.items(ROOM).find(saved => saved.id === item.id)!
+    expect(held).toMatchObject({ state: 'waiting', moving: true }); expect(held.gaveUp).toBeFalsy(); expect(neverLeft(held)).toBe(true)
+    expect(pendingStatusWords(held, 'Sending…', Date.now())).toMatch(/^Waiting to move: /)
+    moved = true
+    await h.advance(RETRY_SECONDS.at(-1)! * 1000)
+    const sent = h.pending.items(ROOM).find(saved => saved.id === item.id)
+    expect(sent?.acknowledged).toBe(true); expect(sent?.moving).toBeUndefined()
   })
 
   it('never retries a message whose conversation moved on', async () => {

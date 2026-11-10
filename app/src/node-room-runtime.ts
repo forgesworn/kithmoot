@@ -14,6 +14,7 @@ import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose 
 import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
+import { claimNodeKeeper } from './node-room-keepers.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
@@ -88,7 +89,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let access: NodeDeviceAccessController | undefined, timer: ReturnType<typeof setInterval> | undefined
   let inbox: ReturnType<typeof nodeKeeperInbox> | undefined, desk: ReturnType<typeof hostRoomEpoch> | undefined
   let calls: Awaited<ReturnType<typeof nodeCallFactory>> | undefined, refreshing = false
-  let connectionLost = false
+  let connectionLost = false, releaseKeeper: (() => void) | undefined
   const unavailable = () => { connectionLost = true; options.unavailable() }
   let reconnecting: Promise<void> | undefined
   const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string } }).connection
@@ -134,7 +135,17 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     if (stopped) return
     stopped = true; controller.abort(); clearInterval(timer)
     unwatchNetwork?.()
-    desk?.close(); inbox?.close(); keeper?.close(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
+    desk?.close(); inbox?.close(); keeper?.close(); releaseKeeper?.(); calls?.close(); access?.close(); pool.close(); root.roomKey.fill(0)
+  }
+  // Whoever this room already counts as a member stays known to its keeper
+  // journal, so a device of theirs that missed a move is let in by any of
+  // the owner's devices, even with this room closed.
+  const learnMembers = async () => {
+    if (!keeper || !s || !live()) return
+    // Everyone the room shows has spoken in it, as well as its roster and rekey lists.
+    const removed = s.removed
+    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))]
+      .filter(participant => /^[0-9a-f]{64}$/.test(participant)))
   }
   const reconnect = () => {
     if (!live() || reconnecting) return
@@ -150,9 +161,11 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
       rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer }))
     if (state.authoritySk) {
+      // This open room keeps its own room; a closed-room keeper must not save the same journal.
+      releaseKeeper = claimNodeKeeper(state.node.room)
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
-        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint,
+        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true,
         store: { async load() { journal = await backing.load(); return journal }, async save(value) { await backing.save(value); journal = value } },
         onGrant: async event => { if (s) await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'node-grant', event })) } })
       await keeper.retry(); await keeper.renew()
@@ -181,7 +194,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       void Promise.all([pool.probe(), inbox?.probe()]).catch(unavailable)
       if (refreshing) return
       refreshing = true
-      void refresh().then(() => keeper?.renew()).catch(unavailable).finally(() => { refreshing = false })
+      void refresh().then(() => keeper?.renew()).then(() => learnMembers()).catch(unavailable).finally(() => { refreshing = false })
     }, 5000)
     unwatchNetwork = watchNodeNetwork(connectivity, network, reconnect)
     return {
@@ -196,6 +209,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
           members: () => journal?.members ?? [state.participant], closed: () => stopped,
           expiresAt: () => Math.min(now() + 30 * 86400, state.node.endsAt ?? Infinity) })
         session.rememberMembers(journal?.members ?? [state.participant]); session.forgetParticipants(journal?.removed ?? [])
+        void learnMembers().catch(() => {})
       },
       async remove(participant: string) {
         if (!keeper || !s || !state.authoritySk) throw Error('Only the person managing this room can remove people.')
