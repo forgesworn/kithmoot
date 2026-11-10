@@ -20,6 +20,8 @@ npm run test:node-endurance
 
 The sibling `spry-turn` executable must be alongside `spry-node`. Record their
 source commits, locked build commands and binary hashes with the results.
+The default pin in `scripts/build-spry-node-fixture.sh` includes the bounded
+group budget from [Spry PR39](https://github.com/forgesworn/spry-turn/pull/39).
 An older backend that fails the current readiness contract is a fixture
 failure, not a passed or failed media call.
 
@@ -72,3 +74,8 @@ GrapheneOS, packaged desktop, separate-network, VPN, Wi-Fi/cellular, acoustic
 or perceived-camera result. Use `test/kithmoot-node-cross-client.spec.ts` for
 the separately guarded native-device qualification; finish with the actual
 owner and peer devices before calling the live call accepted.
+
+For a separately guarded Linux backend check, set `E2E_NODE_GROUP_BUDGET=256`
+when running `test/kithmoot-node-backends.mjs`. It holds 42 admitted allocations
+across UDP, TCP and TLS before exercising removal, isolation and closure.
+This native protocol check does not measure perceived audio/video quality.
