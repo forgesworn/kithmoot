@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.142",
-  "versionCode": 165,
+  "versionName": "0.6.143",
+  "versionCode": 166,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74490444,
-  "apkSha256": "9b6885ead57815aa4aa5851ce018ad5da49969a1ee838ca875d303d0bce72d1e",
+  "apkBytes": 74494540,
+  "apkSha256": "7aee52dcb87a3dde340151dd75688312dd1aa3934a8b3fcb363a2643aa180ea1",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.142-production.apk",
+  "downloadFilename": "kithmoot-0.6.143-production.apk",
   "releaseNotes": [
-    "A phone that missed its room's move to a node now follows by itself, asking again and saying what it waits for.",
-    "Chat messages written while it waits are held and sent once it has moved, instead of being lost.",
+    "Your signed-in devices share a moved room's owner key, so any of them can let members in after a move.",
+    "Removing someone on one of your devices keeps them out on the others too.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
