@@ -5,7 +5,8 @@ import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, type BrowserNodeRoom } from './node-rooms.js'
+import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
 import { keepClosedNodeRooms } from './node-room-keepers.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
 import { invalidateBrowserMlsOwners } from './mls-lifecycle.js'
@@ -2124,11 +2125,54 @@ function refreshAccountRooms(): void {
  *  only: a temporary admission is a delegated, expiring permission and never
  *  leaves this device. A secret arriving with a bookmark is kept only where
  *  this device has none of its own. */
-function groupAdmissions(): BookmarkAdmissions {
+function groupAdmissions(account: string): BookmarkAdmissions {
   const invitationIdOf = (link: string): string | undefined => {
     try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? deriveInvitationId(invitation) : undefined } catch { return undefined }
   }
+  const groupInvitationOf = (link: string): RoomInvitation | undefined => {
+    try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? invitation : undefined } catch { return undefined }
+  }
+  /** The key this device pins as a room's owner: a moved room's, else its link's. */
+  const pinnedAuthority = (room: KnownRoom): string | undefined => {
+    const node = loadNodeRoom(deviceStore, account, room.roomId, nowSeconds())
+    if (node) { node.secret.fill(0); node.deviceSk.fill(0); node.authoritySk?.fill(0); return node.node.authority }
+    const hosted = parseNodeRoomLink(room.link, Math.floor(room.openedAt))
+    if (hosted) return hosted.room === room.roomId ? hosted.authority : undefined
+    const invitation = groupInvitationOf(room.link)
+    return invitation && invitationAuthority(invitation)
+  }
   return {
+    // The room's owner key, when this device holds it: as the room's maker,
+    // as the device that keeps its node room, or because another of this
+    // account's devices shared it. With it go the members and removals a
+    // keeper here has recorded.
+    owner: room => {
+      let held: SharedOwner | undefined
+      const node = loadNodeRoom(deviceStore, account, room.roomId, nowSeconds())
+      try {
+        if (node?.authoritySk && getPublicKey(node.authoritySk) === node.node.authority) {
+          const lists = readNodeKeeperLists(deviceStore, account, room.roomId)
+          held = { key: bytesToHex(node.authoritySk), members: lists?.members ?? [], removed: lists?.removed ?? [] }
+        }
+      } finally { node?.secret.fill(0); node?.deviceSk.fill(0); node?.authoritySk?.fill(0) }
+      const invitation = held ? undefined : groupInvitationOf(room.link)
+      const made = invitation && loadInvitationOwner(invitation)
+      if (made) try {
+        if (deriveRoom(made.roomSecret).roomId === room.roomId && getPublicKey(made.inviterSk) === invitationAuthority(invitation!)) held = { key: bytesToHex(made.inviterSk), members: [], removed: [] }
+      } finally { made.roomSecret.fill(0); made.inviterSk.fill(0) }
+      return mergeSharedOwner(held, loadSharedOwner(deviceStore, account, room.roomId))
+    },
+    // A key from the account's record is kept only when it is the owner this
+    // device already pins for the room, and never replaces one kept before.
+    adoptOwner: (room, owner) => {
+      const expected = pinnedAuthority(room), key = hexToBytes(owner.key)
+      try { if (!expected || getPublicKey(key) !== expected) return } finally { key.fill(0) }
+      const kept = loadSharedOwner(deviceStore, account, room.roomId)
+      if (kept && kept.key !== owner.key) return
+      keepSharedOwner(deviceStore, account, room.roomId, owner)
+      // A moved room this device is a member of is kept from here too.
+      closedRoomKeepers.refresh()
+    },
     current: room => {
       const id = invitationIdOf(room.link)
       const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
@@ -2159,7 +2203,7 @@ function startRoomBookmarks(account: SignetSession): void {
   bookmarks?.close(); readSync?.close()
   const sync = accountSyncServices({ network: accountNetwork, account, store: deviceStore,
     pool: () => relayConnections.pool('default'), current: () => nostrSession === account,
-    admissions: groupAdmissions(),
+    admissions: groupAdmissions(account.pubkey),
     spry: pair => {
       if (pair) saveSpryPairing(localStorage, pair, account.pubkey)
       else if (loadSpryPairing(localStorage, account.pubkey)) removeSpryPairing(localStorage)
@@ -4940,7 +4984,7 @@ async function roomFromLocation(): Promise<boolean> {
         roomEndsAt = 'endsAt' in cached ? cached.endsAt : undefined
         roomDestruct = 'destruct' in cached && cached.destruct === true
         admittedRoom = cached
-        invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : undefined
+        invitationAuthoritySk = 'delegate' in cached ? cached.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
         invitationDelegation = 'delegate' in cached ? cached.delegate.chain : []
         // A kept admission's epoch is whatever the room was at when it was
         // kept, usually 0, and says nothing about where the room is now.
@@ -5037,7 +5081,7 @@ async function roomFromLocation(): Promise<boolean> {
           // too, so it is read and written there as well.
           useRoomRelays([...parsedLink.relays, ...foundFurther])
           admittedRoom = admission
-          invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : undefined
+          invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
           expectedEpoch = admissionEpochHint(admission)
           cacheAdmission(invitation, admission)
@@ -9008,6 +9052,29 @@ function storeRoomRelayRecord(roomId: string, record: RoomRelayRecord): void {
   try { localStorage.setItem(ROOM_RELAYS_PREFIX + roomId, JSON.stringify(record)) } catch { /* Still applies to this visit. */ }
 }
 
+/** The owner key another of this account's devices shared for the group
+ *  this invitation opens, when it is the key the invitation pins. A member
+ *  device holding it acts as the room's owner, as the device that made it
+ *  does. */
+function sharedAuthorityFor(invitation: RoomInvitation, secret: Uint8Array): Uint8Array | undefined {
+  const account = nostrSession?.pubkey
+  if (!account || !invitation.persistent) return undefined
+  let room: string
+  try { const derived = deriveRoom(secret); room = derived.roomId; derived.roomKey.fill(0) } catch { return undefined }
+  const shared = loadSharedOwner(deviceStore, account, room)
+  if (!shared) return undefined
+  const key = hexToBytes(shared.key)
+  if (getPublicKey(key) === invitationAuthority(invitation)) return key
+  key.fill(0)
+  return undefined
+}
+
+/** Give the account's other devices a change to the owner's lists, such as a removal, at once. */
+function shareRoomOwner(roomId: string | undefined): void {
+  const room = roomId ? knownRoom(roomStore(), roomId) : undefined
+  if (room) try { bookmarks?.save(room) } catch { /* The next sign-in shares it. */ }
+}
+
 /** This device holds the key pinned in the link, not a delegated one. */
 function isRoomAuthority(): boolean {
   if (nodeRoom) return !!nodeRoom.authoritySk
@@ -10960,7 +11027,7 @@ function renderHost(): void {
       if (nodeRoom) {
         const runtime = session && nodeRuntimes.get(session)
         if (!runtime || !await confirmRoomAction({ title: `Remove ${label}?`, message: 'This revokes their devices, ends their calls on this node and moves the room to a new key. Their app deletes its local room data when it learns of the removal. Copies they already kept elsewhere remain theirs.', confirmLabel: 'Remove from room', danger: true })) return
-        try { await runtime.remove(view.participant); setStatus(`${label} was removed from this room.`) }
+        try { await runtime.remove(view.participant); shareRoomOwner(currentRoomId()); setStatus(`${label} was removed from this room.`) }
         catch { setStatus('Removal was not confirmed. Retry to finish revoking access and changing the room key.') }
         return
       }

@@ -8,6 +8,7 @@ import type { NodeDeviceStore, NodeDeviceSnapshot } from '../../src/node-device-
 import type { NodeKeeperStore, NodeKeeperSnapshot } from '../../src/node-admission.js'
 import { pendingNodeRoomClose, type NodeRoomCloseStore, type NodeCloseReference, type PendingNodeRoomClose } from '../../src/node-room-close.js'
 import type { DeviceStore } from './device-store.js'
+import { forgetSharedOwner, loadSharedOwner } from './room-owner-share.js'
 
 export const NODE_PAIR_PREFIX = 'kithmoot.node-pair.v1.'
 export const NODE_ROOM_PREFIX = 'kithmoot.node-room.v1.'
@@ -86,7 +87,8 @@ export interface BrowserNodeRoom {
   participant: string
   secret: Uint8Array
   deviceSk: Uint8Array
-  /** Present only on the keeper's own device. */
+  /** Present on the devices that keep the room: the one that made or moved
+   *  it, and the owner's other devices once its key has reached them. */
   authoritySk?: Uint8Array
   /** Creation is durable before enrolment; an active member always has a grant. */
   phase: 'creating' | 'active'
@@ -170,6 +172,38 @@ export const nodeKeeperStore = (store: DeviceStore, participant: string, room: s
 /** A device that followed its room's move with the room's authority starts
  * its keeper journal from the members and removals the source room knew, so
  * it recognises them as the moving device does. An existing journal is kept. */
+/** The members and removals a keeper journal holds, read without opening it. */
+export function readNodeKeeperLists(store: DeviceStore, participant: string, room: string): { members: string[]; removed: string[] } | undefined {
+  try {
+    const raw = JSON.parse(store.get(slot(NODE_KEEPER_PREFIX, participant, room)) ?? 'null') as Partial<NodeKeeperSnapshot> | null
+    if (!raw || !Array.isArray(raw.members) || !Array.isArray(raw.removed)) return undefined
+    return { members: raw.members.filter(p => typeof p === 'string' && KEY.test(p)), removed: raw.removed.filter(p => typeof p === 'string' && KEY.test(p)) }
+  } catch { return undefined }
+}
+
+/** Give the owner key that reached this device from the account's other
+ *  devices to the node rooms it is a member of but does not yet keep, with
+ *  the members and removals that came with it. Returns the rooms that this
+ *  device now keeps. */
+export function adoptSharedNodeAuthority(store: DeviceStore, participant: string, now = Math.floor(Date.now() / 1000)): string[] {
+  const adopted: string[] = []
+  for (const held of listNodeRooms(store, participant, now)) {
+    try {
+      const shared = held.authoritySk ? undefined : loadSharedOwner(store, participant, held.node.room)
+      if (!shared) continue
+      const authoritySk = hexToBytes(shared.key)
+      try {
+        if (getPublicKey(authoritySk) !== held.node.authority) continue
+        storeNodeRoom(store, { ...held, authoritySk }, now)
+        seedNodeKeeper(store, participant, held.node, shared.members, shared.removed)
+        adopted.push(held.node.room)
+      } finally { authoritySk.fill(0) }
+    } catch { /* One room's failure leaves the others to adopt. */ }
+    finally { held.secret.fill(0); held.deviceSk.fill(0); held.authoritySk?.fill(0) }
+  }
+  return adopted
+}
+
 export function seedNodeKeeper(store: DeviceStore, participant: string, node: NodeRoomRecord, members: readonly string[], removed: readonly string[]): void {
   const key = slot(NODE_KEEPER_PREFIX, participant, node.room)
   if (store.get(key) !== null) return
@@ -229,4 +263,5 @@ export function forgetNodeCloseReference(store: DeviceStore, participant: string
 export function forgetNodeRoom(store: DeviceStore, room: string): void {
   if (!KEY.test(room)) return
   for (const key of store.keys()) if (privatePrefixes.some(prefix => key.startsWith(prefix)) && key.endsWith('.' + room)) store.remove(key)
+  forgetSharedOwner(store, room)
 }

@@ -188,6 +188,9 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
       requireLive()
       if (!KEY.test(participant) || participant === opts.keeperParticipant) throw new KithmootNodeError(403, 'refused')
       if (!state.members.includes(participant)) return
+      // Already removed, with every revocation sent: nothing more to do. Owner
+      // devices apply each other's removals over and over.
+      if (state.removed.includes(participant) && state.grants.every(r => r.participant !== participant || parsed(r).status !== 'active' && r.posted)) return
       if (!state.removed.includes(participant)) state.removed.push(participant)
       const records = state.grants.filter(r => r.participant === participant)
       for (const record of records) {

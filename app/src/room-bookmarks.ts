@@ -11,6 +11,12 @@
  * a relay may keep an old copy of a replaceable record, so a tombstone no
  * longer removes the secret from every relay, only from the record the
  * account reads. Only the account's signer can decrypt it.
+ *
+ * A record may also carry `owner`: the room's owner key, with the people the
+ * room counts as members and those removed from it, so every device signed
+ * in as the account can keep the room, not only the one that made it (see
+ * room-owner-share.ts). The same cost applies, and more: a signed-in device
+ * that is lost keeps owner control of the room. The owner chose that.
  */
 import type { SignetSigner } from 'signet-login'
 import type { Event } from 'nostr-tools/pure'
@@ -20,6 +26,7 @@ import { verifyEventUncached } from '../../src/verify.js'
 import { memoryDeviceStore, type DeviceStore } from './device-store.js'
 import { ROOM_PREFIX, rememberRoom, forgetRoom, knownRoom, type KnownRoom } from './rooms-store.js'
 import { deriveRoom } from '../../src/room.js'
+import { mergeSharedOwner, readSharedOwner, sharedOwnerNews, type SharedOwner } from './room-owner-share.js'
 
 const APP = 'kithmoot.rooms.v1'
 const KIND = 30078
@@ -30,7 +37,7 @@ const DECRYPT_CONCURRENCY = 3
 const REFUSAL_LIMIT = 3
 /** The room secret, hex, of a group the account belongs to. */
 interface RecordAdmission { secret: string }
-interface RecordValue { roomId: string; at: number; room?: KnownRoom; admission?: RecordAdmission }
+interface RecordValue { roomId: string; at: number; room?: KnownRoom; admission?: RecordAdmission; owner?: SharedOwner }
 /** How a bookmark's admission meets this device's own kept memberships.
  *  `current` is what to attach when saving a room; `adopt` takes in a secret
  *  that arrived with a bookmark, and must not overwrite one already kept. */
@@ -42,6 +49,12 @@ export interface BookmarkAdmissions {
    *  still has its own events in the room to delete, so it is handed the
    *  room first. */
   forgetting?(room: KnownRoom): void
+  /** The owner key this device holds for a room, with its members and
+   *  removals, to attach when saving. */
+  owner?(room: KnownRoom): SharedOwner | undefined
+  /** Take in an owner key that arrived with a bookmark. The embedding checks
+   *  it against the authority this device already pins for the room. */
+  adoptOwner?(room: KnownRoom, owner: SharedOwner): void
 }
 const SECRET_HEX = /^[0-9a-f]{64}$/
 /** An admission is kept only when the secret it names is the room's own. */
@@ -150,6 +163,7 @@ export class RoomBookmarks {
       void this.receive(event)
     }, () => {
       if (this.#closed) return
+      this.#shareOwners()
       if (this.#repair()) return
       // The end of a lookup is not news once a save started after it has
       // reported: a reconnecting relay can take seconds to answer, and this
@@ -188,6 +202,8 @@ export class RoomBookmarks {
       }
       const admission = value.room ? validAdmission(value.admission, value.roomId) : undefined
       if (admission) value.admission = admission; else delete value.admission
+      const owner = value.room ? readSharedOwner(value.owner) : undefined
+      if (owner) value.owner = owner; else delete value.owner
       const incoming: RecordEntry = { ...value, d, id: event.id, event }
       const previous = this.#records.get(value.roomId)
       if (previous && !newer(incoming, previous)) return
@@ -199,8 +215,12 @@ export class RoomBookmarks {
         : Math.floor(value.at / 1000) > Math.floor(pending.value.at / 1000))) this.#pending.delete(value.roomId)
       if (!this.#pending.has(value.roomId)) this.#apply(value)
       if (value.room && admission) try { this.admissions?.adopt(value.room, admission.secret) } catch { /* The room still lists; only the way back in goes unwritten. */ }
+      if (value.room && owner) try { this.admissions?.adoptOwner?.(value.room, owner) } catch { /* Only keeping the room from this device goes unwritten. */ }
       this.#persist(value.roomId)
       this.changed()
+      // An older app saving this room drops the owner it does not know; a
+      // device holding the key puts it back, with any removal it knows of.
+      if (value.room && !this.#pending.has(value.roomId)) this.#shareOwner(value.room)
       if (!this.#pending.size) this.status('Encrypted room bookmarks loaded. Opening a room may still need an online member to let this device in.')
     } catch { /* Unreadable, malformed or foreign data never reaches the UI. */ }
     finally { this.#decrypting.delete(event.id) }
@@ -239,9 +259,34 @@ export class RoomBookmarks {
     // Keep the secret a record already carries when this device has none of
     // its own: a save from a device that lacks it must not drop it.
     const secret = this.admissions?.current(room) ?? previous?.admission?.secret
+    // The same for the owner key, whose lists only grow.
+    const owner = mergeSharedOwner(this.#heldOwner(room), previous?.owner)
     if (previous?.room?.link === room.link && previous.room.name === room.name && previous.admission?.secret === secret
-      && previous.room.endsAt === room.endsAt && !!previous.room.destruct === !!room.destruct) return
-    this.#queue({ roomId: room.roomId, at: Date.now(), room, ...(secret ? { admission: { secret } } : {}) })
+      && previous.room.endsAt === room.endsAt && !!previous.room.destruct === !!room.destruct && !sharedOwnerNews(previous.owner, owner)) return
+    this.#queue({ roomId: room.roomId, at: Date.now(), room, ...(secret ? { admission: { secret } } : {}), ...(owner ? { owner } : {}) })
+  }
+
+  #heldOwner(room: KnownRoom): SharedOwner | undefined {
+    try { return readSharedOwner(this.admissions?.owner?.(room)) } catch { return undefined }
+  }
+
+  /** Save a room again when this device holds owner news its record lacks:
+   *  the key itself, or a removal. Each save is a signer request, so nothing
+   *  else, not even new members, sends one. */
+  #shareOwner(room: KnownRoom): void {
+    const previous = this.#pending.get(room.roomId)?.value ?? this.#records.get(room.roomId)
+    if (!previous?.room) return
+    if (sharedOwnerNews(previous.owner, mergeSharedOwner(this.#heldOwner(room), previous.owner))) this.save(previous.room)
+  }
+
+  /** Once a session, after the first lookup: give every room whose owner key
+   *  this device holds to the account, so the person's other devices can keep
+   *  it. Rooms made before keys were shared get theirs this way. */
+  #ownersShared = false
+  #shareOwners(): void {
+    if (this.#ownersShared || !this.admissions?.owner || !this.signer.nip44) return
+    this.#ownersShared = true
+    for (const record of [...this.#records.values()]) if (record.room && !this.#pending.has(record.roomId)) this.#shareOwner(record.room)
   }
 
   remove(roomId: string): void {

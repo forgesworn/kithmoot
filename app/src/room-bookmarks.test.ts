@@ -8,6 +8,7 @@ import { memoryDeviceStore } from './device-store.js'
 import { knownRooms, rememberRoom, type KnownRoom } from './rooms-store.js'
 import { bytesToHex } from '@noble/hashes/utils'
 import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
+import type { SharedOwner } from './room-owner-share.js'
 
 function signer(sk = generateSecretKey()): SignetSigner {
   const pubkey = getPublicKey(sk)
@@ -519,5 +520,111 @@ describe('private Nostr room bookmarks', () => {
     expect(a.events).toEqual([])
     expect(a.identity.signEvent).not.toHaveBeenCalled()
     expect(a.relay.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe('room owner keys in bookmarks', () => {
+  const person = () => getPublicKey(generateSecretKey())
+  /** A device's owner keys, as the app holds them: room id to owner. */
+  function owners(initial: Record<string, SharedOwner> = {}) {
+    const held = new Map(Object.entries(initial))
+    const admissions: BookmarkAdmissions = {
+      current: () => undefined, adopt: vi.fn(),
+      owner: room => held.get(room.roomId),
+      adoptOwner: vi.fn((room, owner) => { if (!held.has(room.roomId)) held.set(room.roomId, owner) }),
+    }
+    return { held, admissions }
+  }
+  async function value(h: ReturnType<typeof harness>, index: number) {
+    return JSON.parse(await h.identity.nip44!.decrypt(h.identity.pubkey, h.events[index].content))
+  }
+  /** A record as an app from before owner keys writes it, newer than `after`. */
+  async function olderAppRecord(h: ReturnType<typeof harness>, r: KnownRoom, after: Event): Promise<Event> {
+    const at = (after.created_at + 5) * 1000, d = after.tags.find(t => t[0] === 'd')![1]
+    const content = await h.identity.nip44!.encrypt(h.identity.pubkey, JSON.stringify({ roomId: r.roomId, at, room: { ...r, name: 'Renamed', readAt: 0, keep: undefined } }))
+    return h.identity.signEvent({ kind: 30078, created_at: at / 1000, tags: [['d', d], ['l', 'kithmoot.rooms.v1']], content })
+  }
+
+  it('carries the owner key with its lists, encrypted, and a second device takes it in', async () => {
+    const { r } = roomWithSecret(), owner = { key: bytesToHex(generateSecretKey()), members: [person()], removed: [person()] }
+    const a = harness(signer(), memoryDeviceStore(), owners({ [r.roomId]: owner }).admissions)
+    a.library.save(r)
+    await saved(a)
+    expect(JSON.stringify(a.events[0])).not.toContain(owner.key)
+    expect((await value(a, 0)).owner).toEqual(owner)
+    const second = owners()
+    const b = harness(a.identity, memoryDeviceStore(), second.admissions)
+    await b.library.receive(a.events[0])
+    expect(second.admissions.adoptOwner).toHaveBeenCalledWith(expect.objectContaining({ roomId: r.roomId }), owner)
+    a.library.close(); b.library.close()
+  })
+
+  it('offers nobody a malformed owner key', async () => {
+    const { r } = roomWithSecret(), a = harness(signer(), memoryDeviceStore(), owners().admissions)
+    const at = Date.now(), content = await a.identity.nip44!.encrypt(a.identity.pubkey, JSON.stringify({ roomId: r.roomId, at, room: r, owner: { key: 'not a key' } }))
+    const event = await a.identity.signEvent({ kind: 30078, created_at: Math.floor(at / 1000), tags: [['d', 'kithmoot.rooms.v1.' + crypto.randomUUID()], ['l', 'kithmoot.rooms.v1']], content })
+    const second = owners(), b = harness(a.identity, memoryDeviceStore(), second.admissions)
+    await b.library.receive(event)
+    expect(knownRooms(b.library.rooms).map(x => x.roomId)).toEqual([r.roomId])
+    expect(second.admissions.adoptOwner).not.toHaveBeenCalled()
+    a.library.close(); b.library.close()
+  })
+
+  it('gives the account an owner key its record lacks once the first lookup ends', async () => {
+    const { r } = roomWithSecret(), plain = harness(signer(), memoryDeviceStore(), owners().admissions)
+    plain.library.save(r)
+    await saved(plain)
+    const mine = owners(), b = harness(plain.identity, memoryDeviceStore(), mine.admissions)
+    await b.library.receive(plain.events[0])
+    expect(b.events).toHaveLength(0)
+    // The key was here all along, as for a room made before keys were shared.
+    mine.held.set(r.roomId, { key: bytesToHex(generateSecretKey()), members: [], removed: [] })
+    b.eose()
+    await saved(b)
+    expect((await value(b, 0)).owner.key).toBe(mine.held.get(r.roomId)!.key)
+    plain.library.close(); b.library.close()
+  })
+
+  it('puts the key back when an older app saves the room without it', async () => {
+    const { r } = roomWithSecret(), owner = { key: bytesToHex(generateSecretKey()), members: [], removed: [] }
+    const a = harness(signer(), memoryDeviceStore(), owners({ [r.roomId]: owner }).admissions)
+    a.library.save(r)
+    await saved(a)
+    await a.library.receive(await olderAppRecord(a, r, a.events[0]))
+    await saved(a, 2)
+    const restored = await value(a, 1)
+    expect(restored.owner).toEqual(owner)
+    expect(restored.room.name).toBe('Renamed')
+    a.library.close()
+  })
+
+  it('keeps the key when a device without it saves the room', async () => {
+    const { r } = roomWithSecret(), owner = { key: bytesToHex(generateSecretKey()), members: [], removed: [] }
+    const a = harness(signer(), memoryDeviceStore(), owners({ [r.roomId]: owner }).admissions)
+    a.library.save(r)
+    await saved(a)
+    const lacking = owners(), c = harness(a.identity, memoryDeviceStore(), { ...lacking.admissions, adoptOwner: vi.fn() })
+    await c.library.receive(a.events[0])
+    c.library.save({ ...r, name: 'Renamed' })
+    await saved(c)
+    expect((await value(c, 0)).owner).toEqual(owner)
+    a.library.close(); c.library.close()
+  })
+
+  it('sends a removal at once, but no save for new members alone', async () => {
+    const { r } = roomWithSecret(), k = bytesToHex(generateSecretKey()), first = person(), gone = person()
+    const mine = owners({ [r.roomId]: { key: k, members: [first], removed: [] } })
+    const a = harness(signer(), memoryDeviceStore(), mine.admissions)
+    a.library.save(r)
+    await saved(a)
+    mine.held.set(r.roomId, { key: k, members: [first, person()], removed: [] })
+    a.library.save(r)
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(a.events).toHaveLength(1)
+    mine.held.set(r.roomId, { key: k, members: [first], removed: [gone] })
+    a.library.save(r)
+    await saved(a, 2)
+    expect((await value(a, 1)).owner.removed).toEqual([gone])
+    a.library.close()
   })
 })

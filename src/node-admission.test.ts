@@ -125,6 +125,16 @@ describe('keeper node admission journal', () => {
     const restored = await openNodeKeeperAdmissions(f.options)
     try { expect(restored.inspect((await f.ask()).event)).toBeNull() } finally { restored.close() }
   })
+  it('sends nothing more for a person already removed, as owner devices apply each other\'s removals again and again', async () => {
+    const f = await fixture(), keeper = await openNodeKeeperAdmissions(f.options)
+    try {
+      await keeper.admit((await f.ask()).event, true)
+      await keeper.remove(f.guest.pubkey)
+      const sent = f.posts.length
+      await keeper.remove(f.guest.pubkey); await keeper.remove(f.guest.pubkey)
+      expect(f.posts).toHaveLength(sent)
+    } finally { keeper.close() }
+  })
   it('sends no active grant when storage fails, but still posts all revocations when removal storage fails', async () => {
     const f = await fixture(), keeper = await openNodeKeeperAdmissions(f.options), request = await f.ask()
     await keeper.admit(request.event, true); f.failSave()

@@ -10,7 +10,8 @@ import { localIdentity } from '../../src/identity.js'
 import { createBrowserNodeRoom } from './node-room-runtime.js'
 import { NODE_PAIR_PREFIX, NODE_DEVICE_PREFIX, NODE_ROOM_PREFIX, NODE_ACCESS_PREFIX, NODE_KEEPER_PREFIX, NODE_PENDING_CLOSE_PREFIX,
   loadPairedNode, storePairedNode, unpairNode, nodeDeviceKeyFor, loadNodeRoom, storeNodeRoom, nodeCloseStore,
-  nodeCloseReferences, forgetNodeCloseReference, forgetNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+  nodeCloseReferences, forgetNodeCloseReference, forgetNodeRoom, adoptSharedNodeAuthority, readNodeKeeperLists, type BrowserNodeRoom } from './node-rooms.js'
+import { keepSharedOwner, loadSharedOwner } from './room-owner-share.js'
 
 const NOW = 1_900_000_000
 function fixture() {
@@ -24,6 +25,27 @@ function fixture() {
   return { store, participant, secret, authoritySk, room, node, deviceSk, grant, state, pair }
 }
 describe('browser node custody', () => {
+  it('gives an owner key shared by another of the account\'s devices to the moved room it opens, with its members and removals', () => {
+    const f = fixture(), member = getPublicKey(generateSecretKey()), removed = getPublicKey(generateSecretKey())
+    storeNodeRoom(f.store, { ...f.state, authoritySk: undefined }, NOW)
+    expect(adoptSharedNodeAuthority(f.store, f.participant, NOW)).toEqual([])
+    keepSharedOwner(f.store, f.participant, f.room, { key: bytesToHex(f.authoritySk), members: [member, removed], removed: [removed] })
+    expect(adoptSharedNodeAuthority(f.store, f.participant, NOW)).toEqual([f.room])
+    expect(loadNodeRoom(f.store, f.participant, f.room, NOW)?.authoritySk).toEqual(f.authoritySk)
+    expect(readNodeKeeperLists(f.store, f.participant, f.room)).toEqual({ members: [f.participant, member], removed: [removed] })
+    // Kept once: a second pass changes nothing.
+    expect(adoptSharedNodeAuthority(f.store, f.participant, NOW)).toEqual([])
+    forgetNodeRoom(f.store, f.room)
+    expect(loadSharedOwner(f.store, f.participant, f.room)).toBeUndefined()
+  })
+  it('never gives a moved room a shared key that is not its owner', () => {
+    const f = fixture()
+    storeNodeRoom(f.store, { ...f.state, authoritySk: undefined }, NOW)
+    keepSharedOwner(f.store, f.participant, f.room, { key: bytesToHex(generateSecretKey()), members: [], removed: [] })
+    expect(adoptSharedNodeAuthority(f.store, f.participant, NOW)).toEqual([])
+    expect(loadNodeRoom(f.store, f.participant, f.room, NOW)?.authoritySk).toBeUndefined()
+    expect(readNodeKeeperLists(f.store, f.participant, f.room)).toBeUndefined()
+  })
   it('retains custom node TURN ports through account restore and signs them into a recoverable new room', async () => {
     const f = fixture(), owner = localIdentity(generateSecretKey()), pair = { ...f.pair, owner: owner.pubkey, turnPorts: { udpTcp: 34790, tls: 53499 } }
     storePairedNode(f.store, owner.pubkey, pair)

@@ -15,6 +15,7 @@ import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, storeNodeRoom, nodeKeeper
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
 import { claimNodeKeeper } from './node-room-keepers.js'
+import { loadSharedOwner } from './room-owner-share.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
@@ -143,9 +144,13 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   const learnMembers = async () => {
     if (!keeper || !s || !live()) return
     // Everyone the room shows has spoken in it, as well as its roster and rekey lists.
-    const removed = s.removed
-    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))]
-      .filter(participant => /^[0-9a-f]{64}$/.test(participant)))
+    const removed = s.removed, shared = loadSharedOwner(store, state.participant, state.node.room)
+    // A removal made on another of the owner's devices ends this device's own passes for that person too.
+    for (const person of new Set([...removed, ...shared?.removed ?? []])) {
+      if (person !== state.participant && journal?.members.includes(person) && !journal.removed.includes(person)) await keeper.remove(person)
+    }
+    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant), ...shared?.members ?? []]
+      .filter(participant => /^[0-9a-f]{64}$/.test(participant) && !removed.has(participant) && !shared?.removed.includes(participant)))
   }
   const reconnect = () => {
     if (!live() || reconnecting) return
@@ -165,7 +170,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       releaseKeeper = claimNodeKeeper(state.node.room)
       const backing = nodeKeeperStore(store, state.participant, state.node.room)
       keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
-        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true,
+        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true || loadSharedOwner(store, state.participant, state.node.room)?.removed.includes(participant) === true,
         store: { async load() { journal = await backing.load(); return journal }, async save(value) { await backing.save(value); journal = value } },
         onGrant: async event => { if (s) await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'node-grant', event })) } })
       await keeper.retry(); await keeper.renew()
