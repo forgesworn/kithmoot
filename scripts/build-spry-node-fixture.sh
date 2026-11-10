@@ -17,9 +17,9 @@ set -eu
 # standard mode with the spry-standard-v1 node card (#23) the specs drive.
 # SPRY_TURN_SHA may name another full commit for a run against unmerged
 # server work (with SPRY_TURN_URL pointing at a local checkout).
-# This pin also accepts the explicit 256/32/256 group budget (Spry PR39);
+# This pin also accepts the explicit 512/64/512 group budget (Spry PR40);
 # legacy defaults remain unchanged.
-SPRY_TURN_SHA=${SPRY_TURN_SHA:-0f49a4cb9912f7d7b174cbd52773ed1e1a502770}
+SPRY_TURN_SHA=${SPRY_TURN_SHA:-56232d52f0fbfd2f3795a50917890ed6c85e6dc9}
 SPRY_TURN_URL=${SPRY_TURN_URL:-https://github.com/forgesworn/spry-turn.git}
 case $SPRY_TURN_SHA in *[!0-9a-f]*|'') echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2 ;; esac
 [ ${#SPRY_TURN_SHA} -eq 40 ] || { echo "SPRY_TURN_SHA must be a full commit SHA" >&2; exit 2; }

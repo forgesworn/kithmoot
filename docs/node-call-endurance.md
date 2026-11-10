@@ -21,7 +21,7 @@ npm run test:node-endurance
 The sibling `spry-turn` executable must be alongside `spry-node`. Record their
 source commits, locked build commands and binary hashes with the results.
 The default pin in `scripts/build-spry-node-fixture.sh` includes the bounded
-group budget from [Spry PR39](https://github.com/forgesworn/spry-turn/pull/39).
+group budget from [Spry PR40](https://github.com/forgesworn/spry-turn/pull/40).
 An older backend that fails the current readiness contract is a fixture
 failure, not a passed or failed media call.
 
