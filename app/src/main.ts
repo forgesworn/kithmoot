@@ -5,7 +5,7 @@ import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, type BrowserNodeRoom } from './node-rooms.js'
+import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
 import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
 import { keepClosedNodeRooms } from './node-room-keepers.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
@@ -2170,7 +2170,13 @@ function groupAdmissions(account: string): BookmarkAdmissions {
       const kept = loadSharedOwner(deviceStore, account, room.roomId)
       if (kept && kept.key !== owner.key) return
       keepSharedOwner(deviceStore, account, room.roomId, owner)
-      // A moved room this device is a member of is kept from here too.
+      // A moved room this device is a member of is kept from here too: by
+      // the open room itself when it is open here, else in the background.
+      try { adoptSharedNodeAuthority(deviceStore, account, nowSeconds()) } catch { /* The background refresh tries again. */ }
+      for (const open of [session, dockedCall?.session]) {
+        const runtime = open && nodeRuntimes.get(open)
+        if (runtime?.state.node.room === room.roomId) void runtime.adoptAuthority().then(() => { if (open === session) { renderRoomInfo(); renderHost() } }).catch(() => {})
+      }
       closedRoomKeepers.refresh()
     },
     current: room => {
