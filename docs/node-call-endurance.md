@@ -44,8 +44,8 @@ device, then requires all 42 directed video paths to advance. Selected local
 and remote ICE candidates must both be relays. Expected speaking devices
 must show increasing received audio energy, while every active audio sender
 must advance RTP packets. An inactive own-account monitor is not an echo
-requirement. The test explicitly moves the microphone and listening roles to
-the creator's second device, then back.
+requirement. The creator keeps one active microphone. The test moves the listening role
+to the creator's second device, then back.
 Rendered remote pictures must keep moving. The test also checks a camera
 stop/restart, a guest network interruption, final seven-way chat delivery and
 absence of room-event publications on account relays.
