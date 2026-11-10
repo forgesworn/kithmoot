@@ -6,7 +6,7 @@ import { localIdentity } from '../../src/identity.js'
 import { deriveRoom } from '../../src/room.js'
 import { memoryDeviceStore } from './device-store.js'
 import { NODE_ROOM_PREFIX, loadNodeRoom } from './node-rooms.js'
-import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, type ExistingBrowserRoom } from './existing-node-room.js'
+import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 const now = 1_900_000_000
 async function fixture() {
   const owner = localIdentity(generateSecretKey()), guest = localIdentity(generateSecretKey()), secret = generateSecretKey(), authoritySk = generateSecretKey()
@@ -51,6 +51,17 @@ it('does not route a source room to a different authority, secret, policy or dev
   const f = await fixture(), prepared = await prepareExistingBrowserNodeRoom(f.store, f.pair, f.owner, f.source, f.options)
   for (const patch of [{ authority: getPublicKey(generateSecretKey()) }, { secret: generateSecretKey() }, { policy: undefined }, { destruct: true }, { deviceSk: generateSecretKey() }]) {
     expect(() => acceptExistingBrowserNodeRoom(memoryDeviceStore(), prepared.state.node, { ...f.source, ...patch }, prepared.state.grant!, now)).toThrow('not authorised')
+  }
+})
+it('follows a destination whose policy says the same in another order, and not one that says something else', async () => {
+  const f = await fixture(), prepared = await prepareExistingBrowserNodeRoom(f.store, f.pair, f.owner, f.source, f.options)
+  const members = f.source.policy!.members!
+  // A member's copy saved from an older link: the same rules, keys and members in another order, an explicit quiet.
+  const reordered = { quiet: true as const, members: [...members].reverse(), tier: 'open' as const }
+  expect(matchesExistingBrowserRoom(prepared.state.node, { ...f.source, policy: reordered })).toBe(true)
+  expect(acceptExistingBrowserNodeRoom(memoryDeviceStore(), prepared.state.node, { ...f.source, policy: reordered }, prepared.state.grant!, now).node.room).toBe(prepared.state.node.room)
+  for (const policy of [{ ...reordered, members: [members[0]!] }, { ...reordered, tier: 'kin' as const }, { tier: 'open' as const, members }]) {
+    expect(matchesExistingBrowserRoom(prepared.state.node, { ...f.source, policy })).toBe(false)
   }
 })
 it('retains source recovery data when an enrolment acknowledgement is lost', async () => {

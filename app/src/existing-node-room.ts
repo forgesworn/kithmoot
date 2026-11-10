@@ -26,7 +26,18 @@ export interface ExistingBrowserRoom {
   members?: readonly string[]
   removed: readonly string[]
 }
-const samePolicy = (a?: RoomPolicy, b?: RoomPolicy) => JSON.stringify(a) === JSON.stringify(b)
+/** Policies compared by what they say, not how a copy happens to spell it:
+ * a member's copy saved from an older link may list keys or members in
+ * another order. Who may enter, and how the room talks, must still agree. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])]))
+  return value
+}
+const people = (values?: readonly string[]) => values === undefined ? undefined : [...new Set(values.map(value => value.toLowerCase()))].sort()
+const policyWords = (policy?: RoomPolicy) => policy === undefined ? undefined : JSON.stringify(canonical({
+  tier: policy.tier, admitted: people(policy.admitted), members: people(policy.members), agents: policy.agents, quiet: policy.quiet === true }))
+const samePolicy = (a?: RoomPolicy, b?: RoomPolicy) => policyWords(a) === policyWords(b)
 export function matchesExistingBrowserRoom(node: NodeRoomRecord, source: Pick<ExistingBrowserRoom, 'secret' | 'authority' | 'endsAt' | 'destruct' | 'policy'>): boolean {
   const derived = deriveRoom(source.secret)
   try { return !!node.existing && node.room === derived.roomId && node.authority === source.authority
