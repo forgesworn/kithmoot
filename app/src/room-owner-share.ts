@@ -45,12 +45,14 @@ export function mergeSharedOwner(held: SharedOwner | undefined, incoming: Shared
   return readSharedOwner({ key: held.key, members: [...held.members, ...incoming.members], removed: [...held.removed, ...incoming.removed] })
 }
 
-/** Whether `next` says anything `previous` does not: a key, or a removal. New
- *  members alone do not count, so a growing roster never costs a signer
- *  prompt; they travel with the next change that does. */
+/** Whether `next` says anything `previous` does not: a key, a removal, or
+ *  members where the record names none. New members on top of a list do not
+ *  count, so a growing roster never costs a signer prompt; they travel with
+ *  the next change that does. */
 export function sharedOwnerNews(previous: SharedOwner | undefined, next: SharedOwner | undefined): boolean {
   if (!next) return false
   if (!previous || previous.key !== next.key) return true
+  if (!previous.members.length && next.members.length) return true
   return next.removed.some(p => !previous.removed.includes(p))
 }
 

@@ -26,11 +26,12 @@ describe('shared room owner keys', () => {
     expect(loadSharedOwner(store, account, room)).toBeUndefined()
   })
 
-  it('counts a key or a removal as news, never new members alone', () => {
+  it('counts a key, a removal or a first list of members as news, never members added to a list', () => {
     const k = key(), a = person(), held = { key: k, members: [a], removed: [] }
     expect(sharedOwnerNews(undefined, held)).toBe(true)
     expect(sharedOwnerNews(held, undefined)).toBe(false)
     expect(sharedOwnerNews(held, mergeSharedOwner(held, { key: k, members: [person()], removed: [] }))).toBe(false)
     expect(sharedOwnerNews(held, mergeSharedOwner(held, { key: k, members: [], removed: [a] }))).toBe(true)
+    expect(sharedOwnerNews({ key: k, members: [], removed: [] }, held)).toBe(true)
   })
 })

@@ -906,10 +906,7 @@ test('a member device closed during a move follows on its own while the owner on
   }
 })
 
-test('the owner\'s second device keeps a moved room the first one made, and lets a straggler in once the first is gone', async ({ baseURL, browserName }) => {
-  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
-  test.skip(browserName !== 'chromium', 'room transition qualification')
-  test.setTimeout(480_000)
+async function sharedOwnerStraggler(baseURL: string, makerStays: boolean): Promise<void> {
   const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34790, tls: 53499 } })
   const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
   const contexts: BrowserContext[] = []
@@ -988,11 +985,29 @@ test('the owner\'s second device keeps a moved room the first one made, and lets
     const room = fixture.ledger.rooms()[0]!
     // The second device follows, and keeps the room's owner key on the node.
     await expect.poll(async () => parseNodeRoomLink(await second.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 120_000 }).toBe(room.room)
-    await expect.poll(() => second.evaluate(([p, r]) => typeof JSON.parse(localStorage.getItem(`kithmoot.node-room.v1.${p}.${r}`) ?? '{}').authoritySk === 'string', [owner, room.room])).toBe(true)
+    const keeps = () => second.evaluate(([p, r]) => typeof JSON.parse(localStorage.getItem(`kithmoot.node-room.v1.${p}.${r}`) ?? '{}').authoritySk === 'string', [owner, room.room])
+    await expect.poll(keeps).toBe(true)
+    if (!makerStays) {
+      // As a desktop that followed the move before keys were shared: no key,
+      // no shared copy, no journal, nothing cached. The account's record
+      // brings the key back on the next start.
+      await second.goto(baseURL!)
+      await second.evaluate(([p, r]) => {
+        const key = `kithmoot.node-room.v1.${p}.${r}`, held = JSON.parse(localStorage.getItem(key)!)
+        delete held.authoritySk; localStorage.setItem(key, JSON.stringify(held))
+        for (const name of Object.keys(localStorage)) if (name.startsWith('kithmoot.room-owner.v1.') || name === `kithmoot.node-keeper.v1.${p}.${r}` || name.startsWith(`kithmoot.bookmarks.${p}.`)) localStorage.removeItem(name)
+      }, [owner, room.room])
+      expect(await keeps()).toBe(false)
+      await second.reload()
+      await expect.poll(keeps, { timeout: 60_000 }).toBe(true)
+    }
     const devicesAfterMove = fixture.ledger.devices().length
 
-    // The device that made and moved the room is gone. The other only has the app open.
-    await maker.context().close()
+    // Without makerStays the device that made and moved the room is gone;
+    // with it, both of the owner's devices keep the room at once. The second
+    // only has the app open.
+    if (makerStays) await maker.goto(baseURL!)
+    else await maker.context().close()
     await second.goto(baseURL!)
     const returning = await memberContext.newPage()
     await openRoomUrl(returning, originalLink)
@@ -1006,4 +1021,18 @@ test('the owner\'s second device keeps a moved room the first one made, and lets
     await Promise.all(contexts.map(context => context.close().catch(() => {})))
     await browser.close(); await fixture.close()
   }
+}
+
+test('the owner\'s second device takes up a moved room\'s key from the account and lets a straggler in once the first device is gone', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'room transition qualification')
+  test.setTimeout(480_000)
+  await sharedOwnerStraggler(baseURL!, false)
+})
+
+test('with two of the owner\'s devices keeping a moved room at once, a straggler still gets in', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'room transition qualification')
+  test.setTimeout(480_000)
+  await sharedOwnerStraggler(baseURL!, true)
 })

@@ -5381,6 +5381,9 @@ async function activateExistingNodeRoom(s: RoomSession, state: BrowserNodeRoom):
   }
   if (state.source) state.source.activated = true
   storeNodeRoom(deviceStore, state, nowSeconds())
+  // A device that keeps the moved room gives the account the members its
+  // journal now holds, so the owner's other devices know them too.
+  if (state.authoritySk) shareRoomOwner(state.node.room)
   await closeRoomSession({ preservePrivate: true })
   if (roomGeneration !== generation + 1 || session || currentParticipant() !== participant || currentRoomId() !== state.node.room) return
   pendingExistingNodeActivation = undefined
