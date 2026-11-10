@@ -5240,7 +5240,10 @@ const existingNodeRetries = new WeakMap<RoomSession, { attempt: number; timer: R
 /** How long a device that missed a move waits before asking again, then every five minutes. */
 const EXISTING_NODE_RETRY_SECONDS = [15, 30, 60, 120, 300]
 const movedWaitingWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}. This device will follow as soon as one of the owner’s devices is online. Chat messages you send meanwhile will go once it has moved.`
-const movedUnconfirmedWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}, but this device cannot confirm the move from its saved copy. Remove the room from this device, then open the room’s link again to rejoin it there.`
+// Signed by this copy's own authority, so the host is known; opening the node link joins there beside this copy.
+const movedUnconfirmedWords = (node: NodeRoomRecord) => `This room has moved to ${new URL(node.origin).hostname}, but this device cannot confirm the move from its saved copy. Ask the room’s owner for its current link and open it to rejoin the room there.`
+// Anyone with the room key could have written an unpinned claim: name no host and advise nothing drastic.
+const MOVE_UNCHECKED_WORDS = 'Someone in this room says it has moved, but this device cannot check that from its saved copy. Ask the room’s owner for its current link.'
 function waitingToMove(roomId: string): boolean {
   // Not while the move only waits for a call to end: that call's people are on this same route.
   return !nodeRoom && !!session && currentRoomId() === roomId && existingNodeWaiting.has(session) && pendingExistingNodeActivation?.source !== session
@@ -5279,7 +5282,8 @@ function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
     epoch: s.epoch, endsAt: roomEndsAt, destruct: roomDestruct, policy: roomPolicy, name: roomName,
     startsAt: roomStartsAt ?? nowSeconds(), link: encodeRoomUrl(joinLinkBase(), relays, iceUrls),
     // Members are everyone the room knows, including those who have only spoken in it.
-    devices, members: [...new Set([...s.memberList(), ...s.chat.messages().map(message => message.participant)])].filter(participant => !s.removed.has(participant)),
+    devices, members: [...new Set([...s.memberList(), ...s.chat.messages().map(message => message.participant)])]
+      .filter(participant => /^[0-9a-f]{64}$/.test(participant) && !s.removed.has(participant)),
     removed: [...s.removed] }
 }
 // An explicit loopback-only build shares synthetic fixture input with the
@@ -5403,7 +5407,7 @@ function observeExistingNodeDestination(s: RoomSession, event: NostrEvent): void
     // A copy with no pinned authority cannot check who signed the move.
     // It is not followed, but it is not ignored in silence either.
     const unpinned = readNodeRoom(event, nowSeconds())
-    if (unpinned?.existing && unpinned.room === s.roomId) setStatus(movedUnconfirmedWords(unpinned))
+    if (unpinned?.existing && unpinned.room === s.roomId) setStatus(MOVE_UNCHECKED_WORDS)
     return
   }
   const node = readNodeRoom(event, nowSeconds(), roomAuthority())

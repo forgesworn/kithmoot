@@ -74,7 +74,7 @@ export function keepClosedNodeRooms(opts: {
     void locks.request(lockName(room), { ifAvailable: true }, async lock => {
       if (!lock || !live()) { stop(); return }
       const held = listNodeRooms(store, participant, now()).find(value => value.node.room === room)
-      if (!held?.authoritySk || held.phase !== 'active' || loadPendingNodeClose(store, participant, room, now())) { stop(); return }
+      if (!held?.authoritySk || held.phase !== 'active' || held.source?.activated === false || loadPendingNodeClose(store, participant, room, now())) { stop(); return }
       const node = held.node
       authoritySk = held.authoritySk.slice()
       try {
@@ -110,8 +110,9 @@ export function keepClosedNodeRooms(opts: {
     if (!participant) return
     const due = new Set(listNodeRooms(store, participant, now()).filter(value => {
       // A room being closed takes its reset floor from its last keeper: no new grant may follow it.
+      // A move not yet activated here is still being prepared, or retried, by its own keeper.
       const keep = !!value.authoritySk && value.phase === 'active' && (value.node.endsAt ?? Infinity) > now()
-        && !loadPendingNodeClose(store, participant, value.node.room, now())
+        && value.source?.activated !== false && !loadPendingNodeClose(store, participant, value.node.room, now())
       value.secret.fill(0); value.deviceSk.fill(0); value.authoritySk?.fill(0)
       return keep
     }).map(value => value.node.room))

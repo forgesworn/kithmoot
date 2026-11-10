@@ -144,7 +144,8 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     if (!keeper || !s || !live()) return
     // Everyone the room shows has spoken in it, as well as its roster and rekey lists.
     const removed = s.removed
-    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))])
+    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))]
+      .filter(participant => /^[0-9a-f]{64}$/.test(participant)))
   }
   const reconnect = () => {
     if (!live() || reconnecting) return
