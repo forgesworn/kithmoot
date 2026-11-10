@@ -2,12 +2,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
-import { randomBytes, createHash } from 'node:crypto'
+import { randomBytes, createHash, createHmac } from 'node:crypto'
 import type { Duplex } from 'node:stream'
 import { createServer as tcpServer, connect } from 'node:net'
 import { createServer as httpsServer } from 'node:https'
 import { request as httpRequest, createServer as httpServer } from 'node:http'
-import { generateSecretKey, getPublicKey, verifyEvent } from 'nostr-tools/pure'
+import { generateSecretKey, getPublicKey, verifyEvent, finalizeEvent } from 'nostr-tools/pure'
 import { NodeLedger } from '../src/node/kithmoot-node/ledger.js'
 import { SpryBackend, ShelterBackend } from '../src/node/kithmoot-node/backends.js'
 import { NodeSupervisor } from '../src/node/kithmoot-node/supervisor.js'
@@ -134,7 +134,20 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     await new Promise<void>(r => bridge!.listen(0, '127.0.0.1', r))
     const tls = bridge.address(); if (!tls || typeof tls === 'string') throw Error('tls listener')
     heartbeat = setInterval(() => { void supervisor!.tick().catch(() => {}) }, 1000)
-    return { chatOnly: !!options.chatOnly, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
+    const relayMetrics = async () => {
+      if (options.chatOnly) return null
+      const path = '/v1/node/status', body = JSON.stringify({ v: 1,
+        pairing: createHmac('sha256', turnSecret).update(`spry-supervised-pairing-v1:${serviceKey}`).digest('base64url') })
+      const proof = finalizeEvent({ kind: 27235, created_at: Math.floor(Date.now() / 1000), content: '', tags: [
+        ['u', origin + path], ['method', 'POST'], ['payload', createHash('sha256').update(body).digest('hex')], ['nonce', randomBytes(32).toString('base64url')],
+      ] }, key)
+      const response = await fetch(`http://127.0.0.1:${spryPort}` + path, { method: 'POST', body,
+        headers: { 'content-type': 'application/json', authorization: `Nostr ${Buffer.from(JSON.stringify(proof)).toString('base64')}` }, signal: AbortSignal.timeout(4000) })
+      if (!response.ok) throw Error('Fixture relay metrics unavailable')
+      const value = await response.json()
+      return { allocations: value.allocations, metrics: value.metrics }
+    }
+    return { chatOnly: !!options.chatOnly, relayMetrics, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
       native: { origin, port: tls.port, certificate: readFileSync(cert, 'utf8') },
       pairing() { const pair = preparePairing(supervisor!); return '#kithmoot-node=' + Buffer.from(JSON.stringify({ v: 1, node: origin, code: pair.code, expiresAt: pair.expiresAt })).toString('base64url') } }
   } catch (error) { await close(); throw error }

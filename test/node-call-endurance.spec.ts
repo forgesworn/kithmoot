@@ -250,46 +250,54 @@ test('seven node devices sustain every directed call pair through renewal, toggl
     let monitor = 0
     const snapshot = () => Promise.all(pages.map(page => page.evaluate(sample)))
     async function matrix(label: string) {
-      let before: DeviceSample[] = [], after: DeviceSample[] = []
-      for (let attempt = 0; attempt < 4; attempt++) {
-        await expect.poll(async () => (await snapshot()).map(value => value.connections.length), {
-          message: `${label}: every device needs six connected remote devices`, timeout: 60000,
-        }).toEqual(Array(7).fill(6))
-        before = await snapshot(); await keeper.waitForTimeout(2500); after = await snapshot()
-        // Credential renewal may replace a native connection between samples.
-        // Obtain a fresh stable window; counters from different connections
-        // cannot be subtracted. Media failures within a stable window still fail.
-        const stable = after.every((device, index) => device.connections.length === 6 && device.connections.every(row =>
-          before[index]!.connections.some(old => old.local === row.local && old.remote === row.remote)))
-        if (stable) break
-        checkpoints.push({ label, measurementTransition: attempt + 1 })
-        if (attempt === 3) throw Error(`${label}: native connections did not settle for measurement`)
+      const edgeRows = (values: DeviceSample[], receiver: number, sender: number) => {
+        const sessions = new Set(values[sender]!.connections.map(row => row.local))
+        return values[receiver]!.connections.filter(row => sessions.has(row.remote))
       }
-      for (let receiver = 0; receiver < 7; receiver++) {
-        expect(after[receiver]!.publicRoomWrites, `${label}: device ${receiver} sent room traffic outside its node`).toBe(0)
-        for (let sender = 0; sender < 7; sender++) {
-          if (receiver === sender) continue
-          const localSessions = new Set(after[sender]!.connections.map(row => row.local))
-          const current = after[receiver]!.connections.filter(row => localSessions.has(row.remote))
-          expect(current, `${label}: ${sender} -> ${receiver} must identify exactly one connection`).toHaveLength(1)
-          const row = current[0]!, previous = before[receiver]!.connections.find(old => old.local === row.local && old.remote === row.remote)
-          expect(previous, `${label}: ${sender} -> ${receiver} replaced its connection during measurement`).toBeDefined()
-          expect(row.policy).toBe('relay'); expect(row.localType).toBe('relay'); expect(row.remoteType).toBe('relay')
-          expect(row.frames, `${label}: ${sender} -> ${receiver} video stopped`).toBeGreaterThan(previous!.frames)
-          // Device 1 is the creator's second, deliberately muted microphone.
-          // All speaking-device packets arrive, including at the deliberately
-          // muted second monitor. Audible energy follows the selected monitor.
-          if (sender > 1 || sender === 0 && receiver > 1) {
-            expect(row.audio, `${label}: ${sender} -> ${receiver} audio transport stopped`).toBeGreaterThan(previous!.audio)
-            if (receiver > 1 || receiver === monitor)
-              expect(row.energy, `${label}: ${sender} -> ${receiver} audio stopped`).toBeGreaterThan(previous!.energy)
+      // Renewals are independent on seven devices. Prove each directed pair
+      // within four bounded windows rather than demanding that every native
+      // connection in the whole call retain its generation simultaneously.
+      await expect.poll(async () => {
+        const values = await snapshot()
+        return values.every((_device, receiver) => values.every((_other, sender) =>
+          sender === receiver || edgeRows(values, receiver, sender).length > 0))
+      }, { message: `${label}: every directed pair must connect`, timeout: 60000 }).toBe(true)
+      let before = await snapshot(), after = before
+      const proved = new Map<string, { window: number; local: string; remote: string }>()
+      const pictures = new Set<number>()
+      for (let window = 1; window <= 4; window++) {
+        await keeper.waitForTimeout(2500); after = await snapshot()
+        for (let receiver = 0; receiver < 7; receiver++) {
+          expect(after[receiver]!.publicRoomWrites, `${label}: device ${receiver} sent ordinary room events outside its node`).toBe(0)
+          for (const row of after[receiver]!.connections) {
+            expect(row.policy).toBe('relay'); expect(row.localType).toBe('relay'); expect(row.remoteType).toBe('relay')
           }
+          for (let sender = 0; sender < 7; sender++) {
+            if (receiver === sender) continue
+            const key = `${sender}->${receiver}`
+            for (const row of edgeRows(after, receiver, sender)) {
+              const previous = before[receiver]!.connections.find(old => old.local === row.local && old.remote === row.remote)
+              if (!previous || row.frames <= previous.frames) continue
+              const speaking = sender > 1 || sender === 0 && receiver > 1
+              if (speaking && row.audio <= previous.audio) continue
+              if (speaking && (receiver > 1 || receiver === monitor) && row.energy <= previous.energy) continue
+              proved.set(key, { window, local: row.local, remote: row.remote })
+            }
+          }
+          if (after[receiver]!.pictures.some(picture => before[receiver]!.pictures.some(old =>
+            old.track === picture.track && picture.hash !== old.hash && picture.time > old.time))) pictures.add(receiver)
         }
-        const advancing = after[receiver]!.pictures.filter(picture => before[receiver]!.pictures.some(old =>
-          old.track === picture.track && picture.hash !== old.hash && picture.time > old.time))
-        expect(advancing.length, `${label}: device ${receiver} has no moving rendered remote picture`).toBeGreaterThan(0)
+        if (proved.size === 42 && pictures.size === 7) break
+        checkpoints.push({ label, measurementWindow: window, provedPairs: [...proved.keys()], movingDisplays: [...pictures] })
+        before = after
       }
-      checkpoints.push({ label, elapsedSeconds: Math.round((Date.now() - started) / 1000), credentials: [...credentials], samples: after })
+      for (let receiver = 0; receiver < 7; receiver++) for (let sender = 0; sender < 7; sender++) {
+        if (sender === receiver) continue
+        expect(edgeRows(after, receiver, sender).length, `${label}: ${sender} -> ${receiver} lost its transport`).toBeGreaterThan(0)
+        expect(proved.has(`${sender}->${receiver}`), `${label}: ${sender} -> ${receiver} did not advance video and expected audio in ten seconds`).toBe(true)
+      }
+      expect(pictures.size, `${label}: each device must display moving remote video`).toBe(7)
+      checkpoints.push({ label, elapsedSeconds: Math.round((Date.now() - started) / 1000), credentials: [...credentials], relay: await fixture.relayMetrics(), pairWindows: Object.fromEntries(proved), samples: after })
       console.log(`Node endurance: ${label}; 42 directed video connections, relay/relay throughout`)
     }
     const started = Date.now()
@@ -325,6 +333,7 @@ test('seven node devices sustain every directed call pair through renewal, toggl
     checkpoints.push({ finished: true, durationSeconds: (Date.now() - started) / 1000, credentials })
   } finally {
     checkpoints.push({ screens: await Promise.all(pages.map(page => page.locator('body').innerText({ timeout: 5000 }).catch(() => 'unavailable'))) })
+    checkpoints.push({ finalRelay: await fixture.relayMetrics().catch(() => null) })
     checkpoints.push({ finalSamples: await Promise.all(pages.map(page => page.evaluate(sample).catch(() => null))) })
     const evidence = info.outputPath('node-endurance.json')
     writeFileSync(evidence, JSON.stringify({ checkpoints, errors }, null, 2))

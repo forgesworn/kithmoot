@@ -40,7 +40,11 @@ remain serial and opt-in; ordinary CI must not count a skipped endurance test
 as a completed call qualification.
 
 Every checkpoint maps the SDP origin of each connected peer to the opposite
-device, then requires all 42 directed video paths to advance. Selected local
+device. Each of the 42 directed paths must advance video and expected audio
+within four 2.5-second windows, comparing counters only within one native
+connection generation. Independent device renewals need not leave the whole
+call on unchanged generations at once. Every pair must still have a connected
+transport at the final sample; relay counters accompany each checkpoint. Selected local
 and remote ICE candidates must both be relays. Expected speaking devices
 must show increasing received audio energy, while every active audio sender
 must advance RTP packets. An inactive own-account monitor is not an echo
