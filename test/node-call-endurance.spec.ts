@@ -322,6 +322,9 @@ test('seven node devices sustain every directed call pair through renewal, toggl
       await keeper.waitForTimeout(Math.min(30_000, duration * 1000 - (Date.now() - started)))
       await matrix('sustained')
     }
+    expect(await fixture.relayMetrics(), 'Group renewal must not exhaust allocation, per-credential or relay-port capacity').toMatchObject({
+      metrics: { allocationQuotaRefusals: 0, userQuotaRefusals: 0, relayBindFailures: 0 },
+    })
     if (duration >= 600) expect(credentials.every(count => count >= 2), 'Every device must exercise credential renewal').toBe(true)
     for (const [index, page] of pages.entries()) {
       await page.locator('#chatInput').fill(`Endurance device ${index} is still here`); await page.locator('#chatInput').press('Enter')
