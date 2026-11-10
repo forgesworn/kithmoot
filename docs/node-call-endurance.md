@@ -81,3 +81,24 @@ For a separately guarded Linux backend check, set `E2E_NODE_GROUP_BUDGET=512`
 when running `test/kithmoot-node-backends.mjs`. It holds 42 admitted allocations
 across UDP, TCP and TLS before exercising removal, isolation and closure.
 This native protocol check does not measure perceived audio/video quality.
+
+## Recorded qualification, 10 November 2026
+
+The 512/64/512 profile completed 2,703.299 seconds with 85 measured
+checkpoints and all 42 directed video paths progressing, expected audio and
+moving displays. All seven profiles requested replacement credentials; their
+request counts were 12/12/12/12/12/12/15. Maximum observed allocation count was
+212. The final allocation-quota, per-credential-quota and bind-failure counters
+were all zero; there were no application errors. The initial 256/32/256 trial
+completed the media duration but recorded refusals and was never activated.
+
+The separate Linux check held 42 admitted UDP/TCP/TLS allocations and passed
+25 protocol contracts. A candidate-image CLI probe held 441 UDP allocations
+under a 256 MB cgroup with a 93,401,088-byte peak including fixture clients.
+That probe replaces the production controller entrypoint and does not qualify
+full production memory at that load. These results retain the loopback,
+synthetic-media and physical-device limits above. Raw dropped-packet counters
+are not RTP loss or perceived quality measurements.
+
+The sanitised source pins, binary hashes and measurements are in
+[`kithmoot-node-group-20261110.json`](evidence/kithmoot-node-group-20261110.json).
