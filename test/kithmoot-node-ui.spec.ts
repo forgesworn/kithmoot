@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
-import { encrypt, getConversationKey } from 'nostr-tools/nip44'
+import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
@@ -904,4 +904,135 @@ test('a member device closed during a move follows on its own while the owner on
     await Promise.all(contexts.map(context => context.close().catch(() => {})))
     await browser.close(); await fixture.close()
   }
+})
+
+async function sharedOwnerStraggler(baseURL: string, makerStays: boolean): Promise<void> {
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = []
+  try {
+    // A signer that can encrypt, so the account's room bookmarks sync between its devices.
+    async function device(key: Uint8Array): Promise<Page> {
+      const context = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+      contexts.push(context)
+      await context.exposeFunction('migrationPublicKey', () => getPublicKey(key))
+      await context.exposeFunction('migrationSign', (template: EventTemplate) => finalizeEvent(template, key))
+      await context.exposeFunction('migrationEncrypt', (peer: string, text: string) => encrypt(text, getConversationKey(key, peer)))
+      await context.exposeFunction('migrationDecrypt', (peer: string, text: string) => decrypt(text, getConversationKey(key, peer)))
+      const accountRelay = new URL('/__test-relay', baseURL!); accountRelay.protocol = 'wss:'
+      await context.addInitScript(({ node, relay }) => {
+        const w = window as typeof window & { migrationPublicKey(): Promise<string>; migrationSign(value: unknown): Promise<unknown>
+          migrationEncrypt(peer: string, text: string): Promise<string>; migrationDecrypt(peer: string, text: string): Promise<string> }
+        Object.defineProperty(window, 'nostr', { configurable: true, value: { getPublicKey: () => w.migrationPublicKey(), signEvent: (value: unknown) => w.migrationSign(value),
+          nip44: { encrypt: (peer: string, text: string) => w.migrationEncrypt(peer, text), decrypt: (peer: string, text: string) => w.migrationDecrypt(peer, text) } } })
+        const Native = window.WebSocket
+        window.WebSocket = class extends Native {
+          constructor(url: string | URL, protocols?: string | string[]) {
+            const target = String(url)
+            super(target === 'wss://node.example/events' ? node : target.startsWith('wss://') && !target.includes('localhost') ? relay : target, protocols)
+          }
+        }
+      }, { node: fixture.websocket, relay: accountRelay.href })
+      await context.route('https://node.example/**', async route => {
+        const path = new URL(route.request().url()).pathname
+        await route.fulfill({ response: await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path }) })
+      })
+      await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+      const page = await context.newPage()
+      page.on('pageerror', error => console.error('shared owner page:', error.message))
+      await signInAccount(page, baseURL!)
+      return page
+    }
+    const ownerKey = generateSecretKey(), owner = getPublicKey(ownerKey)
+    const maker = await device(ownerKey)
+    await maker.locator('#homeNewRoom').click()
+    await maker.locator('#roomName').fill('Shared owner chat')
+    if (await maker.locator('#newRoomYourName').isVisible()) await maker.locator('#newRoomYourName').fill('Maker')
+    await maker.locator('#create').click()
+    await expect(maker.locator('#chatInput')).toBeVisible()
+    await expect.poll(() => maker.locator('#shareUrl').inputValue()).not.toBe('')
+    const originalLink = await maker.locator('#shareUrl').inputValue()
+    await expect(maker.locator('#roomSyncStatus')).toContainText('accepted by a relay', { timeout: 60_000 })
+
+    const member = await device(generateSecretKey())
+    await openRoomUrl(member, originalLink)
+    if (await member.locator('#displayName').isVisible()) await member.locator('#displayName').fill('Member')
+    await join(member); await expect(member.locator('#chatInput')).toBeVisible({ timeout: 30_000 })
+    await member.locator('#chatInput').fill('Before the move'); await member.locator('#chatInput').press('Enter')
+    await expect(maker.locator('#chatLog')).toContainText('Before the move')
+
+    // The same account on another device: its bookmark brings the room and, now, its owner key.
+    const second = await device(ownerKey)
+    await expect(second.locator('#roomSyncStatus')).toContainText(/loaded|Up to date: 1 room/, { timeout: 60_000 })
+    await openRoomUrl(second, originalLink)
+    await expect(second.locator('#roomArea:visible, #join:visible').first()).toBeVisible({ timeout: 60_000 })
+    if (await second.locator('#displayName').isVisible()) await second.locator('#displayName').fill('Second')
+    await join(second)
+    await expect(second.locator('#chatLog')).toContainText('Before the move', { timeout: 60_000 })
+
+    const memberContext = member.context()
+    await member.close()
+    await maker.waitForTimeout(115_000)
+
+    await openCallSettings(maker, 'Your KithMoot node')
+    await maker.locator('#nodePairingInput').fill(fixture.pairing())
+    await maker.locator('#nodePair').click(); await maker.locator('#actionConfirm').click()
+    await expect(maker.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(maker)
+    await openRoomInfoPage(maker, 'Privacy and connection')
+    await maker.locator('#moveRoomToNode').click()
+    await expect.poll(() => fixture.ledger.rooms().length).toBe(1)
+    const room = fixture.ledger.rooms()[0]!
+    // The second device follows, and keeps the room's owner key on the node.
+    await expect.poll(async () => parseNodeRoomLink(await second.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 120_000 }).toBe(room.room)
+    const keeps = () => second.evaluate(([p, r]) => typeof JSON.parse(localStorage.getItem(`kithmoot.node-room.v1.${p}.${r}`) ?? '{}').authoritySk === 'string', [owner, room.room])
+    await expect.poll(keeps).toBe(true)
+    if (!makerStays) {
+      // As a desktop that followed the move before keys were shared: no key,
+      // no shared copy, no journal, nothing cached. The account's record
+      // brings the key back on the next start.
+      await second.goto(baseURL!)
+      await second.evaluate(([p, r]) => {
+        const key = `kithmoot.node-room.v1.${p}.${r}`, held = JSON.parse(localStorage.getItem(key)!)
+        delete held.authoritySk; localStorage.setItem(key, JSON.stringify(held))
+        for (const name of Object.keys(localStorage)) if (name.startsWith('kithmoot.room-owner.v1.') || name === `kithmoot.node-keeper.v1.${p}.${r}` || name.startsWith(`kithmoot.bookmarks.${p}.`)) localStorage.removeItem(name)
+      }, [owner, room.room])
+      expect(await keeps()).toBe(false)
+      await second.reload()
+      await expect.poll(keeps, { timeout: 60_000 }).toBe(true)
+    }
+    const devicesAfterMove = fixture.ledger.devices().length
+
+    // Without makerStays the device that made and moved the room is gone;
+    // with it, both of the owner's devices keep the room at once. The second
+    // only has the app open.
+    if (makerStays) await maker.goto(baseURL!)
+    else await maker.context().close()
+    await second.goto(baseURL!)
+    const returning = await memberContext.newPage()
+    await openRoomUrl(returning, originalLink)
+    if (await returning.locator('#join').isVisible()) await join(returning)
+    await expect.poll(async () => parseNodeRoomLink(await returning.locator('#shareUrl').inputValue(), Math.floor(Date.now() / 1000))?.room, { timeout: 180_000 }).toBe(room.room)
+    expect(fixture.ledger.devices().length).toBe(devicesAfterMove + 1)
+    await returning.locator('#chatInput').fill('Let in by the other device'); await returning.locator('#chatInput').press('Enter')
+    await openRoomUrl(second, originalLink)
+    await expect(second.locator('#chatLog')).toContainText('Let in by the other device', { timeout: 60_000 })
+  } finally {
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+}
+
+test('the owner\'s second device takes up a moved room\'s key from the account and lets a straggler in once the first device is gone', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'room transition qualification')
+  test.setTimeout(480_000)
+  await sharedOwnerStraggler(baseURL!, false)
+})
+
+test('with two of the owner\'s devices keeping a moved room at once, a straggler still gets in', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'room transition qualification')
+  test.setTimeout(480_000)
+  await sharedOwnerStraggler(baseURL!, true)
 })

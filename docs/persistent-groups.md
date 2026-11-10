@@ -247,6 +247,39 @@ and opens the room without that event.
   only from the record the account reads. The room itself is ended by the
   retirement notice and a closing rekey, not by the bookmark.
 
+
+## A room's owner key follows its owner to their other devices
+
+The device that made a room held its owner key alone, so a member's device
+that missed the room's move to a node waited for that one device to be
+running. The owner chose (10 November 2026) that every device signed in as
+the same account should hold it. The bookmark record carries it as `owner:
+{ key, members, removed }`, beside `room` and `admission`, encrypted to the
+account's own key like the rest (`app/src/room-owner-share.ts`, and
+`AccountRoomOwner` on Android).
+
+- Any device holding the key keeps a moved room: it lets in the people the
+  room counts as members, renews their passes and, when the room is open
+  there, hands out its keys. It acts as the owner in a room on public relays
+  too.
+- `members` and `removed` are what the keepers recorded, so a device that
+  takes over neither asks again about people already in nor lets a removed
+  person back. Both lists only grow and a removal wins. A removal is sent at
+  once; new members ride along with the next change, so a growing roster
+  never costs a signer prompt.
+- A key is kept only when it is the owner the device already pins for the
+  room (the moved room's signed record, or the link), and never replaces
+  one already kept. A device that holds a key gives it to a record that
+  lacks it, at its first lookup after sign-in, and puts it back when an
+  older app saves the room without it.
+- The cost, stated plainly: a signed-in device that is lost keeps owner
+  control of these rooms, even one that signs through a remote signer and
+  never held the account key, and an owner key cannot be withdrawn. A relay
+  may keep an old copy of the record.
+- Android shares and takes up only a moved room's key. A room made on the
+  phone and kept by its native keeper keeps its key on the phone, by that
+  keeper's design.
+
 ## Ending a room and tidying up
 
 The browser holding a browser room's authority can end it for everyone. It

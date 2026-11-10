@@ -4,6 +4,7 @@ import { deriveInvitationId, type RoomInvitation } from '../../src/invitation.js
 import type { DeviceStore } from './device-store.js'
 import { deriveRoom } from '../../src/room.js'
 import { isRoomEnds } from '../../src/expiration.js'
+import { forgetSharedOwner } from './room-owner-share.js'
 
 export const INVITATION_OWNER_PREFIX = 'kithmoot.invitation-owner.v1.'
 export const INVITATION_OWNER_TTL_SECONDS = 12 * 60 * 60
@@ -11,6 +12,7 @@ export const INVITATION_OWNER_TTL_SECONDS = 12 * 60 * 60
 /** Clear all locally retained access for a room, including earlier links
  * after rotation. The same helper works over localStorage and tab storage. */
 export function forgetRoomAccess(store: DeviceStore, roomId: string): void {
+  forgetSharedOwner(store, roomId)
   for (const key of store.keys()) {
     if (![INVITATION_OWNER_PREFIX, 'kithmoot.admission-kept.v1.', 'kithmoot.admission.v1.'].some(prefix => key.startsWith(prefix))) continue
     try {

@@ -11,10 +11,11 @@ import { KithmootNodeError, enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, n
 import { openNodeDeviceAccess, type NodeDeviceAccessController } from '../../src/node-device-access.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperAdmissions, type NodeKeeperSnapshot } from '../../src/node-admission.js'
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../../src/node-room-close.js'
-import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
+import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, loadNodeRoom, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
 import { claimNodeKeeper } from './node-room-keepers.js'
+import { loadSharedOwner } from './room-owner-share.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
@@ -143,9 +144,43 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   const learnMembers = async () => {
     if (!keeper || !s || !live()) return
     // Everyone the room shows has spoken in it, as well as its roster and rekey lists.
-    const removed = s.removed
-    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant).filter(participant => !removed.has(participant))]
-      .filter(participant => /^[0-9a-f]{64}$/.test(participant)))
+    const removed = s.removed, shared = loadSharedOwner(store, state.participant, state.node.room)
+    // A removal made on another of the owner's devices ends this device's own passes for that person too.
+    for (const person of new Set([...removed, ...shared?.removed ?? []])) {
+      if (person !== state.participant && journal?.members.includes(person) && !journal.removed.includes(person)) await keeper.remove(person)
+    }
+    await keeper.learnMembers([...s.memberList(), ...s.chat.messages().map(message => message.participant), ...shared?.members ?? []]
+      .filter(participant => /^[0-9a-f]{64}$/.test(participant) && !removed.has(participant) && !shared?.removed.includes(participant)))
+  }
+  // Starts once the room's owner key is here: at open, or when another of
+  // the account's devices shares it while the room is open.
+  const startKeeper = async () => {
+    if (!state.authoritySk || keeper || !live()) return
+    // This open room keeps its own room; a closed-room keeper must not save the same journal.
+    releaseKeeper = claimNodeKeeper(state.node.room)
+    const backing = nodeKeeperStore(store, state.participant, state.node.room)
+    keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
+      keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true || loadSharedOwner(store, state.participant, state.node.room)?.removed.includes(participant) === true,
+      store: { async load() { journal = await backing.load(); return journal }, async save(value) { await backing.save(value); journal = value } },
+      onGrant: async event => { if (s) await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'node-grant', event })) } })
+    await keeper.retry(); await keeper.renew()
+    inbox = nodeKeeperInbox(state.node, localIdentity(state.authoritySk), { allowed: live })
+    const seen = new Set<string>()
+    inbox.subscribe([{ kinds: [1059], '#p': [state.node.authority] }], event => {
+      if (!live() || seen.has(event.id)) return
+      const inspected = keeper!.inspect(event); if (!inspected || options.blocked(inspected.request.participant)) return
+      seen.add(event.id); if (seen.size > 4096) seen.delete(seen.values().next().value!)
+      void (async () => {
+        const approved = inspected.known || await options.ask(inspected.request)
+        // Decline is deliberately silent. No signed denial or room key
+        // leaves the keeper for someone it has not admitted.
+        if (!approved || !live() || options.blocked(inspected.request.participant)) return
+        try {
+          const answer = await keeper!.admit(event, true)
+          s?.letIn(inspected.request.participant); await inbox!.publish(answer); options.settled(inspected.request, true)
+        } catch (error) { options.settled(inspected.request, false); throw error }
+      })().catch(unavailable)
+    })
   }
   const reconnect = () => {
     if (!live() || reconnecting) return
@@ -160,33 +195,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     calls = await startup(() => nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
       onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
       rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer }))
-    if (state.authoritySk) {
-      // This open room keeps its own room; a closed-room keeper must not save the same journal.
-      releaseKeeper = claimNodeKeeper(state.node.room)
-      const backing = nodeKeeperStore(store, state.participant, state.node.room)
-      keeper = await openNodeKeeperAdmissions({ ...requestOptions, node: state.node, authoritySk: state.authoritySk, roomSecret: state.secret,
-        keeperParticipant: state.participant, epochHint: () => s?.epoch ?? state.epochHint, removed: participant => s?.removed.has(participant) === true,
-        store: { async load() { journal = await backing.load(); return journal }, async save(value) { await backing.save(value); journal = value } },
-        onGrant: async event => { if (s) await s.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'node-grant', event })) } })
-      await keeper.retry(); await keeper.renew()
-      inbox = nodeKeeperInbox(state.node, localIdentity(state.authoritySk), { allowed: live })
-      const seen = new Set<string>()
-      inbox.subscribe([{ kinds: [1059], '#p': [state.node.authority] }], event => {
-        if (!live() || seen.has(event.id)) return
-        const inspected = keeper!.inspect(event); if (!inspected || options.blocked(inspected.request.participant)) return
-        seen.add(event.id); if (seen.size > 4096) seen.delete(seen.values().next().value!)
-        void (async () => {
-          const approved = inspected.known || await options.ask(inspected.request)
-          // Decline is deliberately silent. No signed denial or room key
-          // leaves the keeper for someone it has not admitted.
-          if (!approved || !live() || options.blocked(inspected.request.participant)) return
-          try {
-            const answer = await keeper!.admit(event, true)
-            s?.letIn(inspected.request.participant); await inbox!.publish(answer); options.settled(inspected.request, true)
-          } catch (error) { options.settled(inspected.request, false); throw error }
-        })().catch(unavailable)
-      })
-    }
+    await startKeeper()
     timer = setInterval(() => {
       if (!live()) { close(); return }
       // A stalled HTTP request must not postpone the socket's own liveness
@@ -197,19 +206,36 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       void refresh().then(() => keeper?.renew()).then(() => learnMembers()).catch(unavailable).finally(() => { refreshing = false })
     }, 5000)
     unwatchNetwork = watchNodeNetwork(connectivity, network, reconnect)
+    const startDesk = (session: RoomSession) => {
+      if (!state.authoritySk || desk) return
+      // A removal made on another of the owner's devices counts here too.
+      const removed = () => new Set([...journal?.removed ?? [], ...session.removed, ...loadSharedOwner(store, state.participant, state.node.room)?.removed ?? []])
+      desk = hostRoomEpoch({ transport: pool, roomId: state.node.room, authoritySk: state.authoritySk, roomKey: root.roomKey,
+        current: () => session.currentEpoch(), removed,
+        known: person => journal?.members.includes(person) === true && !removed().has(person),
+        members: () => journal?.members ?? [state.participant], closed: () => stopped,
+        expiresAt: () => Math.min(now() + 30 * 86400, state.node.endsAt ?? Infinity) })
+      session.rememberMembers(journal?.members ?? [state.participant]); session.forgetParticipants(journal?.removed ?? [])
+      void learnMembers().catch(() => {})
+    }
     return {
       state, pool, factory: calls.factory, allowed: () => live() && access!.allowed(), close,
       observe: (event: unknown) => access!.observe(event),
       attach(session: RoomSession) {
         s = session
-        if (!state.authoritySk) return
-        desk = hostRoomEpoch({ transport: pool, roomId: state.node.room, authoritySk: state.authoritySk, roomKey: root.roomKey,
-          current: () => session.currentEpoch(), removed: () => new Set(journal?.removed ?? []),
-          known: person => journal?.members.includes(person) === true && !journal.removed.includes(person),
-          members: () => journal?.members ?? [state.participant], closed: () => stopped,
-          expiresAt: () => Math.min(now() + 30 * 86400, state.node.endsAt ?? Infinity) })
-        session.rememberMembers(journal?.members ?? [state.participant]); session.forgetParticipants(journal?.removed ?? [])
-        void learnMembers().catch(() => {})
+        startDesk(session)
+      },
+      /** Take up the room's owner key another of the account's devices has
+       *  just shared, without reopening the room. */
+      async adoptAuthority() {
+        if (state.authoritySk || !live()) return
+        const held = loadNodeRoom(store, state.participant, state.node.room, now())
+        try {
+          if (!held?.authoritySk || held.node.event.id !== state.node.event.id) return
+          state.authoritySk = held.authoritySk.slice()
+        } finally { held?.secret.fill(0); held?.deviceSk.fill(0); held?.authoritySk?.fill(0) }
+        await startKeeper()
+        if (s) startDesk(s)
       },
       async remove(participant: string) {
         if (!keeper || !s || !state.authoritySk) throw Error('Only the person managing this room can remove people.')

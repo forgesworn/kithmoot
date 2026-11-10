@@ -36,7 +36,7 @@ profile directory.
 | Store | Holds | At rest | Cap | Cleared by |
 |---|---|---|---|---|
 | Saved rooms | The link, which is the epoch 0 secret | Plain localStorage | One per room | Forgetting the room |
-| Room bookmarks (`app/src/room-bookmarks.ts`), for a signer account | The link, and a group's epoch 0 secret as `admission`, on relays as kind 30078 | NIP-44 to the account's own key | One per room | A tombstone. A relay may keep an older copy |
+| Room bookmarks (`app/src/room-bookmarks.ts`), for a signer account | The link, a group's epoch 0 secret as `admission`, and the room's owner key with its members and removals as `owner` where a device holds it, on relays as kind 30078 | NIP-44 to the account's own key | One per room | A tombstone. A relay may keep an older copy |
 | `kithmoot.device.<room>` | The device secret key, one per room, never rotated | Plain localStorage | One | Forgetting the room (Forget room since the fix below; tidy-up only before). 30 days unused |
 | `kithmoot.own-seal.<room>` | Every seal secret this device minted | Plain localStorage | 128 (`MAX_OWN_SEAL_KEYS`) | Forgetting the room. Not by age or by epoch |
 | `kithmoot.own-credential.<room>`, `kithmoot.credential.<room>` | Own credential; a secondary's credential. Neither holds a secret | Plain localStorage | One | Forgetting the room. A secondary's credential only by tidy-up: it keeps `isPairedSecondary` true |

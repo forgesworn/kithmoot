@@ -2,7 +2,8 @@ import { localIdentity } from '../../src/identity.js'
 import { nodeKeeperInbox, type NodeClientOptions } from '../../src/kithmoot-node.js'
 import { openNodeKeeperAdmissions, type NodeKeeperAdmissions } from '../../src/node-admission.js'
 import type { DeviceStore } from './device-store.js'
-import { listNodeRooms, loadPendingNodeClose, nodeKeeperStore } from './node-rooms.js'
+import { adoptSharedNodeAuthority, listNodeRooms, loadPendingNodeClose, nodeKeeperStore } from './node-rooms.js'
+import { loadSharedOwner } from './room-owner-share.js'
 
 /**
  * Lets known members' devices into the node rooms this device keeps while
@@ -14,6 +15,11 @@ import { listNodeRooms, loadPendingNodeClose, nodeKeeperStore } from './node-roo
  * the closed-room keeper here and, through a stolen Web Lock, in other tabs.
  * Without Web Locks nothing runs, because two keepers saving one journal
  * could lose a grant record.
+ *
+ * Any of the owner's devices may keep a room once its owner key has reached
+ * them (room-owner-share.ts). Each keeps its own journal, so the members and
+ * removals the others shared are applied here too: a person removed on
+ * another device is not let back in, and this device's passes for them end.
  */
 export interface ClosedRoomKeepers { refresh(): void; close(): void }
 
@@ -77,11 +83,20 @@ export function keepClosedNodeRooms(opts: {
       if (!held?.authoritySk || held.phase !== 'active' || held.source?.activated === false || loadPendingNodeClose(store, participant, room, now())) { stop(); return }
       const node = held.node
       authoritySk = held.authoritySk.slice()
+      const shared = () => loadSharedOwner(store, participant, room)
       try {
         keeper = await openNodeKeeperAdmissions({ ...client, node, authoritySk: held.authoritySk, roomSecret: held.secret,
-          keeperParticipant: participant, epochHint: () => held.epochHint, store: nodeKeeperStore(store, participant, room), allowed: live })
+          keeperParticipant: participant, epochHint: () => held.epochHint, store: nodeKeeperStore(store, participant, room), allowed: live,
+          removed: person => shared()?.removed.includes(person) === true })
       } catch { stop(); return } finally { held.secret.fill(0); held.deviceSk.fill(0); held.authoritySk.fill(0) }
       if (!live()) { stop(); return }
+      const applyShared = () => {
+        const owner = shared()
+        if (!owner || !keeper) return
+        void keeper.learnMembers(owner.members).catch(() => {})
+        for (const person of owner.removed) if (person !== participant) void keeper.remove(person).catch(() => {})
+      }
+      applyShared()
       starting.delete(room)
       inbox = nodeKeeperInbox(node, localIdentity(authoritySk), { ...client, allowed: live })
       const seen = new Set<string>()
@@ -96,6 +111,7 @@ export function keepClosedNodeRooms(opts: {
       timer = setInterval(() => {
         if (!live()) { stop(); return }
         void inbox?.probe().catch(() => {})
+        applyShared()
         void keeper?.renew().catch(() => {})
       }, 60_000)
       // Hold the lock until stopped; a runtime's steal rejects this request.
@@ -108,6 +124,8 @@ export function keepClosedNodeRooms(opts: {
     const participant = account()
     if (participant !== owner) { stopAll(); owner = participant }
     if (!participant) return
+    // An owner key that has arrived from another of the account's devices.
+    try { adoptSharedNodeAuthority(store, participant, now()) } catch { /* Kept rooms still refresh. */ }
     const due = new Set(listNodeRooms(store, participant, now()).filter(value => {
       // A room being closed takes its reset floor from its last keeper: no new grant may follow it.
       // A move not yet activated here is still being prepared, or retried, by its own keeper.
