@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.145",
+  "currentRelease": "0.1.146",
   "releases": [
     {
-      "version": "0.1.145",
+      "version": "0.1.146",
       "updateTo": {
-        "version": "0.1.145",
-        "name": "0.1.145",
-        "pub_date": "2026-11-11T18:56:52Z",
-        "notes": "Delivery ticks are bigger and easier to see, and your newest message says who has it, or that no confirmation has come yet.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.145/KithMoot-0.1.145-mac-arm64.zip",
-        "sha256": "5522daeea8fe4995d347e6c03e073b6d9aca55bd728c888e2fc204378189fc56",
-        "size": 200010907
+        "version": "0.1.146",
+        "name": "0.1.146",
+        "pub_date": "2026-11-11T22:48:37Z",
+        "notes": "Rooms in your list now confirm delivery with the room closed, so senders see two ticks without you opening the room. The Confirmations setting still turns it off.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.146/KithMoot-0.1.146-mac-arm64.zip",
+        "sha256": "a4120e6099b7f1fc332db76be1783917cd5ce08d941097e5ea83c098478b88ed",
+        "size": 200011490
       }
     }
   ]
