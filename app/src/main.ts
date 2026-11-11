@@ -230,6 +230,7 @@ import {
   MINUTES_CHANNEL,
   CONTROL_CHANNEL,
   followRoomName,
+  carryRoomNameOp,
   compareRoomNames,
   type EpochRoot,
   type RoomNameFollower,
@@ -1102,7 +1103,23 @@ function describeError(err: unknown): string {
   // A renewal that failed says what went wrong in the app's words wherever
   // it surfaces, not only in the composer. See `sendFailureWords`.
   if (err instanceof CredentialRenewalError) return sendFailureWords(err)
+  if (accountNotConnectedRefusal(err)) return ACCOUNT_NOT_CONNECTED_FOR_NODE
   return err instanceof Error ? err.message : String(err)
+}
+
+/** What a room on a node says when the account it belongs to is not
+ *  connected here. */
+const ACCOUNT_NOT_CONNECTED_FOR_NODE = 'Your Nostr account is not connected on this device, so it cannot open rooms on your node. Reconnect it and approve in your signer, then try again.'
+
+/**
+ * A node "refusal" this device made itself, without asking the node: a room
+ * on a node acts only as the account it belongs to, and with that account
+ * not connected here every request stops before it is sent. It used to say
+ * the node refused, which sent the owner looking at their node when the
+ * thing to do was reconnect their signer (11 November 2026).
+ */
+function accountNotConnectedRefusal(err: unknown): boolean {
+  return err instanceof KithmootNodeError && err.reason === 'refused' && accountDisconnected()
 }
 
 /** The browser or the system refused the microphone or camera. */
@@ -4920,7 +4937,13 @@ async function roomFromLocation(): Promise<boolean> {
         await reconnectNostr()
         if (!current() || accountDisconnected()) throw Error('Reconnect the same Nostr account before asking to join this room.')
       }
-      if (!await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
+      // The account already keeps this room: another of its devices made it,
+      // holds its owner key, or has been in it. That is the person's own
+      // room, so the stranger's confirmation is not put to them; the request
+      // goes straight to its keeper, which lets the account's devices in
+      // without asking anybody.
+      const ownRoom = !!knownRoom(roomStore(), node.room) || !!loadSharedOwner(deviceStore, participant.pubkey, node.room)
+      if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
       const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
       const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
       try { held = await askBrowserNodeRoom(deviceStore, node, participant, { name: joiningName() ?? 'Guest', allowed: current, signal: controller.signal }) }
@@ -8560,7 +8583,15 @@ function renderEmptyRoom(): void {
   const show = Boolean(session) && currentChannel === undefined && !roomPolicy?.members?.length && !roomUsesBothy && alone
     && conversationMessages(undefined).length === 0
   if ($('emptyRoom').hidden === show) $('emptyRoom').hidden = !show
-  if (show) clearEmptyRoomIntro()
+  if (show) {
+    // A room on a node lets nobody in on the link alone: they ask, and its
+    // keeper lets them in. An ordinary room's "ask first" is a choice of the
+    // device holding the invitation, which this one cannot speak for.
+    const note = nodeRoom ? 'People with the link ask to join, and you let them in.' : 'Anyone with the link can join.'
+    const line = $('emptyRoom').querySelector('.emptyRoomNote')!
+    if (line.textContent !== note) line.textContent = note
+    clearEmptyRoomIntro()
+  }
 }
 
 /** The empty-room block sits over the log, whose one line is the room's
@@ -9617,9 +9648,29 @@ function scheduleRoomNameCarry(s: RoomSession, minMs: number, spreadMs: number):
   clearTimeout(roomNameCarryTimer)
   roomNameCarryTimer = setTimeout(() => {
     if (session !== s) return
+    nameNodeRoomForEveryone(s)
     roomNameFollowers.get(s)?.carryIfDue().catch(() => { /* Tried again on the next visit or rekey. */ })
     roomLogoFollowers.get(s)?.carryIfDue().catch(() => { /* Retry on the next visit or rekey. */ })
   }, minMs + Math.random() * spreadMs)
+}
+
+/**
+ * A room made on a node carries no name in its link: the node's signed
+ * record names the node, not the room. So its name lived only on the device
+ * that made it, and everybody else saw "Untitled room" (11 November 2026).
+ * The device that keeps the room posts the name it was given, once, if the
+ * room's control log holds none: a carried copy, so nobody is shown a rename,
+ * stamped at the room's start, so any real rename outranks it.
+ */
+function nameNodeRoomForEveryone(s: RoomSession): void {
+  const held = nodeRoom, follower = roomNameFollowers.get(s)
+  if (!held || held.node.room !== s.roomId || !held.authoritySk || !held.name || !follower || follower.current()) return
+  const log = s.channel(CONTROL_CHANNEL)
+  if (log.readOnly) return
+  try {
+    const op = carryRoomNameOp({ name: held.name, id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))), at: held.startsAt * 1000 })
+    void log.send(encodeControl(op)).catch(() => { /* Tried again on the next visit. */ })
+  } catch { /* A name nothing survives sanitising is no name to post. */ }
 }
 
 /** Rename the room for everybody in it. */
@@ -23901,8 +23952,11 @@ function showArrivalFailure(err: unknown): void {
   const retired = ended || reason.includes('retired')
   const persistent = !nodeAtDoor && valid && parseRoomLink(location.href).invitation?.persistent
   if (ended) markLinkEnded(location.href)
-  $('arrivalTitle').textContent = declined ? 'Your request was declined' : ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : nodeAtDoor ? 'The node room has not answered' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
-  $('arrivalLead').textContent = declined
+  const reconnect = accountNotConnectedRefusal(err)
+  $('arrivalTitle').textContent = reconnect ? 'Reconnect your account to open this room' : declined ? 'Your request was declined' : ended ? 'This room has ended' : retired ? 'This invite link is no longer valid' : nodeAtDoor ? 'The node room has not answered' : valid ? persistent ? 'The invite link could not be loaded' : 'The room has not answered' : 'This invite link is incomplete'
+  $('arrivalLead').textContent = reconnect
+    ? ACCOUNT_NOT_CONNECTED_FOR_NODE
+    : declined
     ? 'Someone in the room declined this request. Ask them before trying again. Your details are still on this device.'
     : conference
     ? `${reason} Nobody can join it any more.`
