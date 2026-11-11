@@ -7,6 +7,7 @@ import { encodeJoinUrl, generateRoomSecret, deriveRoom } from '../../src/room.js
 import { memoryDeviceStore } from './device-store.js'
 import { knownRooms, rememberRoom, type KnownRoom } from './rooms-store.js'
 import { bytesToHex } from '@noble/hashes/utils'
+import { signNodeRoom, encodeNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import type { SharedOwner } from './room-owner-share.js'
 
@@ -520,6 +521,68 @@ describe('private Nostr room bookmarks', () => {
     expect(a.events).toEqual([])
     expect(a.identity.signEvent).not.toHaveBeenCalled()
     expect(a.relay.close).toHaveBeenCalledOnce()
+  })
+})
+
+describe('room secrets in bookmarks', () => {
+  async function value(h: ReturnType<typeof harness>, index: number) {
+    return JSON.parse(await h.identity.nip44!.decrypt(h.identity.pubkey, h.events[index].content))
+  }
+
+  /** A room made on a node, as its maker lists it. */
+  function nodeRoomWithSecret(name = 'On the node') {
+    const secret = generateRoomSecret(), roomId = deriveRoom(secret).roomId, at = Math.floor(Date.now() / 1000)
+    const event = signNodeRoom({ authoritySk: generateSecretKey(), room: roomId, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: at })
+    const r: KnownRoom = { roomId, name, link: encodeNodeRoomLink('https://example.test/j/', event, at), openedAt: at, readAt: 0, keep: true }
+    return { r, secret: bytesToHex(secret) }
+  }
+
+  it('gives the account a node room\'s secret its record lacks once the first lookup ends, as it does an owner key', async () => {
+    // A room this device keeps on a node, saved by another device that held no secret.
+    const { r, secret } = nodeRoomWithSecret(), plain = harness(signer(), memoryDeviceStore(), kept().admissions)
+    plain.library.save(r)
+    await saved(plain)
+    const mine = kept(), b = harness(plain.identity, memoryDeviceStore(), mine.admissions)
+    await b.library.receive(plain.events[0])
+    expect(b.events).toHaveLength(0)
+    mine.held.set(r.roomId, secret)
+    b.eose()
+    await saved(b)
+    expect((await value(b, 0)).admission).toEqual({ secret })
+    // Once is enough: the next lookup's end asks the signer for nothing more.
+    const signed = vi.mocked(b.identity.signEvent).mock.calls.length
+    b.eose()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(vi.mocked(b.identity.signEvent).mock.calls.length).toBe(signed)
+    expect(new Set(b.events.map(event => event.id)).size).toBe(1)
+    plain.library.close(); b.library.close()
+  })
+
+  it('sends no save for a group\'s secret alone at the end of a lookup', async () => {
+    const { r, secret } = roomWithSecret(), plain = harness(signer(), memoryDeviceStore(), kept().admissions)
+    plain.library.save(r)
+    await saved(plain)
+    const mine = kept({ [r.roomId]: secret }), b = harness(plain.identity, memoryDeviceStore(), mine.admissions)
+    await b.library.receive(plain.events[0])
+    const signed = vi.mocked(b.identity.signEvent).mock.calls.length
+    b.eose()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(vi.mocked(b.identity.signEvent).mock.calls.length).toBe(signed)
+    plain.library.close(); b.library.close()
+  })
+
+  it('tells the device the room secret its account record carries, and nothing for a removed room', async () => {
+    const { r, secret } = roomWithSecret(), other = roomWithSecret('Other')
+    const a = harness(signer(), memoryDeviceStore(), kept({ [r.roomId]: secret }).admissions)
+    a.library.save(r); a.library.save(other.r)
+    await saved(a, 2)
+    const b = harness(a.identity, memoryDeviceStore(), kept().admissions)
+    for (const event of a.events) await b.library.receive(event)
+    expect(b.library.admissionSecret(r.roomId)).toBe(secret)
+    expect(b.library.admissionSecret(other.r.roomId)).toBeUndefined()
+    b.library.remove(r.roomId)
+    expect(b.library.admissionSecret(r.roomId)).toBeUndefined()
+    a.library.close(); b.library.close()
   })
 })
 

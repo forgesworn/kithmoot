@@ -147,3 +147,24 @@ relays and the app's defaults, never for a link naming a circle relay, and the
 creator re-signs it on the relays its link names as well as the room's current
 ones. See `app/src/invitation-lookup.ts`.
 
+
+## November 2026: rooms made on a node
+
+A room made on a KithMoot node now carries its secret in the same field. Only a
+device that keeps the room writes it: one that holds the room's owner key,
+which the account's record already carries (`app/src/room-owner-share.ts`). A
+guest's device adds nothing. With the key and the secret, another of the
+account's devices admits itself the way the room's maker did, so it can open
+the room with every other device of the account switched off.
+
+It does so only for a room made on the node that nobody has been removed from.
+A removal moves the room to an epoch whose secret is sealed only to its members'
+devices, so a device that let itself in at epoch 0 would read nothing new. A
+removal still waiting to be saved to the account's record leaves a short window
+in which that can happen. Moved rooms, rooms with a removal and rooms made on an
+Android phone, whose key stays on the phone, still ask the room's keeper. A
+device that holds the key adds the secret to a record lacking it once per
+session, after its first lookup; group secrets cost no such extra save.
+
+Web: `admitOwnBrowserNodeDevice` in `app/src/node-room-runtime.ts` and
+`admitOwnNodeDevice` in `app/src/main.ts`. Android: `node/NodeOwnAdmission.kt`.

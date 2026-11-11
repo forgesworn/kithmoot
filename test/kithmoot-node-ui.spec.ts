@@ -1075,6 +1075,60 @@ async function ownerSyncDevice(browser: Browser, baseURL: string, fixture: Await
   return page
 }
 
+test('the owner\'s second device lets itself into a room its account made on the node with no other device of theirs online', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34792, tls: 53501 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const ownerKey = generateSecretKey()
+    const maker = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'maker', log)
+    await openCallSettings(maker, 'Your KithMoot node')
+    await maker.locator('#nodePairingInput').fill(fixture.pairing())
+    await maker.locator('#nodePair').click(); await maker.locator('#actionConfirm').click()
+    await expect(maker.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(maker)
+    await maker.locator('#homeNewRoom').click()
+    await maker.locator('#roomName').fill('Kept alone')
+    await expect(maker.locator('#roomOnNode')).toBeChecked()
+    if (await maker.locator('#newRoomYourName').isVisible()) await maker.locator('#newRoomYourName').fill('Maker')
+    await maker.locator('#create').click()
+    await expect(maker.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => maker.locator('#shareUrl').inputValue()).not.toBe('')
+    const link = await maker.locator('#shareUrl').inputValue()
+
+    const second = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'second', log)
+    await expect(second.locator('#roomSyncStatus')).toContainText(/loaded|Up to date/, { timeout: 60_000 })
+    const listed = second.getByRole('button', { name: 'Open Kept alone' })
+    await expect(listed).toBeVisible({ timeout: 60_000 })
+    await second.waitForTimeout(15_000)
+    // Every device of the owner's that could let it in is gone.
+    log.push('--- maker closes; second opens the room from its list')
+    await maker.close()
+    await listed.click()
+    await expect(second.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(second.getByRole('alertdialog', { name: 'Ask to join this room?' })).toHaveCount(0)
+    await second.locator('#chatInput').fill('Let in without anyone'); await second.locator('#chatInput').press('Enter')
+
+    // The maker's device comes back and reads what the second device sent.
+    const back = await contexts[0].newPage()
+    await openRoomUrl(back, link)
+    await expect(back.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(back.locator('#chatLog')).toContainText('Let in without anyone', { timeout: 60_000 })
+  } catch (error) {
+    for (const page of [contexts[1]?.pages()[0]].filter(Boolean)) {
+      log.push('--- second status: ' + await page!.locator('#status, #arrivalTitle, #arrivalLead').allInnerTexts().catch(() => []))
+    }
+    throw error
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
+
 test('the owner\'s second device opens a room its account made on the node', async ({ baseURL, browserName }) => {
   test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
   test.skip(browserName !== 'chromium', 'one browser is enough for this flow')

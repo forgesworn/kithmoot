@@ -11,7 +11,7 @@ import { KithmootNodeError, enrolNodeRoom, nodeRoomTransport, nodeKeeperInbox, n
 import { openNodeDeviceAccess, type NodeDeviceAccessController } from '../../src/node-device-access.js'
 import { beginNodeJoin, openNodeKeeperAdmissions, type NodeKeeperAdmissions, type NodeKeeperSnapshot } from '../../src/node-admission.js'
 import { prepareNodeRoomClose, pendingNodeRoomClose, submitPendingNodeRoomClose } from '../../src/node-room-close.js'
-import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, loadNodeRoom, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, type BrowserNodeRoom } from './node-rooms.js'
+import { nodeDeviceKeyFor, adoptExistingNodeDeviceKey, loadNodeRoom, storeNodeRoom, nodeKeeperStore, nodeAccessStore, nodeCloseStore, loadPendingNodeClose, seedNodeKeeper, type BrowserNodeRoom } from './node-rooms.js'
 import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
 import { claimNodeKeeper } from './node-room-keepers.js'
@@ -71,6 +71,40 @@ export async function askBrowserNodeRoom(store: DeviceStore, node: NodeRoomRecor
   const state: BrowserNodeRoom = { node, participant: participant.pubkey, deviceSk, secret: answer.secret, grant: answer.grant,
     phase: 'active', epochHint: answer.epochHint, startsAt: at }
   storeNodeRoom(store, state, (options.now ?? now)()); return state
+}
+
+/** A device of the account that made a room on its node lets itself in
+ * with the owner key and room secret the account's other devices shared, as
+ * the device that made the room did, so none of them need be online. Only a
+ * room made on the node that nobody has been removed from: a removal moves
+ * the room to an epoch whose secret only its members' devices were given.
+ * Anything else is left to the room's keeper. */
+export async function admitOwnBrowserNodeDevice(store: DeviceStore, node: NodeRoomRecord, participant: ParticipantIdentity,
+  owner: { authoritySk: Uint8Array; secret: Uint8Array; members: readonly string[]; removed: readonly string[] }, options: NodeClientOptions = {}): Promise<BrowserNodeRoom> {
+  if (node.existing || owner.removed.length || getPublicKey(owner.authoritySk) !== node.authority || deriveRoom(owner.secret).roomId !== node.room) {
+    throw Error('This device cannot let itself into this room.')
+  }
+  const stopped = () => options.signal?.aborted === true || options.allowed?.() === false
+  if (stopped()) throw Error('The room changed before opening.')
+  const at = (options.now ?? now)(), deviceSk = nodeDeviceKeyFor(store, participant.pubkey, node.room)
+  const credential = await createDeviceCredential({ identity: participant, devicePubkey: getPublicKey(deviceSk), roomId: node.room,
+    now: options.now, expiresAt: Math.min(at + 86400, node.endsAt ?? Infinity) })
+  if (stopped()) throw Error('The room changed before opening.')
+  // No other keeper here may save this room's journal meanwhile.
+  const release = claimNodeKeeper(node.room)
+  try {
+    seedNodeKeeper(store, participant.pubkey, node, owner.members, owner.removed)
+    const keeper = await openNodeKeeperAdmissions({ ...options, node, authoritySk: owner.authoritySk, roomSecret: owner.secret,
+      keeperParticipant: participant.pubkey, epochHint: () => 0, store: nodeKeeperStore(store, participant.pubkey, node.room) })
+    try {
+      const grant = await keeper.authoriseKeeperDevice(credential)
+      if (stopped()) throw Error('The room changed before opening.')
+      const state: BrowserNodeRoom = { node, participant: participant.pubkey, deviceSk, secret: owner.secret.slice(), grant,
+        authoritySk: owner.authoritySk.slice(), phase: 'active', epochHint: 0, startsAt: at }
+      storeNodeRoom(store, state, (options.now ?? now)())
+      return state
+    } finally { keeper.close() }
+  } finally { release() }
 }
 
 /** All node-only resources belong to one session, including a docked call.

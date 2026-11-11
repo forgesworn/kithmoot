@@ -4,7 +4,7 @@ import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgeswo
 import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
-import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
+import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, admitOwnBrowserNodeDevice, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
 import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
 import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
 import { keepClosedNodeRooms } from './node-room-keepers.js'
@@ -2197,6 +2197,16 @@ function groupAdmissions(account: string): BookmarkAdmissions {
       closedRoomKeepers.refresh()
     },
     current: room => {
+      // A room made on a node that this device keeps: its secret, so the
+      // account's other devices, which hold the same owner key, can open it
+      // without its keeper. A guest's device has no key and adds nothing.
+      const hosted = parseNodeRoomLink(room.link, Math.floor(room.openedAt))
+      if (hosted) {
+        if (hosted.room !== room.roomId) return undefined
+        const held = loadNodeRoom(deviceStore, account, room.roomId, nowSeconds())
+        try { return held?.authoritySk && held.node.event.id === hosted.event.id ? bytesToHex(held.secret) : undefined }
+        finally { held?.secret.fill(0); held?.deviceSk.fill(0); held?.authoritySk?.fill(0) }
+      }
       const id = invitationIdOf(room.link)
       const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
       return kept && 'persistent' in kept && kept.persistent ? bytesToHex(kept.secret) : undefined
@@ -4908,6 +4918,24 @@ function invitationFromLocation(url: string): RoomInvitation | undefined {
 }
 
 /**
+ * Open a room this account made on a node with the owner key and room
+ * secret its other devices shared, without asking any of them. Undefined
+ * when this device lacks either, someone has been removed from the room,
+ * or the node refuses: the ask then goes to the room's keeper as before.
+ */
+async function admitOwnNodeDevice(node: NodeRoomRecord, participant: ParticipantIdentity, current: () => boolean): Promise<BrowserNodeRoom | undefined> {
+  if (node.existing || !bookmarks || nostrSession?.pubkey !== participant.pubkey) return undefined
+  const shared = loadSharedOwner(deviceStore, participant.pubkey, node.room), secret = bookmarks.admissionSecret(node.room)
+  if (!shared || !secret || shared.removed.length) return undefined
+  const authoritySk = hexToBytes(shared.key), roomSecret = hexToBytes(secret)
+  try {
+    setStatus('Opening your room…', 'progress')
+    return await admitOwnBrowserNodeDevice(deviceStore, node, participant, { authoritySk, secret: roomSecret, members: shared.members, removed: shared.removed }, { allowed: current })
+  } catch { return undefined }
+  finally { authoritySk.fill(0); roomSecret.fill(0) }
+}
+
+/**
  * Resolve the room behind the current fragment.
  *
  * V2 first checks local creator state, then this tab's admission cache, then
@@ -4943,12 +4971,18 @@ async function roomFromLocation(): Promise<boolean> {
       // goes straight to its keeper, which lets the account's devices in
       // without asking anybody.
       const ownRoom = !!knownRoom(roomStore(), node.room) || !!loadSharedOwner(deviceStore, participant.pubkey, node.room)
-      if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
-      const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
-      const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
-      try { held = await askBrowserNodeRoom(deviceStore, node, participant, { name: joiningName() ?? 'Guest', allowed: current, signal: controller.signal }) }
-      catch (error) { if (controller.signal.aborted) throw new AdmissionPreviewCancelled(true); throw error }
-      finally { waiting.removeEventListener('close', cancel); waiting.close() }
+      // With the room's owner key and secret from the account, this device
+      // lets itself in, as the one that made the room did, and needs none of
+      // the account's other devices to be online.
+      if (ownRoom) held = await admitOwnNodeDevice(node, participant, current)
+      if (!held) {
+        if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
+        const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
+        const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
+        try { held = await askBrowserNodeRoom(deviceStore, node, participant, { name: joiningName() ?? 'Guest', allowed: current, signal: controller.signal }) }
+        catch (error) { if (controller.signal.aborted) throw new AdmissionPreviewCancelled(true); throw error }
+        finally { waiting.removeEventListener('close', cancel); waiting.close() }
+      }
       nodeAutoJoin = true
     }
     if (!current()) throw Error('The room or account changed while opening.')
