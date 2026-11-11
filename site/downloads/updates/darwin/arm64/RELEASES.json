@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.143",
+  "currentRelease": "0.1.144",
   "releases": [
     {
-      "version": "0.1.143",
+      "version": "0.1.144",
       "updateTo": {
-        "version": "0.1.143",
-        "name": "0.1.143",
-        "pub_date": "2026-11-11T13:08:31Z",
-        "notes": "Your own devices now go straight into rooms on your node that your account keeps, guests see a node room's real name, and a signer that is not answering is reported as that rather than as the node refusing you.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.143/KithMoot-0.1.143-mac-arm64.zip",
-        "sha256": "78e367370f1228ca5957cdb8a411fcfc3f70fb0b4dd80c58e3fa60dc42ee316b",
-        "size": 200008869
+        "version": "0.1.144",
+        "name": "0.1.144",
+        "pub_date": "2026-11-11T17:48:40Z",
+        "notes": "A device of yours can now open a room your account made on your node with none of your other devices running, once the device that keeps the room has run this version.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.144/KithMoot-0.1.144-mac-arm64.zip",
+        "sha256": "80fd7a7cb93299fd09f1741965fbe41a06a695743999635469497b0bd8a90a23",
+        "size": 200009178
       }
     }
   ]
