@@ -26,8 +26,8 @@
   },
   "downloadFilename": "kithmoot-0.6.145-production.apk",
   "releaseNotes": [
-    "Your own devices go straight into rooms on your node instead of knocking like a stranger.",
-    "Guests see a node room's real name, and a silent signer is reported as such.",
+    "Your own devices open rooms on your node without the stranger's Ask to join question.",
+    "Guests see a node room's real name, and the app tells you when your signer is not answering.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
