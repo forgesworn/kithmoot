@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.145 makes the delivery ticks on your messages bigger and stronger, and says under your newest message who has it: "Delivered to" a name and time, or "Sent" with no confirmation yet. One tick means no device has confirmed it yet, not that it has not arrived.
+Version 0.1.146 confirms delivery of messages that reach a room in your list while it is not open, so the sender sees two ticks without you opening the room. It uses the room credential this device already holds and never asks your signer; the Confirmations setting still turns it off.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
