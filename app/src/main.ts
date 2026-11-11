@@ -90,7 +90,7 @@ import { Outbox } from './outbox.js'
 import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, deliveryLine, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
-import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
+import { DeliveryReceiptWriter, type ReceiptPublisher } from '../../src/delivery-receipt-writer.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
 import { signerLabel } from './signer-label.js'
@@ -15829,6 +15829,23 @@ function watchKnownRoom(room: KnownRoom): void {
     logo: roomLogoCache.get(roomId),
     ...(epoch ? { epoch } : {}),
     ...(pastEpochs.length ? { pastEpochs } : {}),
+    // A message that reached this device says so with the room closed too,
+    // so its sender's ticks do not wait for it to be opened here. Only with
+    // the credential this device already holds for the room, as the person
+    // it is in the room as: a watch never asks a signer. The same writer as
+    // the open room, so opening it later confirms nothing twice.
+    ...(deviceSk && !isQuietPolicy(link.policy) ? {
+      receipts: {
+        deviceSk,
+        credential: () => {
+          const held = loadOwnCredentialFor(deviceStore, roomId, nowSeconds())
+          return held && held.pubkey.toLowerCase() === roomSelf(roomId).toLowerCase() ? held : undefined
+        },
+        ...(room.endsAt !== undefined ? { expiresAt: room.endsAt } : {}),
+        onAccepted: (message: ChatMessage, d: string, publisher: ReceiptPublisher) =>
+          receiptWriter.received({ roomId, self: roomSelf(roomId).toLowerCase() }, message, d, publisher),
+      },
+    } : {}),
     // Following the authority's rekeys, so a room not opened since its key
     // turned still shows what is said in it. A device the rekey left out
     // (removed, or the room closed) has no copy, and the room reads quiet

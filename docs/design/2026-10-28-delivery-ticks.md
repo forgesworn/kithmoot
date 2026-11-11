@@ -267,6 +267,17 @@ which decrypt for unread counts) sends receipts under the same rules. A tab
 that closes with a pending batch loses it; the messages are acknowledged on
 the next open because they are not yet in the acknowledged set.
 
+A watched room (`RoomWatchOptions.receipts` in `app/src/room-watch.ts`) signs
+with the device key and the credential this device already holds for the
+room, as the person it is in the room as, and never asks a signer: a room not
+opened here within its credential's lifetime (12 hours, renewed while the
+room is open) confirms nothing until it is next opened, which then confirms
+the backlog. It shares the open room's writer, so opening the room later
+confirms nothing twice, and it publishes nothing else: no roster entry, no
+announcement. Added 11 November 2026; until then only the open room sent
+receipts, so a person with the room in their list but not on screen showed
+one tick.
+
 ### Android
 
 The foreground room sends receipts as on the web. Background receive (the

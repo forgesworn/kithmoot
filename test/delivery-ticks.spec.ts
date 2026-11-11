@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
+import { leaveToChats } from './browser.js'
 
 // The one tick: whether the relays kept a message this device sent. A relay's
 // OK is not enough, so a message shows a clock until a relay that took it has
@@ -89,6 +90,44 @@ test('a message turns to two ticks once the other person\'s device confirms it, 
     await expect(ada.locator('#chatLog')).not.toContainText(/\bRead\b|\bSeen\b/)
     // Bo's own screen shows no tick on Ada's message.
     await expect(bo.locator('#chatLog .msg.theirs .deliveryTick')).toHaveCount(0)
+  } finally { await context.close(); await other.close() }
+})
+
+test('a device with the room only in its list confirms delivery too, without coming back into the room', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), other = await contextFor(browser, baseURL!)
+  try {
+    const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [testRelay(baseURL!)])
+    const ada = await context.newPage(), bo = await other.newPage()
+    await join(ada, link, 'Ada'); await join(bo, link, 'Bo')
+    await send(bo, 'Back in a bit')
+    await expect(ada.locator('#chatLog .msg.theirs', { hasText: 'Back in a bit' })).toBeVisible()
+    // Bo goes back to the list: the room is no longer open on his screen.
+    await leaveToChats(bo)
+    await expect(bo.locator('#roomArea')).toBeHidden()
+    await send(ada, 'Did this reach you?')
+    await expect(tick(ada, 'Did this reach you?')).toHaveAttribute('data-state', 'delivered', { timeout: 30_000 })
+    await expect(own(ada, 'Did this reach you?').locator('.deliveryLine')).toHaveText(/^Delivered to Bo · \S/)
+    // Confirming did not take Bo back into the room (and the watch sends no
+    // presence: see room-watch.test.ts).
+    await expect(bo.locator('#roomArea')).toBeHidden()
+  } finally { await context.close(); await other.close() }
+})
+
+test('a device with the room only in its list and confirmations turned off says nothing', async ({ browser, baseURL }) => {
+  const context = await contextFor(browser, baseURL!), other = await contextFor(browser, baseURL!)
+  try {
+    const link = encodeJoinUrl(baseURL!, generateRoomSecret(), [testRelay(baseURL!)])
+    const ada = await context.newPage(), bo = await other.newPage()
+    await join(ada, link, 'Ada'); await join(bo, link, 'Bo')
+    await bo.evaluate(() => localStorage.setItem('kithmoot.delivery-receipts.v1', 'off'))
+    await send(bo, 'Back in a bit')
+    await expect(ada.locator('#chatLog .msg.theirs', { hasText: 'Back in a bit' })).toBeVisible()
+    await leaveToChats(bo)
+    await send(ada, 'Did this reach you?')
+    await expect(tick(ada, 'Did this reach you?')).toHaveAttribute('data-state', 'sent', { timeout: 20_000 })
+    // Longer than the 2 to 6 seconds a receipt waits before it goes.
+    await ada.waitForTimeout(10_000)
+    await expect(tick(ada, 'Did this reach you?')).toHaveAttribute('data-state', 'sent')
   } finally { await context.close(); await other.close() }
 })
 

@@ -2,11 +2,16 @@
  * A room watched from outside it, for the rooms list: what is new in its
  * chat, and who is in it now.
  *
- * Read-only, in the strict sense. Nothing here publishes: no roster entry,
- * no announcement, no answer to anybody else's. A device looking at its
+ * Read-only, but for one thing. Nothing here publishes a roster entry, an
+ * announcement or an answer to anybody else's. A device looking at its
  * list is not in the room, and must not appear to be - a phantom in every
  * standing room's roster, opening peer connections nobody wanted, is the
- * thing this exists not to be. What it costs is that the room cannot answer
+ * thing this exists not to be. The one exception is delivery receipts
+ * (`RoomWatchOptions.receipts`): a message that reached this device says so,
+ * as it would with the room open, so its sender's ticks do not wait for the
+ * room to be opened here. A receipt names the device to members, as any
+ * receipt does, and is signed with a credential this device already holds;
+ * a watch never asks a signer for one. What it costs is that the room cannot answer
  * an arrival it never hears about, so presence here is only what devices
  * say of their own accord: their heartbeats, every twenty seconds. A room
  * fills in over one heartbeat interval rather than at once, and `settled`
@@ -36,6 +41,13 @@ import { KINDS } from '../../src/kinds.js'
 import { decodeRosterEvent } from '../../src/roster.js'
 import { evaluateAccess } from '../../src/access.js'
 import { ChatLog, type ChatMessage, type EpochRoot, type PastEpoch } from '../../src/chat.js'
+import { verifyDeviceCredential } from '../../src/credential.js'
+import { hexEquals } from '../../src/hex.js'
+import { encodeDeliveryReceipt } from '../../src/delivery-receipt.js'
+import type { ReceiptPublisher } from '../../src/delivery-receipt-writer.js'
+import type { ExpirationDeadline } from '../../src/expiration.js'
+import type { DeviceCredential } from '../../src/types.js'
+import { getPublicKey } from 'nostr-tools/pure'
 import { decodeRekeyEvent, deriveEpoch, peekRekeyEvent, type EpochKeys, type RekeyNotice, type RoomEpoch } from '../../src/epoch.js'
 import { CONTROL_CHANNEL } from '../../src/control.js'
 import { RoomNameBook, roomNameFromMessage, type RoomNameRecord } from '../../src/room-name.js'
@@ -174,7 +186,7 @@ export interface RoomWatchOptions {
   authority?: string
   /** This device's key for the room: what the authority seals this
    *  device's copy of a rekey to when its credential names no seal key.
-   *  Used only to open one; a watch signs nothing. */
+   *  Used only to open one; receipts carry their own (see `receipts`). */
   deviceSk?: Uint8Array
   /** The seal key secrets this device's credentials have named in the
    *  room, tried before the device key. Asked at each rekey. */
@@ -195,6 +207,22 @@ export interface RoomWatchOptions {
   /** A verified next rekey could not be opened by this device. Stop views
    * that must not keep presenting an old epoch as current room access. */
   onUnreachable?: () => void
+  /**
+   * Confirm delivery of what reaches this device here, as the open room
+   * does: the one thing a watch publishes. Each chat message the log
+   * accepts is handed to `onAccepted` with a publisher that signs a receipt
+   * with `deviceSk` and `credential()`, asked afresh each time. With no
+   * credential, or one that does not name `deviceSk` in this room right
+   * now, nothing is handed over and nothing is published. Never for a quiet
+   * room, whose chat a watch does not read.
+   */
+  receipts?: {
+    deviceSk: Uint8Array
+    credential: () => DeviceCredential | undefined
+    /** The room's end, when it has one: a receipt expires no later. */
+    expiresAt?: ExpirationDeadline
+    onAccepted: (message: ChatMessage, d: string, publisher: ReceiptPublisher) => void
+  }
 }
 
 /** A rekey a watch followed. */
@@ -235,10 +263,17 @@ export class RoomWatch {
   readonly #rekeyedAt = new Map<number, number>()
   #closed = false
   #closedTold = false
+  /** What `receipts.onAccepted` publishes through; closed with the watch. */
+  readonly #receiptPublisher: ReceiptPublisher
 
   constructor(opts: RoomWatchOptions) {
     this.#opts = opts
     this.#now = opts.now ?? (() => Math.floor(Date.now() / 1000))
+    const watch = this
+    this.#receiptPublisher = {
+      publishDeliveryReceipt: receipt => this.#publishReceipt(receipt),
+      get closed() { return watch.#closed },
+    }
     this.#startedAt = this.#now()
     this.#epoch = opts.epoch && opts.epoch.epoch > 0 ? opts.epoch : undefined
     if (opts.logo) this.#logos.seed(opts.logo.record, opts.logo.epoch)
@@ -253,6 +288,7 @@ export class RoomWatch {
         ...(channel ? { channel } : {}),
         ...(epoch ? { epoch } : {}),
         ...(!channel && opts.pastEpochs?.length ? { pastEpochs: opts.pastEpochs } : {}),
+        ...(!channel && opts.receipts ? { onAccepted: (message: ChatMessage, d: string) => this.#accepted(message, d) } : {}),
       })
       this.#chat = log()
       this.#chat.onChange(() => opts.onChange?.())
@@ -362,6 +398,38 @@ export class RoomWatch {
     this.#unsubRoom()
     this.#chat?.close()
     this.#control?.close()
+  }
+
+  /** This device's credential for the room, when it names `receipts.deviceSk` and is good now. */
+  #receiptCredential(): DeviceCredential | undefined {
+    const receipts = this.#opts.receipts
+    const credential = receipts?.credential()
+    if (!receipts || !credential) return undefined
+    const verdict = verifyDeviceCredential(credential, { roomId: this.#opts.roomId, now: this.#now() })
+    return verdict.ok && hexEquals(verdict.device, getPublicKey(receipts.deviceSk)) ? credential : undefined
+  }
+
+  /** A chat message the log accepted: offered for a receipt while this device can sign one. */
+  #accepted(message: ChatMessage, d: string): void {
+    if (this.#closed || !this.#opts.receipts || !this.#receiptCredential()) return
+    this.#opts.receipts.onAccepted(message, d, this.#receiptPublisher)
+  }
+
+  /** Sign and publish one receipt on a stream this watch reads. */
+  async #publishReceipt(opts: { d: string; messageIds: readonly string[]; createdAt?: number; index?: number }): Promise<Event> {
+    const receipts = this.#opts.receipts
+    if (!receipts || this.#closed) throw new Error('this watch publishes no receipts')
+    const stream = this.#chat?.streams().find(s => s.d === opts.d.toLowerCase())
+    if (!stream) throw new Error('not a stream this watch reads')
+    const credential = this.#receiptCredential()
+    if (!credential) throw new Error('no current credential for this room on this device')
+    const event = encodeDeliveryReceipt({
+      roomId: this.#opts.roomId, stream, deviceSk: receipts.deviceSk, credential,
+      messageIds: opts.messageIds, createdAt: opts.createdAt ?? this.#now(), index: opts.index ?? 0,
+      ...(receipts.expiresAt !== undefined ? { expiresAt: receipts.expiresAt } : {}),
+    })
+    await this.#opts.transport.publish(event)
+    return event
   }
 
   /** What the codecs are told: nothing in epoch 0, as a session does. */
