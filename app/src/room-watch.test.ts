@@ -5,7 +5,9 @@ import { deriveRoom } from '../../src/room.js'
 import { createDeviceCredential } from '../../src/credential.js'
 import { localIdentity } from '../../src/identity.js'
 import { encodeRosterEvent } from '../../src/roster.js'
-import { encodeChatEvent } from '../../src/chat.js'
+import { ChatLog, encodeChatEvent } from '../../src/chat.js'
+import { decodeDeliveryReceipt, deliveryReceiptIdHash } from '../../src/delivery-receipt.js'
+import type { ReceiptPublisher } from '../../src/delivery-receipt-writer.js'
 import { deriveEpoch, encodeRekeyEvent, generateEpochSecret, type RoomEpoch } from '../../src/epoch.js'
 import { generateSealKey } from '../../src/seal.js'
 import { CONTROL_CHANNEL, encodeControl } from '../../src/control.js'
@@ -490,5 +492,108 @@ describe('a declared Lightning address across devices', () => {
     other.ingest(entry({ device: 'new', participant: 'bot', name: 'Bot', agent: true, zap: 'new@example.com', updatedAt: NOW - 5 }), NOW)
     other.ingest(entry({ device: 'old', participant: 'bot', name: 'Bot', agent: true, zap: 'old@example.com', updatedAt: NOW - 30 }), NOW)
     expect(other.present(NOW + 1).find((p) => p.participant === 'bot')?.zap).toBe('new@example.com')
+  })
+})
+
+describe('RoomWatch delivery receipts', () => {
+  async function room(seed: number) {
+    const { roomId, roomKey } = deriveRoom(new Uint8Array(32).fill(seed))
+    const relay = new SimRelay()
+    const ada = await member(roomId, 'Ada')
+    const bo = await member(roomId, 'Bo')
+    const say = (id: string, sentAt: number) => new SimTransport(relay).publish(
+      encodeChatEvent({ id, participant: ada.participant, device: getPublicKey(ada.deviceSk), credential: ada.credential, text: id, sentAt }, { roomId, roomKey, deviceSk: ada.deviceSk }))
+    // Everything published in the room from here on, by kind.
+    const seen: number[] = []
+    relay.subscribe([{}], event => void seen.push(event.kind))
+    const kinds = (): number[] => seen
+    return { roomId, roomKey, relay, ada, bo, say, kinds }
+  }
+
+  it('confirms what reached this device with the credential it holds, as the open room would, and publishes nothing else', async () => {
+    const { roomId, roomKey, relay, ada, bo, say, kinds } = await room(21)
+    const offered: string[] = []
+    const sent: Promise<Event>[] = []
+    const receipts: Event[] = []
+    relay.subscribe([{ kinds: [KINDS.DELIVERY_RECEIPT] }], event => void receipts.push(event))
+    const watch = new RoomWatch({
+      transport: new SimTransport(relay), roomId, roomKey, now: () => NOW,
+      receipts: {
+        deviceSk: bo.deviceSk,
+        credential: () => bo.credential,
+        onAccepted: (message, d, publisher) => {
+          offered.push(message.id)
+          sent.push(publisher.publishDeliveryReceipt({ d, messageIds: [message.id], createdAt: NOW }))
+        },
+      },
+    })
+    await say('hello', NOW - 5)
+    await new Promise(r => setTimeout(r, 0))
+    expect(offered).toEqual(['hello'])
+    await Promise.all(sent)
+    expect(receipts).toHaveLength(1)
+    const reader = new ChatLog({ transport: new SimTransport(relay), roomId, roomKey })
+    const decoded = decodeDeliveryReceipt(receipts[0]!, { roomId, streams: reader.streams(), now: NOW })
+    expect(decoded?.participant).toBe(bo.participant)
+    expect(decoded?.got).toEqual([deliveryReceiptIdHash('hello')])
+    // Signed with a key made for the one receipt, never the device key.
+    expect(receipts[0]!.pubkey).not.toBe(getPublicKey(bo.deviceSk))
+    // Nothing but chat and that receipt: no roster entry, no announcement.
+    expect(new Set(kinds())).toEqual(new Set([1460, receipts[0]!.kind]))
+    expect(ada.participant).not.toBe(bo.participant)
+    reader.close()
+    watch.close()
+  })
+
+  it('offers nothing, and can publish nothing, without a current credential naming its device key', async () => {
+    const { roomId, roomKey, relay, bo, say } = await room(22)
+    const other = await member(roomId, 'Bo elsewhere')
+    // Lapsed: this device has not had the room open in time to renew it.
+    const lapsed = await createDeviceCredential({ identity: localIdentity(generateSecretKey()), devicePubkey: getPublicKey(bo.deviceSk), roomId, expiresAt: NOW + 60 })
+    const cases: Array<[string, () => DeviceCredential | undefined]> = [
+      ['lapsed', () => lapsed],
+      ['another device', () => other.credential],
+      ['none held', () => undefined],
+    ]
+    for (const [why, credential] of cases) {
+      const offered: string[] = []
+      const watch = new RoomWatch({
+        transport: new SimTransport(relay), roomId, roomKey, now: () => NOW + 120,
+        receipts: { deviceSk: bo.deviceSk, credential, onAccepted: message => void offered.push(message.id) },
+      })
+      await say(`m-${why}`, NOW + 100)
+      await new Promise(r => setTimeout(r, 0))
+      expect(watch.unread(0, bo.participant).people, `${why}: the message was read`).toBeGreaterThan(0)
+      expect(offered, why).toEqual([])
+      watch.close()
+    }
+  })
+
+  it('stops publishing once closed, so what waits is confirmed by the open room instead', async () => {
+    const { roomId, roomKey, relay, bo, say } = await room(23)
+    let publisher: ReceiptPublisher | undefined
+    const watch = new RoomWatch({
+      transport: new SimTransport(relay), roomId, roomKey, now: () => NOW,
+      receipts: { deviceSk: bo.deviceSk, credential: () => bo.credential, onAccepted: (_m, _d, p) => { publisher = p } },
+    })
+    await say('late', NOW - 5)
+    await new Promise(r => setTimeout(r, 0))
+    expect(publisher?.closed).toBe(false)
+    watch.close()
+    expect(publisher?.closed).toBe(true)
+    await expect(publisher!.publishDeliveryReceipt({ d: 'ab'.repeat(32), messageIds: ['late'], createdAt: NOW })).rejects.toThrow()
+  })
+
+  it('a quiet room is not read here, so nothing is confirmed from the list', async () => {
+    const { roomId, roomKey, relay, bo, say } = await room(24)
+    const offered: string[] = []
+    const watch = new RoomWatch({
+      transport: new SimTransport(relay), roomId, roomKey, now: () => NOW, quiet: true,
+      receipts: { deviceSk: bo.deviceSk, credential: () => bo.credential, onAccepted: message => void offered.push(message.id) },
+    })
+    await say('hush', NOW - 5)
+    await new Promise(r => setTimeout(r, 0))
+    expect(offered).toEqual([])
+    watch.close()
   })
 })
