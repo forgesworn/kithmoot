@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.144",
-  "versionCode": 167,
+  "versionName": "0.6.145",
+  "versionCode": 168,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74498636,
-  "apkSha256": "11d2fba03721f6c4538f493756955298d8d0d83401e19c0a04e94b9f48141818",
+  "apkBytes": 74502732,
+  "apkSha256": "a48d412ee18a6da851377b8a91e7df5a535b977bd420c406460f15d56b332d43",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.144-production.apk",
+  "downloadFilename": "kithmoot-0.6.145-production.apk",
   "releaseNotes": [
-    "Answering a call on any of your devices stops the others ringing, even with the app closed.",
-    "A second device joins a call without taking your microphone or sound; move them by hand.",
+    "Your own devices go straight into rooms on your node instead of knocking like a stranger.",
+    "Guests see a node room's real name, and a silent signer is reported as such.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
