@@ -411,10 +411,18 @@ test('a floating preview window carries the same marks overlay, exercised with a
     await openCall(presenter); await openExistingCall(viewer)
     await presenter.locator('#toggleScreen').click()
 
+    // The share opens the floating window by itself, on the press that
+    // started it: somebody presenting is looking at what they shared, so
+    // marks only reach them in a window floating above it.
     const floatingToggle = presenter.locator('#toggleFloatingMarks')
     await expect.poll(async () => await floatingToggle.evaluate(el => !(el as HTMLElement).hidden), { timeout: 10_000 }).toBe(true)
-    await chooseCallMore(presenter, 'Show drawings in a floating window')
     await expect.poll(() => presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(1)
+    await expect(floatingToggle).toHaveAttribute('data-on', 'true')
+    // The menu item still closes and reopens it.
+    await chooseCallMore(presenter, 'Show drawings in a floating window')
+    await expect(floatingToggle).toHaveAttribute('data-on', 'false')
+    await chooseCallMore(presenter, 'Show drawings in a floating window')
+    await expect.poll(() => presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(2)
     await expect(floatingToggle).toHaveAttribute('data-on', 'true')
 
     // The floating document gets its own video, playing the same track.
@@ -450,6 +458,74 @@ test('a floating preview window carries the same marks overlay, exercised with a
       const win = (window as unknown as { __pipStub: { wins: { document: Document }[] } }).__pipStub.wins.at(-1)!
       return (win.document.querySelector('video') as HTMLVideoElement | null)?.srcObject ?? null
     })).toBe(null)
+  } finally { await a.close(); await b.close() }
+})
+
+test('a share opens the real floating window even when the picker takes longer than a press lasts', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await a.newPage(), viewer = await b.newPage()
+    // A picker left open for six seconds: the press that opened it has
+    // lapsed by the time it closes. Chromium gives the page a fresh one when
+    // the person picks what to share (since m139), which is what the
+    // floating window then opens on. The real Document Picture-in-Picture
+    // API, not a stand-in.
+    await presenter.addInitScript(() => {
+      const original = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices)
+      navigator.mediaDevices.getDisplayMedia = async (options?: DisplayMediaStreamOptions) => {
+        await new Promise(resolve => setTimeout(resolve, 6000))
+        return original(options)
+      }
+    })
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openExistingCall(viewer)
+    test.skip(!await presenter.evaluate(() => 'documentPictureInPicture' in window), 'this browser has no Document Picture-in-Picture')
+    await presenter.locator('#toggleScreen').click()
+    await expect(presenter.locator('#toggleFloatingMarks')).toHaveAttribute('data-on', 'true', { timeout: 20_000 })
+    await expect(presenter.locator('#sharerMarksNotice')).toBeHidden()
+    await presenter.locator('#toggleScreen').click()
+    await expect(presenter.locator('#toggleFloatingMarks')).toBeHidden()
+  } finally { await a.close(); await b.close() }
+})
+
+test('a share whose press has lapsed by the time the picker closes offers the floating window, and the offer opens it', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const presenter = await a.newPage(), viewer = await b.newPage()
+    await presenter.addInitScript(() => {
+      const state: { wins: { closed: boolean }[] } = { wins: [] }
+      ;(window as unknown as { __pipStub: unknown }).__pipStub = state
+      // The picker took longer than the browser lets a press count for.
+      Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: false, hasBeenActive: true } })
+      Object.defineProperty(window, 'documentPictureInPicture', {
+        configurable: true,
+        value: {
+          window: null,
+          requestWindow: async () => {
+            const win = { document: document.implementation.createHTMLDocument('pip'), closed: false,
+              addEventListener() {}, removeEventListener() {}, close() { win.closed = true } }
+            state.wins.push(win)
+            return win
+          },
+        },
+      })
+    })
+    const link = await createRoom(presenter, baseURL!)
+    await open(presenter, link, 'Ada'); await join(presenter); await expect(presenter.locator('#roomArea')).toBeVisible()
+    await open(viewer, link, 'Rowan'); await join(viewer); await expect(viewer.locator('#roomArea')).toBeVisible()
+    await openCall(presenter); await openExistingCall(viewer)
+    await presenter.locator('#toggleScreen').click()
+    const notice = presenter.locator('#sharerMarksNotice')
+    await expect(notice).toBeVisible({ timeout: 10_000 })
+    await expect(notice).toContainText('People can draw on your screen')
+    await expect(presenter.locator('#sharerMarksNoticeShow')).toBeHidden()
+    expect(await presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(0)
+    await presenter.locator('#sharerMarksNoticeFloat').click()
+    await expect.poll(() => presenter.evaluate(() => (window as unknown as { __pipStub: { wins: unknown[] } }).__pipStub.wins.length)).toBe(1)
+    await expect(notice).toBeHidden()
+    await expect(presenter.locator('#toggleFloatingMarks')).toHaveAttribute('data-on', 'true')
   } finally { await a.close(); await b.close() }
 })
 

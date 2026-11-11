@@ -35,7 +35,7 @@ import type { PairDiagnostics } from './pair-controller.js'
 import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
-import { encodeCallBellEvent, type CallBellState } from './call-bell.js'
+import { CALL_BELL_TTL_SECONDS, encodeCallBellEvent, type CallBellState } from './call-bell.js'
 import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf } from './chat.js'
 import type { ChatMessage, ChatStream, DeliveryReceiptHooks, EpochRoot, PastEpoch } from './chat.js'
 import { CONTROL_CHANNEL } from './control.js'
@@ -3313,10 +3313,15 @@ export class RoomSession {
     const next = this.#self.call
     if (previous?.id !== next?.id) this.#clearOutgoingLiveRecording()
     // Decided before the entry goes out, on the presence as it stood: the
-    // bell is for the first device on a call and the last one off it.
+    // bell is for the first device on a call and the last one off it, and an
+    // `answer` for a device joining a call young enough to be ringing, so
+    // this person's other devices stop ringing for it.
     const bells: Array<[CallBellState, CallMembership]> = []
     if (previous && previous.id !== next?.id && !this.#othersOnCall(previous.id)) bells.push(['end', previous])
-    if (next && next.id !== previous?.id && !this.#othersOnCall(next.id)) bells.push(['start', next])
+    if (next && next.id !== previous?.id) {
+      if (!this.#othersOnCall(next.id)) bells.push(['start', next])
+      else if (this.#callMayBeRinging(next.id)) bells.push(['answer', next])
+    }
     // Local call membership takes effect before a slow relay echoes it.
     if (this.#opts.node) this.#notify()
     await this.#publishEntry(true)
@@ -3333,6 +3338,18 @@ export class RoomSession {
     return false
   }
 
+  /** Whether a call another endpoint carries began recently enough that a
+   *  phone could still be ringing for it: its start bell is accepted for
+   *  `CALL_BELL_TTL_SECONDS`, and no ring outlasts that. */
+  #callMayBeRinging(id: string): boolean {
+    let began: number | undefined
+    for (const [key, entry] of this.#entries) {
+      if (key === this.#selfKey() || entry.left || entry.call?.id !== id) continue
+      began = Math.min(began ?? entry.call.since, entry.call.since)
+    }
+    return began !== undefined && this.#now() - began <= CALL_BELL_TTL_SECONDS
+  }
+
   /**
    * Publish one call bell (kind 1464) for a phone waiting with the app
    * closed - see `call-bell.ts`. Fire and forget: it never holds up going on
@@ -3346,7 +3363,8 @@ export class RoomSession {
       const prepare = () => {
         this.#opts.protocol?.check('call-bell-preparation')
         if (this.#ended() || this.#left) return undefined
-        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#eventExpiration() })
+        const credential = this.#self?.credential
+        return encodeCallBellEvent({ roomId: this.roomId, key: this.#epoch.key, deviceSk: this.#opts.deviceSk, state, call, createdAt: this.#now(), expiresAt: this.#eventExpiration(), ...(credential ? { credential } : {}) })
       }
       const event = this.#opts.protocol ? await this.#opts.protocol.run('call-bell-preparation', prepare) : prepare()
       if (!event) return

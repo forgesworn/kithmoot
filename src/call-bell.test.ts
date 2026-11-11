@@ -3,6 +3,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nost
 import { nip44 } from 'nostr-tools'
 import { deriveRoom } from './room.js'
 import { KINDS } from './kinds.js'
+import { createDeviceCredential } from './credential.js'
+import { localIdentity } from './identity.js'
 import {
   CALL_BELL_TTL_SECONDS,
   callBellContentKey,
@@ -41,6 +43,30 @@ function bodyOf(event: Event): Record<string, unknown> {
 }
 
 describe('call bell', () => {
+  it('round-trips an answer, held to the bound of a start', () => {
+    expect(read(ring({ state: 'answer' }))).toEqual({ state: 'answer', call, device, createdAt: NOW })
+    const old = { id: call.id, since: NOW - CALL_BELL_TTL_SECONDS - 1 }
+    expect(read(ring({ state: 'answer', call: old }))).toBeNull()
+    expect(read(ring({ state: 'end', call: old }))).not.toBeNull()
+  })
+
+  it('names the participant from a credential for the ringing device, and nothing from any other', async () => {
+    const credential = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId: room.roomId, expiresAt: NOW + 3600, now: () => NOW - 10 })
+    const participant = getPublicKey(participantSk)
+    expect(read(ring({ state: 'answer', credential }))).toEqual({ state: 'answer', call, device, createdAt: NOW, participant })
+    expect(read(ring({ credential }))?.participant).toBe(participant)
+    // Another device's credential, another room's, or one that has lapsed:
+    // the bell still reads, attributed to nobody.
+    const elsewhere = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: getPublicKey(generateSecretKey()), roomId: room.roomId, expiresAt: NOW + 3600, now: () => NOW - 10 })
+    const otherRoom = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId: other.roomId, expiresAt: NOW + 3600, now: () => NOW - 10 })
+    const lapsed = await createDeviceCredential({ identity: localIdentity(participantSk), devicePubkey: device, roomId: room.roomId, expiresAt: NOW - 1, now: () => NOW - 100 })
+    for (const wrong of [elsewhere, otherRoom, lapsed]) {
+      expect(read(ring({ state: 'answer', credential: wrong }))).toEqual({ state: 'answer', call, device, createdAt: NOW })
+    }
+    const garbled = reseal({ ...bodyOf(ring({ state: 'answer', credential })), credential: { kind: 'nope' } })
+    expect(read(garbled)).toEqual({ state: 'answer', call, device, createdAt: NOW })
+  })
+
   it('round-trips a start and an end', () => {
     expect(read(ring())).toEqual({ state: 'start', call, device, createdAt: NOW })
     const end = ring({ state: 'end', createdAt: NOW + 3600 })

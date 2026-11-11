@@ -3078,6 +3078,28 @@ for (const [name, roomKey, a, b, note] of [
   bellVector('wrong-version', 'negative',
     'A body with `v:2`, otherwise correctly signed: an unknown version is refused, never guessed at.',
     buildBell({ label: 'call-bell-v2', body: { v: 2 } }))
+  bellVector('valid-answer', 'positive',
+    'A device going on a call another endpoint already carries, while it is young enough to be ringing: `state` is `answer` and `since` is the answering device\'s own join time, held to the same 120-second bound as a start. The body carries the device\'s credential exactly as the roster does, so a reader with the app closed learns whose device answered (`participant`) without the roster: a credential that verifies for this room at the reader\'s clock and names the signing device. A reader that predates `answer` refuses it as an unknown state and keeps ringing until the call ends or its ring times out.',
+    buildBell({ label: 'call-bell-answer', state: 'answer', body: { credential: validCredential.event } }))
+  bellVector('start-with-credential', 'positive',
+    'A start may carry the ringing device\'s credential too, and a reader resolves `participant` from it the same way. Fields a reader does not know are ignored, so a reader that predates the credential reads this as a plain start.',
+    buildBell({ label: 'call-bell-start-credential', body: { credential: validCredential.event } }))
+  {
+    const otherDevice = buildCredential({
+      participantSk: fx.PARTICIPANT_A_SK,
+      devicePubkey: fx.DEVICE_B,
+      roomId: room.roomId,
+      createdAt: fx.CREDENTIAL_CREATED_AT,
+      expiresAt: fx.CREDENTIAL_EXPIRES_AT,
+      auxRandLabel: 'call-bell-other-device-credential',
+    }).event
+    bellVector('answer-credential-for-another-device', 'positive',
+      'An answer signed by device A carrying a credential for device B: the bell itself still verifies, but the credential attributes nothing, so `participant` is absent and a reader cannot stop its ring on it.',
+      buildBell({ label: 'call-bell-answer-other-device', state: 'answer', body: { credential: otherDevice } }))
+  }
+  bellVector('answer-too-old', 'negative',
+    'An answer whose `since` is 121 seconds before created_at: refused, as a start would be. An answer only matters while a call can still be ringing.',
+    buildBell({ label: 'call-bell-answer-old', state: 'answer', bellCall: { id: call.id, since: fx.NOW - CALL_BELL_TTL_SECONDS - 1 }, body: { credential: validCredential.event } }))
 }
 
 // ===========================================================================

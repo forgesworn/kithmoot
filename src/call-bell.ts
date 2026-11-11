@@ -10,13 +10,17 @@ import { KINDS } from './kinds.js'
 import { withExpiration } from './expiration.js'
 import { verifyEventUncached } from './verify.js'
 import { sanitiseCallMembership } from './roster.js'
-import type { CallMembership } from './types.js'
+import { verifyDeviceCredential } from './credential.js'
+import type { CallMembership, DeviceCredential } from './types.js'
 
 /**
  * The call bell: one event when a call starts and one when it ends, so a
  * phone with the app closed can wait on an idle socket for the one thing
  * that should wake it, instead of receiving and decrypting every presence
- * heartbeat in every room. See "Call bell" in `docs/protocol.md`.
+ * heartbeat in every room. A third, `answer`, goes out when a device joins a
+ * call that is still young enough to be ringing, so a person's other devices
+ * stop ringing once one of them has picked up. See "Call bell" in
+ * `docs/protocol.md`.
  *
  * On the wire the bell says as little as it can. The outer event is signed
  * by a key minted for that one bell and thrown away, never a device or a
@@ -40,15 +44,20 @@ const CONTENT_KEY_INFO = 'kithmoot/v1/call-bell-key'
 const TAG_PREFIX = 'kithmoot-call-bell-v1|'
 const SIGNATURE_PREFIX = 'kithmoot/v1/call-bell'
 
-export type CallBellState = 'start' | 'end'
+export type CallBellState = 'start' | 'end' | 'answer'
 
 export interface CallBell {
   state: CallBellState
   call: CallMembership
-  /** The device that rang. A reader attributes it through the roster. */
+  /** The device that rang. A reader attributes it through the roster, or
+   *  through `participant` when the bell carried its own credential. */
   device: string
   /** The outer event's `created_at`, which the device's signature covers. */
   createdAt: number
+  /** Whose device rang, when the bell carried a device credential for this
+   *  room that verifies at the reader's clock and names `device`. Absent
+   *  otherwise, including for every bell from a sender that predates it. */
+  participant?: string
 }
 
 /** The UTC day of a Unix second, `yyyy-mm-dd`. */
@@ -98,6 +107,10 @@ export interface EncodeCallBellOptions {
   /** A conference room's end: a bell that would outlive the room's end is
    *  lowered to it. See `withExpiration`. */
   expiresAt?: ExpirationDeadline
+  /** The ringing device's credential, exactly as the roster carries it, so
+   *  a phone with the app closed can tell whose device rang without the
+   *  roster. Inside the ciphertext, like the roster's own copy. */
+  credential?: DeviceCredential
 }
 
 /** Build a bell, signed by a key minted here and discarded. */
@@ -106,7 +119,7 @@ export function encodeCallBellEvent(opts: EncodeCallBellOptions): Event {
   if (!call) throw new Error('call bell: malformed call')
   const createdAt = Math.floor(opts.createdAt)
   const sig = bytesToHex(schnorr.sign(callBellMessage(opts.roomId, opts.state, call, createdAt), opts.deviceSk))
-  const plaintext = JSON.stringify({ v: 1, state: opts.state, call, device: getPublicKey(opts.deviceSk), sig })
+  const plaintext = JSON.stringify({ v: 1, state: opts.state, call, device: getPublicKey(opts.deviceSk), sig, ...(opts.credential ? { credential: opts.credential } : {}) })
   const throwaway = generateSecretKey()
   const event = finalizeEvent(
     {
@@ -153,21 +166,38 @@ export function decodeCallBellEvent(event: Event, opts: DecodeCallBellOptions): 
     const body = JSON.parse(nip44.v2.decrypt(event.content, callBellContentKey(opts.key))) as Record<string, unknown>
     if (!body || typeof body !== 'object' || body.v !== 1) return null
     const state = body.state
-    if (state !== 'start' && state !== 'end') return null
+    if (state !== 'start' && state !== 'end' && state !== 'answer') return null
     const raw = body.call as { id?: unknown; since?: unknown } | undefined
     if (!raw || typeof raw.id !== 'string' || !/^[0-9a-f]{32}$/.test(raw.id)) return null
     if (typeof raw.since !== 'number' || !Number.isSafeInteger(raw.since) || raw.since < 0) return null
     const call: CallMembership = { id: raw.id, since: raw.since }
     if (call.since > createdAt + CALL_BELL_FUTURE_SKEW_SECONDS) return null
-    const oldest = state === 'start' ? CALL_BELL_TTL_SECONDS : CALL_BELL_MAX_CALL_SECONDS
+    // `answer` carries the answering device's own join time, so it is held
+    // to the same bound as a start.
+    const oldest = state === 'end' ? CALL_BELL_MAX_CALL_SECONDS : CALL_BELL_TTL_SECONDS
     if (call.since < createdAt - oldest) return null
     if (typeof body.device !== 'string' || !HEX64.test(body.device.toLowerCase())) return null
     if (typeof body.sig !== 'string' || !HEX128.test(body.sig.toLowerCase())) return null
     const device = body.device.toLowerCase()
     if (!schnorr.verify(hexToBytes(body.sig.toLowerCase()), callBellMessage(opts.roomId, state, call, createdAt), hexToBytes(device))) return null
-    return { state, call, device, createdAt }
+    const participant = bellParticipant(body.credential, opts.roomId, device, opts.now)
+    return participant ? { state, call, device, createdAt, participant } : { state, call, device, createdAt }
   } catch {
     return null
+  }
+}
+
+/** The participant a bell's own credential names, when it verifies for this
+ *  room at `now` and is for the device that signed the bell. Anything else -
+ *  absent, malformed, lapsed, another room's, another device's - attributes
+ *  nothing, and the bell is still a bell. */
+function bellParticipant(raw: unknown, roomId: string, device: string, now: number): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  try {
+    const verdict = verifyDeviceCredential(raw as DeviceCredential, { roomId, now, acceptPerson: true })
+    return verdict.ok && verdict.device.toLowerCase() === device ? verdict.participant.toLowerCase() : undefined
+  } catch {
+    return undefined
   }
 }
 

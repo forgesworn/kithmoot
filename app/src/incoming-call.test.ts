@@ -12,16 +12,20 @@ test('rings every recipient device once for a new call', () => {
   expect(laptop.update(call, false)).toBeUndefined()
 })
 
-test('rings the callers other devices once while the calling device stays quiet', () => {
-  const caller = new IncomingCallTracker()
+test('a call one of a person\'s devices is on rings none of their others, and answering on one stops the rest', () => {
+  // The caller's own other devices see their person on the call: joined.
+  const callersPhone = new IncomingCallTracker()
+  expect(callersPhone.update(call, true)).toBeUndefined()
+  expect(callersPhone.update(call, true)).toBeUndefined()
+  // The person called rings on both devices until one of them answers,
+  // and then neither rings again for that call.
   const phone = new IncomingCallTracker()
   const laptop = new IncomingCallTracker()
-  expect(caller.update(call, true)).toBeUndefined()
   expect(phone.update(call, false)).toEqual({ type: 'ring', call })
   expect(laptop.update(call, false)).toEqual({ type: 'ring', call })
+  expect(laptop.update(call, true)).toEqual({ type: 'stop' })
+  expect(phone.update(call, true)).toEqual({ type: 'stop' })
   expect(phone.update(call, false)).toBeUndefined()
-  expect(laptop.update(call, false)).toBeUndefined()
-  expect(caller.update(call, false)).toBeUndefined()
 })
 
 test('stops when this device joins or the call ends', () => {

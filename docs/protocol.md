@@ -655,7 +655,9 @@ may ever be called `v`.
 A call has no event of its own in the roster: it is read off presence. A
 phone with the app closed cannot afford presence, which is a heartbeat every
 20 seconds from every device in every room. Kind 1464 gives it one event per
-call start and one per call end to wait for on an idle socket.
+call start and one per call end to wait for on an idle socket, and one when
+a device answers a call young enough to be ringing, so that person's other
+devices stop.
 
 The bell is a regular kind, so a socket that has just reconnected catches it
 with `since`, and every bell carries a NIP-40 `expiration` of `created_at +
@@ -670,35 +672,55 @@ then discarded, never a device or participant key. It has exactly two tags:
 
 The content is NIP-44 v2 with the conversation key HKDF-SHA256(current
 room/epoch key, empty salt, `kithmoot/v1/call-bell-key`, 32), of compact
-JSON `{"v":1,"state":"start"|"end","call":{"id","since"},"device","sig"}`.
+JSON `{"v":1,"state":"start"|"end"|"answer","call":{"id","since"},"device","sig","credential"?}`.
 `call` has the roster's shape. `device` is the ringing device's public key.
 `sig` is its BIP-340 signature over SHA-256 of UTF-8
 `kithmoot/v1/call-bell:<room id>:<state>:<call id>:<since>:<created_at>`,
 with the room's (epoch-0) id, so a bell replayed into another room, or
-restamped to another time, fails. The body carries no names.
+restamped to another time, fails. `credential`, optional, is the ringing
+device's kind 20460 credential exactly as its roster entry carries it, so a
+reader with the app closed can tell whose device rang without the roster.
+It is inside the ciphertext, as the roster's own copy is. The body carries
+no names. Readers ignore fields they do not know.
 
 A device publishes a `start` bell when it goes on a call no other present
 endpoint carries, and an `end` bell when it leaves a call (by stepping off
-or by leaving the room) and no other present endpoint carries it. Nothing
-else rings: no periodic bells, and no bell when a call moves between two tabs
-of one device. Publishing never delays going on or off a call; a failure
-costs only the ring.
+or by leaving the room) and no other present endpoint carries it. It
+publishes an `answer` bell when it goes on a call another present endpoint
+already carries, if the earliest `since` among them is no more than 120
+seconds ago: past that no device can still be ringing for it. `since` in an
+answer is the answering device's own join time. Nothing else rings: no
+periodic bells, and no bell when a call moves between two tabs of one
+device. Publishing never delays going on or off a call; a failure costs only
+the ring.
 
 A reader subscribes to `{"kinds":[1464],"#d":[...]}` with today's tag and,
 within 120 seconds after or 60 seconds before UTC midnight, the neighbouring
 day's. It rejects a bell whose tag is not the day tag for its `created_at`,
 whose outer signature fails, that does not decrypt, whose `v` is not `1` or
-`state` not `start`/`end`, whose call id is not 32 lower-case hex characters,
-whose device signature fails, that is more than 120 seconds old or more than
-60 seconds in the future, or whose `since` is more than 60 seconds after
-`created_at`, more than 120 seconds before it on a `start`, or more than 30
-days before it on an `end`. A valid bell says a device holding the room key
-rang; whether that device belongs to the room is checked against the roster
-or a credential the reader holds. The `callBell` vectors pin the derivation
-and the refusals.
+`state` not `start`/`end`/`answer`, whose call id is not 32 lower-case hex
+characters, whose device signature fails, that is more than 120 seconds old
+or more than 60 seconds in the future, or whose `since` is more than 60
+seconds after `created_at`, more than 120 seconds before it on a `start` or
+an `answer`, or more than 30 days before it on an `end`. A valid bell says a
+device holding the room key rang; whether that device belongs to the room is
+checked against the roster or a credential the reader holds. A `credential`
+in the body attributes the bell to its participant only when it verifies for
+the room's (epoch-0) id at the reader's clock, room-scoped or person-scoped,
+and names the device that signed the bell; anything else attributes nothing
+and leaves the bell valid. A reader that predates `answer` refuses it as an
+unknown state and rings until the call ends or its ring times out, as before.
+The `callBell` vectors pin the derivation, the attribution and the refusals.
+
+**What a reader does with it.** A person's devices act as one: a `start`
+attributed to the reader's own participant does not ring (they are already
+on the call, on another device), and an `answer` attributed to it stops a
+ring for that call. An `answer` from anybody else changes nothing. An app
+with the room open reads the same facts off presence instead: any of the
+person's devices on the call stops the ring.
 
 **What a relay learns.** That some opaque tag, which changes every UTC day,
-saw a call start or end at a time, from an unlinked key, and the connection
+saw a call start, end or be answered at a time, from an unlinked key, and the connection
 (and so the IP address) that published it. A relay that also carries the
 room's roster can correlate that connection and moment with the roster
 heartbeats the same connection sends, and so guess which roster tag the bell
