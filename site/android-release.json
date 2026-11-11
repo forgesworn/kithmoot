@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.145",
-  "versionCode": 168,
+  "versionName": "0.6.146",
+  "versionCode": 169,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 74502732,
-  "apkSha256": "a48d412ee18a6da851377b8a91e7df5a535b977bd420c406460f15d56b332d43",
+  "apkSha256": "e5af473c9f0c3f3ee158c6e6023fabd0769fce291d0dd3a6bce8dd3aa9e3246b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.145-production.apk",
+  "downloadFilename": "kithmoot-0.6.146-production.apk",
   "releaseNotes": [
-    "Your own devices open rooms on your node without the stranger's Ask to join question.",
-    "Guests see a node room's real name, and the app tells you when your signer is not answering.",
+    "Delivery ticks are bigger and easier to see, drawn in full ink beside the time.",
+    "Your newest message says who has it, or that no confirmation has come yet.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
