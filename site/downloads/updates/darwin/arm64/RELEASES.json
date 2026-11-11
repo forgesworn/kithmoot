@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.141",
+  "currentRelease": "0.1.142",
   "releases": [
     {
-      "version": "0.1.141",
+      "version": "0.1.142",
       "updateTo": {
-        "version": "0.1.141",
-        "name": "0.1.141",
-        "pub_date": "2026-11-10T22:12:54Z",
-        "notes": "Every device signed in as the same account can now keep a room, not only the one that made it: the room's owner key travels in your encrypted room bookmarks, so any of your running devices can let a member's device in after a move.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.141/KithMoot-0.1.141-mac-arm64.zip",
-        "sha256": "0d0025499b857e10a75c528dac243d9ae59b5aee963778afaa93ea0e7d6754a7",
-        "size": 200007665
+        "version": "0.1.142",
+        "name": "0.1.142",
+        "pub_date": "2026-11-11T08:47:29Z",
+        "notes": "Your devices now act as one on a call: answering on one stops the others ringing, and a second device joins without taking your microphone or sound. A browser share opens a floating window so you see what others draw.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.142/KithMoot-0.1.142-mac-arm64.zip",
+        "sha256": "44c2cc3187903ba7735520deef3f64da15aa77b24f532084e050e61a3176f7e5",
+        "size": 200008117
       }
     }
   ]

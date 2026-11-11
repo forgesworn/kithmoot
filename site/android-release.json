@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.143",
-  "versionCode": 166,
+  "versionName": "0.6.144",
+  "versionCode": 167,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74494540,
-  "apkSha256": "7aee52dcb87a3dde340151dd75688312dd1aa3934a8b3fcb363a2643aa180ea1",
+  "apkBytes": 74498636,
+  "apkSha256": "11d2fba03721f6c4538f493756955298d8d0d83401e19c0a04e94b9f48141818",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.143-production.apk",
+  "downloadFilename": "kithmoot-0.6.144-production.apk",
   "releaseNotes": [
-    "Your signed-in devices share a moved room's owner key, so any of them can let members in after a move.",
-    "Removing someone on one of your devices keeps them out on the others too.",
+    "Answering a call on any of your devices stops the others ringing, even with the app closed.",
+    "A second device joins a call without taking your microphone or sound; move them by hand.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
