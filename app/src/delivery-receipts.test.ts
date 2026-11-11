@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deliveryReceiptIdHash, type DeliveryReceipt } from '../../src/delivery-receipt.js'
 import { memoryDeviceStore } from './device-store.js'
-import { DeliveredLedger, MAX_DELIVERED_KEPT, RECEIPT_REFETCH_SLACK_SECONDS, deliveredView, deliveredWords, sendsDeliveryReceipts } from './delivery-receipts.js'
+import { DeliveredLedger, MAX_DELIVERED_KEPT, RECEIPT_REFETCH_SLACK_SECONDS, deliveredView, deliveredWords, deliveryLine, sendsDeliveryReceipts } from './delivery-receipts.js'
 
 const ROOM = 'a'.repeat(64)
 const SELF = '1'.repeat(64)
@@ -129,5 +129,28 @@ describe('the setting', () => {
     expect(sendsDeliveryReceipts(storage('on'))).toBe(true)
     expect(sendsDeliveryReceipts(storage('off'))).toBe(false)
     expect(sendsDeliveryReceipts({ getItem: () => { throw new Error('blocked') } })).toBe(true)
+  })
+})
+
+describe('the line under the newest own message', () => {
+  const clock = (at: number) => `t${at}`
+  it('says who has it and when the latest of them confirmed', () => {
+    expect(deliveryLine({ state: 'sent', delivered: { label: 'Delivered to Ana', latestAt: 90 }, quiet: false, clock })).toBe('Delivered to Ana · t90')
+    expect(deliveryLine({ delivered: { label: 'Delivered to 2 of 4', latestAt: 120 }, quiet: false, clock })).toBe('Delivered to 2 of 4 · t120')
+  })
+  it('says no confirmation has come, never that it has not arrived', () => {
+    expect(deliveryLine({ state: 'sent', quiet: false, soleOther: 'Ana', clock })).toBe('Sent · no confirmation from Ana yet')
+    expect(deliveryLine({ state: 'sent', quiet: false, clock })).toBe('Sent · no confirmation yet')
+    expect(deliveryLine({ state: 'sent', quiet: false, soleOther: 'Ana', clock })).not.toMatch(/not delivered|\bread\b|seen/i)
+  })
+  it('claims nothing about confirmations in a quiet room, which never sends them', () => {
+    expect(deliveryLine({ state: 'sent', quiet: true, soleOther: 'Ana', clock })).toBe('Sent')
+  })
+  it('says Sending while the relays have not answered', () => {
+    expect(deliveryLine({ state: 'checking', quiet: false, clock })).toBe('Sending…')
+  })
+  it('has no line for a message not kept (its tick offers Retry) or one with no verdict here', () => {
+    expect(deliveryLine({ state: 'not-kept', quiet: false, clock })).toBeUndefined()
+    expect(deliveryLine({ quiet: false, clock })).toBeUndefined()
   })
 })
