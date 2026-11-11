@@ -6,10 +6,13 @@
 //   DEPLOY_HOST=deploy@62.238.98.53 node deploy/download-versions.mjs
 //
 // A file already listed with the same size keeps its recorded hash; only new
-// files are hashed on the server.
+// files are hashed on the server. A version an earlier list sent to its GitHub
+// release (deploy/retire-downloads.mjs) stays listed after its server copy
+// has gone.
 import { readFile, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { keepRetired } from './download-retention.mjs'
 
 const host = process.env.DEPLOY_HOST ?? 'deploy@62.238.98.53'
 const root = process.env.DEPLOY_ROOT ?? '/var/www/kithmoot'
@@ -65,8 +68,9 @@ export function manifest(entries) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const known = new Map()
+  let previous
   try {
-    const previous = JSON.parse(await readFile(output, 'utf8'))
+    previous = JSON.parse(await readFile(output, 'utf8'))
     for (const release of [...previous.desktop, ...previous.android]) for (const file of release.files) known.set(file.url, file)
   } catch {}
   const ssh = (script, input) => {
@@ -91,7 +95,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
   }
   for (const entry of entries) entry.sha256 = known.get(`/apk/${entry.path}`).sha256
-  const result = manifest(entries)
+  const result = keepRetired(manifest(entries), previous)
   await writeFile(output, `${JSON.stringify(result, null, 2)}\n`)
   console.log(`${output}: ${result.desktop.length} desktop and ${result.android.length} Android versions`)
 }
