@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.143 lets your own devices straight into rooms on your node that your account already keeps, says to reconnect your account when your signer is not answering instead of blaming the node, shows guests a node room's real name, and no longer tells you anyone with the link can join a room on your node.
+Version 0.1.144 lets a device of yours into a room your account made on your node with none of your other devices running, once the device that keeps the room has run this version. Rooms that were moved onto the node, or that someone was removed from, still ask the device that keeps them.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
