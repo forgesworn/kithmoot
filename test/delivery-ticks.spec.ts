@@ -84,6 +84,8 @@ test('a message turns to two ticks once the other person\'s device confirms it, 
     await expect(tick(ada, 'Did it arrive?')).toHaveAttribute('data-state', 'delivered', { timeout: 30_000 })
     await expect(tick(ada, 'Did it arrive?').locator('button')).toHaveAttribute('aria-label', 'Delivered to Bo')
     await expect(ada.locator('#chatLog .deliveryTick[data-state="delivered"]')).toHaveCount(1)
+    // The newest own message says it in words, with when Bo's device confirmed.
+    await expect(own(ada, 'Did it arrive?').locator('.deliveryLine')).toHaveText(/^Delivered to Bo · \S/)
     await expect(ada.locator('#chatLog')).not.toContainText(/\bRead\b|\bSeen\b/)
     // Bo's own screen shows no tick on Ada's message.
     await expect(bo.locator('#chatLog .msg.theirs .deliveryTick')).toHaveCount(0)
@@ -106,6 +108,8 @@ test('a message shows a clock, then one tick once a relay has returned it, and o
     await expect(tick(ada, 'Is this kept?')).toHaveAttribute('data-state', 'sent', { timeout: 20_000 })
     await expect(tick(ada, 'Is this kept?')).toHaveAttribute('aria-label', 'Sent')
     await expect(tick(ada, 'Is this kept?')).toHaveAttribute('title', 'Sent. Not yet confirmed on anyone else’s device.')
+    // In words under it: no confirmation from Bo, never that it has not arrived.
+    await expect(own(ada, 'Is this kept?').locator('.deliveryLine')).toHaveText('Sent · no confirmation from Bo yet')
     // Not a reaction's, an edit's, or anybody else's.
     await send(bo, 'Not mine to tick')
     await expect(ada.locator('#chatLog .msg.theirs', { hasText: 'Not mine to tick' })).toBeVisible()
@@ -114,6 +118,9 @@ test('a message shows a clock, then one tick once a relay has returned it, and o
     // The next message is not held back by a second round of checking.
     await send(ada, 'And this one')
     await expect(tick(ada, 'And this one')).toHaveAttribute('data-state', 'sent', { timeout: 15_000 })
+    // The words move down to the newest own message; there is only ever one line.
+    await expect(own(ada, 'And this one').locator('.deliveryLine')).toHaveText('Sent · no confirmation from Bo yet')
+    await expect(ada.locator('#chatLog .deliveryLine')).toHaveCount(1)
   } finally { await context.close(); await other.close() }
 })
 

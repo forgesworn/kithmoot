@@ -1240,13 +1240,17 @@ video {
 
 .msg.mine .messageMeta {
   color: var(--on-mine);
+}
+/* The time and lane are a shade back; the tick keeps full strength so it can be seen. */
+.msg.mine .messageMeta > :not(.deliveryTick) {
   opacity: 0.85;
 }
 
-/* Whether the relays kept a message this device sent. One quiet glyph beside
-   the time, in the same muted ink: a clock while the relays have not said, a
-   tick once they have, a warning with Retry when one took it and returned
-   nothing. Never a highlight colour, so it cannot read as "seen". */
+/* Whether the relays kept a message this device sent. One glyph beside the
+   time, a size up from it and in the bubble's full ink: a clock while the
+   relays have not said, a tick once they have, a warning with Retry when one
+   took it and returned nothing. Never a highlight colour, so it cannot read
+   as "seen"; the line under the newest message says it in words. */
 .deliveryTick {
   display: inline-flex;
   align-items: center;
@@ -1271,7 +1275,7 @@ video {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-/* Two ticks: the same muted ink as one, never a highlight, so it cannot read as "read". */
+/* Two ticks: the same ink as one, never a highlight, so it cannot read as "read". */
 .deliveryTick.delivered { padding: 0; }
 .deliveredButton { display: inline-flex; align-items: center; margin: 0; padding: 0 2px; min-height: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .deliveredButton:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
@@ -1281,6 +1285,10 @@ video {
 .deliveredPerson time, .deliveredNote, .deliveredSection { color: var(--muted); }
 .deliveredSection { margin-top: .35rem; font-size: var(--fs-1); }
 .deliveredNote { margin-top: .35rem; max-width: 18rem; }
+/* Sized with the time, so the chosen text size carries it. */
+.messageMeta .deliveryTick svg.i { width: 1.3em; height: 1.3em; stroke-width: 2.25; }
+/* Under the newest own message: who has it, in words. */
+.deliveryLine { margin: 3px var(--s3) 0; color: var(--muted); font-size: var(--fs-1); line-height: var(--lh-1); text-align: right; }
 
 .bubble::after {
   content: '';

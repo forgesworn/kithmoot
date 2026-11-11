@@ -89,7 +89,7 @@ import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
 import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
-import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
+import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, deliveryLine, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter } from '../../src/delivery-receipt-writer.js'
 import { chooseAction, confirmAction, type ChooseActionOptions, type ConfirmActionOptions } from './confirm-action.js'
 import { RecordingVideo, type RecordingPerson, type RecordingVideoSnapshot, type VideoRecordingLayout } from './recording-video.js'
@@ -12599,8 +12599,9 @@ function messageWhen(at: number, now: number = Date.now()): string {
 /**
  * The tick beside the time on a message this device sent: a clock while the
  * relays have not yet said whether they kept it, one tick once they have, and
- * a warning with Retry when one took it and did not return it. Muted, never a
- * highlight colour; there is no tick for "read". Changes are not announced.
+ * a warning with Retry when one took it and did not return it. Full-strength
+ * ink, never a highlight colour; there is no tick for "read". Changes are not
+ * announced. The newest own message also says it in words (syncDeliveryLine).
  */
 function deliveryTick(id: string, state: DeliveryState): HTMLButtonElement {
   const words = deliveryWords(state)
@@ -12627,21 +12628,68 @@ function deliveryTick(id: string, state: DeliveryState): HTMLButtonElement {
 /** Who besides this person is known in the room on screen: the roster,
  *  the log's authors and whoever confirmed. Agents apart, since an agent's
  *  confirmation lights the tick only when nobody else is known. */
-function deliveryAudience(s: RoomSession, delivered: readonly DeliveredBy[]): { knownPeople: boolean; knownOthers: number } {
+function deliveryAudience(s: RoomSession, delivered: readonly DeliveredBy[]): { knownPeople: boolean; knownOthers: number; soleOther?: string } {
   const me = s.participant
   const agents = new Set<string>(), people = new Set<string>()
   for (const p of s.participants()) if (p.participant !== me) (p.agent ? agents : people).add(p.participant)
   for (const w of delivered) if (w.participant !== me) (w.agent ? agents : people).add(w.participant)
   for (const m of conversationMessages(undefined)) if (m.participant !== me && !agents.has(m.participant)) people.add(m.participant)
   for (const a of agents) people.delete(a)
-  return { knownPeople: people.size > 0, knownOthers: people.size + agents.size }
+  const soleOther = people.size === 1 && agents.size === 0 ? [...people][0] : undefined
+  return { knownPeople: people.size > 0, knownOthers: people.size + agents.size, ...(soleOther ? { soleOther } : {}) }
+}
+
+/** The one other person in the room, when exactly one is known: a fixed list's one other member, else the one person (and no agent) seen. */
+function soleOtherPerson(s: RoomSession): string | undefined {
+  const members = roomPolicy?.members
+  if (members) {
+    const others = [...new Set(members)].filter(m => m !== s.participant)
+    return others.length === 1 ? others[0] : undefined
+  }
+  return deliveryAudience(s, []).soleOther
+}
+
+/**
+ * The words under the newest of this person's own messages in a log: who has
+ * it, or that no confirmation has come. One line per log, moved down as new
+ * messages are painted and rewritten as verdicts and confirmations arrive.
+ * Not a live region: like the ticks, changes are not announced.
+ */
+function syncDeliveryLine(log: HTMLElement, s: RoomSession, roomId: string): void {
+  const rows = log.querySelectorAll<HTMLElement>(':scope > .msg.mine[data-message-id]:not(.retracted)')
+  const newest = rows[rows.length - 1]
+  for (const line of log.querySelectorAll<HTMLElement>(':scope > .msg > .deliveryLine')) if (line.parentElement !== newest) line.remove()
+  if (!newest) return
+  const id = newest.dataset.messageId!
+  const quiet = isQuietPolicy(roomPolicy)
+  const confirmed = quiet ? [] : deliveredLedger.delivered(roomId, id)
+  const audience = confirmed.length ? deliveryAudience(s, confirmed) : undefined
+  const view = audience ? deliveredView(confirmed, { self: s.participant, knownPeople: audience.knownPeople, ...(roomPolicy?.members ? { members: roomPolicy.members } : {}) }) : undefined
+  const counted = view ? (view.people.length ? view.people : view.agents) : []
+  const state = delivery.get(roomId, id)?.state
+  const other = !view && state === 'sent' && !quiet ? soleOtherPerson(s) : undefined
+  const text = deliveryLine({
+    ...(state ? { state } : {}),
+    ...(view && audience ? { delivered: { label: deliveredWords(view, personLabel, audience.knownOthers).label, latestAt: Math.max(...counted.map(w => w.at)) } } : {}),
+    quiet,
+    ...(other ? { soleOther: personLabel(other) } : {}),
+    clock: at => messageWhen(at),
+  })
+  let line = newest.querySelector<HTMLElement>(':scope > .deliveryLine')
+  if (!text) { line?.remove(); return }
+  if (!line) {
+    line = document.createElement('p')
+    line.className = 'deliveryLine'
+    newest.append(line)
+  } else if (line !== newest.lastElementChild) newest.append(line)
+  if (line.textContent !== text) line.textContent = text
 }
 
 /**
  * Two ticks: at least one other person's device confirmed the message. A
  * button whose details, on hover or focus, list who and when, then who has
- * not confirmed where the room has a fixed member list. Muted like the one
- * tick; there is no "read".
+ * not confirmed where the room has a fixed member list. The same ink as the
+ * one tick; there is no "read".
  */
 function deliveredTick(messageId: string, view: DeliveredView, words: { text: string; label: string }, linkRoom: boolean): HTMLElement {
   const wrap = document.createElement('span')
@@ -12752,6 +12800,7 @@ function syncDeliveryTicks(log: HTMLElement = $('chatLog')): void {
     else meta.querySelector('time.when')?.after(next)
     if (hadFocus) (next.matches('button') ? next : next.querySelector('button'))?.focus()
   }
+  syncDeliveryLine(log, s, roomId)
 }
 
 /** Offer a not-kept message to the relays again, as the same signed event: a relay that has it keeps one copy. */

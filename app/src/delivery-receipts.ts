@@ -231,6 +231,39 @@ export function deliveredWords(view: DeliveredView, nameOf: (participant: string
 export const DELIVERED_FOOTNOTE = 'Delivered means their device received it. It does not mean they read it.'
 export const DELIVERED_LINK_ROOM_NOTE = 'People not listed may be away, or using an app that does not confirm delivery.'
 
+/**
+ * The line of words under this person's newest own message, so nobody has to
+ * read the ticks to know where it stands. Two ticks give who has it and when
+ * the latest of them confirmed; one tick says no confirmation has come, never
+ * that it has not arrived, because a device that is away, has the room
+ * closed or confirms nothing may still hold it. Undefined for no line: a
+ * message not kept says so on its tick, with Retry, and one sent from another
+ * of this person's devices has no verdict here. Android's
+ * `DeliveryWords.statusLine` says the same.
+ *
+ * - `delivered`: the two ticks' label (`deliveredWords(...).label`) and the
+ *   latest confirmation's time, unix seconds.
+ * - `soleOther`: the name of the one other person known in the room, when
+ *   exactly one is: a fixed list with one other member, or a link room where
+ *   one other person and no agent is known.
+ */
+export function deliveryLine(opts: {
+  state?: 'checking' | 'sent' | 'not-kept'
+  delivered?: { label: string; latestAt: number }
+  quiet: boolean
+  soleOther?: string
+  clock: (at: number) => string
+}): string | undefined {
+  if (opts.delivered) return `${opts.delivered.label} · ${opts.clock(opts.delivered.latestAt)}`
+  switch (opts.state) {
+    case 'checking': return 'Sending…'
+    case 'sent':
+      if (opts.quiet) return 'Sent'
+      return opts.soleOther ? `Sent · no confirmation from ${opts.soleOther} yet` : 'Sent · no confirmation yet'
+    default: return undefined
+  }
+}
+
 /** The setting that stops this device sending confirmations. */
 export const DELIVERY_RECEIPTS_SETTING = 'kithmoot.delivery-receipts.v1'
 /** Whether this device sends confirmations: on unless the person turned it off. */
