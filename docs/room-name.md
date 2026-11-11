@@ -100,6 +100,17 @@ keeps the name it had until the room is opened, which catches it up. A
 rename the list reads replaces the kept one only when it orders later, so a
 list reading an epoch the room has left cannot pull a name back.
 
+## A room on a node
+
+A room made on a KithMoot node has no name in its link: the link carries the
+node's signed record of the room, which names the node and not the room. So
+the device that made it, or any device holding its owner key, posts the name
+it was given as a carried `name` op, once, when the room's control log holds
+none. It is stamped at the room's start, so any real rename outranks it, and
+being carried it names nobody, so no member is shown a rename. Until 11
+November 2026 nothing posted it, and everybody but the maker saw "Untitled
+room".
+
 ## Epochs
 
 A rename is readable only by members holding the epoch it was posted under.

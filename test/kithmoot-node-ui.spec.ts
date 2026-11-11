@@ -1036,3 +1036,117 @@ test('with two of the owner\'s devices keeping a moved room at once, a straggler
   test.setTimeout(480_000)
   await sharedOwnerStraggler(baseURL!, true)
 })
+
+/** A browser device signed in as `key`, with a signer that can encrypt so the
+ *  account's room bookmarks sync between its devices, its node traffic sent
+ *  to `fixture`, and every node HTTP status written to `log`. */
+async function ownerSyncDevice(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, key: Uint8Array,
+  contexts: BrowserContext[], label: string, log: string[]): Promise<Page> {
+  const context = await newDeviceContext(browser, baseURL, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+  contexts.push(context)
+  await context.exposeFunction('ownerPublicKey', () => getPublicKey(key))
+  await context.exposeFunction('ownerSign', (template: EventTemplate) => finalizeEvent(template, key))
+  await context.exposeFunction('ownerEncrypt', (peer: string, text: string) => encrypt(text, getConversationKey(key, peer)))
+  await context.exposeFunction('ownerDecrypt', (peer: string, text: string) => decrypt(text, getConversationKey(key, peer)))
+  const accountRelay = new URL('/__test-relay', baseURL); accountRelay.protocol = 'wss:'
+  await context.addInitScript(({ node, relay }) => {
+    const w = window as typeof window & { ownerPublicKey(): Promise<string>; ownerSign(value: unknown): Promise<unknown>
+      ownerEncrypt(peer: string, text: string): Promise<string>; ownerDecrypt(peer: string, text: string): Promise<string> }
+    Object.defineProperty(window, 'nostr', { configurable: true, value: { getPublicKey: () => w.ownerPublicKey(), signEvent: (value: unknown) => w.ownerSign(value),
+      nip44: { encrypt: (peer: string, text: string) => w.ownerEncrypt(peer, text), decrypt: (peer: string, text: string) => w.ownerDecrypt(peer, text) } } })
+    const Native = window.WebSocket
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        const target = String(url)
+        super(target === 'wss://node.example/events' ? node : target.startsWith('wss://') && !target.includes('localhost') ? relay : target, protocols)
+      }
+    }
+  }, { node: fixture.websocket, relay: accountRelay.href })
+  await context.route('https://node.example/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
+    log.push(`${label} ${route.request().method()} ${path} ${response.status()}${response.ok() ? '' : ' ' + (await response.text()).slice(0, 160)}`)
+    await route.fulfill({ response })
+  })
+  await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  const page = await context.newPage()
+  page.on('pageerror', error => console.error(`${label} page:`, error.message))
+  await signInAccount(page, baseURL)
+  return page
+}
+
+test('the owner\'s second device opens a room its account made on the node', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const ownerKey = generateSecretKey()
+    const maker = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'maker', log)
+    await openCallSettings(maker, 'Your KithMoot node')
+    await maker.locator('#nodePairingInput').fill(fixture.pairing())
+    await maker.locator('#nodePair').click(); await maker.locator('#actionConfirm').click()
+    await expect(maker.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(maker)
+    await maker.locator('#homeNewRoom').click()
+    await maker.locator('#roomName').fill('Made on the node')
+    await expect(maker.locator('#roomOnNode')).toBeChecked()
+    if (await maker.locator('#newRoomYourName').isVisible()) await maker.locator('#newRoomYourName').fill('Maker')
+    await maker.locator('#create').click()
+    await expect(maker.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+    await expect.poll(() => maker.locator('#shareUrl').inputValue()).not.toBe('')
+    const link = await maker.locator('#shareUrl').inputValue()
+    expect(parseNodeRoomLink(link, Math.floor(Date.now() / 1000))).not.toBeNull()
+    // Nobody gets into a room on a node on the link alone, and the empty room says so.
+    await expect(maker.locator('#emptyRoom .emptyRoomNote')).toHaveText('People with the link ask to join, and you let them in.')
+
+    // The same account on another device, as the owner's M4 desktop was.
+    const second = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'second', log)
+    await expect(second.locator('#roomSyncStatus')).toContainText(/loaded|Up to date/, { timeout: 60_000 })
+    // As on the owner's M4: the room arrives in the list from the account,
+    // with its owner key, and is opened from there.
+    const listed = second.getByRole('button', { name: 'Open Made on the node' })
+    await expect(listed).toBeVisible({ timeout: 60_000 })
+    await second.waitForTimeout(15_000)
+    log.push('--- second opens the room from its list')
+    await listed.click()
+    // The account's own room: no stranger's "Ask to join" for its owner.
+    await expect(second.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(second.getByRole('alertdialog', { name: 'Ask to join this room?' })).toHaveCount(0)
+    await second.locator('#chatInput').fill('From my other device'); await second.locator('#chatInput').press('Enter')
+    await expect(maker.locator('#chatLog')).toContainText('From my other device', { timeout: 60_000 })
+
+    // A guest let in by the maker sees the room's name, which a room on a
+    // node's link cannot carry.
+    const guestContext = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+    contexts.push(guestContext)
+    await guestContext.addInitScript(({ node }) => {
+      const Native = window.WebSocket
+      window.WebSocket = class extends Native {
+        constructor(url: string | URL, protocols?: string | string[]) { super(String(url) === 'wss://node.example/events' ? node : url, protocols) }
+      }
+    }, { node: fixture.websocket })
+    await guestContext.route('https://node.example/**', async route => {
+      const path = new URL(route.request().url()).pathname
+      await route.fulfill({ response: await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path }) })
+    })
+    const guest = await guestContext.newPage()
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+    await maker.getByRole('button', { name: 'Let in' }).click({ timeout: 60_000 })
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(guest.locator('#roomTitle')).toHaveText('Made on the node', { timeout: 90_000 })
+  } catch (error) {
+    for (const page of [contexts[1]?.pages()[0]].filter(Boolean)) {
+      log.push('--- second status: ' + await page!.locator('#status, #arrivalTitle, #arrivalLead').allInnerTexts().catch(() => []))
+    }
+    throw error
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
