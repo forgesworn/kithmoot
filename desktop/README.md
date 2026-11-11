@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.144 lets a device of yours into a room your account made on your node with none of your other devices running, once the device that keeps the room has run this version. Rooms that were moved onto the node, or that someone was removed from, still ask the device that keeps them.
+Version 0.1.145 makes the delivery ticks on your messages bigger and stronger, and says under your newest message who has it: "Delivered to" a name and time, or "Sent" with no confirmation yet. One tick means no device has confirmed it yet, not that it has not arrived.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
