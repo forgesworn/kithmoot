@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.141 lets every device signed in as the same account keep a room, not only the one that made it: the room's owner key travels in the account's encrypted room bookmark, with its members and removals, so any of the owner's running devices can let a member's device in after a move.
+Version 0.1.142 makes a person's devices act as one on a call: answering on one stops the others ringing, a call started on one of them rings none of the others, and a second device joins without taking the microphone or the sound. A browser share opens a floating window so the person sharing sees what others draw.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
