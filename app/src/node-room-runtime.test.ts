@@ -7,8 +7,8 @@ import { localIdentity } from '../../src/identity.js'
 import { createDeviceCredential } from '../../src/credential.js'
 import { beginNodeJoin, openNodeKeeperAdmissions } from '../../src/node-admission.js'
 import { memoryDeviceStore } from './device-store.js'
-import { askBrowserNodeRoom, createBrowserNodeRoom, openBrowserNodeRoom } from './node-room-runtime.js'
-import { NODE_ROOM_PREFIX, adoptExistingNodeDeviceKey, loadNodeRoom, type BrowserNodeRoom } from './node-rooms.js'
+import { admitOwnBrowserNodeDevice, askBrowserNodeRoom, createBrowserNodeRoom, openBrowserNodeRoom } from './node-room-runtime.js'
+import { NODE_ROOM_PREFIX, adoptExistingNodeDeviceKey, loadNodeRoom, readNodeKeeperLists, type BrowserNodeRoom } from './node-rooms.js'
 
 vi.mock('../../src/kithmoot-node.js', async importOriginal => ({
   ...await importOriginal<typeof import('../../src/kithmoot-node.js')>(),
@@ -232,4 +232,44 @@ it('saves keeper custody and the recovery link before enrolment and retains them
   expect(fetcher).toHaveBeenCalledTimes(1)
   const held = loadNodeRoom(store, owner.pubkey, room, at)!
   expect(held.phase).toBe('creating'); expect(held.authoritySk).toHaveLength(32); expect(held.grant).toBeUndefined()
+})
+
+/** A room made directly on a node, and the account's shared owner key and secret for it. */
+function madeOnNode(at = 1_900_000_000, existing = false) {
+  const secret = generateSecretKey(), authoritySk = generateSecretKey(), account = localIdentity(generateSecretKey())
+  const room = deriveRoom(secret).roomId
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room, origin: 'https://node.example', serviceKey: getPublicKey(generateSecretKey()), now: at,
+    ...(existing ? { existing: { destruct: false } } : { endsAt: at + 7200 }) }), at)!
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ accepted: true }), { headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+  return { at, secret, authoritySk, account, room, node, fetcher, store: memoryDeviceStore() }
+}
+
+it('lets a device of the account that made a node room admit itself with the shared owner key and secret', async () => {
+  const { at, secret, authoritySk, account, room, node, fetcher, store } = madeOnNode()
+  const member = getPublicKey(generateSecretKey())
+  const held = await admitOwnBrowserNodeDevice(store, node, account, { authoritySk, secret, members: [member], removed: [] }, { now: () => at, fetcher })
+  expect(held).toMatchObject({ phase: 'active', participant: account.pubkey, epochHint: 0 })
+  expect(verifyNodeRoomGrant(held.grant!, node, getPublicKey(held.deviceSk), at)).toBe(true)
+  const saved = loadNodeRoom(store, account.pubkey, room, at)!
+  expect(saved.phase).toBe('active'); expect(saved.secret).toEqual(secret); expect(saved.authoritySk).toEqual(authoritySk)
+  // One grant posted, for this device, and the members the account shared are known here.
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(readNodeKeeperLists(store, account.pubkey, room)?.members).toEqual(expect.arrayContaining([account.pubkey, member]))
+})
+
+it('leaves the room to its keeper after a removal, for a moved room, or when the key or secret is not the room\'s', async () => {
+  const cases: Array<(c: ReturnType<typeof madeOnNode>) => Parameters<typeof admitOwnBrowserNodeDevice>[3]> = [
+    c => ({ authoritySk: c.authoritySk, secret: c.secret, members: [], removed: [getPublicKey(generateSecretKey())] }),
+    c => ({ authoritySk: generateSecretKey(), secret: c.secret, members: [], removed: [] }),
+    c => ({ authoritySk: c.authoritySk, secret: generateSecretKey(), members: [], removed: [] }),
+  ]
+  for (const owner of cases) {
+    const c = madeOnNode()
+    await expect(admitOwnBrowserNodeDevice(c.store, c.node, c.account, owner(c), { now: () => c.at, fetcher: c.fetcher })).rejects.toThrow()
+    expect(c.fetcher).not.toHaveBeenCalled(); expect(loadNodeRoom(c.store, c.account.pubkey, c.room, c.at)).toBeUndefined()
+  }
+  const moved = madeOnNode(1_900_000_000, true)
+  await expect(admitOwnBrowserNodeDevice(moved.store, moved.node, moved.account, { authoritySk: moved.authoritySk, secret: moved.secret, members: [], removed: [] },
+    { now: () => moved.at, fetcher: moved.fetcher })).rejects.toThrow()
+  expect(moved.fetcher).not.toHaveBeenCalled()
 })
