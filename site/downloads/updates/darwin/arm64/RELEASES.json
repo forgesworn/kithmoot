@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.142",
+  "currentRelease": "0.1.143",
   "releases": [
     {
-      "version": "0.1.142",
+      "version": "0.1.143",
       "updateTo": {
-        "version": "0.1.142",
-        "name": "0.1.142",
-        "pub_date": "2026-11-11T08:47:29Z",
-        "notes": "Your devices now act as one on a call: answering on one stops the others ringing, and a second device joins without taking your microphone or sound. A browser share opens a floating window so you see what others draw.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.142/KithMoot-0.1.142-mac-arm64.zip",
-        "sha256": "44c2cc3187903ba7735520deef3f64da15aa77b24f532084e050e61a3176f7e5",
-        "size": 200008117
+        "version": "0.1.143",
+        "name": "0.1.143",
+        "pub_date": "2026-11-11T13:08:31Z",
+        "notes": "Your own devices now go straight into rooms on your node that your account keeps, guests see a node room's real name, and a signer that is not answering is reported as that rather than as the node refusing you.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.143/KithMoot-0.1.143-mac-arm64.zip",
+        "sha256": "78e367370f1228ca5957cdb8a411fcfc3f70fb0b4dd80c58e3fa60dc42ee316b",
+        "size": 200008869
       }
     }
   ]

@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.142 makes a person's devices act as one on a call: answering on one stops the others ringing, a call started on one of them rings none of the others, and a second device joins without taking the microphone or the sound. A browser share opens a floating window so the person sharing sees what others draw.
+Version 0.1.143 lets your own devices straight into rooms on your node that your account already keeps, says to reconnect your account when your signer is not answering instead of blaming the node, shows guests a node room's real name, and no longer tells you anyone with the link can join a room on your node.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
