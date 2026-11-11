@@ -39,5 +39,12 @@ export class DesktopNotices {
     for (const [tag, notice] of [...this.#active]) if (tag.startsWith(prefix)) { notice.close(); this.#active.delete(tag) }
     for (const tag of [...this.#last.keys()]) if (tag.startsWith(prefix)) this.#last.delete(tag)
   }
+  /** Close one banner by its tag: a ring answered on another device. */
+  clearTag(tag) {
+    if (typeof tag !== 'string' || tag.length > 200 || !/^kithmoot:[a-f0-9]{64}:/.test(tag)) return
+    this.#active.get(tag)?.close()
+    this.#active.delete(tag)
+    this.#last.delete(tag)
+  }
   clear() { for (const notice of this.#active.values()) notice.close(); this.#active.clear(); this.#last.clear() }
 }

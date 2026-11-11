@@ -566,6 +566,11 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame) return
       notices.clearRoom(roomId)
     })
+    // A ring answered on another of this person's devices takes its banner.
+    ipcMain.on('desktop:notify-clear', (event, tag) => {
+      if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame) return
+      notices.clearTag(tag)
+    })
     ipcMain.on('desktop:call-state', (event, active) => {
       if (!trusted(event.sender) || event.senderFrame !== win.webContents.mainFrame || typeof active !== 'boolean') return
       if (active && !callActive) callGeneration++

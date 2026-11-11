@@ -45,9 +45,12 @@ export function ringBannerSeconds(since: number, now: number): number {
 
 /**
  * Turns the room's repeated presence snapshots into one incoming-call edge.
- * A recipient's device rings once per call id, stops when that device joins
- * or the call ends. Other devices of the caller ring too; only this device
- * joining or having just left a call keeps it quiet.
+ * A recipient's device rings once per call id, and stops when the call ends
+ * or `joined` says this person is on it. `joined` is the person, not the
+ * device: the caller passes true when any of their devices is on the call,
+ * so answering on the laptop stops the phone, and a call started on one of
+ * a person's devices never rings their others. Having just been on a call
+ * keeps a new one quiet too.
  */
 export class IncomingCallTracker {
   #seen = new Set<string>()

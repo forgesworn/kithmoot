@@ -241,24 +241,63 @@ describe('RoomSession', () => {
     const id = 'e'.repeat(32)
     await ada.setCall({ id, since: NOW })
     await settle()
-    expect(read()).toEqual([{ state: 'start', call: { id, since: NOW }, device: ada.device, createdAt: NOW }])
+    // Each bell carries its device's credential, so a reader with the app
+    // closed knows whose device rang without the roster.
+    expect(read()).toEqual([{ state: 'start', call: { id, since: NOW }, device: ada.device, createdAt: NOW, participant: ada.participant }])
     const [start] = bells()
     expect(start.pubkey).not.toBe(ada.device)
     expect(start.pubkey).not.toBe(ada.participant)
     expect(start.tags.map((t) => t[0])).toEqual(['d', 'expiration'])
 
-    // Joining somebody's call and leaving it while others remain ring nothing.
+    // Joining somebody's call while it could still be ringing rings an
+    // answer, so the joiner's other devices stop. Leaving while others
+    // remain rings nothing.
     await bob.setCall({ id, since: NOW })
     await settle()
+    expect(read()[1]).toEqual({ state: 'answer', call: { id, since: NOW }, device: bob.device, createdAt: NOW, participant: bob.participant })
     await ada.setCall(null)
     await settle()
-    expect(bells()).toHaveLength(1)
+    expect(bells()).toHaveLength(2)
 
     // The last one off - here by leaving the room - rings it closed.
     await bob.leave()
     await settle()
-    expect(read()[1]).toEqual({ state: 'end', call: { id, since: NOW }, device: bob.device, createdAt: NOW })
-    expect(bells()).toHaveLength(2)
+    expect(read()[2]).toEqual({ state: 'end', call: { id, since: NOW }, device: bob.device, createdAt: NOW, participant: bob.participant })
+    expect(bells()).toHaveLength(3)
+  })
+
+  it('rings no answer for a call that began too long ago to be ringing anywhere', async () => {
+    const relay = new SimRelay()
+    const make = () => new RoomSession({
+      transport: new SimTransport(relay),
+      secret: secret(),
+      identity: localIdentity(generateSecretKey()),
+      deviceSk: generateSecretKey(),
+      now,
+      announceJitterMs: 0,
+    })
+    const ada = make()
+    const bob = make()
+    const carol = make()
+    await ada.join([], {})
+    await bob.join([], {})
+    await carol.join([], {})
+    await settle()
+    const bells = () => relay.published.filter((e) => e.kind === KINDS.CALL_BELL)
+    // A call that began 121 seconds ago: no phone can still be ringing for it.
+    await ada.setCall({ id: 'f'.repeat(32), since: NOW - 121 })
+    await settle()
+    const before = bells().length
+    await bob.setCall({ id: 'f'.repeat(32), since: NOW })
+    await settle()
+    expect(bells()).toHaveLength(before)
+    // One that began 120 seconds ago still could.
+    await ada.setCall({ id: 'd'.repeat(32), since: NOW - 120 })
+    await settle()
+    const started = bells().length
+    await carol.setCall({ id: 'd'.repeat(32), since: NOW })
+    await settle()
+    expect(bells()).toHaveLength(started + 1)
   })
 
   it('breaks a tie between equal-size, equal-since calls on id, regardless of insertion order', async () => {

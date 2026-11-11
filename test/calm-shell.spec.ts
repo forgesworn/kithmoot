@@ -1225,7 +1225,7 @@ test('a resting call gallery leaves the room controls and composer inside the br
   } finally { await close() }
 })
 
-test('three account devices and another participant can ring, answer and rejoin with the public relay off', async ({ playwright, browserName, baseURL }, info) => {
+test('three account devices ring as one: answering on one stops the others, and a second joins without taking the mic or the sound', async ({ playwright, browserName, baseURL }, info) => {
   const secret = generateSecretKey()
   const fixture = await nativeMicrophoneBrowser(playwright[browserName], info.project.use.launchOptions)
   const browser = fixture.browser
@@ -1248,6 +1248,8 @@ test('three account devices and another participant can ring, answer and rejoin 
       await page.locator('#join').click()
       await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
     }
+    // `caller` is the device the measurements are taken on, as before; the
+    // call itself is now started by the other participant.
     const [caller, answered, declined] = pages as [Page, Page, Page]
     const guest = await visitor(browser, baseURL!, { width: 1280, height: 800 }, { empty: true })
     contexts.push(guest.context)
@@ -1259,10 +1261,14 @@ test('three account devices and another participant can ring, answer and rejoin 
     await guest.page.locator('#displayName').fill('Priya Natarajan')
     await join(guest.page)
     await expect(guest.page.locator('#chatLog')).toBeVisible()
-    await caller.locator('#callToggle').click()
-    await expect(caller.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
-    await expect(caller.locator('#ringBanner')).toBeHidden()
-    for (const page of [answered, declined, guest.page]) await expect(page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
+    await guest.page.locator('#callToggle').click()
+    await expect(guest.page.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    await expect(guest.page.locator('#ringBanner')).toBeHidden()
+    // The suite's saved preferences keep this visitor's microphone off on
+    // joining; the account's devices have the default, mic on.
+    if (await guest.page.locator('#toggleMic').getAttribute('aria-pressed') !== 'true') await guest.page.locator('#toggleMic').click()
+    await expect(guest.page.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 })
+    for (const page of [caller, answered, declined]) await expect(page.locator('#ringBanner')).toBeVisible({ timeout: 60_000 })
     await declined.locator('#ringDecline').click()
     await expect(declined.locator('#ringBanner')).toBeHidden()
     await expect(declined.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call')
@@ -1271,15 +1277,25 @@ test('three account devices and another participant can ring, answer and rejoin 
     await expect(answered.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
     await expect(answered.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
     await expect(answered.locator('#toggleCamera')).toHaveAttribute('aria-pressed', 'false')
-    await guest.page.locator('#ringAnswer').click()
-    await expect(guest.page.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
-    // Linked devices deliberately share one microphone and one listening
-    // role. Choose the measured device through its controls, rather than
-    // depending on the random device keys' tie-break for the speaker.
-    if (await caller.locator('#listenHere').isVisible()) await caller.locator('#listenHere').click()
+    // Answered on one device: the account's other devices stop ringing.
+    await expect(caller.locator('#ringBanner')).toBeHidden({ timeout: 30_000 })
+    await expect(declined.locator('#ringBanner')).toBeHidden()
+    // A second device of the same account joins quietly: its microphone
+    // stays off and the sound stays on the device that answered, until the
+    // person moves them by hand.
+    await caller.locator('#callToggle').click()
+    await expect(caller.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    await expect(caller.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'false')
+    await expect(caller.locator('#monitorIndicator')).toHaveText('Mic and sound are on your other device.')
+    await expect(answered.locator('#micIndicator')).toHaveText('Mic: this device')
+    await expect(answered.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
+    await expect(answered.locator('#toggleMic')).toHaveAttribute('aria-pressed', 'true')
+    // By hand, then: the measured device takes the speaker and the mic.
+    await caller.locator('#listenHere').click()
     await expect(caller.locator('#monitorIndicator')).toHaveText('Sound plays on this device.')
-    if (await caller.locator('#claimMic').isVisible()) await caller.locator('#claimMic').click()
+    await caller.locator('#claimMic').click()
     await expect(caller.locator('#micIndicator')).toHaveText('Mic: this device')
+    await expect(answered.locator('#micIndicator')).toHaveText('Your microphone is on your other device.')
     for (const page of [caller, guest.page]) await page.locator('#toggleCamera').click()
     const movingMedia = async (page: Page) => {
       await expect.poll(async () => {
@@ -1293,8 +1309,7 @@ test('three account devices and another participant can ring, answer and rejoin 
       }, { timeout: 30_000 }).toBe(true)
     }
     for (const page of [caller, guest.page]) await movingMedia(page)
-    // A fresh roster from the joined device must not re-ring the declined
-    // device, nor the caller or the device that has just answered.
+    // A fresh roster from a joined device must not re-ring any of them.
     await answered.locator('#toggleMic').click()
     await expect(declined.locator('#ringBanner')).toBeHidden()
     await expect(caller.locator('#ringBanner')).toBeHidden()
@@ -1371,7 +1386,7 @@ test('three account devices and another participant can ring, answer and rejoin 
       rectangles: await cameras.evaluateAll(videos => videos.map(video => video.getBoundingClientRect().toJSON())),
     }) })
     await info.attach('three-account-devices-and-participant', { contentType: 'application/json', body: JSON.stringify({
-      syntheticAccounts: true, nativeFakeMicrophone: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404,
+      syntheticAccounts: true, nativeFakeMicrophone: true, ownDevices: 3, otherParticipants: 1, publicCredentialStatus: 404, calledBy: 'participant',
       transport: 'local direct fixture; no Archy or VPN claim', participantReloadedAndRejoined: true,
       media: await Promise.all([caller, guest.page].map(page => page.evaluate(inbound))),
     }) })
@@ -1384,6 +1399,37 @@ test('three account devices and another participant can ring, answer and rejoin 
   } finally {
     await Promise.allSettled(contexts.map(context => context.close()))
     try { await keeper?.leave() } finally { await fixture.close() }
+  }
+})
+
+test('a call started on one of an account\'s devices rings none of its others', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  let keeper: RoomAgent | undefined
+  const contexts: BrowserContext[] = []
+  try {
+    keeper = await RoomAgent.create({ base: baseURL!, roomName: 'Own devices', name: 'Host', agent: false, ...agentRelaysFor(baseURL!) })
+    const pages: Page[] = []
+    for (let n = 0; n < 2; n++) {
+      const context = await accountDevice(browser, baseURL!, secret)
+      contexts.push(context)
+      await context.grantPermissions(['camera', 'microphone'], { origin: new URL(baseURL!).origin })
+      const page = await context.newPage(); pages.push(page)
+      await signInAccount(page, baseURL!)
+      await page.goto('about:blank'); await page.goto(keeper.url)
+      await expect(page.locator('#join')).toBeEnabled({ timeout: 60_000 })
+      await page.locator('#join').click()
+      await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
+    }
+    const [laptop, phone] = pages as [Page, Page]
+    await laptop.locator('#callToggle').click()
+    await expect(laptop.locator('#callToggle')).toHaveAttribute('aria-label', 'Leave call')
+    // The phone sees the call - it offers Join - and does not ring for it.
+    await expect(phone.locator('#callToggle')).toHaveAttribute('aria-label', 'Join call', { timeout: 60_000 })
+    await phone.waitForTimeout(1500)
+    await expect(phone.locator('#ringBanner')).toBeHidden()
+  } finally {
+    await Promise.allSettled(contexts.map(context => context.close()))
+    await keeper?.leave()
   }
 })
 

@@ -70,3 +70,22 @@ test('a self-destructed room takes only its own banners with it', () => {
   // The room's rate limit goes with it.
   assert.equal(notices.show({ ...content, title: 'A', roomId: a, tag: `kithmoot:${a}:chat` }), true)
 })
+test('one banner closes by its tag, and nothing else does', () => {
+  const closed = []
+  const notices = new DesktopNotices({ supported: () => true, create: options => {
+    const notice = new EventEmitter()
+    notice.show = () => {}
+    notice.close = () => { closed.push(options.title); notice.emit('close') }
+    return notice
+  } })
+  const room = 'a'.repeat(64)
+  const ring = `kithmoot:${room}:call:${'c'.repeat(32)}`
+  assert.equal(notices.show({ ...content, title: 'Ring', roomId: room, tag: ring }), true)
+  assert.equal(notices.show({ ...content, title: 'Chat', roomId: room, tag: `kithmoot:${room}:chat` }), true)
+  for (const invalid of [null, 42, 'chat', `kithmoot:${room}`, 'x'.repeat(201)]) notices.clearTag(invalid)
+  assert.deepEqual(closed, [])
+  notices.clearTag(ring)
+  assert.deepEqual(closed, ['Ring'])
+  // Its rate limit goes with it, so the next call can ring at once.
+  assert.equal(notices.show({ ...content, title: 'Ring', roomId: room, tag: ring }), true)
+})

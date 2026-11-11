@@ -5831,6 +5831,22 @@ function resetIncomingCall(): void {
 // ---------------------------------------------------------------------------
 
 let ringTimer: ReturnType<typeof setTimeout> | undefined
+/** The system notification of the call ringing now, so the ring stopping
+ *  takes it away too: a "Priya is calling" left in the tray after the call
+ *  was answered on the laptop is the ring still going. */
+let ringingAlertTag: string | undefined
+
+function closeIncomingCallAlert(): void {
+  const tag = ringingAlertTag
+  ringingAlertTag = undefined
+  if (!tag) return
+  if (window.kithmootDesktop) { window.kithmootDesktop.clearNotice?.(tag); return }
+  if (typeof navigator.serviceWorker === 'undefined') return
+  void navigator.serviceWorker.getRegistration()
+    .then(registration => registration?.getNotifications({ tag }))
+    .then(shown => { for (const notice of shown ?? []) notice.close() })
+    .catch(() => {})
+}
 
 /** The ring (banner and sound) gives up after `seconds`, as a phone does. */
 function giveUpRingingAfter(seconds: number): void {
@@ -5867,8 +5883,10 @@ $('ringAnswer').addEventListener('click', () => {
   hideRingBanner()
   void (async () => {
     await joinCall()
-    // Straight in with the microphone live and the camera off, like Signal.
-    if (!micTrack && onCall()) await toggleMic()
+    // Straight in with the microphone live and the camera off, like Signal,
+    // unless another of this person's devices already has the call.
+    const owner = mediaSession()
+    if (!micTrack && onCall() && !ownDeviceElsewhereOnCall(owner?.participants() ?? [], owner?.call?.id)) await toggleMic()
   })().catch(err => noteMediaBlocked('Microphone', err))
 })
 
@@ -5935,6 +5953,19 @@ function callStanceNow(views: ParticipantView[]): CallStanceInput {
 
 function newCallId(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)))
+}
+
+/**
+ * Whether another of this person's devices is on `callId`. That device has
+ * the call, and with it the microphone and the sound: a second device
+ * joining beside it takes neither unless the person moves them by hand
+ * (Use mic here, Listen here), and none of the person's devices rings for a
+ * call one of them is already on.
+ */
+function ownDeviceElsewhereOnCall(views: ParticipantView[], callId: string | undefined): boolean {
+  if (!callId) return false
+  const mine = views.find(view => view.participant === mediaMe())
+  return mine?.call?.id === callId && mine.call.devices.some(device => device !== myDeviceId)
 }
 
 // ---------------------------------------------------------------------------
@@ -6089,8 +6120,14 @@ async function joinCall(): Promise<void> {
   leftCall = false
   callWanted = true
   const id = existing?.id ?? newCallId()
+  // Another of this person's devices is already on it: this one joins
+  // quietly, with its microphone off and the sound left where it is. The
+  // speaker is claimed only weakly, so it comes here if that device leaves
+  // and never before. See `ownDeviceElsewhereOnCall`.
+  const besideOwnDevice = !!existing && ownDeviceElsewhereOnCall(s.participants(), id)
+  if (besideOwnDevice && !micTrack) monitorClaimedAt = WEAK_MONITOR_CLAIM
   callProjectContexts.set(s, { call: id, project: roomProjectContext })
-  logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join`)
+  logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join${besideOwnDevice ? ', beside another own device' : ''}`)
   await s.setCall({ id, since: nowSeconds() })
   publishActiveTracks()
   setCallOpen(true)
@@ -6108,7 +6145,8 @@ async function joinCall(): Promise<void> {
   // Joining switches the microphone on (1 November 2026): people sat in
   // silent calls, never asked for the microphone, unable to find the button.
   // A refusal leaves them in the call with the blocked-microphone notice.
-  if (loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) {
+  // Not beside another of their own devices: that one has the microphone.
+  if (!besideOwnDevice && loadMicOnJoin(deviceStore) && !micTrack && session === s && s.call) {
     await toggleMic().then(() => noteMediaBlocked(undefined)).catch(err => noteMediaBlocked('Microphone', err))
   }
 }
@@ -6307,11 +6345,13 @@ function renderCallState(views: ParticipantView[]): void {
     .filter(view => view.call?.id === current.id)
     .sort((a, b) => (a.call?.since ?? 0) - (b.call?.since ?? 0) || a.participant.localeCompare(b.participant))[0]
   const incoming = current && starter ? { id: current.id, caller: starter.participant } : undefined
-  const callChange = incomingCallTracker.update(incoming, mineOn)
+  // A person's devices answer as one: once any of them is on the call,
+  // none of the others rings for it, whoever started it.
+  const callChange = incomingCallTracker.update(incoming, mineOn || (!!current && ownDeviceElsewhereOnCall(views, current.id)))
   if (callChange && callChange.type !== 'stop') {
     logCall('call-ring', callChange.call.caller, `${callChange.type === 'ring' ? 'rang for' : 'kept quiet, just on a call:'} ${callChange.call.id.slice(0, 8)}`)
   }
-  if (callChange?.type === 'stop') { stopCallRing(); hideRingBanner() }
+  if (callChange?.type === 'stop') { stopCallRing(); hideRingBanner(); closeIncomingCallAlert() }
   else if (callChange?.type === 'ring') {
     const settings = notifySettings(deviceStore)
     const roomId = currentRoomId()
@@ -6332,10 +6372,11 @@ function renderCallState(views: ParticipantView[]): void {
     if (ringFor > 0 && settings.enabled && roomId && roomNotificationsEnabled(deviceStore, nostrSession?.pubkey, roomId, notificationProjectsForRoom(roomId))) {
       void startCallRing()
       const caller = shownAs(callChange.call.caller, starter?.name)
+      ringingAlertTag = `kithmoot:${roomId}:call:${callChange.call.id}`
       void deliverIncomingCallAlert({
         title: currentRoomLabel(),
         body: `${caller.name ?? 'Somebody'} is calling`,
-        tag: `kithmoot:${roomId}:call:${callChange.call.id}`,
+        tag: ringingAlertTag,
       }, roomId)
     }
   }
@@ -7565,6 +7606,7 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
       addLocalPreview('screen', screenTrack)
       clearShareError()
       publishActiveTracks()
+      offerFloatingMarks()
       // A whole screen: other people's marks go over the screen itself. The
       // main process's record of what was captured has to agree with the
       // track's own idea of it, as it does for redaction.
@@ -7695,10 +7737,16 @@ let drawingNoticeTimer: ReturnType<typeof setTimeout> | undefined
 
 function showDrawingNotice(drawer: string): void {
   $('sharerMarksNoticeText').textContent = `${personLabel(drawer)} is drawing on your screen`
+  $('sharerMarksNoticeShow').hidden = false
   $('sharerMarksNoticeFloat').hidden = !floatingPreviewSupported()
   $('sharerMarksNotice').hidden = false
   clearTimeout(drawingNoticeTimer)
-  drawingNoticeTimer = setTimeout(hideDrawingNotice, DRAWING_NOTICE_MS)
+  // Once the name has had its moment, a share that still cannot show marks
+  // anywhere the sharer is looking goes back to offering the window.
+  drawingNoticeTimer = setTimeout(() => {
+    if (screenTrack && !window.kithmootDesktop && floatingPreviewSupported() && !floatingSharePreview.isOpen) showFloatingMarksOffer()
+    else hideDrawingNotice()
+  }, DRAWING_NOTICE_MS)
 }
 
 function hideDrawingNotice(): void {
@@ -7709,6 +7757,42 @@ function hideDrawingNotice(): void {
 
 function revealMySharePreview(): void {
   localPreviewEls.get('screen')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+/**
+ * A browser share opens the floating window as it starts, while the press
+ * that started it still counts as one: a page cannot draw over another
+ * window, and somebody presenting is looking at what they shared, not at
+ * this tab, so without it nobody's marks reach them at all. Where that press
+ * has already lapsed (the picker took a while) or the window is refused, the
+ * notice offers it instead and stays up until the share stops or the window
+ * opens. The desktop app has its own overlay and its own window, so not
+ * there.
+ */
+function offerFloatingMarks(): void {
+  if (window.kithmootDesktop || !screenTrack || !floatingPreviewSupported() || floatingSharePreview.isOpen) return
+  const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation
+  if (activation?.isActive === false) { showFloatingMarksOffer(); return }
+  floatingSharePreview.open().then(updateUi).catch(() => { if (screenTrack) showFloatingMarksOffer() })
+}
+
+function showFloatingMarksOffer(): void {
+  clearTimeout(drawingNoticeTimer)
+  drawingNoticeTimer = undefined
+  $('sharerMarksNoticeText').textContent = 'People can draw on your screen. To see their drawings while you present, open the floating window.'
+  $('sharerMarksNoticeShow').hidden = true
+  $('sharerMarksNoticeFloat').hidden = false
+  $('sharerMarksNotice').hidden = false
+}
+
+/** A system notification for a mark on this device's share while this page
+ *  is out of sight: the one thing that reaches somebody looking at the
+ *  window they shared, where the floating window cannot be had. */
+function alertDrawingElsewhere(drawer: string): void {
+  if (document.visibilityState === 'visible' && document.hasFocus()) return
+  const roomId = dockedCall?.room.roomId ?? currentRoomId()
+  if (!roomId || !notifySettings(deviceStore).enabled) return
+  void deliverIncomingCallAlert({ title: currentRoomLabel(), body: `${personLabel(drawer)} is drawing on your screen`, tag: `kithmoot:${roomId}:marks` }, roomId).catch(() => {})
 }
 
 /** Called for every mark this device receives: worth a notice only when it
@@ -7722,6 +7806,7 @@ function notifyDrawingOnMyShare(drawer: string, annotation: ScreenAnnotation): v
   if (floatingSharePreview.isOpen) return
   if (!drawingNoticeGate.shouldShow(drawer)) return
   showDrawingNotice(drawer)
+  alertDrawingElsewhere(drawer)
 }
 
 $('sharerMarksNoticeShow').addEventListener('click', () => { hideDrawingNotice(); revealMySharePreview() })

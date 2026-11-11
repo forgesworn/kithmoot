@@ -35,6 +35,8 @@ declare global {
       notify(content: { title: string; body: string; tag: string; roomId: string; silent: boolean }): void
       /** Close every banner this window put up for one room. Absent before desktop 0.1.58. */
       clearRoomNotices?(roomId: string): void
+      /** Close one banner by its tag. */
+      clearNotice?(tag: string): void
       onOpenRoom(listener: (roomId: string) => void): () => void
       /** What the room on screen allows, for the Room menu. Absent before desktop 0.1.92. */
       setRoomMenuState?(state: Record<string, unknown>): void
