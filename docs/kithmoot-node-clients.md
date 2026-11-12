@@ -90,6 +90,32 @@ The keeper hosts the existing fresh-root epoch desk so an admitted device can
 obtain the current epoch before publishing. Never enable a delegated member
 desk or a kind-1463 bearer welcome for this profile.
 
+### Knocks on a room that is not on screen
+
+A knock belongs to the room its keeper serves, never to the room on screen.
+Since 12 November 2026 the web app and Android show a knock on any of the
+owner's node rooms wherever the app is, as a card naming the room, and as a
+system notification while the app is out of sight (one per room, none for
+a room whose notifications are off, and the bell only as for a message: on,
+and no call live). Knocks are held in memory only.
+
+- **Room open on this device but not on screen**, as beside a docked call:
+  its keeper and desk are running, so **Let in** admits from where the owner is.
+- **Room closed on this device**: the closed-room keeper (web
+  `keepClosedNodeRooms`, Android `NodeClosedRoomKeepers`) still lets known
+  members in on its own, and now reports a newcomer's knock. It cannot finish
+  a newcomer's admission: their device asks the room's fresh-root epoch desk
+  for the current key, and only an open copy of the room runs that desk. So
+  **Let in** opens the room and records the yes against that request; when
+  the room's own keeper hears the request again, it admits without a second
+  card. The node replays a waiting ask to the newly opened keeper.
+- Decline stays silent: the guest keeps waiting until their request ends.
+- Each of the owner's devices that keeps the room shows the card. A yes on
+  one does not clear the others' cards before the request ends (up to ten
+  minutes); a second yes lets the same guest in again and does them no harm.
+
+Rooms on public relays answer their link only while open on screen, as before.
+
 Feed verified encrypted control-channel grants to `access.observe`, and poll
 `refresh` while the room is open. An old active reply cannot cross a stored
 revocation or reset floor. An HTTP refusal, grant expiry or reset stops access;

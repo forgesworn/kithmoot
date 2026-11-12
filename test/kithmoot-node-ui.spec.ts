@@ -1242,3 +1242,182 @@ test('the owner\'s second device opens a room its account made on the node', asy
     await browser.close(); await fixture.close()
   }
 })
+
+/** A browser with no account, routed to the test node, as a guest's phone. */
+async function nodeGuest(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, contexts: BrowserContext[], log: string[]): Promise<Page> {
+  const context = await newDeviceContext(browser, baseURL, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+  contexts.push(context)
+  await context.addInitScript(({ node }) => {
+    const Native = window.WebSocket
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) { super(String(url) === 'wss://node.example/events' ? node : url, protocols) }
+    }
+  }, { node: fixture.websocket })
+  await context.route('https://node.example/**', async route => {
+    const path = new URL(route.request().url()).pathname
+    const response = await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path })
+    log.push(`guest ${route.request().method()} ${path} ${response.status()}${response.ok() ? '' : ' ' + (await response.text()).slice(0, 160)}`)
+    await route.fulfill({ response })
+  })
+  const page = await context.newPage()
+  page.on('pageerror', error => console.error('guest page:', error.message))
+  page.on('console', message => { if (message.type() === 'error' || message.type() === 'warning') log.push(`guest console ${message.type()}: ${message.text().slice(0, 300)}`) })
+  return page
+}
+
+async function ownerWithNodeRoom(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>,
+  contexts: BrowserContext[], log: string[], name: string, key = generateSecretKey()): Promise<{ owner: Page; link: string }> {
+  const owner = await ownerSyncDevice(browser, baseURL, fixture, key, contexts, 'owner', log)
+  await openCallSettings(owner, 'Your KithMoot node')
+  await owner.locator('#nodePairingInput').fill(fixture.pairing())
+  await owner.locator('#nodePair').click(); await owner.locator('#actionConfirm').click()
+  await expect(owner.locator('#nodeHost')).toHaveText('node.example')
+  await closeSettings(owner)
+  await owner.locator('#homeNewRoom').click()
+  await owner.locator('#roomName').fill(name)
+  await expect(owner.locator('#roomOnNode')).toBeChecked()
+  if (await owner.locator('#newRoomYourName').isVisible()) await owner.locator('#newRoomYourName').fill('Owner')
+  await owner.locator('#create').click()
+  await expect(owner.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+  await expect.poll(() => owner.locator('#shareUrl').inputValue()).not.toBe('')
+  return { owner, link: await owner.locator('#shareUrl').inputValue() }
+}
+
+// 11 November: a guest knocked while the owner's screen showed another page,
+// and waited a minute with nobody told.
+test('a guest who knocks on a node room while its owner is on the start page is let in from there', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34794, tls: 53503 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'Knock from afar')
+    await owner.locator('#appHome').click()
+    await expect(owner.getByRole('button', { name: 'Open Knock from afar' })).toBeVisible({ timeout: 60_000 })
+
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, log)
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+
+    const card = owner.locator('#awayKnocks .approvalCard.knock')
+    await expect(card).toContainText('wants to join Knock from afar', { timeout: 60_000 })
+    await expect(card).toContainText('Guest')
+    await expect(card).toContainText('Letting them in opens the room.')
+    log.push('--- owner lets them in from the start page')
+    // A guest's device asks the open room for its key, so yes opens the room,
+    // and the room lets them in without asking the owner a second time.
+    await card.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Knock from afar', { timeout: 60_000 })
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(owner.locator('.approvalCard.knock')).toHaveCount(0)
+    await guest.locator('#chatInput').fill('Hello from outside'); await guest.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('Hello from outside', { timeout: 60_000 })
+    await owner.locator('#chatInput').fill('Welcome in'); await owner.locator('#chatInput').press('Enter')
+    await expect(guest.locator('#chatLog')).toContainText('Welcome in', { timeout: 60_000 })
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
+
+test('a knock on a node room while its owner is in another room names its room, and opening that room keeps it', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34796, tls: 53505 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'Knocked on')
+    await owner.locator('#appHome').click()
+    await owner.locator('#homeNewRoom').click({ timeout: 60_000 })
+    await owner.locator('#roomName').fill('Somewhere else')
+    await owner.locator('#create').click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Somewhere else', { timeout: 60_000 })
+
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, log)
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+
+    // Not above this room's conversation, as if it were for this room.
+    const away = owner.locator('#awayKnocks .approvalCard.knock')
+    await expect(away).toContainText('wants to join Knocked on', { timeout: 60_000 })
+    await expect(owner.locator('#approvals .approvalCard.knock')).toHaveCount(0)
+    await away.getByRole('button', { name: 'Open room', exact: true }).click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Knocked on', { timeout: 60_000 })
+    // The room's own keeper takes the knock over: one card, now above its conversation.
+    const here = owner.locator('#approvals .approvalCard.knock')
+    await expect(here).toHaveCount(1, { timeout: 60_000 })
+    await expect(away).toHaveCount(0)
+    await here.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await guest.locator('#chatInput').fill('In at last'); await guest.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('In at last', { timeout: 60_000 })
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
+
+// The owner keeps several devices signed in, and every one of them keeps the room.
+test('with two of the owner\'s devices on their start pages, a yes on one lets the guest in and a second yes does no harm', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(420_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34798, tls: 53507 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const key = generateSecretKey()
+    const { owner, link } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'Two keepers', key)
+    await expect(owner.locator('#roomSyncStatus')).toContainText(/accepted by a relay|Up to date: 1 room/, { timeout: 60_000 })
+    const second = await ownerSyncDevice(browser, baseURL!, fixture, key, contexts, 'second', log)
+    const listed = second.getByRole('button', { name: 'Open Two keepers' })
+    await expect(listed).toBeVisible({ timeout: 60_000 })
+    await second.waitForTimeout(15_000)
+    await listed.click()
+    await expect(second.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await second.locator('#appHome').click()
+    await owner.locator('#appHome').click()
+    await expect(owner.getByRole('button', { name: 'Open Two keepers' })).toBeVisible({ timeout: 60_000 })
+    await expect(second.getByRole('button', { name: 'Open Two keepers' })).toBeVisible({ timeout: 60_000 })
+
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, log)
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+    const ownerCard = owner.locator('#awayKnocks .approvalCard.knock'), secondCard = second.locator('#awayKnocks .approvalCard.knock')
+    await expect(ownerCard).toContainText('wants to join Two keepers', { timeout: 60_000 })
+    await expect(secondCard).toContainText('wants to join Two keepers', { timeout: 60_000 })
+
+    await ownerCard.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await guest.locator('#chatInput').fill('In through the first'); await guest.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('In through the first', { timeout: 60_000 })
+    for (const wait of [5_000, 30_000, 40_000]) {
+      await second.waitForTimeout(wait)
+      log.push(`--- second device's card after a further ${wait / 1000} s: ${await secondCard.count()}`)
+    }
+    // A second yes from the other device, as the owner might give it.
+    if (await secondCard.count()) {
+      log.push('--- second device says yes too')
+      await secondCard.getByRole('button', { name: 'Let in', exact: true }).click()
+      await expect(second.locator('#roomTitle')).toHaveText('Two keepers', { timeout: 60_000 })
+      await second.waitForTimeout(20_000)
+    }
+    await guest.locator('#chatInput').fill('Still here'); await guest.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('Still here', { timeout: 60_000 })
+    await owner.locator('#chatInput').fill('Glad you are'); await owner.locator('#chatInput').press('Enter')
+    await expect(guest.locator('#chatLog')).toContainText('Glad you are', { timeout: 60_000 })
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})

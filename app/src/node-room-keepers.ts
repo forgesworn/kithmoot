@@ -2,14 +2,17 @@ import { localIdentity } from '../../src/identity.js'
 import { nodeKeeperInbox, type NodeClientOptions } from '../../src/kithmoot-node.js'
 import { openNodeKeeperAdmissions, type NodeKeeperAdmissions } from '../../src/node-admission.js'
 import type { DeviceStore } from './device-store.js'
+import type { NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
 import { adoptSharedNodeAuthority, listNodeRooms, loadPendingNodeClose, nodeKeeperStore } from './node-rooms.js'
 import { loadSharedOwner } from './room-owner-share.js'
 
 /**
  * Lets known members' devices into the node rooms this device keeps while
  * those rooms are closed here, so a member's device that missed a move
- * follows as soon as any of the owner's devices is running. Unknown people
- * still wait for the open room's Let them in card.
+ * follows as soon as any of the owner's devices is running. Somebody the
+ * room does not know is told to the owner through `knock`, wherever the app
+ * is showing; only the open room can let them in, because a newcomer's
+ * device then asks the room's own desk for its current key.
  *
  * One keeper per room: an open room's runtime claims its room, which stops
  * the closed-room keeper here and, through a stolen Web Lock, in other tabs.
@@ -52,10 +55,14 @@ export function keepClosedNodeRooms(opts: {
   /** The signed-in account whose rooms this device keeps, if any. */
   participant: () => string | undefined
   blocked: (participant: string) => boolean
+  /** A newcomer knocked on this room while it is closed here. The signal
+   *  aborts when this keeper stops, as it does when the room opens here and
+   *  its own keeper takes the knock over. */
+  knock?: (room: string, request: NodeJoinRequest, signal: AbortSignal) => void
   /** Checked minutes apart; a room that becomes due starts at the next refresh. */
   intervalMs?: number
 } & NodeClientOptions): ClosedRoomKeepers {
-  const { store, participant: account, blocked, intervalMs, ...client } = opts
+  const { store, participant: account, blocked, knock, intervalMs, ...client } = opts
   const now = client.now ?? (() => Math.floor(Date.now() / 1000))
   const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
   let owner: string | undefined, stopped = false
@@ -103,8 +110,9 @@ export function keepClosedNodeRooms(opts: {
       inbox.subscribe([{ kinds: [1059], '#p': [node.authority] }], event => {
         if (!live() || seen.has(event.id)) return
         const inspected = keeper!.inspect(event)
-        if (!inspected?.known || blocked(inspected.request.participant)) return
+        if (!inspected || blocked(inspected.request.participant)) return
         seen.add(event.id); if (seen.size > 4096) seen.delete(seen.values().next().value!)
+        if (!inspected.known) { knock?.(room, inspected.request, abort.signal); return }
         void keeper!.admit(event).then(answer => live() ? inbox!.publish(answer) : undefined).catch(() => {})
       })
       void keeper.retry().then(() => keeper!.renew()).catch(() => {})

@@ -110,7 +110,8 @@ export async function admitOwnBrowserNodeDevice(store: DeviceStore, node: NodeRo
 /** All node-only resources belong to one session, including a docked call.
  * None uses account relay pools, public ICE resolution or peer forwarding. */
 export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNodeRoom, options: NodeClientOptions & {
-  ask: (request: NodeJoinRequest) => Promise<boolean>
+  /** The signal aborts when this room's runtime closes, docked call and all. */
+  ask: (request: NodeJoinRequest, signal: AbortSignal) => Promise<boolean>
   settled: (request: NodeJoinRequest, sent: boolean) => void
   blocked: (participant: string) => boolean
   withdrawn: (reason: 'removed' | 'closed' | 'ended' | 'reset') => void
@@ -205,7 +206,7 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
       const inspected = keeper!.inspect(event); if (!inspected || options.blocked(inspected.request.participant)) return
       seen.add(event.id); if (seen.size > 4096) seen.delete(seen.values().next().value!)
       void (async () => {
-        const approved = inspected.known || await options.ask(inspected.request)
+        const approved = inspected.known || await options.ask(inspected.request, controller.signal)
         // Decline is deliberately silent. No signed denial or room key
         // leaves the keeper for someone it has not admitted.
         if (!approved || !live() || options.blocked(inspected.request.participant)) return

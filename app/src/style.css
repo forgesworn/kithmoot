@@ -4603,6 +4603,28 @@ input[type="search"] { font-family: inherit; }
 .approvalCard.knock .note { display: block; margin: .3rem 0; overflow-wrap: anywhere; }
 .approvalCard.knock .knockStatus:empty { display: none; }
 .approvalCard.knock:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* A knock on a room that is not on screen: over any page, clear of the
+   desktop title bar, until it is answered or expires. */
+.awayKnocks {
+  position: fixed;
+  top: calc(var(--titlebar-h, 0px) + var(--s3));
+  right: var(--s3);
+  z-index: 25;
+  width: min(24rem, calc(100vw - 2 * var(--s3)));
+  max-height: calc(100dvh - var(--titlebar-h, 0px) - 2 * var(--s3));
+  overflow-y: auto;
+}
+.awayKnocks[hidden] { display: none; }
+.awayKnocks .approvalCard {
+  margin: 0 0 var(--s2);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgb(0 0 0 / .18);
+}
+.awayKnocks .knockRoom { overflow-wrap: anywhere; }
+@media (max-width: 599px) {
+  .awayKnocks { left: var(--s2); right: var(--s2); width: auto; top: max(var(--s2), env(safe-area-inset-top)); }
+}
+@media (forced-colors: active) { .awayKnocks .approvalCard { border-color: CanvasText; } }
 
 /* The sender picker: one radio row per room, a note, Cancel and Send invite.
    Centred on wide screens, a bottom sheet under 600 px; the list scrolls and
