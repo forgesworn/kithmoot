@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.146",
+  "currentRelease": "0.1.147",
   "releases": [
     {
-      "version": "0.1.146",
+      "version": "0.1.147",
       "updateTo": {
-        "version": "0.1.146",
-        "name": "0.1.146",
-        "pub_date": "2026-11-11T22:48:37Z",
-        "notes": "Rooms in your list now confirm delivery with the room closed, so senders see two ticks without you opening the room. The Confirmations setting still turns it off.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.146/KithMoot-0.1.146-mac-arm64.zip",
-        "sha256": "a4120e6099b7f1fc332db76be1783917cd5ce08d941097e5ea83c098478b88ed",
-        "size": 200011490
+        "version": "0.1.147",
+        "name": "0.1.147",
+        "pub_date": "2026-11-12T08:39:14Z",
+        "notes": "A room made on your KithMoot node now shows its name on your other devices, and they pass it on to guests.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.147/KithMoot-0.1.147-mac-arm64.zip",
+        "sha256": "52d2d13c80a70c6f1a29b4b2f04f57ecc2778b581092731c45b4c5a479714fef",
+        "size": 200011307
       }
     }
   ]
