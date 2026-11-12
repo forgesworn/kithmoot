@@ -111,6 +111,17 @@ being carried it names nobody, so no member is shown a rename. Until 11
 November 2026 nothing posted it, and everybody but the maker saw "Untitled
 room".
 
+Another of the account's devices was told no name by the node either,
+whether it let itself in with the shared owner key or the room's keeper let
+it in. It takes the name from the account's room list, which the maker
+saved with the name, shows it, and posts it as the maker would. A device
+keeping the room posts the name a few seconds after joining, not on the
+ordinary carry a minute in, so a maker that closes soon after has still
+named the room. Until 12 November 2026 a maker closed within the minute left
+the room "Untitled room" on every other device, the owner's own included. A
+room moved onto a node is left as it was: its name reached its members
+before the move.
+
 ## Epochs
 
 A rename is readable only by members holding the epoch it was posted under.

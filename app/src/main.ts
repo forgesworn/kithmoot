@@ -5565,7 +5565,7 @@ function restoreExistingNodeRoom(): void {
 function adoptNodeRoom(held: BrowserNodeRoom): void {
   stopInvitationHost()
   nodeRoom = held; roomSecret = held.secret; roomEndsAt = held.node.endsAt; roomDestruct = held.node.existing?.destruct ?? true
-  roomStartsAt = held.startsAt; roomName = held.name
+  roomStartsAt = held.startsAt; roomName = nodeRoomName(held)
   if (held.node.existing) roomPolicy = held.node.existing.policy
   else { roomPolicy = undefined; roomInvitationCapability = undefined; invitationDelegation = []; admittedRoom = undefined }
   invitationAuthoritySk = held.authoritySk; expectedEpoch = held.epochHint
@@ -9491,6 +9491,7 @@ const ROOM_NAME_PREFIX = 'kithmoot.room-name.v1.'
 const roomNameFollowers = new WeakMap<RoomSession, RoomNameFollower>()
 const roomLogoFollowers = new WeakMap<RoomSession, RoomLogoFollower>()
 let roomNameCarryTimer: ReturnType<typeof setTimeout> | undefined
+let nodeRoomNameTimer: ReturnType<typeof setTimeout> | undefined
 
 function logoForRoom(roomId: string): RoomLogoRecord | undefined {
   const s = session?.roomId === roomId ? session : dockedCall?.session.roomId === roomId ? dockedCall.session : undefined
@@ -9698,13 +9699,42 @@ function scheduleRoomNameCarry(s: RoomSession, minMs: number, spreadMs: number):
  */
 function nameNodeRoomForEveryone(s: RoomSession): void {
   const held = nodeRoom, follower = roomNameFollowers.get(s)
-  if (!held || held.node.room !== s.roomId || !held.authoritySk || !held.name || !follower || follower.current()) return
+  const name = held && nodeRoomName(held)
+  if (!held || held.node.room !== s.roomId || !held.authoritySk || !name || !follower || follower.current()) return
   const log = s.channel(CONTROL_CHANNEL)
   if (log.readOnly) return
   try {
-    const op = carryRoomNameOp({ name: held.name, id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))), at: held.startsAt * 1000 })
+    // The node record's signing, not this device's arrival: another of the
+    // account's devices lets itself in long after the room began.
+    const at = Math.min(held.startsAt, held.node.event.created_at) * 1000
+    const op = carryRoomNameOp({ name, id: bytesToHex(crypto.getRandomValues(new Uint8Array(16))), at })
     void log.send(encodeControl(op)).catch(() => { /* Tried again on the next visit. */ })
   } catch { /* A name nothing survives sanitising is no name to post. */ }
+}
+
+/**
+ * The name of a room on a node as this device knows it: the one it gave the
+ * room here or, for a room made on the node, on another of the account's
+ * devices, the one the account's room list carries. A device that let itself
+ * in, or was let in by the room's keeper, was told no name by the node;
+ * without this it showed "Untitled room" and had no name to post (12
+ * November 2026). A room moved onto a node keeps the name it already had.
+ */
+function nodeRoomName(held: BrowserNodeRoom): string | undefined {
+  if (held.name || held.node.existing) return held.name
+  const listed = sanitiseDisplayName(knownRoom(roomStore(), held.node.room)?.name)
+  // A placeholder another client saved is not a name.
+  return listed && listed !== `Room ${held.node.room.slice(0, 8)}` ? listed : undefined
+}
+
+/** A few seconds after joining, rather than the minute the ordinary carry
+ *  waits, so a device that makes a room on a node and closes soon after has
+ *  still named it for everybody. Only on a device keeping a room made on
+ *  the node. */
+function scheduleNodeRoomName(s: RoomSession): void {
+  clearTimeout(nodeRoomNameTimer)
+  if (!nodeRoom?.authoritySk || nodeRoom.node.existing || nodeRoom.node.room !== s.roomId) return
+  nodeRoomNameTimer = setTimeout(() => { if (session === s) nameNodeRoomForEveryone(s) }, 3_000 + Math.random() * 5_000)
 }
 
 /** Rename the room for everybody in it. */
@@ -15525,6 +15555,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     followSharedRoomName(s)
     attachRoomBoards(s)
     scheduleRoomNameCarry(s, 30_000, 30_000)
+    scheduleNodeRoomName(s)
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
     scheduleReseed(s, pool, !!quietTransport, sessionAuthority)
     scheduleRoomRelaysRepost(s)
@@ -17150,6 +17181,7 @@ function resetRoomState(): void {
   // file no draft names, is let go (`sweepHeldEnvelopes`).
   sweepHeldEnvelopes()
   clearTimeout(roomNameCarryTimer)
+  clearTimeout(nodeRoomNameTimer)
   channels = []
   channelLogs.clear()
   channelCounts.clear()

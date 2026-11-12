@@ -1098,19 +1098,48 @@ test('the owner\'s second device lets itself into a room its account made on the
     await expect(maker.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
     await expect.poll(() => maker.locator('#shareUrl').inputValue()).not.toBe('')
     const link = await maker.locator('#shareUrl').inputValue()
+    // The maker closes as soon as the room is on the account, owner key and
+    // secret with it, and before it has posted the room's name to the node:
+    // as on 12 November, when the owner's phone then showed "Untitled room".
+    await expect(maker.locator('#roomSyncStatus')).toContainText(/accepted by a relay|Up to date: 1 room/, { timeout: 60_000 })
+    // Every device of the owner's that could let it in is gone.
+    log.push('--- maker closes')
+    await maker.close()
 
     const second = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'second', log)
     await expect(second.locator('#roomSyncStatus')).toContainText(/loaded|Up to date/, { timeout: 60_000 })
     const listed = second.getByRole('button', { name: 'Open Kept alone' })
     await expect(listed).toBeVisible({ timeout: 60_000 })
     await second.waitForTimeout(15_000)
-    // Every device of the owner's that could let it in is gone.
-    log.push('--- maker closes; second opens the room from its list')
-    await maker.close()
+    log.push('--- second opens the room from its list')
     await listed.click()
     await expect(second.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
     await expect(second.getByRole('alertdialog', { name: 'Ask to join this room?' })).toHaveCount(0)
+    // The name comes from the account's list: the node told this device none.
+    await expect(second.locator('#roomTitle')).toHaveText('Kept alone')
     await second.locator('#chatInput').fill('Let in without anyone'); await second.locator('#chatInput').press('Enter')
+
+    // A guest the second device lets in sees the name, which only a device
+    // keeping the room can have posted.
+    const guestContext = await newDeviceContext(browser, baseURL!, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
+    contexts.push(guestContext)
+    await guestContext.addInitScript(({ node }) => {
+      const Native = window.WebSocket
+      window.WebSocket = class extends Native {
+        constructor(url: string | URL, protocols?: string | string[]) { super(String(url) === 'wss://node.example/events' ? node : url, protocols) }
+      }
+    }, { node: fixture.websocket })
+    await guestContext.route('https://node.example/**', async route => {
+      const path = new URL(route.request().url()).pathname
+      await route.fulfill({ response: await route.fetch({ url: (path === '/v1/credentials' ? fixture.calls : fixture.desk) + path }) })
+    })
+    const guest = await guestContext.newPage()
+    await openRoomUrl(guest, link)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+    await second.getByRole('button', { name: 'Let in' }).click({ timeout: 60_000 })
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(guest.locator('#roomTitle')).toHaveText('Kept alone', { timeout: 90_000 })
 
     // The maker's device comes back and reads what the second device sent.
     const back = await contexts[0].newPage()
@@ -1193,6 +1222,15 @@ test('the owner\'s second device opens a room its account made on the node', asy
     await maker.getByRole('button', { name: 'Let in' }).click({ timeout: 60_000 })
     await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
     await expect(guest.locator('#roomTitle')).toHaveText('Made on the node', { timeout: 90_000 })
+
+    // With both of the owner's devices keeping the room, the second leaves
+    // for its start page and opens the room again: the name it took from the
+    // account's list and posted leaves the room readable there.
+    await second.goto(baseURL!)
+    await guest.locator('#chatInput').fill('While you were away'); await guest.locator('#chatInput').press('Enter')
+    await openRoomUrl(second, link)
+    await expect(second.locator('#chatLog')).toContainText('While you were away', { timeout: 60_000 })
+    await expect(second.locator('#roomTitle')).toHaveText('Made on the node')
   } catch (error) {
     for (const page of [contexts[1]?.pages()[0]].filter(Boolean)) {
       log.push('--- second status: ' + await page!.locator('#status, #arrivalTitle, #arrivalLead').allInnerTexts().catch(() => []))
