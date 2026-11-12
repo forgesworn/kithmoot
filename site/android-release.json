@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.149",
-  "versionCode": 172,
+  "versionName": "0.6.150",
+  "versionCode": 173,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74515020,
-  "apkSha256": "8ff97e31ad3a25457872e4211cc5791a24d06ba035413f1a779ca0a0e16ddbd6",
+  "apkBytes": 74523212,
+  "apkSha256": "b865c5a36bf9c16c3ddd0baf6f0f390b400740f8d0a9a401363a65e96d1bb62b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.149-production.apk",
+  "downloadFilename": "kithmoot-0.6.150-production.apk",
   "releaseNotes": [
-    "Rooms your account made on your node show their name on this phone, not \"Untitled room\".",
-    "This phone passes a node room's name on to guests when it holds the room's owner key.",
+    "Somebody asking to join one of your node rooms shows as a card over any screen, naming the room.",
+    "With KithMoot in the background, a notification says who is waiting; tapping it opens the room.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
