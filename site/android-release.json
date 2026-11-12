@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.147",
-  "versionCode": 170,
+  "versionName": "0.6.148",
+  "versionCode": 171,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 74510924,
-  "apkSha256": "d12a83f90ff3de5448bf2dcaf05f55a73a4a7045e246acd223aeab3d9a328ade",
+  "apkSha256": "e85c1bfe932e2edb6fc25022915893d2270775a0e7d6359bf3eddd47003034ee",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.147-production.apk",
+  "downloadFilename": "kithmoot-0.6.148-production.apk",
   "releaseNotes": [
-    "Messages that arrive while KithMoot is closed now show the sender two ticks.",
-    "Turning off confirmations under Settings still stops it; quiet chats never send them.",
+    "Your phone opens rooms your account made on your node, even with your other devices off.",
+    "Rooms on your node now stay in your account's room list on this phone.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
