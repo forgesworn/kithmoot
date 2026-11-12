@@ -227,6 +227,31 @@ APK link with the website release. The production-lineage procedure and final
 live checks are in
 [`docs/android-production-publication.md`](../docs/android-production-publication.md).
 
+### Keeping the download volume from filling
+
+Every installer ever published lives under `/var/www/kithmoot/apk` (desktop
+folders of about 1.1 GB each, APKs of about 71 MB) and every deploy leaves a
+release directory behind, so the volume fills unless something retires them.
+It did on 11 November 2026. At each release:
+
+```bash
+# keep the newest 10 deploys
+deploy/deploy.sh --prune 10
+# keep the newest 10 desktop and 10 Android versions on the server; link
+# older ones to their identical GitHub release copies (needs `gh`)
+node deploy/retire-downloads.mjs --keep 10
+# commit and deploy site/downloads/versions.json, then, once it is live:
+DEPLOY_HOST=deploy@YOUR_BOX node deploy/retire-downloads.mjs --remove        # what would go
+DEPLOY_HOST=deploy@YOUR_BOX node deploy/retire-downloads.mjs --remove --yes  # delete it
+```
+
+A version moves to GitHub only when every one of its files is in its GitHub
+release with the same size and SHA-256; one without an identical copy stays
+on the server. `--remove` reads the live `versions.json`, never deletes the
+version a live manifest offers, and follows a version folder's link to the
+volume it lives on. `download-versions.mjs` keeps listing versions sent to
+GitHub. Rules and tests: `deploy/download-retention.mjs`.
+
 Before the first deploy, install the vhost (see the comment block at the
 top of `Caddyfile.kithmoot` for the exact steps - it needs a real hostname
 substituted in, and to be wired into whatever this box's Caddy already
