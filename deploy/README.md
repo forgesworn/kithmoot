@@ -250,7 +250,8 @@ release with the same size and SHA-256; one without an identical copy stays
 on the server. `--remove` reads the live `versions.json`, never deletes the
 version a live manifest offers, and follows a version folder's link to the
 volume it lives on. `download-versions.mjs` keeps listing versions sent to
-GitHub. Rules and tests: `deploy/download-retention.mjs`.
+GitHub. A folder or APK the deploy user cannot delete, such as one
+uploaded as root, is reported as kept and stays where it is. Rules and tests: `deploy/download-retention.mjs`.
 
 Before the first deploy, install the vhost (see the comment block at the
 top of `Caddyfile.kithmoot` for the exact steps - it needs a real hostname
