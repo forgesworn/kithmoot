@@ -1229,6 +1229,11 @@
       </div>
     </main>
 
+    <!-- Somebody knocking on one of your node rooms while another page is on
+         screen: their card waits here, naming the room. Filled in by
+         `renderApprovals` in app/src/main.ts. -->
+    <div id="awayKnocks" class="awayKnocks" role="region" aria-label="People asking to join" aria-live="polite" hidden></div>
+
     <!-- New room, and the two ways of opening a room somebody else made.
          Each is the form that used to sit on the start page, now a sheet the
          New menu opens from any screen, in a room or out of one. -->

@@ -3,7 +3,7 @@ import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
 import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
-import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord } from '@forgesworn/fold-kit/node-room'
+import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, admitOwnBrowserNodeDevice, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
 import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
 import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
@@ -1322,9 +1322,11 @@ function disconnectedAccountRooms(): KnownRoom[] {
 // `device-store.ts` for why a relay must never see one device key across
 // two rooms. The single shared key this replaces is forgotten on load.
 const deviceStore = browserDeviceStore(localStorage)
-/** Known members' devices get into this account's moved rooms whenever this
- *  app is running, not only while the room is open here. */
-const closedRoomKeepers = keepClosedNodeRooms({ store: deviceStore, participant: () => nostrSession?.pubkey, blocked: participant => contactIsBlocked(participant) })
+/** Known members' devices get into this account's node rooms whenever this
+ *  app is running, not only while the room is open here, and a newcomer's
+ *  knock reaches the owner wherever the app is showing. */
+const closedRoomKeepers = keepClosedNodeRooms({ store: deviceStore, participant: () => nostrSession?.pubkey, blocked: participant => contactIsBlocked(participant),
+  knock: (room, request, signal) => { void askToLetIn(nodeKnockRequest(request), 'node', { roomId: room, signal, closed: true }) } })
 /** Whether the relays kept this device's own messages: the tick. See delivery-state.ts. */
 const delivery = new DeliveryTicks({
   store: deviceStore,
@@ -2744,8 +2746,18 @@ function setKnock(roomId: string, on: boolean): void {
 
 interface Knock extends InvitationRequest {
   at: number
+  /** The room the knock is for, which need not be the room on screen. */
   roomId: string
+  /** A node room's request ends here, in seconds. */
+  expiresAt?: number
   kind: 'invitation' | 'member' | 'node'
+  /** A node room's keeper put it, open or closed here. That keeper answers
+   *  it, wherever the app is showing, and withdraws it when it stops. */
+  keeper?: AbortSignal
+  /** Put by the keeper of a room closed here. A newcomer's device asks the
+   *  open room's desk for the room's current key, so letting them in opens
+   *  the room, whose own keeper then lets them in without asking again. */
+  closed?: boolean
   state: 'waiting' | 'sending' | 'failed'
   declining?: boolean
   refusal?: InvitationRefusalAttempt
@@ -2759,28 +2771,137 @@ function knockLabel(knock: InvitationRequest): string {
   return knock.name ?? 'Somebody'
 }
 
-function askToLetIn(request: InvitationRequest & { expiresAt?: number }, kind: Knock['kind'] = 'invitation'): Promise<boolean> {
+function nodeKnockRequest(request: NodeJoinRequest): InvitationRequest & { expiresAt: number } {
+  return { request: request.id, device: request.device, participant: request.participant, verifiedParticipant: request.participant, name: request.name, expiresAt: request.expiresAt }
+}
+
+/** The room on screen, if any: where a knock's card goes above the conversation. */
+function shownRoomId(): string | undefined {
+  return session ? currentRoomId() : undefined
+}
+
+function knockRoomName(roomId: string): string {
+  return sanitiseDisplayName(roomId === currentRoomId() ? roomName : undefined) ?? sanitiseDisplayName(knownRoom(roomStore(), roomId)?.name) ?? 'one of your rooms'
+}
+
+/** Knocks the owner said yes to from another page, by request: the room
+ *  they are for opens, and its keeper lets them in when it hears them. */
+const approvedKnocks = new Map<string, { roomId: string; until: number }>()
+
+/** `from` names the node room whose keeper asks, open or closed here.
+ *  Without it the knock is for the room on screen, and leaving the room
+ *  ends it. */
+function askToLetIn(request: InvitationRequest & { expiresAt?: number }, kind: Knock['kind'] = 'invitation',
+  from?: { roomId: string; signal: AbortSignal; closed?: boolean }): Promise<boolean> {
   if (request.participant && contactIsBlocked(request.participant)) return Promise.resolve(false)
   // Somebody this device invited is not asked about: inviting them was
   // the answer. Anybody else with the link gets the card.
-  const roomId = currentRoomId()
-  if (!roomId) return Promise.resolve(false)
+  const roomId = from ? from.roomId : currentRoomId()
+  if (!roomId || from?.signal.aborted) return Promise.resolve(false)
+  const earlier = knocks.get(request.request)
+  const approved = approvedKnocks.get(request.request)
+  if (approved && approved.until <= nowSeconds()) approvedKnocks.delete(request.request)
+  if (from && !from.closed && approved?.roomId === roomId && approved.until > nowSeconds()) {
+    approvedKnocks.delete(request.request)
+    if (earlier) withdrawKnock(earlier)
+    // The room hears the request as it opens: a grant is announced in the
+    // room, so it waits for this device to have joined.
+    return whenRoomJoined(roomId, from.signal, approved.until)
+  }
   const verified = kind === 'member' ? request.participant : request.verifiedParticipant
-  if (verified && invitedTo(roomId).has(verified)) {
-    return Promise.resolve(true)
+  if (verified && invitedTo(roomId).has(verified) && !from?.closed) {
+    // A node room's keeper may hear them while the room is still opening.
+    return from ? whenRoomJoined(roomId, from.signal, request.expiresAt ?? nowSeconds() + KNOCK_WAIT_MS / 1000) : Promise.resolve(true)
   }
   return new Promise((resolve) => {
-    const knock: Knock = { ...request, at: nowSeconds(), roomId, kind, state: 'waiting', resolve }
+    // The same knock again, from the keeper that took the room over: one card.
+    if (earlier) { clearTimeout(earlier.timer); earlier.resolve(false) }
+    const knock: Knock = { ...request, at: nowSeconds(), roomId, kind, keeper: from?.signal, closed: from?.closed, state: 'waiting', resolve }
     knocks.set(knock.request, knock)
-    setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`, 'progress')
+    if (roomId === shownRoomId()) setStatus(`${knockLabel(knock)} wants to join. Let them in from the card above the conversation.`, 'progress')
     renderApprovals()
-    knock.timer = setTimeout(() => {
-      if (knocks.get(knock.request) !== knock) return
-      knocks.delete(knock.request)
-      resolve(false)
-      renderApprovals()
-    }, kind === 'node' && request.expiresAt !== undefined ? Math.max(1, (request.expiresAt - nowSeconds()) * 1000) : KNOCK_WAIT_MS)
+    notifyKnock(knock)
+    knock.timer = setTimeout(() => withdrawKnock(knock),
+      kind === 'node' && request.expiresAt !== undefined ? Math.max(1, (request.expiresAt - nowSeconds()) * 1000) : KNOCK_WAIT_MS)
+    from?.signal.addEventListener('abort', () => withdrawKnock(knock), { once: true })
   })
+}
+
+/** Resolves true once this device's session for the room has joined, or
+ *  false if its keeper stops or the request ends first. */
+function whenRoomJoined(roomId: string, signal: AbortSignal, until: number): Promise<boolean> {
+  const joined = () => [session, dockedCall?.session].some(s => {
+    if (!s || s.roomId !== roomId || s.closed) return false
+    try { s.chat; return true } catch { return false }
+  })
+  return new Promise(resolve => {
+    const finish = (value: boolean) => { clearInterval(timer); signal.removeEventListener('abort', stop); resolve(value) }
+    const stop = () => finish(false)
+    const timer = setInterval(() => { if (joined()) finish(true); else if (nowSeconds() >= until) finish(false) }, 250)
+    signal.addEventListener('abort', stop, { once: true })
+    if (signal.aborted) stop()
+    else if (joined()) finish(true)
+  })
+}
+
+/** The knock's question has gone: it expired, or its keeper stopped. */
+function withdrawKnock(knock: Knock): void {
+  if (knocks.get(knock.request) !== knock) return
+  knocks.delete(knock.request)
+  clearTimeout(knock.timer)
+  knock.resolve(false)
+  renderApprovals()
+}
+
+/** Said by the system when the app is not in front: anyone with a link can
+ *  knock, so one notice per room, and never for a room whose notifications
+ *  are off. The name is the guest's own until the card says otherwise. */
+function notifyKnock(knock: Knock): void {
+  const away = document.hidden || Boolean(window.kithmootDesktop && !document.hasFocus())
+  if (!away || !notifySettings(deviceStore).enabled) return
+  if (roomNotificationLevel(deviceStore, nostrSession?.pubkey, knock.roomId, notificationProjectsForRoom(knock.roomId), nowSeconds()) === 'off') return
+  void deliverKnockNotice({ title: `${knockLabel(knock)} wants to join`, body: `Asking to join ${knockRoomName(knock.roomId)}.`, tag: `knock:${knock.roomId}` }, knock.roomId).catch(() => {})
+}
+
+/** As a message's notice: the bell only when it is on and no call is live,
+ *  so a public session's knocks never ring over the call. */
+async function deliverKnockNotice(content: NotificationContent, roomId: string): Promise<void> {
+  const quiet = !zenBellEnabled() || callIsLive() || onCall()
+  if (window.kithmootDesktop) {
+    window.kithmootDesktop.notify({ ...content, roomId, silent: true })
+    if (!quiet) void playZenChime()
+    return
+  }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+  const url = knownRoom(roomStore(), roomId)?.link
+  const options: NotificationOptions = { body: content.body, tag: content.tag, data: { url }, silent: quiet }
+  let registration: ServiceWorkerRegistration | undefined
+  try { registration = await navigator.serviceWorker?.getRegistration() } catch { registration = undefined }
+  if (registration?.showNotification) { await registration.showNotification(content.title, options); return }
+  const shown = new Notification(content.title, options)
+  shown.onclick = () => { window.focus(); shown.close(); if (url) openLink(url) }
+}
+
+function openKnockRoom(knock: Knock): void {
+  const room = knownRoom(roomStore(), knock.roomId)
+  if (room) openKnownRoom(room)
+}
+
+/** Yes, from another page, to a room closed here: open it, and its keeper
+ *  lets this guest in when it hears their request again. */
+function letInByOpening(knock: Knock): void {
+  approvedKnocks.set(knock.request, { roomId: knock.roomId, until: knock.expiresAt ?? knock.at + KNOCK_WAIT_MS / 1000 })
+  knock.state = 'sending'
+  renderApprovals()
+  openKnockRoom(knock)
+  // Opening the room stops this keeper and withdraws the card. A room that
+  // did not open, say with a file still sending here, leaves the card to try again.
+  // The yes stands until the request ends: a room opening behind a slow signer still lets them in.
+  setTimeout(() => {
+    if (knocks.get(knock.request) !== knock || knock.state !== 'sending' || knock.keeper?.aborted) return
+    knock.state = 'waiting'
+    renderApprovals()
+  }, 15_000)
 }
 
 /** Somebody the room does not know asked this device for the room's key
@@ -2796,9 +2917,13 @@ function askAboutUnknown(asking: RoomSession, asker: { participant: string; devi
 
 function answerKnock(knock: Knock, yes: boolean): void {
   if (knocks.get(knock.request) !== knock || knock.state !== 'waiting') return
-  if (knock.roomId !== currentRoomId() || (knock.participant && contactIsBlocked(knock.participant))) {
-    knocks.delete(knock.request); clearTimeout(knock.timer); knock.resolve(false); renderApprovals(); return
+  // A node room's keeper answers for its own room; any other knock only
+  // for the room it came in on.
+  if ((!knock.keeper && knock.roomId !== currentRoomId()) || knock.keeper?.aborted || (knock.participant && contactIsBlocked(knock.participant))) {
+    withdrawKnock(knock); return
   }
+  if (yes && knock.closed) { letInByOpening(knock); return }
+  const here = knock.roomId === shownRoomId()
   if (!yes && knock.kind === 'invitation') {
     knock.declining = true
     knock.resolve(false) // The legacy host hook must not send a grant.
@@ -2811,12 +2936,12 @@ function answerKnock(knock: Knock, yes: boolean): void {
     clearTimeout(knock.timer)
   }
   knock.resolve(yes)
-  addSystemLine(yes
+  if (here) addSystemLine(yes
     ? knock.kind === 'invitation'
       ? `You approved ${knockLabel(knock)}’s request. Sending their invitation…`
       : `You approved ${knockLabel(knock)}’s access from this device.`
     : `You declined ${knockLabel(knock)}.`)
-  if (yes && knock.kind === 'invitation') setStatus(`Sending the invitation to ${knockLabel(knock)}…`, 'progress')
+  if (here && yes && knock.kind === 'invitation') setStatus(`Sending the invitation to ${knockLabel(knock)}…`, 'progress')
   renderApprovals()
 }
 
@@ -2858,18 +2983,19 @@ async function sendKnockRefusal(knock: Knock): Promise<void> {
 /** A host's decision is not the transport's acknowledgement, and neither
  * proves the guest has received the grant or joined. Match the exact request
  * and originating room before changing its pending card. */
-function finishKnockGrant(request: InvitationRequest, sent: boolean): boolean {
+function finishKnockGrant(request: InvitationRequest, sent: boolean, roomId = currentRoomId()): boolean {
   const knock = knocks.get(request.request)
-  if (!knock || !['invitation', 'node'].includes(knock.kind) || knock.state !== 'sending' || knock.roomId !== currentRoomId()) return false
+  if (!knock || !['invitation', 'node'].includes(knock.kind) || knock.state !== 'sending' || knock.roomId !== roomId) return false
+  const here = knock.roomId === shownRoomId()
   if (sent) {
     knocks.delete(knock.request)
     clearTimeout(knock.timer)
-    addSystemLine(`Invitation sent to ${knockLabel(knock)}. They can join when ready.`)
-    setStatus(`Invitation sent to ${knockLabel(knock)}. Waiting for them to join.`, 'done')
+    if (here) addSystemLine(`Invitation sent to ${knockLabel(knock)}. They can join when ready.`)
+    setStatus(here ? `Invitation sent to ${knockLabel(knock)}. Waiting for them to join.` : `${knockLabel(knock)} was let in to ${knockRoomName(knock.roomId)}.`, 'done')
   } else {
     knock.state = 'failed'
-    addSystemLine(`The invitation to ${knockLabel(knock)} could not be sent. Ask them to retry their request.`)
-    setStatus('The invitation could not be sent. Check your connection and ask the guest to retry.')
+    if (here) addSystemLine(`The invitation to ${knockLabel(knock)} could not be sent. Ask them to retry their request.`)
+    if (here) setStatus('The invitation could not be sent. Check your connection and ask the guest to retry.')
   }
   renderApprovals()
   return true
@@ -3035,9 +3161,10 @@ async function sendRoomInvite(room: KnownRoom): Promise<void> {
   }
 }
 
+/** Leaving a room ends the knocks it took in. A node room's keeper, still
+ *  running for a docked call or with the room closed, keeps its own. */
 function forgetKnocks(): void {
-  for (const knock of knocks.values()) { clearTimeout(knock.timer); knock.resolve(false) }
-  knocks.clear()
+  for (const knock of [...knocks.values()]) if (!knock.keeper) withdrawKnock(knock)
 }
 
 /** The switch in Room details, for a device that answers this room's link
@@ -11075,10 +11202,13 @@ function verdictSentence(by: string, verdict: string, request: OpenApproval): st
 
 function renderApprovals(): void {
   const box = $('approvals')
+  // A knock for a room that is not on screen waits here, over any page.
+  const away = $('awayKnocks')
   // Keep pending join controls connected when another request arrives,
   // including between pointer-down and pointer-up or while using Tab.
-  const existingKnocks = new Map(Array.from(box.querySelectorAll<HTMLElement>('.approvalCard.knock'), card => [card.dataset.request, card]))
+  const existingKnocks = new Map(Array.from(document.querySelectorAll<HTMLElement>('#approvals .approvalCard.knock, #awayKnocks .approvalCard.knock'), card => [card.dataset.request, card]))
   const focusedKnock = document.activeElement?.closest<HTMLElement>('.approvalCard.knock')
+  const shown = shownRoomId()
   for (const child of Array.from(box.children)) if (!child.classList.contains('knock')) child.remove()
   const now = nowSeconds()
   let soonest: number | undefined
@@ -11117,12 +11247,15 @@ function renderApprovals(): void {
   }
   for (const knock of knocks.values()) {
     if (knock.participant && contactIsBlocked(knock.participant)) continue
+    const elsewhere = knock.roomId !== shown
     let card = existingKnocks.get(knock.request)
+    if (card && (card.dataset.away === 'true') !== elsewhere) { card.remove(); card = undefined }
     existingKnocks.delete(knock.request)
     if (!card) {
       card = document.createElement('div')
       card.className = 'approvalCard knock'
       card.dataset.request = knock.request
+      card.dataset.away = String(elsewhere)
       card.tabIndex = -1
       const who = document.createElement('span')
       who.className = 'who'
@@ -11142,8 +11275,15 @@ function renderApprovals(): void {
         button.addEventListener('click', () => answerKnock(knock, yes))
         options.append(button)
       }
+      if (elsewhere && knownRoom(roomStore(), knock.roomId)) {
+        const open = document.createElement('button')
+        open.type = 'button'
+        open.textContent = 'Open room'
+        open.addEventListener('click', () => openKnockRoom(knock))
+        options.append(open)
+      }
       card.append(who, evidence, status, options)
-      box.append(card)
+      ;(elsewhere ? away : box).append(card)
     }
     card.setAttribute('role', 'group')
     card.setAttribute('aria-label', `${knockLabel(knock)}’s join request`)
@@ -11151,9 +11291,15 @@ function renderApprovals(): void {
     who.replaceChildren()
     if (knock.participant) who.append(identityRun(shownAs(knock.participant, knock.name), false, false, false, true))
     else who.append(knock.name ?? 'Somebody')
-    who.append(' wants to join.')
+    if (elsewhere) {
+      const room = document.createElement('strong')
+      room.className = 'knockRoom'
+      room.textContent = knockRoomName(knock.roomId)
+      who.append(' wants to join ', room, '.')
+    } else who.append(' wants to join.')
     const status = card.querySelector<HTMLElement>('.knockStatus')!
-    const statusText = knock.state === 'sending' ? knock.declining ? 'Sending refusal…' : 'Sending invitation…'
+    const statusText = knock.state === 'waiting' && knock.closed ? 'Letting them in opens the room.'
+      : knock.state === 'sending' ? knock.declining ? 'Sending refusal…' : knock.closed ? 'Opening the room to let them in…' : knock.kind === 'node' ? 'Letting them in…' : 'Sending invitation…'
       : knock.state === 'failed' ? knock.declining ? 'Refusal was not confirmed. The guest may still have received it.' : 'Invitation could not be sent. Check your connection and ask the guest to retry.' : ''
     if (status.textContent !== statusText) status.textContent = statusText
     const options = card.querySelector<HTMLElement>('.options')!
@@ -11179,8 +11325,10 @@ function renderApprovals(): void {
     card.dataset.state = knock.state
   }
   for (const card of existingKnocks.values()) card.remove()
+  away.hidden = !away.childElementCount
   if (focusedKnock && (!focusedKnock.isConnected || !focusedKnock.contains(document.activeElement))) {
-    const next = focusedKnock.isConnected ? focusedKnock : box.querySelector<HTMLElement>('.knock button:not([disabled])') ?? $('chatInput')
+    const next = focusedKnock.isConnected ? focusedKnock
+      : (focusedKnock.dataset.away === 'true' ? away : box).querySelector<HTMLElement>('.knock button:not([disabled])') ?? (session ? $('chatInput') : $('homeRoomQuery'))
     next.focus({ preventScroll: true })
   }
   // A card leaves on its own when its question expires.
@@ -14916,8 +15064,9 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         onPeer: registerConnection,
         allowed: () => currentParticipant() === roomNode.participant && (generation === roomGeneration || !!created && (session === created || dockedCall?.session === created)),
         blocked: contactIsBlocked,
-        ask: request => askToLetIn({ request: request.id, device: request.device, participant: request.participant, verifiedParticipant: request.participant, name: request.name, expiresAt: request.expiresAt }, 'node'),
-        settled: (request, sent) => { if (generation === roomGeneration) finishKnockGrant({ request: request.id, device: request.device }, sent) },
+        // Its own room's knocks, even while another room is on screen beside its docked call.
+        ask: (request, signal) => askToLetIn(nodeKnockRequest(request), 'node', { roomId: roomNode.node.room, signal }),
+        settled: (request, sent) => { finishKnockGrant({ request: request.id, device: request.device }, sent, roomNode.node.room) },
         withdrawn: reason => {
           if (!created) {
             if (generation === roomGeneration && ['closed', 'removed', 'ended'].includes(reason)) {
@@ -15258,6 +15407,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     session = s
     created = s
     if (nodeRuntime) { nodeRuntimes.set(s, nodeRuntime); nodeRuntime.attach(s); openingNodeRuntime = undefined }
+    // A knock for this room waiting over the last page comes down to it.
+    renderApprovals()
     sessionIcePrepare.set(s, async () => {
       if (roomNode) { if (!nodeRuntime?.allowed()) throw Error('Your KithMoot node access is unavailable.'); return }
       if (!hasRelay(resolvedIceServers) && !deviceRelay && isDefaultIceUrls(roomIceUrls)) await refreshIce()
@@ -17279,6 +17430,7 @@ function resumeDockedCall(): void {
   restoreRoomUi(c.ui)
   const s = c.session
   session = s
+  renderApprovals()
   sessionTransport = c.transport
   quietTransport = c.quiet
   iceRefreshTimer = c.iceRefreshTimer
