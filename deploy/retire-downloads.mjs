@@ -75,7 +75,17 @@ while IFS= read -r p; do
   case "$target" in /opt/bulk/kithmoot-delivery-*/*/*|${root}/*/*) ;; *) echo "skip $p -> $target"; continue ;; esac
   [ "$(basename -- "$target")" = "$(basename -- "$p")" ] || { echo "skip $p -> $target"; continue; }
   size=$(du -sk -- "$target" | cut -f1)
-  if [ "$DO" = yes ]; then rm -rf -- "$target"; [ -L "$p" ] && rm -f -- "$p"; echo "removed $p ($((size / 1024)) MiB)"; else echo "would remove $p ($((size / 1024)) MiB)"; fi
+  # A folder or file this user cannot delete (one uploaded as root) stays,
+  # and says so: rm -rf leaves it in place without failing the loop.
+  blocked=
+  [ -w "$(dirname -- "$target")" ] || blocked=yes
+  [ -d "$target" ] && [ ! -w "$target" ] && blocked=yes
+  if [ -n "$blocked" ]; then echo "kept $p: not removable by $(id -un)"; continue; fi
+  if [ "$DO" = yes ]; then
+    rm -rf -- "$target" 2>/dev/null
+    if [ -e "$target" ]; then echo "kept $p: not removable by $(id -un)"; continue; fi
+    [ -L "$p" ] && rm -f -- "$p"; echo "removed $p ($((size / 1024)) MiB)"
+  else echo "would remove $p ($((size / 1024)) MiB)"; fi
   total=$((total + size))
 done
 echo "total $((total / 1024 / 1024)) GiB"`
