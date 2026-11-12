@@ -4023,6 +4023,21 @@
   ],
   "android": [
     {
+      "version": "0.6.147",
+      "published": "2026-11-11",
+      "files": [
+        {
+          "os": "android",
+          "arch": "any",
+          "kind": "production",
+          "filename": "kithmoot-0.6.147-production.apk",
+          "url": "/apk/kithmoot-0.6.147-production.apk",
+          "bytes": 74510924,
+          "sha256": "d12a83f90ff3de5448bf2dcaf05f55a73a4a7045e246acd223aeab3d9a328ade"
+        }
+      ]
+    },
+    {
       "version": "0.6.146",
       "published": "2026-11-11",
       "files": [
@@ -4166,7 +4181,7 @@
           "arch": "any",
           "kind": "production",
           "filename": "kithmoot-0.6.137-production.apk",
-          "url": "/apk/kithmoot-0.6.137-production.apk",
+          "url": "https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.137/kithmoot-0.6.137-production.apk",
           "bytes": 74429004,
           "sha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246"
         }
