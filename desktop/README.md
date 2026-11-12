@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.147 keeps the name of a room made on your KithMoot node on every device: another of your devices that opens it takes the name from your account's room list and, holding the room's owner key, tells guests, and the device keeping the room posts its name a few seconds after opening rather than a minute in.
+Version 0.1.148 tells you when somebody asks to join one of your rooms on your KithMoot node while another room or the start page is on screen: a card names the room, and a notification says so while the app is in the background. Letting them in from a room that is closed here opens it, because a newcomer's device gets the room's current key only from an open copy of the room.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 

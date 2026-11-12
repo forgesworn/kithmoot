@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.147",
+  "currentRelease": "0.1.148",
   "releases": [
     {
-      "version": "0.1.147",
+      "version": "0.1.148",
       "updateTo": {
-        "version": "0.1.147",
-        "name": "0.1.147",
-        "pub_date": "2026-11-12T08:39:14Z",
-        "notes": "A room made on your KithMoot node now shows its name on your other devices, and they pass it on to guests.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.147/KithMoot-0.1.147-mac-arm64.zip",
-        "sha256": "52d2d13c80a70c6f1a29b4b2f04f57ecc2778b581092731c45b4c5a479714fef",
-        "size": 200011307
+        "version": "0.1.148",
+        "name": "0.1.148",
+        "pub_date": "2026-11-12T16:26:28Z",
+        "notes": "Somebody asking to join one of your node rooms now reaches you wherever you are in the app, with a card naming the room and a notification while it is in the background.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.148/KithMoot-0.1.148-mac-arm64.zip",
+        "sha256": "1273ff44956ca2b015d15a0ebf5f285c77f0ec69f249d1ced9554d4ca2a22aa4",
+        "size": 200014030
       }
     }
   ]
