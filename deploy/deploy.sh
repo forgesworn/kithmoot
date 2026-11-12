@@ -282,10 +282,11 @@ set -euo pipefail
 cd "$DEPLOY_ROOT/releases"
 # Never remove whatever current points at, whatever its timestamp says.
 live="\$(basename "\$(readlink -f "$DEPLOY_ROOT/current")")"
+# A release this user cannot delete (one a root deploy left) is reported and
+# kept, rather than stopping the deploy after it has already gone live.
 ls -1t | tail -n +$((PRUNE_KEEP + 1)) | while read -r old; do
   [[ "\$old" == "\$live" ]] && continue
-  echo "removing \$old"
-  rm -rf -- "\$old"
+  if rm -rf -- "\$old" 2>/dev/null; then echo "removed \$old"; else echo "kept \$old: not removable by \$(id -un)"; fi
 done
 REMOTE
 fi
