@@ -9931,8 +9931,34 @@ let keeperParticipant: string | undefined
 
 /** A name for one person, for a status line: "Somebody" when they have none,
  *  and a short key only when two people in view claim the same name. */
+/** The names people had in each room while they were in it. */
+const namesInRoom = new WeakMap<RoomSession, Map<string, string>>()
+function rememberNamesInRoom(s: RoomSession, views: readonly ParticipantView[]): void {
+  let names = namesInRoom.get(s)
+  if (!names) namesInRoom.set(s, names = new Map())
+  for (const view of views) if (view.name) names.set(view.participant, view.name)
+}
+
+/** The name somebody goes by in the room on screen, present or gone: a
+ *  confirmation from a device with the room closed comes from somebody no
+ *  longer in it, and was "Somebody" once their presence had ended. */
+function nameInRoom(pubkey: string): string | undefined {
+  const s = session
+  if (!s) return undefined
+  const present = s.participants().find(v => v.participant === pubkey)?.name
+  if (present) return present
+  const remembered = namesInRoom.get(s)?.get(pubkey)
+  if (remembered) return remembered
+  const messages = conversationMessages(undefined)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!
+    if (m.participant === pubkey && m.name) return m.name
+  }
+  return undefined
+}
+
 function personLabel(pubkey: string): string {
-  const shown = shownAs(pubkey, session?.participants().find((v) => v.participant === pubkey)?.name)
+  const shown = shownAs(pubkey, nameInRoom(pubkey))
   // A short key only when two people in view claim the same name.
   if (shown.name === undefined) return 'Somebody'
   return nameCollides(pubkey, shown.name) ? `${shown.name} (${shown.short})` : shown.name
@@ -15440,6 +15466,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           if (change.removed.length > 0) callTimeline.record('advert-change', short(change.device), `-${change.removed.join(',')}`)
         }
       }
+      rememberNamesInRoom(s, views)
       // A heartbeat that changes nothing anybody can see waits for the
       // trailing paint; see `throttleRosterPaint`.
       throttleRosterPaint(s, views, () => {
