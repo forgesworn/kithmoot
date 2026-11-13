@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calls behind a VPN · KithMoot</title>
+    <meta name="description" content="How to make a KithMoot call work when everyone on it is behind a VPN or a restrictive network." />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#F3F8FA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#081923" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="canonical" href="https://kithmoot.app/calls-behind-vpn/" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="174" height="44" alt="KithMoot" /></picture></a><nav aria-label="Main navigation"><a href="/#what">Features</a><a href="/#start">How it works</a><a href="/downloads/">Download</a><a href="/#help">Questions</a></nav><a class="button primary nav-open" href="/j/">Open KithMoot</a></header>
+<main id="main" class="wrap">
+<section class="legal-page">
+<h1>Calls when you're behind a VPN</h1>
+<p class="dated">Written 13 November 2026, for the current web app.</p>
+
+<p>KithMoot calls connect directly between devices when they can. Two people behind VPNs usually can't connect that way: each VPN hides its users behind a shared exit that won't accept a connection it didn't start. The call then needs a TURN relay that both devices can reach. This page shows how to set one up.</p>
+<p>We no longer run a public call relay. Ours closed on 8 November 2026 (<a href="/privacy/">privacy notice</a>, section 4.5). The relay has to come from you, the room or one of its members.</p>
+<p>A relay passes the call along but can't see or hear it. The call is encrypted between the devices and the relay never gets the keys. It does see the IP address each device connects from (on a VPN, the VPN's exit), when the call happens and how much data it carries.</p>
+
+<h2>Choose a relay</h2>
+<ol>
+<li><strong>The room starter's Spry node.</strong> If the person who starts the room has paired a Spry node under Settings, Calls, <em>Your Spry node</em>, rooms they start share it with everyone in them. Guests set nothing up.</li>
+<li><strong>The room starter's desktop app.</strong> If one of you uses the <a href="/downloads/">desktop app</a> on home broadband and can turn their VPN off for the call, they can run the relay built into the app: Settings, Calls, <em>Call relay on this computer</em>. It's off until they turn it on. Rooms they start share it, so guests set nothing up. It asks the router to open its ports (UPnP or similar), so the host turns their VPN off for the call. It can't run behind a second router, or where the internet provider shares one address between many customers. The page tells you which. Once someone else is in the room, <em>Check from another device…</em> confirms they can reach it. People who use it see the host's internet address, and the host's relay sees theirs.</li>
+<li><strong>A relay server with a login for each person.</strong> This is either a small relay one of you runs (<a href="https://github.com/forgesworn/kithmoot/blob/main/docs/private-call-relay.md">how to set one up</a>) or a managed TURN service. Each person gets their own login, usually as a connection file, and keeps it private. Either can cost money.</li>
+<li><strong>Public call relays.</strong> These are off by default. Strangers run them and advertise them on Nostr. Use them only as a last resort.</li>
+</ol>
+
+<h2>Everyone, before the call</h2>
+<ol>
+<li>Use <a href="/j/">KithMoot in a current browser</a> (Chrome, Firefox or Safari) or the <a href="/downloads/">desktop app</a>. On iPhone or iPad, use Safari. You don't need an account to join.</li>
+<li>If you were given a relay login (option 3 above), open Settings, Calls, <em>Relay server</em>. Choose <em>Import a connection file…</em> and pick your file, or type in the addresses, username and password you were given. Nothing is saved until you choose <em>Save</em>.</li>
+<li>Once it's saved, choose <em>Test</em>. It contacts only the relay and doesn't use your camera or microphone. Don't carry on until it passes.</li>
+<li>For your first call, leave <em>Hide my IP address on calls</em> off, and leave <em>Hide my IP address from other people in this call</em> unticked when you join. If the relay has any problem, that setting stops the call connecting at all. With it off, the other people on the call can see your device's local network addresses as well as the address you connect from. On a VPN, that's the VPN's exit.</li>
+</ol>
+<p>On Android, the relay is under Settings, Calls. If there's no import option, type in the details from the file.</p>
+
+<h2>If you're starting the room</h2>
+<ol>
+<li>Choose <em>Start a room</em>. Tick <em>Ask me before anyone joins</em>, because anyone who gets the invite link can pass it on. Then choose <em>Start a room</em> again.</li>
+<li>Choose <em>Copy invite link</em> and send it privately. Never put a relay password in a link or in the room's chat. KithMoot never adds one.</li>
+<li>Stay in the room. You let each person in yourself.</li>
+</ol>
+
+<h2>Joining and calling</h2>
+<ol>
+<li>Open the invite link, or choose <em>Open an invite link</em> and paste it in. Type the name the others will see.</li>
+<li>If the room asks before anyone joins, you can preview your camera and test your microphone first. Then choose <em>Request to join</em> and wait to be let in.</li>
+<li>Anyone can choose <em>Start call</em>. Everyone else hears a ring and chooses <em>Answer</em> or <em>Join</em>. Answering turns your microphone on but not your camera. To turn the camera on, choose <em>Camera</em>.</li>
+</ol>
+
+<h2>When it doesn't work</h2>
+<ul>
+<li><strong>You changed the relay while a room was open.</strong> Leave the room and open it again. A new relay is only used after that.</li>
+<li><strong>Test fails, or the call starts but never connects.</strong> Your VPN may be blocking UDP. Try another server or protocol in your VPN app. A relay that only offers UDP can't work on a network that blocks it. A relay with a <code>turns:</code> address on port 443 can.</li>
+<li><strong>Safari refuses the relay.</strong> Safari needs a UDP address or a TLS (<code>turns:</code>) address. It refuses a relay that offers only plain TCP.</li>
+<li><strong>The room won't load or messages don't arrive.</strong> Public Nostr relays sometimes rate-limit a VPN exit address because so many people share it. Switch to another VPN server and reload.</li>
+</ul>
+
+<h2>Helping someone with an AI assistant</h2>
+<p>The words in italics are the app's exact labels. A connection file holds a password, so keep what's in it out of chats, logs, issue reports and the assistant's memory.</p>
+</section>
+</main>
+<footer class="site-footer wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="142" height="36" alt="KithMoot" /></picture></a><p>Made by <a href="https://forgesworn.dev/">ForgeSworn</a>. Open source under the MIT licence.</p><nav aria-label="Source and support"><a href="https://github.com/forgesworn/kithmoot">Source code</a><a href="https://github.com/forgesworn/kithmoot/issues">Report an issue</a><a href="/check/">Check it yourself</a><a href="/terms/">Terms</a><a href="/privacy/">Privacy notice</a><a href="/report/">Report abuse</a></nav></footer>
+</body></html>
