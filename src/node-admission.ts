@@ -120,10 +120,26 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
     const result = parseGroupEvent(record.event); if (!result.ok || result.parsed.type !== 'grant') throw new KithmootNodeError(0, 'invalid')
     return result.parsed
   }
-  const push = async (record: DeviceGrant) => {
-    await postNodeGrant(node, record.event, authority, { ...opts, allowed: () => !stopped && !opts.signal?.aborted && (opts.allowed?.() ?? true) })
+  // The node already holds a different grant for this device, signed by
+  // another keeper of the room: another of the account's devices let it in
+  // while this one's own grant went unacknowledged. This record never took
+  // effect and cannot while that grant stands. Replayed, it would stop this
+  // keeper, and the room with it, from opening again.
+  const superseded = (error: unknown, record: DeviceGrant) => error instanceof KithmootNodeError && error.status === 409
+    && error.code === 'device-already-granted' && parsed(record).status === 'active'
+  /** False when the node holds another keeper's grant for this device instead. */
+  const push = async (record: DeviceGrant): Promise<boolean> => {
+    try {
+      await postNodeGrant(node, record.event, authority, { ...opts, allowed: () => !stopped && !opts.signal?.aborted && (opts.allowed?.() ?? true) })
+    } catch (error) {
+      if (stopped || !superseded(error, record)) throw error
+      const at = state.grants.indexOf(record)
+      if (at >= 0) { state.grants.splice(at, 1); await save() }
+      return false
+    }
     if (stopped) throw new KithmootNodeError(403, 'refused')
     await opts.onGrant?.(structuredClone(record.event)); record.posted = true; await save()
+    return true
   }
   const inspect = (raw: unknown) => {
     if (!live()) return null
@@ -159,7 +175,8 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
     }
     // Repost even an acknowledged grant: a restarted child must ACK its
     // current projection before this new admission answer is signed.
-    await push(record); requireLive()
+    if (!await push(record)) throw new KithmootNodeError(409, 'refused', 'device-already-granted')
+    requireLive()
     if (!verifyNodeRoomGrant(record.event, node, proof.device, now())) throw new KithmootNodeError(0, 'invalid')
     return structuredClone(record.event)
   }
@@ -218,7 +235,8 @@ export async function openNodeKeeperAdmissions(opts: { node: NodeRoomRecord; aut
     }),
     renew: () => enqueue(async () => {
       requireLive()
-      for (const record of state.grants) {
+      // A copy: a superseded grant leaves the journal mid-loop.
+      for (const record of [...state.grants]) {
         const previous = parsed(record)
         // A grant already reaching the room end cannot be extended. Replacing
         // it at the same expiry is rejected by the node, including on return.

@@ -12,7 +12,8 @@ import { NostrRelayPool, type RelayTransport, type RelayPoolClient } from './rel
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from './peer.js'
 
 export class KithmootNodeError extends Error {
-  constructor(readonly status: number, readonly reason: 'unavailable' | 'refused' | 'invalid' | 'expired') {
+  /** `code` is the node's own short reason for a refusal, when it gave one. */
+  constructor(readonly status: number, readonly reason: 'unavailable' | 'refused' | 'invalid' | 'expired', readonly code?: string) {
     super(reason === 'unavailable' ? 'Your KithMoot node cannot be reached.' : reason === 'expired' ? 'Your access to this node has expired.' : reason === 'refused' ? 'Your KithMoot node refused this request.' : 'Your KithMoot node returned invalid information.')
   }
 }
@@ -47,8 +48,8 @@ function pinned(node: NodeRoomRecord, now: number): NodeRoomRecord {
   const value = readNodeRoom(node.event, Math.min(now, node.endsAt === undefined ? now : node.endsAt - 1), node.authority)
   return value ?? invalid()
 }
-async function body(response: Response, limit = 65536): Promise<Record<string, unknown>> {
-  if (!/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '') || !response.body) return invalid()
+async function body(response: Response, limit = 65536, anyType = false): Promise<Record<string, unknown>> {
+  if (!anyType && !/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '') || !response.body) return invalid()
   const reader = response.body.getReader(), chunks: Uint8Array[] = []; let length = 0
   try {
     for (;;) { const { done, value } = await reader.read(); if (done) break; length += value.length; if (length > limit) return invalid(); chunks.push(value) }
@@ -58,6 +59,14 @@ async function body(response: Response, limit = 65536): Promise<Record<string, u
   const result: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   if (!result || typeof result !== 'object' || Array.isArray(result)) return invalid()
   return result as Record<string, unknown>
+}
+/** The short reason a node gives with a refusal, such as
+ * `device-already-granted`. Best effort: anything else reads as none. */
+async function refusalCode(response: Response): Promise<string | undefined> {
+  try {
+    const code = (await body(response, 4096, true)).error
+    return typeof code === 'string' && /^[a-z0-9-]{1,64}$/.test(code) ? code : undefined
+  } catch { return undefined }
 }
 /** Exact signed request to one pinned HTTPS origin. Never sends cookies,
  * follows redirects, or tries another service after refusal. */
@@ -83,7 +92,7 @@ async function request(origin: string, path: string, value: unknown, identity: P
       headers: { 'Content-Type': 'application/json', Authorization: `Nostr ${btoa(JSON.stringify(proof))}` },
       credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer', signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(6000)]) : AbortSignal.timeout(6000) })
     status = response.status
-    if (!response.ok) throw new KithmootNodeError(status, status === 408 || status === 425 || status === 429 || status >= 500 ? 'unavailable' : 'refused')
+    if (!response.ok) throw new KithmootNodeError(status, status === 408 || status === 425 || status === 429 || status >= 500 ? 'unavailable' : 'refused', await refusalCode(response))
     return await body(response)
   } catch (error) { if (error instanceof KithmootNodeError) throw error; throw new KithmootNodeError(status, status ? 'invalid' : 'unavailable') }
 }
