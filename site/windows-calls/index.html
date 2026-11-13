@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Calls on Windows · KithMoot</title>
+    <meta name="description" content="How two people on Windows set up a KithMoot call with chat, voice, video and screen sharing when their networks won't connect directly." />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#F3F8FA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#081923" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
+    <link rel="canonical" href="https://kithmoot.app/windows-calls/" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="174" height="44" alt="KithMoot" /></picture></a><nav aria-label="Main navigation"><a href="/#what">Features</a><a href="/#start">How it works</a><a href="/downloads/">Download</a><a href="/#help">Questions</a></nav><a class="button primary nav-open" href="/j/">Open KithMoot</a></header>
+<main id="main" class="wrap">
+<section class="legal-page">
+<h1>A one-to-one call between two Windows PCs</h1>
+<p class="dated">Written 13 November 2026, for the Windows desktop app 0.1.149.</p>
+
+<p>This is for two people on Windows who want chat, voice, video and screen sharing when their networks won't connect directly, for example because one or both of them is on a VPN.</p>
+<p>One of you, the host, starts a room and turns on the call relay built into the KithMoot app on their own PC. The other, the guest, joins from the invite link. The relay lets the call through when your networks can't connect. Neither of you rents a server and there's nothing to pay. The app's messages and the relay's requests still travel over the Nostr relays in your Connections list, as section 4.5 of the <a href="/privacy/">privacy notice</a> describes.</p>
+<p>The Windows app is an unsigned preview. A full call and screen share on a fresh Windows PC hasn't been checked yet, and the built-in relay hasn't been tried on Windows either. If something goes wrong, write down exactly what each screen said.</p>
+
+<h2>Who should host</h2>
+<p>The host needs a normal home broadband connection, with their VPN turned off for the call. The guest can stay on their VPN. While the host's VPN is off, the guest's app can see the host's home internet address, and the host's relay sees the guest's.</p>
+
+<h2>Both of you: install</h2>
+<ol>
+<li>Go to the <a href="/downloads/">downloads page</a> and choose <em>Download for Windows</em> (Windows 10 or 11, 64-bit).</li>
+<li>Extract the whole ZIP into a folder you own, such as Documents, not Program Files. Keep the folder together, because the app updates itself there.</li>
+<li>Open <em>KithMoot.exe</em>. If Windows warns about an unknown publisher, choose <em>More info</em>, then <em>Run anyway</em>.</li>
+</ol>
+<p>You don't need an account. Starting or joining a room is enough.</p>
+
+<h2>Host: start the room and turn on the relay</h2>
+<ol>
+<li>Turn your VPN off.</li>
+<li>In KithMoot, choose <em>Start a room</em>. If you tick <em>Ask me before anyone joins</em>, a forwarded link can't get anyone in unless you let them in. Then choose <em>Start a room</em> again. You must have a room open before the relay will start.</li>
+<li>Go to Settings, then Calls, then <em>Call relay on this computer</em>, and turn it on. Confirm when asked.</li>
+<li>Windows Firewall may ask whether to allow KithMoot or spry-node. Choose <em>Allow</em>. If it offers private and public networks and you're not sure which yours is, tick both.</li>
+<li>The page tells you whether the relay is running and whether people can reach it. If it says your router didn't allow automatic setup, turn on UPnP in your router's settings, or swap so the other person hosts. If it says your internet provider shares one address between many customers, or that there's a second router, this connection can't host, so swap.</li>
+<li>Go back to the room, choose <em>Copy invite link</em> and send it to the guest privately. A room you started shares your relay with whoever joins, so the guest sets nothing up.</li>
+</ol>
+<p>The relay is off until you turn it on. Turn it on before each call, or tick <em>Start it when KithMoot opens</em>. It has a daily allowance of 5 GB. Video and screen sharing both ways use that up faster than voice, and once it's used the relay stops until the next day.</p>
+
+<h2>Guest: join</h2>
+<p>In the KithMoot app, choose <em>Open an invite link</em> and paste in the link. Don't just click the link, because that opens the browser version instead. Type your name and choose <em>Join</em>. If you see <em>Request to join</em>, choose it and wait for the host to let you in.</p>
+
+<h2>Host: check the relay</h2>
+<p>Once you're both in the room, go to Settings, Calls, <em>Call relay on this computer</em>, choose <em>Check from another device…</em> and pick the guest. It should say the relay can be reached.</p>
+
+<h2>Call</h2>
+<p>Either of you chooses <em>Start call</em>. The other hears a ring and chooses <em>Answer</em>. Answering turns the microphone on but not the camera. Use <em>Camera</em> for video and <em>Screen share</em> to share your screen. The room's chat works the whole time, during a call or not.</p>
+<p>Leave <em>Hide my IP address on calls</em> off for the first call.</p>
+
+<h2>If it doesn't work</h2>
+<ul>
+<li><strong>The relay won't start and asks you to start or open a room first.</strong> Do that, then turn it on again.</li>
+<li><strong>The relay is running but the check says the guest can't reach it.</strong> Windows Firewall may be blocking it. Open Windows Security, <em>Firewall &amp; network protection</em>, <em>Allow an app through firewall</em>, and make sure KithMoot and spry-node are allowed on the network type you're using.</li>
+<li><strong>The guest joined before the relay was running and the call won't connect.</strong> The guest leaves the room and joins again with the same invite link.</li>
+<li><strong>The call starts but never connects.</strong> Try swapping host and guest.</li>
+<li><strong>The guest's app misbehaves.</strong> The guest can open the invite link in Chrome instead. Only the host needs the app.</li>
+<li><strong>Neither of you can host.</strong> Try with both VPNs off. Two home connections can often connect directly with no relay at all. <a href="/calls-behind-vpn/">Calls when you're behind a VPN</a> covers other kinds of relay.</li>
+<li><strong>The room won't load, or messages don't arrive, for whoever is on a VPN.</strong> Switch to another VPN server and try again.</li>
+</ul>
+<p>If none of that works, <a href="https://github.com/forgesworn/kithmoot/issues">report an issue</a> with what each screen said. Issues are public, so leave out the invite link and anything that identifies either of you.</p>
+
+<h2>Helping someone with an AI assistant</h2>
+<p>The words in italics are the app's exact labels. Don't change other settings.</p>
+</section>
+</main>
+<footer class="site-footer wrap"><a class="brand" href="/" aria-label="KithMoot home"><picture><source srcset="/img/brand/kithmoot-horizontal-white.svg" media="(prefers-color-scheme: dark)" /><img src="/img/brand/kithmoot-horizontal-gradient.svg" width="142" height="36" alt="KithMoot" /></picture></a><p>Made by <a href="https://forgesworn.dev/">ForgeSworn</a>. Open source under the MIT licence.</p><nav aria-label="Source and support"><a href="https://github.com/forgesworn/kithmoot">Source code</a><a href="https://github.com/forgesworn/kithmoot/issues">Report an issue</a><a href="/check/">Check it yourself</a><a href="/terms/">Terms</a><a href="/privacy/">Privacy notice</a><a href="/report/">Report abuse</a></nav></footer>
+</body></html>

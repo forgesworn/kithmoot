@@ -40,7 +40,9 @@ In order of preference:
    one address between many customers. The page says which. Once
    another person is in the room, **Check from another device…** confirms
    they can reach it. People who use it see the host's internet address,
-   and the host's relay sees theirs.
+   and the host's relay sees theirs. For two Windows PCs,
+   [A one-to-one call between two Windows PCs](windows-calls.md) walks
+   through it step by step.
 3. **A relay server with a login for each person.** Either a small relay
    one of you runs ([Your own relay for a one-to-one
    call](private-call-relay.md)) or a managed TURN service. Each person
