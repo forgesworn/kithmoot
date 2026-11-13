@@ -3,7 +3,7 @@ import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
 import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
-import { parseNodeRoomLink, encodeNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
+import { parseNodeRoomLink, encodeNodeRoomLink, longNodeRoomLink, inspectNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, admitOwnBrowserNodeDevice, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
 import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
 import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
@@ -451,6 +451,13 @@ let nodeAutoJoin = false
 const nodeRuntimes = new WeakMap<RoomSession, BrowserNodeRuntime>()
 let spryPairingInFlight = false
 if (spryPairingHash || nodePairingHash) history.replaceState(null, '', location.pathname + location.search)
+// A short node-room link (version 7) is the same signed record in fewer
+// characters. Keep its long form in the address, so the copy this device
+// saves and syncs stays readable by devices that predate short links.
+{
+  const long = longNodeRoomLink(location.href, Math.floor(Date.now() / 1000))
+  if (long && long !== location.href) try { history.replaceState(history.state, '', long) } catch { /* The short form still opens. */ }
+}
 let linkWords: { code: string; words: string } | undefined
 /** Invitations at the top of Chats (invitations.ts), made on first render.
  *  Declared this early because the list can render before People is set up. */
@@ -24243,6 +24250,23 @@ function showArrivalFailure(err: unknown): void {
   // Not a room link at all, but a contact card handed over as a link: the
   // door offers to keep it. Read only on the person's say-so, so a link
   // merely opened adds nobody.
+  // A genuine node-room link that has ended, or that was made after the time
+  // this device shows, is neither incomplete nor broken: say which.
+  const nodeState = valid ? undefined : inspectNodeRoomLink(location.href, nowSeconds())
+  if (nodeState && nodeState.state !== 'open') {
+    const when = (seconds: number) => new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    const early = nodeState.state === 'early'
+    $('arrivalTitle').textContent = early ? 'This device\u2019s clock is behind' : 'This room has ended'
+    $('arrivalLead').textContent = early
+      ? `This invite was made at ${when(nodeState.createdAt)}, which is later than the time this device shows. Set the date and time to update automatically, then try again.`
+      : `It ended at ${when(nodeState.endsAt)}, so nobody can join it any more. Ask the person who invited you for a new link.`
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true; $('identityMore').hidden = true
+    $('arrivalActions').hidden = false; $('retryArrival').hidden = !early
+    $('arrivalRelays').hidden = true; $('addCardArrival').hidden = true
+    setStatus('')
+    return
+  }
   const card = valid ? undefined : cardAtTheDoor()
   if (card) {
     $('arrivalTitle').textContent = 'This is a contact card'
