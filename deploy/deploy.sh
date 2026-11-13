@@ -29,12 +29,17 @@ set -euo pipefail
 #                               Outside releases/ so it is never served or pruned
 #     apk/                      outside the releases, so a rollback of the site
 #                               does not take the downloads with it
+#     kept/                     pages placed by hand on the host, such as short
+#                               links to a room; never in this repository.
+#                               Copied into every new release, never over a
+#                               file the release itself ships
 #
 # What it does, in order:
 #   1. npm run build, local, producing app/dist
 #   2. assemble a staging tree, local: site/ at the root, app/dist under j/
 #   3. rsync it into a brand-new remote release directory. --delete only ever
-#      applies to that just-created directory, never to an existing one
+#      applies to that just-created directory, never to an existing one,
+#      then copy kept/ into it without overwriting anything
 #   4. stage and re-hash an explicitly selected Android APK, if supplied
 #   5. activate the stable APK link and current -> releases/<ts> together,
 #      restoring the previous APK link if the site switch fails
@@ -198,6 +203,14 @@ REMOTE
 
 echo "==> rsyncing the release"
 rsync -az --delete -e "ssh ${SSH_OPTS[*]}" "$staging"/ "$DEPLOY_HOST:$remote_release/"
+
+remote bash -s <<REMOTE
+set -euo pipefail
+if [[ -d "$DEPLOY_ROOT/kept" ]]; then
+  echo "==> copying kept pages into releases/$release"
+  rsync -a --ignore-existing "$DEPLOY_ROOT/kept/" "$remote_release/"
+fi
+REMOTE
 
 if [[ -n "$apk_name" ]]; then
   incoming="$DEPLOY_ROOT/apk/.incoming-$release-$apk_name"
