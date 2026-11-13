@@ -1,3 +1,4 @@
+78c7b50c5a618ae0e562fbe0addd3e83fd461528407a90e0fe0424cc20db7769  kithmoot-0.6.151-production.apk
 70cbcf5bc7df7105dfd1b2a283a9527d86deb59d31abb22b4c8f4bf09c037a15  KithMoot-0.1.150-mac-arm64.zip
 9d1e6283bfe6218623a77e1c4ed79f208c76186107c5936b7f65f9ad057f2c3c  KithMoot-0.1.150-linux-x64.tar.gz
 e97f3bee5073199481f00cc60327baedc80d04076656f57c9ca8cffafc2c6629  KithMoot-0.1.150-linux-arm64.tar.gz

@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.150",
-  "versionCode": 173,
+  "versionName": "0.6.151",
+  "versionCode": 174,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74523212,
-  "apkSha256": "b865c5a36bf9c16c3ddd0baf6f0f390b400740f8d0a9a401363a65e96d1bb62b",
+  "apkBytes": 74527308,
+  "apkSha256": "78c7b50c5a618ae0e562fbe0addd3e83fd461528407a90e0fe0424cc20db7769",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.150-production.apk",
+  "downloadFilename": "kithmoot-0.6.151-production.apk",
   "releaseNotes": [
-    "Somebody asking to join one of your node rooms shows as a card over any screen, naming the room.",
-    "With KithMoot in the background, a notification says who is waiting; tapping it opens the room.",
+    "A link to a node room that has ended says so, with the time, and a link made ahead of this phone's clock says the clock is behind.",
+    "Opens the shorter form of node-room invite links, and a room your account made on your node opens after a lost reply.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
