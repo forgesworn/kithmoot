@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.148 tells you when somebody asks to join one of your rooms on your KithMoot node while another room or the start page is on screen: a card names the room, and a notification says so while the app is in the background. Letting them in from a room that is closed here opens it, because a newcomer's device gets the room's current key only from an open copy of the room.
+Version 0.1.149 names the person under a message's delivery line when their confirmation arrives after they have left the room, instead of saying "Delivered to Somebody". It takes their name from the room as it was while they were in it, then from their latest message.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
