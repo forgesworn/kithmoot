@@ -539,7 +539,7 @@ jobs:
   # Each spec drives two or three real browsers, so a runner takes one spec
   # at a time (`workers: 1` in playwright.config.ts) and the suite is spread
   # across runners instead. Chromium runs everything and took over half an
-  # hour on one runner; it is split five ways by measured time, using the
+  # hour on one runner; it is split six ways by measured time, using the
   # groups in playwright.config.ts (`E2E_GROUP`), whose `rest` group takes
   # whatever the others do not name. The rest group exceeded its 30-minute
   # job budget; run that same complete group in two disjoint shards.
@@ -567,6 +567,7 @@ jobs:
           # skips itself rather than proving anything.
           - { name: chromium call-relays, project: chromium, group: call-relays, browsers: chromium firefox }
           - { name: chromium calls, project: chromium, group: calls, browsers: chromium firefox }
+          - { name: chromium call-surface, project: chromium, group: call-surface, browsers: chromium firefox }
           - { name: chromium media, project: chromium, group: media, browsers: chromium firefox }
           - { name: chromium rooms, project: chromium, group: rooms, browsers: chromium firefox }
           - { name: chromium rest 1 of 2, project: chromium, group: rest, shard: 1/2, artifact: rest-1, browsers: chromium firefox }
@@ -578,9 +579,12 @@ jobs:
           # The installed desktop window's layout and call specs, against the
           # VITE_DESKTOP build the config already serves on the next port. Not
           # run here before October 2026, and two of them sat red for a week.
-          # Keep the full desktop suite within the existing per-job budget.
-          - { name: chromium desktop 1 of 2, project: chromium-desktop, shard: 1/2, browsers: chromium }
-          - { name: chromium desktop 2 of 2, project: chromium-desktop, shard: 2/2, browsers: chromium }
+          # Keep the full desktop suite within the existing per-job budget:
+          # the second half ran past 30 minutes, 11 of them call-surface, so
+          # call-surface has its own runner and the halves skip it.
+          - { name: chromium desktop 1 of 2, project: chromium-desktop, shard: 1/2, skip: call-surface, browsers: chromium }
+          - { name: chromium desktop 2 of 2, project: chromium-desktop, shard: 2/2, skip: call-surface, browsers: chromium }
+          - { name: chromium desktop call-surface, project: chromium-desktop, group: call-surface, browsers: chromium }
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -622,6 +626,7 @@ jobs:
         env:
           E2E_RELAYS: local
           E2E_GROUP: ${{ matrix.group }}
+          E2E_SKIP_GROUP: ${{ matrix.skip }}
 
       - name: Keep the traces of anything that failed
         if: failure()
