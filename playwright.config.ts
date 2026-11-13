@@ -30,9 +30,12 @@ const relayFaultCases = /^\S+ call-stability\.spec\.ts .*\bcase 7[ab]: /
 const e2eGroups: Record<string, { grep: RegExp[], grepInvert?: RegExp[] }> = {
   'call-relays': { grep: [relayFaultCases, specFiles('soak.spec.ts')] },
   calls: {
-    grep: [specFiles('call-stability.spec.ts', 'call-chat-divider.spec.ts', 'call-dock.spec.ts', 'call-surface.spec.ts')],
+    grep: [specFiles('call-stability.spec.ts', 'call-chat-divider.spec.ts', 'call-dock.spec.ts')],
     grepInvert: [relayFaultCases],
   },
+  // Its own runner: with it, `calls` ran past its 20-minute budget (about
+  // 8 minutes of call-surface on top of 9 of the rest, on a slow runner).
+  'call-surface': { grep: [specFiles('call-surface.spec.ts')] },
   media: { grep: [specFiles('media.spec.ts', 'voice-mask.spec.ts', 'face-privacy.spec.ts', 'call-focus.spec.ts', 'call-layout.spec.ts', 'effects.spec.ts',
     'recording-video.spec.ts', 'participant-recording.spec.ts', 'recording-sharing.spec.ts', 'peer-delayed-answer.spec.ts')] },
   rooms: {
@@ -44,9 +47,18 @@ const e2eGroup = process.env.E2E_GROUP || undefined
 if (e2eGroup && e2eGroup !== 'rest' && !(e2eGroup in e2eGroups)) {
   throw new Error(`E2E_GROUP=${e2eGroup} is not one of: ${[...Object.keys(e2eGroups), 'rest'].join(', ')}`)
 }
-const groupFilter = !e2eGroup ? {} : e2eGroup === 'rest'
-  ? { grepInvert: Object.values(e2eGroups).flatMap((g) => g.grep) }
-  : e2eGroups[e2eGroup]!
+// `E2E_SKIP_GROUP=<name>` runs everything except one group, for a project
+// that is sharded by count but has one group on a runner of its own. Only a
+// group without its own exclusions can be skipped this way, and only when no
+// group is selected.
+const e2eSkipGroup = process.env.E2E_SKIP_GROUP || undefined
+if (e2eSkipGroup && (e2eGroup || !(e2eSkipGroup in e2eGroups) || e2eGroups[e2eSkipGroup]!.grepInvert)) {
+  throw new Error(`E2E_SKIP_GROUP=${e2eSkipGroup} needs no E2E_GROUP and a group without grepInvert`)
+}
+const groupFilter = e2eSkipGroup ? { grepInvert: e2eGroups[e2eSkipGroup]!.grep }
+  : !e2eGroup ? {} : e2eGroup === 'rest'
+    ? { grepInvert: Object.values(e2eGroups).flatMap((g) => g.grep) }
+    : e2eGroups[e2eGroup]!
 
 export default defineConfig({
   testDir: './test',
