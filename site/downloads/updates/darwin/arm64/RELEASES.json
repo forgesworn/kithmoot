@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.149",
+  "currentRelease": "0.1.150",
   "releases": [
     {
-      "version": "0.1.149",
+      "version": "0.1.150",
       "updateTo": {
-        "version": "0.1.149",
-        "name": "0.1.149",
-        "pub_date": "2026-11-13T01:03:24Z",
-        "notes": "The delivery line under your message now names somebody who confirmed it after leaving the room, instead of saying \"Delivered to Somebody\".",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.149/KithMoot-0.1.149-mac-arm64.zip",
-        "sha256": "71c7acb4abfbebbe40122c837277b7865e02c44674033c5fea4aa7787dcc5891",
-        "size": 200014745
+        "version": "0.1.150",
+        "name": "0.1.150",
+        "pub_date": "2026-11-13T15:59:16Z",
+        "notes": "Starting a room from inside another now takes you into the new room, instead of showing its name while your messages went to the old one. A room on your node that your node refused to reopen on one device now opens, and a link to a node room that has ended now says so, instead of saying the link is incomplete.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.150/KithMoot-0.1.150-mac-arm64.zip",
+        "sha256": "70cbcf5bc7df7105dfd1b2a283a9527d86deb59d31abb22b4c8f4bf09c037a15",
+        "size": 200017045
       }
     }
   ]
