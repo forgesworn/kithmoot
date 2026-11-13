@@ -1365,6 +1365,62 @@ test('a knock on a node room while its owner is in another room names its room, 
   }
 })
 
+// 13 November: a node room made from inside another kept the old room's
+// conversation under the new room's title, then turned back into the old room.
+test('a node room started from inside another node room is the room on screen: its guest, its chat and its rename', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34800, tls: 53509 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  try {
+    const { owner, link: first } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'First on the node')
+    await owner.locator('#chatInput').fill('said in the first node room'); await owner.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('said in the first node room', { timeout: 60_000 })
+
+    log.push('--- owner starts a second node room from inside the first')
+    await owner.locator('#newMenuButton').click()
+    await owner.getByRole('menuitem', { name: 'New room' }).click()
+    await owner.locator('#roomName').fill('Second on the node')
+    await expect(owner.locator('#roomOnNode')).toBeChecked()
+    await owner.locator('#create').click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Second on the node', { timeout: 60_000 })
+    await expect(owner.locator('#chatInput')).toBeEditable({ timeout: 60_000 })
+    await expect(owner.locator('#chatLog')).not.toContainText('said in the first node room')
+    const second = await owner.locator('#shareUrl').inputValue()
+    expect(second).not.toBe(first)
+    expect(parseNodeRoomLink(second, Math.floor(Date.now() / 1000))?.room).not.toBe(parseNodeRoomLink(first, Math.floor(Date.now() / 1000))?.room)
+
+    const guest = await nodeGuest(browser, baseURL!, fixture, contexts, log)
+    await openRoomUrl(guest, second)
+    if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+    const card = owner.locator('#approvals .approvalCard.knock')
+    await expect(card).toHaveCount(1, { timeout: 60_000 })
+    await card.getByRole('button', { name: 'Let in', exact: true }).click()
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await expect(guest.locator('#roomTitle')).toHaveText('Second on the node', { timeout: 60_000 })
+    await guest.locator('#chatInput').fill('the guest is in the second room'); await guest.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('the guest is in the second room', { timeout: 60_000 })
+    await owner.locator('#chatInput').fill('the owner answers in the second room'); await owner.locator('#chatInput').press('Enter')
+    await expect(guest.locator('#chatLog')).toContainText('the owner answers in the second room', { timeout: 60_000 })
+    await expect(guest.locator('#chatLog')).not.toContainText('said in the first node room')
+    await expect(owner.locator('#roomTitle')).toHaveText('Second on the node')
+
+    log.push('--- owner renames the second room')
+    await openRoomInfoPage(owner, 'Name and picture')
+    await expect(owner.locator('#roomRename')).toBeVisible({ timeout: 60_000 })
+    await owner.locator('#roomRenameInput').fill('Second renamed')
+    await owner.locator('#roomRenameSave').click()
+    for (const page of [owner, guest]) await expect(page.locator('#roomTitle')).toHaveText('Second renamed', { timeout: 60_000 })
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
+
 // The owner keeps several devices signed in, and every one of them keeps the room.
 test('with two of the owner\'s devices on their start pages, a yes on one lets the guest in and a second yes does no harm', async ({ baseURL, browserName }) => {
   test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
