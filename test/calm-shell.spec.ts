@@ -524,6 +524,73 @@ test('creating a room from the New menu closes the sheet and goes straight into 
   } finally { await context.close() }
 })
 
+test('starting a room from inside another leaves the first room and goes into the new one', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1280, height: 900 })
+  const guest = await visitor(browser, baseURL!, { width: 1280, height: 900 }, { empty: true })
+  try {
+    const relays = testRelaysFor(baseURL!)!
+    await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+    await page.goto(baseURL!)
+    const start = async (name: string) => {
+      await page.locator('#newMenuButton').click()
+      await page.getByRole('menuitem', { name: 'New room' }).click()
+      await page.locator('#roomName').fill(name)
+      if (await page.locator('#newRoomYourName').isVisible()) await page.locator('#newRoomYourName').fill('Ada')
+      await page.locator('#create').click()
+      await expect(page.locator('#roomTitle')).toHaveText(name, { timeout: 60_000 })
+      await expect(page.locator('#chatInput')).toBeEditable({ timeout: 60_000 })
+    }
+    const say = async (target: Page, text: string) => {
+      await target.locator('#chatInput').fill(text)
+      await target.locator('#chatInput').press('Enter')
+      await expect(target.locator('#chatLog')).toContainText(text, { timeout: 30_000 })
+    }
+    const shared = async () => page.evaluate(() => (document.getElementById('shareUrl') as HTMLInputElement).value)
+    const saved = async () => page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.'))
+      .map(key => JSON.parse(localStorage.getItem(key)!) as { name?: string; link?: string }))
+
+    await start('First room')
+    await say(page, 'said in the first room')
+    const first = await shared()
+    // A slip in the form is caught before the first room is left.
+    await page.locator('#newMenuButton').click()
+    await page.getByRole('menuitem', { name: 'New room' }).click()
+    await page.locator('#roomName').fill('Never made')
+    await page.locator('#roomEnds').selectOption('duration')
+    await page.locator('#roomDuration input[type=range]').evaluateAll(inputs => inputs.forEach(input => {
+      (input as HTMLInputElement).value = '0'; input.dispatchEvent(new Event('input', { bubbles: true }))
+    }))
+    await page.locator('#create').click()
+    await expect(page.locator('#createError')).toHaveText('Choose at least one minute for the room lifetime.')
+    await page.locator('#roomEnds').selectOption('0')
+    await page.locator('#cancelNewRoom').click()
+    await expect(page.locator('#roomTitle')).toHaveText('First room')
+    await say(page, 'still in the first room')
+
+    await start('Second room')
+    await expect(page.locator('#chatLog')).not.toContainText('said in the first room')
+    await expect(page.locator('#chatLog')).not.toContainText('still in the first room')
+    await say(page, 'said in the second room')
+    const second = await shared()
+    expect(second).not.toBe(first)
+    const rooms = await saved()
+    expect(rooms.find(room => room.link === second)?.name, 'the new room is saved under its own name and link').toBe('Second room')
+    expect(rooms.find(room => room.link === first)?.name, 'the first room keeps its name').toBe('First room')
+
+    // A guest with the second room's link meets the second room.
+    await guest.page.goto(second)
+    await expect(guest.page.locator('#displayName')).toBeVisible({ timeout: 60_000 })
+    await guest.page.locator('#displayName').fill('Bea')
+    await guest.page.locator('#join').click()
+    await expect(guest.page.locator('#chatLog')).toContainText('said in the second room', { timeout: 60_000 })
+    await expect(guest.page.locator('#chatLog')).not.toContainText('said in the first room')
+    await say(guest.page, 'Bea here')
+    // And the creator hears the guest in the room on screen, which stays the second room.
+    await expect(page.locator('#chatLog')).toContainText('Bea here', { timeout: 30_000 })
+    await expect(page.locator('#roomTitle')).toHaveText('Second room')
+  } finally { await context.close(); await guest.context.close() }
+})
+
 // ---------------------------------------------------------------------------
 // Stage 3: the room header, the ⋯ menu, the empty room.
 // ---------------------------------------------------------------------------

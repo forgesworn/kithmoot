@@ -17215,6 +17215,57 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
   }
 }
 
+/** What in the New room sheet stops a room being made, checked before the room
+ *  on screen is left: a slip in the form keeps its maker in their room. The
+ *  same checks stay in `startNewRoom`. */
+function newRoomRefusal(): string | undefined {
+  const noLifetime = ($('roomEnds') as HTMLSelectElement).value === 'duration' && roomDurationSeconds() === 0
+  if (($('roomOnNode') as HTMLInputElement).checked) {
+    const owner = nostrSession?.signer
+    if (!owner || !loadPairedNode(deviceStore, owner.pubkey)) return 'Pair your node under Settings → Calls → Your KithMoot node first.'
+    return noLifetime ? 'Choose at least one minute for the room lifetime.' : undefined
+  }
+  return noLifetime && !($('roomAsk') as HTMLInputElement).checked ? 'Choose at least one minute for the room lifetime.' : undefined
+}
+
+/** Starting a room from inside another leaves the one on screen first, the
+ *  way a switch leaves it: a message waiting for storage is confirmed, a live
+ *  call docks, the draft is kept. Without this the new room's title and link
+ *  went up over the old room, whose session went on taking the messages, the
+ *  roster and a rename. A node room still being made is this sheet's own
+ *  retry and is kept for `startNewRoom` to resume. */
+async function leaveRoomForNewOne(): Promise<'left' | 'stayed' | 'busy'> {
+  if (!session && !joining) {
+    if (currentRoomId() && nodeRoom?.phase !== 'creating') { resetRoomState(); history.replaceState(null, '', joinLinkBase()) }
+    return 'left'
+  }
+  if (switchingRoom || switchingBlocked()) return 'busy'
+  if (!await confirmLeavingWaitingMessage()) return 'stayed'
+  // Nothing a person navigates to ends a call. See `DockedCall`.
+  const live = !dockedCall && (callIsLive() || onCall())
+  const dockRoom = live ? dockableRoom() : undefined
+  // A room this device has no link kept for cannot be come back to.
+  if (live && !dockRoom && !await confirmRoomAction({ title: 'Leave this call?', message: 'Starting a room leaves your current call. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return 'stayed'
+  if (switchingRoom || switchingBlocked()) return 'busy'
+  captureDraft()
+  switchingRoom = true
+  // Closing a room closes every open dialog; the sheet starting the new room stays.
+  newRoomDialog.toggleAttribute('data-keep-open', true)
+  try {
+    if (dockRoom) dockCall(dockRoom)
+    await closeRoomSession({ backgroundFarewell: true })
+    resetRoomState()
+    history.replaceState(null, '', joinLinkBase())
+    $('roomArea').hidden = true
+    showRoomsList()
+    renderDock()
+  } finally {
+    newRoomDialog.removeAttribute('data-keep-open')
+    switchingRoom = false
+  }
+  return 'left'
+}
+
 /** Everything of the call's own on this page: local capture, remote media,
  *  tiles. Done when a room closes with no docked call, and when a docked
  *  call ends. */
@@ -20397,6 +20448,20 @@ $('createRoomForm').addEventListener('submit', async event => {
   button.textContent = 'Starting…'
   $('createError').hidden = true
   try {
+    const refusal = newRoomRefusal()
+    if (refusal) {
+      $('createError').textContent = refusal
+      $('createError').hidden = false
+      return
+    }
+    if (!($('roomOnNode') as HTMLInputElement).checked && !requireNostrFeature()) return
+    const left = await leaveRoomForNewOne()
+    if (left === 'stayed') return
+    if (left === 'busy') {
+      $('createError').textContent = 'The room you are in is still busy. Wait a moment, then try again.'
+      $('createError').hidden = false
+      return
+    }
     await startNewRoom()
     // The sheet that asked for the room has done its job. The creator goes
     // straight in under the name they have, unless they have a real choice to

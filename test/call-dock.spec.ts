@@ -102,6 +102,58 @@ test('a call carries on while its member chats in another room, and comes back w
   }
 })
 
+test('starting a room while on a call docks the call and goes into the new room', async ({ browser, baseURL }) => {
+  test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone and camera')
+  const contextA = await newDeviceContext(browser, baseURL!)
+  const contextB = await newDeviceContext(browser, baseURL!)
+  try {
+    const pageA = await contextA.newPage()
+    const pageB = await contextB.newPage()
+    const url = await createRoom(pageA, baseURL!)
+    await joinWithMedia(pageA, url, 'Ada')
+    await open(pageB, url, 'Bo')
+    await join(pageB)
+    await expect(pageB.locator('#callToggle')).toHaveText('Join call')
+    await pageB.locator('#callToggle').click()
+    await expect(pageB.locator('#deviceControls')).toBeVisible()
+    await pageB.locator('#toggleCamera').click()
+    await pageB.locator('#toggleMic').click()
+    await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+    await expectToSeeAndHear(pageA, 'Ada')
+    await expectToSeeAndHear(pageB, 'Bo')
+
+    await pageA.setViewportSize({ width: 1440, height: 1000 })
+    await pageA.locator('#newMenuButton').click()
+    await pageA.getByRole('menuitem', { name: 'New room' }).click()
+    await pageA.locator('#roomName').fill('Made on a call')
+    await pageA.locator('#create').click()
+    await expect(pageA.locator('#roomTitle')).toHaveText('Made on a call', { timeout: 60_000 })
+    await expect(pageA.locator('#actionConfirm')).toBeHidden()
+    await expect(pageA.locator('#callDock')).toBeVisible()
+    await expect(pageA.locator('#callDockText')).toHaveText('On a call in Untitled room')
+    await expect(pageA.locator('#chatInput')).toBeEditable({ timeout: 60_000 })
+    await pageA.locator('#chatInput').fill('Said in the new room')
+    await pageA.keyboard.press('Enter')
+    await expect(pageA.locator('#chatLog')).toContainText('Said in the new room')
+
+    // The call goes on, and nothing typed in the new room reaches it.
+    await keepsHearing(pageB, 'Bo')
+    await keepsHearing(pageA, 'Ada')
+    await pageB.waitForTimeout(5_000)
+    await expect(pageB.locator('#room .participant')).toHaveCount(2)
+    await expect(pageB.locator('#chatLog')).not.toContainText('Said in the new room')
+    await expect(pageB.locator('#chatLog')).not.toContainText('Ada left.')
+
+    await pageA.locator('#callDockBack').click()
+    await expect(pageA.locator('#roomTitle')).toHaveText('Untitled room')
+    await expect(pageA.locator('#callBay')).toBeVisible()
+    await expect(pageA.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+  } finally {
+    await contextA.close()
+    await contextB.close()
+  }
+})
+
 test('a docked call takes sound back using its own observed monitor claims', async ({ browser, baseURL }) => {
   test.skip(test.info().project.name !== 'chromium', 'Chromium supplies the synthetic microphone')
   const contexts = await Promise.all([0, 1, 2].map(() => newDeviceContext(browser, baseURL!)))
