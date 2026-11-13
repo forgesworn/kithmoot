@@ -1243,6 +1243,106 @@ test('the owner\'s second device opens a room its account made on the node', asy
   }
 })
 
+/**
+ * The owner's second device lets itself into the account's node room, but its
+ * own grant goes unacknowledged: lost before it reaches the node, or reaching
+ * it with the reply lost. The other device keeps the room open throughout.
+ * Neither device's journal may then stop it reopening the room.
+ */
+async function ownerReopensAfterAnUnacknowledgedGrant(baseURL: string, lost: 'request' | 'reply'): Promise<void> {
+  const fixture = await nodeBrowserFixture(new URL(baseURL).origin, { chatOnly: true, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = [], name = lost === 'request' ? 'Lost request' : 'Lost reply'
+  const bothWays = async (maker: Page, second: Page, tag: string) => {
+    await expect(second.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+    await second.locator('#chatInput').fill(`${tag} from second`); await second.locator('#chatInput').press('Enter')
+    await expect(maker.locator('#chatLog')).toContainText(`${tag} from second`, { timeout: 60_000 })
+    await maker.locator('#chatInput').fill(`${tag} from maker`); await maker.locator('#chatInput').press('Enter')
+    await expect(second.locator('#chatLog')).toContainText(`${tag} from maker`, { timeout: 60_000 })
+  }
+  const reopen = async (page: Page) => {
+    await page.reload()
+    const listed = page.getByRole('button', { name: `Open ${name}` })
+    await expect(listed).toBeVisible({ timeout: 60_000 }); await listed.click()
+    await expect(page.locator('#chatInput')).toBeVisible({ timeout: 90_000 })
+  }
+  try {
+    const ownerKey = generateSecretKey()
+    const maker = await ownerSyncDevice(browser, baseURL, fixture, ownerKey, contexts, 'maker', log)
+    await openCallSettings(maker, 'Your KithMoot node')
+    await maker.locator('#nodePairingInput').fill(fixture.pairing())
+    await maker.locator('#nodePair').click(); await maker.locator('#actionConfirm').click()
+    await expect(maker.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(maker)
+    await maker.locator('#homeNewRoom').click()
+    await maker.locator('#roomName').fill(name)
+    await expect(maker.locator('#roomOnNode')).toBeChecked()
+    if (await maker.locator('#newRoomYourName').isVisible()) await maker.locator('#newRoomYourName').fill('Maker')
+    await maker.locator('#create').click()
+    await expect(maker.locator('#chatInput')).toBeVisible({ timeout: 60_000 })
+
+    const second = await ownerSyncDevice(browser, baseURL, fixture, ownerKey, contexts, 'second', log)
+    await expect(second.locator('#roomSyncStatus')).toContainText(/loaded|Up to date/, { timeout: 60_000 })
+    const listed = second.getByRole('button', { name: `Open ${name}` })
+    await expect(listed).toBeVisible({ timeout: 60_000 })
+    await second.waitForTimeout(15_000)
+    let unacknowledged = 0
+    await contexts[1].route('https://node.example/groups/v1/events', async route => {
+      if (unacknowledged++ > 0) { await route.fallback(); return }
+      if (lost === 'reply') {
+        const response = await route.fetch({ url: fixture.desk + '/groups/v1/events' })
+        log.push(`second POST /groups/v1/events ${response.status()}, reply lost by the test`)
+      } else log.push('second POST /groups/v1/events lost by the test')
+      await route.fulfill({ status: 503, body: '' })
+    })
+    log.push('--- second opens the room from its list')
+    await listed.click()
+    if (lost === 'request') {
+      // The maker lets it in instead, under a grant of the maker's own.
+      await bothWays(maker, second, 'First')
+      log.push('--- second reopens')
+      await reopen(second)
+      // It replayed its own grant, and the node refused it for the maker's.
+      expect(log.some(line => line.startsWith('second POST /groups/v1/events 409') && line.includes('device-already-granted'))).toBe(true)
+      await bothWays(maker, second, 'Again')
+    } else {
+      // The node already holds the second device's own grant, so it refuses
+      // the maker's. The maker's room must still reopen, and so must the
+      // second device's, under the grant the node does hold.
+      await expect.poll(() => log.some(line => line.startsWith('maker POST /groups/v1/events 409') && line.includes('device-already-granted')), { timeout: 90_000 }).toBe(true)
+      log.push('--- maker reopens')
+      await reopen(maker)
+      log.push('--- second reopens')
+      await reopen(second)
+      await bothWays(maker, second, 'Again')
+    }
+    expect(unacknowledged).toBeGreaterThan(0)
+  } catch (error) {
+    for (const [label, page] of [['maker', contexts[0]?.pages()[0]], ['second', contexts[1]?.pages()[0]]] as const) {
+      if (page) log.push(`--- ${label} status: ` + await page.locator('#status, #arrivalTitle, #arrivalLead').allInnerTexts().catch(() => []))
+    }
+    throw error
+  } finally {
+    console.log(`node requests (${name}):\n` + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+}
+
+test('the owner\'s second device reopens a node room after its own grant never reached the node', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(420_000)
+  await ownerReopensAfterAnUnacknowledgedGrant(baseURL!, 'request')
+})
+
+test('both of the owner\'s devices reopen a node room after the reply to one\'s own grant was lost', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(420_000)
+  await ownerReopensAfterAnUnacknowledgedGrant(baseURL!, 'reply')
+})
+
 /** A browser with no account, routed to the test node, as a guest's phone. */
 async function nodeGuest(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, contexts: BrowserContext[], log: string[]): Promise<Page> {
   const context = await newDeviceContext(browser, baseURL, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })

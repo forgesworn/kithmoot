@@ -263,3 +263,52 @@ describe('members a moved room already has', () => {
     } finally { later.close() }
   })
 })
+
+describe('a grant another keeper already gave the same device', () => {
+  // The node's answer when it holds a different active grant for the device.
+  const node = (status: number, error?: string) => vi.fn(async () => new Response(error ? JSON.stringify({ v: 1, error }) : '',
+    { status, headers: error ? { 'content-type': 'application/json' } : {} })) as unknown as typeof fetch
+  /** This device's own grant was saved, then never reached the node. */
+  async function unacknowledged() {
+    const f = await fixture(), deviceSk = generateSecretKey()
+    const credential = await createDeviceCredential({ identity: f.keeper, devicePubkey: getPublicKey(deviceSk), roomId: f.node.room, now: () => NOW, expiresAt: NOW + 86400 })
+    const own = await openNodeKeeperAdmissions({ ...f.options, fetcher: node(503) })
+    try { await expect(own.authoriseKeeperDevice(credential)).rejects.toMatchObject({ reason: 'unavailable' }) } finally { own.close() }
+    expect(f.saved()?.grants).toHaveLength(1); expect(f.saved()?.grants[0]?.posted).toBe(false)
+    return f
+  }
+  it('leaves the journal instead of stopping this keeper from opening again', async () => {
+    const f = await unacknowledged(), refused = node(409, 'device-already-granted')
+    const keeper = await openNodeKeeperAdmissions({ ...f.options, fetcher: refused })
+    try {
+      await expect(keeper.retry()).resolves.toBeUndefined(); await expect(keeper.renew()).resolves.toBeUndefined()
+      expect(refused).toHaveBeenCalledTimes(1); expect(f.saved()?.grants).toEqual([]); expect(f.onGrant).not.toHaveBeenCalled()
+    } finally { keeper.close() }
+    const reopened = await openNodeKeeperAdmissions(f.options)
+    try { await reopened.retry(); expect(f.posts).toEqual([]) } finally { reopened.close() }
+  })
+  it('stays in the journal when the node refuses it for any other reason', async () => {
+    for (const refused of [node(409, 'room-closing'), node(409), node(403, 'device-already-granted')]) {
+      const f = await unacknowledged(), keeper = await openNodeKeeperAdmissions({ ...f.options, fetcher: refused })
+      try {
+        await expect(keeper.retry()).rejects.toMatchObject({ reason: 'refused' })
+        expect(f.saved()?.grants).toHaveLength(1); expect(f.saved()?.grants[0]?.posted).toBe(false)
+      } finally { keeper.close() }
+    }
+  })
+  it('never answers an admission with it, and keeps every revocation', async () => {
+    const f = await fixture(), refusing = await openNodeKeeperAdmissions({ ...f.options, fetcher: node(409, 'device-already-granted') })
+    try {
+      await expect(refusing.admit((await f.ask()).event, true)).rejects.toMatchObject({ reason: 'refused', code: 'device-already-granted' })
+      expect(f.saved()?.grants).toEqual([]); expect(f.onGrant).not.toHaveBeenCalled()
+    } finally { refusing.close() }
+    const keeper = await openNodeKeeperAdmissions(f.options)
+    try { await keeper.admit((await f.ask()).event, true) } finally { keeper.close() }
+    const removing = await openNodeKeeperAdmissions({ ...f.options, fetcher: node(409, 'device-already-granted') })
+    try {
+      await expect(removing.remove(f.guest.pubkey)).rejects.toMatchObject({ reason: 'refused' })
+      expect(f.saved()?.grants).toHaveLength(1); expect(f.saved()?.grants[0]?.event.tags).toContainEqual(['status', 'revoked'])
+      expect(f.saved()?.grants[0]?.posted).toBe(false)
+    } finally { removing.close() }
+  })
+})
