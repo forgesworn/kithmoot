@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure'
 import { parseGroupEvent, type GroupEvent } from '../../group-grants.js'
-import { NodeLedger, NodeRefusal, type NodeOperation, type NodeRoom } from './ledger.js'
+import { NodeLedger, NodeRefusal, type DeviceAccess, type NodeOperation, type NodeRoom } from './ledger.js'
 import { type CallBackend, type RelayBackend, type NodeOffer, type SpryState } from './backends.js'
 import { NODE_VERSION } from './version.js'
 
@@ -17,6 +17,39 @@ export interface OperationStatus { operation: string; phase: string; result: Rec
 const chunks = <T>(values: T[], size = 32): T[][] => Array.from({ length: Math.ceil(values.length / size) }, (_, i) => values.slice(i * size, (i + 1) * size))
 const signature = (event: unknown): boolean => { try { return verifyEvent(JSON.parse(JSON.stringify(event))) } catch { return false } }
 
+/** Spry counts every POST from one source address, and from one signing key,
+ * in a fixed minute window and refuses the 121st. The supervisor is a single
+ * source with a single key, so it paces itself: a burst of SPRY_BURST refilled
+ * at SPRY_PER_MINUTE allows at most 100 POSTs in any 60 s, and at most 115 if
+ * the supervisor restarts inside a window Spry already opened. */
+const SPRY_BURST = 15, SPRY_PER_MINUTE = 85
+/** Tokens only revocations and the lease may spend, so paced additions can
+ * neither delay a revocation nor let the 15 s child lease lapse. */
+const SPRY_RESERVE = 2
+/** Longest a pass waits for budget; the client gives up on a request at 6 s. */
+const SPRY_WAIT_MS = 3000
+/** Spry's child lease lasts 15 s; renew once 5 s have passed, from the 2 s tick. */
+const LEASE_REFRESH_MS = 5000
+export interface SupervisorOptions { clock?: () => number; sleep?: (ms: number) => Promise<void> }
+const budgetRefusal = (error: unknown): boolean => error instanceof NodeRefusal && error.code === 'spry-budget'
+class SpryBudget {
+  #tokens = SPRY_BURST
+  #at: number
+  constructor(readonly clock: () => number, readonly sleep: (ms: number) => Promise<void>) { this.#at = clock() }
+  #refill(): void { const at = this.clock(); this.#tokens = Math.min(SPRY_BURST, this.#tokens + Math.max(0, at - this.#at) * SPRY_PER_MINUTE / 60000); this.#at = at }
+  async take(deadline: number, priority: boolean): Promise<void> {
+    const floor = priority ? 0 : SPRY_RESERVE
+    for (this.#refill(); this.#tokens < floor + 1; this.#refill()) {
+      const wait = Math.ceil((floor + 1 - this.#tokens) * 60000 / SPRY_PER_MINUTE)
+      if (this.clock() + wait > deadline) throw new NodeRefusal(503, 'spry-budget')
+      await this.sleep(wait)
+    }
+    this.#tokens -= 1
+  }
+  /** Spry refused for rate: something else spent the window, so spend nothing more until it refills. */
+  exhaust(): void { this.#refill(); this.#tokens = Math.min(this.#tokens, 0) }
+}
+
 /** The ledger is authoritative. Children are disposable projections. A failed
  * or interrupted projection is retried before a new admission is acknowledged. */
 export class NodeSupervisor {
@@ -26,11 +59,25 @@ export class NodeSupervisor {
   #ticking = false
   #lastCollect = 0
   #ready = false
+  /** A queued reconcile that has not started yet; later mutations join it. */
+  #nextPass?: Promise<void>
+  #leasedAt = -Infinity
+  /** Set once per observed lapse of the child lease: every room was marked for
+   * re-sending, and registrations Spry has acknowledged since, held here as
+   * room, device and expiry, are not re-sent again. */
+  #recovering = false
+  readonly #recovered = new Set<string>()
+  readonly #clock: () => number
+  readonly #budget: SpryBudget
   readonly #receiptKey: Uint8Array
   constructor(readonly ledger: NodeLedger, readonly calls: CallBackend, readonly relay: RelayBackend,
-    readonly host: string, receiptKey: Uint8Array, readonly now = () => Math.floor(Date.now() / 1000)) { this.#receiptKey = receiptKey }
-  #serial<T>(work: () => Promise<T>): Promise<T> {
-    if (this.#queued >= 64) return Promise.reject(new NodeRefusal(429, 'node-busy'))
+    readonly host: string, receiptKey: Uint8Array, readonly now = () => Math.floor(Date.now() / 1000), options: SupervisorOptions = {}) {
+    this.#receiptKey = receiptKey
+    this.#clock = options.clock ?? Date.now
+    this.#budget = new SpryBudget(this.#clock, options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms))))
+  }
+  #serial<T>(work: () => Promise<T>, bounded = true): Promise<T> {
+    if (bounded && this.#queued >= 64) return Promise.reject(new NodeRefusal(429, 'node-busy'))
     this.#queued++
     const result = this.#tail.then(work)
     this.#tail = result.catch(() => {}).finally(() => { this.#queued-- })
@@ -53,9 +100,31 @@ export class NodeSupervisor {
   cancelDeletion(): Promise<{ deleteReady: false }> {
     return this.#serial(async () => { this.ledger.setMeta('deleting', '0'); return { deleteReady: false } })
   }
-  enrol(room: NodeRoom): Promise<void> { return this.#serial(async () => { this.ledger.enrol(room); await this.#project() }) }
+  enrol(room: NodeRoom): Promise<void> { return this.#serial(async () => { this.ledger.enrol(room) }).then(() => this.#reconcile()) }
   apply(event: unknown): Promise<{ accepted: true }> {
-    return this.#serial(async () => { this.ledger.apply(event); await this.#project(); return { accepted: true } })
+    return this.#serial(async () => { this.ledger.apply(event) }).then(() => this.#reconcile()).then(() => ({ accepted: true as const }))
+  }
+  /** Projects every committed mutation. A caller's ledger write has already
+   * committed, so any pass that has not started yet covers it: concurrent
+   * mutations share one queued pass behind the one in flight. The pass is not
+   * counted against the queue limit, because at most one waits at a time. */
+  #reconcile(): Promise<void> {
+    if (this.#nextPass) return this.#nextPass
+    const pass = this.#serial(async () => { if (this.#nextPass === pass) this.#nextPass = undefined; await this.#project() }, false)
+    this.#nextPass = pass
+    return pass
+  }
+  /** One Spry POST within the pacing budget. Spry's rate gate refuses before
+   * it reads the request, so a 429 was not applied; `send` is retried once and
+   * must persist a fresh revision itself on each call. */
+  async #spry<T>(deadline: number, send: () => Promise<T>, priority = false): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      await this.#budget.take(deadline, priority)
+      try { return await send() } catch (error) {
+        if (attempt > 0 || !(error instanceof NodeRefusal) || error.code !== 'spry-http-429') throw error
+        this.#budget.exhaust()
+      }
+    }
   }
   async offer(room: string, device: string): Promise<NodeOffer> {
     return this.#serial(async () => {
@@ -150,50 +219,109 @@ export class NodeSupervisor {
   async #project(): Promise<void> {
     const rooms = this.ledger.rooms().filter(r => !this.#tearingDown(r.room))
     const devices = this.ledger.devices().filter(d => rooms.some(r => r.room === d.room))
-    const results = await Promise.allSettled([
-      (async () => {
-        const status = await this.calls.status()
-        if (!status.ready) throw new NodeRefusal(503, 'spry-not-ready')
-        for (const room of rooms) {
-          let state = this.ledger.child(room.room, 'spry') as unknown as SpryState | undefined
-          if (!state) state = { offer: await this.calls.offer(room.room), revision: 0, devices: {} }
-          else if (state.offer.expiresAt <= this.now() + 3600) {
-            const offer = await this.calls.offer(room.room)
-            state = { offer, revision: state.offer.token === offer.token ? state.revision : 0,
-              devices: state.offer.token === offer.token ? state.devices : {} }
-          }
-          this.ledger.setChild(room.room, 'spry', state as unknown as Record<string, unknown>)
-          const desired = Object.fromEntries(devices.filter(d => d.room === room.room && d.turn).map(d => [d.device, d.expires]))
-          const remove = Object.keys(state.devices).filter(k => !(k in desired))
-          for (const batch of chunks(remove)) {
-            state.revision++
-            this.ledger.setChild(room.room, 'spry', state as unknown as Record<string, unknown>)
-            await this.calls.register(state.offer.token, state.revision, [], batch)
-            for (const key of batch) delete state.devices[key]
-          }
-          // Re-send after restart/lapse and on admission retries. Persist the
-          // union first so a lost add acknowledgement cannot hide a key from
-          // a later revocation. Revision is persisted before every request.
-          const additions = Object.keys(desired).filter(k => !status.leaseActive || state!.devices[k] !== desired[k] || this.ledger.child(room.room, 'shelter')?.pending === true)
-          const groups = new Map<number, string[]>()
-          for (const key of additions) { const end = desired[key]!; groups.set(end, [...(groups.get(end) ?? []), key]) }
-          this.ledger.setChild(room.room, 'shelter', { pending: true })
-          for (const [expiration, keys] of groups) for (const batch of chunks(keys)) {
-            state.revision++
-            for (const key of batch) state.devices[key] = desired[key]!
-            this.ledger.setChild(room.room, 'spry', state as unknown as Record<string, unknown>)
-            await this.calls.register(state.offer.token, state.revision, batch, [], expiration)
-          }
-          this.ledger.setChild(room.room, 'spry', state as unknown as Record<string, unknown>)
-        }
-        if (this.ledger.operations().some(op => op.phase === 'teardown' && op.result.callsRevoked !== true)) throw new NodeRefusal(503, 'call-removal-pending')
-        await this.calls.lease()
-      })(),
-      this.relay.sync(rooms, devices),
-    ])
+    const acknowledged: string[] = []
+    const results = await Promise.allSettled([this.#projectCalls(rooms, devices, acknowledged), this.relay.sync(rooms, devices)])
+    // A room's re-send mark clears only once Spry acknowledged its additions
+    // and the relay holds the same projection; any other room keeps its mark.
+    if (results[1].status === 'fulfilled') for (const room of acknowledged) this.ledger.setChild(room, 'shelter', { pending: false })
     if (results.some(r => r.status === 'rejected')) { this.#ready = false; throw new NodeRefusal(503, 'children-pending') }
-    for (const room of rooms) this.ledger.setChild(room.room, 'shelter', { pending: false })
     this.#ready = true
+  }
+  #desired(room: string, devices: DeviceAccess[]): Record<string, number> {
+    return Object.fromEntries(devices.filter(d => d.room === room && d.turn).map(d => [d.device, d.expires]))
+  }
+  async #projectCalls(rooms: NodeRoom[], devices: DeviceAccess[], acknowledged: string[]): Promise<void> {
+    const deadline = this.#clock() + SPRY_WAIT_MS
+    const status = await this.calls.status()
+    if (!status.ready) throw new NodeRefusal(503, 'spry-not-ready')
+    if (!status.leaseActive && !this.#recovering) {
+      // Re-send after restart or lapse. The durable marks let a paced
+      // recovery resume where it stopped instead of starting again.
+      for (const room of rooms) this.ledger.setChild(room.room, 'shelter', { pending: true })
+      this.#recovering = true; this.#recovered.clear()
+    }
+    // Once the budget runs out, offers and additions wait for a later pass,
+    // but every remaining room is still walked for removals.
+    let shortfall: unknown
+    for (const room of rooms) {
+      let state = this.ledger.child(room.room, 'spry') as unknown as SpryState | undefined
+      try {
+        if (!state) { if (shortfall) continue; state = { offer: await this.#spry(deadline, () => this.calls.offer(room.room)), revision: 0, devices: {} } }
+        else if (state.offer.expiresAt <= this.now() + 3600 && !shortfall) {
+          const offer = await this.#spry(deadline, () => this.calls.offer(room.room))
+          state = { offer, revision: state.offer.token === offer.token ? state.revision : 0,
+            devices: state.offer.token === offer.token ? state.devices : {} }
+        }
+      } catch (error) {
+        if (!budgetRefusal(error)) throw error
+        // An offer with more than ten minutes left is renewed by a later pass.
+        if (!state || state.offer.expiresAt <= this.now() + 600) shortfall = error
+        if (!state) continue
+      }
+      const current = state
+      this.ledger.setChild(room.room, 'spry', current as unknown as Record<string, unknown>)
+      const desired = this.#desired(room.room, devices)
+      const remove = Object.keys(current.devices).filter(k => !(k in desired))
+      for (const batch of chunks(remove)) {
+        await this.#spry(deadline, () => {
+          current.revision++
+          this.ledger.setChild(room.room, 'spry', current as unknown as Record<string, unknown>)
+          return this.calls.register(current.offer.token, current.revision, [], batch)
+        }, true)
+        for (const key of batch) delete current.devices[key]
+      }
+      this.ledger.setChild(room.room, 'spry', current as unknown as Record<string, unknown>)
+      if (shortfall) continue
+      // Re-send after restart/lapse and on admission retries. Persist the
+      // union first so a lost add acknowledgement cannot hide a key from
+      // a later revocation. Revision is persisted before every request.
+      // Only a room whose additions this pass sends is marked.
+      const marked = this.ledger.child(room.room, 'shelter')?.pending === true
+      const additions = Object.keys(desired).filter(k => current.devices[k] !== desired[k] || marked && !this.#recovered.has(`${room.room}:${k}:${desired[k]}`))
+      const groups = new Map<number, string[]>()
+      for (const key of additions) { const end = desired[key]!; groups.set(end, [...(groups.get(end) ?? []), key]) }
+      if (additions.length && !marked) this.ledger.setChild(room.room, 'shelter', { pending: true })
+      try {
+        for (const [expiration, keys] of groups) for (const batch of chunks(keys)) {
+          await this.#spry(deadline, () => {
+            current.revision++
+            for (const key of batch) current.devices[key] = desired[key]!
+            this.ledger.setChild(room.room, 'spry', current as unknown as Record<string, unknown>)
+            return this.calls.register(current.offer.token, current.revision, batch, [], expiration)
+          })
+          if (this.#recovering) for (const key of batch) this.#recovered.add(`${room.room}:${key}:${expiration}`)
+        }
+      } catch (error) { if (!budgetRefusal(error)) throw error; shortfall = error; continue }
+      this.ledger.setChild(room.room, 'spry', current as unknown as Record<string, unknown>)
+      if (marked || additions.length) acknowledged.push(room.room)
+    }
+    if (this.ledger.operations().some(op => op.phase === 'teardown' && op.result.callsRevoked !== true)) throw new NodeRefusal(503, 'call-removal-pending')
+    const due = this.#clock() - this.#leasedAt >= LEASE_REFRESH_MS
+    if (shortfall) {
+      // Only pacing stopped this pass. The lease is renewed solely when it is
+      // live and Spry holds nothing the ledger no longer wants; any revocation
+      // still owed lets it lapse, as every other failed pass does.
+      if (due && status.leaseActive && !this.#recovering && !this.#owesRemoval(rooms, devices)) await this.#lease(deadline)
+      throw shortfall
+    }
+    if (due || !status.leaseActive || this.#recovering) {
+      await this.#lease(deadline)
+      this.#recovering = false; this.#recovered.clear()
+    }
+  }
+  async #lease(deadline: number): Promise<void> {
+    const at = this.#clock()
+    await this.#spry(deadline, () => this.calls.lease(), true)
+    this.#leasedAt = at
+  }
+  /** Whether any persisted registration, including one whose acknowledgement
+   * was lost, is absent from the ledger or outlives the ledger's expiry. */
+  #owesRemoval(rooms: NodeRoom[], devices: DeviceAccess[]): boolean {
+    return rooms.some(room => {
+      const state = this.ledger.child(room.room, 'spry') as unknown as SpryState | undefined
+      const desired = this.#desired(room.room, devices)
+      return !!state && Object.entries(state.devices).some(([key, end]) => !(key in desired) || end > desired[key]!)
+    })
   }
   async #resume(initial: NodeOperation): Promise<void> {
     let op = this.ledger.operation(initial.id)!
@@ -222,8 +350,9 @@ export class NodeSupervisor {
         (async () => {
           if (result.callsRevoked === true) return
           // Even an empty room may have a grant whose creation ACK was lost.
-          const offer = state?.offer ?? await this.calls.offer(op.room)
-          await this.calls.remove(offer.token)
+          const deadline = this.#clock() + SPRY_WAIT_MS
+          const offer = state?.offer ?? await this.#spry(deadline, () => this.calls.offer(op.room), true)
+          await this.#spry(deadline, () => this.calls.remove(offer.token), true)
           result.callsRevoked = true
           this.ledger.advance(op.id, 'teardown', result)
         })(),
