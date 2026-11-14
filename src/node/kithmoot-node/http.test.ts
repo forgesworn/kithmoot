@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { NodeLedger } from './ledger.js'
 import { NodeSupervisor } from './supervisor.js'
-import { nodeHttp, preparePairing } from './http.js'
+import { LIMITS, nodeHttp, preparePairing } from './http.js'
+const limits = { ...LIMITS, strangers: 60, perAddress: 200 }
 import { buildGrant } from '../../group-grants.js'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
@@ -22,7 +23,7 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
     return { rooms: 0, devices: 0, usedBytes: 4096, leaseActive: relayLease }
   } }
   const supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', nodeKey)
-  const server = nodeHttp(supervisor, { origin: 'https://node.example', origins: ['https://app.example'], serviceKey, turnPorts: { udpTcp: 34790, tls: 53499 } })
+  const server = nodeHttp(supervisor, { origin: 'https://node.example', origins: ['https://app.example'], serviceKey, turnPorts: { udpTcp: 34790, tls: 53499 }, limits })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); cleanup.push(() => new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())))
   const address = server.address(); if (!address || typeof address === 'string') throw Error('listener')
   const base = `http://127.0.0.1:${address.port}`, owner = generateSecretKey(), foreign = generateSecretKey()
@@ -98,5 +99,13 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   const revokedBody = JSON.stringify(revokedExisting)
   expect((await post('/groups/v1/events', revokedBody, proof('/groups/v1/events', revokedBody, authority))).status).toBe(200)
   expect((await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, existingDevice))).status).toBe(403)
-
+  // Households share one address: the owner and granted devices are refunded,
+  // strangers are held to the strangers budget a minute from one address.
+  const from = (source: string, path: string, body: string, key: Uint8Array) => fetch(base + path, { method: 'POST', body,
+    headers: { 'content-type': 'application/json', authorization: proof(path, body, key), 'x-forwarded-for': source } })
+  for (let i = 0; i < limits.strangers + 10; i++) expect((await from('198.51.100.1', '/node/v1/status', statusBody, owner)).status).toBe(200)
+  for (let i = 0; i < limits.strangers + 10; i++) expect((await from('198.51.100.1', '/node/v1/access', access, device)).status).toBe(200)
+  for (let i = 0; i < limits.strangers; i++) expect((await from('198.51.100.2', '/node/v1/status', statusBody, foreign)).status).toBe(403)
+  expect((await from('198.51.100.2', '/node/v1/status', statusBody, owner)).status).toBe(429)
+  expect((await from('198.51.100.1', '/node/v1/status', statusBody, owner)).status).toBe(200)
 })
