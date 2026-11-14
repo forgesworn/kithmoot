@@ -77,3 +77,59 @@ export function describeFailure(err: unknown): string {
   if (err instanceof KithmootNodeError) return nodeFailure(err)
   return isNetworkFailure(err) ? NETWORK_FAILURE_COPY : GENERIC_FAILURE_COPY
 }
+
+/** A call on a node room that the node's call relay has no room for. Calls,
+ *  not rooms, are what a node runs out of first: each person on a call holds
+ *  relay ports for as long as they are on it. */
+export const NODE_CALLS_FULL_COPY = "This node's calls are full. Try again when a call ends."
+
+/** How long a call waits, with nobody reached, before the node's own word
+ *  that it is full is taken as the reason. Under it, a call still setting up
+ *  would flash the note. */
+export const NODE_CALLS_FULL_GRACE_MS = 5000
+
+export interface NodeCallFacts {
+  /** How many others are on this call. */
+  othersOnCall: number
+  /** How many of them this device has a live connection to. */
+  reached: number
+  /** How many of them this device has not reached once since it joined. */
+  neverReached: number
+  /** The node's word, absent when it gives none (an older node). */
+  nodeFull?: boolean
+  /** The relay's last refusal of this device on this call: 486 or 508. */
+  refusal?: number
+  /** Since this device joined the call. */
+  waitedMs: number
+}
+
+/**
+ * Whether the call says the node's calls are full, rather than leaving
+ * somebody in a call that never connects.
+ *
+ * - Reached everybody on the call: no. The call is working.
+ * - A 486 or 508 from the relay: yes, unless the node says it is not full,
+ *   in which case the 486 was this login's own share of the relay and the
+ *   ordinary connection notices apply. An older node says nothing, and on
+ *   a node that small the share and the limit are the same eight ports, so
+ *   that refusal is read as full.
+ * - No refusal of its own (the person already on the call, whose new
+ *   partner was refused): yes once the node says full and the grace has
+ *   passed with somebody on the call never reached. A partner who was
+ *   reached and dropped is a network fault, not a full node: a small node
+ *   is full whenever two calls run.
+ * - Any other refusal code, 401 and 403 among them: never. Those are about
+ *   access, not room.
+ */
+export function showNodeCallsFull(facts: NodeCallFacts): boolean {
+  if (facts.othersOnCall < 1 || facts.reached >= facts.othersOnCall) return false
+  if (facts.refusal === 486 || facts.refusal === 508) return facts.nodeFull !== false
+  return facts.nodeFull === true && facts.neverReached > 0 && facts.waitedMs >= NODE_CALLS_FULL_GRACE_MS
+}
+
+/** Whether to refuse starting or joining a call before it opens: only when
+ *  the node has just said full and this device holds no live connection
+ *  that a call could use without a new relay port. */
+export function refuseNodeCallStart(facts: { nodeFull?: boolean; connected: boolean }): boolean {
+  return facts.nodeFull === true && !facts.connected
+}

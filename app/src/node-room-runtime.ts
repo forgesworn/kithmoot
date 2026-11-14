@@ -118,6 +118,9 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   unavailable: () => void
   available?: () => void
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
+  /** The node said its calls are full or no longer full, or the call relay
+   *  turned one of this device's connections away for capacity. */
+  callsChanged?: () => void
 }) {
   if (state.phase !== 'active' || !state.grant) throw Error('Finish creating this room before entering.')
   const device = localIdentity(state.deviceSk), controller = new AbortController()
@@ -126,6 +129,10 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   let inbox: ReturnType<typeof nodeKeeperInbox> | undefined, desk: ReturnType<typeof hostRoomEpoch> | undefined
   let calls: Awaited<ReturnType<typeof nodeCallFactory>> | undefined, refreshing = false
   let connectionLost = false, releaseKeeper: (() => void) | undefined
+  // In memory only: what the node last said about its calls, and when the
+  // call relay last refused this device for capacity.
+  let callsFull: boolean | undefined, callRefusal: { code: 486 | 508; at: number } | undefined
+  const callsChanged = () => { try { options.callsChanged?.() } catch { /* An observer cannot stop the room. */ } }
   const unavailable = () => { connectionLost = true; options.unavailable() }
   let reconnecting: Promise<void> | undefined
   const network = typeof navigator === 'undefined' ? undefined : (navigator as Navigator & { connection?: EventTarget & { type?: string } }).connection
@@ -160,6 +167,8 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   const refresh = async () => {
     const next = notify(await access!.refresh())
     if (next.state === 'active' && connectionLost) { connectionLost = false; options.available?.() }
+    const full = next.state === 'active' ? next.callsFull : undefined
+    if (full !== callsFull) { callsFull = full; callsChanged() }
     return next
   }
   access = await openNodeDeviceAccess(state.node, device, state.grant, nodeAccessStore(store, state.participant, state.node.room), requestOptions)
@@ -229,7 +238,8 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
   try {
     calls = await startup(() => nodeCallFactory(state.node, device, refresh, { ...requestOptions, allowed: () => live() && access!.allowed(), onUnavailable: unavailable,
       onRecovering: () => { pool.reconnect(); inbox?.reconnect() },
-      rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer }))
+      rebuildPeers: context => s?.refreshNodeCallConnections(context?.remoteDevice) ?? false, onPeer: options.onPeer,
+      onCallRefused: code => { callRefusal = { code, at: Date.now() }; callsChanged() } }))
     await startKeeper()
     timer = setInterval(() => {
       if (!live()) { close(); return }
@@ -256,6 +266,17 @@ export async function openBrowserNodeRoom(store: DeviceStore, state: BrowserNode
     return {
       state, pool, factory: calls.factory, allowed: () => live() && access!.allowed(), close,
       observe: (event: unknown) => access!.observe(event),
+      /** What is known about this node's calls, without asking it again. */
+      callCapacity: (): { full?: boolean; refusal?: { code: 486 | 508; at: number } } => ({ full: callsFull, refusal: callRefusal }),
+      /** Asks the node now. A failed request answers with what was last
+       *  known, so a slow node never blocks a call it might carry. */
+      async checkCallsFull(): Promise<boolean | undefined> {
+        if (!live()) return callsFull
+        try { await refresh() } catch { /* The periodic refresh reports a lost node. */ }
+        return callsFull
+      },
+      /** A call this device left: its refusals no longer describe a call it is on. */
+      forgetCallRefusal() { callRefusal = undefined },
       attach(session: RoomSession) {
         s = session
         startDesk(session)

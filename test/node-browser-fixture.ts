@@ -77,7 +77,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
         const token = createHash('sha256').update(room).digest('base64url'); tokens.set(token, room)
         return { v: 1 as const, endpoint: origin, token, expiresAt: Math.floor(Date.now() / 1000) + 86400 }
       }, register: async () => {}, remove: async () => {}, lease: async () => {},
-    } : new SpryBackend({ local: `http://127.0.0.1:${spryPort}`, origin, key, turnSecret })
+    } : new SpryBackend({ local: `http://127.0.0.1:${spryPort}`, origin, key, turnSecret, capacity: range.count })
     const relay = new ShelterBackend(control)
     const deadline = Date.now() + 15000
     for (;;) {

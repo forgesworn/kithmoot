@@ -45,6 +45,9 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     supervisor.ledger.consumeNonce(digest(event.pubkey + ':' + tags.get('nonce')), now + 120)
     return event.pubkey
   }
+  // A device holding a live call grant learns only whether new calls fit,
+  // never the counts. The public info and status answers carry nothing.
+  const callsFull = () => { const capacity = supervisor.callCapacity(); return capacity ? { callCapacity: { v: 1, full: capacity.full } } : {} }
   const dispatch = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     response.setHeader('Cache-Control', 'no-store')
     response.setHeader('Referrer-Policy', 'no-referrer')
@@ -114,7 +117,7 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
           const own = supervisor.ledger.active().filter(g => g.roomId === value.room && g.device === actor)
             .sort((a, b) => b.createdAt - a.createdAt)[0]
           if (!own) throw new NodeRefusal(403, 'access-required')
-          return reply({ state: 'active', event: own.event, ...(own.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor) } : {}) })
+          return reply({ state: 'active', event: own.event, ...(own.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor), ...callsFull() } : {}) })
         }
         const closed = supervisor.ledger.closedProof(value.room)
         if (closed) return reply({ state: 'closed', ...closed })
@@ -126,7 +129,7 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
           if (reset) return reply({ state: 'reset', event: reset })
           throw new NodeRefusal(403, 'access-required')
         }
-        return reply({ state: 'active', event: grant.event, ...(grant.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor) } : {}) })
+        return reply({ state: 'active', event: grant.event, ...(grant.scopes.includes('turn') ? { offer: await supervisor.offer(value.room, actor), ...callsFull() } : {}) })
       }
       case '/node/v1/close': {
         object(value, ['operation', 'room', 'deadline', 'reset', 'closure', 'events'])

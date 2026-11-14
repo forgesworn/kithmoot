@@ -34,7 +34,7 @@ function fixture(turnPorts?: { udpTcp: number; tls: number }) {
 }
 const response = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
 describe('node TURN route gathering', () => {
-  async function setup() {
+  async function setup(onCallRefused?: (code: 486 | 508) => void) {
     const f = fixture({ udpTcp: 34790, tls: 53499 }); let issued = 0
     const fetcher = vi.fn(async () => response(f.login(NOW, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
     class Connection extends EventTarget {
@@ -50,7 +50,7 @@ describe('node TURN route gathering', () => {
     }
     const contexts = [{ tier: 'turn' as const, remoteDevice: 'ab'.repeat(32) }, { tier: 'turn' as const, remoteDevice: 'cd'.repeat(32) }]
     const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
-      { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection })
+      { fetcher, now: () => NOW, PeerConnection: Connection as unknown as typeof RTCPeerConnection, onCallRefused })
     const create = (index = 0) => managed.factory(contexts[index]) as unknown as Connection
     const urls = (peer: Connection) => peer.configuration.iceServers![0]!.urls
     return { ...f, managed, create, urls, fetcher }
@@ -319,6 +319,16 @@ describe('node TURN route gathering', () => {
       expect(f.fetcher).toHaveBeenCalledTimes(1); expect(peer.restartIce).not.toHaveBeenCalled()
     } finally { f.managed.close() }
   })
+  it('reports capacity refusals to the embedding, and never an access refusal', async () => {
+    const refused = vi.fn(), f = await setup(refused)
+    try {
+      const peer = f.create(); peer.gather()
+      for (const errorCode of [401, 403, 701, 486, 508]) peer.fire('icecandidateerror', { errorCode })
+      expect(refused.mock.calls).toEqual([[486], [508]])
+      peer.fire('icecandidateerror', { errorCode: 486, url: 'turn:elsewhere.example:3478' })
+      expect(refused).toHaveBeenCalledTimes(2)
+    } finally { f.managed.close() }
+  })
   it.each(['closed', 'retiring', 'stopped'])('cancels route fallback for a %s peer', async state => {
     vi.useFakeTimers(); const f = await setup()
     try {
@@ -478,6 +488,13 @@ describe('pinned KithMoot node client', () => {
     const fetcher = vi.fn(async () => response({ ...status, roomsPrivate: ['not exposed'] })) as unknown as typeof fetch
     expect(await queryKithmootNodeStatus(pair, owner, { fetcher, now: () => NOW })).toEqual({ v: 1, version: '0.1.0-rc.1', ready: true, paired: true,
       rooms: 1, devices: 2, pending: 0, turnReady: true, relayReady: true, storeBytes: 2048 })
+    const capacity = { v: 1, allocations: 8, capacity: 8, full: true, refused: false }
+    expect(await queryKithmootNodeStatus(pair, owner, { now: () => NOW, fetcher: async () => response({ ...status, callCapacity: { ...capacity, rooms: ['x'] } }) }))
+      .toMatchObject({ callCapacity: capacity })
+    // Additive: an unreadable capacity is left out, never a refusal of the status.
+    for (const callCapacity of [{ ...capacity, v: 2 }, { ...capacity, allocations: -1 }, { ...capacity, full: 'yes' }, 'full']) {
+      expect(await queryKithmootNodeStatus(pair, owner, { now: () => NOW, fetcher: async () => response({ ...status, callCapacity }) })).not.toHaveProperty('callCapacity')
+    }
     for (const change of [{ serviceKey: getPublicKey(generateSecretKey()) }, { rooms: -1 }, { storeBytes: 'unknown' }]) {
       await expect(queryKithmootNodeStatus(pair, owner, { now: () => NOW, fetcher: async () => response({ ...status, ...change }) })).rejects.toMatchObject({ reason: 'invalid' })
     }
@@ -1027,4 +1044,13 @@ it('retrieves only this existing-room device’s signed grant with its authentic
   expect(await queryNodeAccess(node, undefined, f.identity, { fetcher, now: () => NOW })).toMatchObject({ state: 'active', grant: { event: f.grant } })
   await expect(queryNodeAccess(f.node, undefined, f.identity, { fetcher, now: () => NOW })).rejects.toThrow()
   expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('reads only the node\'s full-or-not word on calls from device access, and nothing else', async () => {
+  const f = fixture()
+  const query = (callCapacity?: unknown) => queryNodeAccess(f.node, '01'.repeat(16), f.identity, { now: () => NOW,
+    fetcher: (async () => response({ state: 'active', event: f.grant, offer: f.access.offer, ...(callCapacity === undefined ? {} : { callCapacity }) })) as unknown as typeof fetch })
+  expect(await query({ v: 1, full: true })).toMatchObject({ state: 'active', callsFull: true })
+  expect(await query({ v: 1, full: false })).toMatchObject({ state: 'active', callsFull: false })
+  for (const ignored of [undefined, { v: 2, full: true }, { v: 1, full: 'yes' }, true]) expect(await query(ignored)).not.toHaveProperty('callsFull')
 })
