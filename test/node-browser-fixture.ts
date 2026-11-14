@@ -23,10 +23,13 @@ async function freePort() {
  * routing is replaced; signatures keep their production HTTPS/WSS audiences. */
 export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?: boolean; relayIp?: string; sourceRelayPort?: number; additionalOrigins?: string[]; turnPorts?: { udpTcp: number; tls: number };
   relayPortCount?: number; aggregateBytesPerSecond?: number;
+  /** Room limit for both the ledger and Shelter. Omitted keeps their shared default of 32. */
+  maxRooms?: number; /** First allocation port; lets two fixtures coexist. Default 49400. */ relayPortFirst?: number;
+  /** Supervisor tick interval. Default 1000; the production supervisor ticks every 2000. */ heartbeatMs?: number;
   onRequest?: (value: { method: string; path: string; origin?: string }) => void } = {}) {
   const spry = process.env.E2E_NODE_SPRY_BINARY, shelter = process.env.E2E_NODE_SHELTER_BINARY
   if (!shelter || !options.chatOnly && !spry) throw Error('Set checked native fixture executables; chat-only qualification needs Shelter and supplies no real TURN service')
-  const range = nodeRelayRange({ relayPortFirst: 49400, relayPortCount: options.relayPortCount })
+  const range = nodeRelayRange({ relayPortFirst: options.relayPortFirst ?? 49400, relayPortCount: options.relayPortCount })
   const bandwidth = options.aggregateBytesPerSecond ?? 1000000
   if (!Number.isSafeInteger(bandwidth) || bandwidth < 1 || bandwidth > 67108864) throw Error('Invalid fixture bandwidth budget')
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-browser-')), children: ChildProcess[] = []
@@ -67,7 +70,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
       SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
       SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_STATE_FILE: join(directory, 'spry.json'), SPRY_AGGREGATE_BYTES_PER_SECOND: String(bandwidth), SPRY_ALLOWED_ORIGINS: appOrigin })
-    start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0'])
+    start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0', ...(options.maxRooms ? ['--max-rooms', String(options.maxRooms)] : [])])
     // Explicit chat-only runs exercise real signed admission and the native
     // relay. Their synthetic credential issuer cannot qualify media or TURN.
     const tokens = new Map<string, string>()
@@ -88,7 +91,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
       }
       await new Promise(r => setTimeout(r, 40))
     }
-    ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: randomBytes(32).toString('hex') })
+    ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: 'node.example', serviceKey, salt: randomBytes(32).toString('hex'), ...(options.maxRooms ? { maxRooms: options.maxRooms } : {}) })
     supervisor = new NodeSupervisor(ledger, calls, relay, 'node.example', key)
     http = nodeHttp(supervisor, { origin, origins: [appOrigin, ...(options.additionalOrigins ?? [])], serviceKey, turnPorts }); await new Promise<void>(r => http!.listen(0, '127.0.0.1', r))
     const address = http.address(); if (!address || typeof address === 'string') throw Error('http listener')
@@ -133,7 +136,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
     })
     await new Promise<void>(r => bridge!.listen(0, '127.0.0.1', r))
     const tls = bridge.address(); if (!tls || typeof tls === 'string') throw Error('tls listener')
-    heartbeat = setInterval(() => { void supervisor!.tick().catch(() => {}) }, 1000)
+    heartbeat = setInterval(() => { void supervisor!.tick().catch(() => {}) }, options.heartbeatMs ?? 1000)
     const relayMetrics = async () => {
       if (options.chatOnly) return null
       const path = '/v1/node/status', body = JSON.stringify({ v: 1,
@@ -147,7 +150,11 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
       const value = await response.json()
       return { allocations: value.allocations, metrics: value.metrics }
     }
-    return { chatOnly: !!options.chatOnly, relayMetrics, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
+    // Capacity measurement only: the children's process ids and their recent
+    // stderr, with fixture secrets removed.
+    const diagnostics = () => ({ directory, spryPort, pids: children.map(child => child.pid), stderr: startupErrors.map(text =>
+      text.replaceAll(turnSecret, '[fixture secret]').replaceAll(Buffer.from(key).toString('hex'), '[fixture key]')) })
+    return { chatOnly: !!options.chatOnly, relayMetrics, diagnostics, desk, calls: `http://127.0.0.1:${spryPort}`, websocket: `wss://localhost:${tls.port}/events`, supervisor, ledger, relay, close,
       native: { origin, port: tls.port, certificate: readFileSync(cert, 'utf8') },
       pairing() { const pair = preparePairing(supervisor!); return '#kithmoot-node=' + Buffer.from(JSON.stringify({ v: 1, node: origin, code: pair.code, expiresAt: pair.expiresAt })).toString('base64url') } }
   } catch (error) { await close(); throw error }
