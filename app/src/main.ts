@@ -170,6 +170,7 @@ import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
+import { shareableRoomLink, shortLinkPageFor } from './share-link.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
 import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -2403,6 +2404,17 @@ function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array)
 function encodeRoomUrl(base: string, relays: string[], urls: string[]): string {
   if (nodeRoom) return encodeNodeRoomLink(base, nodeRoom.node.event, nowSeconds())
   return `${base}#${encodePayload(relays, urls)}`
+}
+
+/** Short node-room links, on the /n/ page beside the app. Off unless the
+ * build says so: only a host that serves that page (deploy/deploy.sh does)
+ * may hand them out, or every one of them would be a dead link. */
+const SHORT_NODE_LINKS = import.meta.env.VITE_SHORT_NODE_LINKS === 'true'
+
+/** The invite page's link: with short links on, a node room's short form.
+ * Kept, synced and address-bar copies go through `encodeRoomUrl` and stay long. */
+function shareRoomUrl(base: string, relays: string[], urls: string[]): string {
+  return shareableRoomLink(SHORT_NODE_LINKS ? shortLinkPageFor(base) : undefined, nodeRoom?.node.event, nowSeconds(), () => encodeRoomUrl(base, relays, urls))
 }
 
 function encodePairingUrl(
@@ -5849,7 +5861,7 @@ function showRoomUi(): void {
 
 /** The invite page's link and the controls that go with who holds it. */
 function renderShareControls(): void {
-  ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
@@ -5919,7 +5931,7 @@ async function makeOwnInvitation(): Promise<void> {
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = url
+  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
   // The link kept for the list is the one this device answers now.
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
@@ -7156,7 +7168,7 @@ async function rotateRoomInvitation(): Promise<void> {
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = url
+  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
   // The old link is retired; the one kept for the list is the one that opens the room now.
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
@@ -7212,7 +7224,7 @@ async function makeRoomPersistent(): Promise<void> {
   roomInvitationCapability = invitation
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = url
+  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
   $('makePersistent').hidden = true
   $('invitationAvailability').textContent = 'This room stays open when everyone closes the app. Share the updated invite link so people can join later.'
   rememberCurrentRoom()
@@ -19460,7 +19472,7 @@ function roomRelaysApplied(entries: RelayConfig[]): void {
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
   renderIdentity()
   if (currentRoomId()) {
-    ;($('shareUrl') as HTMLInputElement).value = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
+    ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
     rememberCurrentRoom()
   }
 }
@@ -21089,7 +21101,9 @@ function renderMeetingCode(): void {
 async function getMeetingCode(): Promise<void> {
   if (!meetingCodeOffered()) throw new Error('Only the browser that started this room can get a meeting code for it.')
   const invitation = roomInvitationCapability!, roomId = currentRoomId()!
-  const link = ($('shareUrl') as HTMLInputElement).value, expires = meetingCodeExpiry(roomEndsAt, nowSeconds())
+  // The service keeps the link for whoever redeems the code later, on any
+  // version: the long form, as every kept copy is, not the shared short one.
+  const link = encodeRoomUrl(joinLinkBase(), relays, iceUrls), expires = meetingCodeExpiry(roomEndsAt, nowSeconds())
   // With a password the link is sealed here, under words the service never
   // sees, and the words are kept with the code so this sheet can show them.
   const issued = $('meetingCodePassword').dataset.on === 'true'
