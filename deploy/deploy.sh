@@ -75,9 +75,10 @@ Usage: deploy/deploy.sh [--install-caddy] [--reload-caddy] [--prune N] [--dry-ru
   --reload-caddy   Reload Caddy after the symlink flip. Not needed for a new
                    release to start serving, since Caddy re-resolves the
                    symlink on every request, but harmless.
-  --prune N        Delete all but the N most recent release directories after a
-                   successful deploy. The only destructive thing here, and it
-                   never runs unless this flag is given.
+  --prune N        Delete all but the N newest release directories (by their
+                   timestamp names) after a successful deploy, never the live one.
+                   The only destructive thing here, and it never runs unless
+                   this flag is given.
   --dry-run        Build and assemble locally, print what would be shipped, and
                    touch nothing on the box.
   -h, --help       Show this help.
@@ -303,18 +304,8 @@ fi
 
 if [[ "$PRUNE_KEEP" -gt 0 ]]; then
   echo "==> pruning releases, keeping the $PRUNE_KEEP most recent"
-  remote bash -s <<REMOTE
-set -euo pipefail
-cd "$DEPLOY_ROOT/releases"
-# Never remove whatever current points at, whatever its timestamp says.
-live="\$(basename "\$(readlink -f "$DEPLOY_ROOT/current")")"
-# A release this user cannot delete (one a root deploy left) is reported and
-# kept, rather than stopping the deploy after it has already gone live.
-ls -1t | tail -n +$((PRUNE_KEEP + 1)) | while read -r old; do
-  [[ "\$old" == "\$live" ]] && continue
-  if rm -rf -- "\$old" 2>/dev/null; then echo "removed \$old"; else echo "kept \$old: not removable by \$(id -un)"; fi
-done
-REMOTE
+  # By name, newest first; current is never removed. See prune-releases.sh.
+  remote bash -s -- "$(printf %q "$DEPLOY_ROOT")" "$PRUNE_KEEP" < deploy/prune-releases.sh
 fi
 
 remote "printf '%s %s %s\\n' $(printf %q "$release") $(printf %q "$(revision)") $(printf %q "$(date -u +%Y-%m-%dT%H:%M:%SZ)") >> $(printf %q "$DEPLOY_ROOT/revisions.log")"
