@@ -9,6 +9,8 @@ const run = (cmd, args, env = {}) => {
 run(process.execPath, [resolve(root, 'scripts/prepare-camera-vision.mjs')])
 run('npm', ['run', 'build:context'])
 run('npm', ['run', 'artwork:check'])
-run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true' })
+// Short node-room links point at https://kithmoot.forgesworn.dev/n/, which
+// the web release serves (deploy/deploy.sh); this build has no /n/ of its own.
+run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true', VITE_SHORT_NODE_LINKS: 'true' })
 run(process.execPath, [resolve(root, 'scripts/build-artwork-derivatives.mjs'), '--check-built'], { VITE_DESKTOP: 'true' })
 run(process.execPath, [resolve(root, 'scripts/check-no-telemetry.mjs'), resolve(root, 'desktop/web')])
