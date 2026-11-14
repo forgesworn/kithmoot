@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.151 says why a room on your node would not start: a busy node, a node that did not answer, or the node's own refusal, instead of "Something went wrong". When the node is busy or does not answer, it tries again by itself, up to three times, and picks up the room it had already begun.
+Version 0.1.152 hands out a short invite link for a room on your node when you copy or share it, about a quarter of the length of the long one; the QR code keeps the long link. A node that is holding as many rooms as it allows now says it is full, instead of busy, and stops trying again.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
