@@ -711,6 +711,9 @@ test('three concurrent account devices and a peer move an existing room onto its
     await closeSettings(keeper)
     await keeper.locator('#homeNewRoom').click()
     await keeper.locator('#roomName').fill('Existing shared chat')
+    // New rooms default to the paired node; this one starts ordinary and
+    // moves onto the node below.
+    await keeper.locator('#roomOnNode').uncheck()
     if (await keeper.locator('#newRoomYourName').isVisible()) await keeper.locator('#newRoomYourName').fill('Keeper')
     await keeper.locator('#create').click()
     await expect(keeper.locator('#chatInput')).toBeVisible()
