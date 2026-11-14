@@ -38,10 +38,17 @@ export function relayReason(reason: string): string | undefined {
   return /^([a-z][a-z-]*):/i.exec(bare)?.[1]?.toLowerCase()
 }
 
+/** bothy's live fan-out sends "rate-limited: reader fell behind; reconnect and
+ *  query again" to one socket whose queue overflowed, then closes it. The
+ *  client sent nothing too fast; it should reconnect, not hold its writes. A
+ *  node room's node is its only relay, so a hold there fails every send. */
+const LAGGED_READER = /reader fell behind|reconnect and query again/i
+
 /** Whether a relay's `NOTICE` asks this client to slow down: rate limiting by
  *  any wording, or strfry's "too many concurrent REQs" for a connection past
- *  its subscription cap. */
+ *  its subscription cap. bothy's lagged-reader notice is not one. */
 export function noticeThrottles(message: string): boolean {
+  if (LAGGED_READER.test(message)) return false
   return /\brate\b|rate[- ]?limit|too many/i.test(message)
 }
 

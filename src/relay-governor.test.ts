@@ -53,6 +53,14 @@ describe('relay reasons', () => {
     expect(noticeThrottles('could not generate the response')).toBe(false)
   })
 
+  it('does not take bothy’s notice to a reader that fell behind as a throttle', () => {
+    // Its live fan-out overflowed for this one socket and it closes it next;
+    // the client sent nothing too fast. The prefix says rate-limited anyway.
+    expect(noticeThrottles('rate-limited: reader fell behind; reconnect and query again')).toBe(false)
+    expect(noticeThrottles('ERROR: rate-limited: reader fell behind; reconnect and query again')).toBe(false)
+    expect(noticeThrottles('rate-limited: slow down')).toBe(true)
+  })
+
   it('knows the ephemeral kinds', () => {
     expect(isEphemeralKind(20461)).toBe(true)
     expect(isEphemeralKind(21059)).toBe(true)
@@ -235,6 +243,24 @@ describe('NostrRelayPool and refusals', () => {
     await vi.advanceTimersByTimeAsync(1)
     expect(gate.writeHeld(A)).toBe(true)
     expect(gate.writeHeld('wss://relay-b.test/')).toBe(false)
+  })
+
+  it('reconnects after bothy’s lagged-reader NOTICE and keeps writing to a node room’s only relay', async () => {
+    pool.close()
+    pool = new NostrRelayPool([URL_A], undefined, { dialGate: gate, reconnectJitterMs: 0, random: () => 0.5 })
+    pool.subscribe([{ kinds: [1] }], () => {})
+    await vi.advanceTimersByTimeAsync(1)
+    expect(requests(a)).toBe(1)
+    // bothyd's frame, word for word, then the socket closes.
+    a.notice('rate-limited: reader fell behind; reconnect and query again')
+    a.disconnectAll()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(gate.writeHeld(A)).toBe(false)
+    // Reconnected and the room's read asked for again, as after any drop.
+    await vi.advanceTimersByTimeAsync(16_000)
+    expect(requests(a)).toBe(2)
+    await pool.publish(evt())
+    expect(events(a)).toBe(1)
   })
 })
 
