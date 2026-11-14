@@ -138,6 +138,15 @@ if ! grep -q 'src="/j/assets/' app/dist/index.html; then
   exit 1
 fi
 
+# The short-link page at /n/ (app/short-link-page.ts). Short room links point
+# there, so a release without it turns every one of them into a 404.
+for built in index.html open.js; do
+  if [[ ! -s "app/short-link/dist/$built" ]]; then
+    echo "deploy.sh: app/short-link/dist/$built is missing or empty after build, refusing to deploy" >&2
+    exit 1
+  fi
+done
+
 # --- assemble ---------------------------------------------------------------
 
 staging="$(mktemp -d "${TMPDIR:-/tmp}/kithmoot-deploy.XXXXXX")"
@@ -147,8 +156,10 @@ echo "==> assembling the release tree"
 cp -R site/. "$staging"/
 mkdir -p "$staging"/j
 cp -R app/dist/. "$staging"/j/
+mkdir -p "$staging"/n
+cp -R app/short-link/dist/. "$staging"/n/
 
-for required in index.html style.css .well-known/assetlinks.json j/index.html j/sw.js j/manifest.webmanifest; do
+for required in index.html style.css .well-known/assetlinks.json j/index.html j/sw.js j/manifest.webmanifest n/index.html n/open.js; do
   [[ -s "$staging/$required" ]] || { echo "deploy.sh: assembled tree is missing $required" >&2; exit 1; }
 done
 
