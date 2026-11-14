@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.152",
+  "currentRelease": "0.1.153",
   "releases": [
     {
-      "version": "0.1.152",
+      "version": "0.1.153",
       "updateTo": {
-        "version": "0.1.152",
-        "name": "0.1.152",
-        "pub_date": "2026-11-14T18:22:50Z",
-        "notes": "Copying or sharing the invite for a room on your node now gives a short link, about a quarter of the length of the long one; the QR code keeps the long link. A node that is holding as many rooms as it allows now says it is full, instead of busy, and stops trying again.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.152/KithMoot-0.1.152-mac-arm64.zip",
-        "sha256": "a4e7abb61aa0ac339fd5138379d97b53c019eb6375c437df09d24fdda391bcba",
-        "size": 200020218
+        "version": "0.1.153",
+        "name": "0.1.153",
+        "pub_date": "2026-11-14T22:46:42Z",
+        "notes": "A call on your node that cannot reach someone because the node's calls are full now says so, instead of showing an empty call. A room on your node no longer stops sending after the node asks a slow reader to reconnect.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.153/KithMoot-0.1.153-mac-arm64.zip",
+        "sha256": "105914e2cbae30dacbe9506c6239e0bdfddcf3b757027643bbf0ca5951c8461f",
+        "size": 200020269
       }
     }
   ]

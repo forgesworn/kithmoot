@@ -1,6 +1,66 @@
 {
   "desktop": [
     {
+      "version": "0.1.153",
+      "published": "2026-11-14",
+      "files": [
+        {
+          "os": "mac",
+          "arch": "arm64",
+          "kind": "app",
+          "filename": "KithMoot-0.1.153-mac-arm64.zip",
+          "url": "/apk/desktop/0.1.153/KithMoot-0.1.153-mac-arm64.zip",
+          "bytes": 200020269,
+          "sha256": "105914e2cbae30dacbe9506c6239e0bdfddcf3b757027643bbf0ca5951c8461f"
+        },
+        {
+          "os": "windows",
+          "arch": "x64",
+          "kind": "portable",
+          "filename": "KithMoot-0.1.153-windows-x64.zip",
+          "url": "/apk/desktop/0.1.153/KithMoot-0.1.153-windows-x64.zip",
+          "bytes": 228553706,
+          "sha256": "0965dd4141a32746712ba3f43ac0149b981fb41871c8a41d6b1d216283c5210e"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.153_arm64.deb",
+          "url": "/apk/desktop/0.1.153/kithmoot_0.1.153_arm64.deb",
+          "bytes": 150388100,
+          "sha256": "777a4870d73f5217dab0b66cb2eb92f2b3a9b67aa394ecd335229fc6a6d492ab"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "deb",
+          "filename": "kithmoot_0.1.153_amd64.deb",
+          "url": "/apk/desktop/0.1.153/kithmoot_0.1.153_amd64.deb",
+          "bytes": 155460444,
+          "sha256": "d18714606102d04a12f4004f668236dc3e33ce29647542b35d6c4fab9f1b55d8"
+        },
+        {
+          "os": "linux",
+          "arch": "arm64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.153-linux-arm64.tar.gz",
+          "url": "/apk/desktop/0.1.153/KithMoot-0.1.153-linux-arm64.tar.gz",
+          "bytes": 194316514,
+          "sha256": "cbb9f16f4b2f080108c6200ca348bb52b0076bbe463d82c10007d7901ec6cfbc"
+        },
+        {
+          "os": "linux",
+          "arch": "x64",
+          "kind": "tarball",
+          "filename": "KithMoot-0.1.153-linux-x64.tar.gz",
+          "url": "/apk/desktop/0.1.153/KithMoot-0.1.153-linux-x64.tar.gz",
+          "bytes": 193412193,
+          "sha256": "1be1b78fc699f1d95137a2af3f353aa031a8c52e591ba64f161f99873e701037"
+        }
+      ]
+    },
+    {
       "version": "0.1.152",
       "published": "2026-11-14",
       "files": [
@@ -549,7 +609,7 @@
           "arch": "arm64",
           "kind": "app",
           "filename": "KithMoot-0.1.143-mac-arm64.zip",
-          "url": "/apk/desktop/0.1.143/KithMoot-0.1.143-mac-arm64.zip",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/KithMoot-0.1.143-mac-arm64.zip",
           "bytes": 200008869,
           "sha256": "78e367370f1228ca5957cdb8a411fcfc3f70fb0b4dd80c58e3fa60dc42ee316b"
         },
@@ -558,7 +618,7 @@
           "arch": "x64",
           "kind": "portable",
           "filename": "KithMoot-0.1.143-windows-x64.zip",
-          "url": "/apk/desktop/0.1.143/KithMoot-0.1.143-windows-x64.zip",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/KithMoot-0.1.143-windows-x64.zip",
           "bytes": 228542019,
           "sha256": "153ba734cfc2af71bf24cab38c29c7283c797fe9fbf9967cda965ed44f81b253"
         },
@@ -567,7 +627,7 @@
           "arch": "arm64",
           "kind": "deb",
           "filename": "kithmoot_0.1.143_arm64.deb",
-          "url": "/apk/desktop/0.1.143/kithmoot_0.1.143_arm64.deb",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/kithmoot_0.1.143_arm64.deb",
           "bytes": 150418932,
           "sha256": "388ac372af2c01260e59e1a83ba6d72cb217706d380d52c570e74d7e25fa2b9c"
         },
@@ -576,7 +636,7 @@
           "arch": "x64",
           "kind": "deb",
           "filename": "kithmoot_0.1.143_amd64.deb",
-          "url": "/apk/desktop/0.1.143/kithmoot_0.1.143_amd64.deb",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/kithmoot_0.1.143_amd64.deb",
           "bytes": 155448044,
           "sha256": "e3fefb81fa68becdd63d306a8c132112f1312f28133e90833c35328b97f50043"
         },
@@ -585,7 +645,7 @@
           "arch": "arm64",
           "kind": "tarball",
           "filename": "KithMoot-0.1.143-linux-arm64.tar.gz",
-          "url": "/apk/desktop/0.1.143/KithMoot-0.1.143-linux-arm64.tar.gz",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/KithMoot-0.1.143-linux-arm64.tar.gz",
           "bytes": 194259465,
           "sha256": "00f3ee5616c4fd49f7dded030438a0c2fe1c46349ab583736c83ddf8d984a51d"
         },
@@ -594,7 +654,7 @@
           "arch": "x64",
           "kind": "tarball",
           "filename": "KithMoot-0.1.143-linux-x64.tar.gz",
-          "url": "/apk/desktop/0.1.143/KithMoot-0.1.143-linux-x64.tar.gz",
+          "url": "https://github.com/forgesworn/kithmoot/releases/download/v0.1.143/KithMoot-0.1.143-linux-x64.tar.gz",
           "bytes": 193400108,
           "sha256": "a60a4014d692fbc2c25795aee8b56e1637a2da9955d9577f2c4c8fb4fd5ce5f1"
         }
