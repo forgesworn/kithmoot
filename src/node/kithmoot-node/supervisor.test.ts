@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { buildGrant, buildReset, buildRevocation, parseGroupEvent } from '../../group-grants.js'
-import { NodeLedger } from './ledger.js'
+import { NodeLedger, NodeRefusal } from './ledger.js'
 import { NodeSupervisor, type CloseRequest } from './supervisor.js'
 import { type CallBackend, type RelayBackend } from './backends.js'
 
@@ -184,5 +184,191 @@ describe('node supervisor recovery', () => {
     await expect(f.supervisor.close(getPublicKey(f.authority), { ...request, events: request.events.map(e => ({ ...e, content: 'tampered' })) })).rejects.toThrow('invalid-closing-events')
     await expect(f.supervisor.close(getPublicKey(f.authority), { ...request, closure: request.reset })).rejects.toThrow('invalid-close-statement')
     expect(f.ledger.operations()).toEqual([])
+  })
+})
+
+/** A calls backend that enforces Spry's `count`: a fixed 60 s window opened by
+ * the first POST, 120 POSTs per window, refused POSTs still counted, GET status
+ * free. The child lease lasts 15 s; `members` stands for Spry's registrations,
+ * which a test clears to simulate a Spry restart. */
+function sprySimulation(rooms: number, options: { start?: number } = {}) {
+  const path = mkdtempSync(join(tmpdir(), 'kithmoot-node-burst-')); cleanups.push(() => rmSync(path, { force: true, recursive: true }))
+  let ms = options.start ?? 1_900_000_000_000
+  const now = () => Math.floor(ms / 1000)
+  const authority = generateSecretKey(), nodeKey = generateSecretKey()
+  const ledger = new NodeLedger(join(path, 'ledger.sqlite'), { host: 'node.example', salt: 'test-salt', serviceKey: getPublicKey(nodeKey), maxRooms: 64, now })
+  cleanups.push(() => ledger.close())
+  ledger.claimOwner(getPublicKey(generateSecretKey()))
+  const spry = { posts: 0, refusals: 0, registers: 0, offers: 0, leases: 0, statuses: 0, window: undefined as { end: number; count: number } | undefined,
+    leaseUntil: 0, lastLease: undefined as number | undefined, maxLeaseGap: 0, lapses: 0, fail: 0, failRemove: false, maxWindow: 0,
+    members: new Map<string, Set<string>>(), revisions: new Map<string, number>() }
+  const post = () => {
+    if (!spry.window || spry.window.end <= ms) spry.window = { end: ms + 60_000, count: 0 }
+    spry.window.count++; spry.posts++; spry.maxWindow = Math.max(spry.maxWindow, spry.window.count)
+    if (spry.window.count > 120) { spry.refusals++; throw new NodeRefusal(503, 'spry-http-429') }
+    if (spry.fail > 0) { spry.fail--; throw new NodeRefusal(503, 'spry-unavailable') }
+  }
+  const calls: CallBackend = {
+    status: async () => { spry.statuses++; return { ready: true, leaseActive: ms < spry.leaseUntil } },
+    offer: async room => { post(); spry.offers++; return { v: 1, endpoint: 'https://node.example', token: Buffer.from(room, 'hex').toString('base64url'), expiresAt: now() + 86400 } },
+    register: async (token, revision, add, remove) => {
+      post()
+      if (spry.failRemove && remove.length) throw new NodeRefusal(503, 'spry-unavailable')
+      spry.registers++
+      expect(revision).toBeGreaterThan(spry.revisions.get(token) ?? 0); spry.revisions.set(token, revision)
+      const members = spry.members.get(token) ?? new Set<string>(); spry.members.set(token, members)
+      for (const key of add) members.add(key)
+      for (const key of remove) members.delete(key)
+    },
+    lease: async () => {
+      post(); spry.leases++
+      if (spry.leaseUntil <= ms && spry.lastLease !== undefined) spry.lapses++
+      if (spry.lastLease !== undefined) spry.maxLeaseGap = Math.max(spry.maxLeaseGap, ms - spry.lastLease)
+      spry.lastLease = ms; spry.leaseUntil = ms + 15_000
+    },
+    remove: async token => { post(); spry.members.delete(token) },
+  }
+  const relay: RelayBackend = { sync: async () => {}, publish: async () => {}, purge: async () => 0,
+    status: async () => ({ rooms: 0, devices: 0, usedBytes: 0, leaseActive: true }) }
+  const start = () => new NodeSupervisor(ledger, calls, relay, 'node.example', nodeKey, now, { clock: () => ms, sleep: async (wait: number) => { ms += wait } })
+  let supervisor = start()
+  const base = now()
+  const roomIds = Array.from({ length: rooms }, (_, i) => (i + 1).toString(16).padStart(64, '0'))
+  const room = (id: string) => ({ room: id, authority: getPublicKey(authority), inviter: getPublicKey(authority) })
+  const grant = (id: string, slot: number, expiration = base + 7200, device = getPublicKey(generateSecretKey())) => buildGrant({ authoritySk: authority, roomId: id, device, server: 'node.example',
+    scopes: ['turn', 'relay-read', 'relay-write'], grantId: (roomIds.indexOf(id) * 8 + slot + 1).toString(16).padStart(32, '0'), createdAt: now(), expiration })
+  let lastTick = ms
+  return { spry, get supervisor() { return supervisor }, ledger, roomIds, room, grant, authority, restart: () => { supervisor = start() },
+    get ms() { return ms }, advance: (wait: number) => { ms += wait },
+    /** The production timer ticks every 2 s; drive it from virtual time. */
+    tickIfDue: async () => { if (ms - lastTick >= 2000) { lastTick = ms; await supervisor.tick().catch(() => {}) } },
+    token: (id: string) => Buffer.from(id, 'hex').toString('base64url') }
+}
+describe('node supervisor Spry request budget', { timeout: 60_000 }, () => {
+  it('admits 64 rooms enrolled 20 ms apart with three devices each without a 503 or a Spry 429', async () => {
+    const s = sprySimulation(64)
+    const failures: unknown[] = [], latency: number[] = []
+    const timed = async (work: () => Promise<unknown>) => {
+      const began = s.ms
+      try { await work() } catch (error) { failures.push((error as Error).message) }
+      latency.push(s.ms - began)
+    }
+    for (const id of s.roomIds) {
+      s.advance(20); await s.tickIfDue(); await timed(() => s.supervisor.enrol(s.room(id)))
+      for (let slot = 0; slot < 3; slot++) { s.advance(20); await s.tickIfDue(); await timed(() => s.supervisor.apply(s.grant(id, slot))) }
+    }
+    for (let i = 0; i < 30; i++) { s.advance(2000); await s.tickIfDue() }
+    expect(failures).toEqual([])
+    expect(s.spry.refusals).toBe(0); expect(s.spry.maxWindow).toBeLessThanOrEqual(100)
+    expect(s.spry.lapses).toBe(0); expect(s.spry.maxLeaseGap).toBeLessThan(15_000)
+    expect(Math.max(...latency)).toBeLessThan(6000) // the client's own request timeout
+    expect(s.spry.offers).toBe(64); expect(s.spry.registers).toBe(192)
+    for (const id of s.roomIds) expect(s.spry.members.get(s.token(id))?.size).toBe(3)
+    expect(s.supervisor.status()).toMatchObject({ ready: true, rooms: 64, devices: 192 })
+  })
+  it('shares one reconcile between concurrent mutations', async () => {
+    const s = sprySimulation(8)
+    await s.supervisor.tick()
+    const statuses = s.spry.statuses
+    await Promise.all(s.roomIds.map(id => s.supervisor.enrol(s.room(id))))
+    await Promise.all(s.roomIds.flatMap(id => [0, 1, 2].map(slot => s.supervisor.apply(s.grant(id, slot)))))
+    // One pass in flight and at most one follow-up for each burst.
+    expect(s.spry.statuses - statuses).toBeLessThanOrEqual(4)
+    expect(s.spry.refusals).toBe(0); expect(s.spry.offers).toBe(8); expect(s.spry.registers).toBeLessThanOrEqual(16)
+    for (const id of s.roomIds) expect(s.spry.members.get(s.token(id))?.size).toBe(3)
+    expect(s.supervisor.status()).toMatchObject({ ready: true, rooms: 8, devices: 24 })
+  })
+  it('re-sends only the failed room after a refused registration', async () => {
+    const s = sprySimulation(10)
+    for (const id of s.roomIds) {
+      await s.supervisor.enrol(s.room(id))
+      for (let slot = 0; slot < 3; slot++) await s.supervisor.apply(s.grant(id, slot))
+      s.advance(2000); await s.tickIfDue()
+    }
+    const last = s.roomIds.at(-1)!
+    s.spry.fail = 1
+    await expect(s.supervisor.apply(s.grant(last, 3))).rejects.toThrow('children-pending')
+    const registers = s.spry.registers
+    s.advance(2000); await s.supervisor.tick()
+    // Before the fix every room was left shelter-pending and every device was re-registered.
+    expect(s.spry.registers - registers).toBe(1)
+    expect(s.spry.members.get(s.token(last))?.size).toBe(4)
+    expect(s.supervisor.status()).toMatchObject({ ready: true })
+  })
+  it('stays under the window when the supervisor restarts inside one', async () => {
+    const s = sprySimulation(64)
+    for (const [index, id] of s.roomIds.entries()) {
+      if (index === 20 || index === 40) s.restart()
+      s.advance(20); await s.tickIfDue(); await s.supervisor.enrol(s.room(id))
+      for (let slot = 0; slot < 3; slot++) { s.advance(20); await s.tickIfDue(); await s.supervisor.apply(s.grant(id, slot)) }
+    }
+    expect(s.spry.refusals).toBe(0); expect(s.spry.maxWindow).toBeLessThanOrEqual(115)
+  })
+  it('resumes a paced full re-registration after Spry loses its state', async () => {
+    const s = sprySimulation(64)
+    let distinct = 0
+    for (const id of s.roomIds) {
+      await s.supervisor.enrol(s.room(id))
+      for (let slot = 0; slot < 3; slot++) await s.supervisor.apply(s.grant(id, slot, Math.floor(s.ms / 1000) + 7200 + ++distinct))
+      s.advance(2000); await s.tickIfDue()
+    }
+    expect(s.supervisor.status()).toMatchObject({ ready: true, devices: 192 })
+    const registers = s.spry.registers, refusals = s.spry.refusals
+    s.spry.members.clear(); s.spry.leaseUntil = 0 // Spry restarted
+    let waited = 0
+    while (!(s.supervisor.status().ready && s.spry.leaseUntil > s.ms) && waited < 600_000) { s.advance(2000); waited += 2000; await s.tickIfDue() }
+    expect(s.supervisor.status().ready).toBe(true)
+    expect(s.spry.registers - registers).toBe(192) // each device once, distinct expiries
+    expect(s.spry.refusals - refusals).toBe(0)
+    for (const id of s.roomIds) expect(s.spry.members.get(s.token(id))?.size).toBe(3)
+    expect(waited).toBeLessThan(240_000)
+  })
+  it('admits an unawaited 64-room burst through client retries without a Spry 429 or a lapse', async () => {
+    const s = sprySimulation(64)
+    await s.supervisor.tick()
+    const outcomes = { refused: 0, rounds: 0, codes: new Set<string>() }
+    const drive = async (work: (() => Promise<unknown>)[]) => {
+      let left = work
+      while (left.length && outcomes.rounds < 500) {
+        outcomes.rounds++
+        const results = await Promise.allSettled(left.map(run => run()))
+        for (const r of results) if (r.status === 'rejected') { outcomes.refused++; outcomes.codes.add((r.reason as Error).message) }
+        left = left.filter((_, i) => results[i]!.status === 'rejected')
+        s.advance(2000); await s.tickIfDue()
+      }
+    }
+    await drive(s.roomIds.map(id => () => s.supervisor.enrol(s.room(id))))
+    const grants = s.roomIds.flatMap(id => [0, 1, 2].map(slot => s.grant(id, slot)))
+    await drive(grants.map(grant => () => s.supervisor.apply(grant)))
+    expect(s.spry.refusals).toBe(0); expect(s.spry.lapses).toBe(0); expect(s.spry.maxLeaseGap).toBeLessThan(15_000)
+    // The node's own queue cap (429 node-busy) and paced passes (503) refuse
+    // some of a truly concurrent burst; the clients' retries then succeed.
+    for (const code of outcomes.codes) expect(['children-pending', 'node-busy']).toContain(code)
+    for (const id of s.roomIds) expect(s.spry.members.get(s.token(id))?.size).toBe(3)
+    expect(s.supervisor.status()).toMatchObject({ ready: true, rooms: 64, devices: 192 })
+  })
+  it('lets the lease lapse while a revocation cannot be delivered during a paced backlog', async () => {
+    const s = sprySimulation(24)
+    const kept = getPublicKey(generateSecretKey())
+    const revoked = s.grant(s.roomIds[23]!, 0, undefined, kept)
+    for (const id of s.roomIds) { await s.supervisor.enrol(s.room(id)); s.advance(2000); await s.tickIfDue() }
+    await s.supervisor.apply(revoked)
+    s.advance(6000); await s.tickIfDue()
+    const parsed = parseGroupEvent(revoked); if (!parsed.ok || parsed.parsed.type !== 'grant') throw Error('fixture')
+    const leases = s.spry.leases
+    s.spry.failRemove = true
+    const burst = await Promise.allSettled([
+      ...s.roomIds.slice(0, 23).map(id => s.supervisor.apply(s.grant(id, 1))),
+      s.supervisor.apply(buildRevocation(parsed.parsed, s.authority, s.ms / 1000 | 0)),
+    ])
+    expect(burst.some(r => r.status === 'rejected')).toBe(true)
+    for (let i = 0; i < 10; i++) { s.advance(2000); await s.tickIfDue() }
+    expect(s.spry.leases).toBe(leases) // never renewed while the revocation is owed
+    expect(s.spry.leaseUntil).toBeLessThanOrEqual(s.ms)
+    s.spry.failRemove = false
+    for (let i = 0; i < 60 && !s.supervisor.status().ready; i++) { s.advance(2000); await s.tickIfDue() }
+    expect(s.spry.members.get(s.token(s.roomIds[23]!))?.has(kept)).toBe(false)
+    expect(s.supervisor.status()).toMatchObject({ ready: true })
+    expect(s.spry.refusals).toBe(0)
   })
 })
