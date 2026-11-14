@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.150 leaves the room you are in before starting a new one: starting a room from inside another put the new room's name and invite link on screen while what you typed, and a rename, still went to the old room. A call you are on stays in the dock. A room on your node that would not open again on one of your devices, saying "Your KithMoot node refused this request", now opens. It also opens the shorter form of a node-room invite link, about a quarter of the length of today's, so it can read one once other devices start sending them; nothing sends the short form yet. A link to a node room that has ended now says "This room has ended" instead of "This invite link is incomplete", and one made ahead of this computer's clock says the clock is behind.
+Version 0.1.151 says why a room on your node would not start: a busy node, a node that did not answer, or the node's own refusal, instead of "Something went wrong". When the node is busy or does not answer, it tries again by itself, up to three times, and picks up the room it had already begun.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
