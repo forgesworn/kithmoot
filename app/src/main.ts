@@ -778,6 +778,8 @@ const roomReadSets = new Map<string, Map<string, Set<string>>>()
 let switchingRoom = false
 let roomGeneration = 0
 let roomOperation = 0
+/** Open holds on the room-busy panel (`holdRoomBusy`). */
+let roomBusyHolds = 0
 
 function draftRoomKey(): string {
   return `${nostrSession?.pubkey ?? 'visitor'}:${currentRoomId()}`
@@ -828,6 +830,7 @@ installUpdates(() => {
   if (boardsPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
   if (hasUnsentWork()) return 'Send or discard your unfinished messages, files and Shared Work drafts before updating. Your work stays here until then.'
   if (switchingBlocked()) return 'Finish the current action before updating. You can keep using this version.'
+  if (destructing.size > 0) return 'A room is being deleted from this device. Update when that has finished. You can keep using this version.'
   if (onCall() || micTrack || cameraTrack || screenTrack || pendingMedia.size > 0 || (!leftCall && (remoteAudios.size > 0 || remoteVideos.size > 0))) {
     return {
       reason: 'Updating will turn off this device\'s microphone, camera and screen share, leave the call and reopen this room.',
@@ -16501,7 +16504,7 @@ function renderRooms(): void {
   const busy = switchingBlocked()
   // Leaving for the start page ends the room's session, which unsent work would not survive.
   $('appHome').setAttribute('aria-disabled', String(hasUnsentWork()))
-  $('workspaceNote').textContent = !session ? ''
+  $('workspaceNote').textContent = !session || roomBusyHolds > 0 ? ''
     : busy ? 'Finish sending or stop adding files before switching. You can also open the other room in a new tab.'
     : callIsLive() || onCall() ? 'Your call carries on while you visit other rooms. Choose its room again, or Back to the call, to return.'
     : hasUnsentWork() ? 'Your drafts stay here while you switch.' : ''
@@ -16658,6 +16661,11 @@ function roomRowState(room: KnownRoom): RoomRowState {
   // connection the list would hold to it.
   const here = !!session && room.roomId === currentRoomId()
   const time = formatActivityTime(activityAt(room, here ? conversationMessages(undefined) : roomWatches.get(room.roomId)?.watch.messages() ?? []))
+  // Its row is held while it goes, and says why (`selfDestruct`).
+  if (destructing.has(room.roomId)) {
+    const preview = 'Deleting from this device…'
+    return { preview, time, unreadCount: 0, agentCount: 0, presenceCount: 0, description: preview }
+  }
   if (room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) {
     const preview = room.endsAt !== undefined && room.endsAt <= (room.endedAt ?? room.endsAt)
       ? `Conference room. Ended ${formatConferenceEnd(room.endsAt)}.`
@@ -16719,8 +16727,9 @@ function roomRow(room: KnownRoom, project?: string): HTMLLIElement {
   open.dataset.action = 'open'
   open.setAttribute('aria-label', `Open ${label}`)
   open.setAttribute('aria-describedby', descId)
-  // Nothing is switched while a send or an upload is in flight.
-  open.disabled = switchingBlocked() && room.roomId !== currentRoomId()
+  // Nothing is switched while a send or an upload is in flight, and a room
+  // being deleted from this device is not opened while it goes.
+  open.disabled = (switchingBlocked() && room.roomId !== currentRoomId()) || destructing.has(room.roomId)
   // The chat on screen is the selected row.
   if (room.roomId === currentRoomId()) open.setAttribute('aria-current', 'true')
   open.addEventListener('click', () => { void switchRoom(room, project) })
@@ -17242,7 +17251,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     renderConversationNav()
     return
   }
-  if (switchingBlocked()) { renderRooms(); return }
+  if (switchingBlocked() || destructing.has(room.roomId)) { renderRooms(); return }
   if (!await confirmLeavingWaitingMessage()) return
   // Nothing a person navigates to ends a call. See `DockedCall`.
   let intent = switchIntent({ onCall: callIsLive() || onCall(), dockedRoomId: dockedCall?.room.roomId, destination: room.roomId })
@@ -17403,7 +17412,7 @@ function tearDownCallMedia(): void {
 }
 
 /** Stop the room completely before any other room can own the controls. */
-async function closeRoomSession(options: { backgroundFarewell?: boolean; preservePrivate?: boolean } = {}): Promise<void> {
+async function closeRoomSession(options: { backgroundFarewell?: boolean; preservePrivate?: boolean; farewell?: (finished: Promise<void>) => void } = {}): Promise<void> {
   const pendingRoom = currentRoomId()
   if (pendingRoom) pendingSends.release(pendingRoom)
   if (!options.preservePrivate && (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel)) await pauseBrowserMls()
@@ -17490,8 +17499,11 @@ async function closeRoomSession(options: { backgroundFarewell?: boolean; preserv
   }
   const finished = (recordingStop ? recordingStop.then(() => old?.leave()) : old?.leave() ?? Promise.resolve())
     .finally(() => { if (old) nodeRuntimes.get(old)?.close(); transport?.close() })
-  if (options.backgroundFarewell) void finished.catch(() => {})
-  else await finished
+  if (options.backgroundFarewell) {
+    const quiet = finished.catch(() => {})
+    // Whoever must not act before the farewell has gone out waits on this.
+    options.farewell?.(quiet)
+  } else await finished
 }
 
 function resetRoomState(): void {
@@ -21380,9 +21392,12 @@ $('endRoom').addEventListener('click', async () => {
     confirmLabel: 'End room',
     danger: true,
   })) return
+  const release = holdRoomBusy(`Ending ${currentRoomLabel()}…`, roomDestruct
+    ? 'Taking everyone out, then deleting the room from this device.'
+    : 'Taking everyone out and stopping its invite links.')
   ++roomOperation
   try { await endRoomForEveryone() } catch (err) { setStatus(describeError(err)) }
-  finally { --roomOperation; refreshRoomNavigation() }
+  finally { --roomOperation; release(); refreshRoomNavigation() }
 })
 $('selfDestructNow').addEventListener('click', async () => {
   const name = currentRoomLabel()
@@ -22111,6 +22126,61 @@ function pendingDoomed(item: PendingSend): boolean {
 // ---------------------------------------------------------------------------
 
 const SELF_DESTRUCTED_MESSAGE = 'This room self-destructed.'
+/** One panel over the window while the room on screen is being ended for
+ *  everyone, which takes a moment. No other room can be opened meanwhile
+ *  (`roomOperation`), and greyed rows alone, with their reason at the foot
+ *  of the list, looked broken. Deleting what is left never holds it: that
+ *  goes on behind the rooms list (`leaveEndedRoom`). */
+function holdRoomBusy(title: string, line: string): () => void {
+  const dialog = $('roomBusyDialog') as HTMLDialogElement
+  $('roomBusyName').textContent = title
+  $('roomBusyLine').textContent = line
+  if (++roomBusyHolds === 1 && !dialog.open) dialog.showModal()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    if (--roomBusyHolds === 0 && dialog.open) dialog.close()
+  }
+}
+$('roomBusyDialog').addEventListener('cancel', event => { if (roomBusyHolds > 0) event.preventDefault() })
+
+const DESTRUCT_DELETING_MESSAGE = 'This room has ended for everyone. Deleting it from this device…'
+/** Said on the rooms list when a room that has ended could not be deleted:
+ *  a room relay that did not answer, or a file server that refused. Its
+ *  keys stay on this device until a later try deletes everything. */
+const DESTRUCT_UNFINISHED_MESSAGE = 'This room has ended for everyone. Some of it could not be deleted yet, so this device keeps what it needs and will try again by itself.'
+
+/** Off a room that has ended for everyone, back to the rooms list at once.
+ *  Deleting it goes on behind, holding only its own row (`destructing`), so
+ *  a relay that never answers costs the person nothing. The page is not
+ *  reloaded: that would stop the deleting and lose the channels the live
+ *  session knew of. `farewell` is the session saying it left, which the
+ *  deleting waits for so none of it lands on a relay afterwards. */
+async function leaveEndedRoom(roomId: string): Promise<{ farewell: Promise<void> }> {
+  let farewell: Promise<void> = Promise.resolve()
+  if (currentRoomId() !== roomId) return { farewell }
+  if (session) {
+    closeAllDrafts()
+    await closeRoomSession({ backgroundFarewell: true, farewell: finished => { farewell = finished } })
+  }
+  if (currentRoomId() !== roomId) return { farewell }
+  resetRoomState()
+  // Set by ending the room; a page used to reload after, which cleared it.
+  endingRoom = false
+  history.replaceState(null, '', joinLinkBase())
+  $('roomArea').hidden = true
+  showRoomsList()
+  renderDock()
+  setStatus(DESTRUCT_DELETING_MESSAGE)
+  return { farewell }
+}
+
+/** Whether a word about a room deleted in the background can be said: only
+ *  on the rooms list, never over a room the person has since opened. */
+function onRoomsListOnly(): boolean {
+  return !session && !joining && roomsListShown && !currentRoomId()
+}
 /** Rooms this tab is tidying away now: never started twice, and the
  *  bookmark tombstone this tab sends is not taken for another device's. */
 const destructing = new Set<string>()
@@ -22244,61 +22314,105 @@ async function closeRoomNotifications(roomId: string): Promise<void> {
  * account's bookmark and read position, wipe locally, and leave a tombstone
  * row that names no room. `endRoom` closes it for everyone first (Self-
  * destruct now). Deleting the link-key records goes first when this device
- * made the room, while their keys still exist.
+ * made the room, while their keys still exist. The room on screen is left
+ * as soon as it is over (`onLeft`); the rest goes on behind the rooms list.
  */
-async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Promise<void> {
+async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>, onLeft?: () => void): Promise<void> {
   const roomId = room.roomId
   const hosted = parseNodeRoomLink(room.link, Math.floor(room.openedAt))
   if (hosted) {
     if (destructing.has(roomId)) return
     destructing.add(roomId)
+    renderRooms()
     const here = currentRoomId() === roomId
     const participant = currentParticipant(), held = here ? nodeRoom : participant ? loadNodeRoom(deviceStore, participant, roomId) : undefined
     const root = held ? deriveRoom(held.secret) : undefined
     const context: TidyUpContext = { roomId, roomRelays: [], deviceSk: held?.deviceSk ?? generateSecretKey(), canEnd: false,
       ...(root ? { roomKey: root.roomKey } : {}), ...(here && session ? { chatStreams: session.chatStreams() } : {}) }
+    // Only the moment of ending it for everyone holds the window; the room
+    // is left as soon as it is over, and the rest goes on behind the list.
+    const release = here && endRoom ? holdRoomBusy(`Ending ${currentRoomLabel()}…`, 'Taking everyone out. It is then deleted from this device.') : () => {}
+    let farewell: Promise<void> = Promise.resolve()
+    let left = false
+    const leaveScreen = async () => {
+      if (left) return
+      left = true
+      release()
+      if (!here) return
+      ;({ farewell } = await leaveEndedRoom(roomId))
+      onLeft?.()
+    }
     try {
       await withRoomLock(roomId, async () => {
         // The node owns the room partition. An admitted device never tries
         // public NIP-09 deletion sockets after its private access was revoked.
         if (endRoom) await endRoom()
+        await leaveScreen()
         discardRoomRecording(roomId)
         await roomTabs?.leaveOthers(roomId)
         stopReadPositions(roomId)
         if (dockedCall?.session.roomId === roomId) await endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
-        if (here && session) { closeAllDrafts(); await closeRoomSession() }
+        // Its farewell is signed with the device key wiped below.
+        await farewell
         try { await bookmarks?.removeAndConfirm(roomId) } catch { /* Local deletion still completes while account relays are offline. */ }
         await clearRoomLocally(context, true)
         addTombstone(deviceStore, nowSeconds(), bytesToHex(crypto.getRandomValues(new Uint8Array(16))))
         held?.secret.fill(0); held?.authoritySk?.fill(0); held?.deviceSk.fill(0)
       })
-    } finally { root?.roomKey.fill(0); destructing.delete(roomId); renderRooms() }
-    if (here) {
-      try { sessionStorage.setItem(NOTICE_STORAGE_KEY, SELF_DESTRUCTED_MESSAGE) } catch { /* The room is still gone. */ }
-      history.replaceState(null, '', joinLinkBase()); approvedReload()
-    }
+      // Another tab holds the room's lock and is deleting it; this one leaves.
+      await leaveScreen()
+    } finally { release(); root?.roomKey.fill(0); destructing.delete(roomId); renderRooms() }
+    if (here && onRoomsListOnly()) { setStatus(SELF_DESTRUCTED_MESSAGE); showDestructEffect() }
     return
   }
   if (destructing.has(roomId)) return
   destructing.add(roomId)
+  renderRooms()
   discardRoomRecording(roomId)
   if (dockedCall?.session.roomId === roomId) {
     destructSecrets.set(roomId, dockedCall.ui.roomSecret)
     await endDockedCall('user', SELF_DESTRUCTED_MESSAGE)
   }
   const here = !!session && currentRoomId() === roomId
+  // Only the moment of ending it for everyone holds the window; the room is
+  // left as soon as it is over, and the relays are read and asked to delete
+  // behind the rooms list. A relay that never answers holds a try for its
+  // three reads, and holds nothing but the room's own row (`destructing`).
+  const release = here && endRoom ? holdRoomBusy(`Ending ${currentRoomLabel()}…`, 'Taking everyone out. It is then deleted from this device.') : () => {}
+  // Whether the room is over for everyone: it was due, or `endRoom` ended it.
+  // A tidy-up that then fails does not leave the person sitting in it.
+  let over = !endRoom
+  let farewell: Promise<void> = Promise.resolve()
+  let left = false
+  // While the room on screen is being ended, no other room is opened and
+  // its closing is not taken for anyone else's (`roomWasClosed`).
+  let holding = false
+  const letGo = () => {
+    if (!holding) return
+    holding = false
+    --roomOperation
+    tidyUpRunning = false
+  }
+  const leaveScreen = async () => {
+    if (left) return
+    left = true
+    letGo()
+    release()
+    if (!here) return
+    ;({ farewell } = await leaveEndedRoom(roomId))
+    onLeft?.()
+  }
   try {
-    const ran = await withRoomLock(roomId, async () => {
+    await withRoomLock(roomId, async () => {
       // Another tab may have finished it while this one waited.
       if (!knownRoom(deviceStore, roomId) && !(bookmarks && knownRoom(bookmarks.rooms, roomId))) return
+      // Read before leaving: the live session knows every channel it opened.
       const context = destructContext(room)
       const reader = new NostrHistoryRelayReader()
       const writer = new NostrPublicDeletionRelayWriter()
       const account = context.account
-      // Only the room on screen: a room tidied away in the background must
-      // not stop the one in front of the person hearing that it closed.
-      if (here) tidyUpRunning = true
-      ++roomOperation
+      if (here && endRoom) { holding = true; tidyUpRunning = true; ++roomOperation }
+      else await leaveScreen()
       try {
         const report = await runTidyUp({
           now: nowSeconds,
@@ -22310,7 +22424,7 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           device: { sk: context.deviceSk },
           ...(context.chatStreams ? { chatStreams: context.chatStreams } : {}),
           files: deleteRoomFiles(context),
-          ...(endRoom ? { endRoom } : {}),
+          ...(endRoom ? { endRoom: async () => { await endRoom(); over = true; await leaveScreen() } } : {}),
           ...(account ? { account: {
             pubkey: account.pubkey,
             sign: template => account.signer.signEvent(template),
@@ -22326,10 +22440,10 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
           otherTabsAnswer: async () => { if (roomTabs) await roomTabs.leaveOthers(roomId); return true },
           leaveOtherTabs: async () => (roomTabs ? await roomTabs.leaveOthers(roomId) : true),
           stopReadPositions: () => stopReadPositions(roomId),
+          // Off the screen already; what is waited for is its farewell.
           leaveHere: async () => {
-            if (!here || !session) return
-            closeAllDrafts()
-            await closeRoomSession()
+            await leaveScreen()
+            await farewell
           },
           // The row that says a room went is written with the wipe, not
           // after the relay check that follows it: a tab closed or reloaded
@@ -22343,23 +22457,31 @@ async function selfDestruct(room: KnownRoom, endRoom?: () => Promise<void>): Pro
         if (report.refused || report.localRetained) throw new Error(report.refused ?? report.localRetained)
         console.info(`room self-destructed: ${report.steps.map(step => `${step.id}${step.skipped ? ' (skipped)' : ''}`).join(', ')}; ${report.remaining.length} relay record groups still found`)
       } finally {
-        --roomOperation
-        if (here) tidyUpRunning = false
+        letGo()
         writer.close()
       }
     })
-    // Another tab holds the room's lock and is tidying it; this one only leaves.
-    if (!ran && here) await closeRoomSession()
+    // Another tab holds the room's lock and is deleting it, or has already:
+    // this one only leaves.
+    await leaveScreen()
+  } catch (error) {
+    // Ended, but not all deleted: the person is back on the rooms list, and
+    // told so if they are still there. What the next try needs (the room's
+    // record and this device's key) is kept, and the list's timer tries
+    // again in the background.
+    if (here && over) {
+      await leaveScreen().catch(() => {})
+      if (onRoomsListOnly()) setStatus(DESTRUCT_UNFINISHED_MESSAGE)
+    }
+    throw error
   } finally {
+    letGo()
+    release()
     destructing.delete(roomId)
     destructSecrets.delete(roomId)
     renderRooms()
   }
-  if (here) {
-    try { sessionStorage.setItem(NOTICE_STORAGE_KEY, SELF_DESTRUCTED_MESSAGE) } catch { /* The room is still gone. */ }
-    history.replaceState(null, '', joinLinkBase())
-    approvedReload()
-  }
+  if (here && onRoomsListOnly()) { setStatus(SELF_DESTRUCTED_MESSAGE); showDestructEffect() }
 }
 
 /** Whether the closing rekey a refusal stood in for said the room self-
@@ -22425,7 +22547,16 @@ async function selfDestructNow(): Promise<void> {
   if (!room) throw new Error('This room is not saved on this device, so it cannot be tidied away here.')
   destructSecrets.set(roomId, roomSecret)
   destructSchedule.reset(roomId)
-  await selfDestruct(room, () => endRoomForEveryone(true))
+  // Done for the person once the room is left; the deleting that follows
+  // is the list's, retried on its schedule if it does not finish.
+  let left!: () => void
+  const leaving = new Promise<void>(resolve => { left = resolve })
+  const run = selfDestruct(room, () => endRoomForEveryone(true), left)
+  void run.then(() => destructSchedule.reset(roomId), error => {
+    destructSchedule.failed(roomId)
+    console.warn('self-destruct did not finish', error)
+  })
+  await Promise.race([leaving, run])
 }
 
 /** Taken out by a tidy-up elsewhere: back to the rooms list, not the room's

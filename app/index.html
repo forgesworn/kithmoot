@@ -1556,6 +1556,12 @@
       </dl>
       </div>
     </dialog>
+    <!-- Over the window while the room on screen is ended or deleted: no other
+         room can be opened meanwhile, and greyed rows alone looked broken. -->
+    <dialog id="roomBusyDialog" class="actionDialog roomBusy" aria-labelledby="roomBusyTitle" aria-describedby="roomBusyLine" data-keep-open>
+      <h2 id="roomBusyTitle"><span class="busySpinner" aria-hidden="true"></span><span id="roomBusyName">Deleting this room…</span></h2>
+      <p id="roomBusyLine"></p>
+    </dialog>
     <!-- Stays open while the room is left, so the report can be read. -->
     <dialog id="tidyUpDialog" class="actionDialog tidyUp" aria-labelledby="tidyUpTitle" data-keep-open>
       <h2 id="tidyUpTitle">Leave and tidy up</h2>

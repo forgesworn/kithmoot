@@ -3121,6 +3121,18 @@ label.note {
 .actionDialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(3px); }
 .actionDialog h2 { margin: 0 0 .75rem; font-size: var(--fs-4); text-transform: none; color: var(--text); }
 .actionDialog p { margin: 0; line-height: 1.55; white-space: pre-line; }
+.roomBusy h2 { display: flex; align-items: center; gap: .65rem; }
+.busySpinner {
+  flex: none;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid var(--line, currentColor);
+  border-top-color: var(--text);
+  border-radius: 50%;
+  animation: busySpin .9s linear infinite;
+}
+@keyframes busySpin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { .busySpinner { animation: none; border-top-color: var(--line, currentColor); } }
 .actionDialogButtons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
 .actionDialogButtons button { margin: 0; min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .actionDialogButtons button.danger { color: var(--danger); border-color: var(--danger-border); }

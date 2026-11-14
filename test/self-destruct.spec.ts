@@ -1,8 +1,9 @@
 import { test, expect, request as playwrightRequest, type Browser, type BrowserContext, type Page } from '@playwright/test'
 import { verifyEvent, type Event } from 'nostr-tools/pure'
-import { allowTestFileStorage, openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_HTTP, nameCreator } from './browser.js'
+import { allowTestFileStorage, openNewRoomForm, openRoomDetails, leaveRoom, TEST_RELAY_HTTP, nameCreator, showChats } from './browser.js'
 import { openRoomUrl } from './relays.js'
-import { parseRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
+import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { deriveInvitationId } from '../src/invitation.js'
 
 // Self-destructing rooms, against the local test relay. The test build
@@ -16,9 +17,30 @@ async function device(browser: Browser, baseURL: string): Promise<BrowserContext
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   await context.addInitScript(relay => {
     const Native = window.WebSocket
+    /** A relay that takes the connection and never answers, as one that
+     *  drops packets does: it neither opens nor fails until closed. */
+    class Silent extends EventTarget {
+      static readonly CONNECTING = 0; static readonly OPEN = 1; static readonly CLOSING = 2; static readonly CLOSED = 3
+      readonly CONNECTING = 0; readonly OPEN = 1; readonly CLOSING = 2; readonly CLOSED = 3
+      readyState = 0; protocol = ''; extensions = ''; bufferedAmount = 0; binaryType: BinaryType = 'blob'
+      onopen: ((event: Event) => void) | null = null
+      onmessage: ((event: MessageEvent) => void) | null = null
+      onerror: ((event: Event) => void) | null = null
+      onclose: ((event: CloseEvent) => void) | null = null
+      constructor(readonly url: string) { super() }
+      send(): void { throw new DOMException('Still in CONNECTING state.', 'InvalidStateError') }
+      close(): void {
+        if (this.readyState >= 2) return
+        this.readyState = 3
+        setTimeout(() => { const event = new CloseEvent('close', { code: 1006, wasClean: false }); this.onclose?.(event); this.dispatchEvent(event) }, 0)
+      }
+    }
+    // Set per tab by a test, so a reload keeps it.
+    const silent = (): string[] => { try { return JSON.parse(sessionStorage.getItem('e2e.silentRelays') ?? '[]') as string[] } catch { return [] } }
     window.WebSocket = class extends Native {
       constructor(url: string | URL, protocols?: string | string[]) {
         const defaults = ['wss://relay.trotters.cc', 'wss://nostr.mom', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://purplepag.es', 'wss://relay.damus.io', 'wss://nostr.oxtr.dev', 'wss://relay.ditto.pub', 'wss://offchain.pub']
+        if (silent().includes(String(url).replace(/\/$/, ''))) return new Silent(String(url)) as unknown as WebSocket
         const target = defaults.includes(String(url).replace(/\/$/, '')) ? relay : String(url)
         if (target !== relay) throw new Error('External relay blocked by self-destruct acceptance test')
         super(target, protocols)
@@ -346,6 +368,98 @@ test('the authority makes a room with no end self-destruct now: both devices tid
   }
 })
 
+test('self-destruct now with a room relay that never answers: the room is left, other rooms stay open, and the tidy-up finishes once the relay is back', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
+  test.setTimeout(240_000)
+  const context = await device(browser, baseURL!)
+  try {
+    const page = await context.newPage()
+    const warnings: string[] = []
+    page.on('console', message => { if (message.type() === 'warning') warnings.push(message.text()) })
+    await page.goto(baseURL!)
+    // Another room in the list, to open while this one is tidied away.
+    const secret = generateRoomSecret()
+    const otherRoom = { name: 'Other', roomId: deriveRoom(secret).roomId, link: encodeRoomLink(baseURL!, { secret, name: 'Other', relays: ['wss://offchain.pub'], iceUrls: [] }), openedAt: 1, readAt: 0 }
+    await page.evaluate(room => localStorage.setItem('kithmoot.room.' + room.roomId, JSON.stringify(room)), otherRoom)
+    await openNewRoomForm(page)
+    await page.locator('#roomName').fill('Planning')
+    await nameCreator(page, 'Host')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+    const link = await page.locator('#shareUrl').inputValue()
+    const roomId = await page.evaluate(other => Object.keys(localStorage).find(key => key.startsWith('kithmoot.room.') && !key.endsWith(other))!.slice('kithmoot.room.'.length), otherRoom.roomId)
+    // From here on one of the room's relays takes connections and never
+    // answers, so its history cannot be read.
+    const silent = parseRoomLink(link).relays[0]!.replace(/\/$/, '')
+    await page.evaluate(url => sessionStorage.setItem('e2e.silentRelays', JSON.stringify([url])), silent)
+
+    // A mark a reload would wipe: leaving is done in this page.
+    const sentinel = () => page.evaluate(() => (window as unknown as { e2eSentinel?: number }).e2eSentinel)
+    await page.evaluate(() => { (window as unknown as { e2eSentinel?: number }).e2eSentinel = 1 })
+    await openRoomDetails(page)
+    await page.locator('#selfDestructNow').click()
+    const confirmed = Date.now()
+    await page.locator('#actionConfirm').click()
+    // The room is ended for everyone, and the person is back on the rooms
+    // list at once. Deleting it goes on behind, however long a relay takes
+    // (here three 15 s reads that never answer).
+    await expect(page.locator('#roomArea')).toBeHidden({ timeout: 15_000 })
+    const leftMs = Date.now() - confirmed
+    console.log(`LEFT-MS ${leftMs}`)
+    expect(leftMs).toBeLessThan(12_000)
+    const busy = page.locator('#roomBusyDialog')
+    await expect(busy).toBeHidden()
+    expect(await sentinel()).toBe(1)
+    await expect(page.locator('#status')).toContainText('Deleting it from this device')
+    await showChats(page)
+    // Only its own row is held, and says why.
+    const planning = page.locator('#roomList .roomRow').filter({ hasText: 'Planning' })
+    await expect(planning).toContainText('Deleting from this device…')
+    await expect(planning.locator('[data-action=open]')).toBeDisabled()
+
+    // Every other room opens meanwhile, and the try that fails behind it
+    // neither takes the person out of it nor speaks over it.
+    const before = warnings.length
+    const other = page.locator('#roomList').getByRole('button', { name: 'Open Other', exact: true })
+    await expect(other).toBeEnabled()
+    await other.click()
+    await expect(page.locator('#join:visible, #roomArea:visible').first()).toBeVisible({ timeout: 30_000 })
+    if (await page.locator('#join').isVisible()) await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('#roomTitle')).toHaveText('Other')
+    await expect.poll(() => warnings.slice(before).some(text => text.includes('self-destruct did not finish')),
+      { message: 'the tidy-up should fail while the relay is silent', timeout: 120_000 }).toBe(true)
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#roomTitle')).toHaveText('Other')
+    await expect(page.locator('#status')).not.toContainText('will try again by itself')
+    expect(await sentinel()).toBe(1)
+    // What the next try needs is kept.
+    expect((await traces(page, [roomId])).length).toBeGreaterThan(0)
+
+    // A reload does not bring the room back: it is tried again at once, in
+    // the background, holding only its own row. Leaving Other reloads at
+    // Other's own door, so the rooms list is opened afresh.
+    await leaveRoom(page)
+    await expect(page.locator('#roomArea')).toBeHidden({ timeout: 30_000 })
+    await page.goto(baseURL!)
+    await showChats(page)
+    await expect(planning).toContainText('Deleting from this device…', { timeout: 30_000 })
+    await expect(planning.locator('[data-action=open]')).toBeDisabled()
+    await expect(other).toBeEnabled()
+    await expect(busy).toBeHidden()
+
+    // The relay answers again: the next try finishes the job.
+    await page.evaluate(() => sessionStorage.removeItem('e2e.silentRelays'))
+    await page.reload()
+    await expect(page.locator('#roomList .tombstoneRow')).toHaveCount(1, { timeout: 60_000 })
+    await expect.poll(() => traces(page, [roomId]), { timeout: 30_000 }).toEqual([])
+    await other.click()
+    await expect(page.locator('#join:visible, #roomArea:visible').first()).toBeVisible()
+  } finally {
+    await context.close().catch(() => {})
+  }
+})
+
 for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [false, 'room link']] as const) {
   test(`a member away when the room is made to self-destruct tidies it away from the ${path} (${flagged ? 'flagged at creation' : 'flagged only at closure'})`, async ({ browser, baseURL }, info) => {
     test.skip(info.project.name === 'chromium-desktop', 'one browser project is enough')
@@ -386,19 +500,22 @@ for (const [flagged, path] of [[true, 'rooms list'], [false, 'rooms list'], [fal
       other = await away.newPage()
       recordPublished(other, awaySent)
       // Back on the rooms list, or at the room's own link: a kept member's
-      // door offers Join, and joining finds the closing rekey.
+      // door offers Join (or joins by itself), and joining finds the closing
+      // rekey, which takes the member out to the rooms list. Or the door has
+      // already learnt the room ended, and deletes it without a Join.
       if (path === 'rooms list') await other.goto(baseURL!)
       else {
         await openRoomUrl(other, link)
-        await expect(other.locator('#join, #arrivalTitle:has-text("ended")').first()).toBeVisible()
-        if (await other.locator('#join').isVisible()) await other.locator('#join').click()
+        await expect(other.locator('#join:visible, #arrivalTitle:has-text("ended"):visible, #rooms:visible').first()).toBeVisible()
+        // The door may learn it first, and then Join is not needed.
+        if (await other.locator('#join').isVisible()) await other.locator('#join').click({ timeout: 10_000 }).catch(() => {})
       }
       await expect.poll(() => deletionsAsked(awaySent).has(memberChat.id), { timeout: 45_000 }).toBe(true)
       await expect.poll(async () => {
         try { return await traces(other, [roomId], new URL(baseURL!).origin) }
         catch (error) {
-          // Self-destruct reloads this tab. A lost context is pending, never
-          // proof of erasure: the next audit must read the app's own storage.
+          // A tab that navigates meanwhile loses its context. That is pending,
+          // never proof of erasure: the next audit reads the app's own storage.
           if (error instanceof Error && error.message.includes('Execution context was destroyed, most likely because of a navigation')) return ['storage inspection awaits navigation']
           throw error
         }
