@@ -21,8 +21,9 @@ export function preparePairing(supervisor: NodeSupervisor): { code: string; expi
 type Rate = { start: number; count: number; strangers: number }
 /** Per-minute budgets. `perAddress` bounds signature checks from one address;
  * `strangers` counts only requests not refunded as the owner's or a granted device's. */
-export const LIMITS = { inFlight: 64, perAddress: 1200, strangers: 240, addresses: 2048 } as const
-export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; origins: string[]; serviceKey: string; turnPorts?: NodeTurnPorts }): Server {
+export const LIMITS = { inFlight: 64, perAddress: 1200, strangers: 240, addresses: 2048 }
+export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; origins: string[]; serviceKey: string; turnPorts?: NodeTurnPorts; limits?: typeof LIMITS }): Server {
+  const limits = options.limits ?? LIMITS
   const audience = new URL(options.origin), ports = readNodeTurnPorts(options.turnPorts)
   if (!ports) throw Error('Invalid node TURN ports')
   if (audience.protocol !== 'https:' || audience.origin !== options.origin || audience.hostname !== supervisor.host) throw Error('Invalid node HTTPS audience')
@@ -146,8 +147,8 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     const now = supervisor.now()
     for (const [key, entry] of rates) if (entry.start + 60 <= now) rates.delete(key)
     const rate = rates.get(source) ?? { start: now, count: 0, strangers: 0 }
-    const refused = requests >= LIMITS.inFlight || rate.count >= LIMITS.perAddress || rate.strangers >= LIMITS.strangers
-      || rates.size >= LIMITS.addresses && !rates.has(source)
+    const refused = requests >= limits.inFlight || rate.count >= limits.perAddress || rate.strangers >= limits.strangers
+      || rates.size >= limits.addresses && !rates.has(source)
     rate.count++; rate.strangers++; if (!refused) { rates.set(source, rate); slots.set(request, rate) }
     const fail = (error: unknown): void => {
       if (response.headersSent) { response.destroy(); return }
