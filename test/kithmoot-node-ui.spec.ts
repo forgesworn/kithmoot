@@ -9,7 +9,7 @@ import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, tu
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
-import { readNodeRoom, signNodeRoom, parseNodeRoomLink, encodeNodeRoomLink } from '@forgesworn/fold-kit/node-room'
+import { readNodeRoom, signNodeRoom, parseNodeRoomLink, encodeNodeRoomLink, longNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { localIdentity } from '../src/identity.js'
 import { buildGrant } from '../src/group-grants.js'
 import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
@@ -1182,6 +1182,14 @@ test('the owner\'s second device opens a room its account made on the node', asy
     await expect.poll(() => maker.locator('#shareUrl').inputValue()).not.toBe('')
     const link = await maker.locator('#shareUrl').inputValue()
     expect(parseNodeRoomLink(link, Math.floor(Date.now() / 1000))).not.toBeNull()
+    // The invite page shares the short form; the address bar keeps the long
+    // one, as every saved and synced copy does. The guest and the second
+    // device below open the room from the short link.
+    expect(new URL(link).pathname).toBe('/n/')
+    const long = longNodeRoomLink(new URL(new URL(link).hash, maker.url()).href, Math.floor(Date.now() / 1000))
+    expect(long).not.toBeNull()
+    expect(link.length * 2).toBeLessThan(long!.length)
+    await expect.poll(() => maker.url()).toBe(long)
     // Nobody gets into a room on a node on the link alone, and the empty room says so.
     await expect(maker.locator('#emptyRoom .emptyRoomNote')).toHaveText('People with the link ask to join, and you let them in.')
 

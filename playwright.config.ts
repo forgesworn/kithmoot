@@ -239,7 +239,7 @@ export default defineConfig({
         // by meeting-codes.spec.ts and no-google-ice.spec.ts, so both stay
         // covered for deployers who run them; the desktop build below names
         // neither, as ForgeSworn's own builds do.
-        command: `VITE_MEETING_CODES_BASE=/codes VITE_TURN_CREDENTIAL_ENDPOINT=/turn VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
+        command: `VITE_SHORT_NODE_LINKS=true VITE_MEETING_CODES_BASE=/codes VITE_TURN_CREDENTIAL_ENDPOINT=/turn VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort} --strictPort`,
         url: `https://localhost:${appPort}/j/`,
         ignoreHTTPSErrors: true,
         // Never reused unless asked. Several checkouts of this repo run the
@@ -261,7 +261,7 @@ export default defineConfig({
         // by side without either clobbering the other. Costs one extra build
         // per fresh run; E2E_REUSE=1 means you pay it once locally. Sits one
         // port above the app server so E2E_PORT moves both together.
-        command: `VITE_DESKTOP=true VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
+        command: `VITE_DESKTOP=true VITE_SHORT_NODE_LINKS=true VITE_TEST_DIAGNOSTICS=true VITE_QUIET_SLOT_SECONDS=8 VITE_TEST_ROOM_END_SECONDS=90 npm run build && VITE_DESKTOP=true E2E_RELAY_PORT=${relayPort} npx vite preview --config app/vite.config.ts --port ${appPort + 1} --strictPort`,
         url: `https://localhost:${appPort + 1}/j/`,
         ignoreHTTPSErrors: true,
         reuseExistingServer: process.env.E2E_REUSE === '1',

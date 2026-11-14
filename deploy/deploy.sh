@@ -124,7 +124,9 @@ node scripts/update-signing.mjs check
 # --- build ------------------------------------------------------------------
 
 echo "==> building app/dist"
-npm run build
+# This release carries the short-link page at /n/, so the app may hand out
+# short node-room links that point at it (app/src/share-link.ts).
+VITE_SHORT_NODE_LINKS=true npm run build
 
 if [[ ! -s app/dist/index.html ]]; then
   echo "deploy.sh: app/dist/index.html is missing or empty after build, refusing to deploy" >&2
