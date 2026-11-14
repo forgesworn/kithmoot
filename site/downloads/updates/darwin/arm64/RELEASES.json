@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.150",
+  "currentRelease": "0.1.151",
   "releases": [
     {
-      "version": "0.1.150",
+      "version": "0.1.151",
       "updateTo": {
-        "version": "0.1.150",
-        "name": "0.1.150",
-        "pub_date": "2026-11-13T15:59:16Z",
-        "notes": "Starting a room from inside another now takes you into the new room, instead of showing its name while your messages went to the old one. A room on your node that your node refused to reopen on one device now opens, and a link to a node room that has ended now says so, instead of saying the link is incomplete.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.150/KithMoot-0.1.150-mac-arm64.zip",
-        "sha256": "70cbcf5bc7df7105dfd1b2a283a9527d86deb59d31abb22b4c8f4bf09c037a15",
-        "size": 200017045
+        "version": "0.1.151",
+        "name": "0.1.151",
+        "pub_date": "2026-11-14T14:47:06Z",
+        "notes": "A room on your node that would not start now says why: your node is busy, did not answer, or refused, and when it is busy or silent the app tries again by itself before giving up.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.151/KithMoot-0.1.151-mac-arm64.zip",
+        "sha256": "d91ef18a92f2b7483bb64cda79330bdb4be09554c7083ff64be0da2ddd742d26",
+        "size": 200020480
       }
     }
   ]
