@@ -23,13 +23,19 @@ export interface PairedKithmootNode { v: 1; origin: string; serviceKey: string; 
 export interface NodeOwnerStatus {
   v: 1; version: string; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number
   turnReady: boolean; relayReady: boolean; storeBytes?: number
+  /** The call relay's ports in use against the node's port count. Absent
+   *  from a node that predates it, or while the relay has not reported. */
+  callCapacity?: NodeCallCapacity
 }
+export interface NodeCallCapacity { v: 1; allocations: number; capacity: number; full: boolean; refused: boolean }
 export type NodeClosePhase = 'publishing' | 'draining' | 'teardown' | 'erasing' | 'done'
 export interface NodeCloseInstruction { operation: string; deadline: number; reset: GroupEvent; closure: Event; events: Event[] }
 export interface NodeCloseStatus { phase: NodeClosePhase; receipt?: NodeCloseReceipt }
 export interface NodePairingLink { origin: string; code: string; expiresAt: number }
 export type NodeDeviceAccess =
-  | { state: 'active'; grant: ParsedGrant; offer: SpryOffer }
+  /** `callsFull` is the node's word on whether another call can start; absent
+   *  when it does not say, as an older node does not. */
+  | { state: 'active'; grant: ParsedGrant; offer: SpryOffer; callsFull?: boolean }
   | { state: 'removed'; grant: ParsedGrant }
   | { state: 'reset'; reset: ParsedReset }
   | { state: 'closed'; closure: Event }
@@ -141,7 +147,20 @@ export async function queryKithmootNodeStatus(pair: PairedKithmootNode, owner: P
     || value.storeBytes !== undefined && (!Number.isSafeInteger(value.storeBytes) || Number(value.storeBytes) < 0)) return invalid()
   return { v: 1, version: value.version, ready: value.ready as boolean, paired: value.paired as boolean, rooms: Number(value.rooms),
     devices: Number(value.devices), pending: Number(value.pending), turnReady: value.turnReady as boolean, relayReady: value.relayReady as boolean,
-    ...(value.storeBytes === undefined ? {} : { storeBytes: Number(value.storeBytes) }) }
+    ...(value.storeBytes === undefined ? {} : { storeBytes: Number(value.storeBytes) }), ...ownerCallCapacity(value.callCapacity) }
+}
+/** Additive: a capacity this client cannot read is left out, never a reason
+ *  to refuse the rest of the status. */
+function ownerCallCapacity(raw: unknown): { callCapacity?: NodeCallCapacity } {
+  const value = raw as Partial<Record<keyof NodeCallCapacity, unknown>> | undefined
+  if (!value || typeof value !== 'object' || value.v !== 1 || typeof value.full !== 'boolean' || typeof value.refused !== 'boolean'
+    || !Number.isSafeInteger(value.allocations) || Number(value.allocations) < 0 || !Number.isSafeInteger(value.capacity) || Number(value.capacity) < 1) return {}
+  return { callCapacity: { v: 1, allocations: Number(value.allocations), capacity: Number(value.capacity), full: value.full, refused: value.refused } }
+}
+/** Version 1 says only full or not; any other shape says nothing. */
+function memberCallsFull(raw: unknown): { callsFull?: boolean } {
+  const value = raw as { v?: unknown; full?: unknown } | undefined
+  return value && typeof value === 'object' && value.v === 1 && typeof value.full === 'boolean' ? { callsFull: value.full } : {}
 }
 export async function postNodeGrant(record: NodeRoomRecord, event: GroupEvent, authority: ParticipantIdentity, options: NodeClientOptions = {}): Promise<void> {
   const now = (options.now ?? (() => Math.floor(Date.now() / 1000)))(), node = pinned(record, now)
@@ -170,7 +189,7 @@ export async function queryNodeAccess(record: NodeRoomRecord, grantId: string | 
   if (value.state !== 'active' || !verifyNodeRoomGrant(value.event, node, device.pubkey, now) || !offer || offer.v !== 1 || offer.endpoint !== node.origin
     || typeof offer.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(offer.token) || !Number.isSafeInteger(offer.expiresAt)
     || offer.expiresAt! <= now || offer.expiresAt! > now + 30 * 86400 + 30) return invalid()
-  return { state: 'active', grant, offer: { v: 1, endpoint: node.origin, token: offer.token, expiresAt: offer.expiresAt! } }
+  return { state: 'active', grant, offer: { v: 1, endpoint: node.origin, token: offer.token, expiresAt: offer.expiresAt! }, ...memberCallsFull(value.callCapacity) }
 }
 /** Four TURN URLs are accepted only for the keeper-signed node record.
  * Existing Spry issuers retain their independent URL rules. */
@@ -317,6 +336,10 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   /** Register the native connection with the embedding's media receivers
    * without wrapping and losing the pinned node factory's identity. */
   onPeer?: (peer: RTCPeerConnection, context?: PeerContext) => void
+  /** The call relay turned a connection away for capacity: 486 at its
+   *  allocation limit (server-wide or this login's share), 508 with no port
+   *  free. Never for an authentication refusal. */
+  onCallRefused?: (code: 486 | 508) => void
 } = {}): Promise<{ factory: PeerFactory; reconnect(): Promise<void>; close(): void }> {
   const now = options.now ?? (() => Math.floor(Date.now() / 1000)), node = pinned(record, now())
   const Base = options.PeerConnection ?? globalThis.RTCPeerConnection
@@ -510,6 +533,9 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
         // Capacity/authentication refusals are not evidence of a blocked
         // transport. Do not route around a quota by minting another login.
         if ([401, 403, 486, 508].includes(event.errorCode)) { refused = true; cancelGathering() }
+        if ((event.errorCode === 486 || event.errorCode === 508) && allowed()) {
+          try { options.onCallRefused?.(event.errorCode) } catch { /* An observer cannot change the call's routing. */ }
+        }
         // 701 can describe just one address family or interface while the
         // same URL is still gathering a usable candidate on another. Wait
         // for gathering to finish, or for the bounded no-candidate timer.

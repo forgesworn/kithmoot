@@ -171,7 +171,8 @@ import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { inviteLinks, shortLinkPageFor } from './share-link.js'
-import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError } from './error-copy.js'
+import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError,
+  NODE_CALLS_FULL_COPY, NODE_CALLS_FULL_GRACE_MS, refuseNodeCallStart, showNodeCallsFull } from './error-copy.js'
 import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
@@ -1021,6 +1022,34 @@ function noteRelayMissing(missing: boolean): void {
   const note = $('relayMissingNote')
   note.textContent = callRelayLostNotice ?? RELAY_MISSING_NOTICE
   note.hidden = !missing
+}
+
+/** When this device joined the call it is on in a node room, for the
+ *  calls-full grace and to ignore relay refusals from an earlier call. */
+let nodeCallJoinedAt: number | undefined
+let nodeCallsFullTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Any connection of this device's that is live, which a call can use
+ *  without a new port on the node's call relay. */
+function anyLiveConnection(): boolean {
+  for (const pc of openConnections.values()) if (pc.connectionState === 'connected') return true
+  return false
+}
+
+/** Says in the call that the node has no room for it, instead of leaving
+ *  the person in a call that never connects. Only for the node room whose
+ *  call this device is on, docked or not. See `showNodeCallsFull`. */
+function renderNodeCallsFull(othersOnCall: boolean): void {
+  const note = $('nodeCallsFullNote')
+  const s = mediaSession(), runtime = s && nodeRuntimes.get(s)
+  let show = false
+  if (runtime && s.call && nodeCallJoinedAt !== undefined) {
+    const known = runtime.callCapacity()
+    const refusal = known.refusal && known.refusal.at >= nodeCallJoinedAt ? known.refusal.code : undefined
+    show = showNodeCallsFull({ othersOnCall, connected: anyLiveConnection(), nodeFull: known.full, refusal, waitedMs: Date.now() - nodeCallJoinedAt })
+  }
+  if (note.textContent !== NODE_CALLS_FULL_COPY) note.textContent = NODE_CALLS_FULL_COPY
+  if (note.hidden !== !show) note.hidden = !show
 }
 /** How often a joined page re-fetches its TURN credential. The credential
  *  service mints for an hour; forty minutes keeps a fresh one in hand. */
@@ -6308,6 +6337,14 @@ async function joinCall(): Promise<void> {
   // Relay preparation and presence can take seconds; Safari may refuse a
   // context first resumed after those awaits.
   resumeBlockedAudio()
+  // A node room's call relay can be out of ports. Ask the node again only
+  // when it last said full, so an ordinary join waits for nothing.
+  const nodeRuntime = nodeRuntimes.get(s)
+  if (nodeRuntime?.callCapacity().full === true && !anyLiveConnection()) {
+    const full = await nodeRuntime.checkCallsFull()
+    if (session !== s) return
+    if (refuseNodeCallStart({ nodeFull: full, connected: anyLiveConnection() })) throw new PersonError(NODE_CALLS_FULL_COPY)
+  }
   // A relay-only call waits a few seconds for the room's owner to register
   // this device before it refuses; an ordinary call starts and upgrades.
   const relayOnlyCall = sessionRelayOnly.get(s) === true
@@ -6360,6 +6397,11 @@ async function joinCall(): Promise<void> {
   callProjectContexts.set(s, { call: id, project: roomProjectContext })
   logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join${besideOwnDevice ? ', beside another own device' : ''}`)
   await s.setCall({ id, since: nowSeconds() })
+  if (nodeRuntimes.has(s)) {
+    nodeCallJoinedAt = Date.now()
+    clearTimeout(nodeCallsFullTimer)
+    nodeCallsFullTimer = setTimeout(updateUi, NODE_CALLS_FULL_GRACE_MS + 250)
+  }
   publishActiveTracks()
   setCallOpen(true)
   void callWakeLock.acquire()
@@ -6400,6 +6442,10 @@ function stopLocalMedia(): void {
   noteMediaBlocked(undefined)
   $('voiceFailureNotice').hidden = true
   noteRelayMissing(false)
+  const nodeCall = mediaSession()
+  if (nodeCall) nodeRuntimes.get(nodeCall)?.forgetCallRefusal()
+  nodeCallJoinedAt = undefined; clearTimeout(nodeCallsFullTimer)
+  $('nodeCallsFullNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   shareMayShowItself = false
   clearShareError()
@@ -6662,6 +6708,7 @@ function renderCallState(views: ParticipantView[]): void {
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
     $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
+  renderNodeCallsFull(!!(mineOn && current) && views.some(view => view.call?.id === current.id && view.participant !== mediaMe()))
 }
 
 // ---------------------------------------------------------------------------
@@ -15135,6 +15182,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     if (roomNode) {
       nodeRuntime = await openBrowserNodeRoom(deviceStore, roomNode, {
         onPeer: registerConnection,
+        callsChanged: () => updateUi(),
         allowed: () => currentParticipant() === roomNode.participant && (generation === roomGeneration || !!created && (session === created || dockedCall?.session === created)),
         blocked: contactIsBlocked,
         // Its own room's knocks, even while another room is on screen beside its docked call.

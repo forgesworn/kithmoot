@@ -591,6 +591,9 @@
             <!-- No TURN relay is configured, or the credential mint failed. Set by
                  `noteRelayMissing` in app/src/main.ts. Calls still try peer to peer. -->
             <p id="relayMissingNote" class="indicator" role="status" hidden></p>
+            <!-- The node's call relay has no ports left for this call. Set by
+                 `renderNodeCallsFull` in app/src/main.ts. -->
+            <p id="nodeCallsFullNote" class="indicator broken" role="status" hidden></p>
             <div id="mediaRecoveryNote" class="indicator" role="status" hidden>
               <span>Call media was interrupted. Resume it here. If it still fails, turn the affected microphone or camera off and on.</span>
               <button id="retryCallMedia" type="button" class="quiet">Resume call media</button>

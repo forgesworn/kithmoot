@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GENERIC_FAILURE_COPY, NETWORK_FAILURE_COPY, NODE_BUSY_COPY, NODE_FULL_COPY, NODE_SILENT_COPY, PersonError, describeFailure, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy } from './error-copy.js'
+import { GENERIC_FAILURE_COPY, NETWORK_FAILURE_COPY, NODE_BUSY_COPY, NODE_CALLS_FULL_COPY, NODE_CALLS_FULL_GRACE_MS, NODE_FULL_COPY, NODE_SILENT_COPY, PersonError, describeFailure, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, refuseNodeCallStart, showNodeCallsFull } from './error-copy.js'
 import { KithmootNodeError } from '../../src/kithmoot-node.js'
 
 describe('describeFailure', () => {
@@ -60,5 +60,41 @@ describe('describeFailure', () => {
   it('says why it is waiting while it tries again', () => {
     expect(nodeRetryCopy(new KithmootNodeError(429, 'unavailable'))).toBe('Your node is busy. Trying again…')
     expect(nodeRetryCopy(new KithmootNodeError(0, 'unavailable'))).toBe('Your node did not answer. Trying again…')
+  })
+})
+
+describe('node calls full', () => {
+  const base = { othersOnCall: true, connected: false, waitedMs: 0 }
+  it('uses plain words that name calls, not rooms', () => {
+    expect(NODE_CALLS_FULL_COPY).toBe("This node's calls are full. Try again when a call ends.")
+    expect(NODE_CALLS_FULL_COPY).not.toBe(NODE_FULL_COPY)
+  })
+  it('stays quiet once the call reaches anybody, or with nobody to reach', () => {
+    expect(showNodeCallsFull({ ...base, connected: true, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, othersOnCall: false, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
+  })
+  it('says full at once when the relay refuses for capacity and the node agrees or is silent', () => {
+    expect(showNodeCallsFull({ ...base, refusal: 486, nodeFull: true })).toBe(true)
+    expect(showNodeCallsFull({ ...base, refusal: 508 })).toBe(true)
+    // An older node without the field: on a small node the per-login share is the limit.
+    expect(showNodeCallsFull({ ...base, refusal: 486 })).toBe(true)
+  })
+  it('does not blame the node when it says there is room: the 486 was this login\'s own share', () => {
+    expect(showNodeCallsFull({ ...base, refusal: 486, nodeFull: false, waitedMs: 60000 })).toBe(false)
+  })
+  it('never reads an access refusal as full', () => {
+    for (const refusal of [401, 403, 701]) expect(showNodeCallsFull({ ...base, refusal, waitedMs: 0 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, refusal: 403, nodeFull: false, waitedMs: 60000 })).toBe(false)
+  })
+  it('tells the person already on the call, whose partner was refused, after the grace', () => {
+    expect(showNodeCallsFull({ ...base, nodeFull: true, waitedMs: NODE_CALLS_FULL_GRACE_MS - 1 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, nodeFull: true, waitedMs: NODE_CALLS_FULL_GRACE_MS })).toBe(true)
+    expect(showNodeCallsFull({ ...base, waitedMs: 60000 })).toBe(false)
+  })
+  it('refuses to start only on the node\'s word and with no live connection', () => {
+    expect(refuseNodeCallStart({ nodeFull: true, connected: false })).toBe(true)
+    expect(refuseNodeCallStart({ nodeFull: true, connected: true })).toBe(false)
+    expect(refuseNodeCallStart({ nodeFull: false, connected: false })).toBe(false)
+    expect(refuseNodeCallStart({ connected: false })).toBe(false)
   })
 })
