@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.152 hands out a short invite link for a room on your node when you copy or share it, about a quarter of the length of the long one; the QR code keeps the long link. A node that is holding as many rooms as it allows now says it is full, instead of busy, and stops trying again.
+Version 0.1.153 says when a call on your node could not reach someone because the node's calls are full, instead of leaving you in a call with nobody. A room on your node also stops showing "Could not reach the network" when the node asks a slow reader to reconnect: the app reconnects and reads the room again rather than holding back every send.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
