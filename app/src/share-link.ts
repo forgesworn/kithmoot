@@ -12,7 +12,7 @@ export function shortLinkPageFor(appBase: string): string {
 }
 
 /**
- * The link a person copies, shares or scans from the invite page. With
+ * The link a person copies or shares from the invite page. With
  * `shortPage`, a node room's is the short form (link version 7) on that page:
  * the same signed record in about a quarter of the length. Without it, or for
  * any other room, it is `long`. Everything a device keeps, syncs, sends to
@@ -22,4 +22,15 @@ export function shortLinkPageFor(appBase: string): string {
  */
 export function shareableRoomLink(shortPage: string | undefined, node: Event | undefined, now: number, long: () => string): string {
   return shortPage && node ? encodeShortNodeRoomLink(shortPage, node, now) : long()
+}
+
+/**
+ * The invite page's two links: `shown`, to copy and share (see
+ * `shareableRoomLink`), and `qr`, which its QR code draws. The QR keeps the
+ * long link: Android's own invite scanner, to 0.6.151 at least, takes only
+ * /j/ links, while a phone's camera app opens a short link in a browser and so
+ * through the /n/ page.
+ */
+export function inviteLinks(shortPage: string | undefined, node: Event | undefined, now: number, long: string): { shown: string; qr: string } {
+  return { shown: shareableRoomLink(shortPage, node, now, () => long), qr: long }
 }

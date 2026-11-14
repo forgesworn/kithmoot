@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { encodeNodeRoomLink, longNodeRoomLink, parseNodeRoomLink, signNodeRoom } from '@forgesworn/fold-kit/node-room'
-import { shareableRoomLink, shortLinkPageFor } from './share-link.js'
+import { inviteLinks, shareableRoomLink, shortLinkPageFor } from './share-link.js'
 import { appLinkForShort } from './short-link.js'
 
 const now = 1_800_000_000
@@ -38,5 +38,24 @@ describe('shareableRoomLink', () => {
   it('leaves an ordinary room link as it is', () => {
     const ordinary = `${base}#ordinary-room-link`
     expect(shareableRoomLink(shortLinkPageFor(base), undefined, now, () => ordinary)).toBe(ordinary)
+  })
+})
+
+describe('inviteLinks', () => {
+  it('shares a node room short but keeps its QR on the long link every scanner reads', () => {
+    const node = record()
+    const kept = encodeNodeRoomLink(base, node, now)
+    const links = inviteLinks(shortLinkPageFor(base), node, now, kept)
+    expect(new URL(links.shown).pathname).toBe('/n/')
+    expect(links.qr).toBe(kept)
+    expect(new URL(links.qr).pathname).toBe('/j/')
+  })
+
+  it('shows and draws the same link while short links are off, and for an ordinary room', () => {
+    const node = record()
+    const kept = encodeNodeRoomLink(base, node, now)
+    expect(inviteLinks(undefined, node, now, kept)).toEqual({ shown: kept, qr: kept })
+    const ordinary = `${base}#ordinary-room-link`
+    expect(inviteLinks(shortLinkPageFor(base), undefined, now, ordinary)).toEqual({ shown: ordinary, qr: ordinary })
   })
 })

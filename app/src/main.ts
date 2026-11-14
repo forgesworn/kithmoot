@@ -170,7 +170,7 @@ import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
-import { shareableRoomLink, shortLinkPageFor } from './share-link.js'
+import { inviteLinks, shortLinkPageFor } from './share-link.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError } from './error-copy.js'
 import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
@@ -2411,10 +2411,21 @@ function encodeRoomUrl(base: string, relays: string[], urls: string[]): string {
  * may hand them out, or every one of them would be a dead link. */
 const SHORT_NODE_LINKS = import.meta.env.VITE_SHORT_NODE_LINKS === 'true'
 
-/** The invite page's link: with short links on, a node room's short form.
- * Kept, synced and address-bar copies go through `encodeRoomUrl` and stay long. */
-function shareRoomUrl(base: string, relays: string[], urls: string[]): string {
-  return shareableRoomLink(SHORT_NODE_LINKS ? shortLinkPageFor(base) : undefined, nodeRoom?.node.event, nowSeconds(), () => encodeRoomUrl(base, relays, urls))
+/** The invite page's link as shown, and the long link its QR draws. */
+let shareLinks: { shown: string; qr: string } | undefined
+
+/** Sets the invite page's link: with short links on, a node room's short
+ * form, while its QR keeps the long link (`inviteLinks`). Kept, synced and
+ * address-bar copies go through `encodeRoomUrl` and stay long. */
+function setShareLink(): void {
+  shareLinks = inviteLinks(SHORT_NODE_LINKS ? shortLinkPageFor(joinLinkBase()) : undefined, nodeRoom?.node.event, nowSeconds(), encodeRoomUrl(joinLinkBase(), relays, iceUrls))
+  ;($('shareUrl') as HTMLInputElement).value = shareLinks.shown
+}
+
+/** The link the invite QR draws: the long form of the link shown. */
+function shareQrLink(): string {
+  const shown = ($('shareUrl') as HTMLInputElement).value
+  return shareLinks?.shown === shown ? shareLinks.qr : shown
 }
 
 function encodePairingUrl(
@@ -5878,7 +5889,7 @@ function showRoomUi(): void {
 
 /** The invite page's link and the controls that go with who holds it. */
 function renderShareControls(): void {
-  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
+  setShareLink()
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
@@ -5948,7 +5959,7 @@ async function makeOwnInvitation(): Promise<void> {
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
+  setShareLink()
   // The link kept for the list is the one this device answers now.
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
@@ -7185,7 +7196,7 @@ async function rotateRoomInvitation(): Promise<void> {
 
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
+  setShareLink()
   // The old link is retired; the one kept for the list is the one that opens the room now.
   rememberCurrentRoom()
   if (($('shareQrDetails') as HTMLDetailsElement).open) {
@@ -7241,7 +7252,7 @@ async function makeRoomPersistent(): Promise<void> {
   roomInvitationCapability = invitation
   const url = encodeRoomUrl(joinLinkBase(), relays, iceUrls)
   history.replaceState(null, '', url)
-  ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
+  setShareLink()
   $('makePersistent').hidden = true
   $('invitationAvailability').textContent = 'This room stays open when everyone closes the app. Share the updated invite link so people can join later.'
   rememberCurrentRoom()
@@ -18590,7 +18601,7 @@ function openInviteDialog(qrFirst: boolean, from: HTMLElement = $('roomMenu')): 
     // The code first and already drawn, large: one tap from the room to
     // something the person opposite can point a camera at.
     $('inviteContent').prepend(qr)
-    renderQr($('shareQr') as HTMLCanvasElement, ($('shareUrl') as HTMLInputElement).value, LARGE_QR_WIDTH).catch((err) => setStatus(describeError(err)))
+    renderQr($('shareQr') as HTMLCanvasElement, shareQrLink(), LARGE_QR_WIDTH).catch((err) => setStatus(describeError(err)))
     qr.open = true
   }
   ;($('copyShare') as HTMLButtonElement).autofocus = !qrFirst
@@ -19489,7 +19500,7 @@ function roomRelaysApplied(entries: RelayConfig[]): void {
   if (session) { render(session.participants(), meParticipant); repaintActiveChat() }
   renderIdentity()
   if (currentRoomId()) {
-    ;($('shareUrl') as HTMLInputElement).value = shareRoomUrl(joinLinkBase(), relays, iceUrls)
+    setShareLink()
     rememberCurrentRoom()
   }
 }
@@ -21345,8 +21356,7 @@ $('shareQrDetails').addEventListener('toggle', () => {
   if (!($('shareQrDetails') as HTMLDetailsElement).open) return
   // "Invite by QR" drew it already, larger.
   if (inviteDialog.classList.contains('qrFirst')) return
-  const url = ($('shareUrl') as HTMLInputElement).value
-  renderQr($('shareQr') as HTMLCanvasElement, url).catch((err) => setStatus(describeError(err)))
+  renderQr($('shareQr') as HTMLCanvasElement, shareQrLink()).catch((err) => setStatus(describeError(err)))
 })
 
 $('toggleMic').addEventListener('click', () => {

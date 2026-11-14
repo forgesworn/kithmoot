@@ -10,6 +10,7 @@ import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
 import { readNodeRoom, signNodeRoom, parseNodeRoomLink, encodeNodeRoomLink, longNodeRoomLink } from '@forgesworn/fold-kit/node-room'
+import { create as qrSymbol } from 'qrcode'
 import { localIdentity } from '../src/identity.js'
 import { buildGrant } from '../src/group-grants.js'
 import { claimKithmootNode, enrolNodeRoom, nodeCallFactory, parseKithmootNodePairingLink, postNodeGrant, queryNodeAccess } from '../src/kithmoot-node.js'
@@ -19,6 +20,22 @@ import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
 import { createDeviceCredential, verifyDeviceCredential } from '../src/credential.js'
 import { memoryDeviceStore, deviceKeyFor, storeKeptAdmission } from '../app/src/device-store.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom } from '../app/src/existing-node-room.js'
+
+/** Modules across the invite QR as drawn: the finder's top row is seven
+ * modules after a four-module quiet zone, so its run gives the scale. */
+async function qrModules(page: Page): Promise<number> {
+  return page.locator('#shareQr').evaluate((canvas: HTMLCanvasElement) => {
+    const { width, height } = canvas
+    if (!width || !height) return 0
+    const data = canvas.getContext('2d')!.getImageData(0, 0, width, height).data
+    const dark = (x: number, y: number) => data[(y * width + x) * 4]! < 128
+    let start = 0
+    while (start < width && !dark(start, start)) start++
+    let end = start
+    while (end < width && dark(end, start)) end++
+    return end > start ? Math.round(width / ((end - start) / 7)) - 8 : 0
+  })
+}
 
 test('new rooms default to the paired account node and synchronise admission controls', async ({ browser, baseURL }, info) => {
   const key = generateSecretKey(), owner = getPublicKey(key)
@@ -1195,6 +1212,15 @@ test('the owner\'s second device opens a room its account made on the node', asy
     await expect.poll(() => maker.url()).toBe(long)
     // Nobody gets into a room on a node on the link alone, and the empty room says so.
     await expect(maker.locator('#emptyRoom .emptyRoomNote')).toHaveText('People with the link ask to join, and you let them in.')
+    // Its QR draws the long link: Android's own invite scanner reads only /j/.
+    await maker.locator('#emptyShowQr').click()
+    await expect(maker.locator('#inviteDialog')).toHaveJSProperty('open', true)
+    await expect.poll(() => qrModules(maker), { timeout: 10_000 }).toBeGreaterThan(0)
+    const drawn = await qrModules(maker), longSize = qrSymbol(long!, { errorCorrectionLevel: 'M' }).modules.size
+    expect(Math.abs(drawn - longSize)).toBeLessThanOrEqual(2)
+    expect(drawn).toBeGreaterThan(qrSymbol(link, { errorCorrectionLevel: 'M' }).modules.size + 8)
+    await maker.locator('#inviteClose').click()
+    await expect(maker.locator('#inviteDialog')).toHaveJSProperty('open', false)
 
     // The same account on another device, as the owner's M4 desktop was.
     const second = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'second', log)
