@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { NodeLedger } from './ledger.js'
 import { NodeSupervisor } from './supervisor.js'
-import { nodeHttp, preparePairing } from './http.js'
+import { LIMITS, nodeHttp, preparePairing } from './http.js'
 import { buildGrant } from '../../group-grants.js'
 
 const cleanup: (() => Promise<unknown> | void)[] = []
@@ -98,5 +98,13 @@ it('binds pairing and owner requests to the exact body, URL, method and a durabl
   const revokedBody = JSON.stringify(revokedExisting)
   expect((await post('/groups/v1/events', revokedBody, proof('/groups/v1/events', revokedBody, authority))).status).toBe(200)
   expect((await post('/node/v1/access', lookup, proof('/node/v1/access', lookup, existingDevice))).status).toBe(403)
-
+  // Households share one address: the owner and granted devices are refunded,
+  // strangers are held to LIMITS.strangers a minute from one address.
+  const from = (source: string, path: string, body: string, key: Uint8Array) => fetch(base + path, { method: 'POST', body,
+    headers: { 'content-type': 'application/json', authorization: proof(path, body, key), 'x-forwarded-for': source } })
+  for (let i = 0; i < LIMITS.strangers + 20; i++) expect((await from('198.51.100.1', '/node/v1/status', statusBody, owner)).status).toBe(200)
+  for (let i = 0; i < LIMITS.strangers + 20; i++) expect((await from('198.51.100.1', '/node/v1/access', access, device)).status).toBe(200)
+  for (let i = 0; i < LIMITS.strangers; i++) expect((await from('198.51.100.2', '/node/v1/status', statusBody, foreign)).status).toBe(403)
+  expect((await from('198.51.100.2', '/node/v1/status', statusBody, owner)).status).toBe(429)
+  expect((await from('198.51.100.1', '/node/v1/status', statusBody, owner)).status).toBe(200)
 })

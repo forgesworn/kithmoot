@@ -18,12 +18,16 @@ export function preparePairing(supervisor: NodeSupervisor): { code: string; expi
   supervisor.ledger.setMeta('pairing', JSON.stringify({ digest: digest(code), expiresAt }))
   return { code, expiresAt }
 }
+type Rate = { start: number; count: number; strangers: number }
+/** Per-minute budgets. `perAddress` bounds signature checks from one address;
+ * `strangers` counts only requests not refunded as the owner's or a granted device's. */
+export const LIMITS = { inFlight: 64, perAddress: 1200, strangers: 240, addresses: 2048 } as const
 export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; origins: string[]; serviceKey: string; turnPorts?: NodeTurnPorts }): Server {
   const audience = new URL(options.origin), ports = readNodeTurnPorts(options.turnPorts)
   if (!ports) throw Error('Invalid node TURN ports')
   if (audience.protocol !== 'https:' || audience.origin !== options.origin || audience.hostname !== supervisor.host) throw Error('Invalid node HTTPS audience')
   for (const origin of options.origins) { const url = new URL(origin); if (url.origin !== origin || url.protocol !== 'https:') throw Error('Invalid browser origin') }
-  const origins = new Set(options.origins), rates = new Map<string, { start: number; count: number }>()
+  const origins = new Set(options.origins), rates = new Map<string, Rate>(), slots = new WeakMap<IncomingMessage, Rate>()
   let requests = 0
   const authenticate = (request: IncomingMessage, path: string, body: Buffer): string => {
     const authorization = request.headers.authorization
@@ -65,6 +69,10 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     const chunks: Buffer[] = []; let bytes = 0
     for await (const chunk of request) { bytes += chunk.length; if (bytes > limit) throw new NodeRefusal(413, 'request-too-large'); chunks.push(Buffer.from(chunk)) }
     const body = Buffer.concat(chunks), actor = authenticate(request, path, body)
+    // Signed requests from the owner or a device holding a live grant do not
+    // spend the stranger budget: every device in a household shares one IP.
+    const slot = slots.get(request)
+    if (slot && (supervisor.ledger.meta('owner') === actor || supervisor.ledger.active().some(g => g.device === actor))) slot.strangers--
     let value: unknown
     try { value = JSON.parse(body.toString('utf8')) } catch { throw new NodeRefusal(400, 'invalid-json') }
     const owner = (): void => { if (supervisor.ledger.meta('owner') !== actor) throw new NodeRefusal(403, 'owner-required') }
@@ -137,9 +145,10 @@ export function nodeHttp(supervisor: NodeSupervisor, options: { origin: string; 
     const source = (typeof forwarded === 'string' ? forwarded.split(',').at(-1)?.trim() : undefined) ?? peer
     const now = supervisor.now()
     for (const [key, entry] of rates) if (entry.start + 60 <= now) rates.delete(key)
-    const rate = rates.get(source) ?? { start: now, count: 0 }
-    const refused = requests >= 32 || rate.count >= 120 || rates.size >= 2048 && !rates.has(source)
-    rate.count++; if (!refused) rates.set(source, rate)
+    const rate = rates.get(source) ?? { start: now, count: 0, strangers: 0 }
+    const refused = requests >= LIMITS.inFlight || rate.count >= LIMITS.perAddress || rate.strangers >= LIMITS.strangers
+      || rates.size >= LIMITS.addresses && !rates.has(source)
+    rate.count++; rate.strangers++; if (!refused) { rates.set(source, rate); slots.set(request, rate) }
     const fail = (error: unknown): void => {
       if (response.headersSent) { response.destroy(); return }
       response.writeHead(error instanceof NodeRefusal ? error.status : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
