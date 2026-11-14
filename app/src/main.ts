@@ -170,7 +170,7 @@ import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
-import { describeFailure as describeFailureForPerson, isNetworkFailure } from './error-copy.js'
+import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError } from './error-copy.js'
 import { bindRoles, judgePicture, pictureAdvanced, kindOf, ROLES_BY_KIND, RTP_GRACE_MS, TileLiveness, tileDevice, tileKey, tileRole, type MediaKind, type ReceiverFacts } from './remote-tiles.js'
 import { RemoteVolume } from './remote-volume.js'
 import { AutoplayBannerState } from './autoplay-banner.js'
@@ -5711,15 +5711,32 @@ function adoptNodeRoom(held: BrowserNodeRoom): void {
 async function startNewRoom(): Promise<void> {
   if (($('roomOnNode') as HTMLInputElement).checked) {
     const owner = nostrSession?.signer, pair = owner && loadPairedNode(deviceStore, owner.pubkey)
-    if (!owner || !pair) throw Error('Pair your node under Settings → Calls → Your KithMoot node first.')
+    if (!owner || !pair) throw new PersonError('Pair your node under Settings → Calls → Your KithMoot node first.')
     const choice = ($('roomEnds') as HTMLSelectElement).value
     const endsAt = choice === 'duration' ? nowSeconds() + roomDurationSeconds() : conferenceEndsAt(Number(choice), nowSeconds())
-    if (choice === 'duration' && roomDurationSeconds() === 0) throw Error('Choose at least one minute for the room lifetime.')
+    if (choice === 'duration' && roomDurationSeconds() === 0) throw new PersonError('Choose at least one minute for the room lifetime.')
     const account = nostrSession
-    let held = nodeRoom?.phase === 'creating' && nodeRoom.participant === owner.pubkey && nodeRoom.node.serviceKey === pair.serviceKey ? nodeRoom : undefined
-    if (held) await resumeBrowserNodeCreation(deviceStore, held, pair, owner, { allowed: () => nostrSession === account })
-    else held = await createBrowserNodeRoom(deviceStore, pair, owner, { endsAt, name: sanitiseDisplayName(($('roomName') as HTMLInputElement).value), allowed: () => nostrSession === account,
-      prepared: pending => { adoptNodeRoom(pending); history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls)); rememberCurrentRoom() } })
+    const creating = () => nodeRoom?.phase === 'creating' && nodeRoom.participant === owner.pubkey && nodeRoom.node.serviceKey === pair.serviceKey ? nodeRoom : undefined
+    let held = creating()
+    // A node turns requests away for load (one household's devices share one
+    // address and one request budget) or misses the client's timeout. Both
+    // pass, so wait and try again before telling anyone. A retry resumes the
+    // room the first attempt already saved, never makes a second one.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        if (held) await resumeBrowserNodeCreation(deviceStore, held, pair, owner, { allowed: () => nostrSession === account })
+        else held = await createBrowserNodeRoom(deviceStore, pair, owner, { endsAt, name: sanitiseDisplayName(($('roomName') as HTMLInputElement).value), allowed: () => nostrSession === account,
+          prepared: pending => { adoptNodeRoom(pending); history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls)); rememberCurrentRoom() } })
+        break
+      } catch (error) {
+        if (attempt >= NODE_CREATE_ATTEMPTS || !isRetryableNodeFailure(error) || nostrSession !== account) throw error
+        held = creating() ?? held
+        $('createError').textContent = nodeRetryCopy(error)
+        $('createError').hidden = false
+        await new Promise(resolve => setTimeout(resolve, nodeCreateRetryDelay(error, attempt)))
+        $('createError').hidden = true
+      }
+    }
     adoptNodeRoom(held); history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls)); rememberCurrentRoom(); return
   }
   nodeRoom = undefined
@@ -5735,7 +5752,7 @@ async function startNewRoom(): Promise<void> {
     // Only a group can be a conference room: a meeting that asks before
     // anybody joins already ends when its people leave.
     const endsChoice = ($('roomEnds') as HTMLSelectElement).value
-    if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new Error('Choose at least one minute for the room lifetime.')
+    if (persistent && endsChoice === 'duration' && roomDurationSeconds() === 0) throw new PersonError('Choose at least one minute for the room lifetime.')
     const endsAt = !persistent ? undefined
       : endsChoice === 'duration' ? nowSeconds() + roomDurationSeconds()
       : endsChoice === 'test' && TEST_ROOM_END_SECONDS ? nowSeconds() + TEST_ROOM_END_SECONDS
