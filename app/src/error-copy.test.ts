@@ -64,14 +64,19 @@ describe('describeFailure', () => {
 })
 
 describe('node calls full', () => {
-  const base = { othersOnCall: true, connected: false, waitedMs: 0 }
+  const base = { othersOnCall: 1, reached: 0, waitedMs: 0 }
   it('uses plain words that name calls, not rooms', () => {
     expect(NODE_CALLS_FULL_COPY).toBe("This node's calls are full. Try again when a call ends.")
     expect(NODE_CALLS_FULL_COPY).not.toBe(NODE_FULL_COPY)
   })
-  it('stays quiet once the call reaches anybody, or with nobody to reach', () => {
-    expect(showNodeCallsFull({ ...base, connected: true, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
-    expect(showNodeCallsFull({ ...base, othersOnCall: false, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
+  it('stays quiet once the call reaches everybody on it, or with nobody to reach', () => {
+    expect(showNodeCallsFull({ ...base, reached: 1, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 3, nodeFull: true, refusal: 486 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, othersOnCall: 0, nodeFull: true, refusal: 486, waitedMs: 60000 })).toBe(false)
+  })
+  it('says full when one partner is reached and another refused', () => {
+    expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 1, refusal: 486 })).toBe(true)
+    expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 1, nodeFull: true, waitedMs: 60000 })).toBe(true)
   })
   it('says full at once when the relay refuses for capacity and the node agrees or is silent', () => {
     expect(showNodeCallsFull({ ...base, refusal: 486, nodeFull: true })).toBe(true)

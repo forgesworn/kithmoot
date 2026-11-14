@@ -1035,18 +1035,29 @@ function anyLiveConnection(): boolean {
   for (const pc of openConnections.values()) if (pc.connectionState === 'connected') return true
   return false
 }
+/** The remote device of each connection a room registered, for counting who
+ *  a call has reached. */
+const connectionDevices = new WeakMap<RTCPeerConnection, string>()
+function devicesReached(): number {
+  const reached = new Set<string>()
+  for (const pc of openConnections.values()) {
+    const device = connectionDevices.get(pc)
+    if (device && pc.connectionState === 'connected') reached.add(device)
+  }
+  return reached.size
+}
 
 /** Says in the call that the node has no room for it, instead of leaving
  *  the person in a call that never connects. Only for the node room whose
  *  call this device is on, docked or not. See `showNodeCallsFull`. */
-function renderNodeCallsFull(othersOnCall: boolean): void {
+function renderNodeCallsFull(othersOnCall: number): void {
   const note = $('nodeCallsFullNote')
   const s = mediaSession(), runtime = s && nodeRuntimes.get(s)
   let show = false
   if (runtime && s.call && nodeCallJoinedAt !== undefined) {
     const known = runtime.callCapacity()
     const refusal = known.refusal && known.refusal.at >= nodeCallJoinedAt ? known.refusal.code : undefined
-    show = showNodeCallsFull({ othersOnCall, connected: anyLiveConnection(), nodeFull: known.full, refusal, waitedMs: Date.now() - nodeCallJoinedAt })
+    show = showNodeCallsFull({ othersOnCall, reached: devicesReached(), nodeFull: known.full, refusal, waitedMs: Date.now() - nodeCallJoinedAt })
   }
   if (note.textContent !== NODE_CALLS_FULL_COPY) note.textContent = NODE_CALLS_FULL_COPY
   if (note.hidden !== !show) note.hidden = !show
@@ -6708,7 +6719,7 @@ function renderCallState(views: ParticipantView[]): void {
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
     $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
-  renderNodeCallsFull(!!(mineOn && current) && views.some(view => view.call?.id === current.id && view.participant !== mediaMe()))
+  renderNodeCallsFull(mineOn && current ? views.filter(view => view.call?.id === current.id && view.participant !== mediaMe()).length : 0)
 }
 
 // ---------------------------------------------------------------------------
@@ -15162,6 +15173,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // registry. Pinned node factories must register their peers here too.
     const registerConnection = (pc: RTCPeerConnection, context?: PeerContext) => {
       const key = peerAssist.connectionKey(context?.tier ?? 'direct', context?.remoteDevice ?? 'unknown')
+      if (context?.remoteDevice) connectionDevices.set(pc, context.remoteDevice)
       latestConnections.set(key, pc)
       if (!roomNode || openConnections.get(key)?.connectionState !== 'connected') openConnections.set(key, pc)
       ownConnections.add(key)

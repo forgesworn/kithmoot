@@ -505,6 +505,7 @@
     "ModelShortcut",
     "Named",
     "NetworkProfile",
+    "NodeCallCapacity",
     "NodeClientOptions",
     "NodeCloseInstruction",
     "NodeClosePhase",

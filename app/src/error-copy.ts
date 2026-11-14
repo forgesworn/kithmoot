@@ -89,10 +89,10 @@ export const NODE_CALLS_FULL_COPY = "This node's calls are full. Try again when 
 export const NODE_CALLS_FULL_GRACE_MS = 5000
 
 export interface NodeCallFacts {
-  /** Anybody else is on this call. */
-  othersOnCall: boolean
-  /** This device has a live connection to somebody. */
-  connected: boolean
+  /** How many others are on this call. */
+  othersOnCall: number
+  /** How many of them this device has a live connection to. */
+  reached: number
   /** The node's word, absent when it gives none (an older node). */
   nodeFull?: boolean
   /** The relay's last refusal of this device on this call: 486 or 508. */
@@ -105,7 +105,7 @@ export interface NodeCallFacts {
  * Whether the call says the node's calls are full, rather than leaving
  * somebody in a call that never connects.
  *
- * - Connected to anyone: no. Whatever is missing, the call is working.
+ * - Reached everybody on the call: no. The call is working.
  * - A 486 or 508 from the relay: yes, unless the node says it is not full,
  *   in which case the 486 was this login's own share of the relay and the
  *   ordinary connection notices apply. An older node says nothing, and on
@@ -113,12 +113,12 @@ export interface NodeCallFacts {
  *   that refusal is read as full.
  * - No refusal of its own (the person already on the call, whose new
  *   partner was refused): yes once the node says full and the grace has
- *   passed with nobody reached.
+ *   passed with somebody still unreached.
  * - Any other refusal code, 401 and 403 among them: never. Those are about
  *   access, not room.
  */
 export function showNodeCallsFull(facts: NodeCallFacts): boolean {
-  if (!facts.othersOnCall || facts.connected) return false
+  if (facts.othersOnCall < 1 || facts.reached >= facts.othersOnCall) return false
   if (facts.refusal === 486 || facts.refusal === 508) return facts.nodeFull !== false
   return facts.nodeFull === true && facts.waitedMs >= NODE_CALLS_FULL_GRACE_MS
 }
