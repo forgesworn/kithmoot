@@ -259,7 +259,14 @@ on the server. `--remove` reads the live `versions.json`, never deletes the
 version a live manifest offers, and follows a version folder's link to the
 volume it lives on. `download-versions.mjs` keeps listing versions sent to
 GitHub. A folder or APK the deploy user cannot delete, such as one
-uploaded as root, is reported as kept and stays where it is. Rules and tests: `deploy/download-retention.mjs`.
+uploaded as root, is reported as kept and stays where it is.
+
+An old version with no identical GitHub copy can be dropped instead: pass
+`--drop desktop:0.1.84,0.1.85` (and `--drop android:...`) to both steps.
+The first takes it out of `versions.json`; the second deletes its server copy
+only once the live list no longer names it. Neither touches one of the newest
+`--keep` or the version a manifest offers now. Rules and tests:
+`deploy/download-retention.mjs`.
 
 Before the first deploy, install the vhost (see the comment block at the
 top of `Caddyfile.kithmoot` for the exact steps - it needs a real hostname

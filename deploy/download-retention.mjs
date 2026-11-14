@@ -6,7 +6,9 @@
 // version moves to its GitHub release only when every one of its files is
 // there with the same size and SHA-256 (GitHub's asset digest): its entry in
 // versions.json then links to GitHub and the server copy can go. An older
-// version with no identical GitHub copy stays on the server.
+// version with no identical GitHub copy stays on the server, unless it is
+// named to be dropped: it then leaves versions.json, and its server copy can
+// go once the live list no longer names it.
 //
 // Pure, so the rules can be tested without a server or GitHub.
 
@@ -87,12 +89,46 @@ export function planRetirement(versions, { keep, assets, current = {} }) {
   return { versions: next, retired, stays }
 }
 
+function checkVersions(drop) {
+  for (const product of ['desktop', 'android']) {
+    for (const version of drop?.[product] ?? []) if (!VERSION.test(version)) throw new Error(`${product}: not a version: ${version}`)
+  }
+}
+
+/**
+ * Unlist old versions named in `drop` (`{ desktop: [...], android: [...] }`),
+ * for versions with no identical GitHub copy that are no longer worth
+ * offering. Refuses one of the newest `keep` and the version a manifest
+ * offers now. A version not listed is no error.
+ */
+export function dropVersions(versions, { drop, keep, current = {} }) {
+  if (!Number.isSafeInteger(keep) || keep < 1) throw new Error('keep at least one version on the server')
+  checkVersions(drop)
+  const next = { ...versions }
+  const dropped = { desktop: [], android: [] }
+  for (const product of ['desktop', 'android']) {
+    const named = new Set(drop?.[product] ?? [])
+    if (current[product] && named.has(current[product])) throw new Error(`${product} ${current[product]} is the version a manifest offers now`)
+    const releases = [...(versions[product] ?? [])].sort((a, b) => compareVersions(b.version, a.version))
+    const kept = releases.slice(0, keep).filter(release => named.has(release.version))
+    if (kept.length) throw new Error(`${product} ${kept.map(r => r.version).join(' ')} is among the newest ${keep}`)
+    next[product] = releases.filter(release => {
+      if (!named.has(release.version)) return true
+      dropped[product].push(release.version)
+      return false
+    })
+  }
+  return { versions: next, dropped }
+}
+
 /**
  * The server paths a live versions.json no longer links, for versions it
  * sends to GitHub: a desktop version's folder, an Android version's APKs.
- * Never the version a live manifest offers now.
+ * With `drop`, also those of the dropped versions the live list no longer
+ * names. Never the version a live manifest offers now, nor a newer one.
  */
-export function removablePaths(live, current = {}) {
+export function removablePaths(live, current = {}, drop = {}) {
+  checkVersions(drop)
   const paths = []
   for (const release of live.desktop ?? []) {
     if (onGithub(release) && VERSION.test(release.version) && release.version !== current.desktop) paths.push(`desktop/${release.version}`)
@@ -100,6 +136,14 @@ export function removablePaths(live, current = {}) {
   for (const release of live.android ?? []) {
     if (!onGithub(release) || !VERSION.test(release.version) || release.version === current.android) continue
     for (const file of release.files) if (/^kithmoot-\d+\.\d+\.\d+-(production|preview)\.apk$/.test(file.filename)) paths.push(file.filename)
+  }
+  for (const product of ['desktop', 'android']) {
+    const listed = new Set((live[product] ?? []).map(release => release.version))
+    for (const version of drop[product] ?? []) {
+      if (listed.has(version) || !current[product] || compareVersions(version, current[product]) >= 0) continue
+      if (product === 'desktop') paths.push(`desktop/${version}`)
+      else paths.push(`kithmoot-${version}-production.apk`, `kithmoot-${version}-preview.apk`)
+    }
   }
   return paths
 }
