@@ -141,7 +141,7 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
   const key = new Uint8Array(Buffer.from(rawKey, 'hex')), serviceKey = getPublicKey(key)
   const ledger = new NodeLedger(join(directory, 'ledger.sqlite'), { host: c.host, serviceKey, salt, maxRooms: c.maxRooms })
   const relaySocket = join(directory, 'shelter.sock'), controlSocket = join(directory, 'node.sock')
-  const supervisor = new NodeSupervisor(ledger, new SpryBackend({ local: `http://127.0.0.1:${c.spryPort}`, origin, key, turnSecret: secret }), new ShelterBackend(relaySocket), c.host, key)
+  const supervisor = new NodeSupervisor(ledger, new SpryBackend({ local: `http://127.0.0.1:${c.spryPort}`, origin, key, turnSecret: secret, capacity: nodeRelayRange(c).count }), new ShelterBackend(relaySocket), c.host, key)
   const http = nodeHttp(supervisor, { origin, origins: c.origins, serviceKey, turnPorts: c.turnPorts })
   const children = new Set<ChildProcess>(), timers = new Set<ReturnType<typeof setTimeout>>()
   let closing = false

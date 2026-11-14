@@ -5,8 +5,18 @@ import { NodeRefusal, type DeviceAccess, type NodeRoom } from './ledger.js'
 
 export interface NodeOffer { v: 1; endpoint: string; token: string; expiresAt: number }
 export interface SpryState { offer: NodeOffer; revision: number; devices: Record<string, number> }
+/** Spry's whole-server allocation refusals since its relay started. Reading
+ * it costs one signed POST from the supervisor's shared request budget. */
+export interface CallRefusals { epoch: string; elapsedMillis: number; ageMillis: number; refusals: number }
+export interface CallStatus {
+  ready: boolean; leaseActive: boolean
+  /** Live relay allocations (free to read) and the configured maximum. */
+  allocations?: number; capacity?: number
+}
 export interface CallBackend {
-  status(): Promise<{ ready: boolean; leaseActive: boolean }>
+  status(): Promise<CallStatus>
+  /** Optional: a backend without metrics never reports a refusal. */
+  refusals?(): Promise<CallRefusals | undefined>
   offer(room: string): Promise<NodeOffer>
   register(token: string, revision: number, add: string[], remove: string[], expiration?: number): Promise<void>
   remove(token: string): Promise<void>
@@ -18,17 +28,22 @@ export interface RelayBackend {
   purge(room: string): Promise<number>
   status(): Promise<{ rooms: number; devices: number; usedBytes: number; leaseActive: boolean }>
 }
+const count = (value: unknown): number | undefined => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 export class SpryBackend implements CallBackend {
   readonly #pairing: string
   readonly #key: Uint8Array
   readonly #origin: string
   readonly #local: string
   readonly #fetch: typeof fetch
-  constructor(options: { local: string; origin: string; key: Uint8Array; turnSecret: string; fetch?: typeof fetch }) {
+  readonly #capacity?: number
+  /** `capacity` is the `SPRY_MAX_ALLOCATIONS` this node gave Spry: Spry does not report it. */
+  constructor(options: { local: string; origin: string; key: Uint8Array; turnSecret: string; fetch?: typeof fetch; capacity?: number }) {
     const local = new URL(options.local), origin = new URL(options.origin)
     if (local.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(local.hostname) || local.username || local.password || local.pathname !== '/' || local.search || local.hash) throw Error('Spry needs an explicit loopback control URL')
     if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw Error('Spry needs an explicit HTTPS audience')
     this.#local = local.origin; this.#origin = origin.origin; this.#key = options.key; this.#fetch = options.fetch ?? fetch
+    if (options.capacity !== undefined && (!Number.isSafeInteger(options.capacity) || options.capacity < 1)) throw Error('Invalid Spry allocation capacity')
+    this.#capacity = options.capacity
     this.#pairing = createHmac('sha256', options.turnSecret).update(`spry-supervised-pairing-v1:${getPublicKey(options.key)}`).digest('base64url')
   }
   async #request(path: string, value?: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -56,10 +71,23 @@ export class SpryBackend implements CallBackend {
     } catch (error) { if (error instanceof NodeRefusal) throw error; throw new NodeRefusal(503, 'spry-unavailable') }
     finally { clearTimeout(timer); controller.abort() }
   }
-  async status(): Promise<{ ready: boolean; leaseActive: boolean }> {
+  async status(): Promise<CallStatus> {
     const value = await this.#request('/v1/status')
     if (typeof value.ready !== 'boolean' || typeof value.leaseActive !== 'boolean') throw new NodeRefusal(503, 'spry-node-profile-required')
-    return { ready: value.ready, leaseActive: value.leaseActive }
+    // An older Spry without the gauge still answers; capacity is then unknown.
+    const allocations = count(value.allocations)
+    return { ready: value.ready, leaseActive: value.leaseActive,
+      ...(allocations !== undefined && this.#capacity !== undefined ? { allocations, capacity: this.#capacity } : {}) }
+  }
+  /** Signed `POST /v1/node/status`. Counts TURN 486 at the server limit and
+   * 508 port exhaustion; the per-username limit is not the node being full. */
+  async refusals(): Promise<CallRefusals | undefined> {
+    const value = await this.#request('/v1/node/status', { v: 1, pairing: this.#pairing })
+    const metrics = value.metrics as Record<string, unknown> | null | undefined
+    if (!metrics || typeof metrics !== 'object' || metrics.v !== 1 || typeof metrics.epoch !== 'string' || metrics.epoch.length > 128) return undefined
+    const [elapsedMillis, ageMillis, quota, bind] = [metrics.elapsedMillis, metrics.ageMillis, metrics.allocationQuotaRefusals, metrics.relayBindFailures].map(count)
+    if (elapsedMillis === undefined || ageMillis === undefined || quota === undefined) return undefined
+    return { epoch: metrics.epoch, elapsedMillis, ageMillis, refusals: quota + (bind ?? 0) }
   }
   async offer(room: string): Promise<NodeOffer> {
     const value = await this.#request('/v1/grants', { pairing: this.#pairing, scope: room })

@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure'
 import { parseGroupEvent, type GroupEvent } from '../../group-grants.js'
 import { NodeLedger, NodeRefusal, type DeviceAccess, type NodeOperation, type NodeRoom } from './ledger.js'
-import { type CallBackend, type RelayBackend, type NodeOffer, type SpryState } from './backends.js'
+import { type CallBackend, type CallRefusals, type CallStatus, type RelayBackend, type NodeOffer, type SpryState } from './backends.js'
 import { NODE_VERSION } from './version.js'
 
 export interface CloseRequest {
@@ -14,6 +14,16 @@ export interface CloseRequest {
   events: Event[]
 }
 export interface OperationStatus { operation: string; phase: string; result: Record<string, unknown> }
+/** Node-wide call relay load, for the owner. Counts are TURN allocations, not
+ * calls: a two-person relay call holds about four. No room, device or address. */
+export interface CallCapacity { v: 1; allocations: number; capacity: number; full: boolean; refused: boolean }
+/** About one two-person relay call (docs/node-room-capacity.md, Q2 and Q3). */
+export const CALL_ALLOCATIONS = 4
+/** A refusal says the node is full for this long, while it is still nearly full. */
+const REFUSAL_WINDOW = 60
+/** Each refusal read is one signed POST from the supervisor's shared Spry budget. */
+const REFUSAL_READ_INTERVAL = 10
+const CAPACITY_STALE = 30
 const chunks = <T>(values: T[], size = 32): T[][] => Array.from({ length: Math.ceil(values.length / size) }, (_, i) => values.slice(i * size, (i + 1) * size))
 const signature = (event: unknown): boolean => { try { return verifyEvent(JSON.parse(JSON.stringify(event))) } catch { return false } }
 
@@ -69,6 +79,10 @@ export class NodeSupervisor {
   readonly #recovered = new Set<string>()
   readonly #clock: () => number
   readonly #budget: SpryBudget
+  #gauge?: { allocations: number; capacity: number; at: number }
+  #refusal?: CallRefusals & { at: number }
+  #refusedAt?: number
+  #refusalReadAt = -Infinity
   readonly #receiptKey: Uint8Array
   constructor(readonly ledger: NodeLedger, readonly calls: CallBackend, readonly relay: RelayBackend,
     readonly host: string, receiptKey: Uint8Array, readonly now = () => Math.floor(Date.now() / 1000), options: SupervisorOptions = {}) {
@@ -153,9 +167,42 @@ export class NodeSupervisor {
       let projected = true
       try { await this.#project() } catch { projected = false }
       this.#ready = projected && results.every(r => r.status === 'fulfilled')
+      // Capacity is advisory: a failed or missing reading never changes readiness.
+      try { await this.#readRefusals() } catch { /* the summary is omitted once stale */ }
       if (now - this.#lastCollect >= 60) { this.ledger.collect(); this.#lastCollect = now }
       if (!this.#ready) throw new NodeRefusal(503, 'node-reconciling')
     }).finally(() => { this.#ticking = false })
+  }
+  #observe(status: CallStatus): void {
+    if (status.allocations !== undefined && status.capacity !== undefined) this.#gauge = { allocations: status.allocations, capacity: status.capacity, at: this.now() }
+  }
+  /** Refusal counts are read only while the node is within one call of its
+   * limit, or just refused one: an idle or quiet node spends no extra POST. */
+  async #readRefusals(): Promise<void> {
+    const gauge = this.#gauge, now = this.now()
+    if (!this.calls.refusals || !gauge || now - gauge.at > CAPACITY_STALE) return
+    const recent = this.#refusedAt !== undefined && now - this.#refusedAt < REFUSAL_WINDOW
+    if (gauge.allocations + CALL_ALLOCATIONS <= gauge.capacity && !recent) return
+    if (now - this.#refusalReadAt < REFUSAL_READ_INTERVAL) return
+    this.#refusalReadAt = now
+    const refusals = this.calls.refusals.bind(this.calls)
+    const reading = await this.#spry(this.#clock() + SPRY_WAIT_MS, () => refusals())
+    const last = this.#refusal
+    if (!reading || reading.ageMillis > 10_000) return
+    this.#refusal = { ...reading, at: now }
+    // The counter is cumulative since Spry's relay started. Only an increase
+    // over a recent reading of the same run counts; a restart, a reset
+    // counter or an old baseline only sets the new baseline.
+    if (last && now - last.at <= REFUSAL_WINDOW && last.epoch === reading.epoch && reading.elapsedMillis > last.elapsedMillis
+      && reading.refusals > last.refusals) this.#refusedAt = now
+  }
+  /** Omitted while Spry does not report its allocations, or the reading is old. */
+  callCapacity(): CallCapacity | undefined {
+    const gauge = this.#gauge, now = this.now()
+    if (!gauge || now - gauge.at > CAPACITY_STALE) return undefined
+    const refused = this.#refusedAt !== undefined && now - this.#refusedAt < REFUSAL_WINDOW
+    const full = gauge.allocations >= gauge.capacity || refused && gauge.allocations + CALL_ALLOCATIONS > gauge.capacity
+    return { v: 1, allocations: gauge.allocations, capacity: gauge.capacity, full, refused }
   }
   status(): { v: 1; ready: boolean; paired: boolean; rooms: number; devices: number; pending: number; deleting?: true } {
     const deleting = this.ledger.meta('deleting') === '1'
@@ -163,14 +210,15 @@ export class NodeSupervisor {
       devices: this.ledger.devices().length, pending: this.ledger.operations().length, ...(deleting ? { deleting: true as const } : {}) }
   }
   async ownerStatus(): Promise<ReturnType<NodeSupervisor['status']> & {
-    version: string; turnReady: boolean; relayReady: boolean; storeBytes?: number
+    version: string; turnReady: boolean; relayReady: boolean; storeBytes?: number; callCapacity?: CallCapacity
   }> {
     const [calls, relay] = await Promise.allSettled([this.calls.status(), this.relay.status()])
-    const state = this.status()
+    if (calls.status === 'fulfilled') this.#observe(calls.value)
+    const state = this.status(), capacity = this.callCapacity()
     const turnReady = calls.status === 'fulfilled' && calls.value.ready && (state.devices === 0 || calls.value.leaseActive)
     const relayReady = relay.status === 'fulfilled' && (state.rooms === 0 || relay.value.leaseActive)
     return { ...state, version: NODE_VERSION, ready: state.ready && turnReady && relayReady, turnReady, relayReady,
-      ...(relay.status === 'fulfilled' ? { storeBytes: relay.value.usedBytes } : {}) }
+      ...(relay.status === 'fulfilled' ? { storeBytes: relay.value.usedBytes } : {}), ...(capacity ? { callCapacity: capacity } : {}) }
   }
   operation(id: string): OperationStatus {
     const operation = this.ledger.operation(id)
@@ -233,6 +281,7 @@ export class NodeSupervisor {
   async #projectCalls(rooms: NodeRoom[], devices: DeviceAccess[], acknowledged: string[]): Promise<void> {
     const deadline = this.#clock() + SPRY_WAIT_MS
     const status = await this.calls.status()
+    this.#observe(status)
     if (!status.ready) throw new NodeRefusal(503, 'spry-not-ready')
     if (!status.leaseActive && !this.#recovering) {
       // Re-send after restart or lapse. The durable marks let a paced
