@@ -15,10 +15,16 @@
 //      DEPLOY_HOST=deploy@62.238.98.53 node deploy/retire-downloads.mjs --remove
 //    reads the live versions.json, release.json and android-release.json and
 //    prints what it would delete; add --yes to delete.
+//
+// An old version with no identical GitHub copy can be dropped outright:
+// `--drop desktop:0.1.84,0.1.85 --drop android:0.6.1` in step 1 takes it out
+// of versions.json, and the same flags in step 2 delete its server copy once
+// the live list no longer names it. Never one of the newest --keep, nor the
+// version a manifest offers now.
 import { readFile, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { REPOS, planRetirement, removablePaths } from './download-retention.mjs'
+import { REPOS, dropVersions, planRetirement, removablePaths } from './download-retention.mjs'
 
 const host = process.env.DEPLOY_HOST ?? 'deploy@62.238.98.53'
 const root = process.env.DEPLOY_ROOT ?? '/var/www/kithmoot'
@@ -29,6 +35,18 @@ const args = process.argv.slice(2)
 function option(name) {
   const index = args.indexOf(name)
   return index < 0 ? undefined : args[index + 1]
+}
+
+/** Every `--drop product:v1,v2` given, as `{ desktop: [...], android: [...] }`. */
+function dropList() {
+  const drop = { desktop: [], android: [] }
+  args.forEach((arg, index) => {
+    if (arg !== '--drop') return
+    const [product, list = ''] = String(args[index + 1] ?? '').split(':')
+    if (!(product in drop) || !list) throw new Error(`--drop takes desktop:<versions> or android:<versions>, got ${args[index + 1]}`)
+    drop[product].push(...list.split(',').filter(Boolean))
+  })
+  return drop
 }
 
 async function plan() {
@@ -44,11 +62,15 @@ async function plan() {
     if (result.status !== 0) return undefined
     return JSON.parse(result.stdout)
   }
-  const { versions: next, retired, stays } = planRetirement(versions, { keep, assets, current })
+  const planned = planRetirement(versions, { keep, assets, current })
+  const { versions: next, dropped } = dropVersions(planned.versions, { keep, drop: dropList(), current })
+  const { retired, stays } = planned
   await writeFile(path, `${JSON.stringify(next, null, 2)}\n`)
   for (const product of ['desktop', 'android']) {
     console.log(`${product}: ${retired[product].length} newly linked to GitHub${retired[product].length ? ` (${retired[product].join(' ')})` : ''}`)
-    if (stays[product].length) console.log(`${product}: kept on the server, no identical GitHub copy: ${stays[product].join(' ')}`)
+    if (dropped[product].length) console.log(`${product}: dropped from the list: ${dropped[product].join(' ')}`)
+    const left = stays[product].filter(version => !dropped[product].includes(version))
+    if (left.length) console.log(`${product}: kept on the server, no identical GitHub copy: ${left.join(' ')}`)
   }
   console.log(`Wrote ${path}. Commit and deploy it, then run --remove.`)
 }
@@ -61,7 +83,7 @@ async function remove() {
   }
   const live = await fetchJson('/downloads/versions.json')
   const current = { desktop: (await fetchJson('/downloads/release.json')).version, android: (await fetchJson('/android-release.json')).versionName }
-  const paths = removablePaths(live, current)
+  const paths = removablePaths(live, current, dropList())
   // On the server: each path under apk/, followed through a version folder's
   // link to the volume it lives on, and only ever a folder named for its
   // version or an APK named for its version. Anything else is skipped.

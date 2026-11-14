@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { githubUrl, keepRetired, planRetirement, removablePaths } from './download-retention.mjs'
+import { dropVersions, githubUrl, keepRetired, planRetirement, removablePaths } from './download-retention.mjs'
 
 const sha = n => String(n).padStart(2, '0').repeat(32)
 const desktop = (version, n) => ({
@@ -71,5 +71,29 @@ describe('retiring old downloads to GitHub', () => {
     expect(removablePaths(live, { desktop: '0.1.12', android: '0.6.3' })).toEqual(['desktop/0.1.10', 'desktop/0.1.9', 'desktop/0.1.8', 'kithmoot-0.6.1-production.apk'])
     expect(removablePaths(versions)).toEqual([])
     expect(removablePaths(live, { desktop: '0.1.9' })).not.toContain('desktop/0.1.9')
+  })
+
+  it('unlists named old versions that have no GitHub copy, never a kept or current one', () => {
+    const { versions: next, dropped } = dropVersions(versions, { keep: 2, drop: { desktop: ['0.1.9', '0.1.8'], android: ['0.6.1'] }, current: { desktop: '0.1.12', android: '0.6.3' } })
+    expect(dropped).toEqual({ desktop: ['0.1.9', '0.1.8'], android: ['0.6.1'] })
+    expect(next.desktop.map(r => r.version)).toEqual(['0.1.12', '0.1.11', '0.1.10'])
+    expect(next.android.map(r => r.version)).toEqual(['0.6.3', '0.6.2'])
+    // A version already gone from the list is no error.
+    expect(dropVersions(next, { keep: 2, drop: { desktop: ['0.1.9'] } }).dropped.desktop).toEqual([])
+    expect(() => dropVersions(versions, { keep: 2, drop: { desktop: ['0.1.11'] } })).toThrow(/newest 2/)
+    expect(() => dropVersions(versions, { keep: 2, drop: { desktop: ['0.1.10'] }, current: { desktop: '0.1.10' } })).toThrow(/offers now/)
+    expect(() => dropVersions(versions, { keep: 2, drop: { desktop: ['../0.1.10'] } })).toThrow(/version/)
+  })
+
+  it('removes a dropped version from the server only once the live list no longer names it', () => {
+    const current = { desktop: '0.1.12', android: '0.6.3' }
+    const drop = { desktop: ['0.1.9', '0.1.8'], android: ['0.6.1'] }
+    const { versions: live } = dropVersions(versions, { keep: 2, drop, current })
+    expect(removablePaths(live, current, drop)).toEqual(['desktop/0.1.9', 'desktop/0.1.8', 'kithmoot-0.6.1-production.apk', 'kithmoot-0.6.1-preview.apk'])
+    // Still listed live: the deploy has not happened yet, so nothing goes.
+    expect(removablePaths(versions, current, drop)).toEqual([])
+    // Never the current version or one newer than it, listed or not.
+    expect(removablePaths(live, current, { desktop: ['0.1.12', '0.1.13'] })).toEqual([])
+    expect(() => removablePaths(live, current, { desktop: ['0.1.x'] })).toThrow(/version/)
   })
 })
