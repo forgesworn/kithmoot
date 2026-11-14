@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.151",
+  "currentRelease": "0.1.152",
   "releases": [
     {
-      "version": "0.1.151",
+      "version": "0.1.152",
       "updateTo": {
-        "version": "0.1.151",
-        "name": "0.1.151",
-        "pub_date": "2026-11-14T14:47:06Z",
-        "notes": "A room on your node that would not start now says why: your node is busy, did not answer, or refused, and when it is busy or silent the app tries again by itself before giving up.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.151/KithMoot-0.1.151-mac-arm64.zip",
-        "sha256": "d91ef18a92f2b7483bb64cda79330bdb4be09554c7083ff64be0da2ddd742d26",
-        "size": 200020480
+        "version": "0.1.152",
+        "name": "0.1.152",
+        "pub_date": "2026-11-14T18:22:50Z",
+        "notes": "Copying or sharing the invite for a room on your node now gives a short link, about a quarter of the length of the long one; the QR code keeps the long link. A node that is holding as many rooms as it allows now says it is full, instead of busy, and stops trying again.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.152/KithMoot-0.1.152-mac-arm64.zip",
+        "sha256": "a4e7abb61aa0ac339fd5138379d97b53c019eb6375c437df09d24fdda391bcba",
+        "size": 200020218
       }
     }
   ]
