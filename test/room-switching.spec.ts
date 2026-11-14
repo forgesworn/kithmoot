@@ -342,9 +342,11 @@ test('a pending acknowledgement holds switching and releases the open picker whe
     await expect(switchButton).toBeDisabled()
     acknowledge!()
     await expect(switchButton).toBeEnabled()
+    // Hovering leaves the pointer on the button's centre, and the list keeps
+    // its order while it is under the pointer. Measuring the button again
+    // here raced the redraw the acknowledgement brings: a row replaced
+    // between finding and measuring it has no box.
     await switchButton.hover()
-    const target = await switchButton.boundingBox(); expect(target).toBeTruthy()
-    await page.mouse.move(target!.x + target!.width / 2, target!.y + target!.height / 2)
     await page.mouse.down()
     // Repaint through the real search handler while the pointer is held.
     await page.locator('#homeRoomQuery').evaluate(el => el.dispatchEvent(new Event('input', {bubbles: true})))
