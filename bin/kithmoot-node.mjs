@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import QRCode from 'qrcode'
+import { encode, toTerminal } from '@forgesworn/qr'
 import { operatorCommand, systemReadOnly } from '../dist/src/node/kithmoot-node/operator-cli.js'
 import { doctorNode } from '../dist/src/node/kithmoot-node/doctor.js'
 import { runFront } from '../dist/src/node/kithmoot-node/front-runtime.js'
@@ -52,7 +52,7 @@ try {
     const c = readConfiguration(directory)
     const value = Buffer.from(JSON.stringify({ v: 1, node: `https://${c.host}`, code: result.result.code, expiresAt: result.result.expiresAt })).toString('base64url')
     const link = `https://kithmoot.app/j/#kithmoot-node=${value}`
-    console.log(await QRCode.toString(link, { type: 'terminal', small: true }))
+    console.log(toTerminal(encode(link), { margin: 2 }))
     console.log(link)
     console.log('One use. Expires in six minutes. Open only on the owner’s device.')
   } else if (command === 'doctor') {

@@ -1,4 +1,4 @@
-import { toCanvas } from 'qrcode'
+import { drawCanvas, encode } from '@forgesworn/qr'
 
 // A join link carries a bearer invitation, and a pairing link carries a
 // one-off code on top of that, so the QR for either is rendered
@@ -22,10 +22,7 @@ export const LARGE_QR_WIDTH = 480
  *  canvas - each call fully replaces whatever was drawn before, which is
  *  what a fresh pairing code needs. */
 export async function renderQr(canvas: HTMLCanvasElement, text: string, width = QR_WIDTH): Promise<void> {
-  await toCanvas(canvas, text, {
-    width,
-    margin: QR_MARGIN,
-    errorCorrectionLevel: 'M',
-    color: { dark: '#000000ff', light: '#ffffffff' },
-  })
+  drawCanvas(canvas, encode(text, { ecc: 'M' }), { width, margin: QR_MARGIN, dark: '#000000', light: '#ffffff' })
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${width}px`
 }
