@@ -93,6 +93,8 @@ export interface NodeCallFacts {
   othersOnCall: number
   /** How many of them this device has a live connection to. */
   reached: number
+  /** How many of them this device has not reached once since it joined. */
+  neverReached: number
   /** The node's word, absent when it gives none (an older node). */
   nodeFull?: boolean
   /** The relay's last refusal of this device on this call: 486 or 508. */
@@ -113,14 +115,16 @@ export interface NodeCallFacts {
  *   that refusal is read as full.
  * - No refusal of its own (the person already on the call, whose new
  *   partner was refused): yes once the node says full and the grace has
- *   passed with somebody still unreached.
+ *   passed with somebody on the call never reached. A partner who was
+ *   reached and dropped is a network fault, not a full node: a small node
+ *   is full whenever two calls run.
  * - Any other refusal code, 401 and 403 among them: never. Those are about
  *   access, not room.
  */
 export function showNodeCallsFull(facts: NodeCallFacts): boolean {
   if (facts.othersOnCall < 1 || facts.reached >= facts.othersOnCall) return false
   if (facts.refusal === 486 || facts.refusal === 508) return facts.nodeFull !== false
-  return facts.nodeFull === true && facts.waitedMs >= NODE_CALLS_FULL_GRACE_MS
+  return facts.nodeFull === true && facts.neverReached > 0 && facts.waitedMs >= NODE_CALLS_FULL_GRACE_MS
 }
 
 /** Whether to refuse starting or joining a call before it opens: only when

@@ -1038,26 +1038,34 @@ function anyLiveConnection(): boolean {
 /** The remote device of each connection a room registered, for counting who
  *  a call has reached. */
 const connectionDevices = new WeakMap<RTCPeerConnection, string>()
-function devicesReached(): number {
+function connectedDevices(): Set<string> {
   const reached = new Set<string>()
   for (const pc of openConnections.values()) {
     const device = connectionDevices.get(pc)
-    if (device && pc.connectionState === 'connected') reached.add(device)
+    if (device && pc.connectionState === 'connected') reached.add(device.toLowerCase())
   }
-  return reached.size
+  return reached
 }
+/** Everybody this device has reached on the call it is on, since joining. */
+const nodeCallReached = new Set<string>()
 
 /** Says in the call that the node has no room for it, instead of leaving
  *  the person in a call that never connects. Only for the node room whose
  *  call this device is on, docked or not. See `showNodeCallsFull`. */
-function renderNodeCallsFull(othersOnCall: number): void {
+function renderNodeCallsFull(others: ParticipantView[]): void {
   const note = $('nodeCallsFullNote')
   const s = mediaSession(), runtime = s && nodeRuntimes.get(s)
   let show = false
   if (runtime && s.call && nodeCallJoinedAt !== undefined) {
+    const live = connectedDevices()
+    const reached = others.filter(view => view.devices.some(device => live.has(device.toLowerCase())))
+    for (const view of reached) nodeCallReached.add(view.participant)
+    // Everybody reached: an earlier refusal no longer describes this call.
+    if (others.length > 0 && reached.length >= others.length) runtime.forgetCallRefusal()
     const known = runtime.callCapacity()
     const refusal = known.refusal && known.refusal.at >= nodeCallJoinedAt ? known.refusal.code : undefined
-    show = showNodeCallsFull({ othersOnCall, reached: devicesReached(), nodeFull: known.full, refusal, waitedMs: Date.now() - nodeCallJoinedAt })
+    show = showNodeCallsFull({ othersOnCall: others.length, reached: reached.length, neverReached: others.filter(view => !nodeCallReached.has(view.participant)).length,
+      nodeFull: known.full, refusal, waitedMs: Date.now() - nodeCallJoinedAt })
   }
   if (note.textContent !== NODE_CALLS_FULL_COPY) note.textContent = NODE_CALLS_FULL_COPY
   if (note.hidden !== !show) note.hidden = !show
@@ -6409,7 +6417,7 @@ async function joinCall(): Promise<void> {
   logCall('call-declared', undefined, `${existing ? 'joined' : 'started'} ${id.slice(0, 8)} on Join${besideOwnDevice ? ', beside another own device' : ''}`)
   await s.setCall({ id, since: nowSeconds() })
   if (nodeRuntimes.has(s)) {
-    nodeCallJoinedAt = Date.now()
+    nodeCallJoinedAt = Date.now(); nodeCallReached.clear()
     clearTimeout(nodeCallsFullTimer)
     nodeCallsFullTimer = setTimeout(updateUi, NODE_CALLS_FULL_GRACE_MS + 250)
   }
@@ -6455,7 +6463,7 @@ function stopLocalMedia(): void {
   noteRelayMissing(false)
   const nodeCall = mediaSession()
   if (nodeCall) nodeRuntimes.get(nodeCall)?.forgetCallRefusal()
-  nodeCallJoinedAt = undefined; clearTimeout(nodeCallsFullTimer)
+  nodeCallJoinedAt = undefined; nodeCallReached.clear(); clearTimeout(nodeCallsFullTimer)
   $('nodeCallsFullNote').hidden = true
   micTrack = cameraTrack = screenTrack = screenAudioTrack = undefined
   shareMayShowItself = false
@@ -6719,7 +6727,7 @@ function renderCallState(views: ParticipantView[]): void {
       .map(view => shownAs(view.participant, view.name).name ?? 'somebody')
     $('callWho').textContent = names.length === 0 ? 'On the call. Just you.' : `On the call with ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` and ${names.length - 3} more` : ''}.`
   }
-  renderNodeCallsFull(mineOn && current ? views.filter(view => view.call?.id === current.id && view.participant !== mediaMe()).length : 0)
+  renderNodeCallsFull(mineOn && current ? views.filter(view => view.call?.id === current.id && view.participant !== mediaMe()) : [])
 }
 
 // ---------------------------------------------------------------------------
@@ -15180,6 +15188,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       pc.addEventListener('connectionstatechange', () => {
         if (pc.connectionState === 'connected') {
           if (latestConnections.get(key) === pc) openConnections.set(key, pc)
+          // The calls-full note goes once the call reaches everybody.
+          if (!$('nodeCallsFullNote').hidden) updateUi()
           return
         }
         if (!roomNode && (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') && !turnRelayConfigured) noteRelayMissing(true)

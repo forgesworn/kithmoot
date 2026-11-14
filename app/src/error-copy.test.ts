@@ -64,7 +64,7 @@ describe('describeFailure', () => {
 })
 
 describe('node calls full', () => {
-  const base = { othersOnCall: 1, reached: 0, waitedMs: 0 }
+  const base = { othersOnCall: 1, reached: 0, neverReached: 1, waitedMs: 0 }
   it('uses plain words that name calls, not rooms', () => {
     expect(NODE_CALLS_FULL_COPY).toBe("This node's calls are full. Try again when a call ends.")
     expect(NODE_CALLS_FULL_COPY).not.toBe(NODE_FULL_COPY)
@@ -77,6 +77,10 @@ describe('node calls full', () => {
   it('says full when one partner is reached and another refused', () => {
     expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 1, refusal: 486 })).toBe(true)
     expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 1, nodeFull: true, waitedMs: 60000 })).toBe(true)
+  })
+  it('does not blame a full node for a partner who was reached and dropped', () => {
+    expect(showNodeCallsFull({ ...base, othersOnCall: 2, reached: 1, neverReached: 0, nodeFull: true, waitedMs: 60000 })).toBe(false)
+    expect(showNodeCallsFull({ ...base, neverReached: 0, nodeFull: true, waitedMs: 60000 })).toBe(false)
   })
   it('says full at once when the relay refuses for capacity and the node agrees or is silent', () => {
     expect(showNodeCallsFull({ ...base, refusal: 486, nodeFull: true })).toBe(true)
