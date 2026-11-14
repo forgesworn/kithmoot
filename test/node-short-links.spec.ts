@@ -12,6 +12,9 @@ if (!shortLinkCsp) throw new Error('The short-link page test needs its productio
 async function productionHeaders(context: BrowserContext): Promise<void> {
   await context.route(url => url.pathname === '/n' || url.pathname.startsWith('/n/'), async route => {
     const response = await route.fetch({ maxRedirects: 0 })
+    // WebKit refuses to fulfil a redirect, so the browser follows /n to /n/
+    // itself. The page also carries the same policy in its own meta tag.
+    if (response.status() >= 300 && response.status() < 400) { await route.continue(); return }
     await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': shortLinkCsp! } })
   })
 }
