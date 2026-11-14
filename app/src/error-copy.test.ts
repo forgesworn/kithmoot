@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GENERIC_FAILURE_COPY, NETWORK_FAILURE_COPY, NODE_BUSY_COPY, NODE_SILENT_COPY, PersonError, describeFailure, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy } from './error-copy.js'
+import { GENERIC_FAILURE_COPY, NETWORK_FAILURE_COPY, NODE_BUSY_COPY, NODE_FULL_COPY, NODE_SILENT_COPY, PersonError, describeFailure, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy } from './error-copy.js'
 import { KithmootNodeError } from '../../src/kithmoot-node.js'
 
 describe('describeFailure', () => {
@@ -23,6 +23,13 @@ describe('describeFailure', () => {
   it('says a node is busy when it turned the request away for load', () => {
     expect(describeFailure(new KithmootNodeError(429, 'unavailable'))).toBe(NODE_BUSY_COPY)
     expect(describeFailure(new KithmootNodeError(503, 'unavailable'))).toBe(NODE_BUSY_COPY)
+  })
+
+  it('says a node is full, and does not retry, when it holds its room limit', () => {
+    const full = new KithmootNodeError(429, 'unavailable', 'too-many-rooms')
+    expect(describeFailure(full)).toBe(NODE_FULL_COPY)
+    expect(isRetryableNodeFailure(full)).toBe(false)
+    expect(isRetryableNodeFailure(new KithmootNodeError(429, 'unavailable', 'request-limit'))).toBe(true)
   })
 
   it('says a node did not answer when no response came back', () => {

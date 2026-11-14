@@ -33,6 +33,12 @@ export const NETWORK_FAILURE_COPY = 'Could not reach the network. Check your con
 export const GENERIC_FAILURE_COPY = 'Something went wrong. Try again.'
 export const NODE_BUSY_COPY = 'Your node is busy. Try again in a minute.'
 export const NODE_SILENT_COPY = 'Your node did not answer. Check it is running and try again.'
+export const NODE_FULL_COPY = 'Your node is full. Close a room you no longer need, or raise its room limit, then try again.'
+
+/** The node is holding as many rooms as it allows: waiting will not help. */
+function nodeFull(err: unknown): boolean {
+  return err instanceof KithmootNodeError && err.code === 'too-many-rooms'
+}
 
 /** A failure whose message was written for the person reading it, such as
  *  "Pair your node first", and so is shown as it stands. */
@@ -41,7 +47,7 @@ export class PersonError extends Error {}
 /** Whether a node request may succeed if made again shortly: it was turned
  *  away for load (429, 5xx) or never answered. Refusals are not retried. */
 export function isRetryableNodeFailure(err: unknown): boolean {
-  return err instanceof KithmootNodeError && err.reason === 'unavailable'
+  return err instanceof KithmootNodeError && err.reason === 'unavailable' && !nodeFull(err)
 }
 
 /** Three tries in all. A node's request budget is a minute long, so a
@@ -59,6 +65,7 @@ export function nodeRetryCopy(err: unknown): string {
 }
 
 function nodeFailure(err: KithmootNodeError): string {
+  if (nodeFull(err)) return NODE_FULL_COPY
   if (err.reason !== 'unavailable') return err.message
   return err.status === 429 || err.status >= 500 ? NODE_BUSY_COPY : NODE_SILENT_COPY
 }
