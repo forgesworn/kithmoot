@@ -53,6 +53,17 @@
 		Content-Security-Policy "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 	}
 
+	# The short-link page, /n/#<link>, runs one script of its own, open.js
+	# (app/src/short-link.ts). It rebuilds the long form of a short room
+	# link and moves the browser on to /j/. It reads only its own address
+	# and sends nothing anywhere. Not cached, so a fix reaches people at once.
+	@shortLink path /n /n/*
+	header @shortLink {
+		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"
+		Content-Security-Policy "default-src 'none'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		Cache-Control "no-cache"
+	}
+
 	# The marketing page uses a native GET form to hand a room code to the
 	# app; no script, lookup or microphone/camera request happens here.
 	# All other website pages and APK downloads share these restrictions.
@@ -60,6 +71,7 @@
 		not path /j /j/*
 		not path /downloads /downloads/*
 		not path /camera-lab /camera-lab/*
+		not path /n /n/*
 	}
 	header @notApp {
 		Permissions-Policy "camera=(), microphone=(), display-capture=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()"

@@ -7,6 +7,7 @@ import { build as esbuild } from 'esbuild'
 import { defineConfig, type Plugin } from 'vite'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import { girnelAssets } from './girnel-assets.js'
+import { shortLinkPage } from './short-link-page.js'
 import { VitePWA } from 'vite-plugin-pwa'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -128,6 +129,7 @@ export default defineConfig({
   },
   plugins: [{ name: 'validate-account-network-default', configResolved(config) { accountNetworkDefault(config.env.VITE_ACCOUNT_NETWORK_DEFAULT) } }, admin2ProductCandidate(), girnelAssets(), pinnedWasmPreview(),
     audioWorklet(),
+    shortLinkPage(desktop),
     // getUserMedia and getDisplayMedia both require a secure context. A
     // phone reaching the laptop over its LAN IP is not one without this -
     // and the phone is the device the whole app exists to prove works.

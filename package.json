@@ -65,7 +65,7 @@
     "brand:site": "node scripts/build-site-brand.mjs",
     "artwork:generate": "node scripts/build-artwork-derivatives.mjs",
     "artwork:check": "node scripts/build-original-chat-art.mjs --check && node scripts/build-artwork-derivatives.mjs --check",
-    "build": "node scripts/prepare-camera-vision.mjs && node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && npm run artwork:check && vite build --config app/vite.config.ts && node scripts/build-artwork-derivatives.mjs --check-built && node scripts/check-no-telemetry.mjs app/dist",
+    "build": "node scripts/prepare-camera-vision.mjs && node scripts/check-link-web.mjs && node scripts/check-vmls-wasm.mjs && npm run build:context && npm run artwork:check && vite build --config app/vite.config.ts && node scripts/build-artwork-derivatives.mjs --check-built && node scripts/check-no-telemetry.mjs app/dist && node scripts/check-no-telemetry.mjs app/short-link/dist",
     "build:lib": "npm run build:context && tsc -p tsconfig.json",
     "build:realtime": "node scripts/build-realtime.mjs",
     "test:realtime": "node test/realtime-call.mjs",

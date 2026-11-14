@@ -208,6 +208,14 @@ directory under `/var/www/kithmoot/releases/` on the box, and atomically flips
 `deploy.sh` for the full sequence, the `--prune` flag, and why it's safe
 to re-run.
 
+The release also carries the short-link page at `/n/`, built into
+`app/short-link/dist` by the same `npm run build`. It turns a short (version 7)
+node-room link back into the long one and moves the browser on to `/j/`, so a
+reader from before version 7 can still open it. `deploy.sh` refuses a release
+without it. The page needs its own `@shortLink` header rule in
+`Caddyfile.kithmoot`; the first deploy that carries the page must use
+`--install-caddy`, or the site-wide script ban blocks it.
+
 The Android download is independent unless an exact artifact is selected. The
 old `ANDROID_VARIANT` auto-discovery has been removed because a nearby Gradle
 build can be an instrumentation APK, an unsigned release or simply the wrong
