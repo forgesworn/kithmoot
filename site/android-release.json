@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.152",
-  "versionCode": 175,
+  "versionName": "0.6.153",
+  "versionCode": 176,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 74531404,
-  "apkSha256": "5f4408432548eddde5d1dd9a746e41d90beacc4486c47a7e31ee4fc396a651b0",
+  "apkBytes": 70963264,
+  "apkSha256": "c1bdb1dcfaff5ebfd01ef815c6c33621f9720d51272a8883ca89113b96f235c2",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.152-production.apk",
+  "downloadFilename": "kithmoot-0.6.153-production.apk",
   "releaseNotes": [
-    "A new call connection gets time to connect, so calls between phones no longer drop at each credential renewal.",
-    "A restart no longer replaces an unanswered offer, which could leave two phones unable to agree how to encrypt a call.",
+    "The QR scanner reads codes without Google Play services, so scanning works on phones without Google and sends nothing to Google.",
+    "Joining from another of your own phones says why it waits and offers Stop asking; short room links open and scan.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
