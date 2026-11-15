@@ -44,7 +44,7 @@ async function syntheticMedia(page: Page, colour: string): Promise<void> {
 }
 
 /** Decode the actual saved file, rather than trusting a stream/notice flag. */
-async function exportedMedia(page: Page): Promise<{ duration: number; videoDuration: number; preview: string; energy: number; red: number; blue: number; yellow: number; green: number; width: number; height: number; cameraBlue: { samples: number; width: number; height: number } }> {
+async function exportedMedia(page: Page): Promise<{ duration: number; videoDuration: number; preview: string; energy: number; red: number; blue: number; yellow: number; green: number; width: number; height: number; cameraBlue: { samples: number; width: number; height: number; frames: Array<{ at: number; samples: number; width: number; height: number }> } }> {
   return page.locator('#recordingSave').evaluate(async (link: HTMLAnchorElement) => {
     const bytes = await (await fetch(link.href)).arrayBuffer()
     const audio = new AudioContext()
@@ -68,7 +68,7 @@ async function exportedMedia(page: Page): Promise<{ duration: number; videoDurat
     canvas.width = video.videoWidth; canvas.height = video.videoHeight
     const context = canvas.getContext('2d')!
     const colours = { red: 0, blue: 0, yellow: 0, green: 0 }
-    let cameraBlue = { samples: 0, width: 0, height: 0 }
+    const insetFrames: Array<{ at: number; samples: number; width: number; height: number }> = []
     // Play all frames, retaining colour evidence from before/after share
     // replacement and pause. Sample every 100ms to keep this bounded.
     await new Promise<void>((resolve, reject) => {
@@ -99,13 +99,24 @@ async function exportedMedia(page: Page): Promise<{ duration: number; videoDurat
           }
         }
         for (const key of Object.keys(found) as Array<keyof typeof found>) colours[key] = Math.max(colours[key], found[key])
-        if (cameraSamples > cameraBlue.samples) cameraBlue = { samples: cameraSamples, width: right - left + 1, height: bottom - top + 1 }
+        if (cameraSamples) insetFrames.push({ at: video.currentTime, samples: cameraSamples, width: right - left + 1, height: bottom - top + 1 })
       }, 100)
       const timeout = setTimeout(() => { clearInterval(timer); video.pause(); reject(new Error('saved video did not finish playback')) }, (duration + 10) * 1000)
       video.addEventListener('ended', () => { clearInterval(timer); clearTimeout(timeout); resolve() }, { once: true })
     })
     const videoDuration = video.currentTime
     video.pause(); video.removeAttribute('src'); video.load()
+    // The inset's size is the middle of every sampled frame, not the frame
+    // with the most blue. VP8 smears blue a few pixels past the inset's edges
+    // in the export's first frames, and those smeared frames hold the most
+    // blue, so picking by count measured the smear (84 for a 78-pixel inset).
+    const middle = (values: number[]) => values.length ? values.sort((x, y) => x - y)[Math.floor((values.length - 1) / 2)]! : 0
+    const cameraBlue = {
+      samples: Math.max(0, ...insetFrames.map(frame => frame.samples)),
+      width: middle(insetFrames.map(frame => frame.width)),
+      height: middle(insetFrames.map(frame => frame.height)),
+      frames: insetFrames,
+    }
     return { duration, videoDuration, preview: canvas.toDataURL('image/png'), energy, ...colours, width: canvas.width, height: canvas.height, cameraBlue }
   })
 }
@@ -252,6 +263,7 @@ for (const { layout, phone } of [
         // fitted camera to be blue, at the right place and dimensions.
         const width = Math.floor(Math.min(280, 140 * cameraAspect))
         const height = Math.floor(width / cameraAspect)
+        await info.attach('camera-inset-frames.json', { body: JSON.stringify({ expected: { width, height, cameraAspect }, frames: exported.cameraBlue.frames }, null, 2), contentType: 'application/json' })
         expect(exported.cameraBlue.samples).toBeGreaterThan(width * height * 0.85)
         expect(Math.abs(exported.cameraBlue.width - width)).toBeLessThanOrEqual(4)
         expect(Math.abs(exported.cameraBlue.height - height)).toBeLessThanOrEqual(2)
