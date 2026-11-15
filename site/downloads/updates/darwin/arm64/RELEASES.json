@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.155",
+  "currentRelease": "0.1.156",
   "releases": [
     {
-      "version": "0.1.155",
+      "version": "0.1.156",
       "updateTo": {
-        "version": "0.1.155",
-        "name": "0.1.155",
-        "pub_date": "2026-11-15T10:00:53Z",
-        "notes": "Press Up in an empty message box to edit your latest message. Escape stops editing, and sending it unchanged leaves the message as it was.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.155/KithMoot-0.1.155-mac-arm64.zip",
-        "sha256": "5f35329fcbea4bbe70a0436a1694138e5881dc06080581778f10241fe54f349c",
-        "size": 200020866
+        "version": "0.1.156",
+        "name": "0.1.156",
+        "pub_date": "2026-11-15T14:19:38Z",
+        "notes": "A table pasted into a message is drawn as a table, and a wide one scrolls sideways. The text sent stays as typed, so Copy and Edit give it back unchanged.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.156/KithMoot-0.1.156-mac-arm64.zip",
+        "sha256": "21355453d21e2bdad488ea86df4b925b3fe6387aaf101deda269c247d4664f49",
+        "size": 200022160
       }
     }
   ]
