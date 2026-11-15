@@ -426,6 +426,10 @@ test('reading offered release notes does not activate the waiting update', async
     const page = await context.newPage()
     await page.goto(release.base)
     await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    // A first visit has no controlled client, so its next worker can
+    // activate automatically. Exercise an existing user's waiting update.
+    await page.reload()
+    expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true)
     release.publish()
     await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(page.locator('#updateNotice')).toBeVisible()

@@ -9,7 +9,7 @@ it('reports the selected route and own observed address without remote IPs or cr
     { type:'local-candidate', candidateType:'relay', address:'192.0.2.1' },
   ]
   const result = metadataConnection('connected',stats)
-  expect(result).toEqual({call:{state:'connected',route:'TURN relay over UDP',sent:100,received:200},addresses:['203.0.113.2']})
+  expect(result).toEqual({call:{state:'connected',route:'Through a TURN relay over UDP',sent:100,received:200},addresses:['203.0.113.2']})
   expect(JSON.stringify(result)).not.toContain('secret')
 })
 it('leaves an unobserved route unknown instead of claiming direct media', () => {

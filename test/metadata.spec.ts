@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises'
 let api: string
 test.beforeAll(async () => { api = (await build({ entryPoints: ['test/fixtures/metadata-api.ts'], bundle: true, write: false, format: 'iife', globalName: 'MetadataTest', target: 'es2022' })).outputFiles![0]!.text })
 
-test('Metadata navigation explains disclosures without making an IP lookup', async ({ page, context, baseURL }) => {
+test('Metadata navigation explains disclosures without making an IP lookup', async ({ page, context, baseURL }, testInfo) => {
   let lookups = 0
   await context.route('https://ipwho.is/**', route => { lookups++; return route.fulfill({ json: { success: true, ip: '203.0.113.7', city: '<script>bad()</script>', country: 'Test', connection: { isp: 'Example provider' } } }) })
   await page.goto(baseURL!)
@@ -17,6 +17,7 @@ test('Metadata navigation explains disclosures without making an IP lookup', asy
   for (const width of [1440, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 850 })
     expect(await page.locator('#metadataPane').evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
+    if (width === 1440 || width === 390) await page.screenshot({ path: testInfo.outputPath(`metadata-${width}.png`) })
   }
   await page.getByRole('button', { name: 'Look up my IP and approximate location' }).click()
   await expect(page.locator('[data-meta-location]')).toContainText('203.0.113.7')
@@ -78,4 +79,31 @@ test('photos and office documents lose hidden metadata while keeping readable co
   expect(result.xml).not.toContain('Deleted private words')
   expect(result.entries).toContain('word/media/picture.jpeg')
   expect(result.entries).not.toContain('docProps/core.xml')
+})
+
+test('OpenDocument settings are removed and embedded programs stay unsent', async ({ page, baseURL }) => {
+  await page.goto(baseURL!)
+  await page.route('**/metadata-test.js', route => route.fulfill({ contentType: 'text/javascript', body: api }))
+  await page.addScriptTag({ url: new URL('metadata-test.js', baseURL!).href })
+  const result = await page.evaluate(async () => {
+    const { cleanAttachment, zipSync, unzipSync, strToU8, strFromU8 } = (window as any).MetadataTest
+    const parts = {
+      mimetype: strToU8('application/vnd.oasis.opendocument.text'),
+      'meta.xml': strToU8('<metadata>PRIVATE_METADATA_SENTINEL</metadata>'),
+      'settings.xml': strToU8('<settings>PRIVATE_METADATA_SENTINEL</settings>'),
+      'content.xml': strToU8('<document><p>Readable text</p><annotation>PRIVATE_METADATA_SENTINEL</annotation></document>'),
+    }
+    const cleaned = await cleanAttachment(new File([zipSync(parts)], 'notes.odt'))
+    const entries = unzipSync(new Uint8Array(await cleaned.arrayBuffer()))
+    const held: boolean[] = []
+    for (const name of ['Basic/script.xml', 'Scripts/python/private.py', 'word/vbaProject.bin', 'word/embeddings/original.docx']) {
+      try { await cleanAttachment(new File([zipSync({ ...parts, [name]: strToU8('PRIVATE_METADATA_SENTINEL') })], 'embedded.odt')); held.push(false) }
+      catch { held.push(true) }
+    }
+    return { entries: Object.keys(entries), text: Object.values(entries).map(value => strFromU8(value)).join('\n'), held }
+  })
+  expect(result.entries).not.toContain('settings.xml')
+  expect(result.text).toContain('Readable text')
+  expect(result.text).not.toContain('PRIVATE_METADATA_SENTINEL')
+  expect(result.held).toEqual([true, true, true, true])
 })

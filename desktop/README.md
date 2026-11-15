@@ -1,5 +1,7 @@
 # KithMoot desktop preview
 
+Version 0.1.160 adds Metadata connection visibility, local file metadata cleaning, readable update notes and reliable Spry pairing prompts without reloading a running call. It includes the audio activity indicators from 0.1.159.
+
 ## Version 0.1.159
 
 Calls show measured microphone and incoming audio activity, with text states

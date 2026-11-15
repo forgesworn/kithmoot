@@ -114,7 +114,7 @@
     "@noble/curves": "2.0.1",
     "@noble/hashes": "^1.5.0",
     "@scure/base": "^2.0.0",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "mediabunny": "1.66.0",
     "nostr-contact-card": "^0.4.0",
     "nostr-deaddrop": "^0.3.0",

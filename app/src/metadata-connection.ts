@@ -12,5 +12,5 @@ export function metadataConnection(state: string, stats: Record<string, unknown>
   const addresses = [...new Set(stats.filter(s => s.type === 'local-candidate' && (s.candidateType === 'srflx' || s.candidateType === 'prflx'))
     .map(s => s.address ?? s.ip).filter((value): value is string => typeof value === 'string' && value.length <= 64 && /^[0-9a-f:.]+$/i.test(value))) ]
   const protocol = typeof local?.protocol === 'string' && /^(udp|tcp)$/i.test(local.protocol) ? ` over ${local.protocol.toUpperCase()}` : ''
-  return { call: { state, route: pair ? `${viaRelay ? 'TURN relay' : 'Direct ICE connection'}${protocol}` : 'Selected route unavailable', sent: count(transport?.bytesSent ?? pair?.bytesSent), received: count(transport?.bytesReceived ?? pair?.bytesReceived) }, addresses }
+  return { call: { state, route: pair ? `${viaRelay ? 'Through a TURN relay' : 'Direct connection to the other end'}${protocol}` : 'Selected route unavailable', sent: count(transport?.bytesSent ?? pair?.bytesSent), received: count(transport?.bytesReceived ?? pair?.bytesReceived) }, addresses }
 }

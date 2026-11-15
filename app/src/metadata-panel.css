@@ -1,7 +1,7 @@
 #metadataPane { box-sizing: border-box; width: 100%; max-width: 48rem; margin: 0 auto; padding: var(--s4) var(--s2) var(--s5); }
 #metadataPane[hidden] { display: none; }
 #metadataPane section { padding-block: var(--s3); border-top: 1px solid var(--line); }
-#metadataPane h2 { margin: 0; }
+#metadataPane h2 { margin: 0; font-size: var(--fs-4); line-height: var(--lh-4); }
 #metadataPane h3 { margin: 0 0 var(--s2); }
 #metadataPane p, #metadataPane dd { overflow-wrap: anywhere; }
 #metadataPane .metadataValue { white-space: pre-line; }
