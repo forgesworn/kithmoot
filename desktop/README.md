@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.156 draws a table pasted into a message as a table. The text sent stays as typed, so Copy and Edit give it back unchanged.
+Version 0.1.157 closes an open menu on Escape wherever keyboard focus is, including straight after the click that opened it.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
