@@ -66,7 +66,7 @@ describe('describeFailure', () => {
 describe('node calls full', () => {
   const base = { othersOnCall: 1, reached: 0, neverReached: 1, waitedMs: 0 }
   it('uses plain words that name calls, not rooms', () => {
-    expect(NODE_CALLS_FULL_COPY).toBe("This node's calls are full. Try again when a call ends.")
+    expect(NODE_CALLS_FULL_COPY).toBe("This node has no more room for calls. Space frees up when someone leaves a call.")
     expect(NODE_CALLS_FULL_COPY).not.toBe(NODE_FULL_COPY)
   })
   it('stays quiet once the call reaches everybody on it, or with nobody to reach', () => {
