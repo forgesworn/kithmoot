@@ -4,7 +4,7 @@ import { encodeRoomLink } from '../src/link.js'
 import { RoomAgent } from '../src/agent.js'
 import { generateSecretKey } from 'nostr-tools/pure'
 import { localIdentity } from '../src/identity.js'
-import { TEST_RELAY_WS } from './browser.js'
+import { openRoomSearch, TEST_RELAY_WS } from './browser.js'
 
 /**
  * A table pasted into a message is drawn as a table on the reader's
@@ -105,6 +105,26 @@ test('a pasted table reads as a table, scrolls when it is wide, folds between ro
     await expect(page.locator('#chatInput')).toHaveValue(DECODERS)
     await page.locator('#composerContext').getByRole('button', { name: 'Stop editing' }).click()
     await expect(page.locator('#composerContext')).toBeHidden()
+
+    // A mention in a cell still lights up for the people it addresses.
+    await rowan.chat.send('| Task | Who |\n| --- | --- |\n| Sign the build | @all |', { mentions: ['everyone'] })
+    const named = page.locator('#chatLog .msg').filter({ hasText: 'Sign the build' })
+    await expect(named.locator('.messageTable td .mention.me')).toHaveText('@all')
+    await expect(named).toHaveClass(/mentionsMe/)
+
+    // Search finds a word in a cell, shows the hit as rows rather than box
+    // characters, and jumps to the table.
+    await openRoomSearch(page)
+    await page.locator('#messageSearchQuery').fill('bug-report')
+    const hits = page.locator('#messageSearchResults li')
+    await expect(hits).toHaveCount(2)
+    await expect(hits.first().locator('.searchExcerpt')).toContainText('62 bug-report images · 47 · 51 · 40 · 26')
+    await expect(page.locator('#messageSearchResults')).not.toContainText('│')
+    await hits.last().locator('button').click()
+    await expect(page.locator('#conversationSearch')).not.toBeVisible()
+    await expect(page.locator('#chatLog .searchTarget')).toBeFocused()
+    await expect(page.locator('#chatLog .searchTarget')).toContainText('Decoder results so far:')
+    await expect(page.locator('#chatLog .searchTarget .messageTable tbody tr')).toHaveCount(3)
   } finally {
     await rowan.leave()
     await context.close()

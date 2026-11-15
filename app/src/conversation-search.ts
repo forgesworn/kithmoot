@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../../src/chat.js'
 import { resolveConversation, type ResolvedMessage } from '../../src/messages.js'
+import { plainMessageText } from './message-tables.js'
 
 export interface SearchConversation {
   channel: string | undefined
@@ -203,10 +204,12 @@ export class ConversationSearch {
       button.append(conversation, sender, time)
       const text = document.createElement('span')
       text.className = 'searchExcerpt'
-      const at = message.text.toLocaleLowerCase().indexOf(query)
+      // A pasted table reads as rows here, as in the other previews.
+      const words = plainMessageText(message.text)
+      const at = words.toLocaleLowerCase().indexOf(query)
       const start = Math.max(0, at - 60)
-      const excerpt = message.text.slice(start, start + 240)
-      text.textContent = `${start ? '…' : ''}${excerpt}${start + excerpt.length < message.text.length ? '…' : ''}`
+      const excerpt = words.slice(start, start + 240)
+      text.textContent = `${start ? '…' : ''}${excerpt}${start + excerpt.length < words.length ? '…' : ''}`
       button.append(text)
       if (message.attachments?.length) {
         const files = document.createElement('span')

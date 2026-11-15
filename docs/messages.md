@@ -299,8 +299,14 @@ does not draw tables shows them as they were written. The parser is
 - A long message folds at whole rows: a row counts as a line, and the
   fold keeps the heading and as many rows as fit in about ten lines.
 - Previews (the rooms list, reply quotes, notifications, the workspace
-  inbox, history search and screen-reader arrival lines) show a table as
-  its rows, cells separated by " · ".
+  inbox, search in a room, history search and screen-reader arrival
+  lines) show a table as its rows, cells separated by " · ". Search
+  matches the text as typed.
+- A message over the 2,000-character limit is sent as an encrypted text
+  file with the first 600 characters as its message (see `sendLongText`
+  in `app/src/main.ts`). A table that long, about fourteen ruled rows of
+  a terminal's box drawing, therefore arrives as a cut-off preview shown
+  in a fixed-width font, and the file opens in full, also fixed-width.
 
 The Android app shows the text as typed.
 

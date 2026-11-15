@@ -54,6 +54,21 @@ describe('a table drawn with box characters', () => {
     expect(table.rows).toHaveLength(3)
   })
 
+  it('reads an indented paste the composer trimmed, so only its first line lost the indent', () => {
+    const table = onlyTable(DECODERS.split('\n').map(line => `    ${line}`).join('\n').trim())
+    expect(texts(table.header)).toEqual(['Set', 'Ours', 'zxing-cpp', 'ZXing (Java)', 'jsQR'])
+    expect(table.rows).toHaveLength(3)
+  })
+
+  it('shows a table cut short by the long-message preview as typed, not as a broken table', () => {
+    // A message over the length limit travels as an attachment, and its text
+    // keeps the first 600 characters and an ellipsis.
+    const cut = `${DECODERS.slice(0, 600)}…`
+    const blocks = messageBlocks(cut)
+    expect(blocks.some(block => block.kind === 'table')).toBe(false)
+    expect(blocks.map(block => (block.kind === 'table' ? '' : block.text)).join('\n')).toBe(cut)
+  })
+
   it('takes a rule under the first row only as a header over a row a line', () => {
     const table = onlyTable(['┌──────┬─────┐', '│ Name │ Age │', '├──────┼─────┤', '│ Ada  │ 36  │', '│ Bob  │ 41  │', '│ Cara │ 29  │', '└──────┴─────┘'].join('\n'))
     expect(texts(table.header)).toEqual(['Name', 'Age'])
@@ -154,6 +169,12 @@ describe('a Markdown pipe table', () => {
     expect(texts(table.header)).toEqual(['Set', 'Ours', 'jsQR'])
     expect(aligns(table.header)).toEqual(['start', 'center', 'end'])
     expect(table.rows.map(texts)).toEqual([['185 photographs', '166', '155'], ['62 bug-report images', '47', '26']])
+  })
+
+  it('reads one indented, with trailing spaces', () => {
+    const table = onlyTable('  | Set | Ours |  \n  | --- | ---: |  \n  | photos | 166 |  ')
+    expect(table.rows.map(texts)).toEqual([['photos', '166']])
+    expect(aligns(table.rows[0])).toEqual(['start', 'end'])
   })
 
   it('reads one without outer pipes, and stops at the first line without one', () => {
