@@ -32,6 +32,8 @@ export interface SpeakingMonitorOptions {
    *  times a second for no reason is how a speaking indicator becomes the
    *  most expensive thing on the page. */
   onChange?: (speaking: ReadonlySet<string>) => void
+  /** Raw RMS, before playback volume. Null means no usable samples. */
+  onLevels?: (levels: ReadonlyMap<string, number | null>) => void
 }
 
 interface Tap {
@@ -40,6 +42,7 @@ interface Tap {
   gain: GainNode
   bytes: Uint8Array<ArrayBuffer>
   track: MediaStreamTrack
+  speaker: string
 }
 
 export class SpeakingMonitor {
@@ -48,6 +51,7 @@ export class SpeakingMonitor {
   readonly #createContext: () => AudioContext
   readonly #intervalMs: number
   readonly #onChange: ((speaking: ReadonlySet<string>) => void) | undefined
+  readonly #onLevels: SpeakingMonitorOptions['onLevels']
 
   #context: AudioContext | null = null
   #timer: ReturnType<typeof setInterval> | undefined
@@ -58,6 +62,7 @@ export class SpeakingMonitor {
     this.#createContext = options.createContext ?? (() => new AudioContext())
     this.#intervalMs = options.intervalMs ?? 50
     this.#onChange = options.onChange
+    this.#onLevels = options.onLevels
   }
 
   /**
@@ -69,7 +74,7 @@ export class SpeakingMonitor {
    * renegotiation is a new source and the old one's last state is not
    * evidence about it.
    */
-  watch(key: string, track: MediaStreamTrack): void {
+  watch(key: string, track: MediaStreamTrack, speaker = key): void {
     const existing = this.#taps.get(key)
     if (existing?.track === track) return
     if (existing) this.unwatch(key)
@@ -94,8 +99,9 @@ export class SpeakingMonitor {
       gain,
       bytes: new Uint8Array(analyser.fftSize),
       track,
+      speaker,
     })
-    this.#set.forget(key)
+    this.#set.forget(speaker)
 
     // A context opened outside a user gesture starts suspended, and a
     // suspended context's analyser answers with silence for ever without
@@ -123,7 +129,8 @@ export class SpeakingMonitor {
       // is gone, which is what was wanted.
     }
     this.#taps.delete(key)
-    this.#set.forget(key)
+    if (![...this.#taps.values()].some(other => other.speaker === tap.speaker)) this.#set.forget(tap.speaker)
+    this.poll()
     if (this.#taps.size === 0) this.stop()
   }
 
@@ -131,7 +138,7 @@ export class SpeakingMonitor {
   retain(keys: Iterable<string>): void {
     const keep = new Set(keys)
     for (const key of [...this.#taps.keys()]) if (!keep.has(key)) this.unwatch(key)
-    this.#set.retain(keep)
+    this.#set.retain(new Set([...this.#taps.values()].map(tap => tap.speaker)))
   }
 
   isSpeaking(key: string): boolean {
@@ -158,10 +165,22 @@ export class SpeakingMonitor {
    * than wait for a timer.
    */
   poll(now: number = performance.now()): void {
+    const levels = new Map<string, number | null>()
     for (const [key, tap] of this.#taps) {
-      tap.analyser.getByteTimeDomainData(tap.bytes)
-      this.#set.update(key, rmsFromByteTimeDomain(tap.bytes), now)
+      let level: number | null = null
+      if (this.#context?.state === 'running' && tap.track.readyState !== 'ended' && !tap.track.muted) {
+        if (tap.track.enabled === false) level = 0
+        else {
+          tap.analyser.getByteTimeDomainData(tap.bytes)
+          level = rmsFromByteTimeDomain(tap.bytes)
+        }
+      }
+      levels.set(key, level)
     }
+    const speakers = new Map<string, number>()
+    for (const [key, tap] of this.#taps) speakers.set(tap.speaker, Math.max(speakers.get(tap.speaker) ?? 0, levels.get(key) ?? 0))
+    for (const [speaker, level] of speakers) this.#set.update(speaker, level, now)
+    this.#onLevels?.(levels)
     if (!this.#onChange) return
 
     const current = this.#set.active()

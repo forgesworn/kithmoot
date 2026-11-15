@@ -27,6 +27,7 @@ test('a device kept quiet still lights the tile of whoever is speaking', async (
     // Give the detector time to drop and come back if it is going to.
     await pageB.waitForTimeout(3_000)
     await expect(adaOnBob, "Bob's quiet device lost Ada's speaking ring").toHaveClass(/speaking/, { timeout: 15_000 })
+    await expect(pageB.locator('#callAudioActivity [data-audio-signal="incoming"]')).toContainText('Sound')
   } finally {
     await contextA.close()
     await contextB.close()

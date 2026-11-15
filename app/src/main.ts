@@ -172,6 +172,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { AudioActivity } from './audio-activity.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { inviteLinks, shortLinkPageFor } from './share-link.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError,
@@ -8331,6 +8332,7 @@ function updateRedactionControls(): void {
 }
 
 function updateUi(): void {
+  paintAudioActivity(true)
   if ((callIsLive() || onCall()) && !docked()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
@@ -14077,6 +14079,18 @@ function showVerification(view: ParticipantView, name: string, status: string): 
 }
 
 const LOCAL_SPEAKING_KEY = 'self'
+const audioActivity = new AudioActivity(document.querySelectorAll<HTMLElement>('[data-audio-activity]'))
+let audioLevels: ReadonlyMap<string, number | null> = new Map()
+
+function paintAudioActivity(force = false): void {
+  const active = onCall()
+  const incoming = [...audioLevels].filter(([key]) => key !== LOCAL_SPEAKING_KEY && !meetingGated(tileDevice(key)))
+    .map(([, level]) => level).filter((level): level is number => level !== null)
+  audioActivity.update(active ? `${mediaSession()?.roomId}:${mediaSession()?.call?.id}` : '', [
+    !micTrack ? 'Off' : !micTrack.enabled ? 'Muted' : audioLevels.get(LOCAL_SPEAKING_KEY) ?? null,
+    incoming.length ? Math.max(...incoming) : null,
+  ], performance.now(), force)
+}
 
 /**
  * Who is talking. Keyed by device, because that is what carries a track -
@@ -14089,6 +14103,7 @@ const LOCAL_SPEAKING_KEY = 'self'
  */
 const speakingMonitor = new SpeakingMonitor({
   onChange: () => paintSpeaking(),
+  onLevels: levels => { audioLevels = levels; paintAudioActivity() },
 })
 
 /** Applies the current speaking state to whichever tiles are on screen.
@@ -14619,10 +14634,7 @@ function syncRemoteVideos(): void {
     entry.el.remove()
     remoteAudios.delete(key)
     remoteVolume.detach(key)
-    const device = tileDevice(key)
-    const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
-    if (remaining) speakingMonitor.watch(device, remaining[1].track)
-    else speakingMonitor.unwatch(device)
+    speakingMonitor.unwatch(key)
     changed = true
   }
   tileLiveness.retain([...remoteVideos.keys(), ...remoteAudios.keys()])
@@ -14765,17 +14777,15 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       if (existing) existing.track = track
     }
     if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
-    // Tap it for the speaking indicator. Keyed by device rather than by
-    // track, so a device sending both a microphone and its screen's audio
-    // lights its tile from whichever is making noise - which is what a
-    // person watching the grid means by "they are talking".
-    speakingMonitor.watch(device, track)
+    // Keep each audio tap and group its speaking cue by device, so a mic
+    // and shared sound can both contribute without replacing one another.
+    speakingMonitor.watch(key, track, device)
     track.addEventListener('ended', () => {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
       remoteAudios.delete(key)
       remoteVolume.detach(key)
-      speakingMonitor.unwatch(device)
+      speakingMonitor.unwatch(key)
       paintSpeaking()
       callTimeline.record('track-removed', short(device), 'audio')
       repaint()
@@ -14823,7 +14833,7 @@ function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<
       entry.el.remove()
       remoteAudios.delete(key)
       remoteVolume.detach(key)
-      speakingMonitor.unwatch(device)
+      speakingMonitor.unwatch(key)
       changedTiles = true
       callTimeline.record('track-removed', short(device), 'audio')
     }
@@ -17749,6 +17759,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
 /** The call surface is a permanent sibling of the route panels. Navigation
  *  changes its presentation, never its parent or the media elements in it. */
 function renderDock(): void {
+  paintAudioActivity(true)
   const surface = $('callSurface')
   const dock = $('callDock')
   const c = dockedCall
