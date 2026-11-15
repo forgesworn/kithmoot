@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.155 lets you press Up in an empty message box to edit your latest message. Escape stops editing, and sending it unchanged leaves the message as it was.
+Version 0.1.156 draws a table pasted into a message as a table. The text sent stays as typed, so Copy and Edit give it back unchanged.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
