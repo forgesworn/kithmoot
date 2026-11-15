@@ -22,6 +22,7 @@ import type { ChatMessage } from '../../src/chat.js'
 import { isConversation, classifyMessage, mentionsOf, EVERYONE, type Named } from '../../src/messages.js'
 import { hexEquals } from '../../src/hex.js'
 import type { DeviceStore } from './device-store.js'
+import { plainMessageText } from './message-tables.js'
 
 export const NOTIFY_STORAGE_KEY = 'kithmoot.notify'
 export const NOTIFY_TEXT_STORAGE_KEY = 'kithmoot.notify-text'
@@ -129,7 +130,7 @@ export function notificationContent(opts: {
    *  already says itself, so a tag never reads as a person talking. */
   agent?: boolean
 }): NotificationContent {
-  const preview = opts.showText ? clip(opts.text) : undefined
+  const preview = opts.showText ? clip(plainMessageText(opts.text)) : undefined
   const sender = opts.agent ? `${opts.sender} (agent)` : opts.sender
   let body: string
   switch (opts.channel) {

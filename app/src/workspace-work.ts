@@ -2,6 +2,7 @@ import type { AssignmentLogSnapshot } from '../../src/assignment-log.js'
 import { assignmentHumanAction, type Assignment } from '../../src/assignments.js'
 import type { ChatMessage } from '../../src/chat.js'
 import { classifyMessage, mentionedBy, resolveConversation, type Named, type MessageRef } from '../../src/messages.js'
+import { plainMessageText } from './message-tables.js'
 import type { KnownRoom } from './rooms-store.js'
 import './workspace-work.css'
 
@@ -222,7 +223,7 @@ export class WorkspaceWorkPanel {
         count++
         const card = this.text('article', '', 'workspaceWorkCard'); card.dataset.room = room.roomId; card.dataset.messageId = message.ref.messageId
         card.append(this.text('p', `${this.options.projectLabel(room) ?? 'No project'} · ${this.options.label(room)}`, 'workMeta'),
-          this.text('h3', `${this.options.person(message.ref.participant)} · ${message.reason}`), this.text('p', message.text.slice(0, 400)),
+          this.text('h3', `${this.options.person(message.ref.participant)} · ${message.reason}`), this.text('p', plainMessageText(message.text).slice(0, 400)),
           this.button('Open message in room', () => { void this.openOrigin(room, { message: message.ref }) })); cards.append(card)
       }
     }

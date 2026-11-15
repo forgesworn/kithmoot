@@ -272,6 +272,38 @@ reaction beside it, a members policy that refuses a stranger, and a read
 position under the wrong key. The Android client reads every positive case
 and refuses every negative one.
 
+## Tables
+
+A table pasted into a message is drawn as a table on the reader's screen.
+Nothing about it is on the wire: the text is sent and kept exactly as
+typed, so Copy and Edit give back those characters, and a client that
+does not draw tables shows them as they were written. The parser is
+`app/src/message-tables.ts`; it runs when a message is painted.
+
+- It recognises three shapes: box-drawing tables (light, heavy, double
+  and rounded lines, as terminals and many tools draw them), ASCII grids
+  ruled with `+---+`, and Markdown pipe tables, with or without outer
+  pipes, `\|` for a literal pipe and colons in the rule for alignment.
+- A drawn table's rules say where rows end. With more than two ruled
+  groups, each group is a row and its lines join into one cell; the
+  first group is the heading. Alignment comes from each cell's padding.
+- A drawing that does not come apart into equal columns (a ragged row, a
+  stray line, a diagram) is shown as typed in a fixed-width font, every
+  character kept. A file tree or a lone rule stays ordinary text.
+- At most 24 columns and 200 rows are drawn as a table; past that, or in
+  a message longer than 20,000 characters, the text is shown as typed.
+- Cells carry links and mentions like any other words, through
+  `textContent`; no cell is ever read as markup.
+- A wide table scrolls sideways inside its bubble and, while it does, can
+  be reached with Tab and says "Table, scrolls sideways".
+- A long message folds at whole rows: a row counts as a line, and the
+  fold keeps the heading and as many rows as fit in about ten lines.
+- Previews (the rooms list, reply quotes, notifications, the workspace
+  inbox, history search and screen-reader arrival lines) show a table as
+  its rows, cells separated by " · ".
+
+The Android app shows the text as typed.
+
 ## Emoji, GIFs, stickers and participant details
 
 Chat sender names open a participant card with their public key in npub form, a copy button and any verified NIP-05 address already permitted by profile lookup settings. Opening the card adds no profile lookup. A current participant's card offers Message privately under the same membership rules as People.
