@@ -525,6 +525,10 @@ export class Peer implements NegotiatingPeer {
   #giveUpTimer?: ReturnType<typeof setTimeout>
   #audioSenderStartTimer?: ReturnType<typeof setTimeout>
   readonly #reboundAudioSenders = new WeakSet<object>()
+  /** Owed by a rollback on a connection whose audio was already negotiated,
+   *  and paid once the next exchange completes. See
+   *  `#rebindAudioAfterRollback`. */
+  #audioRebindOwed = false
   /** The group-call camera rung, if any. See `setCameraRung`. */
   #cameraRung: Readonly<CameraRung> | undefined
   readonly #retryMs: number
@@ -759,30 +763,82 @@ export class Peer implements NegotiatingPeer {
       if (!sender.getStats || !sender.replaceTrack || this.#reboundAudioSenders.has(sender)) continue
       const direction = this.#pc.getTransceivers?.().find(t => t.sender === sender)?.currentDirection
       if (direction !== 'sendrecv' && direction !== 'sendonly') continue
+      let samples: unknown, packets: unknown
       try {
-        let samples: unknown, packets: unknown
         ;(await sender.getStats()).forEach(stat => {
           if (stat.kind !== 'audio') return
           if (stat.type === 'media-source') samples = stat.totalSamplesDuration
           if (stat.type === 'outbound-rtp') packets = stat.packetsSent
         })
-        if (samples !== 0 || packets !== 0 || this.#closed || this.#pc.connectionState !== 'connected' ||
-            sender.track !== track || !track.enabled || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
-        this.#reboundAudioSenders.add(sender)
-        await sender.replaceTrack(null)
-        if (this.#closed || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
-        await sender.replaceTrack(track)
-      } catch {
-        // Stats or a refused detach leave the original sender intact. A
-        // failed reattach has emptied it: let the existing route recovery
-        // replace this pair rather than report a permanently silent success.
-        if (!this.#closed && sender.track === null && this.#addedTracks.has(track)) {
-          this.#opts.onConnectionState?.('failed')
-          this.close()
-          return
-        }
+      } catch { continue }
+      if (samples !== 0 || packets !== 0 || this.#closed || this.#pc.connectionState !== 'connected' ||
+          sender.track !== track || !track.enabled || track.readyState !== 'live' || !this.#addedTracks.has(track)) continue
+      this.#reboundAudioSenders.add(sender)
+      if (!await this.#rebindAudioSender(sender, track)) return
+    }
+  }
+
+  /** Whether a microphone here is already negotiated to send, which is when
+   *  a rollback costs it. Rolling back a connection's first offer does not. */
+  #sendsNegotiatedAudio(): boolean {
+    return (this.#pc.getTransceivers?.() ?? []).some(t =>
+      t.sender.track?.kind === 'audio' && (t.currentDirection === 'sendrecv' || t.currentDirection === 'sendonly'))
+  }
+
+  /**
+   * Chromium stops feeding a microphone to its connection when that
+   * connection rolls back an offer after its audio was negotiated. The source
+   * stops sampling, the far end hears nothing, and it stays that way: no
+   * error, no event, video unaffected. Measured on Chromium 151 over TURN
+   * with two bare connections and none of this code. Rebinding the same track
+   * starts it again, but only once the exchange that follows the rollback has
+   * completed; a rebind at the rollback itself does not take. On a sender
+   * that was working, the rebind loses no packets.
+   *
+   * Two devices joining a call offer at once, so the polite side of every
+   * new pair rolls back, and when that happens twice the second one is this.
+   * The start check below caught it six seconds late, which is six seconds of
+   * someone not being heard; a glare later in a call it could not catch at
+   * all, since it rebinds a sender only once and only from a zero count.
+   *
+   * So every rollback that could have cost a negotiated microphone is paid
+   * for here, when signalling is stable again, whether or not this engine
+   * has the fault.
+   */
+  async #rebindAudioAfterRollback(): Promise<void> {
+    if (!this.#audioRebindOwed || this.#closed || this.#pc.signalingState !== 'stable') return
+    this.#audioRebindOwed = false
+    for (const sender of this.#pc.getSenders?.() ?? []) {
+      const track = sender.track
+      if (track?.kind !== 'audio' || track.readyState !== 'live' || !this.#addedTracks.has(track) || !sender.replaceTrack) continue
+      const direction = this.#pc.getTransceivers?.().find(t => t.sender === sender)?.currentDirection
+      if (direction !== 'sendrecv' && direction !== 'sendonly') continue
+      if (!await this.#rebindAudioSender(sender, track)) return
+    }
+  }
+
+  /** Detach `track` from `sender` and attach it again. False when that left
+   *  the sender empty and this pair was closed for the route recovery to
+   *  replace. */
+  async #rebindAudioSender(
+    sender: { readonly track: MediaStreamTrack | null; replaceTrack?(track: MediaStreamTrack | null): Promise<void> },
+    track: MediaStreamTrack,
+  ): Promise<boolean> {
+    try {
+      await sender.replaceTrack?.(null)
+      if (this.#closed || track.readyState !== 'live' || !this.#addedTracks.has(track)) return true
+      await sender.replaceTrack?.(track)
+    } catch {
+      // A refused detach leaves the original sender intact. A failed
+      // reattach has emptied it: let the existing route recovery replace
+      // this pair rather than report a permanently silent success.
+      if (!this.#closed && sender.track === null && this.#addedTracks.has(track)) {
+        this.#opts.onConnectionState?.('failed')
+        this.close()
+        return false
       }
     }
+    return true
   }
 
   #restartIce(delegated = false): void {
@@ -1104,6 +1160,7 @@ export class Peer implements NegotiatingPeer {
   async #breakWedge(): Promise<void> {
     if (this.#closed || this.#makingOffer) return
     if (this.#pc.signalingState !== 'have-local-offer') return
+    if (this.#sendsNegotiatedAudio()) this.#audioRebindOwed = true
     await this.#pc.setLocalDescription({ type: 'rollback' })
     this.#outstandingOfferSeq = undefined
     this.#clearNegotiationTimers()
@@ -1228,6 +1285,7 @@ export class Peer implements NegotiatingPeer {
       this.#clearNegotiationTimers()
       this.#hasRemoteDescription = true
       await this.#drainCandidates()
+      await this.#rebindAudioAfterRollback()
       this.#armAudioSenderStartCheck()
     } else if (body.type === 'ice') {
       await this.#handleIce(body.candidate)
@@ -1360,6 +1418,7 @@ export class Peer implements NegotiatingPeer {
     if (collision) {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
+      if (this.#sendsNegotiatedAudio()) this.#audioRebindOwed = true
       await this.#pc.setLocalDescription({ type: 'rollback' })
       this.#outstandingOfferSeq = undefined
       // The offer we gave up on must not come back from a timer.
@@ -1414,6 +1473,7 @@ export class Peer implements NegotiatingPeer {
     })
 
     await this.#drainCandidates()
+    await this.#rebindAudioAfterRollback()
     this.#armAudioSenderStartCheck()
 
     /**
