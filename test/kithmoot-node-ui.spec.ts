@@ -5,7 +5,7 @@ import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomDetails, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
@@ -1551,6 +1551,89 @@ test('a node room started from inside another node room is the room on screen: i
     await owner.locator('#roomRenameInput').fill('Second renamed')
     await owner.locator('#roomRenameSave').click()
     for (const page of [owner, guest]) await expect(page.locator('#roomTitle')).toHaveText('Second renamed', { timeout: 60_000 })
+  } finally {
+    console.log('node requests:\n' + log.join('\n'))
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await browser.close(); await fixture.close()
+  }
+})
+
+// 14 November: destroying a room held the whole window until the app was
+// restarted. Leaving is done in this page, so nothing a reload would wipe
+// is lost, and the deleting behind it never touches the room opened next.
+test('a node room that self-destructs or is ended leaves its owner on the rooms list at once, and their other node room stays whole', async ({ baseURL, browserName }) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(browserName !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(300_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true, turnPorts: { udpTcp: 34802, tls: 53511 } })
+  const browser = await chromium.launch({ args: ['--host-resolver-rules=MAP node.example 127.0.0.1'] })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  const nodeKeys = (page: Page, roomId: string) => page.evaluate(id => Object.keys(localStorage)
+    .filter(key => /^kithmoot\.node-(?:room|device|access|keeper)\./.test(key) && key.endsWith(id)).length, roomId)
+  const sentinel = (page: Page) => page.evaluate(() => (window as unknown as { e2eSentinel?: number }).e2eSentinel)
+  const mark = (page: Page) => page.evaluate(() => { (window as unknown as { e2eSentinel?: number }).e2eSentinel = 1 })
+  const roomOf = (link: string) => parseNodeRoomLink(link, Math.floor(Date.now() / 1000))!.room
+  try {
+    const { owner, link: keptLink } = await ownerWithNodeRoom(browser, baseURL!, fixture, contexts, log, 'Kept on the node')
+    const kept = roomOf(keptLink)
+    await owner.locator('#chatInput').fill('said in the kept room'); await owner.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('said in the kept room', { timeout: 60_000 })
+    await owner.locator('#newMenuButton').click()
+    await owner.getByRole('menuitem', { name: 'New room' }).click()
+    await owner.locator('#roomName').fill('Doomed on the node')
+    await expect(owner.locator('#roomOnNode')).toBeChecked()
+    await owner.locator('#create').click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Doomed on the node', { timeout: 60_000 })
+    await expect(owner.locator('#chatInput')).toBeEditable({ timeout: 60_000 })
+    const doomed = roomOf(await owner.locator('#shareUrl').inputValue())
+    expect(doomed).not.toBe(kept)
+    await expect.poll(() => fixture.ledger.rooms().length, { timeout: 60_000 }).toBe(2)
+    expect(await nodeKeys(owner, doomed)).toBeGreaterThan(0)
+
+    log.push('--- owner makes the second room self-destruct now')
+    await mark(owner)
+    await openRoomDetails(owner)
+    await owner.locator('#selfDestructNow').click()
+    let confirmed = Date.now()
+    await owner.locator('#actionConfirm').click()
+    await expect(owner.locator('#roomArea')).toBeHidden({ timeout: 15_000 })
+    console.log(`NODE-DESTRUCT-LEFT-MS ${Date.now() - confirmed}`)
+    expect(Date.now() - confirmed).toBeLessThan(12_000)
+    await expect(owner.locator('#roomBusyDialog')).toBeHidden()
+    expect(await sentinel(owner)).toBe(1)
+    await expect(owner.locator('#rooms')).toBeVisible()
+
+    // The other room opens straight away, whatever the deleting behind it
+    // is still doing, and the deleting leaves it alone.
+    const openKept = owner.locator('#roomList').getByRole('button', { name: 'Open Kept on the node', exact: true })
+    await expect(openKept).toBeEnabled({ timeout: 5_000 })
+    await openKept.click()
+    await expect(owner.locator('#roomTitle')).toHaveText('Kept on the node', { timeout: 60_000 })
+    await expect(owner.locator('#chatInput')).toBeEditable({ timeout: 60_000 })
+    await expect(owner.locator('#chatLog')).toContainText('said in the kept room', { timeout: 60_000 })
+    await expect.poll(() => nodeKeys(owner, doomed), { timeout: 60_000 }).toBe(0)
+    await expect.poll(() => fixture.ledger.rooms().length, { timeout: 60_000 }).toBe(1)
+    await owner.locator('#chatInput').fill('still here after the other went'); await owner.locator('#chatInput').press('Enter')
+    await expect(owner.locator('#chatLog')).toContainText('still here after the other went', { timeout: 60_000 })
+    await expect(owner.locator('#roomTitle')).toHaveText('Kept on the node')
+    expect(await nodeKeys(owner, kept)).toBeGreaterThan(0)
+    expect(await sentinel(owner)).toBe(1)
+
+    log.push('--- owner ends the kept room, which self-destructs as every node room does')
+    await openRoomDetails(owner)
+    await owner.locator('#endRoom').click()
+    confirmed = Date.now()
+    await owner.locator('#actionConfirm').click()
+    await expect(owner.locator('#roomArea')).toBeHidden({ timeout: 15_000 })
+    console.log(`NODE-END-LEFT-MS ${Date.now() - confirmed}`)
+    expect(Date.now() - confirmed).toBeLessThan(12_000)
+    await expect(owner.locator('#roomBusyDialog')).toBeHidden()
+    expect(await sentinel(owner)).toBe(1)
+    await expect(owner.locator('#rooms')).toBeVisible()
+    await expect.poll(() => nodeKeys(owner, kept), { timeout: 60_000 }).toBe(0)
+    await expect.poll(() => fixture.ledger.rooms().length, { timeout: 60_000 }).toBe(0)
+    await expect(owner.locator('#roomList .tombstoneRow')).toHaveCount(2, { timeout: 60_000 })
+    await expect(owner.locator('#roomList .roomRow:not(.tombstoneRow)').filter({ hasText: /on the node/ })).toHaveCount(0)
   } finally {
     console.log('node requests:\n' + log.join('\n'))
     await Promise.all(contexts.map(context => context.close().catch(() => {})))

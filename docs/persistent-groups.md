@@ -90,7 +90,15 @@ the outside of an event and never in the plain-JSON retirement. See
   another of the person's devices tombstones the bookmark, the device runs the
   tidy-up below without asking. Each room is tried once per run; a failure is
   tried again by the list's timer and at the next launch. One tab per room
-  runs it (Web Locks); the others leave.
+  runs it (Web Locks); the others leave. The tidy-up never holds the window.
+  Self-destruct now shows one panel only while the room is ended for
+  everyone; the person is then back on the rooms list at once, without a
+  reload, and the room's own row reads "Deleting from this device…" while its
+  relays are read and asked to delete. Every other room can be opened
+  meanwhile. A room that ended while open is left the same way. When the
+  tidy-up cannot finish (a relay that never answers), the rooms list says so,
+  the device keeps what the next try needs, and the list's timer tries again
+  in the background.
 - **What the tidy-up does,** in this order: delete the link-key records when
   this device made the room; leave in every tab; NIP-09 delete this device's
   own events; ask the file server to delete the files this device shared
