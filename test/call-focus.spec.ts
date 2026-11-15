@@ -87,6 +87,9 @@ test('a voice call leaves messages and the composer in the window', async ({ bro
     await expect(page.locator('#callChips')).toContainText('Bob')
     await other.locator('#toggleMic').click()
     await expect.poll(() => page.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(0)
+    // The voice gallery is collapsed, but its speaking label has moved to
+    // the visible call bar. It must keep following the real incoming mic.
+    await expect(page.locator('#speakingNow')).toContainText('Bob', { timeout: 30_000 })
     await other.locator('#chatInput').fill('Can you see this while we talk?')
     await other.locator('#chatInput').press('Enter')
     const message = page.locator('#chatLog .messageBody').filter({ hasText: 'Can you see this while we talk?' })
@@ -115,6 +118,9 @@ test('a voice call leaves messages and the composer in the window', async ({ bro
     await page.locator('#toggleCamera').click()
     await expect(page.locator('html')).toHaveAttribute('data-call-first')
     await expect(page.locator('#chatForm')).toBeInViewport({ ratio: 1 })
+    await expect(page.locator('#speakingNow')).toContainText('Bob')
+    await other.locator('#toggleMic').click()
+    await expect(page.locator('#speakingNow')).toHaveText('No speech detected on this device', { timeout: 15_000 })
     await page.locator('#toggleCamera').click()
     await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
     await expect(page.locator('#chatForm')).toBeInViewport({ ratio: 1 })
