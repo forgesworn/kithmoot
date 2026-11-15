@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.153",
+  "currentRelease": "0.1.154",
   "releases": [
     {
-      "version": "0.1.153",
+      "version": "0.1.154",
       "updateTo": {
-        "version": "0.1.153",
-        "name": "0.1.153",
-        "pub_date": "2026-11-14T22:46:42Z",
-        "notes": "A call on your node that cannot reach someone because the node's calls are full now says so, instead of showing an empty call. A room on your node no longer stops sending after the node asks a slow reader to reconnect.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.153/KithMoot-0.1.153-mac-arm64.zip",
-        "sha256": "105914e2cbae30dacbe9506c6239e0bdfddcf3b757027643bbf0ca5951c8461f",
-        "size": 200020269
+        "version": "0.1.154",
+        "name": "0.1.154",
+        "pub_date": "2026-11-15T02:01:45Z",
+        "notes": "Ending a room or making it self-destruct now takes you straight back to your rooms list while it is deleted behind you, and your other rooms stay usable. A room relay that does not answer no longer greys out the list or leaves you stuck in the ended room.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.154/KithMoot-0.1.154-mac-arm64.zip",
+        "sha256": "3b9902bb86b4d37824a576778cb874513412fe1c2f4b0c6671121601943cf320",
+        "size": 200020430
       }
     }
   ]
