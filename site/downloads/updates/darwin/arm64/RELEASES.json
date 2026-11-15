@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.158",
+  "currentRelease": "0.1.159",
   "releases": [
     {
-      "version": "0.1.158",
+      "version": "0.1.159",
       "updateTo": {
-        "version": "0.1.158",
-        "name": "0.1.158",
-        "pub_date": "2026-11-15T21:31:01Z",
-        "notes": "When a node has no more room for calls, the message explains that space frees up when someone leaves a call, including when one large call fills the node.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.158/KithMoot-0.1.158-mac-arm64.zip",
-        "sha256": "8eaf557277d087cda07869ff58e82bfd82f8c1fccdc3500ed1a39383f8be7553",
-        "size": 200023882
+        "version": "0.1.159",
+        "name": "0.1.159",
+        "pub_date": "2026-11-15T23:43:21Z",
+        "notes": "See measured audio activity for your microphone and incoming sound in calls and chat, even when playback is muted. Reduced motion uses a level bar.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.159/KithMoot-0.1.159-mac-arm64.zip",
+        "sha256": "a03fdf862b88d421a7bdc4c479ad2353d5c6027a36152003b9e4f3ca8fa6726b",
+        "size": 200025984
       }
     }
   ]
