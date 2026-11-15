@@ -69,6 +69,8 @@ import { coverCopy, effectiveSource } from './redaction-geometry.js'
 import { updateAppBadge } from './app-badge.js'
 import { resolveShownName, LastKnownNames } from './profile-name.js'
 import { mentionPattern, mentionedNames, segmentMentions } from './mention-render.js'
+import { foldMessage, hasTable, messageBlocks, plainMessageText } from './message-tables.js'
+import { appendMessageBlocks, watchScrollingTables } from './message-table-view.js'
 import { buildMentionCandidates, resolveDraftMentions } from './mention-candidates.js'
 import { playZenChime, startCallRing, stopCallRing, unlockZenChime } from './zen-chime.js'
 import { IncomingCallTracker, ringBannerSeconds } from './incoming-call.js'
@@ -662,6 +664,7 @@ const conversationSearch = new ConversationSearch(document, selectChannel)
 let publishDesktopMenu: () => void = () => {}
 const messageActions = new MessageActions()
 installReactionHold($('chatLog'))
+watchScrollingTables($('chatLog'))
 // Where every tile goes on a desktop-sized call. See app/src/call-stage.ts.
 const callStage = installCallStage($('room'), $('whoIsHere'))
 const callFocus = installCallFocus()
@@ -4810,7 +4813,8 @@ function renderImportedHistorySearch(): void {
   for (const result of importedHistorySearchView.results) {
     const row = document.createElement('li')
     const when = new Date(result.document.sentAt * 1000).toLocaleString()
-    const text = result.document.text.length > 280 ? `${result.document.text.slice(0, 280)}…` : result.document.text
+    const plain = plainMessageText(result.document.text)
+    const text = plain.length > 280 ? `${plain.slice(0, 280)}…` : plain
     row.append(`${when} · ${shortKey(result.document.participant ?? 'unknown')} · ${text}`)
     const remove = document.createElement('button')
     remove.type = 'button'; remove.className = 'danger'; remove.textContent = 'Delete from this device and box'
@@ -13304,7 +13308,7 @@ function announceArrivals(channelKey: string, conversation: { byKey: Map<string,
     if (previous === undefined || original.sentAt <= previous) continue
     if (r.retracted || original.participant === meParticipant || r.shown.kind === 'transcript') continue
     const sender = shownAs(original.participant, original.name).name || 'Somebody'
-    arrivals.push(`${sender}: ${r.shown.text.slice(0, 80)}`)
+    arrivals.push(`${sender}: ${plainMessageText(r.shown.text).replace(/\s+/g, ' ').slice(0, 80)}`)
   }
   lastAnnouncedAt.set(channelKey, latest)
   if (!arrivals.length) return
@@ -13610,12 +13614,22 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     // saying your own name is not being addressed.
     const expansionKey = `${currentRoomId()}:${logId}:${m.participant}:${m.id}`
     const messageText = artworkMessageText(m.text, m.artwork)
-    const long = messageText.length > 700 || messageText.split('\n').length > 12
+    // A table pasted in is drawn as one (message-tables.ts); the text itself
+    // is untouched, so Copy, Edit and every other device get it as typed.
+    const blocks = messageBlocks(messageText)
+    const { long, folded } = foldMessage(blocks)
     const paintText = () => {
       text.replaceChildren()
-      const shown = long && !expandedMessages.has(expansionKey) ? messageText.slice(0, 600).replace(/[\uD800-\uDBFF]$/, '') + '…' : messageText
-      appendWithMentions(text, shown, mentionsFor(m), mine ? new Set<string>() : namesOfMine)
-      const sticker = isCultEmoji(shown.trim()) || isOriginalEmoji(shown.trim())
+      const shown = long && !expandedMessages.has(expansionKey) ? folded : blocks
+      const pattern = mentionsFor(m), names = mine ? new Set<string>() : namesOfMine
+      if (hasTable(blocks)) {
+        appendMessageBlocks(text, shown, (into, words) => appendWithMentions(into, words, pattern, names))
+        paintCustomEmoji(text, 'inline')
+        return
+      }
+      const words = shown.map(block => block.kind === 'text' ? block.text : '').join('')
+      appendWithMentions(text, words, pattern, names)
+      const sticker = isCultEmoji(words.trim()) || isOriginalEmoji(words.trim())
       paintCustomEmoji(text, sticker ? 'sticker' : 'inline')
       if (sticker) text.classList.add('cultSticker')
     }

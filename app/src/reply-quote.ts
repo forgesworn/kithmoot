@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../../src/chat.js'
 import { refKey, type MessageRef, type ResolvedMessage } from '../../src/messages.js'
+import { plainMessageText } from './message-tables.js'
 
 /**
  * What the quote inside a reply's bubble says about the message it answers.
@@ -35,7 +36,7 @@ function oneLine(text: string): string {
  * `artworkMessageText`), so a sticker with no caption reads as one.
  */
 export function quoteSnippet(text: string, message: Pick<ChatMessage, 'attachments' | 'artwork'>): string {
-  const line = oneLine(text)
+  const line = oneLine(plainMessageText(text))
   if (line) return line
   const attachment = message.attachments?.[0]
   if (attachment) {

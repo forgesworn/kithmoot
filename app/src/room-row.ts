@@ -6,6 +6,8 @@
  * and real message shapes without a browser.
  */
 
+import { plainMessageText } from './message-tables.js'
+
 /** A message old enough to matter here: when it went round the sort, who
  *  sent it, and what it said. */
 export interface ActivityMessage {
@@ -76,7 +78,7 @@ export function previewLine(
 ): string | undefined {
   if (!message) return undefined
   const who = message.participant === selfParticipant ? 'You' : nameOf(message.participant)
-  if (message.text) return `${who}: ${message.text}`
+  if (message.text) return `${who}: ${plainMessageText(message.text)}`
   if (message.attachments && message.attachments.length > 0) return `${who} sent a file`
   return undefined
 }
