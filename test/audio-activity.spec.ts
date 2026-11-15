@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext, SYNTHETIC_MIC } from './browser.js'
+import { createRoom, inbound, joinWithMedia, newDeviceContext, SYNTHETIC_MIC } from './browser.js'
 
 test('measured audio stays visible without cameras, with playback muted and with reduced motion', async ({ browser, baseURL }, info) => {
+  test.setTimeout(180_000)
   const a = await newDeviceContext(browser, baseURL!)
   const b = await newDeviceContext(browser, baseURL!)
   await a.addInitScript(SYNTHETIC_MIC)
@@ -12,6 +13,7 @@ test('measured audio stays visible without cameras, with playback muted and with
     const url = await createRoom(ada, baseURL!)
     await joinWithMedia(ada, url, 'Ada')
     await joinWithMedia(bob, url, 'Bob')
+    await expect.poll(() => bob.evaluate(inbound).then(stats => stats.audioEnergy), { timeout: 90_000 }).toBeGreaterThan(0)
     const activity = bob.locator('#callAudioActivity')
     await expect(activity).toBeVisible()
     await expect(activity.locator('[data-audio-signal="incoming"]')).toContainText('Sound')
