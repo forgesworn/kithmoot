@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.157 closes an open menu on Escape wherever keyboard focus is, including straight after the click that opened it.
+Version 0.1.158 explains that a node has no more room for calls and that space frees up when someone leaves a call, including when one large call fills the node.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
