@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.153",
-  "versionCode": 176,
+  "versionName": "0.6.154",
+  "versionCode": 177,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70963264,
-  "apkSha256": "c1bdb1dcfaff5ebfd01ef815c6c33621f9720d51272a8883ca89113b96f235c2",
+  "apkBytes": 70967360,
+  "apkSha256": "14825ff521237fa410b3df08be8f7626c223bb463e0a5b395c644ddae72edc43",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.153-production.apk",
+  "downloadFilename": "kithmoot-0.6.154-production.apk",
   "releaseNotes": [
-    "The QR scanner reads codes without Google Play services, so scanning works on phones without Google and sends nothing to Google.",
-    "Joining from another of your own phones says why it waits and offers Stop asking; short room links open and scan.",
+    "Your own phone now lets itself into a node room that your computer has just made, instead of waiting for someone to let it in.",
     "Update over your existing app to keep your account and rooms."
   ]
 }
