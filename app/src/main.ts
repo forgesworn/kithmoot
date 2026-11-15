@@ -14083,7 +14083,7 @@ const audioActivity = new AudioActivity(document.querySelectorAll<HTMLElement>('
 let audioLevels: ReadonlyMap<string, number | null> = new Map()
 
 function paintAudioActivity(force = false): void {
-  const active = !!dockedCall || onCall()
+  const active = onCall()
   const incoming = [...audioLevels].filter(([key]) => key !== LOCAL_SPEAKING_KEY && !meetingGated(tileDevice(key)))
     .map(([, level]) => level).filter((level): level is number => level !== null)
   audioActivity.update(active ? `${mediaSession()?.roomId}:${mediaSession()?.call?.id}` : '', [

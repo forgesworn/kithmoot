@@ -37,5 +37,8 @@ test('measured audio stays visible without cameras, with playback muted and with
       await expect.poll(() => bob.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     }
     await bob.screenshot({ path: info.outputPath('audio-activity.png') })
+    await bob.locator('#leaveCall').evaluate(el => (el as HTMLButtonElement).click())
+    await expect(activity).toBeHidden()
+    await expect(bob.locator('#chatAudioActivity')).toBeHidden()
   } finally { await a.close(); await b.close() }
 })

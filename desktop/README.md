@@ -1,5 +1,11 @@
 # KithMoot desktop preview
 
+## Version 0.1.159
+
+Calls show measured microphone and incoming audio activity, with text states
+and a reduced-motion level bar. Incoming activity remains visible when
+playback is muted. See [visual audio activity](../docs/audio-activity.md).
+
 Version 0.1.158 explains that a node has no more room for calls and that space frees up when someone leaves a call, including when one large call fills the node.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
