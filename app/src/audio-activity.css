@@ -1,0 +1,21 @@
+.audioActivity:not([hidden]) { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: .3rem 1rem; padding: .3rem .55rem; color: var(--text); }
+.audioActivity[hidden] { display: none !important; }
+.audioSignal { display: grid; grid-template-columns: auto minmax(3rem, 1fr) 4rem; align-items: center; gap: .4rem; flex: 1 1 13rem; min-width: 0; font-size: .8rem; line-height: 1.4; }
+.audioSignalLabel { font-weight: 600; }
+.audioSignalState { grid-column: 3; grid-row: 1; }
+.audioTrace, .audioLevel { grid-column: 2; grid-row: 1; width: 100%; height: 24px; color: currentColor; }
+.audioBaseline { fill: none; stroke: currentColor; stroke-width: 1; opacity: .4; }
+.audioEnvelope { fill: currentColor; stroke: currentColor; stroke-width: 1; }
+.audioLevel { display: none; height: 8px; border: 1px solid currentColor; }
+.audioLevel > span { display: block; height: 100%; background: currentColor; }
+#callChatBar[hidden] + #chatAudioActivity { display: none; }
+html[data-call-docked] #callSurface > .audioActivity { grid-column: 1 / -1; grid-row: 3; }
+@media (prefers-reduced-motion: reduce) {
+  .audioTrace { display: none; }
+  .audioLevel { display: block; }
+}
+@media (forced-colors: active) {
+  .audioActivity { color: CanvasText; }
+  .audioEnvelope { fill: CanvasText; stroke: CanvasText; }
+  .audioLevel > span { background: CanvasText; }
+}

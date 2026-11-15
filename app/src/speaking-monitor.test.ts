@@ -85,6 +85,51 @@ function monitorWith(fake: ReturnType<typeof fakeContext>, onChange?: (s: Readon
 }
 
 describe('SpeakingMonitor', () => {
+  it('measures tracks before playback gain and clears missing, muted and suspended sources', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels })
+    const mic = track()
+    m.watch('mic', mic)
+    fake.setLevel(192)
+    m.poll(0)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeCloseTo(0.5)
+    mic.enabled = false
+    m.poll(200)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBe(0)
+    mic.enabled = true
+    Object.assign(mic, { muted: true })
+    m.poll(400)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
+    Object.assign(mic, { muted: false })
+    fake.context.state = 'suspended'
+    m.poll(600)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
+    fake.context.state = 'running'
+    m.poll(800)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeCloseTo(0.5)
+    m.unwatch('mic')
+    expect(onLevels.mock.lastCall![0].size).toBe(0)
+    m.close()
+  })
+
+  it('keeps both microphone and share taps for one speaker, removing only the ended tap', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels })
+    m.watch('dev|mic', track('mic'), 'dev')
+    m.watch('dev|share', track('share'), 'dev')
+    fake.setLevel(LOUD)
+    m.poll(0)
+    expect(m.isSpeaking('dev')).toBe(true)
+    expect(onLevels.mock.lastCall![0].size).toBe(2)
+    m.retain(['dev|share'])
+    expect(m.isSpeaking('dev')).toBe(true)
+    expect([...onLevels.mock.lastCall![0].keys()]).toEqual(['dev|share'])
+    m.close()
+    expect(m.speaking().size).toBe(0)
+  })
+
   it('routes the analyser to a destination through a silent gain', () => {
     // The failure this prevents: Web Audio only guarantees a node runs when
     // there is a path to a destination, and an analyser with nothing
