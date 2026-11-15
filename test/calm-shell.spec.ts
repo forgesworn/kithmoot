@@ -309,6 +309,56 @@ test('the New menu opens with Enter, moves with the arrows, closes with Escape a
   } finally { await context.close() }
 })
 
+test('Escape closes an open menu pressed before focus has reached its first item', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    const opener = page.locator('#newMenuButton')
+    const menu = page.getByRole('menu', { name: 'New chat or room' })
+    await expect(opener).toBeVisible()
+
+    // Pressed in the same task as the click that opened it, so focus is still
+    // on the opener: the menu moves it to the first item a task later.
+    const early = await page.evaluate(() => {
+      const button = document.getElementById('newMenuButton')!
+      button.click()
+      const at = document.activeElement
+      ;(at ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+      return { focusInMenu: Boolean(at?.closest('#newMenu')) }
+    })
+    expect(early.focusInMenu, 'Escape went in before focus reached the menu').toBe(false)
+    await expect(menu).toBeHidden()
+    await expect(opener).toHaveAttribute('aria-expanded', 'false')
+    // Still a menu after it: it opens again, on its first item.
+    await opener.click()
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
+  } finally { await context.close() }
+})
+
+test('Escape closes an open menu after a click on the menu between its items has taken focus off them', async ({ browser, baseURL }) => {
+  const { context, page } = await visitor(browser, baseURL!, { width: 1440, height: 900 })
+  try {
+    await page.goto(baseURL!)
+    const opener = page.locator('#newMenuButton')
+    const menu = page.getByRole('menu', { name: 'New chat or room' })
+    await opener.click()
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem').first()).toBeFocused()
+
+    // A click on the menu's own padding is inside it, so the menu stays, but
+    // it lands on nothing focusable and focus leaves the items.
+    const edge = (await menu.boundingBox())!
+    await page.mouse.click(edge.x + 3, edge.y + 3)
+    await expect(menu).toBeVisible()
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('#newMenu')))).toBe(false)
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(opener).toHaveAttribute('aria-expanded', 'false')
+    await expect(opener).toBeFocused()
+  } finally { await context.close() }
+})
+
 for (const [label, viewport, size, touch] of [
   ['320 by 640 at Huge text', { width: 320, height: 640 }, 'huge', true],
   ['390 by 844', { width: 390, height: 844 }, undefined, true],

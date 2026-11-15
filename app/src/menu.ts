@@ -13,7 +13,8 @@
  *  - opening moves focus to the first item (Down on the opener, or a click);
  *  - Up and Down move, wrapping; Home and End jump; a letter jumps to the
  *    next item that starts with it;
- *  - Escape closes and returns focus to the opener;
+ *  - Escape closes and returns focus to the opener, wherever focus was while
+ *    the menu was open;
  *  - Tab closes and carries on from the opener, so the menu is never a trap;
  *  - an item with a submenu (`menuSubmenu`) opens it with Right or Enter, and
  *    Left or Escape closes just that submenu and returns focus to its item.
@@ -265,14 +266,41 @@ export function wireMenu(opener: HTMLElement, menu: HTMLElement, options: MenuOp
     }
     if (!menu.contains(target) && !opener.contains(target)) hide(menu)
   }
-  menu.addEventListener('beforetoggle', event => {
-    if ((event as ToggleEvent).newState === 'open') {
-      // One menu open at a time.
-      for (const other of document.querySelectorAll<HTMLElement>('.menuPopover:popover-open, .rowMenuPopover:popover-open')) if (other !== menu) hide(other)
-      closeSubmenus()
-      options.beforeOpen?.()
-      menu.classList.toggle('menuSheetOn', asSheet())
+  // Focus goes back to the opener when it was left on the menu or on nothing;
+  // a click somewhere else has already put it where the person wanted it.
+  const settleFocus = (): void => {
+    const active = document.activeElement
+    if (!active || active === document.body || menu.contains(active)) {
+      if (opener.isConnected && opener.getClientRects().length) opener.focus({ preventScroll: true })
     }
+  }
+  // Escape closes the menu wherever focus is while it is open. The menu's own
+  // keydown below hears only keys pressed on an item, and focus is not always
+  // there: it is still on the opener in the task between the click that opens
+  // the menu and the first item taking focus, and it is on nothing after a
+  // click on the menu between its items. Being `popover="manual"`, the menu
+  // gets no Escape from the browser either. Added as the menu opens rather
+  // than when its `toggle` arrives, which is that task later.
+  const escapeAnywhere = (event: KeyboardEvent): void => {
+    if (!menu.isConnected || !menu.matches(':popover-open')) { document.removeEventListener('keydown', escapeAnywhere, true); return }
+    if (event.key !== 'Escape' || event.isComposing) return
+    const target = event.target instanceof Element ? event.target : null
+    // On an item the menu's own handler has it, a submenu first; a dialog
+    // over the menu has its own.
+    if (target && (menu.contains(target) || target.closest('dialog[open]'))) return
+    event.preventDefault()
+    event.stopPropagation()
+    hide(menu)
+    settleFocus()
+  }
+  menu.addEventListener('beforetoggle', event => {
+    if ((event as ToggleEvent).newState !== 'open') { document.removeEventListener('keydown', escapeAnywhere, true); return }
+    document.addEventListener('keydown', escapeAnywhere, true)
+    // One menu open at a time.
+    for (const other of document.querySelectorAll<HTMLElement>('.menuPopover:popover-open, .rowMenuPopover:popover-open')) if (other !== menu) hide(other)
+    closeSubmenus()
+    options.beforeOpen?.()
+    menu.classList.toggle('menuSheetOn', asSheet())
   })
   menu.addEventListener('toggle', event => {
     const open = (event as ToggleEvent).newState === 'open'
@@ -294,12 +322,8 @@ export function wireMenu(opener: HTMLElement, menu: HTMLElement, options: MenuOp
     } else {
       at = undefined
       closeSubmenus()
-      // Escape and a chosen item leave focus on a closed menu; a click
-      // somewhere else has already put it where the person wanted it.
-      const active = document.activeElement
-      if (!active || active === document.body || menu.contains(active)) {
-        if (opener.isConnected && opener.getClientRects().length) opener.focus({ preventScroll: true })
-      }
+      // Escape and a chosen item leave focus on a closed menu.
+      settleFocus()
     }
   })
 
