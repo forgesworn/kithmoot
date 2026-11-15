@@ -1,5 +1,11 @@
+export interface KeyboardNavigationOptions {
+  /** Up in an empty composer: start editing the person's latest message and
+   *  say whether it did. When it did not, Up moves into the messages. */
+  editLatest?: () => boolean
+}
+
 /** Keyboard shortcuts operate only in the joined room and never through a modal. */
-export function installKeyboardNavigation(root: Document): void {
+export function installKeyboardNavigation(root: Document, options: KeyboardNavigationOptions = {}): void {
   const get = (id: string) => root.getElementById(id)!
   const log = get('chatLog')
   const input = get('chatInput') as HTMLTextAreaElement
@@ -79,6 +85,10 @@ export function installKeyboardNavigation(root: Document): void {
     const messages = () => Array.from(log.querySelectorAll<HTMLElement>('[data-message-id]'))
     if (active === input) {
       if (event.key === 'ArrowUp' && !event.shiftKey && !input.value && input.getAttribute('aria-expanded') !== 'true') {
+        // As in Signal: Up from an empty composer edits your latest message.
+        // With nothing of yours to edit it keeps its older job and moves into
+        // the messages, which Control or Command plus F6 also reaches.
+        if (options.editLatest?.()) { event.preventDefault(); return }
         const last = messages().at(-1)
         if (last) { event.preventDefault(); focusMessage(last) }
       }

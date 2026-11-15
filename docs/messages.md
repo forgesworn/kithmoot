@@ -99,6 +99,11 @@ when the target arrives. Reactions already name their target this way.
   was said before can be shown on request.
 - The text is required and is the new text, so an older client shows the
   correction as a new message from the same person, which is honest.
+- In the web and desktop app, a message's actions offer Edit on your own
+  ordinary messages that are not retracted, and Up in an empty composer
+  loads the newest of them. With nothing of yours to edit, Up moves into
+  the messages instead. Escape, Cancel or sending the text unchanged stops
+  editing without sending an edit.
 
 ## Retract
 
