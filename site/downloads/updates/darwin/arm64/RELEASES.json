@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.156",
+  "currentRelease": "0.1.157",
   "releases": [
     {
-      "version": "0.1.156",
+      "version": "0.1.157",
       "updateTo": {
-        "version": "0.1.156",
-        "name": "0.1.156",
-        "pub_date": "2026-11-15T14:19:38Z",
-        "notes": "A table pasted into a message is drawn as a table, and a wide one scrolls sideways. The text sent stays as typed, so Copy and Edit give it back unchanged.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.156/KithMoot-0.1.156-mac-arm64.zip",
-        "sha256": "21355453d21e2bdad488ea86df4b925b3fe6387aaf101deda269c247d4664f49",
-        "size": 200022160
+        "version": "0.1.157",
+        "name": "0.1.157",
+        "pub_date": "2026-11-15T17:20:43Z",
+        "notes": "Escape now closes an open menu wherever keyboard focus is, including straight after the click that opened it.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.157/KithMoot-0.1.157-mac-arm64.zip",
+        "sha256": "77a175390dd7f7dd1845406a1e4eaf4c23fbea12534130b1af00663f507ff9cf",
+        "size": 200024040
       }
     }
   ]
