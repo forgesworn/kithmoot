@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.154",
+  "currentRelease": "0.1.155",
   "releases": [
     {
-      "version": "0.1.154",
+      "version": "0.1.155",
       "updateTo": {
-        "version": "0.1.154",
-        "name": "0.1.154",
-        "pub_date": "2026-11-15T02:01:45Z",
-        "notes": "Ending a room or making it self-destruct now takes you straight back to your rooms list while it is deleted behind you, and your other rooms stay usable. A room relay that does not answer no longer greys out the list or leaves you stuck in the ended room.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.154/KithMoot-0.1.154-mac-arm64.zip",
-        "sha256": "3b9902bb86b4d37824a576778cb874513412fe1c2f4b0c6671121601943cf320",
-        "size": 200020430
+        "version": "0.1.155",
+        "name": "0.1.155",
+        "pub_date": "2026-11-15T10:00:53Z",
+        "notes": "Press Up in an empty message box to edit your latest message. Escape stops editing, and sending it unchanged leaves the message as it was.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.155/KithMoot-0.1.155-mac-arm64.zip",
+        "sha256": "5f35329fcbea4bbe70a0436a1694138e5881dc06080581778f10241fe54f349c",
+        "size": 200020866
       }
     }
   ]
