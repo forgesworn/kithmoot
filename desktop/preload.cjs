@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   onSpryPairing(listener) {
     if (typeof listener !== 'function') return
     spryPairingListener = listener
+    ipcRenderer.send('desktop:pairing-ready')
     if (pendingSpryPairing) { const hash = pendingSpryPairing; pendingSpryPairing = undefined; listener(hash) }
   },
   titleBar: titleBarSwitch === 'inset' ? 'inset' : null,
