@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.157",
+  "currentRelease": "0.1.158",
   "releases": [
     {
-      "version": "0.1.157",
+      "version": "0.1.158",
       "updateTo": {
-        "version": "0.1.157",
-        "name": "0.1.157",
-        "pub_date": "2026-11-15T17:20:43Z",
-        "notes": "Escape now closes an open menu wherever keyboard focus is, including straight after the click that opened it.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.157/KithMoot-0.1.157-mac-arm64.zip",
-        "sha256": "77a175390dd7f7dd1845406a1e4eaf4c23fbea12534130b1af00663f507ff9cf",
-        "size": 200024040
+        "version": "0.1.158",
+        "name": "0.1.158",
+        "pub_date": "2026-11-15T21:31:01Z",
+        "notes": "When a node has no more room for calls, the message explains that space frees up when someone leaves a call, including when one large call fills the node.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.158/KithMoot-0.1.158-mac-arm64.zip",
+        "sha256": "8eaf557277d087cda07869ff58e82bfd82f8c1fccdc3500ed1a39383f8be7553",
+        "size": 200023882
       }
     }
   ]
