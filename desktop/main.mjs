@@ -177,6 +177,15 @@ async function openInvitation(link) {
   if (!win || win.isDestroyed()) { pendingInvitation = target; return }
   if (win.isMinimized()) win.restore()
   win.show(); win.focus()
+  const pairingHash = new URL(target).hash
+  if (pairingHash.startsWith('#spry=') && pairingHash.length <= 4096 && /^#spry=[A-Za-z0-9_-]+$/.test(pairingHash)) {
+    // Pairing is an approval in the current app, not a room navigation.
+    // The preload retains an early delivery until the page subscribes.
+    const deliver = () => { if (win && !win.isDestroyed()) win.webContents.send('desktop:pair-spry', pairingHash) }
+    if (win.webContents.isLoadingMainFrame()) win.webContents.once('did-finish-load', deliver)
+    else deliver()
+    return
+  }
   if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.', 'Leave call and open')) return
   const current = win.webContents.getURL()
   // A link that differs only after the # is a same-document change, which

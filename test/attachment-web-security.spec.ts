@@ -1,3 +1,4 @@
+import { sendLegacyAttachment } from './legacy-attachment-fixture.js'
 import { test, expect, type Browser, type Frame, type Locator, type Page } from '@playwright/test'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
 import { allowTestFileStorage } from './browser.js'
@@ -62,18 +63,7 @@ async function join(browser: Browser, url: string, name: string, objectUrls?: Ob
 }
 
 async function sendFile(page: Page, sample: Sample, expected: number): Promise<void> {
-  await page.locator('#chatInput').evaluate((input, s) => {
-    const bytes = s.bytes === 'png'
-      ? Uint8Array.from(atob(s.png), c => c.charCodeAt(0))
-      : typeof s.bytes === 'string' ? new TextEncoder().encode(s.bytes) : Uint8Array.from(s.bytes)
-    const clipboard = new DataTransfer()
-    clipboard.items.add(new File([bytes], s.name, { type: s.type }))
-    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'clipboardData', { value: clipboard })
-    input.dispatchEvent(event)
-  }, { ...sample, png: PNG_1X1 })
-  await page.locator('#chatForm button[type="submit"]').click()
-  await expect(page.locator('#chatLog .attachment')).toHaveCount(expected, { timeout: 30_000 })
+  await sendLegacyAttachment(page, sample, expected, PNG_1X1)
 }
 
 const card = (page: Page, name: string): Locator => page.locator('#chatLog .attachment').filter({ has: page.locator('.attName', { hasText: name }) })
