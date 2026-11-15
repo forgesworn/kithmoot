@@ -9,8 +9,8 @@ const profile = await mkdtemp(join(tmpdir(), 'kithmoot-pairing-'))
 let app
 try {
   app = await electron.launch({
-    executablePath: process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'darwin' ? 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'node_modules/electron/dist/electron.exe' : 'node_modules/electron/dist/electron'),
-    args: [desktop, `--user-data-dir=${profile}`], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile }, timeout:30000,
+    executablePath: process.env.DESKTOP_EXECUTABLE ?? process.env.ELECTRON_EXECUTABLE ?? join(desktop, process.platform === 'darwin' ? 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron' : process.platform === 'win32' ? 'node_modules/electron/dist/electron.exe' : 'node_modules/electron/dist/electron'),
+    args: [...(process.env.DESKTOP_EXECUTABLE ? [] : [desktop]), `--user-data-dir=${profile}`], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile }, timeout:30000,
   })
   const page = await app.firstWindow()
   const link = () => 'kithmoot://join#spry=' + Buffer.from(JSON.stringify({ v:1,endpoint:'https://relay.example:3744',code:'a'.repeat(43),expiresAt:Math.floor(Date.now()/1000)+180 })).toString('base64url')
