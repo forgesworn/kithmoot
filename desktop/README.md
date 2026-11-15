@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.154 takes you straight back to your rooms list when you end a room or make it self-destruct, and deletes it from this device behind the list while your other rooms stay usable. A room relay that does not answer no longer greys out the list, and no longer leaves you stuck in a room that has ended.
+Version 0.1.155 lets you press Up in an empty message box to edit your latest message. Escape stops editing, and sending it unchanged leaves the message as it was.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
