@@ -966,6 +966,9 @@
                a message, or replacing one of yours. Filled in by
                `renderComposerContext` in app/src/main.ts. -->
           <div id="composerContext" class="composerContext" hidden></div>
+          <!-- Up in an empty composer loads your latest message without moving
+               the focus, so a screen reader is told here. -->
+          <p id="composerAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
           <div id="mentions" class="mentions" role="listbox" aria-label="People and agents in this room" hidden></div>
           <!-- One row, one height and one centre line: add a file, the field,
                send. The picture buttons are all the height of a control, so
@@ -1545,7 +1548,8 @@
         <dt>Control / Command + F6</dt><dd>Move between chats, room controls, conversations, tools, messages and the composer. Add Shift to move backwards.</dd>
         <dt>Control / Command + K</dt><dd>Find a chat or room: moves to the search above your chats. Type to narrow the list, Down to walk it, Enter to open the first match.</dd>
         <dt>Control / Command + 1, 2, 3</dt><dd>Go to Chats, People or Boards. People is only there when you are signed in with Nostr.</dd>
-        <dt>Up / Down in messages</dt><dd>Focus the previous or next message. Up from an empty composer starts at the latest message.</dd>
+        <dt>Up in an empty composer</dt><dd>Edit your latest message, as its Edit action does. Escape, or sending it unchanged, stops editing. With no message of yours to edit, Up starts at the latest message instead.</dd>
+        <dt>Up / Down in messages</dt><dd>Focus the previous or next message. Control / Command + F6 moves from the composer to the messages.</dd>
         <dt>Home / End in messages</dt><dd>Focus the first or last loaded message.</dd>
         <dt>Enter or Shift + F10 on a message</dt><dd>Open its actions. Tab moves through the actions; Escape closes them.</dd>
         <dt>Escape in messages</dt><dd>Return to writing, where this conversation allows replies.</dd>

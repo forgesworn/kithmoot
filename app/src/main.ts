@@ -99,6 +99,7 @@ import { installReactionHold } from './reaction-hold.js'
 import { splitLinks } from './linkify.js'
 import { showReactionFeedback } from './reaction-feedback.js'
 import { installKeyboardNavigation } from './keyboard-navigation.js'
+import { editableBy, latestEditable } from './composer-edit.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
@@ -13735,7 +13736,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
         const maker = mine ? undefined : session?.participants().find(p => p.participant === m.participant && p.agent === true)
         const zap = maker?.zap
         if (zap) actions.push({ label: `Zap whoever runs ${senderLabel(original)}`, text: 'Zap', run: () => { void openZapDialog(zap, m.participant, maker?.name ?? m.name) } })
-        if (mine && !original.kind) actions.push(
+        if (editableBy(r, meParticipant)) actions.push(
           { label: 'Edit this message', text: 'Edit message', run: () => setComposing({ editing: original }, resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: original.id, participant: original.participant }))?.shown ?? m) },
           { label: 'Retract this message', text: 'Retract message', danger: true, run: () => { void retractMessage(original) } },
         )
@@ -18350,7 +18351,7 @@ async function setNudge(on: boolean): Promise<void> {
 // ---------------------------------------------------------------------------
 
 // The bar: back, who and where, the call, and everything else.
-installKeyboardNavigation(document)
+installKeyboardNavigation(document, { editLatest: editLatestOwnMessage })
 
 // Call shortcuts: Control/Command+D and +E route through the same
 // toggleMic/toggleCamera the buttons call, so a shortcut leaves state, the
@@ -22999,20 +23000,53 @@ function renderComposerContext(): void {
   cancel.textContent = 'Cancel'
   cancel.setAttribute('aria-label', composing.editing ? 'Stop editing' : 'Stop replying')
   cancel.addEventListener('click', () => {
-    if (composing.editing) {
-      const box = $('chatInput') as HTMLTextAreaElement
-      const draft = captureDraft()
-      box.value = ''
-      draft.text = ''
-      draft.attachments = []
-      draft.artwork = []
-      draftChanged(draft)
-      growComposer(box)
-    }
-    setComposing({})
+    if (composing.editing) stopEditing()
+    else setComposing({})
   })
   bar.append(label, excerpt, cancel)
   bar.hidden = false
+}
+
+/** Leave an edit without sending it: the box empties, as it was before the
+ *  message was loaded into it. */
+function stopEditing(): void {
+  const box = $('chatInput') as HTMLTextAreaElement
+  const draft = captureDraft()
+  box.value = ''
+  draft.text = ''
+  draft.attachments = []
+  draft.artwork = []
+  draftChanged(draft)
+  growComposer(box)
+  setComposing({})
+}
+
+/** Whether an open edit still says exactly what the message says now. */
+function editUnchanged(draft: ConversationDraft, typed: string): boolean {
+  const editing = draft.editing
+  if (!editing || draft.pendingFiles?.length) return false
+  const shown = resolveConversation(activeChat()?.messages() ?? []).byKey.get(refKey({ messageId: editing.id, participant: editing.participant }))?.shown ?? editing
+  const same = <T>(a: readonly T[], b: readonly T[] | undefined) => a.length === (b?.length ?? 0) && a.every((item, i) => item === b![i])
+  return typed.trim() === artworkMessageText(shown.text, shown.artwork).trim() &&
+    same(draft.attachments, shown.attachments) && same(draft.artwork, shown.artwork)
+}
+
+/** Up in an empty composer, as in Signal: load your latest message to edit.
+ *  Only from a clean composer, so nothing typed, staged or replied to is
+ *  replaced. False leaves Up its job of moving into the messages. */
+function editLatestOwnMessage(): boolean {
+  const draft = drafts.get(currentChannel)
+  if (draft.editing || draft.replyTo || draft.attachments.length || draft.artwork.length ||
+    draft.pendingFiles?.length || draft.refusedFiles?.size || draft.uploading) return false
+  if (!channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return false
+  const latest = latestEditable(resolveConversation(activeChat()?.messages() ?? []).byKey.values(), meParticipant)
+  if (!latest) return false
+  setComposing({ editing: latest.original }, latest.shown)
+  // The focus stays put, so say what changed under it.
+  const announce = $('composerAnnounce')
+  announce.textContent = ''
+  window.setTimeout(() => { announce.textContent = 'Editing your latest message. Escape stops editing.' }, 0)
+  return true
 }
 
 /**
@@ -23049,6 +23083,9 @@ $('chatForm').addEventListener('submit', async (event) => {
   const draft = captureDraft()
   if (draft.job || !channelAvailable(currentChannel) || (currentChannel !== undefined && WRITTEN_BY_AGENTS.includes(currentChannel))) return
   const input = $('chatInput') as HTMLTextAreaElement
+  // Up then Enter by accident, or an edit opened and left as it was: there is
+  // nothing to correct, so stop editing rather than mark the message edited.
+  if (draft.editing && editUnchanged(draft, input.value)) { stopEditing(); return }
   // Files held in the tray. Where Send is the act (the one-time notice), this
   // press writes the choice down first, then uploads them, then sends. If an
   // upload fails nothing is sent: the text and the chips stay and the tray says
@@ -23256,6 +23293,14 @@ $('chatInput').addEventListener('keydown', (event) => {
       closeMentionPicker()
       return
     }
+  }
+
+  // Escape leaves an edit, as Cancel does. Not when Escape already closed
+  // something on its way here, such as a reaction's details.
+  if (event.key === 'Escape' && !event.defaultPrevented && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && drafts.get(currentChannel).editing) {
+    event.preventDefault()
+    stopEditing()
+    return
   }
 
   if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return

@@ -102,6 +102,104 @@ test('replies sit in time order with a quote, edits show the latest, retractions
   }
 })
 
+test('Up in an empty composer edits your latest message, and only from a clean composer', async ({ browser, baseURL }) => {
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1280, height: 800 } })
+  await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
+  await device(context)
+  const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
+  const rowan = await RoomAgent.join({ link, identity: localIdentity(generateSecretKey()), relays: [TEST_RELAY_WS], name: 'Rowan' })
+  try {
+    const page = await context.newPage(); await page.goto(link)
+    await page.locator('#displayName').fill('Ada'); await page.locator('#join').click()
+    const input = page.locator('#chatInput')
+    const context_ = page.locator('#composerContext')
+    const rows = page.locator('#chatLog [data-message-id]')
+
+    // Nothing of Ada's to edit: Up keeps its older job and moves into the messages.
+    await rowan.chat.send('Morning, all')
+    await expect(rows).toHaveCount(1)
+    await input.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(rows.last()).toBeFocused()
+    await expect(context_).toBeHidden()
+    await page.keyboard.press('Escape')
+    await expect(input).toBeFocused()
+
+    // Ada writes, then Rowan writes after her. Up loads Ada's, not Rowan's.
+    await input.fill('Frist draft of the plan')
+    await input.press('Enter')
+    const mine = page.locator('#chatLog .msg.mine').filter({ hasText: 'Frist draft of the plan' })
+    await expect(mine).toBeVisible()
+    await rowan.chat.send('Looks good to me')
+    await expect(rows).toHaveCount(3)
+    await expect(input).toHaveValue('')
+    await page.keyboard.press('ArrowUp')
+    await expect(context_).toContainText('Editing your message')
+    await expect(input).toBeFocused()
+    await expect(input).toHaveValue('Frist draft of the plan')
+    expect(await input.evaluate(el => [(el as HTMLTextAreaElement).selectionStart, (el as HTMLTextAreaElement).selectionEnd])).toEqual([23, 23])
+    await expect(page.locator('#composerAnnounce')).toHaveText('Editing your latest message. Escape stops editing.')
+
+    // Escape stops editing and empties the box, as Cancel does.
+    await page.keyboard.press('Escape')
+    await expect(context_).toBeHidden()
+    await expect(input).toHaveValue('')
+    await expect(input).toBeFocused()
+
+    // Something typed stays: Up moves the caret as ever and loads nothing.
+    await input.fill('half a thought')
+    await page.keyboard.press('ArrowUp')
+    await expect(context_).toBeHidden()
+    await expect(input).toHaveValue('half a thought')
+    await input.fill('')
+
+    // A reply in progress stays a reply.
+    await page.locator('#chatLog .msg').filter({ hasText: 'Looks good to me' }).locator('.messageMore').click()
+    await page.locator('#messageActionPanel').getByRole('button', { name: /^Reply to/ }).click()
+    await expect(context_).toContainText('Replying to Rowan')
+    await input.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(context_).toContainText('Replying to Rowan')
+    await expect(input).toHaveValue('')
+    await context_.getByRole('button', { name: 'Stop replying' }).click()
+    await expect(context_).toBeHidden()
+
+    // Up then Enter with nothing changed sends no edit.
+    await input.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(input).toHaveValue('Frist draft of the plan')
+    await page.keyboard.press('Enter')
+    await expect(context_).toBeHidden()
+    await expect(input).toHaveValue('')
+    await expect(mine.locator('.chip.edited')).toHaveCount(0)
+
+    // A real correction goes out as an edit of the original.
+    await page.keyboard.press('ArrowUp')
+    await input.fill('First draft of the plan')
+    await page.keyboard.press('Enter')
+    await expect(mine).toHaveCount(0)
+    const fixed = page.locator('#chatLog .msg.mine').filter({ hasText: 'First draft of the plan' })
+    await expect(fixed.locator('.chip.edited')).toBeVisible()
+    await expect.poll(() => rowan.chat.messages().find(m => m.text === 'First draft of the plan')?.replaces)
+      .toBe(rowan.chat.messages().find(m => m.text === 'Frist draft of the plan')!.id)
+    // The unchanged Enter before it sent nothing.
+    expect(rowan.chat.messages().filter(m => m.replaces !== undefined)).toHaveLength(1)
+    await expect(context_).toBeHidden()
+
+    // A staged file stays: Up does not replace it with the message's files.
+    await page.locator('#attachFile').setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Workshop notes') })
+    await expect(page.locator('#attachStaged')).toContainText('notes.txt')
+    await input.focus()
+    await page.keyboard.press('ArrowUp')
+    await expect(context_).toBeHidden()
+    await expect(page.locator('#attachStaged')).toContainText('notes.txt')
+  } finally {
+    await rowan.leave()
+    await context.close()
+  }
+})
+
 test('a bare word that only echoes an announced name does not light up, and a real mention of the shown name does', async ({ browser, baseURL }) => {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
