@@ -180,18 +180,22 @@ async function expectCallFirst(page: Page, label: string): Promise<void> {
   await expect(page.locator('html'), `${label}: the call should come first`).toHaveAttribute('data-call-first', '')
   await page.waitForTimeout(300)
 
-  // The stage runs below the room bar and compact call-origin header.
+  // The stage runs below navigation, call attribution and measured audio.
   const stage = (await page.locator('#callStage').boundingBox())!
   const bar = (await page.locator('#roomArea > .roomBar').boundingBox())!
   const origin = (await page.locator('#callSurfaceHeader').boundingBox())!
+  const activity = page.locator('#callAudioActivity')
+  await expect(activity).toBeInViewport({ ratio: 1 })
+  const activityBox = (await activity.boundingBox())!
+  expect(activityBox.height, `${label}: audio activity stays compact`).toBeLessThanOrEqual(64)
   expect(origin.height, `${label}: the origin header stays compact`).toBeLessThanOrEqual(52)
-  expect(stage.y, `${label}: the stage starts below more than its two headers`).toBeLessThanOrEqual(bar.y + bar.height + origin.height + 24)
+  expect(stage.y, `${label}: the stage starts below more than its headers and audio activity`).toBeLessThanOrEqual(bar.y + bar.height + origin.height + activityBox.height + 24)
   expect(stage.y + stage.height, `${label}: the stage stops ${(viewport.height - stage.y - stage.height).toFixed(0)}px short of the bottom`).toBeGreaterThanOrEqual(viewport.height - 48)
   expect(stage.y + stage.height, `${label}: the stage runs off the bottom of the window`).toBeLessThanOrEqual(viewport.height + 1)
   const room = (await page.locator('#room').boundingBox())!
   expect(room.height, `${label}: the pictures get ${room.height.toFixed(0)}px of a ${viewport.height}px window`).toBeGreaterThanOrEqual(viewport.height * 0.6)
 
-  // Above the stage are only navigation and call attribution.
+  // Above the stage are navigation, call attribution and audio activity.
 
   // Exactly one way off the call, and it is in the bar.
   const toolbar = page.getByRole('toolbar', { name: 'Call controls' })
