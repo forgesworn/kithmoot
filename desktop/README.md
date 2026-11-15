@@ -1,6 +1,6 @@
 # KithMoot desktop preview
 
-Version 0.1.153 says when a call on your node could not reach someone because the node's calls are full, instead of leaving you in a call with nobody. A room on your node also stops showing "Could not reach the network" when the node asks a slow reader to reconnect: the app reconnects and reads the room again rather than holding back every send.
+Version 0.1.154 takes you straight back to your rooms list when you end a room or make it self-destruct, and deletes it from this device behind the list while your other rooms stay usable. A room relay that does not answer no longer greys out the list, and no longer leaves you stuck in a room that has ended.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
