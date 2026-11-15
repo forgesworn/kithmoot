@@ -11,6 +11,17 @@
 html[data-call-docked] #callSurface[data-gallery-collapsed] #callStage { display: none !important; }
 #workspaceContent:fullscreen { background: var(--bg); padding: 1rem; box-sizing: border-box; width: 100%; height: 100%; }
 
+/* Voice calls in a browser need the same compact strip as the installed
+   window. The full-height gallery otherwise pushes the room and composer
+   out of the fixed shell. Keep the tiles mounted: they own remote audio.
+   Phones retain their separate call/chat views. Pictures restore the stage. */
+@media (min-width: 701px) and (min-height: 541px) {
+  html:not([data-desktop])[data-call-pane="controls"] #callStage > #whoIsHere:not([hidden]) { display: none; }
+  html:not([data-desktop])[data-call-pane="controls"] #callBay { margin: 0; padding: .4rem .55rem; }
+  html:not([data-desktop])[data-call-pane="controls"] #deviceControls > #local { display: none; }
+  html:not([data-desktop])[data-call-pane="controls"] #callChips { display: flex; flex: 1 0 100%; justify-content: center; }
+}
+
 /* Origin call: preserve the stage/chat split, with the stage outside the
    route panel. The workspace is the shared measuring/fullscreen container. */
 html[data-call-first] #workspaceContent > #callSurface {

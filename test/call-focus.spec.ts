@@ -1,7 +1,8 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { chooseCallLayout, createRoom, joinWithMedia, newDeviceContext, offerPairing, open, openCall, openCallMore, join } from './browser.js'
+import { SYNTHETIC_MIC, chooseCallLayout, createRoom, inbound, joinWithMedia, nameCreator, newDeviceContext, offerPairing, open, openCall, openCallMore, openNewRoomForm, join } from './browser.js'
+import { testRelays, withRelays } from './relays.js'
 
 /**
  * The call first, on a wide screen.
@@ -59,6 +60,74 @@ async function joinCall(browser: Browser, baseURL: string, url: string, name: st
   await expect(page.locator('#toggleCamera')).toHaveAttribute('data-on', 'true')
   return page
 }
+
+test('a voice call leaves messages and the composer in the window', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!, { colorScheme: 'dark' })
+  const otherContext = await newDeviceContext(browser, baseURL!)
+  try {
+    await otherContext.addInitScript(SYNTHETIC_MIC)
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 1549, height: 1043 })
+    await page.goto(baseURL!)
+    await openNewRoomForm(page)
+    await page.locator('#roomEnds').selectOption('7')
+    await nameCreator(page, 'Ada')
+    await page.locator('#create').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    const raw = await page.locator('#shareUrl').inputValue()
+    const relays = testRelays()
+    const url = relays ? withRelays(raw, relays) : raw
+    const other = await otherContext.newPage()
+    await open(other, url, 'Bob')
+    await join(other)
+    for (const person of [page, other]) {
+      await person.locator('#callToggle').click()
+      await expect(person.locator('#deviceControls')).toBeVisible()
+    }
+    await expect(page.locator('#callChips')).toContainText('Bob')
+    await other.locator('#toggleMic').click()
+    await expect.poll(() => page.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(0)
+    // The voice gallery is collapsed, but its speaking label has moved to
+    // the visible call bar. It must keep following the real incoming mic.
+    await expect(page.locator('#speakingNow')).toContainText('Bob', { timeout: 30_000 })
+    await other.locator('#chatInput').fill('Can you see this while we talk?')
+    await other.locator('#chatInput').press('Enter')
+    const message = page.locator('#chatLog .messageBody').filter({ hasText: 'Can you see this while we talk?' })
+    await expect(message).toBeVisible()
+    await addStandIns(page, [['Cy', false], ['Di', false]])
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
+
+    for (const size of [{ width: 1549, height: 1043 }, { width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+      await page.setViewportSize(size)
+      await shot(page, 'voice-call-chat')
+      for (const selector of ['#roomArea > .roomBar', '#chatViewport', '#chatForm', '#leaveCall']) {
+        await expect(page.locator(selector)).toBeInViewport({ ratio: 1 })
+      }
+      await expect(message).toBeInViewport({ ratio: 1 })
+      const log = (await page.locator('#chatViewport').boundingBox())!
+      expect(log.height, 'the call leaves space to read messages').toBeGreaterThanOrEqual(200)
+    }
+    await page.locator('#chatInput').fill('Chat while we talk')
+    await page.locator('#chatInput').press('Enter')
+    await expect(other.locator('#chatLog')).toContainText('Chat while we talk')
+    await expect(page.locator('#deviceControls')).toBeVisible()
+    const energy = (await page.evaluate(inbound)).audioEnergy
+    await expect.poll(() => page.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(energy)
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('html')).toHaveAttribute('data-call-first')
+    await expect(page.locator('#chatForm')).toBeInViewport({ ratio: 1 })
+    await expect(page.locator('#speakingNow')).toContainText('Bob')
+    await other.locator('#toggleMic').click()
+    await expect(page.locator('#speakingNow')).toHaveText('No speech detected on this device', { timeout: 15_000 })
+    await page.locator('#toggleCamera').click()
+    await expect(page.locator('html')).toHaveAttribute('data-call-pane', 'controls')
+    await expect(page.locator('#chatForm')).toBeInViewport({ ratio: 1 })
+  } finally {
+    await Promise.all([context.close(), otherContext.close()])
+  }
+})
 
 /** Stand-in tiles past the two real people, shaped the way `render()`
  *  shapes one: the stage lays out what is in `#room`, wherever it came
