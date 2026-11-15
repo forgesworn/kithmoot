@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.155",
-  "versionCode": 178,
+  "versionName": "0.6.154",
+  "versionCode": 177,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70975552,
-  "apkSha256": "90218d3c94f1a8216ed898a5c72e59bf7ade2d9803e75102c12e7589a7a28163",
+  "apkBytes": 70967360,
+  "apkSha256": "14825ff521237fa410b3df08be8f7626c223bb463e0a5b395c644ddae72edc43",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.155-production.apk",
+  "downloadFilename": "kithmoot-0.6.154-production.apk",
   "releaseNotes": [
-    "See measured audio activity for your microphone and incoming sound in calls and chat, even when playback is muted.",
-    "Reduced motion uses a level bar. Update over your existing app to keep your account and rooms."
+    "Your own phone now lets itself into a node room that your computer has just made, instead of waiting for someone to let it in.",
+    "Update over your existing app to keep your account and rooms."
   ]
 }
