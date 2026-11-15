@@ -1,0 +1,2032 @@
+{
+ "idleUnpaced": {
+  "paceMsPerMutation": 0,
+  "setup": {
+   "seconds": 1.9,
+   "rooms": 64,
+   "devices": 45,
+   "enrolMs": {
+    "n": 15,
+    "p50": 19.2,
+    "p95": 22.4,
+    "max": 22.4
+   },
+   "enrolFirstEight": {
+    "n": 8,
+    "p50": 19.2,
+    "p95": 22.4,
+    "max": 22.4
+   },
+   "enrolLastEight": {
+    "n": 8,
+    "p50": 19.9,
+    "p95": 20.1,
+    "max": 20.1
+   },
+   "grantMs": {
+    "n": 45,
+    "p50": 21.5,
+    "p95": 22.8,
+    "max": 23.5
+   },
+   "failureCount": 49,
+   "firstFailure": {
+    "step": "enrol",
+    "index": 15,
+    "status": 503,
+    "reason": "unavailable",
+    "code": "children-pending"
+   }
+  },
+  "backendTrace": {
+   "total": 387,
+   "byCall": {
+    "spry.status": 109,
+    "shelter.sync": 109,
+    "spry.offer": 16,
+    "spry.lease": 60,
+    "spry.register": 93
+   },
+   "firstRefusals": [
+    {
+     "at": 1438,
+     "backend": "spry",
+     "call": "offer",
+     "outcome": "spry-http-429"
+    },
+    {
+     "at": 1447,
+     "backend": "spry",
+     "call": "register",
+     "outcome": "spry-http-429"
+    },
+    {
+     "at": 1458,
+     "backend": "spry",
+     "call": "register",
+     "outcome": "spry-http-429"
+    },
+    {
+     "at": 1467,
+     "backend": "spry",
+     "call": "register",
+     "outcome": "spry-http-429"
+    },
+    {
+     "at": 1477,
+     "backend": "spry",
+     "call": "register",
+     "outcome": "spry-http-429"
+    }
+   ],
+   "refusedCount": 49,
+   "refusedByOutcome": {
+    "spry.offer:spry-http-429": 1,
+    "spry.register:spry-http-429": 48
+   }
+  },
+  "readyAfterSetupMs": 59252,
+  "roomSixtyFive": {
+   "status": 429,
+   "reason": "unavailable",
+   "code": "too-many-rooms"
+  },
+  "forcedTickMs": {
+   "n": 5,
+   "p50": 10.2,
+   "p95": 11.2,
+   "max": 11.2
+  },
+  "mutationAtFullSizeMs": 30,
+  "accessPollMs": {
+   "n": 54,
+   "p50": 106.7,
+   "p95": 161.7,
+   "max": 176.4
+  },
+  "credentialMs": {
+   "n": 54,
+   "p50": 29.8,
+   "p95": 102.9,
+   "max": 118.2
+  },
+  "resourcesEmpty": {
+   "processes": [
+    {
+     "name": "spry-node",
+     "pid": 28406,
+     "rssMb": 3.6,
+     "cpuPercent": null
+    },
+    {
+     "name": "bothyd",
+     "pid": 28407,
+     "rssMb": 9.2,
+     "cpuPercent": null
+    }
+   ],
+   "workerRssMb": 182.9,
+   "workerCpuPercent": null
+  },
+  "resourcesAfterSetup": {
+   "processes": [
+    {
+     "name": "spry-node",
+     "pid": 28406,
+     "rssMb": 5.5,
+     "cpuPercent": 2.1
+    },
+    {
+     "name": "bothyd",
+     "pid": 28407,
+     "rssMb": 32.6,
+     "cpuPercent": 6.3
+    }
+   ],
+   "workerRssMb": 321.1,
+   "workerCpuPercent": 72.6
+  },
+  "restCheckpoints": [
+   {
+    "label": "t0 all devices",
+    "devicesPolled": 46,
+    "problems": 0
+   },
+   {
+    "label": "t+15s one in six",
+    "devicesPolled": 8,
+    "problems": 0,
+    "elapsed": 15,
+    "ownerStatusMs": 1,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 28406,
+       "rssMb": 6.2,
+       "cpuPercent": 0.4
+      },
+      {
+       "name": "bothyd",
+       "pid": 28407,
+       "rssMb": 33.5,
+       "cpuPercent": 0.9
+      }
+     ],
+     "workerRssMb": 198.9,
+     "workerCpuPercent": 9.6
+    }
+   }
+  ],
+  "finalOwnerStatus": {
+   "v": 1,
+   "ready": true,
+   "paired": true,
+   "rooms": 64,
+   "devices": 46,
+   "pending": 0,
+   "version": "0.1.0-rc.1",
+   "turnReady": true,
+   "relayReady": true,
+   "storeBytes": 0
+  },
+  "finalRelay": {
+   "allocations": 0,
+   "metrics": {
+    "ageMillis": 25,
+    "allocationQuotaRefusals": 0,
+    "droppedPackets": 0,
+    "elapsedMillis": 76452,
+    "epoch": "66227efdc54cce201d2a8c51487d590ba443a1184224004be3342aae94a86540",
+    "forwardedPackets": 0,
+    "refusedStreams": 0,
+    "relayBindFailures": 0,
+    "streamAllocations": 0,
+    "streamConnections": 0,
+    "streamErrors": 0,
+    "streamForwardedBytes": 0,
+    "udpAllocations": 0,
+    "udpForwardedBytes": 0,
+    "userQuotaRefusals": 0,
+    "v": 1
+   }
+  }
+ },
+ "idlePaced": {
+  "paceMsPerMutation": 1500,
+  "setup": {
+   "seconds": 397.9,
+   "rooms": 64,
+   "devices": 191,
+   "failures": [],
+   "enrolMs": {
+    "n": 64,
+    "p50": 50.2,
+    "p95": 82.9,
+    "max": 189.9
+   },
+   "enrolFirstEight": {
+    "n": 8,
+    "p50": 24.3,
+    "p95": 29.9,
+    "max": 29.9
+   },
+   "enrolLastEight": {
+    "n": 8,
+    "p50": 68.1,
+    "p95": 73.1,
+    "max": 73.1
+   },
+   "grantMs": {
+    "n": 191,
+    "p50": 59.5,
+    "p95": 80.1,
+    "max": 224.5
+   }
+  },
+  "backendTrace": {
+   "total": 1614,
+   "byCall": {
+    "spry.status": 453,
+    "shelter.sync": 453,
+    "spry.offer": 64,
+    "spry.lease": 453,
+    "spry.register": 191
+   },
+   "firstRefusals": [],
+   "refusedCount": 0,
+   "refusedByOutcome": {}
+  },
+  "readyAfterSetupMs": 5,
+  "roomSixtyFive": {
+   "status": 429,
+   "reason": "unavailable",
+   "code": "too-many-rooms"
+  },
+  "forcedTickMs": {
+   "n": 5,
+   "p50": 10.4,
+   "p95": 11.6,
+   "max": 11.6
+  },
+  "mutationAtFullSizeMs": 204,
+  "accessPollMs": {
+   "n": 736,
+   "p50": 158.4,
+   "p95": 207.3,
+   "max": 232.2
+  },
+  "credentialMs": {
+   "n": 736,
+   "p50": 45.2,
+   "p95": 121.1,
+   "max": 163.2
+  },
+  "resourcesEmpty": {
+   "processes": [
+    {
+     "name": "spry-node",
+     "pid": 30480,
+     "rssMb": 3.6,
+     "cpuPercent": null
+    },
+    {
+     "name": "bothyd",
+     "pid": 30481,
+     "rssMb": 9.3,
+     "cpuPercent": null
+    }
+   ],
+   "workerRssMb": 185.4,
+   "workerCpuPercent": null
+  },
+  "resourcesAfterSetup": {
+   "processes": [
+    {
+     "name": "spry-node",
+     "pid": 30480,
+     "rssMb": 5.9,
+     "cpuPercent": 0.2
+    },
+    {
+     "name": "bothyd",
+     "pid": 30481,
+     "rssMb": 33.7,
+     "cpuPercent": 0.2
+    }
+   ],
+   "workerRssMb": 325.3,
+   "workerCpuPercent": 4
+  },
+  "restCheckpoints": [
+   {
+    "label": "t0 all devices",
+    "devicesPolled": 192,
+    "problems": 0
+   },
+   {
+    "label": "t+33s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 33,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.6,
+       "cpuPercent": 0.3
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 346.8,
+     "workerCpuPercent": 12.7
+    }
+   },
+   {
+    "label": "t+63s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 63,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0
+      }
+     ],
+     "workerRssMb": 347,
+     "workerCpuPercent": 3.3
+    }
+   },
+   {
+    "label": "t+94s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 94,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 347,
+     "workerCpuPercent": 3.6
+    }
+   },
+   {
+    "label": "t+125s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 125,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0
+      }
+     ],
+     "workerRssMb": 350.8,
+     "workerCpuPercent": 2.5
+    }
+   },
+   {
+    "label": "t+155s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 155,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 350.9,
+     "workerCpuPercent": 4.2
+    }
+   },
+   {
+    "label": "t+186s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 186,
+    "ownerStatusMs": 4,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 351.2,
+     "workerCpuPercent": 3.5
+    }
+   },
+   {
+    "label": "t+216s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 216,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 351.3,
+     "workerCpuPercent": 3.4
+    }
+   },
+   {
+    "label": "t+247s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 247,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 6.7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 351.3,
+     "workerCpuPercent": 2.9
+    }
+   },
+   {
+    "label": "t+277s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 277,
+    "ownerStatusMs": 4,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 7,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0
+      }
+     ],
+     "workerRssMb": 351.4,
+     "workerCpuPercent": 2.9
+    }
+   },
+   {
+    "label": "t+308s all devices (past the five minute credential lifetime)",
+    "devicesPolled": 192,
+    "problems": 0,
+    "elapsed": 308,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 7.1,
+       "cpuPercent": 0.3
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0
+      }
+     ],
+     "workerRssMb": 351.7,
+     "workerCpuPercent": 10.3
+    }
+   },
+   {
+    "label": "t+341s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 341,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 7.1,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 351.8,
+     "workerCpuPercent": 3.9
+    }
+   },
+   {
+    "label": "t+360s one in six",
+    "devicesPolled": 32,
+    "problems": 0,
+    "elapsed": 360,
+    "ownerStatusMs": 3,
+    "ready": true,
+    "turnReady": true,
+    "relayReady": true,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 30480,
+       "rssMb": 7.1,
+       "cpuPercent": 0.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 30481,
+       "rssMb": 34.2,
+       "cpuPercent": 0.1
+      }
+     ],
+     "workerRssMb": 351.8,
+     "workerCpuPercent": 3.3
+    }
+   }
+  ],
+  "finalOwnerStatus": {
+   "v": 1,
+   "ready": true,
+   "paired": true,
+   "rooms": 64,
+   "devices": 192,
+   "pending": 0,
+   "version": "0.1.0-rc.1",
+   "turnReady": true,
+   "relayReady": true,
+   "storeBytes": 0
+  },
+  "finalRelay": {
+   "allocations": 0,
+   "metrics": {
+    "ageMillis": 49,
+    "allocationQuotaRefusals": 0,
+    "droppedPackets": 0,
+    "elapsedMillis": 758825,
+    "epoch": "f77d1627d2365a8086eb0f90fb4cc4bb49bc92597147edcdd2ccaf5e3317a1c3",
+    "forwardedPackets": 0,
+    "refusedStreams": 0,
+    "relayBindFailures": 0,
+    "streamAllocations": 0,
+    "streamConnections": 0,
+    "streamErrors": 0,
+    "streamForwardedBytes": 0,
+    "udpAllocations": 0,
+    "udpForwardedBytes": 0,
+    "userQuotaRefusals": 0,
+    "v": 1
+   }
+  }
+ },
+ "full2mbRun2_steps248": {
+  "profile": "full",
+  "ports": 512,
+  "bandwidth": 2000000,
+  "steps": [
+   2,
+   4,
+   8
+  ],
+  "results": [
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.7,
+     "2": 0.7
+    },
+    "relayBytesPerSecond": 485684,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 40945,
+       "rssMb": 5.2,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 40946,
+       "rssMb": 16.2,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 528,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 169822
+    },
+    "failing": []
+   },
+   {
+    "calls": 4,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.6,
+     "2": 0.6,
+     "3": 0.6,
+     "4": 0.6
+    },
+    "relayBytesPerSecond": 984752,
+    "liveAllocations": 16,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 4,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 40945,
+       "rssMb": 5.4,
+       "cpuPercent": 2
+      },
+      {
+       "name": "bothyd",
+       "pid": 40946,
+       "rssMb": 18.8,
+       "cpuPercent": 1.5
+      }
+     ],
+     "workerRssMb": 656,
+     "workerCpuPercent": 14.6
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 4,
+     "devices": 12,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 356259
+    },
+    "failing": []
+   },
+   {
+    "calls": 8,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.6,
+     "2": 1.6,
+     "3": 1.6,
+     "4": 1.6,
+     "5": 2.1,
+     "6": 1.6,
+     "7": 1.6,
+     "8": 1.6
+    },
+    "relayBytesPerSecond": 1831459,
+    "liveAllocations": 34,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 13,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 40945,
+       "rssMb": 5.5,
+       "cpuPercent": 3.8
+      },
+      {
+       "name": "bothyd",
+       "pid": 40946,
+       "rssMb": 24.1,
+       "cpuPercent": 4.5
+      }
+     ],
+     "workerRssMb": 761.9,
+     "workerCpuPercent": 21.4
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 8,
+     "devices": 24,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 913846
+    },
+    "failing": [
+     {
+      "room": 5,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 6,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 7,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": true
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 8,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "full2mbRun6_steps2468": {
+  "profile": "full",
+  "ports": 512,
+  "bandwidth": 2000000,
+  "steps": [
+   2,
+   4,
+   6,
+   8
+  ],
+  "results": [
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.3,
+     "2": 1.3
+    },
+    "relayBytesPerSecond": 471375,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 65234,
+       "rssMb": 5.3,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 65235,
+       "rssMb": 16.2,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 472.8,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 178508
+    },
+    "failing": []
+   },
+   {
+    "calls": 4,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.6,
+     "2": 0.6,
+     "3": 0.6,
+     "4": 0.6
+    },
+    "relayBytesPerSecond": 981640,
+    "liveAllocations": 16,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 4,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 65234,
+       "rssMb": 5.5,
+       "cpuPercent": 2.2
+      },
+      {
+       "name": "bothyd",
+       "pid": 65235,
+       "rssMb": 19,
+       "cpuPercent": 1.5
+      }
+     ],
+     "workerRssMb": 613.3,
+     "workerCpuPercent": 16.3
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 4,
+     "devices": 12,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 369458
+    },
+    "failing": []
+   },
+   {
+    "calls": 6,
+    "callsOk": 5,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.8,
+     "2": 0.8,
+     "3": 0.8,
+     "4": 0.8,
+     "5": 0.8,
+     "6": 0.8
+    },
+    "relayBytesPerSecond": 1445814,
+    "liveAllocations": 24,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 6,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 65234,
+       "rssMb": 5.5,
+       "cpuPercent": 3.5
+      },
+      {
+       "name": "bothyd",
+       "pid": 65235,
+       "rssMb": 21.4,
+       "cpuPercent": 2.1
+      }
+     ],
+     "workerRssMb": 643,
+     "workerCpuPercent": 16.9
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 6,
+     "devices": 18,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 548017
+    },
+    "failing": [
+     {
+      "room": 6,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 503,
+         "frames": 198,
+         "audioPackets": 502,
+         "energy": 0.9138,
+         "videoPackets": 576,
+         "bytes": 566990
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": true
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 201,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 572,
+         "bytes": 523121
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     }
+    ],
+    "recheck": {
+     "callsOk": 5,
+     "notOk": [
+      6
+     ],
+     "udpForwardedBytesPerSecond": 1480799
+    }
+   }
+  ]
+ },
+ "full2mbRun5_steps2468": {
+  "profile": "full",
+  "ports": 512,
+  "bandwidth": 2000000,
+  "steps": [
+   2,
+   4,
+   6,
+   8
+  ],
+  "results": [
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1,
+     "2": 1
+    },
+    "relayBytesPerSecond": 441396,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 64075,
+       "rssMb": 5.3,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 64076,
+       "rssMb": 16.4,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 468.5,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 169822
+    },
+    "failing": []
+   },
+   {
+    "calls": 4,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.3,
+     "2": 1.3,
+     "3": 1.3,
+     "4": 1.3
+    },
+    "relayBytesPerSecond": 924748,
+    "liveAllocations": 16,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 4,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 64075,
+       "rssMb": 5.4,
+       "cpuPercent": 2.4
+      },
+      {
+       "name": "bothyd",
+       "pid": 64076,
+       "rssMb": 19.2,
+       "cpuPercent": 1.8
+      }
+     ],
+     "workerRssMb": 618.1,
+     "workerCpuPercent": 21.3
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 4,
+     "devices": 12,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 368522
+    },
+    "failing": []
+   },
+   {
+    "calls": 6,
+    "callsOk": 5,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.9,
+     "2": 1.9,
+     "3": 1.9,
+     "4": 1.9,
+     "5": 1.9,
+     "6": 1.9
+    },
+    "relayBytesPerSecond": 1302233,
+    "liveAllocations": 24,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 7,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 64075,
+       "rssMb": 5.1,
+       "cpuPercent": 3.7
+      },
+      {
+       "name": "bothyd",
+       "pid": 64076,
+       "rssMb": 20.3,
+       "cpuPercent": 2.5
+      }
+     ],
+     "workerRssMb": 511.5,
+     "workerCpuPercent": 24.8
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 6,
+     "devices": 18,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 592344
+    },
+    "failing": [
+     {
+      "room": 5,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 165,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 491,
+         "bytes": 446764
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 504,
+         "frames": 170,
+         "audioPackets": 507,
+         "energy": 0.9278,
+         "videoPackets": 510,
+         "bytes": 500661
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": true
+      }
+     }
+    ],
+    "recheck": {
+     "callsOk": 5,
+     "notOk": [
+      5
+     ],
+     "udpForwardedBytesPerSecond": 1376425
+    }
+   }
+  ]
+ },
+ "full8mb_steps248": {
+  "profile": "full",
+  "ports": 512,
+  "bandwidth": 8000000,
+  "steps": [
+   2,
+   4,
+   8
+  ],
+  "results": [
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.2,
+     "2": 1.2
+    },
+    "relayBytesPerSecond": 472431,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 3,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 42742,
+       "rssMb": 5.2,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 42743,
+       "rssMb": 16.3,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 441.5,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 186258
+    },
+    "failing": []
+   },
+   {
+    "calls": 4,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.8,
+     "2": 0.8,
+     "3": 0.8,
+     "4": 0.8
+    },
+    "relayBytesPerSecond": 986300,
+    "liveAllocations": 16,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 5,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 42742,
+       "rssMb": 5.4,
+       "cpuPercent": 2.4
+      },
+      {
+       "name": "bothyd",
+       "pid": 42743,
+       "rssMb": 19,
+       "cpuPercent": 2.2
+      }
+     ],
+     "workerRssMb": 579.6,
+     "workerCpuPercent": 22
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 4,
+     "devices": 12,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 450702
+    },
+    "failing": []
+   },
+   {
+    "calls": 8,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.6,
+     "2": 1.6,
+     "3": 1.6,
+     "4": 1.6,
+     "5": 1.6,
+     "6": 1.6,
+     "7": 1.6,
+     "8": 1.6
+    },
+    "relayBytesPerSecond": 1843740,
+    "liveAllocations": 31,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 17,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 42742,
+       "rssMb": 5.5,
+       "cpuPercent": 3.9
+      },
+      {
+       "name": "bothyd",
+       "pid": 42743,
+       "rssMb": 24.5,
+       "cpuPercent": 4.3
+      }
+     ],
+     "workerRssMb": 764.8,
+     "workerCpuPercent": 25.3
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 8,
+     "devices": 24,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 930686
+    },
+    "failing": [
+     {
+      "room": 5,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": true
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 6,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 7,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 8,
+      "aHearsB": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "tiny_steps1234": {
+  "profile": "tiny",
+  "ports": 8,
+  "bandwidth": 2000000,
+  "steps": [
+   1,
+   2,
+   3,
+   4
+  ],
+  "results": [
+   {
+    "calls": 1,
+    "callsOk": 1,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.3
+    },
+    "relayBytesPerSecond": 215567,
+    "liveAllocations": 4,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 1,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 66387,
+       "rssMb": 5.2,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 66388,
+       "rssMb": 14.6,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 413.4,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 1,
+     "devices": 3,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 78924
+    },
+    "failing": []
+   },
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.7,
+     "2": 0.7
+    },
+    "relayBytesPerSecond": 492141,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 66387,
+       "rssMb": 5.3,
+       "cpuPercent": 1.1
+      },
+      {
+       "name": "bothyd",
+       "pid": 66388,
+       "rssMb": 16.1,
+       "cpuPercent": 0.7
+      }
+     ],
+     "workerRssMb": 440,
+     "workerCpuPercent": 13.1
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 170290
+    },
+    "failing": []
+   },
+   {
+    "calls": 3,
+    "callsOk": 2,
+    "allConnected": false,
+    "connectSeconds": {
+     "1": 0.4,
+     "2": 0.4
+    },
+    "relayBytesPerSecond": 503511,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 22,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 66387,
+       "rssMb": 5.9,
+       "cpuPercent": 1.3
+      },
+      {
+       "name": "bothyd",
+       "pid": 66388,
+       "rssMb": 17.7,
+       "cpuPercent": 0.6
+      }
+     ],
+     "workerRssMb": 481.9,
+     "workerCpuPercent": 16.9
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [
+     486,
+     701
+    ],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 3,
+     "devices": 9,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 266169
+    },
+    "failing": [
+     {
+      "room": 3,
+      "aHearsB": {
+       "deltas": [],
+       "connected": false,
+       "relayRelay": false,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [],
+       "connected": false,
+       "relayRelay": false,
+       "moved": false
+      }
+     }
+    ],
+    "recheck": {
+     "callsOk": 2,
+     "notOk": [
+      3
+     ],
+     "udpForwardedBytesPerSecond": 494172
+    }
+   }
+  ]
+ },
+ "thirtytwo_steps248": {
+  "profile": "thirtytwo",
+  "ports": 32,
+  "bandwidth": 2000000,
+  "steps": [
+   2,
+   4,
+   8
+  ],
+  "results": [
+   {
+    "calls": 2,
+    "callsOk": 2,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.7,
+     "2": 1.7
+    },
+    "relayBytesPerSecond": 480859,
+    "liveAllocations": 8,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 2,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 67122,
+       "rssMb": 5.3,
+       "cpuPercent": null
+      },
+      {
+       "name": "bothyd",
+       "pid": 67123,
+       "rssMb": 16.5,
+       "cpuPercent": null
+      }
+     ],
+     "workerRssMb": 499.7,
+     "workerCpuPercent": null
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 2,
+     "devices": 6,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 190431
+    },
+    "failing": []
+   },
+   {
+    "calls": 4,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 0.6,
+     "2": 0.6,
+     "3": 0.6,
+     "4": 0.6
+    },
+    "relayBytesPerSecond": 974036,
+    "liveAllocations": 16,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 4,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 67122,
+       "rssMb": 5.4,
+       "cpuPercent": 2.2
+      },
+      {
+       "name": "bothyd",
+       "pid": 67123,
+       "rssMb": 19,
+       "cpuPercent": 1.5
+      }
+     ],
+     "workerRssMb": 580.5,
+     "workerCpuPercent": 21.9
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 4,
+     "devices": 12,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 364477
+    },
+    "failing": []
+   },
+   {
+    "calls": 8,
+    "callsOk": 4,
+    "allConnected": true,
+    "connectSeconds": {
+     "1": 1.6,
+     "2": 1.6,
+     "3": 1.6,
+     "4": 1.6,
+     "5": 1.6,
+     "6": 1.6,
+     "7": 1.6,
+     "8": 1.6
+    },
+    "relayBytesPerSecond": 1854958,
+    "liveAllocations": 31,
+    "allocationQuotaRefusals": 0,
+    "userQuotaRefusals": 0,
+    "droppedPacketsTotal": 14,
+    "relayBindFailures": 0,
+    "resources": {
+     "processes": [
+      {
+       "name": "spry-node",
+       "pid": 67122,
+       "rssMb": 5.6,
+       "cpuPercent": 3.6
+      },
+      {
+       "name": "bothyd",
+       "pid": 67123,
+       "rssMb": 24.2,
+       "cpuPercent": 4
+      }
+     ],
+     "workerRssMb": 733.8,
+     "workerCpuPercent": 25.8
+    },
+    "fixtureSocketRetries": 0,
+    "iceErrorCodes": [],
+    "ownerStatus": {
+     "v": 1,
+     "ready": true,
+     "paired": true,
+     "rooms": 8,
+     "devices": 24,
+     "pending": 0,
+     "version": "0.1.0-rc.1",
+     "turnReady": true,
+     "relayReady": true,
+     "storeBytes": 844865
+    },
+    "failing": [
+     {
+      "room": 5,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 196,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 567,
+         "bytes": 516702
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 506,
+         "frames": 191,
+         "audioPackets": 505,
+         "energy": 0,
+         "videoPackets": 543,
+         "bytes": 538455
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 6,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 194,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 557,
+         "bytes": 512247
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 197,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 570,
+         "bytes": 519262
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 7,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 194,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 577,
+         "bytes": 525802
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 194,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 562,
+         "bytes": 516641
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     },
+     {
+      "room": 8,
+      "aHearsB": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 194,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 606,
+         "bytes": 550590
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      },
+      "bHearsA": {
+       "deltas": [
+        {
+         "senderAudioPacketsSent": 0,
+         "frames": 196,
+         "audioPackets": 0,
+         "energy": 0,
+         "videoPackets": 581,
+         "bytes": 531704
+        }
+       ],
+       "connected": true,
+       "relayRelay": true,
+       "moved": false
+      }
+     }
+    ],
+    "recheck": {
+     "callsOk": 4,
+     "notOk": [
+      5,
+      6,
+      7,
+      8
+     ],
+     "udpForwardedBytesPerSecond": 1894830
+    }
+   }
+  ]
+ }
+}

@@ -102,3 +102,6 @@ are not RTP loss or perceived quality measurements.
 
 The sanitised source pins, binary hashes and measurements are in
 [`kithmoot-node-group-20261110.json`](evidence/kithmoot-node-group-20261110.json).
+
+Room-count and concurrent-call capacity, measured separately, is in
+[node-room-capacity.md](node-room-capacity.md).
