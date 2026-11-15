@@ -120,7 +120,8 @@ test('a pasted table reads as a table, scrolls when it is wide, folds between ro
     await expect(hits).toHaveCount(2)
     await expect(hits.first().locator('.searchExcerpt')).toContainText('62 bug-report images · 47 · 51 · 40 · 26')
     await expect(page.locator('#messageSearchResults')).not.toContainText('│')
-    await hits.last().locator('button').click()
+    // Both hits are the same table; open Rowan's, whichever row it is on.
+    await hits.filter({ has: page.locator('.searchSender', { hasText: 'Rowan' }) }).locator('button').click()
     await expect(page.locator('#conversationSearch')).not.toBeVisible()
     await expect(page.locator('#chatLog .searchTarget')).toBeFocused()
     await expect(page.locator('#chatLog .searchTarget')).toContainText('Decoder results so far:')
