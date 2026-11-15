@@ -80,18 +80,23 @@ async function exportedMedia(page: Page): Promise<{ duration: number; videoDurat
         for (let i = 0; i < data.length; i += 16) {
           const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!
           if (r > 150 && g < 80 && b < 80) found.red++
-          if (b > 150 && r < 80 && g < 80) {
-            found.blue++
-            const pixel = i / 4, x = pixel % canvas.width, y = Math.floor(pixel / canvas.width)
-            // The screen-camera export's camera inset, above its label.
-            // Evidence must come from this camera, not a blue shared screen.
-            if (x >= 976 && x < 1256 && y >= 502 && y < 642) {
+          if (b > 150 && r < 80 && g < 80) found.blue++
+          if (r > 150 && g > 100 && b < 80) found.yellow++
+          if (g > 150 && r < 80 && b < 80) found.green++
+        }
+        // The screen-camera export's camera inset, above its label, read at
+        // every pixel. A fourth-pixel stride lands up to three pixels inside
+        // each edge, so it read a 78-pixel inset as 73 unless the codec bled
+        // blue past the left edge. Evidence must come from this camera, not
+        // a blue shared screen.
+        for (let y = 502; y < 642; y++) {
+          for (let x = 976; x < 1256; x++) {
+            const i = (y * canvas.width + x) * 4
+            if (data[i + 2]! > 150 && data[i]! < 80 && data[i + 1]! < 80) {
               cameraSamples++; left = Math.min(left, x); right = Math.max(right, x)
               top = Math.min(top, y); bottom = Math.max(bottom, y)
             }
           }
-          if (r > 150 && g > 100 && b < 80) found.yellow++
-          if (g > 150 && r < 80 && b < 80) found.green++
         }
         for (const key of Object.keys(found) as Array<keyof typeof found>) colours[key] = Math.max(colours[key], found[key])
         if (cameraSamples > cameraBlue.samples) cameraBlue = { samples: cameraSamples, width: right - left + 1, height: bottom - top + 1 }
@@ -247,7 +252,7 @@ for (const { layout, phone } of [
         // fitted camera to be blue, at the right place and dimensions.
         const width = Math.floor(Math.min(280, 140 * cameraAspect))
         const height = Math.floor(width / cameraAspect)
-        expect(exported.cameraBlue.samples).toBeGreaterThan(width * height / 4 * 0.85)
+        expect(exported.cameraBlue.samples).toBeGreaterThan(width * height * 0.85)
         expect(Math.abs(exported.cameraBlue.width - width)).toBeLessThanOrEqual(4)
         expect(Math.abs(exported.cameraBlue.height - height)).toBeLessThanOrEqual(2)
         expect(exported.red).toBeLessThan(1000)
