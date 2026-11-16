@@ -6,11 +6,11 @@
       "updateTo": {
         "version": "0.1.160",
         "name": "0.1.160",
-        "pub_date": "2026-11-16T00:01:37Z",
+        "pub_date": "2026-11-16T00:23:13Z",
         "notes": "Metadata explains what relays and file hosts can learn, with an optional public-IP lookup. Supported photos, video, audio and documents have common metadata removed locally before sharing. Read changes before updating and again in Settings. Spry pairing links open an approval prompt without reloading a call. Includes measured microphone and incoming audio activity.",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.160/KithMoot-0.1.160-mac-arm64.zip",
-        "sha256": "0390d0732d3d9bd96980ccd29f5efa72cfb1c72c8d94f4e9885c692af0dbbba3",
-        "size": 200330538
+        "sha256": "43bc9441f1b431364b41daf297e2214e86001a84da212ae0fd88beacf78bd173",
+        "size": 200330523
       }
     }
   ]
