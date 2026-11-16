@@ -23,6 +23,13 @@ declare global {
       ownCaptureIds?(): Promise<string[]>
       shareAreaAction(action: string, value?: unknown): void
       onShareAreaState(listener: (state: AreaRect | null) => void): () => void
+      marksAction?(action: 'draw', value: boolean): void
+      onMarksDrawing?(listener: (drawing: boolean) => void): () => void
+      supportsCompositorMarks?: boolean
+      compositorMarksBegin?(lease: string, kind: 'window' | 'screen'): Promise<boolean>
+      compositorMarksPaint?(lease: string, strokes: { points: { x: number; y: number }[]; color: string; alpha: number }[]): void
+      compositorMarksEnd?(lease: string): void
+      onCompositorMark?(listener: (lease: string, command: { op: 'stroke' | 'clear' | 'stop'; points?: { x: number; y: number }[] }) => void): () => void
       supportsRedaction?: boolean
       redactionBegin?(): Promise<RedactionState | null>
       redactionState?(): Promise<RedactionState | null>

@@ -1,3 +1,4 @@
+import { stageWindowHelper } from './window-helper.mjs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -14,3 +15,5 @@ run('npm', ['run', 'artwork:check'])
 run(resolve(root, 'node_modules/.bin/vite'), ['build', '--config', 'app/vite.config.ts'], { VITE_DESKTOP: 'true', VITE_SHORT_NODE_LINKS: 'true' })
 run(process.execPath, [resolve(root, 'scripts/build-artwork-derivatives.mjs'), '--check-built'], { VITE_DESKTOP: 'true' })
 run(process.execPath, [resolve(root, 'scripts/check-no-telemetry.mjs'), resolve(root, 'desktop/web')])
+
+await stageWindowHelper()

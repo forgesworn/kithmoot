@@ -28,6 +28,8 @@ export interface CaptureIdentity {
   deviceId?: string
   /** Every window of this app, from the desktop bridge. Absent in a browser. */
   ownIds?: readonly string[]
+  /** Native main process's recorded picker choice, before canvas redaction. */
+  chosenId?: string
 }
 
 /**
@@ -54,7 +56,11 @@ export interface CaptureIdentity {
  */
 export function mayShowItself(displaySurface: string | undefined, capture: CaptureIdentity = {}): boolean {
   if (displaySurface === 'browser') return false
-  const { deviceId, ownIds } = capture
-  if (displaySurface === 'window' && ownIds && deviceId && /^window:\d+:\d+$/.test(deviceId)) return ownIds.includes(deviceId)
+  const { deviceId, chosenId, ownIds } = capture
+  // Native picker identity is authoritative even when Chromium withholds the
+  // raw track's device id or surface hint. A conflicting monitor hint stays guarded.
+  const id = chosenId ?? deviceId
+  if (ownIds && id && /^window:\d+:\d+$/.test(id)
+    && (displaySurface === 'window' || (!displaySurface && chosenId))) return ownIds.includes(id)
   return true
 }

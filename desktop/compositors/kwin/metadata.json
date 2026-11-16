@@ -1,0 +1,9 @@
+{
+  "KPlugin": {
+    "Name": "KithMoot shared-window drawings",
+    "Description": "Direct ephemeral call drawings over the window or display you present. Super+Shift+D attaches and toggles drawing; Escape returns to normal use.",
+    "License": "MIT",
+    "EnabledByDefault": false,
+    "Version": "1.0"
+  }
+}

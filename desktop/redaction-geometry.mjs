@@ -74,14 +74,14 @@ export function resizeFrom(corner, from, dx, dy) {
 
 /**
  * What the page needs to know about a chosen capture source. A window share
- * says only that it is a window: nothing here can tell where another app's
- * window sits. A screen without a display id is matched only when there is
+ * retains its native capture id so a safe local preview can distinguish it
+ * from KithMoot. That id alone cannot tell where another app's window sits. A screen without a display id is matched only when there is
  * no other display it could be; anything else is unknown, and the page
  * treats unknown as black while any box is on.
  */
 export function captureOf(source, displays) {
   const id = typeof source?.id === 'string' ? source.id : ''
-  if (id.startsWith('window:')) return { kind: 'window' }
+  if (/^window:\d+:\d+$/.test(id)) return { kind: 'window', captureId: id }
   if (!id.startsWith('screen:')) return null
   const exact = displays.find(display => source.display_id && String(display.id) === String(source.display_id))
   if (exact) return { kind: 'screen', displayId: String(exact.id) }

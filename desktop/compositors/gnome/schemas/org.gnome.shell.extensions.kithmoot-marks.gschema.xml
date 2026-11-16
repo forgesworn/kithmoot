@@ -1,0 +1,5 @@
+<schemalist><schema id="org.gnome.shell.extensions.kithmoot-marks" path="/org/gnome/shell/extensions/kithmoot-marks/">
+<key name="attach-draw" type="as"><default>['&lt;Super&gt;&lt;Shift&gt;d']</default><summary>Attach drawings to the shared window and toggle drawing</summary></key>
+<key name="attach-screen" type="as"><default>['&lt;Super&gt;&lt;Shift&gt;s']</default><summary>Attach drawings to the focused display</summary></key>
+    <key name="clear" type="as"><default>['&lt;Super&gt;&lt;Shift&gt;c']</default><summary>Clear call drawings</summary></key>
+</schema></schemalist>
