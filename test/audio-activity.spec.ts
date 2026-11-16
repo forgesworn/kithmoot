@@ -19,6 +19,12 @@ test('measured audio stays visible without cameras, with playback muted and with
     await expect(activity.locator('[data-audio-signal="incoming"]')).toContainText('Sound')
     await expect(activity.locator('[data-audio-signal="mic"]')).toContainText('Sound')
     const micTrace = activity.locator('[data-audio-signal="mic"] .audioTrace')
+    // A real PCM trace has signed detail in the current block, not a closed RMS envelope.
+    await expect.poll(() => micTrace.locator('.audioEnvelope').getAttribute('d')).toMatch(/^M.*L/)
+    const trace = (await micTrace.locator('.audioEnvelope').getAttribute('d'))!
+    expect(trace).not.toContain('Z')
+    expect(trace.split('L').length).toBe(256)
+    expect(await micTrace.locator('.audioBaseline').evaluate(el => getComputedStyle(el).stroke)).toBe('rgb(255, 255, 255)')
     const activeInk = await micTrace.evaluate(el => getComputedStyle(el).color)
     expect(activeInk).not.toBe('rgb(255, 255, 255)')
     const activityHeight = (await activity.boundingBox())!.height

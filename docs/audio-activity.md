@@ -1,7 +1,7 @@
 # Visual audio activity
 
 Calls show two short traces: **Your mic** and **Incoming audio**. The trace
-shows the recent measured sound level, with **Sound**, **Quiet**, **Muted**,
+shows signed peaks from the current audio sample block, with **Sound**, **Quiet**, **Muted**,
 **Off** or **Waiting** beside it. It is an activity display, not speech
 recognition or a calibrated loudness meter. Incoming audio includes shared
 sound as well as microphones.
@@ -12,11 +12,20 @@ available with cameras off and when call buttons fade. Incoming activity is
 measured before playback volume, so turning the speakers down does not hide
 the sound. Meeting restrictions still apply.
 
-Reduced motion replaces the scrolling history with a current-level bar.
+The white baseline stays flat while quiet; live sound draws a cyan trace.
+Each trace contains at most 128 min/max pairs, preserving brief peaks instead
+of smoothing several seconds of loudness into a filled shape. Microphone and
+incoming traces update at most twenty times per second. Android landscape
+calls put compact meters over the video and five labelled controls in a side
+rail; portrait retains the bottom bar.
+
+Reduced motion replaces the changing trace with a current-level bar.
 Words and shape carry the information without relying on colour. The text
 is available to assistive technology but is never a live announcement over
 the call. No additional capture permission, recording, upload or dependency
-is introduced; only a bounded history of levels is retained in memory.
+is introduced; only the current bounded peak snapshot and levels are held in memory. Peaks
+are replaced on each poll and cleared when samples stop, a track is muted or
+removed, or the call ends. They are never saved or sent.
 
 ## Verification
 

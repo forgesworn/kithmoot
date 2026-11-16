@@ -34,6 +34,8 @@ export interface SpeakingMonitorOptions {
   onChange?: (speaking: ReadonlySet<string>) => void
   /** Raw RMS, before playback volume. Null means no usable samples. */
   onLevels?: (levels: ReadonlyMap<string, number | null>) => void
+  /** Bounded min/max PCM peaks for the current analyser block, never a history. */
+  onWaveforms?: (waveforms: ReadonlyMap<string, readonly number[]>) => void
 }
 
 interface Tap {
@@ -52,6 +54,7 @@ export class SpeakingMonitor {
   readonly #intervalMs: number
   readonly #onChange: ((speaking: ReadonlySet<string>) => void) | undefined
   readonly #onLevels: SpeakingMonitorOptions['onLevels']
+  readonly #onWaveforms: SpeakingMonitorOptions['onWaveforms']
 
   #context: AudioContext | null = null
   #timer: ReturnType<typeof setInterval> | undefined
@@ -63,6 +66,7 @@ export class SpeakingMonitor {
     this.#intervalMs = options.intervalMs ?? 50
     this.#onChange = options.onChange
     this.#onLevels = options.onLevels
+    this.#onWaveforms = options.onWaveforms
   }
 
   /**
@@ -166,6 +170,7 @@ export class SpeakingMonitor {
    */
   poll(now: number = performance.now()): void {
     const levels = new Map<string, number | null>()
+    const waveforms = new Map<string, readonly number[]>()
     for (const [key, tap] of this.#taps) {
       let level: number | null = null
       if (this.#context?.state === 'running' && tap.track.readyState !== 'ended' && !tap.track.muted) {
@@ -173,6 +178,7 @@ export class SpeakingMonitor {
         else {
           tap.analyser.getByteTimeDomainData(tap.bytes)
           level = rmsFromByteTimeDomain(tap.bytes)
+          if (this.#onWaveforms) waveforms.set(key, pcmPeaks(tap.bytes))
         }
       }
       levels.set(key, level)
@@ -180,6 +186,7 @@ export class SpeakingMonitor {
     const speakers = new Map<string, number>()
     for (const [key, tap] of this.#taps) speakers.set(tap.speaker, Math.max(speakers.get(tap.speaker) ?? 0, levels.get(key) ?? 0))
     for (const [speaker, level] of speakers) this.#set.update(speaker, level, now)
+    this.#onWaveforms?.(waveforms)
     this.#onLevels?.(levels)
     if (!this.#onChange) return
 
@@ -206,4 +213,19 @@ export class SpeakingMonitor {
     void this.#context?.close().catch(() => {})
     this.#context = null
   }
+}
+
+/** Keep both extrema of each bucket so narrow transients survive drawing. */
+export function pcmPeaks(bytes: Uint8Array): number[] {
+  const buckets = Math.min(128, bytes.length)
+  const result: number[] = []
+  for (let bucket = 0; bucket < buckets; bucket++) {
+    let low = 1, high = -1
+    for (let i = Math.floor(bucket * bytes.length / buckets); i < Math.floor((bucket + 1) * bytes.length / buckets); i++) {
+      const value = (bytes[i]! - 128) / 128
+      low = Math.min(low, value); high = Math.max(high, value)
+    }
+    result.push(low, high)
+  }
+  return result
 }
