@@ -18,4 +18,9 @@ describe('personal direct-chat titles', () => {
     expect(directChatName({ peerName: 'Sam', selfName: 'Sam' })).toBe('Sam')
     expect(directChatName({ chatLabel: ' \u200b ', peerName: 'Taylor' })).toBe('Taylor')
   })
+  it('reads the native legacy prefix without mistaking our own name for the peer', () => {
+    expect(directChatName({ rememberedName: 'Private with Taylor', selfName: 'Rowan' })).toBe('Taylor')
+    expect(directChatName({ rememberedName: 'Private with Rowan', selfName: 'Rowan' })).toBe('Private chat')
+  })
+
 })
