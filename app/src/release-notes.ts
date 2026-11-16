@@ -55,9 +55,10 @@ export function installReleaseNotes(): { offer: (version?: string) => void } {
   const key = 'kithmoot.release-notes-seen'
   try {
     const previous = localStorage.getItem(key)
-    // First visits have no previous version to compare. The Settings entry
-    // still explains this build; later changes get a dismissible notice.
-    if (previous && previous !== bundled.id) {
+    // Older profiles predate this marker. Check presence only, before main
+    // creates an identity for a first visit. No identity value enters the notes.
+    const returning = !!previous || ['kithmoot.participant', 'kithmoot.last-nostr-account', 'signet:login.pubkey'].some(name => localStorage.getItem(name) !== null)
+    if (returning && previous !== bundled.id) {
       const notice = document.createElement('aside'); notice.id = 'releaseSummary'; notice.setAttribute('aria-label', 'Changes in this update')
       const title = document.createElement('strong'), details = document.createElement('button'), dismiss = document.createElement('button')
       title.textContent = 'KithMoot has been updated'; details.textContent = 'See what changed'; dismiss.textContent = 'Dismiss'

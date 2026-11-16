@@ -9,6 +9,7 @@ test('Metadata navigation explains disclosures without making an IP lookup', asy
   let lookups = 0
   await context.route('https://ipwho.is/**', route => { lookups++; return route.fulfill({ json: { success: true, ip: '203.0.113.7', city: '<script>bad()</script>', country: 'Test', connection: { isp: 'Example provider' } } }) })
   await page.goto(baseURL!)
+  await expect(page.locator('#releaseSummary')).toBeHidden()
   await page.locator('#railMetadata').click()
   await expect(page.locator('#metadataPane')).toBeVisible()
   await expect(page.locator('#metadataPane [data-meta-status]')).toContainText('Read at')
@@ -28,8 +29,11 @@ test('Metadata navigation explains disclosures without making an IP lookup', asy
   await expect(page.locator('#metadataPane')).toBeHidden()
 })
 
-test('updated users can read changes again without activating an update', async ({ page, baseURL }) => {
-  await page.addInitScript(() => localStorage.setItem('kithmoot.release-notes-seen', 'older-version'))
+for (const profile of [
+  { name: 'existing pre-notes', key: 'kithmoot.participant', value: 'a'.repeat(64) },
+  { name: 'previously updated', key: 'kithmoot.release-notes-seen', value: 'older-version' },
+]) test(`${profile.name} profiles can read changes again without activating an update`, async ({ page, baseURL }) => {
+  await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), profile)
   await page.goto(baseURL!)
   await expect(page.locator('#releaseSummary')).toBeVisible()
   await page.getByRole('button', { name: 'See what changed' }).click()
