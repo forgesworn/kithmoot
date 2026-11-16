@@ -20,6 +20,7 @@ describe('personal direct-chat titles', () => {
   })
   it('reads the native legacy prefix without mistaking our own name for the peer', () => {
     expect(directChatName({ rememberedName: 'Private with Taylor', selfName: 'Rowan' })).toBe('Taylor')
+    expect(directChatName({ rememberedName: 'Private with Taylor with a longer name' })).toBe('Taylor with a longer name')
     expect(directChatName({ rememberedName: 'Private with Rowan', selfName: 'Rowan' })).toBe('Private chat')
   })
 

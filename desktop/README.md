@@ -4,6 +4,10 @@ Version 0.1.161 gives each person their own name for a one-to-one chat. By defau
 
 The release uses the existing signing and update paths. Package checks and publication receipts remain separate from the owner's installed-app and physical-device acceptance.
 
+## Version 0.1.160
+
+Adds Metadata connection visibility, local file metadata cleaning, readable update notes and reliable Spry pairing prompts during a running call.
+
 ## Version 0.1.159
 
 Calls show measured microphone and incoming audio activity, with text states

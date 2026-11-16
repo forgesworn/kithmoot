@@ -9,7 +9,7 @@ export function directChatName(options: {
   rememberedName?: string
   selfName?: string
 }): string {
-  const remembered = sanitiseDisplayName(options.rememberedName)?.replace(/^Private with /, '')
+  const remembered = sanitiseDisplayName(options.rememberedName?.replace(/^Private with /, ''))
   return sanitiseDisplayName(options.chatLabel)
     ?? sanitiseDisplayName(options.peerName)
     ?? sanitiseDisplayName(options.rosterName)

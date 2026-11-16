@@ -85,6 +85,8 @@ test('Signet contacts start a private conversation without a shared room, delive
     await expect(bob.locator('#chatLog')).not.toContainText('renamed the room')
     await alice.reload()
     await expect(alice.locator('#roomTitle')).toHaveText('Bob at work')
+    await alice.screenshot({ path: test.info().outputPath('direct-chat-personal-title.png') })
+    await bob.screenshot({ path: test.info().outputPath('direct-chat-counterpart-title.png') })
     await openRoomInfoPage(bob, 'Name and picture')
     await bob.locator('#roomRenameInput').fill('Alice from the club')
     await bob.locator('#roomRenameSave').click()
