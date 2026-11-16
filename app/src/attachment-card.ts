@@ -29,6 +29,12 @@ export interface OpenedFile {
 
 export type OpenedAttachment = OpenedFile | { error: string }
 
+export interface WildbloomCopyView {
+  host: string
+  status: 'ready' | 'saving' | 'saved' | 'error'
+  detail: string
+}
+
 export interface CardView {
   /** Unique in the page, for element ids. */
   id: string
@@ -42,10 +48,12 @@ export interface CardView {
   desktop: boolean
   /** Native desktop opens image, audio and video through its own viewer. */
   nativeMedia?: boolean
+  wildbloom?: WildbloomCopyView
+  saveToWildbloom(): void
   formatBytes(n: number): string
   show(button: HTMLButtonElement): void
   /** Draw the card again after a change of state the card owns. */
-  redraw(focus?: 'first' | 'save'): void
+  redraw(focus?: 'first' | 'save' | 'copy'): void
   openViewer(file: OpenedFile, trigger: HTMLElement): void
   copyText(text: string): Promise<boolean>
 }
@@ -242,6 +250,24 @@ export function paintAttachmentCard(card: HTMLElement, v: CardView): void {
     }
   }
   // 'block' draws no Save at all.
+
+  if (v.wildbloom && d.save !== 'block') {
+    const copy = v.wildbloom
+    const words = copy.status === 'saved' ? 'Saved to my Wildbloom'
+      : copy.status === 'saving' ? 'Saving to my Wildbloom…'
+      : copy.status === 'error' ? 'Try saving to my Wildbloom again' : 'Save to my Wildbloom'
+    const saveCopy = button(words, name, () => v.saveToWildbloom())
+    saveCopy.disabled = copy.status === 'saving' || copy.status === 'saved'
+    saveCopy.dataset.wildbloomCopy = 'true'
+    actions.append(saveCopy)
+    if (copy.detail) {
+      const status = el('p', 'attWhy', copy.detail)
+      status.dataset.copyStatus = 'true'
+      status.tabIndex = -1
+      status.setAttribute('role', copy.status === 'error' ? 'alert' : 'status')
+      body.append(status)
+    }
+  }
 
   if (textPreview) {
     const pre = el('pre', 'attachmentText')

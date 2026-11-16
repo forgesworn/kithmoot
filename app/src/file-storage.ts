@@ -170,6 +170,12 @@ export function destinationOrigin(destination: FileDestination): string {
   return destination.kind === 'server' ? destination.origin : ''
 }
 
+/** A deliberately chosen non-public destination where received files can be
+ * copied. A room's own routing decision does not change this device choice. */
+export function ownFileServer(destination: FileDestination): string {
+  return destination.kind === 'server' && destination.via !== 'default' && !publicFileServer(destination.origin) ? destination.origin : ''
+}
+
 /** Size limit to check before uploading, when the destination's is known. */
 export function destinationLimit(destination: FileDestination): number | undefined {
   if (destination.kind === 'default') return destination.maxBytes

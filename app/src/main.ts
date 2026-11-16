@@ -82,7 +82,8 @@ import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStan
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-preferences.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
-import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, ownFileServer, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
+import { attachmentCopyError, copyEnvelopeToWildbloom } from './attachment-copy.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { createReactionIndex, REACTION_EMOJIS, toggleReaction, reactionText } from '../../src/reactions.js'
 import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
@@ -11832,6 +11833,9 @@ function renderInvites(): void {
  *  An object URL is revoked when its attachment is retracted, edited away or
  *  leaves the log, and never before, so a re-render never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
+const attachmentEnvelopes = new Map<string, Blob>()
+interface AttachmentCopyState { origin: string; status: 'saving' | 'saved' | 'error'; detail: string }
+const attachmentCopies = new Map<string, AttachmentCopyState>()
 const liveAttachmentKeys = new Map<string, Set<string>>()
 const attachmentViewer = new AttachmentViewer()
 const nativeAttachmentViewer = new NativeAttachmentViewer()
@@ -11865,6 +11869,8 @@ function disposeOpenedAttachment(key: string): void {
     URL.revokeObjectURL(opened.url)
   }
   openedAttachments.delete(key)
+  attachmentEnvelopes.delete(key)
+  attachmentCopies.delete(key)
 }
 
 /** Drop what was opened for attachments no longer visible in this log. */
@@ -11912,14 +11918,18 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   const closed = cleanFileName(a.name ?? 'Encrypted file')
   const closedMeta = `${familyLabel({ ext: closed.ext, declaredType: a.type })}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
   const host = (() => { try { return new URL(a.url).host } catch { return 'the server' } })()
-  const focusInto = (focus: 'first' | 'save' | undefined): void => {
+  const focusInto = (focus: 'first' | 'save' | 'copy' | undefined): void => {
     if (!focus) return
     const target = focus === 'save'
       ? card.querySelector<HTMLElement>('[data-save-warned]')
-      : card.querySelector<HTMLElement>('[data-question]') ?? card.querySelector<HTMLElement>('[data-focus-key]')
+      : focus === 'copy'
+        ? card.querySelector<HTMLElement>('[data-copy-status]') ?? card.querySelector<HTMLElement>('[data-wildbloom-copy]')
+        : card.querySelector<HTMLElement>('[data-question]') ?? card.querySelector<HTMLElement>('[data-focus-key]')
     target?.focus({ preventScroll: true })
   }
-  const render = (focus?: 'first' | 'save'): void => {
+  const render = (focus?: 'first' | 'save' | 'copy'): void => {
+    const copyOrigin = attachmentEnvelopes.has(key) ? ownFileServer(deviceFileDestination()) : ''
+    const copy = attachmentCopies.get(key)?.origin === copyOrigin ? attachmentCopies.get(key) : undefined
     paintAttachmentCard(card, {
       id: key.replace(/[^A-Za-z0-9_-]/g, '_'),
       index,
@@ -11928,6 +11938,12 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       opened: openedAttachments.get(key),
       desktop: import.meta.env.VITE_DESKTOP === 'true',
       nativeMedia: nativeAttachmentSupport(),
+      ...(copyOrigin ? { wildbloom: {
+        host: fileHost(copyOrigin),
+        status: copy?.status ?? 'ready',
+        detail: copy?.detail ?? '',
+      } } : {}),
+      saveToWildbloom: () => { void saveToWildbloom() },
       formatBytes,
       openViewer: openAttachmentViewer,
       copyText: copyMessageText,
@@ -11944,6 +11960,29 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       card.append(notice)
     }
     focusInto(focus)
+  }
+  const saveToWildbloom = async (): Promise<void> => {
+    const origin = ownFileServer(deviceFileDestination())
+    const envelope = attachmentEnvelopes.get(key)
+    if (!origin || !envelope || attachmentCopies.get(key)?.status === 'saving') return
+    const identity = currentIdentity(), accountGeneration = identityGeneration
+    const current = (): void => {
+      if (identityGeneration !== accountGeneration || currentParticipant() !== identity.pubkey || ownFileServer(deviceFileDestination()) !== origin) {
+        throw new Error('Your account or Wildbloom destination changed. Review it and try again.')
+      }
+    }
+    const host = fileHost(origin)
+    attachmentCopies.set(key, { origin, status: 'saving', detail: `Saving an encrypted copy to ${host}…` })
+    render()
+    try {
+      await copyEnvelopeToWildbloom({ server: origin, envelope, sha256: a.sha256, identity, current })
+      if (!liveAttachmentKeys.get(logId)?.has(key)) return
+      attachmentCopies.set(key, { origin, status: 'saved', detail: `Saved to ${host}. It stays encrypted with the room’s key.` })
+    } catch (error) {
+      if (!liveAttachmentKeys.get(logId)?.has(key)) return
+      attachmentCopies.set(key, { origin, status: 'error', detail: attachmentCopyError(error, host) })
+    }
+    render('copy')
   }
   const openAttachment = async (button: HTMLButtonElement): Promise<void> => {
     button.disabled = true
@@ -11979,6 +12018,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       // origin; an isolated renderer receives the Blob for every preview.
       const blob = new Blob([file.source], { type: decision.mime })
       const url = URL.createObjectURL(blob)
+      attachmentEnvelopes.set(key, file.envelope)
       openedAttachments.set(key, {
         url, blob, name: decision.name, type: decision.mime, size: file.size, decision,
         ...(text !== undefined ? { text } : {}),
@@ -23746,6 +23786,7 @@ function fileDestinationChanged(): void {
   if (!fileStorageBooted) return
   renderStaged()
   renderComposer()
+  repaintActiveChat()
 }
 
 async function renderPrivateFileStorage(render: number, generation: number): Promise<void> {

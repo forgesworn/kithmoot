@@ -356,6 +356,8 @@ export interface FetchAttachmentOptions {
 
 export interface DecryptedEnvelopeBlob extends Omit<DecryptedEnvelope, 'source'> {
   source: Blob
+  /** The exact verified ciphertext, retained for an explicit replica. */
+  envelope: Blob
 }
 
 /** Fetch an attachment into browser-managed Blob storage, verify its complete
@@ -424,7 +426,7 @@ export async function decryptEnvelopeBlob(envelope: Blob, keyHex: string): Promi
     key.fill(0)
   }
   if (!metadata || copied !== metadata.size) throw new Error('The encrypted envelope did not contain the declared file.')
-  return { name: metadata.name, type: metadata.type, size: metadata.size, source: new Blob(parts, { type: metadata.type }) }
+  return { name: metadata.name, type: metadata.type, size: metadata.size, source: new Blob(parts, { type: metadata.type }), envelope }
 }
 
 /**
