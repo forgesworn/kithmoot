@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.159",
+  "currentRelease": "0.1.160",
   "releases": [
     {
-      "version": "0.1.159",
+      "version": "0.1.160",
       "updateTo": {
-        "version": "0.1.159",
-        "name": "0.1.159",
-        "pub_date": "2026-11-15T23:43:21Z",
-        "notes": "See measured audio activity for your microphone and incoming sound in calls and chat, even when playback is muted. Reduced motion uses a level bar.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.159/KithMoot-0.1.159-mac-arm64.zip",
-        "sha256": "a03fdf862b88d421a7bdc4c479ad2353d5c6027a36152003b9e4f3ca8fa6726b",
-        "size": 200025984
+        "version": "0.1.160",
+        "name": "0.1.160",
+        "pub_date": "2026-11-16T00:01:37Z",
+        "notes": "Metadata explains what relays and file hosts can learn, with an optional public-IP lookup. Supported photos, video, audio and documents have common metadata removed locally before sharing. Read changes before updating and again in Settings. Spry pairing links open an approval prompt without reloading a call. Includes measured microphone and incoming audio activity.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.160/KithMoot-0.1.160-mac-arm64.zip",
+        "sha256": "0390d0732d3d9bd96980ccd29f5efa72cfb1c72c8d94f4e9885c692af0dbbba3",
+        "size": 200330538
       }
     }
   ]
