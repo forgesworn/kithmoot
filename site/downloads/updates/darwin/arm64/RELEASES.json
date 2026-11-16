@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.161",
+  "currentRelease": "0.1.162",
   "releases": [
     {
-      "version": "0.1.161",
+      "version": "0.1.162",
       "updateTo": {
-        "version": "0.1.161",
-        "name": "0.1.161",
-        "pub_date": "2026-11-16T08:18:33Z",
-        "notes": "Each person has their own name for a one-to-one chat. Chats default to the other person; Save name for me syncs a private label with your own account, and Use their name restores the default. Group names stay shared.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.161/KithMoot-0.1.161-mac-arm64.zip",
-        "sha256": "4f8f1e608629f614db876ed6c676119e36877ca739cbde68faa15af6ac7aa249",
-        "size": 200330497
+        "version": "0.1.162",
+        "name": "0.1.162",
+        "pub_date": "2026-11-16T12:56:47Z",
+        "notes": "Call pictures stay full-sized while receivers wait for their first frame. Stalled video returns when fresh media arrives. Quiet audio traces are white and sound uses the theme accent.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.162/KithMoot-0.1.162-mac-arm64.zip",
+        "sha256": "0f79308e2d0c5abce66e0b20bbe4563981b35cdb59cc7d32c904b31ba4d3ef21",
+        "size": 200330322
       }
     }
   ]

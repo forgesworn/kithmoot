@@ -1,5 +1,9 @@
 # KithMoot desktop preview
 
+Version 0.1.162 keeps call pictures full-sized while spare receivers await their first frame and stops recovery from repeatedly reviving stalled pictures without fresh media. Quiet audio traces are white; sound uses the theme accent. See [call video stability](../docs/call-video-stability.md).
+
+## Version 0.1.161
+
 Version 0.1.161 gives each person their own name for a one-to-one chat. By default, you see the other person's profile name. Choose a private label in Room info → Name and picture; it syncs only with your own account. Use their name restores the default. Group names remain shared. See [direct-chat names](../docs/direct-chat-names.md).
 
 The release uses the existing signing and update paths. Package checks and publication receipts remain separate from the owner's installed-app and physical-device acceptance.

@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.157",
-  "versionCode": 180,
+  "versionName": "0.6.158",
+  "versionCode": 181,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71311688,
-  "apkSha256": "9498bfdb4829fbfec00abb08dec9b2b8e18d00b4a4f94eb89bc248def45f5391",
+  "apkSha256": "36c39e945821a611fee2c99c9434a74923c46bbf545ae9e7d551a7f907cb5b73",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.157-production.apk",
+  "downloadFilename": "kithmoot-0.6.158-production.apk",
   "releaseNotes": [
-    "Photos, audio, video and supported documents lose hidden location, author and device tags before sharing.",
-    "Cleaning runs on your device before encryption. Files it cannot clean safely stay unsent; originals stay local.",
-    "Files up to 64 MiB are supported. Visible content and file names are kept. Private chats keep your own names."
+    "Quiet audio traces are white; sound uses the theme accent in both light and dark themes.",
+    "Audio meters keep a constant height, preventing video from moving as sound starts and stops."
   ]
 }
