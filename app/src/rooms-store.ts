@@ -35,6 +35,8 @@ export interface KnownRoom {
   /** What the room is called, off its link. Undefined when nobody named it;
    *  see `roomLabel` for what is shown then. */
   name?: string
+  /** A personal label for a direct chat. Account-private, never a room op. */
+  chatLabel?: string
   /** The join link, as this app would hand it on. Never a pairing link. */
   link: string
   /** Unix seconds this device last opened the room. */
@@ -83,6 +85,8 @@ export interface RoomVisit {
   /** The room's name, when the visit learned one. Omit to keep whatever
    *  name is already held, or the one on the link. */
   name?: string
+  /** Omit to retain a personal label; null explicitly restores the peer name. */
+  chatLabel?: string | null
   /** Unix seconds. */
   openedAt: number
   /** A conference room's end, when the visit learned one. */
@@ -124,6 +128,8 @@ function readRoom(store: DeviceStore, roomId: string): KnownRoom | undefined {
     // a stored value is only as trustworthy as whatever wrote it.
     const name = sanitiseDisplayName(parsed.name)
     if (name !== undefined) room.name = name
+    const chatLabel = sanitiseDisplayName(parsed.chatLabel)
+    if (chatLabel !== undefined) room.chatLabel = chatLabel
     return room
   } catch {
     return undefined
@@ -179,6 +185,8 @@ export function rememberRoom(store: DeviceStore, visit: RoomVisit): KnownRoom {
   if (existing?.readIds !== undefined) room.readIds = existing.readIds
   const name = sanitiseDisplayName(visit.name) ?? link.name ?? existing?.name
   if (name !== undefined) room.name = name
+  const chatLabel = visit.chatLabel === undefined ? existing?.chatLabel : sanitiseDisplayName(visit.chatLabel)
+  if (chatLabel !== undefined) room.chatLabel = chatLabel
   if (existing?.keep !== undefined) room.keep = existing.keep
   else if (node || link.invitation?.persistent) room.keep = true
   if (existing?.endedAt !== undefined && existing.link === visit.link) room.endedAt = existing.endedAt

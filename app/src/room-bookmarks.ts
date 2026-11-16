@@ -265,7 +265,7 @@ export class RoomBookmarks {
     const secret = this.admissions?.current(room) ?? previous?.admission?.secret
     // The same for the owner key, whose lists only grow.
     const owner = mergeSharedOwner(this.#heldOwner(room), previous?.owner)
-    if (previous?.room?.link === room.link && previous.room.name === room.name && previous.admission?.secret === secret
+    if (previous?.room?.link === room.link && previous.room.name === room.name && previous.room.chatLabel === room.chatLabel && previous.admission?.secret === secret
       && previous.room.endsAt === room.endsAt && !!previous.room.destruct === !!room.destruct && !sharedOwnerNews(previous.owner, owner)) return
     this.#queue({ roomId: room.roomId, at: Date.now(), room, ...(secret ? { admission: { secret } } : {}), ...(owner ? { owner } : {}) })
   }
@@ -350,8 +350,8 @@ export class RoomBookmarks {
       // shows the room ended without having to open it.
       // So does self-destruct, so a device that never opened the room still
       // tidies it away at the end.
-      const { roomId, link, name, openedAt, endsAt, destruct, startsAt } = value.room
-      value.room = { roomId, link, name, openedAt, readAt: 0, ...(endsAt !== undefined ? { endsAt } : {}), ...(destruct ? { destruct } : {}), ...(startsAt !== undefined ? { startsAt } : {}) }
+      const { roomId, link, name, chatLabel, openedAt, endsAt, destruct, startsAt } = value.room
+      value.room = { roomId, link, name, chatLabel, openedAt, readAt: 0, ...(endsAt !== undefined ? { endsAt } : {}), ...(destruct ? { destruct } : {}), ...(startsAt !== undefined ? { startsAt } : {}) }
     }
     // Addressable-event replacement is ordered in whole seconds. A later
     // edit must not lose to the earlier event's id when both happen in one.
@@ -431,7 +431,7 @@ export class RoomBookmarks {
   }
 
   #apply(value: RecordValue): void {
-    if (value.room) { rememberRoom(this.rooms, value.room); return }
+    if (value.room) { rememberRoom(this.rooms, { ...value.room, chatLabel: value.room.chatLabel ?? null }); return }
     const held = knownRoom(this.rooms, value.roomId)
     if (held?.destruct) try { this.admissions?.forgetting?.(held) } catch { /* The room still goes from the list. */ }
     forgetRoom(this.rooms, value.roomId)

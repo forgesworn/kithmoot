@@ -1913,7 +1913,7 @@
       </section>
 
       <section class="infoPage" data-info-page="name" data-info-title="Name and picture" hidden>
-        <p class="note">Anyone here can change them.</p>
+        <p class="note" id="roomNameScope">Anyone here can change them.</p>
         <form id="roomRename" class="channelNew" hidden>
           <label for="roomRenameInput" class="note">
             Rename this room for everyone in it.
@@ -1921,6 +1921,7 @@
           <input id="roomRenameInput" autocomplete="off" maxlength="32" required
                  aria-label="Room name" />
           <button type="submit" id="roomRenameSave">Rename for everyone</button>
+          <button type="button" id="roomRenameReset" hidden>Use their name</button>
         </form>
         <div id="roomLogoControls" class="roomLogoControls" hidden>
           <span id="roomLogoPreview" class="privateLogo"></span>

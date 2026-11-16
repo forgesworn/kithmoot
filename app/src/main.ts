@@ -1,3 +1,4 @@
+import { directChatName } from './direct-chat-name.js'
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
@@ -2323,6 +2324,7 @@ function startRoomBookmarks(account: SignetSession): void {
         if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
         renderRooms()
       }
+      if (session) { renderRoomTitle(); renderRoomRename() }
       renderWorkspace(); renderContactInbox()
     },
     status: message => {
@@ -6823,7 +6825,7 @@ function renderRoomInfo(): void {
   const route = nodeRoom ? 'KithMoot node · Calls through this node' : roomUsesBothy ? 'Bothy route' : 'public relays'
   setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
   renderRoomFilesLine()
-  setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
+  setInfoSub('infoSubName', peer ? 'Your name for this chat' : $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
   $('infoRowName').hidden = $('roomRename').hidden && $('roomLogoControls').hidden
   setInfoSub('infoSubPhone', '')
   $('infoRowPhone').hidden = !!nodeRoom || isPairedSecondary(deviceStore)
@@ -9830,6 +9832,8 @@ function storeRoomNameRecord(roomId: string, record: Pick<RoomNameRecord, 'name'
 
 /** The room's name changed, by a rename this device read or made. */
 function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
+  const known = knownRoom(roomStore(), s.roomId)
+  if (session === s ? !!dmPeer(roomPolicy, s.participant) : !!known && !!dmPeerOf(known)) return
   storeRoomNameRecord(s.roomId, record)
   if (session === s) {
     if (roomName === record.name) return
@@ -9851,7 +9855,7 @@ function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
  *  keeps and the name is new. */
 function saveKnownRoomName(roomId: string, name: string): void {
   const known = knownRoom(roomStore(), roomId)
-  if (!known || known.name === name) return
+  if (!known || dmPeerOf(known) || known.name === name) return
   try {
     bookmarks?.save(rememberRoom(roomStore(), { roomId, link: known.link, name, openedAt: known.openedAt }))
   } catch { /* The name still shows in the room itself. */ }
@@ -9919,7 +9923,7 @@ function followSharedRoomName(s: RoomSession): void {
       seed: loadRoomNameRecord(s.roomId),
       onName: (record) => { if (record) adoptSharedRoomName(s, record) },
       onRename: (record, message) => {
-        if (session !== s) return
+        if (session !== s || dmPeer(roomPolicy, s.participant)) return
         addSystemLine(`${personLabel(record.by)} renamed the room to “${record.name}”.`, message.sentAt)
       },
     })
@@ -9993,6 +9997,7 @@ function scheduleNodeRoomName(s: RoomSession): void {
 /** Rename the room for everybody in it. */
 async function renameRoomForEveryone(name: string): Promise<void> {
   const s = session
+  if (s && dmPeer(roomPolicy, s.participant)) throw new Error('A private chat has personal names. Use “Save name for me”.')
   const follower = s ? roomNameFollowers.get(s) : undefined
   if (!s || !follower) throw new Error('Join the room before renaming it.')
   const record = await follower.rename(name)
@@ -10006,9 +10011,29 @@ function renderRoomRename(): void {
   renderRoomLogoControls()
   const form = $('roomRename') as HTMLFormElement
   const me = meParticipant || currentParticipant()
-  form.hidden = !session || (me ? dmPeer(roomPolicy, me) !== undefined : false)
+  const direct = !!(me && dmPeer(roomPolicy, me))
+  form.hidden = !session
+  $('roomNameScope').textContent = direct ? 'Your name for this chat is private to you and syncs with your own account. The other person keeps their own name for it.' : 'Anyone here can change them.'
+  form.querySelector('label')!.textContent = direct ? 'Choose your name for this chat.' : 'Rename this room for everyone in it.'
+  $('roomRenameSave').textContent = direct ? 'Save name for me' : 'Rename for everyone'
+  $('roomRenameReset').hidden = !direct || !knownRoom(roomStore(), currentRoomId() ?? '')?.chatLabel
   const input = $('roomRenameInput') as HTMLInputElement
-  if (document.activeElement !== input) input.value = roomName ?? ''
+  input.setAttribute('aria-label', direct ? 'Your chat name' : 'Room name')
+  if (document.activeElement !== input) input.value = direct ? knownRoom(roomStore(), currentRoomId() ?? '')?.chatLabel ?? '' : roomName ?? ''
+}
+
+/** Personal bookmark metadata: never sent on the room's control channel. */
+function nameDirectChatForMe(name: string | null): void {
+  const s = session
+  if (!s || !dmPeer(roomPolicy, s.participant)) throw new Error('Open your private chat before changing its name.')
+  const store = roomStore()
+  const known = knownRoom(store, s.roomId)
+  if (!known) throw new Error('Wait for this chat to be saved before naming it.')
+  const room = rememberRoom(store, { ...known, chatLabel: name })
+  bookmarks?.save(room)
+  renderRoomTitle()
+  renderRooms()
+  renderRoomRename()
 }
 
 /** The authority: every member should use these relays too. */
@@ -17070,20 +17095,23 @@ function knownRoomLabel(room: KnownRoom): string {
 }
 
 /** The person on the other end of a known private chat: the name remembered
- *  when the conversation was started or received, then whatever a profile
- *  says, then the key. A DM link carries no room name. */
+ *  in this account's personal label, then their profile or roster name.
+ *  Old saved room names are only an offline fallback. */
 function dmPersonName(room: KnownRoom, peer: string): string {
-  return room.name ?? shownAs(peer).name ?? 'Private chat'
+  const onRoster = session?.roomId === room.roomId ? session.participants().find(view => view.participant === peer)?.name : undefined
+  return directChatName({ chatLabel: room.chatLabel, peerName: shownAs(peer).name, rosterName: onRoster,
+    rememberedName: room.name, selfName: shownAs(meParticipant || currentParticipant() || '').name })
 }
 
 /** The room this page is in, named the same way. */
 /** What to call the person on the other end of the room this page is in:
  *  what the roster says, then the name remembered when the conversation
- *  was started or received, then the key. */
+ *  was started or received. Personal labels are account-private. */
 function dmPeerName(peer: string): string {
   const onRoster = session?.participants().find((v) => v.participant === peer)?.name
-  const remembered = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
-  return shownAs(peer, onRoster ?? remembered).name ?? 'Private chat'
+  const room = knownRoom(roomStore(), currentRoomId() ?? '')
+  return directChatName({ chatLabel: room?.chatLabel, peerName: shownAs(peer).name, rosterName: onRoster,
+    rememberedName: room?.name, selfName: shownAs(meParticipant || currentParticipant() || '').name })
 }
 
 function currentRoomLabel(): string {
@@ -23368,6 +23396,11 @@ $('roomRename').addEventListener('submit', (event) => {
     setStatus('A room name cannot be empty.')
     return
   }
+  if (session && dmPeer(roomPolicy, session.participant)) {
+    try { nameDirectChatForMe(name); input.blur(); setStatus(`Your name for this chat is “${name}”.`) }
+    catch (err) { setStatus(describeError(err)) }
+    return
+  }
   if (name === roomName) return
   const button = $('roomRenameSave') as HTMLButtonElement
   button.disabled = true
@@ -23375,6 +23408,11 @@ $('roomRename').addEventListener('submit', (event) => {
     .then(() => { input.blur(); setStatus(`Renamed the room to “${name}” for everyone.`) })
     .catch((err) => setStatus(describeError(err)))
     .finally(() => { button.disabled = false; renderRoomRename() })
+})
+
+$('roomRenameReset').addEventListener('click', () => {
+  try { nameDirectChatForMe(null); setStatus('This chat uses the other person’s name again.') }
+  catch (err) { setStatus(describeError(err)) }
 })
 
 $('roomLogoEdit').addEventListener('click', () => {

@@ -1,11 +1,11 @@
 {
-  "id": "2026-11-15-privacy",
-  "date": "15 November 2026",
-  "title": "Clearer calls and more control over your data",
+  "id": "2026-11-16-direct-chat-names",
+  "date": "16 November 2026",
+  "title": "Your own names for private chats",
   "changes": [
-    "Voice calls keep the chat and message box visible. Speaking names update even when the gallery is collapsed.",
-    "Open Metadata in the navigation to see what relays, file hosts and call connections can learn. Looking up your public IP and approximate location is optional.",
-    "Supported photos, videos, audio and documents are cleaned locally before sharing. Files that cannot be cleaned stay unsent; the original stays on your device.",
-    "Read what changed before updating, and find these notes again in Settings → What’s new."
+    "One-to-one chats show the other person’s name: you see Taylor; Taylor sees you.",
+    "Open Room info → Name and picture to choose a name only you see. Your label syncs privately between devices signed into your account. Use their name restores the default.",
+    "Group chat names stay shared. A group with only two people is still a group.",
+    "Includes the recent call layout, audio activity, Metadata and local attachment-cleaning improvements."
   ]
 }
