@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.160",
+  "currentRelease": "0.1.161",
   "releases": [
     {
-      "version": "0.1.160",
+      "version": "0.1.161",
       "updateTo": {
-        "version": "0.1.160",
-        "name": "0.1.160",
-        "pub_date": "2026-11-16T00:23:13Z",
-        "notes": "Metadata explains what relays and file hosts can learn, with an optional public-IP lookup. Supported photos, video, audio and documents have common metadata removed locally before sharing. Read changes before updating and again in Settings. Spry pairing links open an approval prompt without reloading a call. Includes measured microphone and incoming audio activity.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.160/KithMoot-0.1.160-mac-arm64.zip",
-        "sha256": "43bc9441f1b431364b41daf297e2214e86001a84da212ae0fd88beacf78bd173",
-        "size": 200330523
+        "version": "0.1.161",
+        "name": "0.1.161",
+        "pub_date": "2026-11-16T08:18:33Z",
+        "notes": "Each person has their own name for a one-to-one chat. Chats default to the other person; Save name for me syncs a private label with your own account, and Use their name restores the default. Group names stay shared.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.161/KithMoot-0.1.161-mac-arm64.zip",
+        "sha256": "4f8f1e608629f614db876ed6c676119e36877ca739cbde68faa15af6ac7aa249",
+        "size": 200330497
       }
     }
   ]

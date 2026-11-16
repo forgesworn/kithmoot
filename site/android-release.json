@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.155",
-  "versionCode": 178,
+  "versionName": "0.6.156",
+  "versionCode": 179,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70975552,
-  "apkSha256": "90218d3c94f1a8216ed898a5c72e59bf7ade2d9803e75102c12e7589a7a28163",
+  "apkBytes": 70979648,
+  "apkSha256": "d70c74098a945bfa45e03d51d7d40c5d6d0d905bb6b3033def4426c1b392dff9",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.155-production.apk",
+  "downloadFilename": "kithmoot-0.6.156-production.apk",
   "releaseNotes": [
-    "See measured audio activity for your microphone and incoming sound in calls and chat, even when playback is muted.",
-    "Reduced motion uses a level bar. Update over your existing app to keep your account and rooms."
+    "Private chats now show the other person instead of an old shared room name.",
+    "Choose Save name for me in Room info. Your label syncs with your own devices; Use their name resets it. Group names stay shared."
   ]
 }
