@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SpeakingMonitor } from './speaking-monitor.js'
+import { SpeakingMonitor, pcmPeaks } from './speaking-monitor.js'
 import { SPEAKING } from '../../src/index.js'
 
 /**
@@ -283,5 +283,37 @@ describe('SpeakingMonitor', () => {
     m.close()
     expect(m.isSpeaking('dev1')).toBe(false)
     expect(fake.context.close).toHaveBeenCalled()
+  })
+})
+
+
+describe('live PCM traces', () => {
+  it('preserves brief positive and negative peaks instead of averaging them away', () => {
+    const samples = new Uint8Array(1024).fill(128)
+    samples[3] = 255; samples[4] = 0
+    const peaks = pcmPeaks(samples)
+    expect(peaks).toHaveLength(256)
+    expect(peaks.slice(0, 2)).toEqual([-1, 127 / 128])
+    expect(peaks.slice(2).every(value => value === 0)).toBe(true)
+    expect(pcmPeaks(new Uint8Array())).toEqual([])
+  })
+  it('replaces the trace and clears it on mute, suspension and track removal', () => {
+    const fake = fakeContext()
+    const onWaveforms = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onWaveforms })
+    const mic = track()
+    m.watch('mic', mic)
+    fake.setLevel(192)
+    m.poll(0)
+    expect(onWaveforms.mock.lastCall![0].get('mic').slice(0, 2)).toEqual([-0.5, 0.5])
+    mic.enabled = false; m.poll(50)
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    mic.enabled = true; fake.context.state = 'suspended'; m.poll(100)
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    fake.context.state = 'running'; m.poll(150)
+    expect(onWaveforms.mock.lastCall![0].get('mic')).toHaveLength(256)
+    m.unwatch('mic')
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    m.close()
   })
 })

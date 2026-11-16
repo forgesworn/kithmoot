@@ -14158,15 +14158,19 @@ function showVerification(view: ParticipantView, name: string, status: string): 
 const LOCAL_SPEAKING_KEY = 'self'
 const audioActivity = new AudioActivity(document.querySelectorAll<HTMLElement>('[data-audio-activity]'))
 let audioLevels: ReadonlyMap<string, number | null> = new Map()
+let audioWaveforms: ReadonlyMap<string, readonly number[]> = new Map()
 
 function paintAudioActivity(force = false): void {
   const active = onCall()
-  const incoming = [...audioLevels].filter(([key]) => key !== LOCAL_SPEAKING_KEY && !meetingGated(tileDevice(key)))
-    .map(([, level]) => level).filter((level): level is number => level !== null)
+  const incoming = [...audioLevels].filter(([key, level]) => key !== LOCAL_SPEAKING_KEY && level !== null && !meetingGated(tileDevice(key)))
+    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0]
   audioActivity.update(active ? `${mediaSession()?.roomId}:${mediaSession()?.call?.id}` : '', [
     !micTrack ? 'Off' : !micTrack.enabled ? 'Muted' : audioLevels.get(LOCAL_SPEAKING_KEY) ?? null,
-    incoming.length ? Math.max(...incoming) : null,
-  ], performance.now(), force)
+    incoming?.[1] ?? null,
+  ], performance.now(), force, [
+    audioWaveforms.get(LOCAL_SPEAKING_KEY) ?? [],
+    audioWaveforms.get(incoming?.[0] ?? '') ?? [],
+  ])
 }
 
 /**
@@ -14180,6 +14184,7 @@ function paintAudioActivity(force = false): void {
  */
 const speakingMonitor = new SpeakingMonitor({
   onChange: () => paintSpeaking(),
+  onWaveforms: waveforms => { audioWaveforms = waveforms },
   onLevels: levels => { audioLevels = levels; paintAudioActivity() },
 })
 
