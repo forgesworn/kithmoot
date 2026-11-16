@@ -292,7 +292,13 @@ the [workspace delivery](docs/workspace-delivery.md).
   device names, announces it with a kind-1063 event signed by the device
   key, and stages it for the next message. In a quiet room it deliberately
   skips that public announcement: the URL, hash, key and file details travel
-  only inside the encrypted chat message.
+  only inside the encrypted chat message. After opening an attachment, a person
+  who chose a non-public server can use **Save to my Wildbloom** to upload the
+  exact verified encrypted envelope there, signed by their current identity.
+  This publishes no second kind-1063 announcement, downloads no second copy
+  from the sender's server and is not removed by room tidy-up. It remains a
+  room attachment opened by the same key, not a separately encrypted personal
+  export.
   New uploads are off by default. **Add a file → Use shared storage instead**
   requires explicit consent for the displayed server: encrypted bytes may be
   publicly downloadable, although reading them needs the key. Old saved URLs

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FILE_STORAGE_KEY, LEGACY_FILE_STORAGE_KEY, PUBLIC_FILE_SERVERS, FILE_STORAGE_REQUIRED, isForgeSwornHost, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, sharedFileServer, storedFileServer, chooseFileServer, acceptDefaultFileServer, stopFileUploads, resolveFileDestination, defaultFileServer, destinationLimit, formatLimit, describeUploadFailure, type FileDestinationInput } from './file-storage.js'
+import { FILE_STORAGE_KEY, LEGACY_FILE_STORAGE_KEY, PUBLIC_FILE_SERVERS, FILE_STORAGE_REQUIRED, isForgeSwornHost, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, sharedFileServer, storedFileServer, chooseFileServer, acceptDefaultFileServer, stopFileUploads, resolveFileDestination, defaultFileServer, destinationLimit, formatLimit, ownFileServer, describeUploadFailure, type FileDestinationInput } from './file-storage.js'
 
 function storage() {
   const values = new Map<string, string>()
@@ -137,6 +137,20 @@ describe('where a file goes', () => {
   it('formats a limit as whole megabytes', () => {
     expect(formatLimit(209715200)).toBe('200 MB')
     expect(formatLimit(1572864)).toBe('1.5 MB')
+  })
+  it('offers received-file copies only to a chosen non-public server', () => {
+    const store = storage()
+    expect(ownFileServer(resolve(store))).toBe('')
+    chooseFileServer(store, 'https://files.example')
+    expect(ownFileServer(resolve(store))).toBe('https://files.example')
+    chooseFileServer(store, 'https://files.example', 'wildbloom')
+    expect(ownFileServer(resolve(store))).toBe('https://files.example')
+    acceptDefaultFileServer(store, DEFAULT)
+    expect(ownFileServer(resolve(store))).toBe('')
+    chooseFileServer(store, DEFAULT, 'typed')
+    expect(ownFileServer(resolve(store))).toBe('')
+    stopFileUploads(store)
+    expect(ownFileServer(resolve(store))).toBe('')
   })
 })
 
