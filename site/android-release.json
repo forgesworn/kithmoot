@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.156",
-  "versionCode": 179,
+  "versionName": "0.6.157",
+  "versionCode": 180,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70979648,
-  "apkSha256": "d70c74098a945bfa45e03d51d7d40c5d6d0d905bb6b3033def4426c1b392dff9",
+  "apkBytes": 71311688,
+  "apkSha256": "9498bfdb4829fbfec00abb08dec9b2b8e18d00b4a4f94eb89bc248def45f5391",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.156-production.apk",
+  "downloadFilename": "kithmoot-0.6.157-production.apk",
   "releaseNotes": [
-    "Private chats now show the other person instead of an old shared room name.",
-    "Choose Save name for me in Room info. Your label syncs with your own devices; Use their name resets it. Group names stay shared."
+    "Photos, audio, video and supported documents lose hidden location, author and device tags before sharing.",
+    "Cleaning runs on your device before encryption. Files it cannot clean safely stay unsent; originals stay local.",
+    "Files up to 64 MiB are supported. Visible content and file names are kept. Private chats keep your own names."
   ]
 }
