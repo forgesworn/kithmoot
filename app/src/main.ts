@@ -14759,6 +14759,9 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
   if (track.kind === 'video') {
     const existing = remoteVideos.get(key)
     const el = existing?.el ?? document.createElement('video')
+    // The negotiated role is known before its roster advert arrives. An
+    // early screen receiver must never count as another camera meanwhile.
+    el.classList.toggle('screenPreview', tileRole(key) === 'screen')
     // The same key, a different track object: the mesh rebuilt the
     // connection to this device - a rung down the ladder, or a fresh one
     // after a rest - and the far end's track arrived again on it. The
@@ -14799,7 +14802,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
     // `autoplay` is a request, not proof of playback. WebKit can leave this
     // connected element paused after replacing its MediaStream, so explicitly
     // resume it while this device is still on the call.
-    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
+    if (!leftCall && !el.hasAttribute('data-gallery-off-page') && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
     if (replaced) {
       // A new track has never played, whatever the old one did, and the
       // clock it is judged by starts again.
@@ -14946,7 +14949,13 @@ function recoverRemoteTracks(): void {
         // Safari can keep the sink connected but pause it when a rebuilt peer
         // swaps in a new MediaStream. A connected element is not necessarily a
         // playing one; make the recovery path repair both states.
-        if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
+        // syncRemoteVideos owns restoring parked pictures when RTP returns.
+        // A paused parked sink is not evidence of recovery: reattaching it
+        // here fights the watchdog every two seconds. Off-page gallery sinks
+        // are intentionally paused and belong to the stage's paging logic.
+        const resume = entry && entry.el.paused && (kind === 'audio'
+          || onScreen(entry as RemoteVideo) && !entry.el.hasAttribute('data-gallery-off-page'))
+        if (entry?.track !== track || !entry.el.isConnected || resume) attachRemoteTrack(device, track, key)
       }
     }
   }

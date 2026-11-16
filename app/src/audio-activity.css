@@ -3,8 +3,9 @@
 .audioSignal { display: grid; grid-template-columns: auto minmax(3rem, 1fr) 4rem; align-items: center; gap: .4rem; flex: 1 1 13rem; min-width: 0; font-size: .8rem; line-height: 1.4; }
 .audioSignalLabel { font-weight: 600; }
 .audioSignalState { grid-column: 3; grid-row: 1; }
-.audioTrace, .audioLevel { grid-column: 2; grid-row: 1; width: 100%; height: 24px; color: currentColor; }
-.audioBaseline { fill: none; stroke: currentColor; stroke-width: 1; opacity: .4; }
+.audioTrace, .audioLevel { grid-column: 2; grid-row: 1; width: 100%; height: 24px; color: #fff; background: #1b1b1f; border-radius: 3px; }
+.audioSignal[data-state='sound'] :is(.audioTrace, .audioLevel) { color: var(--accent); }
+.audioBaseline { fill: none; stroke: currentColor; stroke-width: 1; }
 .audioEnvelope { fill: currentColor; stroke: currentColor; stroke-width: 1; }
 .audioLevel { display: none; height: 8px; border: 1px solid currentColor; }
 .audioLevel > span { display: block; height: 100%; background: currentColor; }
@@ -16,6 +17,7 @@ html[data-call-docked] #callSurface > .audioActivity { grid-column: 1 / -1; grid
 }
 @media (forced-colors: active) {
   .audioActivity { color: CanvasText; }
+  .audioSignal[data-state] :is(.audioTrace, .audioLevel) { color: CanvasText; background: Canvas; }
   .audioEnvelope { fill: CanvasText; stroke: CanvasText; }
   .audioLevel > span { background: CanvasText; }
 }

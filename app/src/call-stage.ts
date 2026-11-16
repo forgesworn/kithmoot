@@ -90,8 +90,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
         id: child.dataset.participant ?? `tile-${index}`,
         name,
         self: child.dataset.self === 'true',
-        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview)')],
-        shares: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video.screenPreview')],
+        // Empty fixed-slot receivers need a rendered sink to start decoding,
+        // but must not take half of a real camera's slot while they wait.
+        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview):not(.awaitingFrame)')],
+        shares: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video.screenPreview:not(.awaitingFrame)')],
         onCall: child.classList.contains('onCall'),
       })
     }
@@ -100,6 +102,11 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
 
   function apply(): void {
     for (const paused of pausedVideos) if (!paused.isConnected) pausedVideos.delete(paused)
+    // A replacement stream can inherit its old sink's off-page pause. Let
+    // pending sinks decode their first frame before deciding whether their
+    // camera/share belongs on this page; otherwise they can never become
+    // eligible for layout again.
+    for (const video of room.querySelectorAll<HTMLVideoElement>('video.awaitingFrame')) pageVideo(video, false)
     const everyone = people()
     // Voice-only calls keep the tiles mounted for audio but collapse their
     // gallery. The speaking label lives in the visible call bar, so update

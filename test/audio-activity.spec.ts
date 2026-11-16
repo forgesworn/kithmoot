@@ -18,6 +18,10 @@ test('measured audio stays visible without cameras, with playback muted and with
     await expect(activity).toBeVisible()
     await expect(activity.locator('[data-audio-signal="incoming"]')).toContainText('Sound')
     await expect(activity.locator('[data-audio-signal="mic"]')).toContainText('Sound')
+    const micTrace = activity.locator('[data-audio-signal="mic"] .audioTrace')
+    const activeInk = await micTrace.evaluate(el => getComputedStyle(el).color)
+    expect(activeInk).not.toBe('rgb(255, 255, 255)')
+    const activityHeight = (await activity.boundingBox())!.height
     await bob.locator('#toggleCamera').evaluate(el => (el as HTMLButtonElement).click())
     await expect(activity).toBeVisible()
     await bob.locator('#toggleCompanion').evaluate(el => (el as HTMLButtonElement).click())
@@ -31,6 +35,8 @@ test('measured audio stays visible without cameras, with playback muted and with
     await expect(activity.locator('[data-audio-signal="mic"]')).toContainText('Muted')
     await expect(activity.locator('[data-audio-signal="incoming"]')).toContainText('Sound')
     await bob.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'none' })
+    await expect(micTrace).toHaveCSS('color', 'rgb(255, 255, 255)')
+    expect((await activity.boundingBox())!.height).toBe(activityHeight)
     if (info.project.name === 'chromium') {
       await bob.setViewportSize({ width: 355, height: 740 })
       await bob.locator('#callChatToggle').click()
