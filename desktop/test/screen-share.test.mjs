@@ -101,7 +101,7 @@ test('with no box on, windows are offered, and a chosen window is recorded as a 
   await answerDisplayRequest({}, callback, deps)
   assert.ok(!shown.some(item => item.label.includes('not listed')))
   assert.deepEqual(calls, [[{ video: windows[0] }]])
-  assert.deepEqual(redaction.capture, { kind: 'window' })
+  assert.deepEqual(redaction.capture, { kind: 'window', captureId: 'window:77:0' })
 })
 
 test('cancelling the chooser refuses and records nothing', async () => {

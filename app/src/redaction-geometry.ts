@@ -13,7 +13,7 @@ export interface Rect { x: number; y: number; width: number; height: number }
 export interface RedactionBox { id: string; on: boolean; bounds: Rect }
 export interface RedactionDisplay { id: string; bounds: Rect; scaleFactor?: number }
 /** What the main process answered the capture request with. `null` is unknown. */
-export type CaptureSource = { kind: 'screen'; displayId: string } | { kind: 'window' } | null
+export type CaptureSource = { kind: 'screen'; displayId: string } | { kind: 'window'; captureId?: string } | null
 /**
  * Boxes and displays in DIP, as the main process reports them.
  * `settleUntil` (epoch milliseconds) is set after a display change, while

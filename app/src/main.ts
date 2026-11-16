@@ -741,10 +741,12 @@ const desktopShareArea = new DesktopShareArea({
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
 const browserShare = new BrowserShare(() => screenTrack?.dispatchEvent(new Event('ended')))
-// Marks drawn on a whole-screen share, shown over the screen being shared:
-// that share's own preview is a blank tile (see `applySelfMirrorGuard`).
+// Drawings over the native window or display being shared.
 const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
+  watch: (id, paint) => shareViewer.watchMarks(id, paint),
   paint: (canvas, id) => shareViewer.areaOverlay(canvas, id),
+  draw: annotation => shareViewer.draw(annotation),
+  stop: () => { if (screenTrack) void toggleScreen() },
 })
 const drawingNoticeGate = new DrawingNoticeGate()
 const participantCard = new ParticipantCard(copyMessageText)
@@ -7867,6 +7869,10 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
         deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
         ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
       }
+      if (desktopRedaction.supported) {
+        const state = await desktopRedaction.refresh()
+        if (state.source?.kind === 'window') capture.chosenId = state.source.captureId
+      }
       if (!protectedShare && !area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
@@ -7919,13 +7925,17 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
       clearShareError()
       publishActiveTracks()
       offerFloatingMarks()
-      // A whole screen: other people's marks go over the screen itself. The
+      // Native drawings follow the selected window or display. The
       // main process's record of what was captured has to agree with the
       // track's own idea of it, as it does for redaction.
+      if (!area && window.kithmootDesktop?.supportsCompositorMarks) {
+        const shared = screenTrack
+        void shareMarksOverlay.openCompositor(surface === 'window' ? 'window' : 'screen', () => screenTrack === shared ? screenSource(meParticipant, myDeviceId)?.id ?? shared.id : undefined)
+      }
       if (!area && shareMarksOverlay.supported) {
         const shared = screenTrack
         void desktopRedaction.refresh().then(state => {
-          if (screenTrack !== shared || effectiveSource(state.source, surface)?.kind !== 'screen') return
+          if (screenTrack !== shared || !effectiveSource(state.source, surface)) return
           shareMarksOverlay.open(() => screenSource(meParticipant, myDeviceId)?.id ?? shared.id)
         })
       }
@@ -8006,8 +8016,7 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
  * `ShareViewer#overlay`) is untouched - it paints on a canvas of its own,
  * never a copy of the video's pixels - so drawing on a full-screen share
  * still shows up for the sharer, just without a live picture behind it. In
- * the desktop app a whole-screen share's marks also go over the screen
- * itself (`shareMarksOverlay`), which is where the sharer is looking.
+ * the desktop app, marks also go directly over the shared window or screen (`shareMarksOverlay`), which is where the sharer is looking.
  */
 function applySelfMirrorGuard(): void {
   const preview = localPreviewEls.get('screen')

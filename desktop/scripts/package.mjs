@@ -1,3 +1,4 @@
+import { stageWindowHelper } from './window-helper.mjs'
 import { packager } from '@electron/packager'
 import { sign } from '@electron/osx-sign'
 import { macSigningConfig, notarySubmissionArgs, notaryCommand } from './mac-signing.mjs'
@@ -33,13 +34,15 @@ const helperSigning = signing.localPreview
 if (spawnSync('codesign', helperSigning, { stdio: 'inherit' }).status) throw new Error('Signing the built-in relay helper failed')
 const helperHash = await hashFile(helper.file)
 await writeManifest({ 'darwin-arm64': helperHash }, { version: helper.version })
-const isHelper = file => file.endsWith('/Contents/Resources/spry/spry-node')
+const isHelper = file => file.endsWith('/Contents/Resources/spry/spry-node') || file.endsWith('/Contents/Resources/window-helper/share-window')
+const windowHelper = await stageWindowHelper('darwin', 'arm64')
+if (spawnSync('codesign', [...helperSigning.slice(0, -1), windowHelper.file], { stdio: 'inherit' }).status) throw new Error('Signing the window geometry helper failed')
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '162', icon, overwrite: true, asar: true, extraResource: [helper.dir],
+  appVersion: version, buildVersion: '163', icon, overwrite: true, asar: true, extraResource: [helper.dir, windowHelper.dir],
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
     NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',
     NSMicrophoneUsageDescription: 'KithMoot uses your microphone when you turn it on in a call.',

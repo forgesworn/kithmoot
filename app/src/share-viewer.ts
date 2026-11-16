@@ -121,6 +121,17 @@ export class ShareViewer {
     this.#opts.onAnnotation?.(annotation)
   }
 
+  /** Painting data for an OS compositor overlay. It receives no room or author identity. */
+  watchMarks(shareId: () => string | undefined, paint: (marks: { points: AnnotationPoint[]; color: string; alpha: number }[]) => void): () => void {
+    const refresh = () => {
+      const id = shareId()
+      paint(id ? this.#marks.alive(id).slice(-100).map(mark => ({ points: mark.annotation.points ?? [], color: mark.color, alpha: mark.alpha })) : [])
+    }
+    const stop = this.#marks.subscribe(refresh)
+    refresh()
+    return stop
+  }
+
   areaOverlay(canvas: HTMLCanvasElement, shareId: () => string | undefined): () => void {
     const paint = () => {
       const id = shareId()

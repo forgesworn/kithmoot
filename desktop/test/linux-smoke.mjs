@@ -14,7 +14,7 @@ try {
   assert.equal(state.secure, true)
   assert.equal(state.node, 'undefined')
   assert.equal(state.process, 'undefined')
-  assert.deepEqual(state.bridge, ['supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'shareAreaAction', 'supportsRedaction', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'onOpenRoom', 'setCallActive', 'updateState', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments'])
+  assert.deepEqual(state.bridge, ['onSpryPairing', 'titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'marksAction', 'onMarksDrawing', 'supportsCompositorMarks', 'compositorMarksBegin', 'compositorMarksPaint', 'compositorMarksEnd', 'onCompositorMark', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'clearNotice', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'setRelayContext', 'relayState', 'relayStart', 'relayStop', 'relaySetStartOnOpen', 'relayRemoveKeys', 'onRelayState', 'updateState', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments'])
   // --no-sandbox relaxes the preload's require; test/platform-features.test.mjs keeps it to electron.
   assert.equal(await page.evaluate(() => window.kithmootDesktop.shareAreaMode), 'frame')
   assert.equal(await app.evaluate(({ app }) => app.getVersion()), version)

@@ -57,6 +57,21 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },
   // Boxes are placed on the real screen, which only the frame mode can do.
   supportsRedaction: shareAreaMode === 'frame',
+  marksAction(action, value) { ipcRenderer.send('desktop:marks-action', action, value) },
+  onMarksDrawing(listener) {
+    const handler = (_event, drawing) => { if (typeof drawing === 'boolean') listener(drawing) }
+    ipcRenderer.on('desktop:marks-drawing', handler)
+    return () => ipcRenderer.removeListener('desktop:marks-drawing', handler)
+  },
+  supportsCompositorMarks: shareAreaMode === 'preview',
+  compositorMarksBegin(lease, kind) { return ipcRenderer.invoke('desktop:compositor-marks-begin', lease, kind) },
+  compositorMarksPaint(lease, strokes) { ipcRenderer.send('desktop:compositor-marks-paint', lease, strokes) },
+  compositorMarksEnd(lease) { ipcRenderer.send('desktop:compositor-marks-end', lease) },
+  onCompositorMark(listener) {
+    const handler = (_event, lease, command) => listener(lease, command)
+    ipcRenderer.on('desktop:compositor-mark', handler)
+    return () => ipcRenderer.removeListener('desktop:compositor-mark', handler)
+  },
   redactionBegin() { return ipcRenderer.invoke('desktop:redaction-begin') },
   redactionState() { return ipcRenderer.invoke('desktop:redaction-state') },
   redactionAction(id, action, value) { ipcRenderer.send('desktop:redaction-action', id, action, value) },

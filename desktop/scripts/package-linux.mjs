@@ -1,3 +1,5 @@
+import { stageCompositorCompanions } from './compositor-companions.mjs'
+import { stageWindowHelper } from './window-helper.mjs'
 import { packager } from '@electron/packager'
 import { readFile, copyFile, chmod, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -5,6 +7,7 @@ import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { hashFile, stageHelper, writeManifest } from './spry-helper.mjs'
+const companions = await stageCompositorCompanions()
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'))
 // The built-in call relay's helper for each architecture, at
@@ -12,11 +15,12 @@ const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'ut
 const helpers = { x64: await stageHelper('linux-x64'), arm64: await stageHelper('linux-arm64') }
 await writeManifest({ 'linux-x64': helpers.x64.sha256, 'linux-arm64': helpers.arm64.sha256 }, { version: helpers.x64.version })
 for (const arch of ['x64', 'arm64']) {
+  const windowHelper = await stageWindowHelper('linux', arch)
   const [directory] = await packager({
     dir: root, out: resolve(root, 'out'), name: 'KithMoot', executableName: 'kithmoot',
     platform: 'linux', arch, electronVersion: '44.9.3', appVersion: version,
-    overwrite: true, asar: true, extraResource: [helpers[arch].dir],
-    ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+    overwrite: true, asar: true, extraResource: [helpers[arch].dir, windowHelper.dir, companions],
+    ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   })
   const bundledHelper = resolve(directory, 'resources/spry/spry-node')
   await chmod(bundledHelper, 0o755)
@@ -24,7 +28,7 @@ for (const arch of ['x64', 'arm64']) {
   await copyFile(resolve(root, 'icons/kithmoot-512.png'), resolve(directory, 'kithmoot.png'))
   await copyFile(resolve(root, 'scripts/install-linux.py'), resolve(directory, 'install.py'))
   await chmod(resolve(directory, 'install.py'), 0o755)
-  await writeFile(resolve(directory, 'README.txt'), `KithMoot ${version} - Linux ${arch}\n\nExtract this folder, then run: python3 install.py\nInstalls for your user only, without sudo, and adds KithMoot to Applications.\nRequires a current desktop Linux with glibc, GTK3, NSS, ALSA and a notification service.\nRun kithmoot directly from this folder for a portable preview.\nDo not disable Chromium's sandbox. Your distro must allow unprivileged user namespaces.\nDock counts require a launcher supporting LauncherEntry (such as KDE or Ubuntu Dock).\nThe window title also shows the count. GNOME setups may need a dock extension.\nEnable notifications in KithMoot's notification controls; previews are private by default.\nZen bell has its own switch and Preview sound button. Bells are muted during calls.\nKeep KithMoot open or minimised to receive notifications. Quitting stops delivery.\nShare area floats a crop frame on X11. On Wayland it opens a preview: choose a screen, drag a box, share only that box.\nLinux system audio is not included in a screen share; Electron does not expose loopback capture on Linux.\nQuiet rooms are read only while open.\nKithMoot updates itself: it verifies each download against a signed manifest and asks before restarting. The Debian package updates through apt instead.\nLocal preview; packages are not repository-signed.\n`)
+  await writeFile(resolve(directory, 'README.txt'), `KithMoot ${version} - Linux ${arch}\n\nExtract this folder, then run: python3 install.py\nInstalls for your user only, without sudo, and adds KithMoot to Applications.\nRequires a current desktop Linux with glibc, GTK3, NSS, ALSA and a notification service.\nRun kithmoot directly from this folder for a portable preview.\nDo not disable Chromium's sandbox. Your distro must allow unprivileged user namespaces.\nDock counts require a launcher supporting LauncherEntry (such as KDE or Ubuntu Dock).\nThe window title also shows the count. GNOME setups may need a dock extension.\nEnable notifications in KithMoot's notification controls; previews are private by default.\nZen bell has its own switch and Preview sound button. Bells are muted during calls.\nKeep KithMoot open or minimised to receive notifications. Quitting stops delivery.\nShare area floats a crop frame on X11. On Wayland it opens a preview: choose a screen, drag a box, share only that box.\nDirect drawings on native Wayland require the opt-in GNOME or Plasma companion. See resources/drawing/README.md; run python3 resources/drawing/install.py gnome (or plasma).\nLinux system audio is not included in a screen share; Electron does not expose loopback capture on Linux.\nQuiet rooms are read only while open.\nKithMoot updates itself: it verifies each download against a signed manifest and asks before restarting. The Debian package updates through apt instead.\nLocal preview; packages are not repository-signed.\n`)
   const archive = resolve(root, `out/KithMoot-${version}-linux-${arch}.tar.gz`)
   const result = spawnSync('tar', ['-czf', archive, '-C', resolve(directory, '..'), directory.split('/').pop()], { env: { ...process.env, COPYFILE_DISABLE: '1' }, stdio: 'inherit' })
   if (result.status !== 0) throw new Error('Archive failed')

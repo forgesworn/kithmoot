@@ -76,7 +76,7 @@ test('Marks drawn on a whole-screen share are shown over that screen, and go whe
     }
     mac.on('console', message => { if (message.type() === 'error') console.log('MAC:', message.text()) })
     await standIn(native, { id: 'screen:4242:0', display_id: '4242' })
-    const url = await createRoom(mac, HOME, relays)
+    const url = await createRoom(mac, HOME, relays, 'Desktop test')
     await joinWithMedia(mac, url, 'Desktop test')
     await joinWithMedia(web, url, 'Browser test')
 
@@ -95,7 +95,7 @@ test('Marks drawn on a whole-screen share are shown over that screen, and go whe
     const expand = web.getByRole('button', { name: 'Expand screen share from Desktop test' })
     await expect(expand).toBeVisible({ timeout: 60_000 }); await expand.click()
     const dialog = web.getByRole('dialog', { name: 'Screen-share viewer' })
-    await expect.poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    await expect.poll(() => dialog.locator('.shareStage video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
     await dialog.getByRole('button', { name: 'Draw', exact: true }).click()
     const painted = () => canvas.evaluate((element: HTMLCanvasElement) => {
       const context = element.getContext('2d')!
@@ -136,34 +136,96 @@ test('Marks drawn on a whole-screen share are shown over that screen, and go whe
   }
 })
 
-test('A window share gets no overlay: its marks stay on its own live preview', async ({ browser }) => {
-  test.setTimeout(120_000)
+test('A window sharer sees drawings over the selected window and can draw back', async ({ browser }) => {
+  test.setTimeout(150_000)
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-marks-window-'))
   const native = await electron.launch({
     executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
     args: [desktop, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--allow-loopback-in-peer-connection', '--autoplay-policy=no-user-gesture-required'],
     env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile, KITHMOOT_DESKTOP_AREA_MODE: 'frame' },
   })
-  void browser
+  const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
   try {
-    await native.context().routeWebSocket(url => url.origin === relays[0], socket => { socket.connectToServer() })
-    const mac = await native.firstWindow()
-    await mac.addInitScript(INSTRUMENT)
-    await mac.addInitScript(SYNTHETIC_MIC)
-    await mac.addInitScript(SYNTHETIC_SCREEN)
+    for (const isolated of [native.context(), context]) await isolated.routeWebSocket(url => url.origin === relays[0], socket => { socket.connectToServer() })
+    await context.route('https://kithmoot.forgesworn.dev/**', async route => {
+      const path = localAsset(route.request().url(), join(desktop, 'web'))
+      if (!path) return route.fulfill({ status: 404 })
+      const types: Record<string, string> = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.svg': 'image/svg+xml', '.png': 'image/png', '.wasm': 'application/wasm' }
+      await route.fulfill({ body: await readFile(path), contentType: types[extname(path)] ?? 'application/octet-stream' })
+    })
+    const mac = await native.firstWindow(), web = await context.newPage()
+    mac.on('console', message => { if (message.type() === 'error') console.log('MAC:', message.text()) })
+    mac.on('pageerror', error => console.log('MAC PAGE:', error.message))
+    for (const page of [mac, web]) {
+      await page.addInitScript(INSTRUMENT)
+      await page.addInitScript(SYNTHETIC_MIC)
+      await page.addInitScript(SYNTHETIC_SCREEN)
+      await page.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
+    }
+    // The track has no usable native id (the macOS picker case). The main
+    // process's recorded choice, rather than a synthetic track id, identifies it.
     await mac.addInitScript(SURFACE, 'window')
-    await mac.addInitScript(urls => localStorage.setItem('kithmoot.relays.v1', JSON.stringify({ default: urls.map(url => ({ url, read: true, write: true })) })), relays)
-    await standIn(native, { id: 'window:777:0', display_id: '' })
-    const url = await createRoom(mac, HOME, relays)
+    const chosen = await native.evaluate(async ({ BrowserWindow }) => {
+      const target = new BrowserWindow({ x: 300, y: 220, width: 800, height: 450, frame: false, backgroundColor: '#375d75', webPreferences: { sandbox: true } })
+      await target.loadURL('about:blank')
+      return { id: target.getMediaSourceId(), display_id: '', bounds: target.getBounds() }
+    })
+    await standIn(native, chosen)
+    const url = await createRoom(mac, HOME, relays, 'Desktop test')
     await joinWithMedia(mac, url, 'Desktop test')
+    await joinWithMedia(web, url, 'Browser test')
     await mac.locator('#toggleScreen').click()
     await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'true')
-    // Give an overlay every chance to appear before saying none did.
-    await mac.waitForTimeout(1500)
-    expect(await overlayWindows(native)).toEqual([])
+    const drawnOver = () => native.windows().find(page => page.url().includes('kithmoot-share-marks'))
+    const drawTools = () => native.windows().find(page => page.url().includes('kithmoot-share-mark-tools'))
+    await expect.poll(() => Boolean(drawnOver()), { message: 'a canvas covers the actual shared window' }).toBe(true)
+    await expect.poll(async () => (await overlayWindows(native))[0]?.bounds).toEqual(chosen.bounds)
+    const overlay = drawnOver()!, tools = drawTools()!
+    const canvas = overlay.locator('canvas.shareMarksOverlay')
+    await web.getByRole('button', { name: 'Expand screen share from Desktop test' }).click()
+    const viewer = web.getByRole('dialog', { name: 'Screen-share viewer' })
+    await expect.poll(() => viewer.locator('.shareStage video').evaluate((v: HTMLVideoElement) => v.videoWidth)).toBeGreaterThan(0)
+    const stroke = async (page: typeof web, host: typeof viewer) => {
+      const rect = (await host.locator('.shareStage').boundingBox())!
+      await page.mouse.move(rect.x + rect.width * .25, rect.y + rect.height * .35)
+      await page.mouse.down()
+      await page.mouse.move(rect.x + rect.width * .7, rect.y + rect.height * .65, { steps: 12 })
+      await page.mouse.up()
+    }
+    await viewer.getByRole('button', { name: 'Draw', exact: true }).click()
+    await expect.poll(async () => {
+      await stroke(web, viewer)
+      return canvas.getAttribute('data-legend')
+    }).toContain('Browser test')
+    await tools.getByRole('button', { name: 'Draw', exact: true }).click()
+    await expect.poll(async () => {
+      const rect = (await canvas.boundingBox())!
+      await overlay.mouse.move(rect.width * .25, rect.height * .35)
+      await overlay.mouse.down()
+      await overlay.mouse.move(rect.width * .7, rect.height * .65, { steps: 12 })
+      await overlay.mouse.up()
+      return viewer.locator('canvas.shareAnnotations').getAttribute('data-authors')
+    }).toContain('Desktop test')
+    await tools.getByRole('button', { name: 'Use window', exact: true }).click()
+    // Real native geometry follows the actual window, including hiding while
+    // minimised. It never points at a guessed display or at another window.
+    const moved = await native.evaluate(({ BrowserWindow }, id) => {
+      const target = BrowserWindow.getAllWindows().find(w => w.getMediaSourceId() === id)!
+      target.setBounds({ x: 400, y: 280, width: 640, height: 360 })
+      return target.getBounds()
+    }, chosen.id)
+    await expect.poll(async () => (await overlayWindows(native))[0]?.bounds).toEqual(moved)
+    await native.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows().find(w => w.getMediaSourceId() === id)!.minimize(), chosen.id)
+    await expect.poll(async () => (await overlayWindows(native))[0]?.visible).toBe(false)
+    await native.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows().find(w => w.getMediaSourceId() === id)!.restore(), chosen.id)
+    await expect.poll(async () => (await overlayWindows(native))[0]?.visible).toBe(true)
+    await tools.getByRole('button', { name: 'Stop sharing', exact: true }).click()
+    await expect(mac.locator('#toggleScreen')).toHaveAttribute('data-on', 'false')
+    await expect.poll(() => Boolean(drawnOver()) || Boolean(drawTools())).toBe(false)
   } finally {
     await native.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
     await native.close().catch(() => {})
+    await context.close()
     await rm(profile, { recursive: true, force: true })
   }
 })
