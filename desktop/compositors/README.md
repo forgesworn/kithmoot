@@ -18,12 +18,14 @@ GNOME needs `glib-compile-schemas` and a supported Shell version named in
 **KithMoot shared-window drawings** in Extensions. Disable it there to revoke
 access. The initial runtime qualification uses GNOME Shell 48.
 
-Plasma needs CMake, a C++20 compiler, ECM, Qt 6 development files,
+Plasma needs CMake, a C++23 compiler, ECM, Qt 6 development files,
 `KF6GlobalAccel`, and the KWin development package matching your running KWin.
 The installer builds locally and prints the system installation command for
 you to run. Enable the effect in **System Settings > Window Management >
 Desktop Effects**. KWin provides no binary compatibility guarantee for native
-effects: rebuild after upgrading it. The initial build/runtime target is 6.3.
+effects: rebuild after upgrading it. Builds are checked against KWin 6.3 and 6.7.4, with runtime qualification on
+6.3. Versioned adapters cover the newer
+6.6 output/region types, 6.7 pointer events and 6.8 paint return value.
 
 Start sharing using the usual portal chooser. Focus the window you selected,
 then press **Super+Shift+D** to attach drawings and enter drawing mode. For an

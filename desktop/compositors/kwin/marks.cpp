@@ -22,8 +22,18 @@
 #include <effect/effectwindow.h>
 #include <opengl/glplatform.h>
 #include <opengl/glutils.h>
+#if KM_KWIN_67
+#include <input_event.h>
+#endif
 
 namespace KWin {
+#if KM_KWIN_66
+using DrawingOutput = LogicalOutput;
+using DrawingRegion = Region;
+#else
+using DrawingOutput = Output;
+using DrawingRegion = QRegion;
+#endif
 class KithMootMarks final : public Effect {
   Q_OBJECT
 public:
@@ -92,11 +102,24 @@ public:
     if (event->type() == QEvent::KeyPress && event->key() == Qt::Key_Escape)
       endDrawing();
   }
+#if KM_KWIN_67
+  void pointerMotion(PointerMotionEvent *event) override {
+    input(QEvent::MouseMove, event->position, Qt::NoButton);
+  }
+  void pointerButton(PointerButtonEvent *event) override {
+    input(event->state == PointerButtonState::Pressed
+              ? QEvent::MouseButtonPress
+              : QEvent::MouseButtonRelease,
+          event->position, event->button);
+  }
+#else
   void windowInputMouseEvent(QEvent *event) override {
+    if (auto mouse = dynamic_cast<QMouseEvent *>(event))
+      input(event->type(), mouse->position(), mouse->button());
+  }
+#endif
+  void input(QEvent::Type type, const QPointF &pos, Qt::MouseButton button) {
     if (!drawing)
-      return;
-    auto mouse = dynamic_cast<QMouseEvent *>(event);
-    if (!mouse)
       return;
     const QRectF rect = bounds();
     if (rect.isEmpty()) {
@@ -104,24 +127,38 @@ public:
       endDrawing();
       return;
     }
-    const QPointF pos = mouse->position();
     QJsonObject point{
         {"x", qBound(0.0, (pos.x() - rect.x()) / rect.width(), 1.0)},
         {"y", qBound(0.0, (pos.y() - rect.y()) / rect.height(), 1.0)}};
-    if (event->type() == QEvent::MouseButtonPress &&
-        mouse->button() == Qt::LeftButton && rect.contains(pos)) {
+    if (type == QEvent::MouseButtonPress && button == Qt::LeftButton &&
+        rect.contains(pos)) {
       points = QJsonArray{point};
       sent.restart();
-    } else if (event->type() == QEvent::MouseMove && !points.isEmpty()) {
+    } else if (type == QEvent::MouseMove && !points.isEmpty()) {
       points.append(point);
       if (sent.elapsed() >= 50 || points.size() >= 128)
         flush(true);
-    } else if (event->type() == QEvent::MouseButtonRelease)
+    } else if (type == QEvent::MouseButtonRelease)
       flush(false);
   }
+#if KM_KWIN_68
+  bool paintScreen(const RenderTarget &target, const RenderViewport &viewport,
+                   int mask, const DrawingRegion &region,
+                   DrawingOutput *output) override {
+    if (!effects->paintScreen(target, viewport, mask, region, output))
+      return false;
+    paintMarks(target, viewport);
+    return true;
+  }
+#else
   void paintScreen(const RenderTarget &target, const RenderViewport &viewport,
-                   int mask, const QRegion &region, Output *output) override {
+                   int mask, const DrawingRegion &region,
+                   DrawingOutput *output) override {
     effects->paintScreen(target, viewport, mask, region, output);
+    paintMarks(target, viewport);
+  }
+#endif
+  void paintMarks(const RenderTarget &target, const RenderViewport &viewport) {
     const QRectF rect = bounds();
     if (rect.isEmpty())
       return;
@@ -163,7 +200,9 @@ public:
       }
       glLineWidth(1);
       glDisable(GL_BLEND);
-    } else if (auto painter = effects->scenePainter()) {
+    }
+#if !KM_KWIN_68
+    else if (auto painter = effects->scenePainter()) {
       painter->save();
       for (const auto &value : strokes) {
         const auto stroke = value.toObject();
@@ -182,12 +221,13 @@ public:
       }
       painter->restore();
     }
+#endif
   }
 
 private:
   QRectF bounds() const {
     if (kind == "screen")
-      return monitor ? monitor->geometry() : QRectF{};
+      return monitor ? QRectF(monitor->geometry()) : QRectF{};
     if (!window || window->isDeleted() || window->isMinimized() ||
         !window->isOnCurrentDesktop() || !window->isOnCurrentActivity())
       return {};
@@ -313,7 +353,7 @@ private:
   QTimer timer;
   QElapsedTimer sent;
   QPointer<EffectWindow> window;
-  QPointer<Output> monitor;
+  QPointer<DrawingOutput> monitor;
   QString session, kind, url;
   QByteArray token;
   QJsonArray strokes, points;

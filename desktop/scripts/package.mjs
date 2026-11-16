@@ -42,7 +42,7 @@ const paths = await packager({
   electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
   appVersion: version, buildVersion: '163', icon, overwrite: true, asar: true, extraResource: [helper.dir, windowHelper.dir],
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {
     NSAudioCaptureUsageDescription: 'KithMoot shares system sound when you choose to include audio with your screen share.',
     NSMicrophoneUsageDescription: 'KithMoot uses your microphone when you turn it on in a call.',

@@ -20,7 +20,7 @@ for (const arch of ['x64', 'arm64']) {
     dir: root, out: resolve(root, 'out'), name: 'KithMoot', executableName: 'kithmoot',
     platform: 'linux', arch, electronVersion: '44.9.3', appVersion: version,
     overwrite: true, asar: true, extraResource: [helpers[arch].dir, windowHelper.dir, companions],
-    ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+    ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   })
   const bundledHelper = resolve(directory, 'resources/spry/spry-node')
   await chmod(bundledHelper, 0o755)

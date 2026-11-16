@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.158",
-  "versionCode": 181,
+  "versionName": "0.6.159",
+  "versionCode": 182,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71311688,
-  "apkSha256": "36c39e945821a611fee2c99c9434a74923c46bbf545ae9e7d551a7f907cb5b73",
+  "apkBytes": 71324032,
+  "apkSha256": "e7567386c5201363a305ad3a71e9cdbf4d60a3e67c1d6a6391d54b1907bf3100",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.158-production.apk",
+  "downloadFilename": "kithmoot-0.6.159-production.apk",
   "releaseNotes": [
-    "Quiet audio traces are white; sound uses the theme accent in both light and dark themes.",
-    "Audio meters keep a constant height, preventing video from moving as sound starts and stops."
+    "See incoming drawings and draw directly over your whole-screen or one-app share.",
+    "Optional overlay permission enables drawing; attaching one app also needs the window-geometry accessibility service."
   ]
 }

@@ -27,7 +27,7 @@ const [directory] = await packager({
   asar: true,
   extraResource: [helper.dir, windowHelper.dir],
   icon: resolve(root, 'artifacts/KithMoot.ico'),
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
 })
 
 await writeFile(resolve(directory, 'README.txt'), `KithMoot ${version} - Windows x64 portable preview

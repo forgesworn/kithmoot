@@ -6,11 +6,11 @@
       "updateTo": {
         "version": "0.1.163",
         "name": "0.1.163",
-        "pub_date": "2026-11-16T15:07:30Z",
+        "pub_date": "2026-11-16T15:36:57Z",
         "notes": "See incoming drawings and draw directly over a shared window or screen. The canvas follows the selected window; optional GNOME and Plasma companions support native Wayland.",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.163/KithMoot-0.1.163-mac-arm64.zip",
-        "sha256": "27781b937bb89664a6731343b5578682c5184bf8eef2c8f8741e68589e023688",
-        "size": 200358565
+        "sha256": "b155cc3f4d2d30fd671f2b1aa969f75c5aec92570714936f763cc1673144c44a",
+        "size": 200347912
       }
     }
   ]

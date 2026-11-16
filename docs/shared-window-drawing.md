@@ -48,7 +48,8 @@ the optional overlay permissions remains available.
   pointer strokes, geometry changes, hiding/restoring, display mode and stop.
   KDE KWin 6.3 native Wayland loads the compiled effect, paints received marks
   into a native target's frame and sends actual pointer strokes. Tests run in
-  isolated desktop sessions. KWin's QPainter path is exercised; OpenGL rendering
+  isolated desktop sessions. KWin 6.7.4 also builds against the installed SDK, exercising the newer
+  output/region and pointer-event APIs. KWin's QPainter path is exercised; OpenGL rendering
   awaits a host with the required graphics interfaces. GNOME 50/51 cursor
   compatibility follows the published API migration; runtime qualification of
   those versions is pending.
