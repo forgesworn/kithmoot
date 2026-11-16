@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.159",
-  "versionCode": 182,
+  "versionName": "0.6.160",
+  "versionCode": 183,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71324032,
-  "apkSha256": "e7567386c5201363a305ad3a71e9cdbf4d60a3e67c1d6a6391d54b1907bf3100",
+  "apkBytes": 71328128,
+  "apkSha256": "fb4db316c7bbb3b5af6a2065f0f16ba8e75ca060f74f79f5399453bb9bbd4d33",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.159-production.apk",
+  "downloadFilename": "kithmoot-0.6.160-production.apk",
   "releaseNotes": [
-    "See incoming drawings and draw directly over your whole-screen or one-app share.",
-    "Optional overlay permission enables drawing; attaching one app also needs the window-geometry accessibility service."
+    "Landscape calls give the video the height, with a slim side rail and compact audio meters.",
+    "Live PCM waveforms show sharper sound detail, with a white baseline and cyan trace."
   ]
 }
