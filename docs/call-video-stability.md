@@ -57,6 +57,10 @@ checks on the intended devices; no existing rooms need to be migrated.
 - Browser acceptance on web and desktop production builds: 6 passed, including
   both regressions, a genuine second camera, resumed RTP, meter colours, reduced
   motion and forced colours. Desktop meter screenshot inspected.
+- Additional Chromium check: a new camera decodes with Hide people without
+  video enabled on a narrow screen; passed.
+- Desktop unit tests: 304 passed. Packaged notarised Mac startup, renderer
+  security, persistence and pairing checks passed.
 - Android source and regression fixture are in the companion branch; its build
   checks and physical UI acceptance are recorded separately.
 
