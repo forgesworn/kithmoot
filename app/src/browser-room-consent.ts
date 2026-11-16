@@ -21,6 +21,14 @@ export interface RoomConsent {
 }
 export const consentKey = (c: Pick<RoomConsent, 'account' | 'room'>): string => `${c.account}/${c.room}`
 const hex = /^[0-9a-f]{64}$/
+export function canonicalRoomServer(value: string): boolean {
+  if (/^ws:\/\/[a-z2-7]{52}\/events$/.test(value)) return true
+  try {
+    const url = new URL(value)
+    return url.protocol === 'wss:' && !!url.hostname && !url.username && !url.password &&
+      url.pathname === '/events' && !url.search && !url.hash && url.href === value
+  } catch { return false }
+}
 const aad = new TextEncoder().encode('kithmoot.browser-room-consent.v1')
 const lockName = 'kithmoot.browser-room-consent.v1'
 
@@ -66,7 +74,7 @@ export class BrowserRoomConsents {
 
 function terms(event: Event): string[][] { return event.tags.filter(t => t[0] !== 'status') }
 export function validateConsent(c: RoomConsent): void {
-  if (!c || !hex.test(c.account) || !hex.test(c.room) || !hex.test(c.device) || !/^[A-Za-z0-9._:-]{1,128}$/.test(c.box?.routeId) || !/^ws:\/\/[a-z2-7]{52}\/events$/.test(c.box?.eventUrl) || !Number.isSafeInteger(c.expires) || c.expires <= 0 || !['installing','active','renewing','withdrawing','retired'].includes(c.phase) || !Array.isArray(c.grants) || c.grants.length > 16 || !Array.isArray(c.scopes) || c.scopes.length < 1 || c.scopes.length > 8 || !c.scopes.includes(c.room) || c.scopes.some(s => !hex.test(s)) || new Set(c.scopes).size !== c.scopes.length || !Array.isArray(c.aliases) || c.aliases.length > 4 || c.aliases.some(s => !/^lookup:[0-9a-f]{64}$/.test(s))) throw new Error('Invalid Bothy room permission.')
+  if (!c || !hex.test(c.account) || !hex.test(c.room) || !hex.test(c.device) || !/^[A-Za-z0-9._:-]{1,128}$/.test(c.box?.routeId) || !canonicalRoomServer(c.box?.eventUrl) || !Number.isSafeInteger(c.expires) || c.expires <= 0 || !['installing','active','renewing','withdrawing','retired'].includes(c.phase) || !Array.isArray(c.grants) || c.grants.length > 16 || !Array.isArray(c.scopes) || c.scopes.length < 1 || c.scopes.length > 8 || !c.scopes.includes(c.room) || c.scopes.some(s => !hex.test(s)) || new Set(c.scopes).size !== c.scopes.length || !Array.isArray(c.aliases) || c.aliases.length > 4 || c.aliases.some(s => !/^lookup:[0-9a-f]{64}$/.test(s))) throw new Error('Invalid Bothy room permission.')
   const seen = new Set<string>()
   for (const plan of c.grants) {
     for (const [event, status] of [[plan.active, 'active'], [plan.revoked, 'revoked']] as const) {
@@ -85,6 +93,7 @@ export function validateConsent(c: RoomConsent): void {
 
 export async function planRoomGrants(identity: ParticipantIdentity, box: PairedBox, room: string,
   devices: { persona: string; device: string }[], now: number, previous: RoomGrant[] = []): Promise<{ grants: RoomGrant[]; expires: number }> {
+  if (!canonicalRoomServer(box.eventUrl)) throw new Error('The room relay URL is not canonical.')
   if (!hex.test(room) || !devices.length || devices.length > 16 || devices.some(d => !hex.test(d.persona) || !hex.test(d.device))) throw new Error('Choose current room devices before granting access.')
   const expires = Math.max(now + ROOM_GRANT_TERM, ...previous.map(p => Number(p.active.tags.find(t => t[0] === 'expiration')?.[1]) + 1))
   const grants: RoomGrant[] = []

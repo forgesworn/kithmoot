@@ -1,9 +1,24 @@
-# Browser room routing to Bothy
+# Browser room routing to a private relay
 
 A signed-in person can pair a browser in Settings, open a room, then choose
 **Bothy room routing** from the room menu. The keeper explicitly grants the
 listed current devices; each participant selects their own paired route and
 activates it. Pairing by itself changes no room routing.
+
+## Standalone Wok
+
+Settings → Bothy connection also offers **Standalone Wok relay (optional)**.
+Enter the exact `wss://<host>[:port]/events` URL of a relay operated directly,
+without Bothy, Link or Archipelago. Saving only offers that route. Room
+activation, the current-device review and the signed grant/withdrawal lifecycle
+are the same as for Bothy. Standalone Wok does not resume a Link endpoint, and
+reopening a room resumes only the selected route.
+
+The Vennel [standalone room admission contract](https://github.com/forgesworn/vennel/blob/main/docs/standalone-room-admission.md)
+defines the shared kind-24242 WSS grant. Wok keeps its operator's listed
+keepers and signed guest scopes; it never replaces the room's invitation or
+membership rules. Calls, protected MLS and broader channels remain outside
+this first profile.
 
 This first journey carries main-chat text and presence, plus the control
 scope, for ordinary rooms before their first rekey. Calls, media, new
@@ -58,6 +73,13 @@ public-room pools continue to use their own routing settings.
   The Vennel lab owns these services. Its native WebSocket positive control
   counts exact room/control REQ and EVENT frames; the accepted private window
   must contain zero public room frames. Account traffic is separate.
+- `npm run test:wok-room` covers real Wok activation, scoped publication and
+  readback, restart, renewal and withdrawal. Set `WOKD_BIN` to a local binary,
+  or run with `WOK_EXTERNAL=1` and the Docker socket available against the
+  Compose gateway. `npm run test:wok-room-ui` additionally drives two visible
+  PWA sessions through standalone configuration, activation, reopening and a
+  private message. It needs the standalone Compose profile running its local
+  `relay.example.org` fixture and no production account data.
 
 The Vennel runner also supports these acceptance switches:
 

@@ -33,6 +33,7 @@ import { BrowserLink } from './browser-link.js'
 import { boardAgentRoomCurrent, borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
+import { BrowserRoomConnections, StandaloneRoomConnection } from './standalone-room-connection.js'
 import { BrowserBothyFiles } from './browser-bothy-files.js'
 import { PrivateFileVault } from './private-file-vault.js'
 import { privateAttachmentLocation } from '../../src/private-attachment.js'
@@ -912,6 +913,8 @@ const publicRelayRoutes = new WeakMap<RoomSession, { start(): Promise<void>; end
 /** Said in place of the generic notice once a discovered relay is lost. */
 let callRelayLostNotice: string | undefined
 const browserLink = new BrowserLink(startBrowserLink)
+const standaloneRoom = new StandaloneRoomConnection(localStorage)
+const browserRoomConnections = new BrowserRoomConnections(browserLink, standaloneRoom)
 // Default-off source candidate; native provenance remains qualification-only.
 const browserMlsPreview = browserMlsEnabled()
 let browserMlsPanel: BrowserMlsPanel | undefined
@@ -930,7 +933,7 @@ let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } 
 const heldEnvelopes = new HeldEnvelopes()
 /** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
 const waitingAttachments = new WeakSet<ChatAttachment>()
-const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
+const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserRoomConnections, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
   if (session?.roomId === room && !roomUsesBothy) {
     captureDraft()
@@ -15498,7 +15501,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // `shareDroppedFile`.
     if (roomUsesBothy) {
       if (!nostrSession) throw new Error('Reconnect this room’s account before resuming its Bothy route.')
-      await browserLink.resume(nostrSession.pubkey)
+      const selected = await browserRoomRoutes.selected(currentRoomId()!)
+      if (selected?.box.eventUrl.startsWith('ws://')) await browserLink.resume(nostrSession.pubkey)
       browserRoomRoutes.changed()
     }
     requireOpeningNetwork(roomUsesBothy || !!roomNode)
@@ -19548,8 +19552,23 @@ function openProfileSettings(from: HTMLElement): void {
 }
 const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey, document, browserLink,
   async () => !(await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired'))
-const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserLink, browserRoomRoutes.store, browserRoomRoutes.barrier)
-const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoomRoutes, browserLink, async () => {
+;($('wokRelayUrl') as HTMLInputElement).value = standaloneRoom.boxes()[0]?.eventUrl ?? ''
+$('wokRelaySave').addEventListener('click', () => {
+  try {
+    const box = standaloneRoom.configure(($('wokRelayUrl') as HTMLInputElement).value.trim())
+    $('wokRelayStatus').textContent = `Standalone relay saved: ${box.eventUrl}. Choose it in a room’s routing settings to activate that room.`
+  } catch (error) { $('wokRelayStatus').textContent = describeError(error) }
+})
+$('wokRelayForget').addEventListener('click', () => {
+  void (async () => {
+    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired' && c.box.eventUrl.startsWith('wss://'))) throw new Error('Withdraw every saved standalone room permission before forgetting this relay.')
+    standaloneRoom.clear()
+    ;($('wokRelayUrl') as HTMLInputElement).value = ''
+    $('wokRelayStatus').textContent = 'Standalone relay forgotten on this browser.'
+  })().catch(error => { $('wokRelayStatus').textContent = describeError(error) })
+})
+const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserRoomConnections, browserRoomRoutes.store, browserRoomRoutes.barrier)
+const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoomRoutes, browserRoomConnections, async () => {
   const s = session, account = nostrSession
   const room = currentRoomId()
   if (!account || !room) throw new Error('Open this room with its signed-in account before changing Bothy routing.')

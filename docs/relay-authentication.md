@@ -55,8 +55,10 @@ cancel, approve, withdraw, reapprove and sign-out. The CI browser matrix runs
 the same test in Chromium, Firefox and WebKit.
 
 The relay must issue its authentication challenge when the socket opens.
-This client does not discover a private endpoint, implement a Link carrier,
-transfer permission between an invitation rendezvous and an admitted room,
-or grant membership in a circle. A server's keeper policy decides whether
-the selected account is accepted. A complete private-room journey through
-the keeper's Link endpoint still needs separate interoperability acceptance.
+[Browser Link](browser-link.md) and [room activation](browser-room-activation.md)
+carry explicit permission from an admitted room to a keeper's scoped grant;
+invitation possession alone never grants relay access. Standalone Wok reuses
+that grant with its canonical WSS `/events` URL and no Link dependency.
+Real socket and built-PWA acceptance covers activation, scoped delivery,
+restart, renewal, withdrawal and reload. Calls, rekeys, protected MLS and
+automatic private-endpoint discovery remain separate work.
