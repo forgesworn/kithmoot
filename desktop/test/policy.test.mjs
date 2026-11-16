@@ -13,6 +13,9 @@ test('asset requests cannot escape bundle or install service workers', () => {
   assert.equal(localAsset(HOME + 'assets/main.js', '/app/web'), '/app/web/assets/main.js')
   for (const url of [HOME + '..%2fsecret', HOME + 'assets/%2e%2e%2f%2e%2e%2fsecret', HOME + '%00', HOME + '%5csecret', HOME + '%ZZ', HOME + 'sw.js']) assert.equal(localAsset(url, '/app/web'), null)
   assert.equal(localAsset(ORIGIN + '/turn', '/app/web'), undefined)
+  assert.equal(localAsset(HOME + 'whats-new.json?update=123', '/app/web'), undefined)
+  assert.equal(localAsset(HOME + 'whats-new.json', '/app/web'), '/app/web/whats-new.json')
+  assert.equal(localAsset(HOME + 'assets/main.js?update=123', '/app/web'), '/app/web/assets/main.js')
 })
 test('external schemes and ambient sensitive permissions are denied', () => {
   for (const url of ['javascript:alert(1)', 'file:///tmp/a', 'smb://server', 'https://user:pass@example.org']) assert.equal(isExternalUrl(url), false)

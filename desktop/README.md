@@ -1,5 +1,9 @@
 # KithMoot desktop preview
 
+Version 0.1.160 adds Metadata connection visibility, local file metadata cleaning, readable update notes and reliable Spry pairing prompts without reloading a running call. It includes the audio activity indicators from 0.1.159.
+
+The 16 November packages share all 606 built web files and the tested main/preload/policy code. The Mac archive is Developer ID signed, notarised and stapled; the actual packaged app passed startup and warm-call pairing approval and the sandbox/profile smoke. Linux x64/arm64 tarballs and Debian packages, and the unsigned Windows portable archive, carry those same files. Package checks do not establish the owner’s installed-app update or physical-device acceptance.
+
 ## Version 0.1.159
 
 Calls show measured microphone and incoming audio activity, with text states

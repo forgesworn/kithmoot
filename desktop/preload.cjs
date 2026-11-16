@@ -5,6 +5,12 @@ const shareAreaMode = ['frame', 'preview'].includes(areaSwitch) ? areaSwitch : n
 // Set only on the main window when the main process applied an inset title bar.
 const titleBarSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-title-bar='))?.split('=')[1]
 const attachmentWrites = new Map()
+let pendingSpryPairing, spryPairingListener
+ipcRenderer.on('desktop:pair-spry', (_event, hash) => {
+  if (typeof hash !== 'string' || hash.length > 4096 || !/^#spry=[A-Za-z0-9_-]+$/.test(hash)) return
+  if (spryPairingListener) spryPairingListener(hash)
+  else pendingSpryPairing = hash
+})
 function writeAttachment(id, chunk, finish) {
   const previous = attachmentWrites.get(id) ?? Promise.resolve()
   const next = previous.catch(() => false)
@@ -29,6 +35,12 @@ function closeAttachments() {
     .catch(() => {})
 }
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
+  onSpryPairing(listener) {
+    if (typeof listener !== 'function') return
+    spryPairingListener = listener
+    ipcRenderer.send('desktop:pairing-ready')
+    if (pendingSpryPairing) { const hash = pendingSpryPairing; pendingSpryPairing = undefined; listener(hash) }
+  },
   titleBar: titleBarSwitch === 'inset' ? 'inset' : null,
   onWindowState(listener) {
     const handler = (_event, state) => { if (state && typeof state.fullScreen === 'boolean') listener({ fullScreen: state.fullScreen }) }

@@ -163,6 +163,8 @@ async function external(url) {
 }
 /** An invitation that arrived before there was a window to open it in. */
 let pendingInvitation
+let pendingSpryPairing
+let spryPairingReady = false
 /** Where to go back to if the page keeps itself open after an invitation moved its address. */
 let invitationRevert
 
@@ -177,6 +179,18 @@ async function openInvitation(link) {
   if (!win || win.isDestroyed()) { pendingInvitation = target; return }
   if (win.isMinimized()) win.restore()
   win.show(); win.focus()
+  const pairingHash = new URL(target).hash
+  if (pairingHash.startsWith('#spry=') && pairingHash.length <= 4096 && /^#spry=[A-Za-z0-9_-]+$/.test(pairingHash)) {
+    // Pairing is an approval in the current app, not a room navigation.
+    // Wait for a renderer subscription, including the gap between window
+    // creation and its first load. Never lose a code in an empty window.
+    pendingSpryPairing = pairingHash
+    if (spryPairingReady && !win.webContents.isLoadingMainFrame()) {
+      win.webContents.send('desktop:pair-spry', pendingSpryPairing)
+      pendingSpryPairing = undefined
+    }
+    return
+  }
   if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.', 'Leave call and open')) return
   const current = win.webContents.getURL()
   // A link that differs only after the # is a same-document change, which
@@ -508,6 +522,14 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   // Windows and Linux start a closed app with the link as an argument.
   pendingInvitation = invitationTarget(invitationIn(process.argv) ?? '')
   app.whenReady().then(async () => {
+    ipcMain.on('desktop:pairing-ready', event => {
+      if (!trusted(event.sender) || event.senderFrame !== win?.webContents.mainFrame) return
+      spryPairingReady = true
+      if (pendingSpryPairing) {
+        win.webContents.send('desktop:pair-spry', pendingSpryPairing)
+        pendingSpryPairing = undefined
+      }
+    })
     // First, before any window: no spelling dictionaries from Google.
     for (const ses of [session.defaultSession, session.fromPartition(DESKTOP_PARTITION)]) keepSpellingLocal(ses)
     const trustedAttachment = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame

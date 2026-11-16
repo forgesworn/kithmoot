@@ -1,6 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { mkdtempSync, truncateSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, truncateSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
@@ -56,7 +56,7 @@ async function pick(page: Page, ...files: Array<{ name: string; mimeType: string
   await (await chooser).setFiles(files)
 }
 
-const JPEG = (name: string) => ({ name, mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, ...Array.from({ length: 64 }, (_, i) => i)]) })
+const JPEG = (name: string) => ({ name, mimeType: 'image/jpeg', buffer: readFileSync('test/fixtures/metadata/plain.jpg') })
 const stored = (page: Page) => page.evaluate(key => localStorage.getItem(key), CONSENT)
 
 const NOTICE_TITLE = 'Files you send are stored on blossom.yakihonne.com'

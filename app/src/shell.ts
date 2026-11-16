@@ -20,7 +20,7 @@
  *   data-level        list | detail, meaningful only below 900 px
  */
 
-export type Destination = 'chats' | 'people' | 'boards' | 'settings'
+export type Destination = 'chats' | 'people' | 'boards' | 'metadata' | 'settings'
 type Place = Destination
 
 const root = document.documentElement
@@ -66,6 +66,8 @@ function render(): void {
   if (peoplePane) peoplePane.hidden = !people
   const settingsPane = el('settingsPane')
   if (settingsPane) settingsPane.hidden = destination !== 'settings'
+  const metadataPane = el('metadataPane')
+  if (metadataPane) metadataPane.hidden = destination !== 'metadata'
   // Below 900 px with the main pane hidden, the list is what a screen reader
   // should find as the page's main landmark. The real main is not rendered
   // then, so there is still exactly one.
@@ -91,8 +93,9 @@ export function openDestination(name: Destination): void {
   // wants a room opens it from there. Settings is the exception on the way in
   // and out: it remembers what was showing, so back from it returns to the
   // room that was open.
-  if (name === 'settings') { if (from !== 'settings') levelBeforeSettings = level; level = 'detail' }
-  else level = from === 'settings' && name === 'chats' ? levelBeforeSettings : 'list'
+  const standalone = (place: Place) => place === 'settings' || place === 'metadata'
+  if (standalone(name)) { if (!standalone(from)) levelBeforeSettings = level; level = 'detail' }
+  else level = standalone(from) && name === 'chats' ? levelBeforeSettings : 'list'
   render()
   announce()
 }
@@ -114,7 +117,7 @@ export function openDetail(): void {
 export function closeDetail(): void {
   // Settings is only a main pane, and a list drawing itself behind it (a sign-out,
   // say) must not close it. The way back from it is its own arrow, or Chats.
-  if (destination === 'settings') return
+  if (destination === 'settings' || destination === 'metadata') return
   level = 'list'
   render()
 }

@@ -1,4 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
+import { installReleaseNotes } from './release-notes.js'
 
 /** Activation can finish without controllerchange on an uncontrolled first
  * visit. Observe the worker itself, and never leave a failed attempt pending. */
@@ -45,6 +46,7 @@ export interface UpdateBlock {
  * lets a phone leave a live call and update without sending somebody off to
  * find controls which may be below a large update notice. */
 export function installUpdates(blockedReason: () => string | UpdateBlock | undefined, reload: () => void = () => location.reload()): void {
+  const notes = installReleaseNotes()
   const notice = document.getElementById('updateNotice')!
   const button = document.getElementById('updateApp') as HTMLButtonElement
   const defaultMessage = notice.querySelector('span')!.textContent ?? 'Update when you are ready. Your room will reopen.'
@@ -124,6 +126,7 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
         return
       }
       if (state.phase !== 'ready') return
+      notes.offer(state.version)
       warning = false
       title.textContent = 'Update ready'
       const current = block()
@@ -154,8 +157,9 @@ export function installUpdates(blockedReason: () => string | UpdateBlock | undef
   if (import.meta.env.VITE_DESKTOP === 'true') return
   registerSW({
     immediate: true,
-    onNeedRefresh: show,
+    onNeedRefresh: () => { notes.offer(); show() },
     onNeedReload: () => {
+      notes.offer()
       activated = true
       if (approved) reloadOnce()
       else if (!preparing) show()

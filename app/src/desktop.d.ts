@@ -5,6 +5,7 @@ export {}
 declare global {
   interface Window {
     kithmootDesktop?: {
+      onSpryPairing?(listener: (hash: string) => void): void
       /** 'inset' when the main process hid the title bar (macOS). Absent before desktop 0.1.96. */
       titleBar?: 'inset' | null
       /** Full-screen changes of the main window, sent only with an inset title bar. Absent before desktop 0.1.96. */

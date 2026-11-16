@@ -173,6 +173,9 @@ import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
 import { AudioActivity } from './audio-activity.js'
+import { MetadataPanel } from './metadata-panel.js'
+import { metadataConnection } from './metadata-connection.js'
+import { cleanAttachment } from './attachment-metadata.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { inviteLinks, shortLinkPageFor } from './share-link.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError,
@@ -19783,6 +19786,30 @@ let settingsPage = 'main'
 let settingsRow: HTMLElement | undefined
 let settingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
 const settingsPane = $('settingsPane')
+const metadataPanel = new MetadataPanel($('metadataPane'), async () => {
+  const observed = await Promise.all([...openConnections.values()].map(async pc => {
+    const rows: Record<string, unknown>[] = []
+    try { (await pc.getStats()).forEach(row => rows.push(row as unknown as Record<string, unknown>)) } catch { /* Unavailable is shown explicitly. */ }
+    return metadataConnection(pc.connectionState, rows)
+  }))
+  const relayScopes = new Set(['default', roomRelayScope])
+  const relays = [...relayScopes].flatMap(scope => relayConnections.health(scope, scope === roomRelayScope ? roomRelayHints : []))
+  const destination = fileDestination()
+  const storage = destination.kind === 'bothy' ? 'This room’s selected private Bothy.'
+    : destination.kind === 'group' ? 'This room’s own group storage.'
+    : destination.kind === 'off' || destination.kind === 'withdrawn' ? 'File uploads are off or storage is unavailable.'
+    : destination.origin
+  return {
+    identity: nostrSession ? npubEncode(nostrSession.pubkey) : undefined,
+    relays: [...new Map(relays.map(relay => [relay.url, relay])).values()], storage,
+    calls: observed.map(value => value.call), addresses: [...new Set(observed.flatMap(value => value.addresses))],
+    profiles: accountNetwork.nostr && profilesEnabled,
+  }
+}, () => openDestination('chats'))
+document.addEventListener('shell:destination', () => {
+  if (currentDestination() === 'metadata') { void metadataPanel.refresh(); $('metadataPane').querySelector('h2')?.focus() }
+  else metadataPanel.hide()
+})
 nodeSettings = new NodeSettings({ store: deviceStore, owner: () => nostrSession?.signer.capabilities.canSignEvents ? nostrSession.signer : undefined, changed: () => renderCalls() })
 const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 
@@ -23825,9 +23852,12 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // through `shareDroppedFileToGroup`. This door is closed so no caller can use it by mistake.
   if (roomStorageRecord()) throw new Error('This room keeps its files on its own storage.')
   const startGeneration = roomGeneration
+  dropProgress(draft, 'Removing file metadata on this device:', file)
+  const cleaned = await cleanAttachment(file, signal)
+  if (roomGeneration !== startGeneration) throw new Error('The room changed while cleaning this file. Nothing was uploaded.')
   if (bothyFiles()) {
     dropProgress(draft, 'Encrypting and uploading through Bothy:', file)
-    const attachment = await privateFiles.upload(file, signal)
+    const attachment = await privateFiles.upload(cleaned, signal)
     signal.throwIfAborted()
     if (roomGeneration !== startGeneration || !bothyFiles()) throw new Error('The room changed. Its private upload record was retained; nothing was added to this draft.')
     draft.attachments.push(attachment)
@@ -23857,7 +23887,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   signal.throwIfAborted()
-  const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type })
+  const sealed = await encryptEnvelopeBlob(cleaned, { name: cleaned.name, type: cleaned.type })
 
   let descriptor: Awaited<ReturnType<typeof uploadEnvelopeBlob>>
   try {
@@ -23950,6 +23980,9 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
   if (nodeRoom && !nodeRoom.node.existing) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   const startGeneration = roomGeneration
+  dropProgress(draft, 'Removing file metadata on this device:', file)
+  const cleaned = await cleanAttachment(file, signal)
+  if (roomGeneration !== startGeneration) throw new Error('The room changed while cleaning this file. Nothing was uploaded.')
   const record = roomStorageRecord()
   if (!record) throw new Error('This room does not name storage of its own.')
   if (!record.nodes.length) throw new TrayError({ text: GROUP_NO_STORAGE })
@@ -23967,7 +24000,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   signal.throwIfAborted()
-  const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type })
+  const sealed = await encryptEnvelopeBlob(cleaned, { name: cleaned.name, type: cleaned.type })
 
   let result: Awaited<ReturnType<GroupStorage['upload']>>
   try {
@@ -24881,6 +24914,7 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
   finally { spryPairingInFlight = false; button.disabled = false }
 }
 if (spryPairingHash) void pairSpryOnThisDevice(spryPairingHash)
+window.kithmootDesktop?.onSpryPairing?.(hash => { void pairSpryOnThisDevice(hash) })
 if (nodePairingHash) void identityReady.finally(() => {
   const fragment = nodePairingHash; nodePairingHash = undefined
   openDestination('settings'); showSettingsPage('callNode')

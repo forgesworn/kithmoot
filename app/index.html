@@ -24,6 +24,7 @@
     <aside id="updateNotice" hidden role="status" aria-atomic="true">
       <div><strong>Update ready</strong><span>Update when you are ready. Your room will reopen.</span></div>
       <button id="updateApp" type="button">Update now</button>
+      <button id="updateChanges" type="button">What’s new</button>
     </aside>
     <!-- Skip links come first in the tab order (design-calm-shell, section
          9.1). They are links, but a real #fragment would overwrite the
@@ -44,6 +45,7 @@
       <button id="railChats" class="railItem" type="button" data-destination="chats" aria-current="page"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-chats"/></svg><span id="railChatsCount" class="railCount" hidden></span></span><span class="railLabel">Chats</span></button>
       <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg></span><span class="railLabel">People</span></button>
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
+      <button id="railMetadata" class="railItem" type="button" data-destination="metadata" aria-controls="metadataPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-eye"/></svg></span><span class="railLabel">Metadata</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
         <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
@@ -114,6 +116,7 @@
       </nav>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <div id="workspaceContent">
+      <section id="metadataPane" aria-label="Metadata" hidden></section>
       <section id="peoplePane" aria-label="Contact" hidden>
         <p class="note">People is coming in this build.</p>
       </section>
@@ -170,6 +173,7 @@
             <span class="infoRowText"><span class="infoRowTitle">About and help</span><span class="infoRowSub" id="settingsSubabout">Report abuse</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
+          <button id="appWhatsNew" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="releaseNotes"><span class="infoRowText"><span class="infoRowTitle">What’s new</span><span class="infoRowSub">Changes in this version</span></span><svg class="i infoChevron" aria-hidden="true"><use href="#i-chevron"/></svg></button>
           </div>
         </div>
         <section class="settingsPage" data-settings-page="account" data-settings-title="Account" hidden>

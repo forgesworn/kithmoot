@@ -3,10 +3,27 @@ import { finalizeEvent, verifyEvent } from 'nostr-tools/pure'
 import { fileFixture, deferred, scope, node, otherNode, account, accountKey, room } from '../../test/private-file-fixture.js'
 import { PrivateFileVault } from './private-file-vault.js'
 import { sha256Hex } from '../../src/attachment.js'
+import { readFile } from 'node:fs/promises'
 
 const signal = () => new AbortController().signal
 
 describe('private files over the selected paired Bothy route', () => {
+  it('stores cleaned animation bytes and never dispatches an unsupported original', async () => {
+    const f = fileFixture(); await f.controller.allow()
+    const image = new Uint8Array(await readFile('test/fixtures/animated-colours.gif'))
+    const metadata = new TextEncoder().encode('PRIVATE_METADATA_SENTINEL')
+    const tagged = new Uint8Array(image.length + metadata.length + 4)
+    tagged.set(image.subarray(0, -1))
+    tagged.set([0x21, 0xfe, metadata.length, ...metadata, 0, 0x3b], image.length - 1)
+    const original = new File([tagged], 'animation.gif', { type: 'image/gif' })
+    const attachment = await f.controller.upload(original, signal())
+    const opened = await f.controller.download(attachment, signal())
+    expect(new Uint8Array(await opened.source.arrayBuffer())).toEqual(image)
+    expect(await original.arrayBuffer()).toEqual(tagged.buffer)
+    const calls = f.request.mock.calls.length
+    await expect(f.controller.upload(new File(['MZprivate-original'], 'program.exe'), signal())).rejects.toThrow()
+    expect(f.request).toHaveBeenCalledTimes(calls)
+  })
   it('encrypts before dispatch, binds signed upload authority and decrypts verified bytes without following descriptor URLs', async () => {
     const f = fileFixture(); await f.controller.allow()
     const noFetch = vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No public fetch permitted'))

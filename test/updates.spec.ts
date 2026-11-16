@@ -417,3 +417,29 @@ test('a fresh profile installs without downloading original chat-art or emoji', 
     await release.close()
   }
 })
+
+test('reading offered release notes does not activate the waiting update', async ({ browser }) => {
+  const release = await releaseServer()
+  const context = await browser.newContext({ serviceWorkers: 'allow' })
+  await context.routeWebSocket(/.*/, ws => ws.close())
+  try {
+    const page = await context.newPage()
+    await page.goto(release.base)
+    await page.evaluate(async () => { await navigator.serviceWorker.ready })
+    // A first visit has no controlled client, so its next worker can
+    // activate automatically. Exercise an existing user's waiting update.
+    await page.reload()
+    expect(await page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true)
+    release.publish()
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await expect(page.locator('#updateNotice')).toBeVisible()
+    await page.locator('#updateChanges').click()
+    await expect(page.locator('#releaseNotes')).toContainText('Changes in the available web update')
+    await expect(page.locator('#releaseNotes')).toContainText('Voice calls keep the chat')
+    expect(release.requests.some(r => r.includes('/whats-new.json?update='))).toBe(true)
+    const waiting = await page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting))
+    expect(waiting).toBe(true)
+    await page.locator('#releaseNotes [data-notes-close]').click()
+    await expect(page.locator('#updateNotice')).toBeVisible()
+  } finally { await context.close(); await release.close() }
+})
