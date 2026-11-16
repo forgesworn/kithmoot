@@ -52,6 +52,14 @@ function invitationLink(extra: { name?: string; pairingCode?: Uint8Array } = {})
 }
 
 describe('the rooms this device has been in', () => {
+  it('keeps a personal chat label through visits and shared name updates, and resets explicitly', () => {
+    const store = memoryDeviceStore(), link = invitationLink()
+    rememberRoom(store, { roomId: ROOM_A, link, name: 'Old room name', chatLabel: 'Taylor at work', openedAt: NOW })
+    rememberRoom(store, { roomId: ROOM_A, link, name: 'Changed by somebody else', openedAt: NOW + 1 })
+    expect(knownRoom(store, ROOM_A)?.chatLabel).toBe('Taylor at work')
+    rememberRoom(store, { roomId: ROOM_A, link, chatLabel: null, openedAt: NOW + 2 })
+    expect(knownRoom(store, ROOM_A)?.chatLabel).toBeUndefined()
+  })
   it('writes a room down on a visit, and lists the most recently opened first', () => {
     const store = memoryDeviceStore()
     rememberRoom(store, { roomId: ROOM_A, link: invitationLink({ name: 'Town hall' }), openedAt: NOW })

@@ -11,6 +11,27 @@ const configuration = () => ({ v: 1, host: 'node.example', hosting: 'rented', re
   maxBytes: 1073741824, minFreeBytes: 1073741824, maxRooms: 8, origins: ['https://app.example'],
   spryBinary: '/opt/kithmoot-node/bin/spry-node', shelterBinary: '/opt/kithmoot-node/bin/bothyd', certificate: '/var/lib/kithmoot-node/tls/fullchain.pem',
   certificateKey: '/var/lib/kithmoot-node/tls/privkey.pem', deskPort: 3746, spryPort: 3744, shelterPort: 3745 })
+
+/** Keep ephemeral front ports distinct and outside these fixtures' fixed TURN ranges. */
+async function fixturePorts(): Promise<number[]> {
+  const listeners: ReturnType<typeof createServer>[] = [], ports: number[] = []
+  try {
+    for (let attempt = 0; ports.length < 3 && attempt < 1024; attempt++) {
+      const server = createServer(); listeners.push(server)
+      await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+      const address = server.address()
+      if (!address || typeof address === 'string') throw Error('listener')
+      const port = address.port
+      if ([3478, 5349, 34790, 53499].includes(port) || port >= 49160 && port <= 49703) {
+        await new Promise<void>(resolve => server.close(() => resolve())); listeners.pop()
+        continue
+      }
+      ports.push(port)
+    }
+    if (ports.length !== 3) throw Error('Could not reserve fixture ports')
+    return ports
+  } finally { await Promise.all(listeners.map(server => new Promise<void>(resolve => server.close(() => resolve())))) }
+}
 it('requires explicit hosted deployment and resource choices, refusing unsafe or colliding settings', () => {
   expect(validateConfiguration(configuration()).maxRooms).toBe(8)
   for (const patch of [{ hosting: 'home' }, { relayIp: '192.168.1.1' }, { relayIp: '100.64.0.1' }, { relayIp: '192.0.2.1' },
@@ -46,12 +67,7 @@ it('runs a private local control socket and cleans up its children, socket and w
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-run-')); paths.push(directory)
   const binary = join(directory, 'backend')
   writeFileSync(binary, '#!/bin/sh\nexec /bin/sleep 30\n', { mode: 0o700 })
-  const ports: number[] = []
-  for (let i = 0; i < 3; i++) {
-    const server = createServer(); await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
-    const address = server.address(); if (!address || typeof address === 'string') throw Error('listener')
-    ports.push(address.port); await new Promise<void>(r => server.close(() => r()))
-  }
+  const ports = await fixturePorts()
   initialise(directory, { ...configuration(), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] })
   const node = await runNode(directory)
   try {
@@ -114,12 +130,7 @@ it.each([undefined, 256, 512])('launches the host-gated backend with allocation 
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-host-env-')); paths.push(directory)
   const binary = join(directory, 'backend'), capture = join(directory, 'ports.txt')
   writeFileSync(binary, '#!/bin/sh\nif [ -n "${SPRY_TURN_PORT:-}" ]; then\n  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "' + capture + '"\nfi\nexec /bin/sleep 30\n', { mode: 0o700 })
-  const ports: number[] = []
-  for (let i = 0; i < 3; i++) {
-    const server = createServer(); await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
-    const address = server.address(); if (!address || typeof address === 'string') throw Error('listener')
-    ports.push(address.port); await new Promise<void>(r => server.close(() => r()))
-  }
+  const ports = await fixturePorts()
   const secrets = manifestSecrets()
   initialise(directory, { ...hostConfiguration(), ...(count === undefined ? {} : { relayPortCount: count }), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] }, false, secrets)
   await expect(runNode(directory, { ...secrets, stateSalt: '44'.repeat(32) })).rejects.toThrow('Manifest secrets differ')

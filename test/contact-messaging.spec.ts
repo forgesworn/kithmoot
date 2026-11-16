@@ -3,7 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { parseRoomLink } from '../src/link.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS, openSettings } from './browser.js'
+import { TEST_RELAY_WS, openSettings, openRoomInfoPage } from './browser.js'
 import { shareContacts } from './contacts-grant.js'
 
 
@@ -14,6 +14,9 @@ test('Signet contacts start a private conversation without a shared room, delive
   try {
     const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
     for (const key of [aKey, bKey]) await publisher.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), tags: [['relay', relay.href]], content: '' }, key))
+    for (const [key, name] of [[aKey, 'Alice'], [bKey, 'Bob from Signet']] as const) {
+      await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify({ name }) }, key))
+    }
     let alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 }); await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await shareContacts(alice, a, [{ pubkey: b, name: 'Bob from Signet' }], publisher)
     await alice.locator('#signetContactsSearch').fill('unmatched person')
@@ -69,6 +72,30 @@ test('Signet contacts start a private conversation without a shared room, delive
     // Preserve source room ownership and the collaboration controls.
     await expect(alice.locator('#newMenuButton:visible')).toBeVisible()
     await expect(alice.locator('#railBoards:visible')).toContainText('Boards')
+    // A direct chat has two personal labels, never a shared room rename.
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob from Signet')
+    await expect(bob.locator('#roomTitle')).toHaveText('Alice')
+    await openRoomInfoPage(alice, 'Name and picture')
+    await expect(alice.locator('#roomRename')).toBeVisible()
+    await expect(alice.locator('#roomRenameSave')).toHaveText('Save name for me')
+    await alice.locator('#roomRenameInput').fill('Bob at work')
+    await alice.locator('#roomRenameSave').click()
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob at work')
+    await expect(bob.locator('#roomTitle')).toHaveText('Alice')
+    await expect(bob.locator('#chatLog')).not.toContainText('renamed the room')
+    await alice.reload()
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob at work')
+    await alice.screenshot({ path: test.info().outputPath('direct-chat-personal-title.png') })
+    await bob.screenshot({ path: test.info().outputPath('direct-chat-counterpart-title.png') })
+    await openRoomInfoPage(bob, 'Name and picture')
+    await bob.locator('#roomRenameInput').fill('Alice from the club')
+    await bob.locator('#roomRenameSave').click()
+    await expect(bob.locator('#roomTitle')).toHaveText('Alice from the club')
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob at work')
+    await openRoomInfoPage(alice, 'Name and picture')
+    await alice.locator('#roomRenameReset').click()
+    await expect(alice.locator('#roomTitle')).toHaveText('Bob from Signet')
+    await expect(bob.locator('#roomTitle')).toHaveText('Alice from the club')
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })
 
