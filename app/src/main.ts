@@ -108,6 +108,8 @@ import { editableBy, latestEditable } from './composer-edit.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
+import { observedCallConnection } from './call-connection.js'
+import { CallConnectionsPanel } from './call-connections-panel.js'
 import { installAgentsHear } from './call-agents-hear.js'
 import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
 import './call-surface.css'
@@ -14022,6 +14024,8 @@ interface RemoteVideo {
   track: MediaStreamTrack
   /** `currentTime` at the last check - a picture that is moving is live. */
   last: number
+  /** Decoded frames are independent evidence when a browser's clock stalls. */
+  lastFrames?: number
   /** Consecutive checks with no new frame. */
   stalled: number
   /**
@@ -14663,8 +14667,11 @@ function syncRemoteVideos(): void {
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
     const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
-    const moving = pictureAdvanced(entry.last, clock, hasFrame)
+    const quality = entry.el.getVideoPlaybackQuality?.()
+    const frames = quality ? quality.totalVideoFrames - quality.droppedVideoFrames : undefined
+    const moving = pictureAdvanced(entry.last, clock, hasFrame, entry.lastFrames, frames)
     entry.last = clock
+    entry.lastFrames = frames
     if (moving) {
       noteProgress(entry.track, now)
     }
@@ -14711,6 +14718,7 @@ function syncRemoteVideos(): void {
       // fifteen seconds for as long as the picture stays frozen.
       entry.el.srcObject = new MediaStream([entry.track])
       entry.last = -1
+      entry.lastFrames = undefined
       if (!leftCall && entry.el.paused) void entry.el.play().catch(() => { /* the next pass tries again */ })
       callTimeline.record('tile-bound', short(tileDevice(key)), 'video')
     }
@@ -14836,6 +14844,7 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       // A new track has never played, whatever the old one did, and the
       // clock it is judged by starts again.
       existing!.last = -1
+      existing!.lastFrames = undefined
       existing!.stalled = 0
       existing!.played = false
       el.classList.add('awaitingFrame')
@@ -18771,9 +18780,48 @@ function renderRoomMenu(): void {
 wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: NARROW_ROOM_BAR })
 
 // More, in the call bar: a menu built from the same parts as the room's ⋯.
+const callConnections = new CallConnectionsPanel($('callConnectionsContent'), async () => {
+  const s = mediaSession()
+  if (!s) return { room: ['No active call.'], people: [] }
+  const runtime = nodeRuntimes.get(s)
+  const nodeHost = runtime ? new URL(runtime.state.node.origin).hostname : undefined
+  const transport = dockedCall?.session === s ? dockedCall.transport : sessionTransport
+  const room = runtime ? [`KithMoot room node · ${nodeHost}`] : ['Room relay connections:']
+  for (const relay of transport?.health() ?? []) {
+    // Host only: private relay paths and query parameters can hold room data.
+    try { room.push(`${new URL(relay.url).host} · ${relay.state}`) } catch { /* No raw URL fallback. */ }
+  }
+  const routes = s.routes
+  const peers = [...openConnections]
+  const views = s.participants().filter(view => view.devices.some(device => device !== myDeviceId && view.call?.devices.includes(device)))
+  const people = await Promise.all(views.map(async view => ({
+    name: shownAs(view.participant, view.name).name ?? 'Somebody',
+    devices: await Promise.all(view.devices.filter(device => device !== myDeviceId && view.call?.devices.includes(device)).map(async (device, index) => {
+      const route = routes.get(device)
+      const endpoint = route?.endpoint ?? device
+      const choices = peers.filter(([key]) => connectionDevice(key) === endpoint)
+      const connection = [...choices].reverse().find(([, pc]) => pc.connectionState === 'connected') ?? choices.at(-1)
+      const rows: Record<string, unknown>[] = []
+      if (connection) {
+        // Keep an unresponsive browser stats API from blocking panel refresh.
+        let timer: number | undefined
+        try {
+          const report = await Promise.race([connection[1].getStats(), new Promise<undefined>(resolve => { timer = window.setTimeout(resolve, 1500) })])
+          report?.forEach(row => rows.push(row as unknown as Record<string, unknown>))
+        } catch { /* Unknown is displayed; configured relays are not proof. */ }
+        finally { clearTimeout(timer) }
+      }
+      const via = route?.tier === 'assist' ? `volunteer ${nameOfDevice(endpoint)}` : route?.tier === 'forwarder' ? 'a room forwarder' : undefined
+      return { label: `Device ${index + 1}`, connection: observedCallConnection(connection?.[1].connectionState ?? 'connecting', rows, { via, nodeHost }) }
+    })),
+  })))
+  if (mediaSession() !== s) throw Error('Call changed')
+  return { room, people }
+})
 installCallMore({
   invitePeople: () => roomMenuModel().invite ? () => openInviteDialog(false, $('callExtras')) : undefined,
   ipHidden: () => { const s = mediaSession(); return !!s && sessionRelayOnly.get(s) === true },
+  connectionsChanged: open => callConnections.setOpen(open),
 })
 // The first unmute in a call with an agent in the room asks about hearing.
 installAgentsHear({

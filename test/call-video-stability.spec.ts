@@ -52,11 +52,15 @@ test('recovery leaves a paused parked picture alone until media resumes', async 
     await video.evaluate(el => {
       const video = el as HTMLVideoElement
       const clock = video.currentTime
+      const quality = video.getVideoPlaybackQuality.bind(video)
+      const frozenQuality = quality()
       Object.defineProperty(video, 'currentTime', { configurable: true, get: () => clock })
+      video.getVideoPlaybackQuality = () => frozenQuality
       const original = RTCRtpReceiver.prototype.getSynchronizationSources
       RTCRtpReceiver.prototype.getSynchronizationSources = () => []
       ;(window as unknown as { resumePicture: () => void }).resumePicture = () => {
         delete (video as unknown as Record<string, unknown>).currentTime
+        video.getVideoPlaybackQuality = quality
         RTCRtpReceiver.prototype.getSynchronizationSources = original
       }
       ;(window as unknown as { stalledPicture: HTMLVideoElement }).stalledPicture = video
@@ -83,6 +87,68 @@ test('recovery leaves a paused parked picture alone until media resumes', async 
     expect(restored).toBe(false)
     await bob.evaluate(() => (window as unknown as { resumePicture: () => void }).resumePicture())
     await expect.poll(() => bob.evaluate(() => (window as unknown as { stalledPicture: HTMLVideoElement }).stalledPicture.closest('.participant') !== null), { timeout: 10_000 }).toBe(true)
+  } finally { await a.close(); await b.close() }
+})
+
+test('decoded video is not rebound after a stalled playback clock crosses the recovery deadline', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const ada = await a.newPage(), bob = await b.newPage()
+    const url = await createRoom(ada, baseURL!)
+    await joinWithMedia(ada, url, 'Ada')
+    await joinWithMedia(bob, url, 'Bob')
+    const video = bob.locator('#room .participant[data-self="false"] video:not(.screenPreview):not(.awaitingFrame)').first()
+    await expect(video).toBeVisible()
+    await expect.poll(() => bob.evaluate(inbound).then(stats => stats.framesDecoded)).toBeGreaterThan(10)
+    const result = await video.evaluate(async el => {
+      const video = el as HTMLVideoElement, source = video.srcObject, clock = video.currentTime
+      const before = video.getVideoPlaybackQuality().totalVideoFrames
+      Object.defineProperty(video, 'currentTime', { configurable: true, get: () => clock })
+      try {
+        // The recovery watchdog resets a decoder after 15 seconds. Keep RTP
+        // and decoded frames real while withholding only its playback clock.
+        await new Promise(resolve => setTimeout(resolve, 20_000))
+        return { sameStream: video.srcObject === source, frames: video.getVideoPlaybackQuality().totalVideoFrames - before }
+      } finally { delete (video as unknown as Record<string, unknown>).currentTime }
+    })
+    expect(result.sameStream, 'a healthy decoder was reset by the watchdog').toBe(true)
+    expect(result.frames).toBeGreaterThan(20)
+  } finally { await a.close(); await b.close() }
+})
+
+test('call connection details identify each person and observed direct media without interrupting playback', async ({ browser, baseURL }, testInfo) => {
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const ada = await a.newPage(), bob = await b.newPage()
+    const url = await createRoom(ada, baseURL!)
+    await joinWithMedia(ada, url, 'Ada')
+    await joinWithMedia(bob, url, 'Bob')
+    await expect.poll(() => bob.evaluate(inbound).then(stats => stats.framesDecoded)).toBeGreaterThan(10)
+    const before = await bob.evaluate(inbound).then(stats => stats.framesDecoded)
+    await bob.locator('#callExtras').click()
+    await bob.getByRole('menuitem', { name: 'Connection details…' }).click()
+    const panel = bob.getByRole('dialog', { name: 'Connection details' })
+    await expect(panel).toBeVisible()
+    await expect(panel).toContainText('Ada')
+    await expect(panel).toContainText('Direct to the other device')
+    await expect(panel).toContainText('frames decoded')
+    await expect.poll(() => bob.evaluate(inbound).then(stats => stats.framesDecoded)).toBeGreaterThan(before + 20)
+    for (const width of [1440, 768, 390, 320]) {
+      await bob.setViewportSize({ width, height: 850 })
+      expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    }
+    await bob.screenshot({ path: testInfo.outputPath('connection-details-phone.png') })
+    await panel.getByRole('button', { name: 'Close Connection details' }).click()
+    await expect(panel).not.toBeVisible()
+    await expect(bob.locator('#callExtras')).toBeFocused()
+    await bob.waitForTimeout(2500)
+    await expect(bob.locator('#callConnectionsContent')).toBeEmpty()
+    await bob.locator('#callExtras').click()
+    await bob.getByRole('menuitem', { name: 'Connection details…' }).click()
+    await expect(panel).toContainText('Ada')
+    await bob.keyboard.press('Escape')
+    await expect(panel).not.toBeVisible()
+    await expect(bob.locator('#callExtras')).toBeFocused()
   } finally { await a.close(); await b.close() }
 })
 

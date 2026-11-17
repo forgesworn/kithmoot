@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.165",
+  "currentRelease": "0.1.166",
   "releases": [
     {
-      "version": "0.1.165",
+      "version": "0.1.166",
       "updateTo": {
-        "version": "0.1.165",
-        "name": "0.1.165",
-        "pub_date": "2026-11-17T13:52:47Z",
-        "notes": "Calls keep an advertised camera visible through brief gaps in playback and receiver progress readings. Callers without a roster or public-profile name can use a name already held in contacts or the saved private chat.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.165/KithMoot-0.1.165-mac-arm64.zip",
-        "sha256": "bf4d52be50ce84fabfdcdf98ba4b88032e114190f8d6f3bdf33632de95f09408",
-        "size": 200351449
+        "version": "0.1.166",
+        "name": "0.1.166",
+        "pub_date": "2026-11-17T15:34:13Z",
+        "notes": "More → Connection details shows observed direct or TURN call paths, available relay hostnames and the room node separately. Video recovery accepts presented-frame progress when the playback clock stalls, avoiding an unnecessary reset. The reported Android-to-desktop flashes still need a live call check.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.166/KithMoot-0.1.166-mac-arm64.zip",
+        "sha256": "6333343f20281ca7fbe511a1e78d4dd68fa5f61f496fa19c7e6ac78fd2e4b174",
+        "size": 200354745
       }
     }
   ]

@@ -1,11 +1,11 @@
 {
-  "id": "2026-11-16-direct-chat-names",
-  "date": "16 November 2026",
-  "title": "Your own names for private chats",
+  "id": "2026-11-17-call-connection-details",
+  "date": "17 November 2026",
+  "title": "See how your call connects",
   "changes": [
-    "One-to-one chats show the other person’s name: you see Taylor; Taylor sees you.",
-    "Open Room info → Name and picture to choose a name only you see. Your label syncs privately between devices signed into your account. Use their name restores the default.",
-    "Group chat names stay shared. A group with only two people is still a group.",
-    "Includes the recent call layout, audio activity, Metadata and local attachment-cleaning improvements."
+    "During a call, open More → Connection details to see this device’s observed direct or TURN media path and relay hostname where available.",
+    "The room node and configured signalling relays are shown separately from the selected media connection.",
+    "Details stay on this device and refresh only while the view is open.",
+    "Desktop video no longer resets solely because the playback clock stalls while picture frames keep advancing."
   ]
 }
