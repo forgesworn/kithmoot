@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.162",
-  "versionCode": 185,
+  "versionName": "0.6.163",
+  "versionCode": 186,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71356800,
-  "apkSha256": "a76e87e69633c536c0a1b8e23d8d0943b4f64e8cdd34ca4e0f5cffef40ad875d",
+  "apkBytes": 71373184,
+  "apkSha256": "c2999cc3a6b3e026c56b8d3b578daf2d87b2aaa3d46984122e9e04089cc2e383",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.162-production.apk",
+  "downloadFilename": "kithmoot-0.6.163-production.apk",
   "releaseNotes": [
-    "More → Connection details shows observed direct or TURN call paths and relay hostnames where available.",
-    "The room node is shown separately. Connection statistics are read locally while the sheet is open."
+    "Call microphone activity sits with each person’s tile; controls wrap at larger text sizes.",
+    "Loudspeaker reflects Android’s output and repairs a stuck earpiece route during an active Telecom call.",
+    "People gradually refreshes verified names and picture URLs and remembers them in an encrypted account cache."
   ]
 }
