@@ -83,6 +83,8 @@
     "typecheck": "npm run build:context && tsc --noEmit -p tsconfig.json && tsc --noEmit -p app/tsconfig.json",
     "vectors": "npm run build:lib && node vectors/generate.mjs && node vectors/generate-cadence.mjs && node vectors/generate-circle.mjs",
     "test:turn": "playwright test --config playwright.turn.config.ts",
+    "test:wok-room": "node test/wok-room-live.mjs",
+    "test:wok-room-ui": "node test/wok-room-ui.mjs",
     "test:call-relay": "playwright test --config playwright.call-relay.config.ts",
     "test:publisher": "playwright test --config playwright.publisher.config.ts",
     "test:independent-calls": "playwright test --config playwright.independent-calls.config.ts",

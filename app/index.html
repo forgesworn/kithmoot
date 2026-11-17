@@ -2117,6 +2117,11 @@
       <div class="profileSettingsHeader"><h2 id="bothySettingsTitle">Bothy connection</h2><button id="bothyClose" type="button">Close</button></div>
       <p>Pair this browser with your Bothy over Link. Your Link relay carries encrypted traffic and can observe connection timing and volume.</p>
       <p class="note">Pairing prepares a connection. Choose Bothy room routing in a room’s settings to activate that room separately.</p>
+      <label>Standalone Wok relay (optional) <input id="wokRelayUrl" type="text" autocomplete="off" spellcheck="false" placeholder="wss://relay.example.org/events"></label>
+      <p class="note">Use a relay you operate directly, without Bothy, Link or Archipelago. Saving it only offers the route; each room still needs separate activation.</p>
+      <button id="wokRelaySave" type="button">Save standalone relay</button>
+      <button id="wokRelayForget" type="button" class="quiet">Forget standalone relay</button>
+      <p id="wokRelayStatus" class="note" role="status"></p>
       <label>Link relay addresses <input id="bothyRelays" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
       <p class="note">Use the relay addresses supplied by your Bothy keeper. Leave blank to resume the saved connection.</p>
       <button id="bothyConnect" type="button">Connect or resume</button>
@@ -2131,11 +2136,11 @@
     <dialog id="bothyRoomSettings" class="profileSettings" aria-labelledby="bothyRoomTitle" data-keep-open>
       <div class="profileSettingsHeader"><h2 id="bothyRoomTitle">Bothy room routing</h2><button id="bothyRoomClose" type="button">Close</button></div>
       <p id="bothyRoomLabel"></p>
-      <p>This moves this room’s text and presence to one paired Bothy. Calls, media, new invitations and ungranted channels remain unavailable on this route. Account and profile connections keep their own settings.</p>
+      <p>This moves this room’s text and presence to one paired Bothy or standalone Wok relay. Calls, media, new invitations and ungranted channels remain unavailable on this route. Account and profile connections keep their own settings.</p>
       <p>Update or close older KithMoot tabs first. A sleeping tab that cannot confirm closure blocks activation.</p>
       <p class="note">Public history recovery and cleanup are paused while a Bothy room selection is saved in this browser.</p>
-      <label>Paired Bothy <select id="bothyRoomRoute"></select></label>
-      <p><label><input id="bothyRoomKeeper" type="checkbox"> I keep this Bothy: grant my device and the current devices below access for 30 days.</label></p>
+      <label>Private relay route <select id="bothyRoomRoute"></select></label>
+      <p><label><input id="bothyRoomKeeper" type="checkbox"> I keep this relay: grant my device and the current devices below access for 30 days.</label></p>
       <p id="bothyRoomDevices" class="note"></p>
       <button id="bothyRoomActivate" type="button">Activate or resume room</button>
       <button id="bothyRoomRenew" type="button">Renew keeper grants</button>

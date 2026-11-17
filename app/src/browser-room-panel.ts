@@ -1,6 +1,5 @@
-import type { BrowserLink } from './browser-link.js'
 import type { BrowserRoomRoutes } from './browser-room-routes.js'
-import { BrowserRoomActivation, type RoomActivationInput } from './browser-room-activation.js'
+import { BrowserRoomActivation, type RoomActivationInput, type RoomRouteSource } from './browser-room-activation.js'
 
 export interface RoomPanelContext extends Omit<RoomActivationInput, 'box' | 'guests'> {
   account: string
@@ -14,12 +13,12 @@ export interface RoomPanelContext extends Omit<RoomActivationInput, 'box' | 'gue
 export class BrowserRoomPanel {
   #context?: RoomPanelContext
   #busy = false
-  constructor(private activation: BrowserRoomActivation, private routes: BrowserRoomRoutes, private link: BrowserLink,
+  constructor(private activation: BrowserRoomActivation, private routes: BrowserRoomRoutes, private link: RoomRouteSource,
     private context: () => Promise<RoomPanelContext>, private root: Document = document) {
     this.el('bothyRoomClose').onclick = () => this.dialog.close()
     this.el('bothyRoomActivate').onclick = () => { void this.run(async context => {
       const box = (await this.link.pairedBoxes(context.account)).find(b => b.routeId === (this.el('bothyRoomRoute') as HTMLSelectElement).value)
-      if (!box) throw new Error('Connect and pair your Bothy in Settings first.')
+      if (!box) throw new Error('Connect Bothy or save a standalone Wok relay in Settings first.')
       const saved = await this.routes.selected(context.room)
       if (!saved || saved.phase === 'retired') {
         const fresh = await this.context()
@@ -28,11 +27,11 @@ export class BrowserRoomPanel {
       }
       await this.activation.activate({ ...context, box, guests: (this.el('bothyRoomKeeper') as HTMLInputElement).checked ? context.devices : undefined })
       await context.resume()
-      return 'This room now uses Bothy for its granted text channels. Other account connections keep their own settings.'
+      return 'This room now uses its selected private relay for granted text channels. Other account connections keep their own settings.'
     }) }
     this.el('bothyRoomRenew').onclick = () => { void this.run(async context => {
       await this.activation.renew(context.room, context.readiness); await context.resume()
-      return 'Bothy confirmed renewed room grants and readiness.'
+      return 'The private relay confirmed renewed room grants and readiness.'
     }) }
     this.el('bothyRoomWithdraw').onclick = () => { void this.run(async context => {
       await context.leave()
@@ -51,7 +50,8 @@ export class BrowserRoomPanel {
       this.el('bothyRoomLabel').textContent = context.label
       this.el('bothyRoomDevices').textContent = context.devices.length ? context.devices.map(d => `${d.label}: ${d.device.slice(0, 12)}…`).join('; ') : 'No other current devices are present. Ask the other participant to open this room before issuing their grant.'
       const select = this.el('bothyRoomRoute') as HTMLSelectElement
-      select.replaceChildren(...(await this.link.pairedBoxes(context.account)).map((box, i) => new Option(`Paired Bothy ${i + 1} · ${box.eventUrl.slice(5, 17)}…`, box.routeId)))
+      select.replaceChildren(...(await this.link.pairedBoxes(context.account)).map((box, i) => new Option(
+        box.eventUrl.startsWith('wss://') ? `Standalone Wok · ${new URL(box.eventUrl).host}` : `Paired Bothy ${i + 1} · ${box.eventUrl.slice(5, 17)}…`, box.routeId)))
       if (consent) select.value = consent.box.routeId
       this.el('bothyRoomStatus').textContent = consent ? `Saved state: ${consent.phase}. Permission term ends ${new Date(consent.expires * 1000).toLocaleString()}. Traffic stays on this selection until you withdraw it.` : 'Activation closes this room’s public connections in every tab. The other participant must activate their own paired route too.'
     } catch (error) { this.#context = undefined; this.el('bothyRoomStatus').textContent = String((error as Error).message) }

@@ -7,7 +7,7 @@ import { BrowserRoomConsents, ROOM_READ_KINDS, ROOM_WRITE_KINDS, type RoomConsen
 import { BrowserRoomBarrier } from './browser-room-barrier.js'
 import { BrowserRoomPool, type ManagedRelayPool } from './browser-room-pool.js'
 import { BrowserLinkRelay } from './browser-link-relay.js'
-import type { BrowserLink } from './browser-link.js'
+import type { RoomRouteSource } from './browser-room-activation.js'
 import { guardPublicRoomOperations, PUBLIC_ROOM_OPERATIONS } from './public-room-operation.js'
 
 export class BrowserRoomRoutes {
@@ -15,7 +15,7 @@ export class BrowserRoomRoutes {
   readonly barrier = new BrowserRoomBarrier()
   #pools = new Set<BrowserRoomPool>()
   #enabled = true
-  constructor(private identity: () => ParticipantIdentity | undefined, private link: BrowserLink,
+  constructor(private identity: () => ParticipantIdentity | undefined, private link: RoomRouteSource,
     private closePublicSession: (room: string) => Promise<void>, accountNetwork?: AccountNetwork) {
     guardPublicRoomOperations(async stop => {
       accountNetwork?.requireNostr()
@@ -43,10 +43,10 @@ export class BrowserRoomRoutes {
       },
       privatePool: async consent => {
         const identity = this.identity()
-        if (!this.#enabled || !identity || identity.pubkey !== consent.account) throw new Error('Sign in as the account that selected this room’s Bothy.')
+        if (!this.#enabled || !identity || identity.pubkey !== consent.account) throw new Error('Sign in as the account that selected this room’s private relay.')
         // Background watches cannot seize endpoint ownership from the tab
         // the person is reopening. Other tabs hold without public fallback.
-        if (!this.link.boxes().some(b => b.routeId === consent.box.routeId && b.eventUrl === consent.box.eventUrl)) throw new Error('Open this room or connect Bothy to resume its saved route.')
+        if (!this.link.boxes().some(b => b.routeId === consent.box.routeId && b.eventUrl === consent.box.eventUrl)) throw new Error('Open this room or connect its private relay to resume the saved route.')
         return new TextRoomRelay(this.link, consent, identity)
       },
     })
@@ -74,7 +74,7 @@ export class BrowserRoomRoutes {
  * public delegate is ever created. Every granted stream has an exact scope. */
 export class TextRoomRelay implements RelayTransport {
   #scopes = new Map<string, BrowserLinkRelay>()
-  constructor(link: BrowserLink, private consent: RoomConsent, identity: ParticipantIdentity) {
+  constructor(link: Pick<RoomRouteSource, 'openSocket'>, private consent: RoomConsent, identity: ParticipantIdentity) {
     for (const room of consent.scopes) this.#scopes.set(room, new BrowserLinkRelay(link, consent.box, identity, { room, kinds: [...ROOM_READ_KINDS] }))
   }
   describe() { return [{ url: this.consent.box.eventUrl, read: true, write: true, circle: true }] }
@@ -84,9 +84,9 @@ export class TextRoomRelay implements RelayTransport {
   }
   async publish(event: Event): Promise<void> {
     const d = event.tags.filter(t => t[0] === 'd')
-    if (d.length !== 1 || d[0].length !== 2 || !(ROOM_WRITE_KINDS as readonly number[]).includes(event.kind)) throw new Error('This Bothy route supports text and presence only.')
+    if (d.length !== 1 || d[0].length !== 2 || !(ROOM_WRITE_KINDS as readonly number[]).includes(event.kind)) throw new Error('This private relay route supports text and presence only.')
     const pool = this.#scopes.get(d[0][1])
-    if (!pool) throw new Error('This channel or epoch is not granted on Bothy. Room traffic stays held.')
+    if (!pool) throw new Error('This channel or epoch is not granted on this private relay. Room traffic stays held.')
     await pool.publish(event)
   }
   subscribe(filters: Filter[], receive: (e: Event, via?: string) => void, eose?: () => void): () => void {
