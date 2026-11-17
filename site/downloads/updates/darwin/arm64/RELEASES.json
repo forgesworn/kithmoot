@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.164",
+  "currentRelease": "0.1.165",
   "releases": [
     {
-      "version": "0.1.164",
+      "version": "0.1.165",
       "updateTo": {
-        "version": "0.1.164",
-        "name": "0.1.164",
-        "pub_date": "2026-11-16T17:38:44Z",
-        "notes": "Live PCM waveforms show sharper sound detail with a white baseline and cyan trace. Written audio states, muted-playback metering and reduced-motion bars remain available.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.164/KithMoot-0.1.164-mac-arm64.zip",
-        "sha256": "8d1f1c64122d1f1c3fed67ffe74d9aaa7b048d46f8f44461ad0e0b4ccaa63029",
-        "size": 200344295
+        "version": "0.1.165",
+        "name": "0.1.165",
+        "pub_date": "2026-11-17T13:52:47Z",
+        "notes": "Calls keep an advertised camera visible through brief gaps in playback and receiver progress readings. Callers without a roster or public-profile name can use a name already held in contacts or the saved private chat.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.165/KithMoot-0.1.165-mac-arm64.zip",
+        "sha256": "bf4d52be50ce84fabfdcdf98ba4b88032e114190f8d6f3bdf33632de95f09408",
+        "size": 200351449
       }
     }
   ]

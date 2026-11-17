@@ -122,9 +122,11 @@ Verification on 17 November:
   allowed 300 seconds for build startup; assertions and case timeouts were
   retained. Test servers and temporary output were removed afterwards.
 
-These are local checks of the prepared repair. No hosted CI, new installer,
-public deployment, physical Android acceptance or live-call resolution is
-claimed. Publication and installation remain separate delivery steps.
+These local qualification checks precede publication. They do not establish
+physical Android acceptance or live-call resolution. Desktop 0.1.165 carries
+the repair; release, hosted CI and public readback evidence is retained in
+`~/.codex/artifacts/kithmoot-call-flashes-20261117/`. Installation and the
+owner's mixed-client call check remain separate from publication.
 
 Tested source SHA-256:
 
