@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.160",
-  "versionCode": 183,
+  "versionName": "0.6.161",
+  "versionCode": 184,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71328128,
-  "apkSha256": "fb4db316c7bbb3b5af6a2065f0f16ba8e75ca060f74f79f5399453bb9bbd4d33",
+  "apkBytes": 71348608,
+  "apkSha256": "a5f71fe370e0ece1f1365a029005df42f0b3ec53ef5d1d7550485b91cc8297d5",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.160-production.apk",
+  "downloadFilename": "kithmoot-0.6.161-production.apk",
   "releaseNotes": [
-    "Landscape calls give the video the height, with a slim side rail and compact audio meters.",
-    "Live PCM waveforms show sharper sound detail, with a white baseline and cyan trace."
+    "Connect an account-owned private chat to a standalone Wok relay with room-scoped permission.",
+    "Live Wok rosters keep discovering devices after an empty replay, including guests admitted shortly afterwards."
   ]
 }
