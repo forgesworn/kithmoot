@@ -14,18 +14,21 @@
  * announced name flashing on screen for a second or two every time this
  * key shows up, on this visit and on the next. With profile lookups
  * switched off, no profile will ever arrive to correct a stale remembered
- * one, so a remembered name is never shown and the announced name - the
- * only thing actually being looked at - is the honest answer.
+ * one, so a remembered public-profile name is never shown. The announced
+ * name wins next; if it is absent, an existing local contact or private-chat
+ * name can still identify the key without a public lookup.
  */
 export function resolveShownName(opts: {
   profileName: string | undefined
   rememberedName: string | undefined
   assertedName: string | undefined
+  /** A name already held locally for this exact key; no network lookup. */
+  localName?: string
   profilesEnabled: boolean
 }): string | undefined {
   if (opts.profileName) return opts.profileName
   if (opts.profilesEnabled && opts.rememberedName) return opts.rememberedName
-  return opts.assertedName
+  return opts.assertedName || opts.localName
 }
 
 /**

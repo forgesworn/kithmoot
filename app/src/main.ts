@@ -4146,10 +4146,22 @@ function shownAs(pubkey: string, asserted?: string): Shown {
   // fresh, and nothing at all when the feature is off.
   if (profile !== undefined) donations.want([pubkey])
   if (profile?.name) rememberProfileName(pubkey, profile.name)
+  // Contact names belong to their exact key. They remain useful when a
+  // caller omits its roster name or public profile lookups are disabled.
+  const contactName = sanitiseDisplayName(grantedContactView?.status !== 'unavailable'
+    ? grantedContactView?.contacts.find(contact => contact.pubkey === pubkey)?.name : undefined)
+    ?? sanitiseDisplayName(contactFor(deviceStore, pubkey)?.name)
+  const owner = mediaSession()
+  const room = owner ? knownRoom(roomStore(), owner.roomId) : undefined
+  const peerName = room && dmPeerOf(room) === pubkey ? directChatName({
+    rememberedName: room.name,
+    selfName: owner?.participants().find(view => view.participant === mediaMe())?.name,
+  }) : undefined
   const name = resolveShownName({
     profileName: profile?.name,
     rememberedName: lastKnownProfileNames.get(pubkey),
     assertedName: asserted,
+    localName: contactName ?? (peerName !== 'Private chat' ? peerName : undefined),
     profilesEnabled: isOwnAccount(pubkey) || accountNetwork.nostr && profilesEnabled,
   })
   noteName(pubkey, name)
@@ -14681,7 +14693,7 @@ function syncRemoteVideos(): void {
     // stops, and so does a wedged decoder's while the packets keep coming.
     const { action, state } = judgePicture(
       { stalled: entry.stalled, played: entry.played, onScreen: onScreen(entry), frozenSince: entry.frozenSince },
-      { moving, arriving: trackReceivingRtp(entry.track, now), visible: $('callStage').checkVisibility(), at: now },
+      { moving, arriving: trackReceivingRtp(entry.track, now), advertised: advertised(key), visible: $('callStage').checkVisibility(), at: now },
     )
     entry.stalled = state.stalled
     entry.played = state.played

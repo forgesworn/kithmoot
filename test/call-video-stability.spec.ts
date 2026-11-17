@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { createRoom, inbound, joinWithMedia, newDeviceContext } from './browser.js'
+import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { bytesToHex } from '@noble/hashes/utils'
 
 test('an undecoded receiver does not halve an existing camera', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)
@@ -59,6 +61,11 @@ test('recovery leaves a paused parked picture alone until media resumes', async 
       }
       ;(window as unknown as { stalledPicture: HTMLVideoElement }).stalledPicture = video
     })
+    // Let the previous RTP sample expire. Then model a meeting/leave control
+    // parking the sink independently of network health; a temporary gap no
+    // longer parks a camera which the sender still advertises.
+    await bob.waitForTimeout(7000)
+    await video.evaluate(el => document.getElementById('parked')!.append(el))
     await expect.poll(() => bob.evaluate(() => (window as unknown as { stalledPicture: HTMLVideoElement }).stalledPicture.parentElement?.id), { timeout: 15_000 }).toBe('parked')
     // Observe several two-second recovery ticks, including brief restores.
     const restored = await bob.evaluate(async () => {
@@ -76,5 +83,68 @@ test('recovery leaves a paused parked picture alone until media resumes', async 
     expect(restored).toBe(false)
     await bob.evaluate(() => (window as unknown as { resumePicture: () => void }).resumePicture())
     await expect.poll(() => bob.evaluate(() => (window as unknown as { stalledPicture: HTMLVideoElement }).stalledPicture.closest('.participant') !== null), { timeout: 10_000 }).toBe(true)
+  } finally { await a.close(); await b.close() }
+})
+
+test('an advertised camera stays visible through a temporary gap in playback and RTP telemetry', async ({ browser, baseURL }) => {
+  const a = await newDeviceContext(browser, baseURL!)
+  const b = await newDeviceContext(browser, baseURL!)
+  try {
+    const ada = await a.newPage(), bob = await b.newPage()
+    const url = await createRoom(ada, baseURL!)
+    await joinWithMedia(ada, url, 'Ada')
+    await joinWithMedia(bob, url, 'Bob')
+    const video = bob.locator('#room .participant[data-self="false"] video:not(.screenPreview):not(.awaitingFrame)').first()
+    await expect(video).toBeVisible()
+    await expect.poll(() => bob.evaluate(inbound).then(stats => stats.framesDecoded)).toBeGreaterThan(10)
+    const before = await video.evaluate(el => (el as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames)
+    const result = await video.evaluate(async el => {
+      const video = el as HTMLVideoElement, container = video.parentElement!
+      const clock = video.currentTime
+      const sources = RTCRtpReceiver.prototype.getSynchronizationSources
+      Object.defineProperty(video, 'currentTime', { configurable: true, get: () => clock })
+      RTCRtpReceiver.prototype.getSynchronizationSources = () => []
+      let hidden = false
+      const observer = new MutationObserver(() => { if (video.parentElement !== container || !video.checkVisibility()) hidden = true })
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] })
+      try {
+        // Beyond the six-second RTP grace and across several recovery ticks.
+        await new Promise(resolve => setTimeout(resolve, 9500))
+        return { hidden, frames: video.getVideoPlaybackQuality().totalVideoFrames }
+      } finally {
+        observer.disconnect()
+        delete (video as unknown as Record<string, unknown>).currentTime
+        RTCRtpReceiver.prototype.getSynchronizationSources = sources
+      }
+    })
+    expect(result.hidden, 'the watchdog hid the caller during missing progress telemetry').toBe(false)
+    expect(result.frames, 'the picture must continue decoding').toBeGreaterThan(before)
+    await expect(video).toBeVisible()
+  } finally { await a.close(); await b.close() }
+})
+
+test('a caller without a roster name keeps their locally saved contact name with profile lookups off', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey(), pubkey = getPublicKey(secret)
+  const a = await newDeviceContext(browser, baseURL!)
+  const b = await newDeviceContext(browser, baseURL!)
+  await a.addInitScript(pubkey => {
+    localStorage.setItem('kithmoot.profiles.enabled', 'false')
+    const now = Math.floor(Date.now() / 1000)
+    localStorage.setItem('kithmoot.contact.v1.' + pubkey, JSON.stringify({
+      p: pubkey, name: 'Rowan', rz: 'a'.repeat(64), eph: 'fixture', relays: [], boxes: [],
+      issued: now, expires: now + 3600, readAt: now,
+    }))
+  }, pubkey)
+  await b.addInitScript(secret => localStorage.setItem('kithmoot.participant', secret), bytesToHex(secret))
+  try {
+    const ada = await a.newPage(), peer = await b.newPage()
+    const url = await createRoom(ada, baseURL!)
+    await joinWithMedia(ada, url, 'Ada')
+    await joinWithMedia(peer, url, '')
+    const tile = ada.locator(`#room .participant[data-participant="${pubkey}"]`)
+    await expect(tile).toBeVisible()
+    await expect(tile).toHaveAttribute('data-name', 'Rowan')
+    await expect(tile.locator('video:not(.awaitingFrame)')).toBeVisible()
+    expect(await ada.evaluate(() => localStorage.getItem('kithmoot.profiles.enabled'))).toBe('false')
   } finally { await a.close(); await b.close() }
 })
