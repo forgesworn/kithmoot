@@ -1,3 +1,7 @@
+## Desktop 0.1.166: call connection details
+
+More → Connection details shows observed direct or TURN media paths, relay hostnames where exposed, and the room node separately. The video watchdog accepts presented-frame progress when the playback clock stalls, avoiding an unnecessary reset. Automated checks cover this regression; the reported Android-to-desktop flashes still need live-call acceptance.
+
 # KithMoot desktop preview
 
 Version 0.1.165 keeps a decoded camera visible through missing progress readings while the caller still advertises it. Call labels can fall back to locally held contact or private-chat names without enabling public profile lookups. Live-call acceptance on the intended devices remains separate from the automated checks.
