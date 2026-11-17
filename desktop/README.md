@@ -1,5 +1,7 @@
 # KithMoot desktop preview
 
+Version 0.1.165 keeps a decoded camera visible through missing progress readings while the caller still advertises it. Call labels can fall back to locally held contact or private-chat names without enabling public profile lookups. Live-call acceptance on the intended devices remains separate from the automated checks.
+
 Version 0.1.164 replaces the filled loudness history with a live PCM peak waveform. A white baseline and cyan sound trace keep detail visible on the dark plot. Written states, muted-playback metering and reduced-motion bars remain available.
 
 Version 0.1.162 keeps call pictures full-sized while spare receivers await their first frame and stops recovery from repeatedly reviving stalled pictures without fresh media. Quiet audio traces are white; sound uses the theme accent. See [call video stability](../docs/call-video-stability.md).
