@@ -67,3 +67,71 @@ checks on the intended devices; no existing rooms need to be migrated.
 Logs, baseline failure traces, screenshots, exact source hashes and the temporary
 Playwright configurations are retained at `~/.codex/artifacts/kithmoot-call-video-20261116T120714Z`. The busy Mac required a
 longer server-start allowance; test assertions and case timeouts were retained.
+
+## Follow-up on 17 November 2026
+
+The owner reported further video flashes and a known caller appearing as `Somebody`.
+The earlier loss of all media had recovered, with the owner confirming audio
+and video in both directions. That recovery preceded these code changes.
+
+The playback watchdog still parked a previously decoded picture when both
+its playback clock and RTP progress readings stopped. It did so even when
+the sender continued to advertise its camera. Keep the last picture visible
+while the role remains advertised, or while roster presence is unknown.
+Explicit track endings and the existing unadvertised-track liveness checks
+still remove stopped media; the existing decoder recovery remains in place.
+
+Name resolution now falls back to an existing contact name or the saved name
+of the exact peer in the call's private room. Current public-profile and
+roster names retain their precedence. Local names do not enable profile
+lookups or mark the identity as having a public profile.
+
+Affected screens are the standalone web and desktop call gallery and the
+person labels that share its name resolver. The task branch is
+`fix/call-video-flashes-20261117`, based on `6b9fd6d9`. No Android-native source,
+room membership, media routing or live service configuration is changed.
+
+Review with two fresh browser profiles in a disposable room:
+
+1. Join a call with both cameras enabled. A temporary gap in receiver progress
+   readings must retain the decoded camera in its tile. When media resumes,
+   playback must continue without hiding and restoring the tile.
+2. Turn the far camera off and on, leave the call, and change gallery pages.
+   Stopped media must disappear; deliberately parked sinks must stay parked
+   until the appropriate recovery or user action restores them.
+3. Hold a contact named Rowan, disable public-profile lookups, and join a call
+   with that exact contact key publishing no roster name. The tile must read
+   Rowan. A stranger must not inherit that contact name, and an explicit
+   current name from the caller must take precedence over the local fallback.
+4. Check the intended web, installed desktop and physical Android clients
+   together in the existing room. Automated loopback tests do not establish
+   the cause or resolution of every flash on the owner's live connection.
+
+Verification on 17 November:
+
+- The two advertised/unknown-presence watchdog regressions and the local-name
+  resolver regression failed before the fix; 49 other focused tests passed.
+- After the fix, the remote-tile, profile-name, direct-chat-name, profile-lookup,
+  call-layout and gallery-page suites passed: 125 tests.
+- `npm run typecheck` passed.
+- Web and desktop production builds passed, including the existing artwork,
+  bundled-dependency and no-telemetry build checks.
+- All four browser cases in `test/call-video-stability.spec.ts` passed on both
+  production builds: 8 passed. The temporary test configuration used ports
+  4285/4286 and relay 4385, selected `chromium` and `chromium-desktop`, and
+  allowed 300 seconds for build startup; assertions and case timeouts were
+  retained. Test servers and temporary output were removed afterwards.
+
+These local qualification checks precede publication. They do not establish
+physical Android acceptance or live-call resolution. Desktop 0.1.165 carries
+the repair; release, hosted CI and public readback evidence is retained in
+`~/.codex/artifacts/kithmoot-call-flashes-20261117/`. Installation and the
+owner's mixed-client call check remain separate from publication.
+
+Tested source SHA-256:
+
+```text
+fbc0e15d2c86bda665e09938d1217d4707672bee9c7f269c2cf4d6604d5175fd  app/src/main.ts
+c8e4c6f24d02b56a444729bbeea0efa357723167012d5b19ffbeca0a88ff6104  app/src/remote-tiles.ts
+f5b60c2f94786dc0ef392982e6140e16a6ff78d6d48c917890478eaf1b4e2823  app/src/profile-name.ts
+```

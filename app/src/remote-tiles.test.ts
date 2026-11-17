@@ -364,8 +364,19 @@ describe('TileLiveness', () => {
 })
 
 describe('judgePicture', () => {
-  const look = (over: Partial<PictureLook> = {}): PictureLook => ({ moving: false, arriving: false, visible: true, at: 0, ...over })
+  const look = (over: Partial<PictureLook> = {}): PictureLook => ({ moving: false, arriving: false, advertised: false, visible: true, at: 0, ...over })
   const state = (over: Partial<PictureState> = {}): PictureState => ({ stalled: 0, played: true, onScreen: true, ...over })
+
+  it.each([true, undefined])('keeps the last picture through a media gap when its advert is %s', advertised => {
+    let s = state()
+    for (let at = 0; at < 12_000; at += 1000) {
+      const result = judgePicture(s, look({ advertised, at }))
+      expect(result.action).toBe('none')
+      expect(result.state.onScreen).toBe(true)
+      s = result.state
+    }
+    expect(judgePicture(s, look({ advertised, moving: true, arriving: true, at: 12_000 })).action).toBe('none')
+  })
 
   it('parks a picture that ran and stopped, once nothing is arriving either', () => {
     let s = state()
