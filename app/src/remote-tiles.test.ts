@@ -472,6 +472,13 @@ describe('first-frame playback clock', () => {
     expect(pictureAdvanced(0.5, 0.5, true)).toBe(false)
     expect(pictureAdvanced(0.5, 0, false)).toBe(false)
   })
+
+  it('recognises decoded frames even when the playback clock stalls', () => {
+    expect(pictureAdvanced(10, 10, true, 100, 110)).toBe(true)
+    expect(pictureAdvanced(10, 10, true, 100, 100)).toBe(false)
+    expect(pictureAdvanced(10, 10, false, 100, 110)).toBe(false)
+    expect(pictureAdvanced(10, 10, true, 100, 0)).toBe(false)
+  })
   it('keeps a delayed first picture in place through repeated recovery polls', () => {
     let last = -1
     let state: PictureState = { stalled: 0, played: false, onScreen: true }

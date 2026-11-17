@@ -578,6 +578,9 @@ html[data-call-bar] #deviceControls .agentsHearChip .i { width: 1rem; height: 1r
 .callPanelHeading { margin: 0; font-size: var(--fs-3); }
 .callPanelHeading:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .callPanelClose { margin: 0; min-height: 44px; flex: none; }
+#callConnectionsContent { overflow-wrap: anywhere; }
+#callConnectionsContent h3, #callConnectionsContent h4 { margin: .75rem 0 .25rem; }
+#callConnectionsContent p { margin: .35rem 0; }
 #meetingPanel > summary { display: none; }
 /* A phone: a sheet from the bottom edge, like the menu. */
 @media (max-width: 599px), (orientation: landscape) and (max-height: 540px) and (max-width: 1024px) {

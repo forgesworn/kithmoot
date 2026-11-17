@@ -1,10 +1,12 @@
+import { selectedCallPair } from './call-connection.js'
+
 /** Reduce browser stats before they reach the UI: never expose remote IPs,
  * SDP, TURN credentials or the room URL through this panel. */
 export function metadataConnection(state: string, stats: Record<string, unknown>[]): {
   call: { state: string; route: string; sent: number; received: number }; addresses: string[]
 } {
   const transport = stats.find(s => s.type === 'transport' && s.selectedCandidatePairId)
-  const pair = stats.find(s => s.type === 'candidate-pair' && (transport ? s.id === transport.selectedCandidatePairId : s.selected === true))
+  const pair = selectedCallPair(stats)
   const local = pair && stats.find(s => s.id === pair.localCandidateId)
   const remote = pair && stats.find(s => s.id === pair.remoteCandidateId)
   const viaRelay = local?.candidateType === 'relay' || remote?.candidateType === 'relay'
