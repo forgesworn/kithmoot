@@ -1,19 +1,18 @@
 {
-  "currentRelease": "0.1.171",
+  "currentRelease": "0.1.172",
   "releases": [
     {
-      "version": "0.1.171",
+      "version": "0.1.172",
       "updateTo": {
-        "version": "0.1.171",
-        "name": "0.1.171",
-        "pub_date": "2026-11-18T16:40:05Z",
+        "version": "0.1.172",
+        "name": "0.1.172",
+        "pub_date": "2026-11-18T22:48:52Z",
         "notes": [
-          "Find contacts, follows and existing conversations by name in People.",
-          "Choose Search Nostr to look up a public profile and open a message to the selected key."
+          "Paste an npub in People and choose Search Nostr to see the signed profile for that key."
         ],
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.171/KithMoot-0.1.171-mac-arm64.zip",
-        "sha256": "0124891d7a5b9aac4bbf5af097a558b5df6696321d6ff79e69d04cf999a2066d",
-        "size": 200360111
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.172/KithMoot-0.1.172-mac-arm64.zip",
+        "sha256": "66936d287b5f4e2337e14d886eba316b67f64e444b2f7c6ee906db1e67754213",
+        "size": 200360459
       }
     }
   ]
