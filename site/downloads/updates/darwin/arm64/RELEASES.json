@@ -1,19 +1,19 @@
 {
-  "currentRelease": "0.1.170",
+  "currentRelease": "0.1.171",
   "releases": [
     {
-      "version": "0.1.170",
+      "version": "0.1.171",
       "updateTo": {
-        "version": "0.1.170",
-        "name": "0.1.170",
-        "pub_date": "2026-11-18T14:35:25Z",
+        "version": "0.1.171",
+        "name": "0.1.171",
+        "pub_date": "2026-11-18T16:40:05Z",
         "notes": [
-          "Unread Nostr conversations come first in People, followed by the people you message most.",
-          "People reuses cached profile pictures across app launches."
+          "Find contacts, follows and existing conversations by name in People.",
+          "Choose Search Nostr to look up a public profile and open a message to the selected key."
         ],
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.170/KithMoot-0.1.170-mac-arm64.zip",
-        "sha256": "1b050aa3efd116071dafdc50a789b16aad74a5b18577a3c75af53629ad5b81ab",
-        "size": 200353629
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.171/KithMoot-0.1.171-mac-arm64.zip",
+        "sha256": "0124891d7a5b9aac4bbf5af097a558b5df6696321d6ff79e69d04cf999a2066d",
+        "size": 200360111
       }
     }
   ]
