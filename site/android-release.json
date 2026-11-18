@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.167",
-  "versionCode": 190,
+  "versionName": "0.6.168",
+  "versionCode": 191,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71442816,
-  "apkSha256": "950fd2d6c0c74355bd4380a68c1c998f069455b8eb773d071b2c4a0c65b5242f",
+  "apkBytes": 71446912,
+  "apkSha256": "bc80b66d40bd2acc1e3b4fdfec0c0173c37da3f2ef38075153573ee00ed8abb5",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.167-production.apk",
+  "downloadFilename": "kithmoot-0.6.168-production.apk",
   "releaseNotes": [
-    "Find contacts, follows and saved chats by name in People.",
-    "Choose Search Nostr to find a public profile and open a message to that person."
+    "Paste an npub in People and choose Search Nostr to see the signed profile for that key.",
+    "People also accepts copied npubs with a leading dash."
   ]
 }
