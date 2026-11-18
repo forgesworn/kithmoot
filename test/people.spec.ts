@@ -141,10 +141,15 @@ test('People searches public names explicitly and prepares a Nostr message to th
       content: JSON.stringify({ name: 'About only', about: name }) }, generateSecretKey()))
     const page = await context.newPage()
     const requests: unknown[] = []
+    const activeSearches = new Set<string>()
     page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
       if (typeof payload !== 'string') return
-      const [verb, , filter] = JSON.parse(payload)
-      if (verb === 'REQ' && filter?.search !== undefined) requests.push(filter)
+      const [verb, id, filter] = JSON.parse(payload)
+      if (verb === 'REQ' && filter?.search !== undefined) {
+        requests.push(filter)
+        activeSearches.add(id)
+      }
+      if (verb === 'CLOSE') activeSearches.delete(id)
     }))
     await configureAccountTestRelay(page, baseURL!)
     await signInAccount(page, baseURL!)
@@ -157,6 +162,7 @@ test('People searches public names explicitly and prepares a Nostr message to th
     const results = page.locator('#peopleRows')
     await expect(results.getByRole('heading', { name: 'Nostr results' })).toBeVisible()
     expect(requests).toEqual([{ kinds: [0], search: name, limit: 16 }])
+    await expect.poll(() => activeSearches.size).toBe(0)
     await expect(results.getByRole('button', { name: /About only/ })).toHaveCount(0)
     await results.getByRole('button', { name: new RegExp('^' + name) }).click()
     await page.getByRole('button', { name: 'Message on Nostr', exact: true }).click()
