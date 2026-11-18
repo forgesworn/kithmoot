@@ -71,17 +71,22 @@ export class PeopleNostrInbox {
   get status(): string { return this.#status }
   threads(): NostrPeopleThread[] {
     if (!this.#current()) return []
-    const threads = new Map<string, { peer: string; messages: OrdinaryText[]; unread: number }>()
+    const threads = new Map<string, { peer: string; messages: OrdinaryText[]; unread: number; sent: number }>()
     for (const { message, copies, expiresAt } of this.#messages.values()) {
       const peer = message.peer!
       if (this.options.blocked(peer) || expiresAt !== undefined && expiresAt <= this.#now()) continue
-      const thread = threads.get(peer) ?? { peer, messages: [], unread: 0 }
+      const thread = threads.get(peer) ?? { peer, messages: [], unread: 0, sent: 0 }
       thread.messages.push(message)
-      if (message.author !== this.options.account && ![...copies].some(copy => this.#read.has(copy))) thread.unread++
+      if (message.author === this.options.account) thread.sent++
+      else if (![...copies].some(copy => this.#read.has(copy))) thread.unread++
       threads.set(peer, thread)
     }
     for (const thread of threads.values()) thread.messages.sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id))
-    return [...threads.values()].sort((a, b) => b.messages.at(-1)!.sentAt - a.messages.at(-1)!.sentAt)
+    return [...threads.values()].sort((a, b) =>
+      Number(b.unread > 0) - Number(a.unread > 0) ||
+      (a.unread || b.unread ? 0 : b.sent - a.sent) ||
+      b.messages.at(-1)!.sentAt - a.messages.at(-1)!.sentAt ||
+      a.peer.localeCompare(b.peer))
   }
 
   async open(): Promise<void> {

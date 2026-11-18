@@ -2,6 +2,7 @@ import './people.css'
 import { npubEncode } from 'nostr-tools/nip19'
 import { icon, type IconName } from './icons.js'
 import { avatarInitial, avatarSlot } from './room-sections.js'
+import { setPeoplePicture } from './people-pictures.js'
 
 /**
  * People: the signed-in person's contacts, and the people they follow on
@@ -686,9 +687,9 @@ export function personAvatar(pubkey: string, name: string | undefined, picture: 
     image.alt = ''
     image.loading = 'lazy'
     image.referrerPolicy = 'no-referrer'
-    image.src = picture
     image.addEventListener('error', () => image.remove(), { once: true })
     span.append(image)
+    setPeoplePicture(image, picture)
   }
   return span
 }

@@ -69,8 +69,8 @@ test('People counts verified incoming messages by default, keeps the read positi
     await expect.poll(() => page.evaluate(key => localStorage.getItem(`kithmoot.people-profiles.v1.${key}`), self)).toContain(followed)
     await page.locator('#peopleNostrOpen').click()
     await expect(inbox.getByRole('button', { name: 'Turn off inbox', exact: true })).toBeVisible()
-    await expect(inbox.getByRole('heading', { name: 'Message requests', exact: true })).toBeVisible()
     const request = inbox.locator(`button[data-action="${other}"]`)
+    await expect(request).not.toHaveAccessibleDescription('Message request')
     await expect(request).toHaveAccessibleName('Nostr Test Sender, 1 unread')
     await expect.poll(() => page.evaluate(key => localStorage.getItem(`kithmoot.people-profiles.v1.${key}`), self)).toContain(other)
     await expect(badge).toHaveText('1')
@@ -92,12 +92,65 @@ test('People counts verified incoming messages by default, keeps the read positi
     await expect(page.locator('#railPeople')).toBeVisible()
     await page.locator('#railPeople').click()
     await page.locator('#peopleNostrOpen').click()
-    await expect(request).toHaveText('Nostr Test Sender')
+    await expect(request).toHaveAccessibleName('Nostr Test Sender')
     await expect(request).not.toHaveAccessibleName(/unread$/)
     await inbox.getByRole('button', { name: 'Close', exact: true }).click()
     await page.locator('#railChats').click()
     await pool.publish(wrapEvent({ ...rumor, created_at: now - 2, content: 'A late arrival' }, peer, self))
     await expect(badge).toHaveText('1')
+  } finally { pool.close(); await context.close() }
+})
+
+test('People puts unread messages above frequent conversations and keeps contact pictures across reloads', async ({ browser, baseURL }) => {
+  const account = generateSecretKey(), frequent = generateSecretKey(), recent = generateSecretKey(), unread = generateSecretKey()
+  const self = getPublicKey(account), top = getPublicKey(frequent), latest = getPublicKey(recent), incoming = getPublicKey(unread)
+  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  const picture = 'https://picture.example.invalid/people.png'
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGOw7Mn8DwAEXgIuYNZitQAAAABJRU5ErkJggg==', 'base64')
+  let imageRequests = 0
+  try {
+    await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
+    await context.route(picture, async route => {
+      imageRequests++
+      if (imageRequests > 1) { await route.abort(); return }
+      await route.fulfill({ body: png, headers: { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=600' } })
+    })
+    await inboxList(pool, account, baseURL!)
+    const now = Math.floor(Date.now() / 1000)
+    await pool.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Frequent contact', picture }) }, frequent))
+    await pool.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', top]], content: '' }, account))
+    for (const [author, peer, time, text] of [
+      [account, top, now - 60, 'First message to my frequent contact'],
+      [account, top, now - 50, 'Second message to my frequent contact'],
+      [unread, self, now - 40, 'Unread message'],
+      [account, latest, now - 30, 'Most recent outgoing message'],
+    ] as const) {
+      await pool.publish(wrapEvent({ kind: 14, created_at: time, tags: [['p', peer]], content: text }, author, self))
+    }
+
+    const page = await context.newPage()
+    const rows = page.locator('.peopleNostrThreads button')
+    const order = () => rows.evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.action))
+    const showPeople = async () => { await page.locator('#railPeople').click(); await page.locator('#peopleNostrOpen').click() }
+    const avatar = page.locator(`.peopleNostrThreads button[data-action="${top}"] img`)
+    const pictureIsLoaded = () => avatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+    await signInAccount(page, baseURL!)
+    await showPeople()
+    await expect.poll(order).toEqual([incoming, top, latest])
+    await expect(rows.first()).toHaveAccessibleDescription('Message request')
+    await expect(avatar).toBeAttached()
+    await expect.poll(pictureIsLoaded).toBe(true)
+    await rows.first().click()
+    await expect(page.getByText('Unread message', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Back to messages' }).click()
+    await expect.poll(order).toEqual([top, latest, incoming])
+
+    await page.reload()
+    await showPeople()
+    await expect.poll(order).toEqual([top, latest, incoming])
+    await expect(avatar).toBeAttached()
+    await expect.poll(pictureIsLoaded).toBe(true)
+    expect(imageRequests).toBe(1)
   } finally { pool.close(); await context.close() }
 })
 
