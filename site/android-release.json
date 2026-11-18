@@ -26,6 +26,7 @@
   },
   "downloadFilename": "kithmoot-0.6.168-production.apk",
   "releaseNotes": [
-    "Paste an npub in People and choose Search Nostr to see the signed profile for that key."
+    "Paste an npub in People and choose Search Nostr to see the signed profile for that key.",
+    "People also accepts copied npubs with a leading dash."
   ]
 }
