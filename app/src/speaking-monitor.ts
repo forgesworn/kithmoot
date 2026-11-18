@@ -173,12 +173,17 @@ export class SpeakingMonitor {
     const waveforms = new Map<string, readonly number[]>()
     for (const [key, tap] of this.#taps) {
       let level: number | null = null
-      if (this.#context?.state === 'running' && tap.track.readyState !== 'ended' && !tap.track.muted) {
+      if (this.#context?.state === 'running' && tap.track.readyState !== 'ended') {
         if (tap.track.enabled === false) level = 0
         else {
           tap.analyser.getByteTimeDomainData(tap.bytes)
-          level = rmsFromByteTimeDomain(tap.bytes)
-          if (this.#onWaveforms) waveforms.set(key, pcmPeaks(tap.bytes))
+          const measured = rmsFromByteTimeDomain(tap.bytes)
+          // A remote track can retain its muted flag after packets resume.
+          // Use the decoded sound and keep Waiting for a muted, silent source.
+          if (!tap.track.muted || measured > 0) {
+            level = measured
+            if (this.#onWaveforms) waveforms.set(key, pcmPeaks(tap.bytes))
+          }
         }
       }
       levels.set(key, level)

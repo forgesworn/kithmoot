@@ -1,3 +1,7 @@
+## Desktop 0.1.167
+
+Every caller has a named microphone waveform, including You, with a level bar when reduced motion is on. A recovering camera keeps its last picture visible while the replacement is getting ready. Calls can recover from a lost initial connection answer, and the meters use decoded audio when the browser’s track mute status is stale.
+
 ## Desktop 0.1.166: call connection details
 
 More → Connection details shows observed direct or TURN media paths, relay hostnames where exposed, and the room node separately. The video watchdog accepts presented-frame progress when the playback clock stalls, avoiding an unnecessary reset. Automated checks cover this regression; the reported Android-to-desktop flashes still need live-call acceptance.

@@ -1,6 +1,6 @@
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO, chooseCallMore, join } from './browser.js'
+import { createRoom, inbound, newDeviceContext, open, openCall, SYNTHETIC_SCREEN_WITH_AUDIO, chooseCallMore, join } from './browser.js'
 
 /**
  * A shared tab's own sound, carried alongside its picture.
@@ -83,6 +83,11 @@ test('a screen share carries its own tab audio, and losing just the sound keeps 
         return track?.readyState
       }))
       .toBe('live')
+    await expect.poll(() => viewer.evaluate(inbound).then(stats => stats.audioEnergy)).toBeGreaterThan(0)
+    const adaMic = viewer.locator('#callAudioActivity .audioSignal', { hasText: 'Ada' })
+    await expect(adaMic.locator('.audioSignalState')).toHaveText('Off')
+    await expect(adaMic.locator('.audioEnvelope')).toHaveAttribute('d', 'M0 12H128')
+    await expect(viewer.locator('#room .participant', { hasText: 'Ada' })).not.toHaveClass(/speaking/)
 
     // The browser ends the shared tab's sound on its own - a tab switch, on
     // a browser that ties system audio to a shared tab having focus - while

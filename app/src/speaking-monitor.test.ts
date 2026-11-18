@@ -99,6 +99,7 @@ describe('SpeakingMonitor', () => {
     expect(onLevels.mock.lastCall![0].get('mic')).toBe(0)
     mic.enabled = true
     Object.assign(mic, { muted: true })
+    fake.setLevel(SILENT)
     m.poll(400)
     expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
     Object.assign(mic, { muted: false })
@@ -106,10 +107,25 @@ describe('SpeakingMonitor', () => {
     m.poll(600)
     expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
     fake.context.state = 'running'
+    fake.setLevel(192)
     m.poll(800)
     expect(onLevels.mock.lastCall![0].get('mic')).toBeCloseTo(0.5)
     m.unwatch('mic')
     expect(onLevels.mock.lastCall![0].size).toBe(0)
+    m.close()
+  })
+
+  it('shows decoded speech when the remote track still reports muted', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn(), onWaveforms = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels, onWaveforms })
+    const mic = Object.assign(track(), { muted: true })
+    m.watch('mic', mic)
+    fake.setLevel(LOUD)
+    m.poll(0)
+    expect(m.isSpeaking('mic')).toBe(true)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeGreaterThan(0)
+    expect(onWaveforms.mock.lastCall![0].get('mic')).toContain((LOUD - 128) / 128)
     m.close()
   })
 

@@ -1,50 +1,108 @@
 import './audio-activity.css'
 
-export type AudioSignal = number | 'Muted' | 'Off' | null
+export type AudioSignal = number | 'Muted' | 'Off' | 'Listen only' | null
 
-/** A live, bounded PCM peak trace; samples are replaced on each update. */
+export interface ParticipantSignal {
+  id: string
+  label: string
+  self?: boolean
+  signal: AudioSignal
+  waveform?: readonly number[]
+}
+
+interface SignalView {
+  card: HTMLElement
+  label: HTMLElement
+  state: HTMLElement
+  envelope: SVGPathElement
+  level: HTMLElement
+}
+
+function createSignal(person: ParticipantSignal): SignalView {
+  const card = document.createElement('div')
+  card.className = 'audioSignal'
+  card.dataset.audioSignal = person.self ? 'mic' : 'participant'
+  card.dataset.participant = person.id
+  card.innerHTML = '<span class="audioSignalLabel"></span><span class="audioSignalState"></span>'
+    + '<svg class="audioTrace" viewBox="0 0 128 24" preserveAspectRatio="none" aria-hidden="true"><path d="M0 12H128" class="audioBaseline"/><path class="audioEnvelope"/></svg>'
+    + '<span class="audioLevel" aria-hidden="true"><span></span></span>'
+  return {
+    card,
+    label: card.querySelector('.audioSignalLabel')!,
+    state: card.querySelector('.audioSignalState')!,
+    envelope: card.querySelector('.audioEnvelope')!,
+    level: card.querySelector('.audioLevel > span')!,
+  }
+}
+
+/** A stable strip of named PCM traces. No room repaint or live announcements. */
 export class AudioActivity {
-  readonly #hosts: HTMLElement[]
+  readonly #hosts: { element: HTMLElement; views: Map<string, SignalView> }[]
   #scope = ''
   #last = -Infinity
 
   constructor(hosts: Iterable<HTMLElement>) {
-    this.#hosts = [...hosts]
-    for (const host of this.#hosts) {
-      host.classList.add('audioActivity')
-      host.setAttribute('role', 'group')
-      host.setAttribute('aria-label', 'Audio activity')
-      // Ordinary navigable text, never announcements over the call.
-      host.innerHTML = ['Your mic', 'Incoming audio'].map((label, index) =>
-        `<div class="audioSignal" data-audio-signal="${index === 0 ? 'mic' : 'incoming'}"><span class="audioSignalLabel">${label}</span><span class="audioSignalState">Waiting</span><svg class="audioTrace" viewBox="0 0 128 24" preserveAspectRatio="none" aria-hidden="true"><path d="M0 12H128" class="audioBaseline"/><path class="audioEnvelope"/></svg><span class="audioLevel" aria-hidden="true"><span></span></span></div>`,
-      ).join('')
-    }
+    this.#hosts = Array.from(hosts, element => {
+      element.classList.add('audioActivity')
+      element.setAttribute('role', 'region')
+      element.setAttribute('aria-label', 'Participant microphones')
+      element.tabIndex = 0
+      return { element, views: new Map() }
+    })
   }
 
-  update(scope: string, signals: readonly [AudioSignal, AudioSignal], now = performance.now(), force = false, waveforms: readonly (readonly number[])[] = []): void {
+  update(scope: string, signals: readonly ParticipantSignal[], force = false, now = performance.now()): void {
     if (scope !== this.#scope) {
       this.#scope = scope
       this.#last = -Infinity
+      for (const { element, views } of this.#hosts) {
+        element.replaceChildren()
+        element.scrollLeft = 0
+        views.clear()
+      }
     }
-    for (const host of this.#hosts) host.hidden = !scope
-    if (!scope || (!force && now - this.#last < 50)) return
+    for (const { element } of this.#hosts) element.hidden = !scope
+    if (!scope || (!force && now - this.#last < 40)) return
     this.#last = now
-    signals.forEach((signal, index) => {
+
+    const present = new Set(signals.map(person => person.id))
+    for (const { views } of this.#hosts) {
+      for (const [id, view] of views) {
+        if (present.has(id)) continue
+        view.card.remove()
+        views.delete(id)
+      }
+    }
+
+    signals.forEach((person, index) => {
+      const { signal, waveform } = person
       const value = typeof signal === 'number' && Number.isFinite(signal) ? Math.max(0, Math.min(1, signal)) : 0
-      const state = typeof signal === 'string' ? signal : signal === null ? 'Waiting' : value >= 0.005 ? 'Sound' : 'Quiet'
-      const height = Math.min(1, Math.sqrt(value) * 2)
-      const peaks = state === 'Sound' ? waveforms[index] ?? [] : []
-      const trace = peaks.length > 1 ? peaks.slice(0, 256).map((peak, i, all) => {
+      const state = typeof signal === 'string' ? signal : signal === null ? 'Waiting' : value >= 0.005 ? 'Speaking' : 'Quiet'
+      const width = `${Math.min(1, Math.sqrt(value) * 2) * 100}%`
+      const peaks = state === 'Speaking' ? waveform?.slice(0, 256) ?? [] : []
+      const trace = peaks.length > 1 ? peaks.map((peak, i) => {
         const value = Number.isFinite(peak) ? Math.max(-1, Math.min(1, peak * 4)) : 0
-        return `${i === 0 ? 'M' : 'L'}${i * 128 / (all.length - 1)},${12 - value * 11}`
+        return `${i === 0 ? 'M' : 'L'}${(i * 128 / (peaks.length - 1)).toFixed(1)},${(12 - value * 11).toFixed(1)}`
       }).join('') : 'M0 12H128'
-      for (const host of this.#hosts) {
-        const row = host.children[index] as HTMLElement
-        const text = row.querySelector('.audioSignalState')!
-        if (text.textContent !== state) text.textContent = state
-        row.dataset.state = state.toLowerCase()
-        row.querySelector('.audioEnvelope')!.setAttribute('d', trace)
-        ;(row.querySelector('.audioLevel > span') as HTMLElement).style.width = `${height * 100}%`
+
+      for (const { element, views } of this.#hosts) {
+        let view = views.get(person.id)
+        if (!view) {
+          view = createSignal(person)
+          views.set(person.id, view)
+        }
+        const at = element.children[index] ?? null
+        if (at !== view.card) element.insertBefore(view.card, at)
+        if (view.label.textContent !== person.label) {
+          view.label.textContent = person.label
+          view.label.title = person.label
+        }
+        if (view.state.textContent !== state) {
+          view.state.textContent = state
+          view.card.toggleAttribute('data-speaking', state === 'Speaking')
+        }
+        if (view.envelope.getAttribute('d') !== trace) view.envelope.setAttribute('d', trace)
+        if (view.level.style.width !== width) view.level.style.width = width
       }
     })
   }
