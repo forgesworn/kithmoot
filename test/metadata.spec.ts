@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test'
 import { build } from 'esbuild'
 import { readFile } from 'node:fs/promises'
 
+const notes: { title: string; changes: string[] } = JSON.parse(
+  await readFile(new URL('../app/src/release-notes.json', import.meta.url), 'utf8'),
+)
+
 let api: string
 test.beforeAll(async () => { api = (await build({ entryPoints: ['test/fixtures/metadata-api.ts'], bundle: true, write: false, format: 'iife', globalName: 'MetadataTest', target: 'es2022' })).outputFiles![0]!.text })
 
@@ -39,7 +43,8 @@ for (const profile of [
   await page.getByRole('button', { name: 'See what changed' }).click()
   const dialog = page.locator('#releaseNotes')
   await expect(dialog).toBeVisible()
-  await expect(dialog).toContainText('Supported photos, videos, audio and documents')
+  await expect(dialog.getByRole('heading', { name: notes.title, exact: true })).toBeVisible()
+  await expect(dialog.getByRole('listitem')).toHaveText(notes.changes)
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await page.locator('#openAppSettings').click()
   await page.locator('#appWhatsNew').click()

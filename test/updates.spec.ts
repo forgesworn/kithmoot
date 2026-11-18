@@ -5,6 +5,13 @@ import { resolve, extname } from 'node:path'
 import { encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { LOCAL_TEST_RELAY } from './relays.js'
 
+const offeredNotes = {
+  id: 'acceptance-offered-update',
+  date: '18 November 2026',
+  title: 'A newer release is ready',
+  changes: ['The offered update includes a new call control.'],
+}
+
 async function releaseServer(options: { beforeWorkerResponse?: () => Promise<void> } = {}) {
   let revision = 1
   let delayActivation = 0
@@ -50,6 +57,7 @@ async function releaseServer(options: { beforeWorkerResponse?: () => Promise<voi
           body = body.replace('self.skipWaiting()', `setTimeout(() => self.skipWaiting(), ${workerRelease.delayActivation})`)
         }
       }
+      if (relative === 'whats-new.json' && workerRelease.revision > 1) body = JSON.stringify(offeredNotes)
       res.writeHead(200, { 'content-type': mime[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
       res.end(body)
     } catch { res.writeHead(404).end() }
@@ -435,7 +443,7 @@ test('reading offered release notes does not activate the waiting update', async
     await expect(page.locator('#updateNotice')).toBeVisible()
     await page.locator('#updateChanges').click()
     await expect(page.locator('#releaseNotes')).toContainText('Changes in the available web update')
-    await expect(page.locator('#releaseNotes')).toContainText('Voice calls keep the chat')
+    await expect(page.locator('#releaseNotes').getByRole('heading', { name: offeredNotes.title })).toBeVisible()
     expect(release.requests.some(r => r.includes('/whats-new.json?update='))).toBe(true)
     const waiting = await page.evaluate(async () => Boolean((await navigator.serviceWorker.getRegistration())?.waiting))
     expect(waiting).toBe(true)

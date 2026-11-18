@@ -66,7 +66,7 @@ test('five callers keep independent microphone traces as speakers change and lea
   const names = ['Ada', 'Bob', 'Kit', 'Rowan', 'Sam', 'Chat only']
   const contexts = await Promise.all(names.map(() => newDeviceContext(browser, baseURL!)))
   const pages = await Promise.all(contexts.map(async context => {
-    await context.addInitScript(SYNTHETIC_MIC)
+    await context.addInitScript(SYNTHETIC_MIC, { silentOutput: true })
     await context.addInitScript(() => localStorage.setItem('kithmoot.call.micOnJoin', 'off'))
     return context.newPage()
   }))
@@ -95,6 +95,7 @@ test('five callers keep independent microphone traces as speakers change and lea
 
     for (const [index, page] of [ada!, bob!, kit!].entries()) {
       await page.locator('#toggleMic').click()
+      await expect(page.locator('#callAudioActivity [data-audio-signal="mic"] .audioSignalState')).toHaveText('Speaking')
       await expect(state(index === 0 ? 'You' : names[index]!)).toHaveText('Speaking', { timeout: 25_000 })
     }
 
