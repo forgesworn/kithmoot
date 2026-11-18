@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.168",
+  "currentRelease": "0.1.169",
   "releases": [
     {
-      "version": "0.1.168",
+      "version": "0.1.169",
       "updateTo": {
-        "version": "0.1.168",
-        "name": "0.1.168",
-        "pub_date": "2026-11-18T12:59:50Z",
-        "notes": "People shows unread encrypted Nostr messages and requests from new senders. Reply there or invite someone to a private chat on your KithMoot node.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.168/KithMoot-0.1.168-mac-arm64.zip",
-        "sha256": "dba1a6ef6a65352ff3ae309c5049c18908a65af0e0732776967910ac5b0fb92f",
-        "size": 200360702
+        "version": "0.1.169",
+        "name": "0.1.169",
+        "pub_date": "2026-11-18T13:54:12Z",
+        "notes": "Connect a remote signer to receive messages from authenticated inbox relays and send or reply in People.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.169/KithMoot-0.1.169-mac-arm64.zip",
+        "sha256": "283bd83aaadb87de3c798089185765b4d145aa1c182ce6a60ca87d38012587cf",
+        "size": 200354894
       }
     }
   ]

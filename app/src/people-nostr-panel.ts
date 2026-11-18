@@ -14,7 +14,6 @@ interface Options {
   configure(): void
   compose(opener: HTMLElement, reply?: { peer: string; parent: string }): void
   canCompose(): boolean
-  remoteSigner(): boolean
   invite(peer: string, name?: string): Promise<string | undefined>
   block(peer: string): void
 }
@@ -159,11 +158,6 @@ export class PeopleNostrPanel {
     footer.append(invite)
     footer.append(this.#button('Block sender', () => { this.options.block(thread.peer); this.reconcile() }, 'block'))
     fragment.append(actions, messages)
-    if (this.options.remoteSigner() && !this.options.canCompose()) {
-      const note = document.createElement('p'); note.className = 'note'
-      note.textContent = 'Remote signer connected for incoming Nostr messages only.'
-      fragment.append(note)
-    }
     fragment.append(footer)
     return fragment
   }

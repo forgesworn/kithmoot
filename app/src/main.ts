@@ -20328,7 +20328,7 @@ function reconcilePeopleNostrInbox(refresh = false): void {
           const published = ordinaryInboxRelays(statements, account.pubkey, nowSeconds()).filter(publicPeopleRelay)
           if (!published.length) throw Error('No usable public inbox relay list. Open Inbox relays to publish one.')
           const pool = relayConnections.pool('people-nostr-inbox', published.map(url => ({ url, read: true, write: false })))
-          const signer = nostrEventSigner(account, () => nostrSession, true)
+          const signer = nostrEventSigner(account, () => nostrSession, true, globalThis.WebSocket)
           const authorised = new Set<string>()
           return {
             subscribe: pool.subscribe.bind(pool), close: pool.close.bind(pool), health: pool.health.bind(pool),
@@ -20376,6 +20376,7 @@ nostrMessagePanel = new NostrMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   eligible: () => accountMessageViewEligible() || peopleNostrComposeEligible() && peopleNostrEnabled(),
   allowLocal: peopleNostrComposeEligible,
+  remoteSocket: () => peopleNostrComposeEligible() ? globalThis.WebSocket : undefined,
   blocked: contactIsBlocked,
   lookup: (authors, current) => lookUpOrdinaryInboxLists(authors, current, peopleNostrComposeEligible() ? ordinaryInboxDirectory() : undefined),
   allowsRelay: publicPeopleRelay,
@@ -20418,7 +20419,6 @@ peopleNostrPanel = new PeopleNostrPanel(document, {
   },
   configure: () => void openDmRelaySettings(),
   canCompose: () => peopleNostrComposeEligible() && nostrMessagePanel?.available === true,
-  remoteSigner: () => nostrSession?.method === 'bunker',
   invite: inviteToNodeChat,
   compose: (opener, reply) => nostrMessagePanel?.show(opener, reply),
   block: peer => {
