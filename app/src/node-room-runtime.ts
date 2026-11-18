@@ -16,13 +16,15 @@ import type { DeviceStore } from './device-store.js'
 import { watchNodeNetwork } from './node-network-recovery.js'
 import { claimNodeKeeper } from './node-room-keepers.js'
 import { loadSharedOwner } from './room-owner-share.js'
+import type { RoomPolicy } from '../../src/types.js'
 
 const now = () => Math.floor(Date.now() / 1000)
 export async function createBrowserNodeRoom(store: DeviceStore, pair: PairedKithmootNode, owner: ParticipantIdentity,
-  options: NodeClientOptions & { endsAt?: number; name?: string; prepared?: (state: BrowserNodeRoom) => void } = {}): Promise<BrowserNodeRoom> {
+  options: NodeClientOptions & { endsAt?: number; name?: string; membersPolicy?: RoomPolicy; prepared?: (state: BrowserNodeRoom) => void } = {}): Promise<BrowserNodeRoom> {
   const at = (options.now ?? now)(), secret = generateSecretKey(), authoritySk = generateSecretKey()
   const room = deriveRoom(secret).roomId, deviceSk = nodeDeviceKeyFor(store, owner.pubkey, room)
-  const node = readNodeRoom(signNodeRoom({ authoritySk, room, serviceKey: pair.serviceKey, origin: pair.origin, turnPorts: pair.turnPorts, now: at, endsAt: options.endsAt }), at)!
+  const node = readNodeRoom(signNodeRoom({ authoritySk, room, serviceKey: pair.serviceKey, origin: pair.origin, turnPorts: pair.turnPorts, now: at,
+    endsAt: options.endsAt, ...(options.membersPolicy ? { existing: { destruct: false, policy: options.membersPolicy } } : {}) }), at)!
   const state: BrowserNodeRoom = { node, participant: owner.pubkey, secret, deviceSk, authoritySk, phase: 'creating', epochHint: 0, startsAt: at, name: options.name }
   // Persist root custody BEFORE anything can enrol the room remotely.
   storeNodeRoom(store, state, at)

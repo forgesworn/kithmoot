@@ -8,7 +8,7 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 import type { SharedRelaySockets } from './shared-relay-sockets.js'
-import { doublingBackoff, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
+import { doublingBackoff, noticeSocketSubscriptionLimit, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
@@ -131,14 +131,14 @@ export function closedReadEvidence(reason: string): ReadEvidence | undefined {
   const prefix = relayReason(reason)
   if (prefix === 'auth-required') return 'authentication-required'
   // `error:` is the relay failing, not a decision about this reader.
-  return prefix && ['blocked', 'restricted', 'rate-limited', 'invalid', 'unsupported', 'pow'].includes(prefix) ? 'refused' : undefined
+  return prefix && ['blocked', 'banned', 'restricted', 'rate-limited', 'invalid', 'unsupported', 'pow'].includes(prefix) ? 'refused' : undefined
 }
 
 /** A relay's refusal of a subscription that means "do not ask again": the
  *  relay will not serve this filter to this client, whatever the timing. */
 export function refusalStops(reason: string, granted: boolean): boolean {
   const prefix = relayReason(reason)
-  return prefix === 'blocked' || prefix === 'restricted' || prefix === 'pow' || (prefix === 'auth-required' && !granted)
+  return prefix === 'blocked' || prefix === 'banned' || prefix === 'restricted' || prefix === 'pow' || (prefix === 'auth-required' && !granted)
 }
 
 /** A fixed description of a relay's `OK false`, by its NIP-01 prefix. The
@@ -149,7 +149,7 @@ export function writeRefusal(reason: string): string {
   if (prefix === 'auth-required') return 'Write refused: authentication required'
   if (prefix === 'rate-limited') return 'Write refused: rate limited'
   if (prefix === 'pow') return 'Write refused: proof of work required'
-  if (prefix === 'blocked' || prefix === 'restricted') return 'Write refused: not accepted from this account or kind'
+  if (prefix === 'blocked' || prefix === 'banned' || prefix === 'restricted') return 'Write refused: not accepted from this account or kind'
   if (prefix === 'invalid') return 'Write refused as invalid'
   return 'Write refused'
 }
@@ -457,9 +457,9 @@ export class NostrRelayPool implements RelayTransport {
     return pool
   }
 
-  /** Read a relay's `NOTICE`s, which nostr-tools only logs. One that asks
-   *  this client to slow down holds writes to that relay across the process.
-   *  The relay object is new after every close, so this runs for each dial. */
+  /** Read a relay's `NOTICE`s, which nostr-tools only logs. A rate-limit
+   *  notice holds new reads and writes across the process. The relay object
+   *  is new after every close, so this runs for each dial. */
   #listen(relay: unknown, url: string, generation: number): void {
     const target = relay as { onnotice?: (message: string) => void } | undefined
     if (!target) return
@@ -467,6 +467,11 @@ export class NostrRelayPool implements RelayTransport {
       if (generation !== this.#generation || this.#closed || typeof message !== 'string') return
       this.#heard(url)
       if (!noticeThrottles(message)) return
+      // Shared sockets already adjust placement for a concurrent subscription
+      // limit. An explicit rate limit still applies to the whole relay.
+      if (!this.#sharing || relayReason(message) === 'rate-limited' || !noticeSocketSubscriptionLimit(message)) {
+        this.#dials.readRateLimited(url)
+      }
       this.#dials.throttled(url)
       this.#mark(url, { lastError: WRITE_HELD_HEALTH })
     }

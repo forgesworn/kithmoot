@@ -7,6 +7,7 @@ import { contactInvitationRumor, readContactInvitation, isContactInvitationWrap,
 import { normaliseRelayConfig, type RelayTransport } from '../../src/relay-pool.js'
 import type { DeviceStore } from './device-store.js'
 import { openedInvitationRumor, type OpenedInvitation } from './nostr-opened-message.js'
+import { parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 
 interface StoredInvitation { rumor: ContactInvitationRumor; dismissed: boolean }
 interface Pending { outer: Event; recipient: string; peer: string; relays: string[]; invitation: string }
@@ -35,6 +36,8 @@ export class ContactInbox {
     acquire(key: string): Promise<() => void>
     pool(relays: string[]): RelayTransport
     current(): boolean; allowed(peer: string): boolean; blocked(peer: string): boolean
+    publicInvitations?: { allowed(peer: string): boolean; relayAllowed(url: string): boolean; pool(relays: string[]): RelayTransport
+      sender(current: () => boolean): ContactInvitationIdentity | undefined }
     changed(): void; now?: () => number
   }) { this.key = `kithmoot.contact-inbox.v1.${options.identity.pubkey}` }
   #now(): number { return (this.options.now ?? (() => Math.floor(Date.now() / 1000)))() }
@@ -131,31 +134,43 @@ export class ContactInbox {
   async enqueue(peer: string, room: string, link: string, peerRelays: string[], selfRelays: string[]): Promise<ContactInvitation> {
     return this.#serial(async () => {
       this.#live()
-      if (!this.#ready || !this.options.allowed(peer)) throw new ContactInboxError('This contact is no longer available to message.')
       const destinationRelays = normaliseRelayConfig(peerRelays).map(relay => relay.url)
       const senderRelays = normaliseRelayConfig(selfRelays).map(relay => relay.url)
-      const current = () => this.#current() && this.options.allowed(peer)
       const self = this.options.identity.pubkey, now = this.#now()
       const rumor = contactInvitationRumor(self, peer, room, link, now)
-      const recipientWrap = await wrapContactInvitation(rumor, this.options.identity, peer, now, current)
-      const selfWrap = await wrapContactInvitation(rumor, this.options.identity, self, now, current)
+      const invite = readContactInvitation(rumor, self, now)!
+      const current = () => this.#current() && this.#ready && this.#canSend(invite, peer, destinationRelays) && this.#canSend(invite, peer, senderRelays)
+      if (!current()) throw new ContactInboxError('This contact or their public inbox relays are unavailable.')
+      const sender = invite.node ? this.options.publicInvitations?.sender(current) : this.options.identity
+      if (!sender) throw new ContactInboxError('This signer cannot send an invitation through the public inbox.')
+      const recipientWrap = await wrapContactInvitation(rumor, sender, peer, now, current)
+      const selfWrap = await wrapContactInvitation(rumor, sender, self, now, current)
       if (!current()) throw new ContactInboxError('This contact permission changed before the invitation was saved.')
       if (this.#journal.invitations.length >= 256 || this.#journal.pending.length > 126) throw new ContactInboxError('Your invitation inbox is full.')
       await this.#save({ ...this.#journal, invitations: [...this.#journal.invitations, { rumor, dismissed: false }], pending: [...this.#journal.pending,
         { outer: recipientWrap, recipient: peer, peer, relays: destinationRelays, invitation: rumor.id },
-        { outer: selfWrap, recipient: self, peer, relays: senderRelays, invitation: rumor.id }] })
-      return readContactInvitation(rumor, self, now)!
+        { outer: selfWrap, recipient: self, peer, relays: senderRelays, invitation: rumor.id }] }, current)
+      return invite
     })
+  }
+  #canSend(invite: ContactInvitation, peer: string, relays: string[]): boolean {
+    if (!invite.node) return this.options.allowed(peer)
+    const carrier = this.options.publicInvitations
+    const node = parseNodeRoomLink(invite.link, this.#now())
+    return !!node && !!carrier?.allowed(peer) && relays.length > 0 && relays.every(url => url !== node.relay && carrier.relayAllowed(url))
   }
   async retry(): Promise<void> {
     if (this.#publishing || !this.#ready || !this.#current()) return
     this.#publishing = true
     try {
       for (const pending of [...this.#journal.pending]) {
-        const current = () => this.#current() && this.options.allowed(pending.peer)
+        const rumor = this.#journal.invitations.find(entry => entry.rumor.id === pending.invitation)?.rumor
+        const invite = readContactInvitation(rumor, this.options.identity.pubkey, this.#now())
+        if (!invite) continue
+        const current = () => this.#current() && this.#canSend(invite, pending.peer, pending.relays)
           && this.#journal.pending.some(entry => entry.outer.id === pending.outer.id)
         if (!current()) continue
-        const pool = this.options.pool(pending.relays)
+        const pool = invite.node ? this.options.publicInvitations!.pool(pending.relays) : this.options.pool(pending.relays)
         try {
           if (!pool.publishGuarded) throw new ContactInboxError('This relay connection cannot safely send private invitations.')
           await pool.publishGuarded(pending.outer, current)

@@ -54,7 +54,7 @@ it('keeps participant keys off profile Nostr relays until the app has an explici
   expect(transport).toHaveBeenCalledWith(['wss://profiles.example/'], 'public')
   expect(subscribe).toHaveBeenCalledWith(expect.arrayContaining([
     expect.objectContaining({ kinds: [0], authors: [participant] }),
-  ]), expect.any(Function))
+  ]), expect.any(Function), expect.any(Function))
 })
 
 function fixture() {
@@ -179,14 +179,19 @@ it('hands the pool each relay once when the room and the public list spell it di
 function scoped() {
   const room = ['wss://room.example/', 'wss://purplepag.es', 'wss://relay.damus.io']
   const publicOnly = ['wss://purplepag.es', 'wss://relay.damus.io']
-  const pools: { scope: string; urls: string[]; closed: boolean; asked: string[][]; receive: (event: Event) => void }[] = []
+  const pools: { scope: string; urls: string[]; closed: boolean; asked: string[][]; receive: (event: Event) => void; end?: () => void }[] = []
   const book = new ProfileBook({
     relays: () => room, publicRelays: () => publicOnly, onChange: vi.fn(),
     transport: (urls, scope) => {
-      const pool = { scope, urls, closed: false, asked: [] as string[][], receive: (_event: Event) => {} }
+      const pool: (typeof pools)[number] = { scope, urls, closed: false, asked: [], receive: () => {} }
       pools.push(pool)
       return {
-        subscribe: (filters: { authors: string[] }[], handler: (event: Event) => void) => { pool.asked.push(filters[0]!.authors); pool.receive = handler; return () => {} },
+        subscribe: (filters: { authors: string[] }[], handler: (event: Event) => void, end?: () => void) => {
+          pool.asked.push(filters[0]!.authors)
+          pool.receive = handler
+          pool.end = end
+          return () => {}
+        },
         close() { pool.closed = true },
       } as unknown as NostrRelayPool
     },
@@ -209,7 +214,8 @@ it('asks the open room’s relays about people in the room, and the public relay
   expect(pools[0]!.asked.flat()).not.toContain(B)
 })
 
-it('asks a key again in the room when it was only asked about publicly before, and never twice for the same scope', () => {
+it('asks a key again in the room when it was only asked about publicly before, and never twice for the same scope', async () => {
+  vi.useFakeTimers()
   const { book, pools } = scoped()
   book.want([A], 'public')
   book.want([A], 'public')
@@ -221,6 +227,8 @@ it('asks a key again in the room when it was only asked about publicly before, a
   // The room pool already covers the public relays, so a public question
   // about a key it has asked is not asked again.
   book.want([A, B, C], 'public')
+  pools[0]!.end!()
+  await vi.advanceTimersByTimeAsync(1_001)
   expect(pools[0]!.asked).toEqual([[A], [C]])
   book.want([A], 'room')
   expect(pools[1]!.asked).toEqual([[A, B]])
@@ -275,7 +283,8 @@ it('restarting the room closes the sockets opened for the room just left, asks i
   expect(pools[2]!.asked).toEqual([[pubkey]])
 })
 
-it('leaves the public pool, and who it has asked about, alone across room switches', () => {
+it('leaves the public pool, and who it has asked about, alone across room switches', async () => {
+  vi.useFakeTimers()
   const { book, pools } = scoped()
   // Signed in at home: the account is asked about publicly.
   book.want([A], 'public')
@@ -285,9 +294,28 @@ it('leaves the public pool, and who it has asked about, alone across room switch
   book.want([A], 'public')
   book.restartRoom()
   book.want([A, B], 'public')
+  pools[0]!.end!()
+  await vi.advanceTimersByTimeAsync(1_001)
   // One public pool, never closed, and the account asked about once.
   expect(pools.map(pool => [pool.scope, pool.closed])).toEqual([['public', false]])
   expect(pools[0]!.asked).toEqual([[A], [B]])
+})
+
+it('paces a large public profile lookup and stops the queue when lookups are disabled', async () => {
+  vi.useFakeTimers()
+  const { book, pools } = scoped()
+  const authors = Array.from({ length: 120 }, (_, index) => index.toString(16).padStart(64, '0'))
+  book.want(authors, 'public')
+  expect(pools[0]!.asked).toEqual([authors.slice(0, 48)])
+  pools[0]!.end!()
+  await vi.advanceTimersByTimeAsync(500)
+  expect(pools[0]!.asked).toHaveLength(1)
+  await vi.advanceTimersByTimeAsync(501)
+  expect(pools[0]!.asked).toEqual([authors.slice(0, 48), authors.slice(48, 96)])
+  book.setEnabled(false)
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(pools[0]!.closed).toBe(true)
+  expect(pools[0]!.asked).toHaveLength(2)
 })
 
 it('asks the next room about somebody asked about in the room before, even after asking publicly', () => {

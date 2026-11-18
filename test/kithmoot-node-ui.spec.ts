@@ -5,7 +5,7 @@ import { join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
-import { newDeviceContext, openCallSettings, closeSettings, openRoomDetails, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm } from './browser.js'
+import { newDeviceContext, openCallSettings, closeSettings, openRoomDetails, openRoomInfoPage, turnOnMedia, remotePictures, inbound, SYNTHETIC_MIC, join, openNewRoomForm, TEST_RELAY_WS } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
 import { nodeBrowserFixture } from './node-browser-fixture.js'
 import { openRoomUrl } from './relays.js'
@@ -20,6 +20,9 @@ import { roomInvitation, deriveInvitationId } from '../src/invitation.js'
 import { createDeviceCredential, verifyDeviceCredential } from '../src/credential.js'
 import { memoryDeviceStore, deviceKeyFor, storeKeptAdmission } from '../app/src/device-store.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom } from '../app/src/existing-node-room.js'
+import { NostrRelayPool } from '../src/relay-pool.js'
+import { wrapEvent } from 'nostr-tools/nip59'
+import { unwrapEvent } from 'nostr-tools/nip17'
 
 /** Modules across the invite QR as drawn: the finder's top row is seven
  * modules after a four-module quiet zone, so its run gives the scale. */
@@ -1061,7 +1064,7 @@ test('with two of the owner\'s devices keeping a moved room at once, a straggler
  *  account's room bookmarks sync between its devices, its node traffic sent
  *  to `fixture`, and every node HTTP status written to `log`. */
 async function ownerSyncDevice(browser: Browser, baseURL: string, fixture: Awaited<ReturnType<typeof nodeBrowserFixture>>, key: Uint8Array,
-  contexts: BrowserContext[], label: string, log: string[]): Promise<Page> {
+  contexts: BrowserContext[], label: string, log: string[], observe?: (page: Page) => void): Promise<Page> {
   const context = await newDeviceContext(browser, baseURL, { ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 1100, height: 860 } })
   contexts.push(context)
   await context.exposeFunction('ownerPublicKey', () => getPublicKey(key))
@@ -1091,9 +1094,82 @@ async function ownerSyncDevice(browser: Browser, baseURL: string, fixture: Await
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   const page = await context.newPage()
   page.on('pageerror', error => console.error(`${label} page:`, error.message))
+  observe?.(page)
   await signInAccount(page, baseURL)
   return page
 }
+
+test('a People invitation leads to a two-way chat on the private node relay', async ({ browser, baseURL }, info) => {
+  test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')
+  test.skip(info.project.name !== 'chromium', 'one browser is enough for this flow')
+  test.setTimeout(150_000)
+  const fixture = await nodeBrowserFixture(new URL(baseURL!).origin, { chatOnly: true })
+  const contexts: BrowserContext[] = [], log: string[] = []
+  const directory = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    const ownerKey = generateSecretKey(), guestKey = generateSecretKey()
+    const ownerPubkey = getPublicKey(ownerKey), guestPubkey = getPublicKey(guestKey), now = Math.floor(Date.now() / 1000)
+    const publicRelay = new URL('/__test-relay', baseURL); publicRelay.protocol = 'wss:'
+    for (const key of [ownerKey, guestKey]) {
+      await directory.publish(finalizeEvent({ kind: 10050, created_at: now, tags: [['relay', publicRelay.href]], content: '' }, key))
+    }
+    await directory.publish(wrapEvent({ kind: 14, created_at: now, tags: [['p', ownerPubkey]], content: 'Continue on your node?' }, guestKey, ownerPubkey))
+    const publicWrites: Event[] = [], publicFrames: string[] = [], guestNodeSockets: string[] = []
+    const observe = (invitee: boolean) => (page: Page) => {
+      page.on('websocket', socket => {
+        if (invitee && socket.url() === fixture.websocket) guestNodeSockets.push(socket.url())
+        if (socket.url() !== publicRelay.href) return
+        socket.on('framesent', ({ payload }) => {
+          publicFrames.push(String(payload))
+          const frame = JSON.parse(String(payload))
+          if (frame[0] === 'EVENT') publicWrites.push(frame[1])
+        })
+      })
+    }
+    const owner = await ownerSyncDevice(browser, baseURL!, fixture, ownerKey, contexts, 'inviter', log, observe(false))
+    const guest = await ownerSyncDevice(browser, baseURL!, fixture, guestKey, contexts, 'invitee', log, observe(true))
+    await openCallSettings(owner, 'Your KithMoot node')
+    await owner.locator('#nodePairingInput').fill(fixture.pairing())
+    await owner.locator('#nodePair').click(); await owner.locator('#actionConfirm').click()
+    await expect(owner.locator('#nodeHost')).toHaveText('node.example')
+    await closeSettings(owner)
+    await owner.locator('#railPeople').click(); await owner.locator('#peopleNostrOpen').click()
+    await guest.locator('#railChats').click()
+    const thread = owner.locator('#peopleNostrDialog')
+    await thread.locator(`button[data-action="${guestPubkey}"]`).click()
+    await thread.getByRole('button', { name: 'Invite to KithMoot chat' }).click()
+    await owner.getByRole('button', { name: 'Send invitation', exact: true }).click()
+    const accept = guest.locator('#chatInvitations').getByRole('button', { name: /^Accept private chat with / })
+    await expect(accept).toBeVisible({ timeout: 30_000 })
+    const wrapped = publicWrites.find(event => event.kind === 1059 && event.tags[0]?.[1] === guestPubkey)
+    expect(wrapped).toBeDefined()
+    const pinned = parseNodeRoomLink(unwrapEvent(wrapped!, guestKey).content, now)!
+    expect(pinned.relay).toBe('wss://node.example/events')
+    await accept.click()
+    await expect(guest.getByText(/This room is hosted on node\.example/)).toBeVisible()
+    expect(guestNodeSockets).toHaveLength(0)
+    await guest.getByRole('button', { name: 'Ask to join', exact: true }).click()
+    await expect(owner.locator('#chatInput')).toBeVisible({ timeout: 45_000 })
+    await expect(guest.locator('#chatInput')).toBeVisible({ timeout: 45_000 })
+    expect(guestNodeSockets.length).toBeGreaterThan(0)
+
+    const wrappedCount = publicWrites.filter(event => event.kind === 1059).length
+    for (const [from, to, message] of [[owner, guest, 'From the inviter, on the node'], [guest, owner, 'From the invitee, on the node']] as const) {
+      await from.locator('#chatInput').fill(message); await from.locator('#chatInput').press('Enter')
+      await expect(to.locator('#chatLog')).toContainText(message)
+    }
+    expect(publicWrites.filter(event => event.kind === 1059)).toHaveLength(wrappedCount)
+    expect(publicWrites.filter(event => event.kind === 1460)).toEqual([])
+    expect(publicFrames.filter(frame => frame.includes(pinned.room))).toEqual([])
+  } catch (error) {
+    console.log(log.join('\n'))
+    throw error
+  } finally {
+    directory.close()
+    await Promise.all(contexts.map(context => context.close().catch(() => {})))
+    await fixture.close()
+  }
+})
 
 test('the owner\'s second device lets itself into a room its account made on the node with no other device of theirs online', async ({ baseURL, browserName }) => {
   test.skip(!process.env.E2E_NODE_SHELTER_BINARY, 'requires the checked private native relay executable')

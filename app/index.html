@@ -43,7 +43,7 @@
     <nav id="rail" aria-label="Main">
       <button id="appHome" class="railLogo brandHome" type="button" aria-label="KithMoot, start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" /></button>
       <button id="railChats" class="railItem" type="button" data-destination="chats" aria-current="page"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-chats"/></svg><span id="railChatsCount" class="railCount" hidden></span></span><span class="railLabel">Chats</span></button>
-      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg></span><span class="railLabel">People</span></button>
+      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg><span id="railPeopleCount" class="railCount" hidden></span></span><span class="railLabel">People</span></button>
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
       <button id="railMetadata" class="railItem" type="button" data-destination="metadata" aria-controls="metadataPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-eye"/></svg></span><span class="railLabel">Metadata</span></button>
       <div id="railEnd" class="railEnd">
@@ -291,7 +291,7 @@
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="dmRelaySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>
-                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span><span class="infoRowSub">Where one-to-one chats with you are kept. This list is public.</span></span>
+                    <span class="infoRowText"><span class="infoRowTitle">Nostr inbox relays</span><span class="infoRowSub">The public list of relays that accept encrypted Nostr messages for you</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="bothySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothySettings">
@@ -1977,6 +1977,20 @@
       </div>
     </dialog>
 
+    <dialog id="peopleNostrDialog" class="sharedProjectsSheet" aria-labelledby="peopleNostrTitle">
+      <div class="sheetBar"><h2 id="peopleNostrTitle">Nostr messages</h2><button id="peopleNostrClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="peopleNostrStatus" role="status" class="note"></p>
+        <div id="peopleNostrActions" class="peopleNostrActions">
+          <button id="peopleNostrToggle" type="button">Turn off inbox</button>
+          <button id="peopleNostrRelays" type="button" class="quiet">Inbox relays</button>
+          <button id="peopleNostrRefresh" type="button" class="quiet" hidden>Refresh</button>
+          <button id="peopleNostrCompose" type="button" class="quiet" hidden>New Nostr message</button>
+        </div>
+        <div id="peopleNostrContent"></div>
+      </div>
+    </dialog>
+
     <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
       <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
@@ -2182,17 +2196,17 @@
 
     <dialog id="dmRelaySettings" class="profileSettings" aria-labelledby="dmRelaySettingsTitle">
       <div class="profileSettingsHeader">
-        <h2 id="dmRelaySettingsTitle">Relays for private conversations</h2>
-        <button id="dmRelaySettingsClose" type="button" aria-label="Close relays for private conversations">Close</button>
+        <h2 id="dmRelaySettingsTitle">Nostr inbox relays</h2>
+        <button id="dmRelaySettingsClose" type="button" aria-label="Close Nostr inbox relays">Close</button>
       </div>
-      <p class="note">Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.</p>
+      <p class="note">Choose one to three public Nostr relays that accept encrypted messages for your account. Enter one address per line.</p>
       <label for="dmRelayList">Relays</label>
       <textarea id="dmRelayList" rows="4" placeholder="wss://relay.example" autocomplete="off" spellcheck="false"></textarea>
       <div class="toolRow">
         <button id="dmRelaySave" type="button" class="primary">Save to your Nostr account</button>
       </div>
       <p id="dmRelayStatus" class="note" role="status"></p>
-      <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
+      <p class="note">Anyone can look up this list to find where to send you an encrypted Nostr message.</p>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">

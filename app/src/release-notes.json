@@ -1,10 +1,10 @@
 {
-  "id": "2026-11-18-participant-call-media",
+  "id": "2026-11-18-people-nostr-inbox",
   "date": "18 November 2026",
-  "title": "See who is speaking",
+  "title": "Nostr messages in People",
   "changes": [
-    "Every caller has a named microphone waveform, including You. Reduced motion shows a level bar.",
-    "The call keeps the last picture visible while a replacement video decoder starts.",
-    "Microphone meters check the received sound when the browser’s track mute status is stale."
+    "People shows unread encrypted Nostr messages and requests from new senders.",
+    "Your inbox starts in Nostr mode with your published relay list. Open Inbox relays to set up a list.",
+    "Reply on Nostr or send an invitation to chat privately on your paired KithMoot node."
   ]
 }

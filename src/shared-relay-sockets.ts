@@ -1,5 +1,6 @@
 import { normalizeURL } from 'nostr-tools/utils'
 import { handshakeObservedWebSocket } from './guarded-websocket.js'
+import { noticeSocketSubscriptionLimit } from './relay-dial-gate.js'
 
 /**
  * Room pools sharing real connections to a relay.
@@ -195,7 +196,6 @@ type Place = { carrier: Carrier; wire: string; kind: Kind }
 
 const ADDRESSED = /^(\s*\[\s*"(EVENT|EOSE|CLOSED|COUNT|NEG-MSG|NEG-ERR)"\s*,\s*)"([^"\\]*)"/
 const ACKNOWLEDGED = /^\s*\[\s*"OK"\s*,\s*"([0-9a-f]{64})"/
-const OVER_BUDGET = /too many (concurrent )?(reqs|subscriptions)/i
 
 function key(url: string): string {
   try { return normalizeURL(url) } catch { return url }
@@ -262,7 +262,7 @@ export class Carrier {
     }
     // The relay refused the last subscription's live half. Place nothing
     // more here; the pool's resend logic deals with what it lost.
-    if (/^\s*\[\s*"NOTICE"/.test(data) && OVER_BUDGET.test(data)) this.#budget = Math.max(1, this.subscriptions.size - 1)
+    if (/^\s*\[\s*"NOTICE"/.test(data) && noticeSocketSubscriptionLimit(data)) this.#budget = Math.max(1, this.subscriptions.size - 1)
     for (const lane of [...this.members]) lane.deliver(data)
   }
 }

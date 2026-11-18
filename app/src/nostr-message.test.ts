@@ -4,7 +4,7 @@ import { nip44 } from 'nostr-tools'
 import { unwrapEvent } from 'nostr-tools/nip17'
 import { NostrMessage, nostrMessageRecipient, type NostrMessageIdentity } from './nostr-message.js'
 
-function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promise<void>) {
+function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promise<void>, allowsRelay?: (url: string) => boolean) {
   const sender = generateSecretKey(), recipient = generateSecretKey(), self = getPublicKey(sender), peer = getPublicKey(recipient)
   const now = Math.floor(Date.now() / 1000), wire: Event[] = [], encrypted: string[] = [], signed: number[] = []
   let live = true, blocked = false, reject = false, mode: 'good' | 'forged' | 'refuse-copy' = 'good'
@@ -27,7 +27,7 @@ function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promis
     },
   }
   const message = new NostrMessage({ identity, current: () => live, blocked: () => blocked,
-    lookup: async () => statements, publish: async (event, relays, current) => {
+    lookup: async () => statements, allowsRelay, publish: async (event, relays, current) => {
       if (!current()) throw Error('cancelled')
       expect(relays).toEqual(event.tags[0]![1] === self ? ['wss://sender.example/'] : ['wss://recipient.example/'])
       wire.push(event)
@@ -90,6 +90,14 @@ describe('separate ordinary Nostr text message', () => {
     f.replace([f.list(f.sender, 'wss://sender.example'), f.list(f.recipient, 'wss://recipient.example', f.now - 1), f.list(f.recipient, '')])
     await f.message.review(f.peer, 'Not sent'); await f.message.send(); expect(f.wire).toEqual([])
     expect(f.message.snapshot().status).toContain('No usable published')
+  })
+  it('holds when the latest inbox points only to a relay outside the public route', async () => {
+    const f = fixture(undefined, url => url !== 'wss://private.example/')
+    f.replace([f.list(f.sender, 'wss://sender.example'), f.list(f.recipient, 'wss://recipient.example', f.now - 1),
+      f.list(f.recipient, 'wss://private.example')])
+    await f.message.review(f.peer, 'Public message'); await f.message.send()
+    expect(f.message.snapshot().review).toBeUndefined()
+    expect(f.wire).toEqual([])
   })
   it('does not trust a cached verification marker on a forged relay list', async () => {
     const f = fixture(), forged = f.list(f.recipient, 'wss://recipient.example')

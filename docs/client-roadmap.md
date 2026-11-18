@@ -20,7 +20,7 @@ These additions feed the existing product goals and execution phases. All additi
 | Phase | Accepted work | Product goals |
 | --- | --- | --- |
 | P1 | Audio-first diagnostics, bounded queues, independent media recovery, native resource cleanup and efficient group publication | G7, G10, G12 |
-| P2 | Protected ordinary storage, fresh-device recovery, bounded history/search, existing notification qualification and independent-client NIP-17 messaging | G1–G3, G18 |
+| P2 | Protected ordinary storage, fresh-device recovery, bounded history/search, notification qualification and the People inbox for Nostr messages across desktop, web and Android | G1–G3, G18 |
 | P3 | Typed agent choices/actions with version, expiry and authority checks | G9 |
 
 Improve the current KithMoot/Sapflow/RelaySwarm/Spry stack; no transport
