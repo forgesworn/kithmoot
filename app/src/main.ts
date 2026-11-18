@@ -63,6 +63,7 @@ import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './p
 import { PeopleNostrPanel } from './people-nostr-panel.js'
 import { PeopleProfileCache } from './people-profile-cache.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
+import { forgetPeoplePictures } from './people-pictures.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
 import { NostrMessagePanel } from './nostr-message-panel.js'
@@ -2171,6 +2172,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     }
     // The rooms' kept history goes with the rooms.
     await deleteRoomArchive()
+    await forgetPeoplePictures()
 
     history.replaceState(null, '', joinLinkBase())
     }) } finally { forgettingBrowser = false }
@@ -4037,7 +4039,10 @@ $('lookupProfiles').addEventListener('change', () => {
   const enabled = ($('lookupProfiles') as HTMLInputElement).checked
   profilesEnabled = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
-  if (!enabled) peopleProfiles.clear()
+  if (!enabled) {
+    peopleProfiles.clear()
+    void forgetPeoplePictures()
+  }
   profiles.setEnabled(accountNetwork.nostr && enabled)
   follows.setEnabled(accountNetwork.nostr && enabled)
   if (session) {
@@ -20414,8 +20419,10 @@ peopleNostrPanel = new PeopleNostrPanel(document, {
     const view = grantedContactView
     const granted = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts.find(row => row.pubkey === peer) : undefined
     const card = contactFor(deviceStore, peer)
-    const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profiles.get(peer)?.name
-    return { name, known: mayMessageContact(peer) }
+    const profile = profiles.get(peer)
+    const known = mayMessageContact(peer)
+    const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profile?.name
+    return { name, known, picture: known ? profile?.picture : undefined }
   },
   configure: () => void openDmRelaySettings(),
   canCompose: () => peopleNostrComposeEligible() && nostrMessagePanel?.available === true,
@@ -25365,6 +25372,7 @@ function reconcileAccountNetwork(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (!enabled) {
     participantCard.close()
+    void forgetPeoplePictures()
     // Remove retained avatar elements immediately, including views currently
     // closed. Repainting below supplies local initials rather than remote URLs.
     for (const image of document.querySelectorAll<HTMLImageElement>('img.avatar, .joinAvatar img, .personAvatar img, .contactAvatar img, .invitationAvatar img, .roomAvatar img')) { image.removeAttribute('src'); image.remove() }

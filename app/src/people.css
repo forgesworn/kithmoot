@@ -132,7 +132,7 @@
 }
 
 /* The same eight colours as a room's avatar in the list. */
-:is(.peopleList .personAvatar, .peoplePane .contactAvatar, .peoplePane .contactRoomAvatar) {
+:is(.peopleList .personAvatar, .peopleNostrThreads .personAvatar, .peoplePane .contactAvatar, .peoplePane .contactRoomAvatar) {
   position: relative;
   overflow: hidden;
   flex: 0 0 40px;

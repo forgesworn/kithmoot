@@ -1,6 +1,12 @@
 import './people-nostr.css'
-import { shortNpub } from './people.js'
+import { personAvatar, shortNpub } from './people.js'
 import type { PeopleNostrInbox } from './people-nostr-inbox.js'
+
+interface Contact {
+  name?: string
+  picture?: string
+  known: boolean
+}
 
 interface Options {
   account(): string | undefined
@@ -10,7 +16,7 @@ interface Options {
   refresh(): void
   inbox(): PeopleNostrInbox | undefined
   status(): string
-  contact(peer: string): { name?: string; known: boolean }
+  contact(peer: string): Contact
   configure(): void
   compose(opener: HTMLElement, reply?: { peer: string; parent: string }): void
   canCompose(): boolean
@@ -83,7 +89,11 @@ export class PeopleNostrPanel {
     if (!this.#current()) { this.close(); return }
     const enabled = this.options.enabled()
     const inbox = this.options.inbox()
-    const threads = inbox?.threads().map(thread => ({ ...thread, ...this.options.contact(thread.peer) })) ?? []
+    const threads = inbox?.threads().map(thread => {
+      const contact = this.options.contact(thread.peer)
+      const request = !contact.known && !thread.messages.some(message => message.author === this.#account)
+      return { ...thread, ...contact, request }
+    }) ?? []
     const thread = threads.find(row => row.peer === this.#peer)
     if (!thread) this.#peer = undefined
     this.#status.textContent = this.options.status() || inbox?.status || (!enabled
@@ -96,7 +106,7 @@ export class PeopleNostrPanel {
     this.#title.textContent = thread ? thread.name ?? shortNpub(thread.peer) : 'Nostr messages'
     const painted = JSON.stringify(thread
       ? [thread.peer, thread.name, thread.unread, thread.messages.map(row => row.id), this.options.canCompose()]
-      : threads.map(({ peer, known, name, unread }) => [peer, known, name, unread]))
+      : threads.map(({ peer, request, name, unread, picture }) => [peer, request, name, unread, picture]))
     if (painted === this.#painted) return
     this.#painted = painted
     const focused = this.#content.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.action : undefined
@@ -105,28 +115,43 @@ export class PeopleNostrPanel {
     if (focused) this.#content.querySelector<HTMLElement>(`[data-action="${focused}"]`)?.focus({ preventScroll: true })
   }
 
-  #list(threads: { peer: string; known: boolean; name?: string; unread: number }[]): DocumentFragment {
-    const fragment = document.createDocumentFragment()
-    for (const [title, known] of [['Message requests', false], ['Messages', true]] as const) {
-      const rows = threads.filter(thread => thread.known === known)
-      if (!rows.length) continue
-      const heading = document.createElement('h3'); heading.textContent = title
-      const list = document.createElement('ul'); list.className = 'peopleNostrThreads'
-      for (const row of rows) {
-        const item = document.createElement('li')
-        const label = row.name ?? shortNpub(row.peer)
-        const button = this.#button(row.unread ? `${label} (${row.unread})` : label, () => {
-          this.#peer = row.peer
-          this.reconcile()
-          this.#content.querySelector<HTMLElement>('[data-action="back"]')?.focus()
-          this.#markRead()
-        }, row.peer)
-        if (row.unread) button.setAttribute('aria-label', `${label}, ${row.unread} unread`)
-        item.append(button); list.append(item)
+  #list(threads: { peer: string; request: boolean; name?: string; picture?: string; unread: number }[]): HTMLUListElement {
+    const list = document.createElement('ul'); list.className = 'peopleNostrThreads'
+    for (const row of threads) {
+      const item = document.createElement('li')
+      const label = row.name ?? shortNpub(row.peer)
+      const button = this.#button('', () => {
+        this.#peer = row.peer
+        this.reconcile()
+        this.#content.querySelector<HTMLElement>('[data-action="back"]')?.focus()
+        this.#markRead()
+      }, row.peer)
+      button.setAttribute('aria-label', row.unread ? `${label}, ${row.unread} unread` : label)
+      const description = document.createElement('span')
+      description.className = 'peopleNostrThreadLabel'
+      const name = document.createElement('span')
+      name.className = 'peopleNostrThreadName'
+      name.textContent = label
+      description.append(name)
+      if (row.request) {
+        const request = document.createElement('small')
+        request.className = 'note'
+        request.id = `peopleNostrRequest-${row.peer}`
+        request.textContent = 'Message request'
+        description.append(request)
+        button.setAttribute('aria-describedby', request.id)
       }
-      fragment.append(heading, list)
+      button.append(personAvatar(row.peer, row.name, row.picture, 'personAvatar'), description)
+      if (row.unread) {
+        const count = document.createElement('span')
+        count.className = 'peopleNostrThreadCount'
+        count.textContent = String(row.unread)
+        count.setAttribute('aria-hidden', 'true')
+        button.append(count)
+      }
+      item.append(button); list.append(item)
     }
-    return fragment
+    return list
   }
 
   #thread(thread: ReturnType<PeopleNostrInbox['threads']>[number] & { name?: string }): DocumentFragment {

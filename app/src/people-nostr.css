@@ -1,7 +1,18 @@
 .peopleNostrOpen { align-self: flex-start; margin: 0 1rem .5rem; }
 .peopleNostrActions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .peopleNostrThreads, .peopleNostrTranscript { list-style: none; margin: .75rem 0; padding: 0; }
-.peopleNostrThreads button { text-align: start; width: 100%; min-height: 44px; }
+.peopleNostrThreads button { display: flex; align-items: center; gap: .75rem; text-align: start; width: 100%; min-height: 44px; }
+.peopleNostrThreads li + li { margin-block-start: .25rem; }
+.peopleNostrThreadLabel { display: grid; flex: 1; min-inline-size: 0; }
+.peopleNostrThreadName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peopleNostrThreadCount {
+  border-radius: 1rem;
+  min-inline-size: 1.65rem;
+  padding: .125rem .375rem;
+  text-align: center;
+  border: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+}
 .peopleNostrTranscript li { padding-block: .55rem; border-block-end: 1px solid var(--border); }
 .peopleNostrTranscript p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .peopleNostrTranscript .note { margin-block-end: .25rem; }

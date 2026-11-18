@@ -1,16 +1,19 @@
 {
-  "currentRelease": "0.1.169",
+  "currentRelease": "0.1.170",
   "releases": [
     {
-      "version": "0.1.169",
+      "version": "0.1.170",
       "updateTo": {
-        "version": "0.1.169",
-        "name": "0.1.169",
-        "pub_date": "2026-11-18T13:54:12Z",
-        "notes": "Connect a remote signer to receive messages from authenticated inbox relays and send or reply in People.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.169/KithMoot-0.1.169-mac-arm64.zip",
-        "sha256": "283bd83aaadb87de3c798089185765b4d145aa1c182ce6a60ca87d38012587cf",
-        "size": 200354894
+        "version": "0.1.170",
+        "name": "0.1.170",
+        "pub_date": "2026-11-18T14:35:25Z",
+        "notes": [
+          "Unread Nostr conversations come first in People, followed by the people you message most.",
+          "People reuses cached profile pictures across app launches."
+        ],
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.170/KithMoot-0.1.170-mac-arm64.zip",
+        "sha256": "1b050aa3efd116071dafdc50a789b16aad74a5b18577a3c75af53629ad5b81ab",
+        "size": 200353629
       }
     }
   ]
