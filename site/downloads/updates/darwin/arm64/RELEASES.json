@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.167",
+  "currentRelease": "0.1.168",
   "releases": [
     {
-      "version": "0.1.167",
+      "version": "0.1.168",
       "updateTo": {
-        "version": "0.1.167",
-        "name": "0.1.167",
-        "pub_date": "2026-11-18T02:46:29Z",
-        "notes": "Each caller has a named microphone waveform, including you. Call controls wrap on narrower screens. Video recovery keeps the last frame visible while playback resumes.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.167/KithMoot-0.1.167-mac-arm64.zip",
-        "sha256": "a7518dfc13f19a40d008c118642ae72a3e43a9a0ba740b249c970f49bab20065",
-        "size": 200356489
+        "version": "0.1.168",
+        "name": "0.1.168",
+        "pub_date": "2026-11-18T12:59:50Z",
+        "notes": "People shows unread encrypted Nostr messages and requests from new senders. Reply there or invite someone to a private chat on your KithMoot node.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.168/KithMoot-0.1.168-mac-arm64.zip",
+        "sha256": "dba1a6ef6a65352ff3ae309c5049c18908a65af0e0732776967910ac5b0fb92f",
+        "size": 200360702
       }
     }
   ]
