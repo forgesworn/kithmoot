@@ -1,3 +1,9 @@
+## Desktop 0.1.168
+
+People shows unread encrypted Nostr messages and requests from new senders.
+The inbox starts with your published inbox relays in Nostr mode. Reply on
+Nostr or send an invitation to chat privately on your paired KithMoot node.
+
 ## Desktop 0.1.167
 
 Every caller has a named microphone waveform, including You, with a level bar when reduced motion is on. A recovering camera keeps its last picture visible while the replacement is getting ready. Calls can recover from a lost initial connection answer, and the meters use decoded audio when the browser’s track mute status is stale.
