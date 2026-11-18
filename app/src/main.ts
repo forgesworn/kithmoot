@@ -63,6 +63,7 @@ import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './p
 import { PeopleNostrPanel } from './people-nostr-panel.js'
 import { PeopleProfileCache } from './people-profile-cache.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
+import { PEOPLE_SEARCH_RELAY, searchNostrPeople } from './people-search.js'
 import { forgetPeoplePictures } from './people-pictures.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
@@ -1626,7 +1627,7 @@ let peopleNostrStatus = ''
 let peopleNostrSuspended = false
 let peopleNostrPeers = new Set<string>()
 let peopleNostrRoutes: { account: SignetSession; directory: string; until: number; statements: NostrEvent[] } | undefined
-function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); peopleNostrPanel?.close(); privateFileUploadsPanel.close() }
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); peopleNostrPanel?.close(); people?.resetSearch(); privateFileUploadsPanel.close() }
 function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !legacyMessagesPanel?.available
   ;($('nostrMessageEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrMessagePanel?.available
@@ -19164,7 +19165,8 @@ function peopleModel(): PeopleModel {
     if (pubkey === self || contactIsBlocked(pubkey) || byKey.has(pubkey)) return
     const profile = profiles.get(pubkey)
     // Checked: by Signet, or words compared on this device under this account.
-    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}),
+    const remembered = accountNetwork.nostr && profilesEnabled ? lastKnownProfileNames.get(pubkey) : undefined
+    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name ?? remembered, ...(profile?.picture ? { picture: profile.picture } : {}),
       ...(person.checked || checkedHere.has(pubkey) ? { checked: true } : {}) })
   }
   if (view && (view.status === 'ready' || view.status === 'stale')) {
@@ -19175,20 +19177,44 @@ function peopleModel(): PeopleModel {
     })
   }
   for (const card of contacts(deviceStore)) add(card.p, { section: 'contacts', source: 'card', ...(card.name ? { name: contactLabel(card) } : {}) })
-  const contactsList = [...byKey.values()]
   const snapshot = follows.snapshot()
   // A Nostr address shows only once checked; ProfileBook holds it only then.
   for (const pubkey of snapshot.pubkeys) {
     const address = profiles.get(pubkey)?.nip05
     add(pubkey, { section: 'following', ...(address ? { address } : {}) })
   }
-  const following = [...byKey.values()].filter(person => person.section === 'following')
+  if (self) {
+    const rooms = knownRooms(accountRoomStore(deviceStore, self)).sort((a, b) => b.openedAt - a.openedAt || a.roomId.localeCompare(b.roomId))
+    const chatPeers = new Set<string>()
+    for (const room of rooms) {
+      const peer = dmPeerOf(room, self)
+      if (!peer || chatPeers.has(peer) || isQuietRoom(room) || contactIsBlocked(peer)) continue
+      chatPeers.add(peer)
+      const chatName = directChatName({ chatLabel: room.chatLabel, rememberedName: room.name,
+        selfName: accountProfiles.get(self)?.name })
+      add(peer, { section: 'conversations' })
+      const person = byKey.get(peer)!
+      person.chatName = chatName
+      if (chatName !== 'Private chat') person.name ??= chatName
+    }
+    for (const thread of peopleNostrInbox?.threads() ?? []) {
+      if (contactIsBlocked(thread.peer)) continue
+      add(thread.peer, { section: 'conversations' })
+      const person = byKey.get(thread.peer)
+      if (person) person.unread = thread.unread
+      if (person?.section === 'conversations' && !chatPeers.has(thread.peer) && !thread.messages.some(message => message.author === self)) delete person.picture
+    }
+  }
+  const all = [...byKey.values()]
+  const contactsList = all.filter(person => person.section === 'contacts')
+  const following = all.filter(person => person.section === 'following')
+  const conversations = all.filter(person => person.section === 'conversations').sort((a, b) => Number(!!b.unread) - Number(!!a.unread))
   const contactsNote = view?.status === 'stale' ? 'Open Signet to refresh your contacts. Names may be out of date.'
     : view?.status === 'lapsed' ? 'Open Signet and unlock your contacts to see their names again.'
     : view?.status === 'revoked' ? 'Your Signet contact grant was withdrawn.'
     : view?.status === 'unavailable' ? 'Your contacts need attention. Choose Add a contact, then Link Signet contacts.'
     : undefined
-  return { contacts: contactsList, following, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
+  return { contacts: contactsList, following, conversations, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
 }
 
 /** Invitations (invitations.ts): the inbox's waiting private-chat requests,
@@ -19499,6 +19525,21 @@ function linkSignetContacts(opener: HTMLElement): void {
       roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),
     })),
     want: pubkeys => wantProfiles(pubkeys, 'public'),
+    canSearchNostr: canSearchNostrPeople,
+    searchNostr: async (query, signal) => {
+      const account = nostrSession, network = accountNetwork.current()
+      const rows = await searchNostrPeople(query, () => relayConnections.pool('people-search',
+        [{ url: PEOPLE_SEARCH_RELAY, read: true, write: false }]), signal)
+      return nostrSession === account && network() && canSearchNostrPeople()
+        ? rows.filter(row => row.pubkey !== account?.pubkey) : []
+    },
+    isBlocked: contactIsBlocked,
+    canMessageOnNostr: peer => !contactIsBlocked(peer) && (hasPeopleNostrThread(peer) ||
+      peopleNostrEnabled() && nostrMessagePanel?.available === true),
+    messageOnNostr: (peer, opener) => {
+      if (hasPeopleNostrThread(peer)) peopleNostrPanel?.show(opener, peer)
+      else nostrMessagePanel?.show(opener, { peer })
+    },
     openNostrMessages: opener => peopleNostrPanel?.show(opener),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,
@@ -19508,7 +19549,7 @@ function linkSignetContacts(opener: HTMLElement): void {
   })
   document.addEventListener('shell:destination', event => {
     peopleNostrPanel?.reconcile()
-    if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') return
+    if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') { people?.resetSearch(); return }
     follows.refresh()
     renderPeople()
   })
@@ -20279,6 +20320,10 @@ function renderPeopleNostr(): void {
   peopleNostrPanel.reconcile()
 }
 
+function hasPeopleNostrThread(peer: string): boolean {
+  return peopleNostrInbox?.threads().some(thread => thread.peer === peer) === true
+}
+
 function stopPeopleNostrInbox(): void {
   peopleNostrInbox?.close()
   peopleNostrInbox = undefined
@@ -20307,7 +20352,7 @@ function reconcilePeopleNostrInbox(refresh = false): void {
       peopleNostrStatus = ''
       const publicNetwork = accountNetwork.current()
       const inbox: PeopleNostrInbox = new PeopleNostrInbox({ account: account.pubkey, store: deviceStore, acquire: acquireOrdinaryMessageHistory,
-        decrypt, blocked: contactIsBlocked, changed: renderPeopleNostr,
+        decrypt, blocked: contactIsBlocked, changed: renderPeople,
         keepNodeInvitation: async (token, current) => {
           const journal = contactInbox
           await openingContactInbox
@@ -20358,11 +20403,15 @@ function reconcilePeopleNostrInbox(refresh = false): void {
       void inbox.open()
     }
   }
-  renderPeopleNostr()
+  renderPeople()
 }
 
 function peopleNostrComposeEligible(): boolean {
   return currentDestination() === 'people' && canCheckAccountMessages()
+}
+
+function canSearchNostrPeople(): boolean {
+  return profilesEnabled && peopleNostrComposeEligible() && publicPeopleRelay(PEOPLE_SEARCH_RELAY)
 }
 
 legacyMessagesPanel = new LegacyMessagePanel(document, {

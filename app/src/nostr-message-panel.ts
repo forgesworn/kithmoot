@@ -31,7 +31,7 @@ export class NostrMessagePanel {
   #generation = 0
   #message?: NostrMessage
   #focus?: HTMLElement
-  #reply?: { peer: string; parent: string }
+  #reply?: { peer: string; parent?: string }
   constructor(private readonly root: Document, private readonly options: Options) {
     const el = (id: string) => root.getElementById(id)!
     this.#dialog = el('nostrMessageDialog') as HTMLDialogElement
@@ -72,7 +72,7 @@ export class NostrMessagePanel {
     return nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.(), this.options.remoteSocket?.())
   }
   #current = (): boolean => this.#dialog.open && this.available && this.#account === this.options.account() && this.#epoch === this.options.epoch()
-  show(focus: HTMLElement, reply?: { peer: string; parent: string }): void {
+  show(focus: HTMLElement, reply?: { peer: string; parent?: string }): void {
     this.close()
     if (!this.available) return
     this.#account = this.options.account(); this.#epoch = this.options.epoch(); this.#focus = focus

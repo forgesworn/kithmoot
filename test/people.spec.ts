@@ -2,7 +2,9 @@ import { test, expect, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { parseRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
+import { deriveRoom, generateRoomSecret } from '../src/room.js'
+import { dmPolicy } from '../src/dm.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
 import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings } from './browser.js'
 
@@ -102,6 +104,71 @@ test('People lists the people you follow, and Message starts a private chat with
     await expect(bob.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')
     await expect(bob.locator('#chatInvitations')).toBeHidden()
   } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
+test('People finds a saved private chat by its local name without a card or follow', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), self = getPublicKey(key), peer = getPublicKey(generateSecretKey())
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const link = encodeRoomLink(baseURL!, { secret, relays: [TEST_RELAY_WS], iceUrls: [], policy: dmPolicy(self, peer) })
+  const room = { roomId, link, chatLabel: 'Ellis', openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
+  try {
+    await context.addInitScript(({ self, room }) => {
+      localStorage.setItem(`kithmoot.account.${self}.kithmoot.room.${room.roomId}`, JSON.stringify(room))
+    }, { self, room })
+    const page = await context.newPage()
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await page.locator('#railChats').click()
+    await expect(page.locator('#roomList')).toContainText('Ellis')
+    await openPeople(page)
+    await page.getByRole('searchbox', { name: 'Find a person' }).fill('ellis')
+    await page.locator('#peopleRows').getByRole('button', { name: /^Ellis/ }).click({ timeout: 5_000 })
+    await expect(page.locator('#peoplePaneTitle')).toHaveText('Ellis')
+    await expect(page.getByRole('heading', { name: 'Private chat', exact: true })).toBeVisible()
+  } finally { await context.close() }
+})
+
+test('People searches public names explicitly and prepares a Nostr message to the selected key', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), peerKey = generateSecretKey(), peer = getPublicKey(peerKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const name = 'Sula Search Fixture'
+  try {
+    await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [], new Map([[peer, name]]))
+    await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ name: 'About only', about: name }) }, generateSecretKey()))
+    const page = await context.newPage()
+    const requests: unknown[] = []
+    const activeSearches = new Set<string>()
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string') return
+      const [verb, id, filter] = JSON.parse(payload)
+      if (verb === 'REQ' && filter?.search !== undefined) {
+        requests.push(filter)
+        activeSearches.add(id)
+      }
+      if (verb === 'CLOSE') activeSearches.delete(id)
+    }))
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await openPeople(page)
+    const search = page.getByRole('searchbox', { name: 'Find a person' })
+    await search.fill(name)
+    await expect(page.locator('#peopleStatus')).toHaveText('No matching contacts or conversations.')
+    expect(requests).toHaveLength(0)
+    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    const results = page.locator('#peopleRows')
+    await expect(results.getByRole('heading', { name: 'Nostr results' })).toBeVisible()
+    expect(requests).toEqual([{ kinds: [0], search: name, limit: 16 }])
+    await expect.poll(() => activeSearches.size).toBe(0)
+    await expect(results.getByRole('button', { name: /About only/ })).toHaveCount(0)
+    await results.getByRole('button', { name: new RegExp('^' + name) }).click()
+    await page.getByRole('button', { name: 'Message on Nostr', exact: true }).click()
+    await expect(page.locator('#nostrMessageRecipient')).toHaveValue(npubEncode(peer))
+    await expect(page.locator('#nostrMessageSend')).toBeHidden()
+  } finally { publisher.close(); await context.close() }
 })
 
 test('an invitation from somebody you follow carries their name, before People has ever been opened', async ({ browser, baseURL }) => {
@@ -406,5 +473,7 @@ test('with public profiles off, Following says how to see it and asks no relay',
     await openPeople(alice)
     await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Turn on public profiles in Settings to see the people you follow.')
     await expect(alice.locator('#peopleEmpty')).toBeVisible()
+    await alice.getByRole('searchbox', { name: 'Find a person' }).fill('Ellis')
+    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeHidden()
   } finally { await ac.close() }
 })

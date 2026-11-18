@@ -1,11 +1,9 @@
 {
-  "id": "2026-11-18-people-inbox-order",
+  "id": "2026-11-18-people-contact-search",
   "date": "18 November 2026",
-  "title": "Nostr messages in People",
+  "title": "Find people you chat with",
   "changes": [
-    "Unread Nostr conversations come first, followed by the people you message most.",
-    "People reuses cached profile pictures when you reopen the inbox.",
-    "A connected remote signer can authenticate to your inbox relays and approve messages you send from People.",
-    "Reply on Nostr or send an invitation to chat privately on your paired KithMoot node."
+    "Search People by name to find your contacts, follows and existing conversations.",
+    "Choose Search Nostr for public profiles, then open a message to the selected public key."
   ]
 }
