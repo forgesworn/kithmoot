@@ -177,7 +177,7 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
-import { AudioActivity } from './audio-activity.js'
+import { AudioActivity, type AudioSignal, type ParticipantSignal } from './audio-activity.js'
 import { MetadataPanel } from './metadata-panel.js'
 import { metadataConnection } from './metadata-connection.js'
 import { cleanAttachment } from './attachment-metadata.js'
@@ -8532,7 +8532,9 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // mirrored like this device's own camera, or left and right swap.
   for (const [key, entry] of remoteVideos) {
     const device = tileDevice(key)
-    entry.el.classList.toggle('ownCameraView', device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera'))
+    const ownCamera = device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera')
+    entry.el.classList.toggle('ownCameraView', ownCamera)
+    entry.previous?.el.classList.toggle('ownCameraView', ownCamera)
   }
   cachedMonitorHere = monitorHere
   cachedOwnDevices = ownDevices
@@ -8586,10 +8588,10 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // the room's, not the call's - but a person who has pressed Leave is
   // shown the names and the banner, not the faces, until they press Join.
   // The poll puts them back the moment they do.
-  if (leftCall) for (const entry of remoteVideos.values()) if (onScreen(entry)) parkPicture(entry.el)
+  if (leftCall) for (const entry of remoteVideos.values()) if (onScreen(entry)) parkRemoteVideo(entry)
   // Nor of anybody meeting mode keeps off the stage. Parked, not removed,
   // so a person made a speaker is back on screen at the next poll.
-  for (const [key, entry] of remoteVideos) if (onScreen(entry) && meetingGated(tileDevice(key))) parkPicture(entry.el)
+  for (const [key, entry] of remoteVideos) if (onScreen(entry) && meetingGated(tileDevice(key))) parkRemoteVideo(entry)
 
   const root = $('room')
   const kept = new Set<string>()
@@ -8776,8 +8778,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand!) }
       expand.onclick = openViewer
       if (!ready) continue
-      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
-        ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
+      const remote = remoteVideos.get(tileKey(device, 'screen')) ?? [...remoteVideos.values()].find(entry => entry.track === available.track)
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remote?.previous?.el ?? remote?.el
       if (preview) {
         preview.classList.add('screenPreview')
         if (device === myDeviceId) preview.ondblclick = openViewer
@@ -14022,6 +14024,8 @@ interface RemoteVideo {
   el: HTMLVideoElement
   container: HTMLDivElement
   track: MediaStreamTrack
+  /** The last visible sink while its replacement decodes its first frame. */
+  previous?: { el: HTMLVideoElement; expiresAt: number }
   /** `currentTime` at the last check - a picture that is moving is live. */
   last: number
   /** Decoded frames are independent evidence when a browser's clock stalls. */
@@ -14178,18 +14182,72 @@ const LOCAL_SPEAKING_KEY = 'self'
 const audioActivity = new AudioActivity(document.querySelectorAll<HTMLElement>('[data-audio-activity]'))
 let audioLevels: ReadonlyMap<string, number | null> = new Map()
 let audioWaveforms: ReadonlyMap<string, readonly number[]> = new Map()
+let audioActivityScope = ''
+let callerMics: (Omit<ParticipantSignal, 'signal' | 'waveform'> & {
+  source?: string
+  status?: Exclude<AudioSignal, number | null>
+})[] = []
 
 function paintAudioActivity(force = false): void {
-  const active = onCall()
-  const incoming = [...audioLevels].filter(([key, level]) => key !== LOCAL_SPEAKING_KEY && level !== null && !meetingGated(tileDevice(key)))
-    .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0]
-  audioActivity.update(active ? `${mediaSession()?.roomId}:${mediaSession()?.call?.id}` : '', [
-    !micTrack ? 'Off' : !micTrack.enabled ? 'Muted' : audioLevels.get(LOCAL_SPEAKING_KEY) ?? null,
-    incoming?.[1] ?? null,
-  ], performance.now(), force, [
-    audioWaveforms.get(LOCAL_SPEAKING_KEY) ?? [],
-    audioWaveforms.get(incoming?.[0] ?? '') ?? [],
-  ])
+  const owner = mediaSession()
+  const callId = owner?.call?.id
+  const scope = owner && callId && !leavingCall ? `${owner.roomId}:${callId}` : ''
+  // Resolve identity, membership and mic ownership on a call UI repaint.
+  // Audio polling only reads the cached sources and updates their meters.
+  if (force || scope !== audioActivityScope) {
+    audioActivityScope = scope
+    callerMics = []
+    if (scope && owner) {
+      const me = mediaMe()
+      const meeting = callMeeting()
+      const views = owner.participants()
+      const myView = views.find(view => view.participant === me)
+      const callers = views.filter(view => view.participant !== me && view.call?.id === callId)
+      callers.sort((a, b) => a.participant.localeCompare(b.participant))
+      const labels = callers.map(view => shownAs(view.participant, view.name))
+
+      const micFor = (view?: ParticipantView): string | undefined => {
+        const device = view?.mic
+        if (device && view.call && view.call.id === callId && view.call.devices.includes(device) &&
+          view.tracks.some(track => track.device === device && track.role === 'mic')) return device
+        return undefined
+      }
+      const ownMic = micFor(myView)
+      const ownOnThisDevice = !ownMic || ownMic === owner.device
+      const statusFor = (participant: string, view: ParticipantView | undefined, device: string | undefined) =>
+        !meetingAllows(meeting, participant, 'audio') ? 'Listen only'
+          : !device ? 'Off' : view && selfMutedMic(view) ? 'Muted' : undefined
+      callerMics.push({
+        id: me, label: 'You', self: true,
+        ...(ownOnThisDevice ? {
+          source: LOCAL_SPEAKING_KEY,
+          status: meetingAllows(meeting, me, 'audio') ? undefined : 'Listen only',
+        } : { source: tileKey(ownMic, 'mic'), status: statusFor(me, myView, ownMic) }),
+      })
+      callers.forEach((view, index) => {
+        const shown = labels[index]!
+        const device = micFor(view)
+        callerMics.push({
+          id: view.participant,
+          label: shown.name && nameCollides(shown.pubkey, shown.name)
+            ? `${shown.name} · ${shown.short}` : shown.name ?? 'Somebody',
+          source: device && tileKey(device, 'mic'),
+          status: statusFor(view.participant, view, device),
+        })
+      })
+    }
+  }
+  audioActivity.update(scope, callerMics.map(person => {
+    const { source, status } = person
+    const local = source === LOCAL_SPEAKING_KEY
+    const reading = source && (local ? micTrack : remoteAudios.get(source)?.track)?.readyState === 'live'
+    return {
+      ...person,
+      signal: status ?? (local && !micTrack ? 'Off' : local && !micTrack?.enabled ? 'Muted'
+        : reading ? audioLevels.get(source) ?? null : null),
+      waveform: reading ? audioWaveforms.get(source) : undefined,
+    }
+  }), force)
 }
 
 /**
@@ -14494,6 +14552,61 @@ function onScreen(entry: RemoteVideo): boolean {
   return entry.el.parentElement === entry.container
 }
 
+const PICTURE_HANDOFF_MS = 3_000
+
+function hasVideoFrame(el: HTMLVideoElement): boolean {
+  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0 && el.videoHeight > 0
+}
+
+function releaseVideoSink(el: HTMLVideoElement): void {
+  el.remove()
+  el.pause()
+  el.srcObject = null
+}
+
+function releasePreviousPicture(entry: RemoteVideo): void {
+  if (entry.previous) releaseVideoSink(entry.previous.el)
+  entry.previous = undefined
+}
+
+function parkRemoteVideo(entry: RemoteVideo): void {
+  releasePreviousPicture(entry)
+  parkPicture(entry.el)
+}
+
+function removeRemoteVideo(entry: RemoteVideo): void {
+  releasePreviousPicture(entry)
+  releaseVideoSink(entry.el)
+}
+
+function setRemoteVideoSource(entry: RemoteVideo, track: MediaStreamTrack): void {
+  const old = entry.el
+  if (onScreen(entry) && old.isConnected && !old.hasAttribute('data-gallery-off-page') &&
+      !old.classList.contains('awaitingFrame') && hasVideoFrame(old)) {
+    const next = old.cloneNode(false) as HTMLVideoElement
+    next.muted = old.muted
+    next.classList.add('awaitingFrame')
+    old.after(next)
+    entry.previous = { el: old, expiresAt: performance.now() + PICTURE_HANDOFF_MS }
+    entry.el = next
+    next.addEventListener('loadeddata', () => {
+      if (entry.el !== next || !next.isConnected || !hasVideoFrame(next)) return
+      releasePreviousPicture(entry)
+      next.classList.remove('awaitingFrame')
+      repaint()
+    }, { once: true })
+  }
+  entry.track = track
+  entry.el.dataset.track = track.id
+  entry.el.classList.add('awaitingFrame')
+  entry.el.srcObject = new MediaStream([track])
+  entry.last = -1
+  entry.lastFrames = undefined
+  entry.stalled = 0
+  entry.played = false
+  entry.frozenSince = undefined
+}
+
 /**
  * Take a picture off screen when it stops moving, and put it back when it
  * starts again.
@@ -14666,7 +14779,7 @@ function syncRemoteVideos(): void {
   for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
-    const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
+    const hasFrame = hasVideoFrame(entry.el)
     const quality = entry.el.getVideoPlaybackQuality?.()
     const frames = quality ? quality.totalVideoFrames - quality.droppedVideoFrames : undefined
     const moving = pictureAdvanced(entry.last, clock, hasFrame, entry.lastFrames, frames)
@@ -14678,11 +14791,15 @@ function syncRemoteVideos(): void {
     // Reveal real picture data even when a still frame's clock is zero.
     // An initial empty sink must remain attached without claiming playback.
     if (hasFrame && entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
+    if (entry.previous && (hasFrame || now >= entry.previous.expiresAt)) {
+      releasePreviousPicture(entry)
+      changed = true
+    }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
       if (onScreen(entry)) changed = true
-      entry.el.remove()
+      removeRemoteVideo(entry)
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
@@ -14710,15 +14827,12 @@ function syncRemoteVideos(): void {
       changed = true
     }
     if (action === 'park') {
-      parkPicture(entry.el)
+      parkRemoteVideo(entry)
       changed = true
     }
     if (action === 'rebind') {
-      // The same track, a new decoder. Cheap, and at worst it repeats every
-      // fifteen seconds for as long as the picture stays frozen.
-      entry.el.srcObject = new MediaStream([entry.track])
-      entry.last = -1
-      entry.lastFrames = undefined
+      // Reopen the decoder while keeping the last frame in the tile.
+      setRemoteVideoSource(entry, entry.track)
       if (!leftCall && entry.el.paused) void entry.el.play().catch(() => { /* the next pass tries again */ })
       callTimeline.record('tile-bound', short(tileDevice(key)), 'video')
     }
@@ -14776,14 +14890,25 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
   // two names.
   if (track.kind === 'video' && !remoteVideos.has(key)) {
     const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
-    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]); callTimeline.record('tile-bound', short(device)) }
+    if (alias) {
+      releasePreviousPicture(alias[1])
+      remoteVideos.delete(alias[0])
+      remoteVideos.set(key, alias[1])
+      callTimeline.record('tile-bound', short(device))
+    }
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
     // Any route the old key held is torn down rather than left dangling
     // under a name `remoteAudios` no longer has; `render()` opens a fresh
     // one under the new key on its next pass.
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]); callTimeline.record('tile-bound', short(device)) }
+    if (alias) {
+      remoteAudios.delete(alias[0])
+      remoteAudios.set(key, alias[1])
+      remoteVolume.detach(alias[0])
+      speakingMonitor.unwatch(alias[0])
+      callTimeline.record('tile-bound', short(device))
+    }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -14795,25 +14920,14 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
   // second audio track alongside the mic.
   if (track.kind === 'video') {
     const existing = remoteVideos.get(key)
+    const replaced = existing !== undefined && existing.track !== track
+    if (replaced) setRemoteVideoSource(existing, track)
     const el = existing?.el ?? document.createElement('video')
     // The negotiated role is known before its roster advert arrives. An
     // early screen receiver must never count as another camera meanwhile.
     el.classList.toggle('screenPreview', tileRole(key) === 'screen')
-    // The same key, a different track object: the mesh rebuilt the
-    // connection to this device - a rung down the ladder, or a fresh one
-    // after a rest - and the far end's track arrived again on it. The
-    // element is kept, so the picture never blinks, but everything that
-    // judges it has to follow the new track: the stall poller reads
-    // `entry.track.readyState`, and the old track ends the moment the old
-    // connection closes. Left pointing at the old one, the poller and the
-    // old track's `ended` both took the element off the screen while it
-    // was showing live frames from the new one, and nothing put it back -
-    // `ontrack` for that track had already fired. That was a picture gone
-    // for the rest of the call, on a connection that was working.
-    const replaced = existing !== undefined && existing.track !== track
-    if (!existing || replaced) el.srcObject = new MediaStream([track])
-    if (existing) existing.track = track
     if (!existing) {
+      el.srcObject = new MediaStream([track])
       el.autoplay = true
       el.playsInline = true
       el.muted = true
@@ -14840,25 +14954,15 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
     // connected element paused after replacing its MediaStream, so explicitly
     // resume it while this device is still on the call.
     if (!leftCall && !el.hasAttribute('data-gallery-off-page') && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
-    if (replaced) {
-      // A new track has never played, whatever the old one did, and the
-      // clock it is judged by starts again.
-      existing!.last = -1
-      existing!.lastFrames = undefined
-      existing!.stalled = 0
-      existing!.played = false
-      el.classList.add('awaitingFrame')
-    }
-    track.addEventListener('ended', () => {
-      // Only the track currently on this element may take it down. The
-      // one this listener was registered for may have been replaced since,
-      // in which case its ending is old news about a closed connection.
-      if (remoteVideos.get(key)?.track !== track) return
-      el.remove()
-      remoteVideos.delete(key)
+    if (!existing || replaced) track.addEventListener('ended', () => {
+      // A replacement track or an updated role may now hold this tile.
+      const current = [...remoteVideos].find(([, entry]) => entry.track === track)
+      if (!current) return
+      removeRemoteVideo(current[1])
+      remoteVideos.delete(current[0])
       callTimeline.record('track-removed', short(device), 'video')
       repaint()
-    })
+    }, { once: true })
   } else {
     // Audio is never taken off screen for going quiet. A picture that
     // outlives its media is a lie about what the room can see; an `<audio>`
@@ -14886,9 +14990,8 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       if (existing) existing.track = track
     }
     if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
-    // Keep each audio tap and group its speaking cue by device, so a mic
-    // and shared sound can both contribute without replacing one another.
-    speakingMonitor.watch(key, track, device)
+    // Only a microphone contributes to a participant's speaking cue.
+    if (tileRole(key) === 'mic') speakingMonitor.watch(key, track, device)
     track.addEventListener('ended', () => {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
@@ -14935,7 +15038,7 @@ function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<
     if (kind === 'video') {
       const video = entry as RemoteVideo
       if (onScreen(video)) changedTiles = true
-      video.el.remove()
+      removeRemoteVideo(video)
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(device), 'video')
     } else {
@@ -14972,7 +15075,7 @@ function recoverRemoteTracks(): void {
       // device at once: who should hold each slot, given what the roster
       // advertises, what the tiles show now, and whose packets are moving.
       const binding = bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })
-      dropUnboundTiles(device, kind, binding)
+      if (kind === 'audio') dropUnboundTiles(device, kind, binding)
       for (const [role, chosen] of binding) {
         const track = chosen as MediaStreamTrack
         if (track.readyState !== 'live') continue
@@ -14995,6 +15098,7 @@ function recoverRemoteTracks(): void {
           || onScreen(entry as RemoteVideo) && !entry.el.hasAttribute('data-gallery-off-page'))
         if (entry?.track !== track || !entry.el.isConnected || resume) attachRemoteTrack(device, track, key)
       }
+      if (kind === 'video') dropUnboundTiles(device, kind, binding)
     }
   }
   if (changedTiles) {
@@ -17539,7 +17643,11 @@ function tearDownCallMedia(): void {
   void callWakeLock.release()
   speakingMonitor.retain([])
   remoteVolume.retain([])
-  for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
+  for (const entry of remoteVideos.values()) {
+    entry.track.stop()
+    removeRemoteVideo(entry)
+  }
+  for (const entry of remoteAudios.values()) {
     entry.track.stop()
     entry.el.pause()
     entry.el.srcObject = null

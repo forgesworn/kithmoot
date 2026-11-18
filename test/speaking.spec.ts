@@ -49,8 +49,8 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     const activityA = pageA.locator('#callAudioActivity')
     const activityB = pageB.locator('#callAudioActivity')
     await expect(activityA).toBeVisible()
-    await expect(activityB.locator('[data-audio-signal="incoming"]')).toContainText('Sound', { timeout: 30_000 })
-    await expect(activityA.locator('[data-audio-signal="mic"]')).toContainText('Sound')
+    await expect(activityB.locator('[data-audio-signal="participant"]')).toContainText('Speaking', { timeout: 30_000 })
+    await expect(activityA.locator('[data-audio-signal="mic"]')).toContainText('Speaking')
     await expect.poll(() => activityB.locator('.audioEnvelope').last().evaluate(path =>
       [...(path.getAttribute('d') ?? '').matchAll(/[ML][\d.]+,([\d.]+)/g)].some(point => Number(point[1]) !== 12),
     )).toBe(true)
@@ -101,7 +101,7 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     await pageB.locator('#toggleMic').click()
     await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
     await expect(activityB.locator('[data-audio-signal="mic"]')).toContainText('Muted')
-    await expect(activityA.locator('[data-audio-signal="incoming"]')).toContainText('Quiet', { timeout: 15_000 })
+    await expect(activityA.locator('[data-audio-signal="participant"]')).toContainText('Muted', { timeout: 15_000 })
     await expect(pageA.locator('#speakingLine'), "Ada's line named herself once Bob had muted").toBeEmpty({
       timeout: 15_000,
     })

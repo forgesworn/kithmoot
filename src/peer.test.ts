@@ -2221,6 +2221,32 @@ describe('Peer and a far end that starts a new session', () => {
     built.peer.close()
   })
 
+  it.each([false, true])('handles a renumbered startup offer after a lost answer (connected=%s)', async connected => {
+    const built = build()
+    try {
+      const far = new FakeRTCPeerConnection({ structuredSdp: true })
+      await built.peer.handleSignal({ type: 'offer', roomId: '', sdp: await farOffer(far, ['audio']), seq: 10 })
+      if (connected) built.pc().setConnectionState('connected')
+
+      // The offerer never received the answer. A rollback discards the
+      // pending m-line on its side, so the next ICE offer can renumber it.
+      await far.setLocalDescription({ type: 'rollback' })
+      far.restartIce()
+      const retry = await far.createOffer()
+      const sdp = retry.sdp!.replace(/^a=mid:0\r?$/m, 'a=mid:1')
+      const offer: SignalBody = { type: 'offer', roomId: '', sdp, seq: 11 }
+      if (connected) {
+        await expect(built.peer.handleSignal(offer)).rejects.toThrow('m-lines')
+        expect(built.restarts).toHaveLength(0)
+      } else {
+        await built.peer.handleSignal(offer)
+        expect(built.restarts).toEqual([{ offer, candidates: [], retired: undefined }])
+      }
+    } finally {
+      built.peer.close()
+    }
+  })
+
   it("holds candidates that overtook the new session's offer, and sends them with it", async () => {
     const built = build()
     await negotiated(built)

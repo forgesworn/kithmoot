@@ -1,23 +1,66 @@
-.audioActivity:not([hidden]) { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: .3rem 1rem; padding: .3rem .55rem; color: var(--text); }
+.audioActivity:not([hidden]) {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(9rem, 1fr);
+  flex: 0 0 auto;
+  min-width: 0;
+  gap: .4rem;
+  overflow-x: auto;
+  padding: .25rem .5rem;
+  color: var(--text);
+  scrollbar-width: thin;
+}
+.audioActivity:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .audioActivity[hidden] { display: none !important; }
-.audioSignal { display: grid; grid-template-columns: auto minmax(3rem, 1fr) 4rem; align-items: center; gap: .4rem; flex: 1 1 13rem; min-width: 0; font-size: .8rem; line-height: 1.4; }
-.audioSignalLabel { font-weight: 600; }
-.audioSignalState { grid-column: 3; grid-row: 1; }
-.audioTrace, .audioLevel { grid-column: 2; grid-row: 1; width: 100%; height: 24px; color: #fff; background: #1b1b1f; border-radius: 3px; }
-.audioSignal[data-state='sound'] :is(.audioTrace, .audioLevel) { color: #52d5ff; }
+.audioSignal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 18px;
+  align-items: center;
+  gap: .2rem .4rem;
+  min-width: 0;
+  padding: .25rem .4rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: var(--surface);
+  font-size: .8rem;
+  line-height: 1.25;
+}
+.audioSignalLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.audioSignalState { color: var(--muted); font-size: .75rem; }
+.audioSignal[data-speaking] { border-color: var(--accent); }
+.audioSignal[data-speaking] .audioSignalState { color: var(--text); font-weight: 600; }
+.audioTrace, .audioLevel { grid-column: 1 / -1; grid-row: 2; width: 100%; height: 18px; color: #fff; background: #1b1b1f; border-radius: 3px; }
+.audioSignal[data-speaking] :is(.audioTrace, .audioLevel) { color: #52d5ff; }
 .audioBaseline { fill: none; stroke: #fff; stroke-width: 1; }
 .audioEnvelope { fill: none; stroke: currentColor; stroke-width: 1; vector-effect: non-scaling-stroke; }
 .audioLevel { display: none; height: 8px; border: 1px solid currentColor; }
 .audioLevel > span { display: block; height: 100%; background: currentColor; }
 #callChatBar[hidden] + #chatAudioActivity { display: none; }
 html[data-call-docked] #callSurface > .audioActivity { grid-column: 1 / -1; grid-row: 3; }
+/* The desktop voice-call pane keeps the conversation under its controls. */
+html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity {
+  grid-auto-columns: minmax(10rem, 1fr);
+}
+html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity .audioSignal {
+  grid-template-columns: minmax(0, 1fr) minmax(2rem, 1.5fr) auto;
+  grid-template-rows: minmax(16px, auto);
+  padding-block: .2rem;
+}
+html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity .audioSignalState { grid-column: 3; }
+html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity :is(.audioTrace, .audioLevel) {
+  grid-column: 2;
+  grid-row: 1;
+}
+html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity .audioTrace { height: 16px; }
 @media (prefers-reduced-motion: reduce) {
   .audioTrace { display: none; }
   .audioLevel { display: block; }
 }
 @media (forced-colors: active) {
   .audioActivity { color: CanvasText; }
-  .audioSignal[data-state] :is(.audioTrace, .audioLevel) { color: CanvasText; background: Canvas; }
+  .audioSignal[data-speaking] { border-color: Highlight; }
+  .audioSignal :is(.audioTrace, .audioLevel) { color: CanvasText; background: Canvas; }
   .audioBaseline, .audioEnvelope { fill: none; stroke: CanvasText; }
   .audioLevel > span { background: CanvasText; }
 }

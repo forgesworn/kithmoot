@@ -1,11 +1,10 @@
 {
-  "id": "2026-11-17-call-connection-details",
-  "date": "17 November 2026",
-  "title": "See how your call connects",
+  "id": "2026-11-18-participant-call-media",
+  "date": "18 November 2026",
+  "title": "See who is speaking",
   "changes": [
-    "During a call, open More → Connection details to see this device’s observed direct or TURN media path and relay hostname where available.",
-    "The room node and configured signalling relays are shown separately from the selected media connection.",
-    "Details stay on this device and refresh only while the view is open.",
-    "Desktop video no longer resets solely because the playback clock stalls while picture frames keep advancing."
+    "Every caller has a named microphone waveform, including You. Reduced motion shows a level bar.",
+    "The call keeps the last picture visible while a replacement video decoder starts.",
+    "Microphone meters check the received sound when the browser’s track mute status is stale."
   ]
 }

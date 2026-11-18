@@ -116,6 +116,56 @@ test('decoded video is not rebound after a stalled playback clock crosses the re
   } finally { await a.close(); await b.close() }
 })
 
+test('decoder recovery keeps the last picture on screen until a replacement has a frame', async ({ browser, baseURL }) => {
+  test.setTimeout(90_000)
+  const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
+  try {
+    const ada = await a.newPage(), bob = await b.newPage()
+    const url = await createRoom(ada, baseURL!)
+    await joinWithMedia(ada, url, 'Ada')
+    await joinWithMedia(bob, url, 'Bob')
+    const video = bob.locator('#room .participant[data-self="false"] video:not(.screenPreview):not(.awaitingFrame)').first()
+    await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2)
+    await video.evaluate(el => {
+      const picture = el as HTMLVideoElement
+      const track = (picture.srcObject as MediaStream).getVideoTracks()[0]
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'srcObject')!
+      const clock = picture.currentTime
+      const quality = picture.getVideoPlaybackQuality()
+      Object.defineProperty(picture, 'currentTime', { configurable: true, get: () => clock })
+      picture.getVideoPlaybackQuality = () => quality
+      Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', {
+        ...descriptor,
+        set(this: HTMLMediaElement, source: MediaProvider | null) {
+          if (!(this instanceof HTMLVideoElement) || !(source instanceof MediaStream) || !source.getVideoTracks().includes(track!)) {
+            descriptor.set!.call(this, source)
+            return
+          }
+          // Control the first frame of the reset sink while RTP continues.
+          descriptor.set!.call(this, null)
+          Object.defineProperty(HTMLMediaElement.prototype, 'srcObject', descriptor)
+          window.addEventListener('resume-test-picture', () => descriptor.set!.call(this, source), { once: true })
+          document.body.dataset.recoveryStarted = 'true'
+        },
+      })
+      ;(window as unknown as { testOriginalPicture: HTMLVideoElement }).testOriginalPicture = picture
+    })
+    await expect(bob.locator('body')).toHaveAttribute('data-recovery-started', 'true', { timeout: 30_000 })
+    try {
+      const lastFrameIsVisible = await bob.evaluate(() => {
+        const picture = (window as unknown as { testOriginalPicture: HTMLVideoElement }).testOriginalPicture
+        return picture.videoWidth > 0 && picture.checkVisibility({ opacityProperty: true })
+      })
+      expect(lastFrameIsVisible).toBe(true)
+    } finally {
+      await bob.evaluate(() => window.dispatchEvent(new Event('resume-test-picture')))
+    }
+    await expect.poll(() => bob.evaluate(() => (window as unknown as { testOriginalPicture: HTMLVideoElement }).testOriginalPicture.isConnected)).toBe(false)
+    await expect(video).toBeVisible()
+    await expect.poll(() => video.evaluate(el => (el as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames)).toBeGreaterThan(10)
+  } finally { await a.close(); await b.close() }
+})
+
 test('call connection details identify each person and observed direct media without interrupting playback', async ({ browser, baseURL }, testInfo) => {
   const a = await newDeviceContext(browser, baseURL!), b = await newDeviceContext(browser, baseURL!)
   try {
