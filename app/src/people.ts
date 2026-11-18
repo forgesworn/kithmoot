@@ -221,7 +221,11 @@ export class PeopleView {
   async #searchNostr(): Promise<void> {
     const query = peopleSearchQuery(this.#query.value)
     if (!query || !this.#actions.canSearchNostr() || this.#searchRequest) return
-    if (!peopleSearchKey(query) && performance.now() - this.#lastSearch < 1_500) return
+    if (performance.now() - this.#lastSearch < 1_500) {
+      this.#searchNote = 'Wait a moment and try again.'
+      this.render()
+      return
+    }
     this.#lastSearch = performance.now()
     const request = new AbortController()
     this.#searchRequest = request
@@ -231,7 +235,7 @@ export class PeopleView {
       const rows = await this.#actions.searchNostr(query, request.signal)
       if (request !== this.#searchRequest) return
       this.#searchResults = rows
-      this.#searchNote = rows.some(row => !this.#actions.isBlocked(row.pubkey)) ? '' : 'No profiles found on the search relay.'
+      this.#searchNote = rows.some(row => !this.#actions.isBlocked(row.pubkey)) ? '' : 'No matching Nostr profiles found.'
     } catch {
       if (request === this.#searchRequest) this.#searchNote = 'The Nostr search relay could not be reached. Try again.'
     } finally {
@@ -240,7 +244,8 @@ export class PeopleView {
   }
 
   #publicPeople(): Person[] {
-    return this.#searchResults.filter(row => !this.#actions.isBlocked(row.pubkey)).map(row => ({ ...row, section: 'nostr' }))
+    return this.#searchResults.filter(row => !this.#actions.isBlocked(row.pubkey))
+      .map(({ pubkey, name }) => ({ pubkey, name, section: 'nostr' }))
   }
 
   /** Redraw from the model. Cheap enough to call on every change. */

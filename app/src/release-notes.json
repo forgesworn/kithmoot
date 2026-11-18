@@ -1,9 +1,9 @@
 {
-  "id": "2026-11-18-people-contact-search",
+  "id": "2026-11-18-people-npub-profile",
   "date": "18 November 2026",
-  "title": "Find people you chat with",
+  "title": "Look up a Nostr profile by npub",
   "changes": [
-    "Search People by name to find your contacts, follows and existing conversations.",
-    "Choose Search Nostr for public profiles, then open a message to the selected public key."
+    "Paste an npub in People and choose Search Nostr to see the signed profile for that public key.",
+    "Profiles found for people you already follow can be shown again from the device cache."
   ]
 }
