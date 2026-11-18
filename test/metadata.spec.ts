@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test'
 import { build } from 'esbuild'
 import { readFile } from 'node:fs/promises'
-import notes from '../app/src/release-notes.json' with { type: 'json' }
+
+const notes: { title: string; changes: string[] } = JSON.parse(
+  await readFile(new URL('../app/src/release-notes.json', import.meta.url), 'utf8'),
+)
 
 let api: string
 test.beforeAll(async () => { api = (await build({ entryPoints: ['test/fixtures/metadata-api.ts'], bundle: true, write: false, format: 'iife', globalName: 'MetadataTest', target: 'es2022' })).outputFiles![0]!.text })
