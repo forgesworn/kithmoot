@@ -65,13 +65,15 @@ export class PeopleNostrPanel {
   #current(): boolean {
     return this.#dialog.open && this.options.available() && !!this.#account && this.options.account() === this.#account
   }
-  show(opener: HTMLElement): void {
+  show(opener: HTMLElement, peer?: string): void {
     this.close()
     if (!this.options.available()) return
     this.#account = this.options.account()
     this.#opener = opener
+    this.#peer = peer
     this.#dialog.showModal()
     this.reconcile()
+    if (peer) this.#markRead()
   }
   close(focus = false): void {
     this.#peer = undefined

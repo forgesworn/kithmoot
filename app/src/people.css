@@ -61,6 +61,11 @@
 }
 .peopleList .listSearch input:focus-visible { border-color: var(--focus); }
 
+.peopleList .peopleSearchNostr {
+  margin: 0 var(--s4) var(--s2);
+  min-height: 44px;
+}
+
 .peopleList #peopleStatus {
   margin: 0 var(--s4) var(--s2);
 }
