@@ -9,6 +9,7 @@ interface Options {
   epoch(): number
   eligible(): boolean
   allowLocal?(): boolean
+  remoteSocket?(): typeof WebSocket | undefined
   blocked(peer: string): boolean
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
   allowsRelay?(url: string): boolean
@@ -64,8 +65,11 @@ export class NostrMessagePanel {
     root.defaultView?.addEventListener('pagehide', () => this.close())
   }
   get available(): boolean {
-    try { const account = this.options.account(); return !!account && this.options.eligible() && !!nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.()) }
+    try { const account = this.options.account(); return !!account && this.options.eligible() && !!this.#identity(account) }
     catch { return false }
+  }
+  #identity(account: SignetSession) {
+    return nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.(), this.options.remoteSocket?.())
   }
   #current = (): boolean => this.#dialog.open && this.available && this.#account === this.options.account() && this.#epoch === this.options.epoch()
   show(focus: HTMLElement, reply?: { peer: string; parent: string }): void {
@@ -80,7 +84,7 @@ export class NostrMessagePanel {
     this.#message?.close(); this.#message = undefined
     const account = this.#account, generation = ++this.#generation
     if (!account || !this.#current()) return
-    const identity = nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.())
+    const identity = this.#identity(account)
     if (!identity) { this.close(); return }
     this.#message = new NostrMessage({ identity, current: () => generation === this.#generation && this.#current(),
       blocked: this.options.blocked, lookup: this.options.lookup, publish: this.options.publish,

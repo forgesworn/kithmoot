@@ -1,10 +1,11 @@
 {
-  "id": "2026-11-18-people-nostr-inbox",
+  "id": "2026-11-18-people-nostr-remote-signer",
   "date": "18 November 2026",
   "title": "Nostr messages in People",
   "changes": [
     "People shows unread encrypted Nostr messages and requests from new senders.",
     "Your inbox starts in Nostr mode with your published relay list. Open Inbox relays to set up a list.",
+    "A connected remote signer can authenticate to your inbox relays and approve messages you send from People.",
     "Reply on Nostr or send an invitation to chat privately on your paired KithMoot node."
   ]
 }
