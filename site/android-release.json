@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.164",
-  "versionCode": 187,
+  "versionName": "0.6.165",
+  "versionCode": 188,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71373184,
-  "apkSha256": "71a0f7bed095905e523665f6cec13efeb58d8835477f7d15629291e9e3c8a97c",
+  "apkBytes": 71430528,
+  "apkSha256": "ab2578933147c7946577d6c1f7c2c03f986e2899cd054e2c4c6638f87a22d06f",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.164-production.apk",
+  "downloadFilename": "kithmoot-0.6.165-production.apk",
   "releaseNotes": [
-    "Each caller has a waveform on their own tile, including you. Remote microphone activity follows each person across reconnects.",
-    "Video tiles keep their picture during brief track replacements and recover when a new frame arrives."
+    "People shows unread encrypted Nostr messages and requests from new senders.",
+    "In Nostr mode, your published inbox relays are used by default while the app is open.",
+    "Reply on Nostr, or invite someone to a private chat on your paired KithMoot node."
   ]
 }
