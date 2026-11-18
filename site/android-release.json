@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.165",
-  "versionCode": 188,
+  "versionName": "0.6.166",
+  "versionCode": 189,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71430528,
-  "apkSha256": "ab2578933147c7946577d6c1f7c2c03f986e2899cd054e2c4c6638f87a22d06f",
+  "apkSha256": "bd058568f50d926c01f9728c703e7a5a6fa640e21b658ab9ed1688ab8baa0104",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,7 +24,7 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.165-production.apk",
+  "downloadFilename": "kithmoot-0.6.166-production.apk",
   "releaseNotes": [
     "People shows unread encrypted Nostr messages and requests from new senders.",
     "In Nostr mode, your published inbox relays are used by default while the app is open.",
