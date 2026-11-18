@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.166",
-  "versionCode": 189,
+  "versionName": "0.6.167",
+  "versionCode": 190,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71430528,
-  "apkSha256": "bd058568f50d926c01f9728c703e7a5a6fa640e21b658ab9ed1688ab8baa0104",
+  "apkBytes": 71442816,
+  "apkSha256": "950fd2d6c0c74355bd4380a68c1c998f069455b8eb773d071b2c4a0c65b5242f",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.166-production.apk",
+  "downloadFilename": "kithmoot-0.6.167-production.apk",
   "releaseNotes": [
-    "People shows unread encrypted Nostr messages and requests from new senders.",
-    "In Nostr mode, your published inbox relays are used by default while the app is open.",
-    "Reply on Nostr, or invite someone to a private chat on your paired KithMoot node."
+    "Find contacts, follows and saved chats by name in People.",
+    "Choose Search Nostr to find a public profile and open a message to that person."
   ]
 }
