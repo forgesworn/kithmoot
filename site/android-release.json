@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.163",
-  "versionCode": 186,
+  "versionName": "0.6.164",
+  "versionCode": 187,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71373184,
-  "apkSha256": "c2999cc3a6b3e026c56b8d3b578daf2d87b2aaa3d46984122e9e04089cc2e383",
+  "apkSha256": "71a0f7bed095905e523665f6cec13efeb58d8835477f7d15629291e9e3c8a97c",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.163-production.apk",
+  "downloadFilename": "kithmoot-0.6.164-production.apk",
   "releaseNotes": [
-    "Call microphone activity sits with each person’s tile; controls wrap at larger text sizes.",
-    "Loudspeaker reflects Android’s output and repairs a stuck earpiece route during an active Telecom call.",
-    "People gradually refreshes verified names and picture URLs and remembers them in an encrypted account cache."
+    "Each caller has a waveform on their own tile, including you. Remote microphone activity follows each person across reconnects.",
+    "Video tiles keep their picture during brief track replacements and recover when a new frame arrives."
   ]
 }
