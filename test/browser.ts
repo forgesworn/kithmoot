@@ -51,11 +51,12 @@ export async function openWildbloomAttach(page: Page): Promise<void> {
  * whole point is that an agent HEARS somebody cannot gate it away, so it
  * brings its own sound.
  */
-export const SYNTHETIC_MIC = () => {
+export const SYNTHETIC_MIC = (options?: { silentOutput: boolean }) => {
   const native = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices)
   navigator.mediaDevices.getUserMedia = async (constraints?: MediaStreamConstraints) => {
     if (!constraints?.audio) return native(constraints)
-    const ctx = new AudioContext()
+    // Large groups of synthetic callers do not need a speaker clock on the runner.
+    const ctx = new AudioContext(options?.silentOutput ? { sinkId: { type: 'none' } } as AudioContextOptions : undefined)
     await ctx.resume().catch(() => {})
     const osc = ctx.createOscillator()
     osc.frequency.value = 440
