@@ -33,9 +33,18 @@ export class OrdinaryMessageHistory {
   }
   copies(): readonly Event[] { return this.#events.filter(event => !ordinaryExpired(event, this.now())) }
   append(input: Event, current: () => boolean): { retained: readonly Event[]; limited: boolean } {
-    const event = captureOrdinaryCopy(input, this.account, this.now())
-    if (!event || !current()) throw Error('Message history is no longer current.')
-    const next = [...this.copies().filter(row => row.id !== event.id), event]
+    return this.merge([input], current)
+  }
+  merge(inputs: readonly Event[], current: () => boolean): { retained: readonly Event[]; limited: boolean } {
+    if (!current()) throw Error('Message history is no longer current.')
+    const copies = new Map(this.copies().map(copy => [copy.id, copy]))
+    for (const input of inputs) {
+      const event = captureOrdinaryCopy(input, this.account, this.now())
+      if (!event) throw Error('Message history received an invalid copy.')
+      copies.delete(event.id)
+      copies.set(event.id, event)
+    }
+    const next = [...copies.values()]
     let limited = false
     const encode = () => JSON.stringify({ v: 1, account: this.account, events: next })
     let raw = encode()

@@ -8,8 +8,10 @@ interface Options {
   account(): SignetSession | undefined
   epoch(): number
   eligible(): boolean
+  allowLocal?(): boolean
   blocked(peer: string): boolean
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
+  allowsRelay?(url: string): boolean
   publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
   rememberCopy(event: Event, account: SignetSession, current: () => boolean): Promise<void>
 }
@@ -62,7 +64,7 @@ export class NostrMessagePanel {
     root.defaultView?.addEventListener('pagehide', () => this.close())
   }
   get available(): boolean {
-    try { const account = this.options.account(); return !!account && this.options.eligible() && !!nostrMessageIdentity(account, this.options.account) }
+    try { const account = this.options.account(); return !!account && this.options.eligible() && !!nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.()) }
     catch { return false }
   }
   #current = (): boolean => this.#dialog.open && this.available && this.#account === this.options.account() && this.#epoch === this.options.epoch()
@@ -78,10 +80,11 @@ export class NostrMessagePanel {
     this.#message?.close(); this.#message = undefined
     const account = this.#account, generation = ++this.#generation
     if (!account || !this.#current()) return
-    const identity = nostrMessageIdentity(account, this.options.account)
+    const identity = nostrMessageIdentity(account, this.options.account, this.options.allowLocal?.())
     if (!identity) { this.close(); return }
     this.#message = new NostrMessage({ identity, current: () => generation === this.#generation && this.#current(),
       blocked: this.options.blocked, lookup: this.options.lookup, publish: this.options.publish,
+      allowsRelay: this.options.allowsRelay,
       rememberCopy: (event, current) => this.options.rememberCopy(event, account, current),
       changed: () => this.reconcile() })
   }

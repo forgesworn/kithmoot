@@ -783,16 +783,29 @@ Acceptance:
 
 Let a person exchange ordinary encrypted Nostr messages with someone using an
 independent client, without requiring the other person to join a KithMoot room.
-This is separate from the external-network connectors in G5.
+Make this a daily messaging workflow in People on desktop, web and native
+Android. People shows an unread count and lets the user read and reply to
+contacts, follows and new senders. Chats is where the user goes after accepting
+an invitation to a private KithMoot conversation.
 
 Acceptance:
 
+- With KithMoot open on another screen, receive a first-contact DM from an
+  independent client. Increment People's unread count once and show the sender
+  in Message requests. Opening their thread clears its unread count. The user
+  can reply, dismiss or block without leaving KithMoot.
+- Read the account's public kind-3 follow list and resolve signed kind-0
+  profiles for follows and verified Nostr senders. Use the device cache on
+  reopening and prefer newer signed metadata. Keep the public profile switch
+  effective and show a public key when a profile is unavailable.
 - Qualify the [existing ordinary-message candidate](ordinary-nostr-message.md)
   from an exact built revision, then prove NIP-17 text and reply exchange in both
   directions with an independent client and an actual supported external signer.
   Record sender/recipient versions, inbox-relay behaviour and restart recovery.
-- Keep this lane separate from room invitations, membership, keys, files and
-  agent context. No automatic fallback from a private room route is permitted.
+- Ordinary Nostr DMs use the accounts' published inbox relays. Starting a
+  KithMoot chat is a separate invitation. Its admission and room traffic stay
+  on the explicitly selected private route, including when that route fails.
+  The public DM history and room history stay in their respective views.
 - Exercise missing or changed inbox lists, signer refusal/account changes,
   relay rejection, partial acknowledgement and exact-envelope retries without
   duplicate messages or stale authority. Relay acceptance is not recipient delivery.
@@ -800,8 +813,9 @@ Acceptance:
   Application-specific edits, groups and bot controls require their own
   interoperability evidence; they are not implied by NIP-17 text support.
 
-The source-preparation document explicitly leaves build/runtime qualification
-open. Existing contact-to-room invitations do not close this goal.
+The [People inbox design](ordinary-nostr-message.md#people-inbox-design)
+defines the flow and release checks. The existing Settings view and
+contact-to-room invitations are foundations for this goal.
 
 ## Delivery and evidence
 

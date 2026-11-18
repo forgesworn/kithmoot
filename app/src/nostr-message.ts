@@ -28,6 +28,7 @@ interface Options {
   current(): boolean
   blocked(peer: string): boolean
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
+  allowsRelay?(url: string): boolean
   // The embedding must use a carrier that checks current at actual socket writes.
   publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
   rememberCopy?(event: Event, current: () => boolean): Promise<void>
@@ -138,7 +139,8 @@ export class NostrMessage {
       if (!current()) return
       const now = this.options.now?.() ?? Math.floor(Date.now() / 1000)
       const verified = statements.slice(0, 64).map(row => signedStatement(row, now, 10050)).filter((row): row is Event => !!row)
-      const recipientRelays = latestDmRelayList(verified, recipient), senderRelays = latestDmRelayList(verified, this.options.identity.pubkey)
+      const routes = (account: string) => latestDmRelayList(verified, account).filter(url => this.options.allowsRelay?.(url) !== false)
+      const recipientRelays = routes(recipient), senderRelays = routes(this.options.identity.pubkey)
       if (!recipientRelays.length || !senderRelays.length) {
         this.#status = !recipientRelays.length ? 'No usable published NIP-17 inbox was found for this person. Nothing was sent.'
           : 'Publish your Nostr inbox relays in account settings first, so you retain an encrypted copy. Nothing was sent.'

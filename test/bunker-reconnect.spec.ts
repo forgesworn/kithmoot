@@ -2,6 +2,7 @@ import { test, expect, type Browser, type BrowserContext } from '@playwright/tes
 import { finalizeEvent, generateSecretKey, getPublicKey, type NostrEvent } from 'nostr-tools/pure'
 import { getConversationKey, encrypt, decrypt } from 'nostr-tools/nip44'
 import { Relay } from 'nostr-tools/relay'
+import { wrapEvent } from 'nostr-tools/nip59'
 import { bytesToHex } from 'nostr-tools/utils'
 import { TEST_RELAY_WS } from './relays.js'
 
@@ -21,7 +22,7 @@ async function fakeBunker(user: Uint8Array) {
   const secret = generateSecretKey()
   const pubkey = getPublicKey(secret)
   const relay = await Relay.connect(TEST_RELAY_WS)
-  const state = { awake: false, requests: 0 }
+  const state = { awake: false, requests: 0, decryptedPeers: new Set<string>() }
   relay.subscribe([{ kinds: [24133], '#p': [pubkey], since: Math.floor(Date.now() / 1000) - 5 }], {
     onevent: async (event: NostrEvent) => {
       state.requests++
@@ -32,8 +33,11 @@ async function fakeBunker(user: Uint8Array) {
       const reply = request.method === 'connect' ? answer('ack')
         : request.method === 'get_public_key' ? answer(getPublicKey(user))
         : request.method === 'sign_event' ? answer(JSON.stringify(finalizeEvent(JSON.parse(request.params[0]!), user)))
+        : request.method === 'nip44_encrypt' ? answer(encrypt(request.params[1]!, getConversationKey(user, request.params[0]!)))
+        : request.method === 'nip44_decrypt' ? answer(decrypt(request.params[1]!, getConversationKey(user, request.params[0]!)))
         : request.method === 'ping' ? answer('pong')
         : { id: request.id, result: '', error: `${request.method} is not supported here` }
+      if (request.method === 'nip44_decrypt') state.decryptedPeers.add(request.params[0]!)
       await relay.publish(finalizeEvent({
         kind: 24133, created_at: Math.floor(Date.now() / 1000), tags: [['p', event.pubkey]],
         content: encrypt(JSON.stringify(reply), key),
@@ -97,6 +101,33 @@ test('Reconnect asks the stored bunker again rather than pairing a new signer', 
   } finally {
     await context.close()
     bunker.close()
+  }
+})
+
+test('People opens a Nostr message through the signed-in remote signer by default', async ({ browser, baseURL }) => {
+  test.setTimeout(90_000)
+  const user = generateSecretKey(), peer = generateSecretKey(), account = getPublicKey(user), sender = getPublicKey(peer)
+  const bunker = await fakeBunker(user), relay = await Relay.connect(TEST_RELAY_WS)
+  const context = await device(browser, baseURL!, user, bunker.pubkey)
+  try {
+    bunker.state.awake = true
+    const inbox = new URL('/__test-relay', baseURL); inbox.protocol = 'wss:'
+    const now = Math.floor(Date.now() / 1000)
+    await relay.publish(finalizeEvent({ kind: 10050, created_at: now, tags: [['relay', inbox.href]], content: '' }, user))
+    await relay.publish(wrapEvent({ kind: 14, created_at: now, tags: [['p', account]], content: 'Opened with the remote signer' }, peer, account))
+    const page = await context.newPage()
+    await page.goto(baseURL!)
+    await page.locator('#railPeople').click()
+    await expect(page.locator('#peopleNostrOpen')).toBeEnabled({ timeout: 30_000 })
+    await page.locator('#peopleNostrOpen').click()
+    await expect(page.locator('#railPeopleCount')).toHaveText('1', { timeout: 30_000 })
+    expect(bunker.state.decryptedPeers.has(sender)).toBe(true)
+    await page.locator(`#peopleNostrDialog button[data-action="${sender}"]`).click()
+    await expect(page.getByText('Opened with the remote signer', { exact: true })).toBeVisible()
+    await expect(page.getByText('Remote signer connected for incoming Nostr messages only.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Reply on Nostr', exact: true })).toHaveCount(0)
+  } finally {
+    await context.close(); relay.close(); bunker.close(); user.fill(0); peer.fill(0)
   }
 })
 

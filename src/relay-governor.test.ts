@@ -39,7 +39,7 @@ describe('relay reasons', () => {
   })
 
   it('stops for good only on reasons that mean stop', () => {
-    for (const reason of ['blocked: no', 'ERROR: restricted: no', 'pow: difficulty 20', 'auth-required: sign in']) expect(refusalStops(reason, false)).toBe(true)
+    for (const reason of ['blocked: no', 'banned: too many rate-limit violations', 'ERROR: restricted: no', 'pow: difficulty 20', 'auth-required: sign in']) expect(refusalStops(reason, false)).toBe(true)
     expect(refusalStops('auth-required: sign in', true)).toBe(false)
     for (const reason of ['rate-limited: wait', 'error: busy', 'invalid: bad filter', 'relay connection closed', '']) expect(refusalStops(reason, false)).toBe(false)
   })
@@ -233,15 +233,17 @@ describe('NostrRelayPool and refusals', () => {
     await expect(pool.publishQuietly(URL_A, evt(1))).rejects.toThrow(WRITE_HELD)
   })
 
-  it('reads NOTICEs, and one about rates holds writes', async () => {
+  it('reads NOTICEs, and one about rates holds new reads and writes', async () => {
     pool.subscribe([{ kinds: [1] }], () => {})
     await vi.advanceTimersByTimeAsync(1)
     a.notice('hello')
     await vi.advanceTimersByTimeAsync(1)
     expect(gate.writeHeld(A)).toBe(false)
+    expect(gate.readHeld(A)).toBe(false)
     a.notice('ERROR: too many concurrent REQs')
     await vi.advanceTimersByTimeAsync(1)
     expect(gate.writeHeld(A)).toBe(true)
+    expect(gate.readHeld(A)).toBe(true)
     expect(gate.writeHeld('wss://relay-b.test/')).toBe(false)
   })
 

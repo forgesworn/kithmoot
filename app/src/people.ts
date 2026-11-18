@@ -56,6 +56,7 @@ export interface PeopleActions {
   /** Undefined when Message, Voice and Video can be used; otherwise why not. */
   blockedReason(pubkey: string): string | undefined
   message(person: Person): Promise<string | undefined>
+  inviteToNodeChat(person: Person): Promise<string | undefined>
   call(person: Person, video: boolean): Promise<string | undefined>
   /** Open the private chat, then choose a room to invite them to. */
   invite(person: Person): Promise<string | undefined>
@@ -78,6 +79,7 @@ export interface PeopleActions {
   pasteCard(opener: HTMLElement): void
   linkSignet(opener: HTMLElement): void
   showMyCard(opener: HTMLElement): void
+  openNostrMessages(opener: HTMLElement): void
   /** At phone width, show the contact over the list; elsewhere a no-op. */
   openDetail(): void
   closeDetail(): void
@@ -171,7 +173,11 @@ export class PeopleView {
     const link = this.#textButton('Link Signet contacts', opener => this.#actions.linkSignet(opener))
     this.#empty.append(none, addCard, link)
 
-    list.replaceChildren(head, this.#menu, label, search, this.#status, this.#rows, this.#empty)
+    const messages = this.#textButton('Nostr messages', opener => this.#actions.openNostrMessages(opener))
+    messages.id = 'peopleNostrOpen'
+    messages.className = 'quiet peopleNostrOpen'
+    messages.setAttribute('aria-haspopup', 'dialog')
+    list.replaceChildren(head, this.#menu, messages, label, search, this.#status, this.#rows, this.#empty)
     this.#add.addEventListener('click', () => this.#openMenu(this.#add))
     this.#paintPane()
   }
@@ -412,6 +418,7 @@ export class PeopleView {
       action('peopleVoice', 'Voice', 'phone', () => this.#actions.call(person, false)),
       action('peopleVideo', 'Video', 'video', () => this.#actions.call(person, true)),
       action('peopleInvite', 'Invite', 'personAdd', () => this.#actions.invite(person)),
+      action('peopleInvitePrivate', 'Invite to KithMoot chat', 'chat', () => this.#actions.inviteToNodeChat(person)),
     )
     const note = document.createElement('p')
     note.id = 'peopleActionNote'

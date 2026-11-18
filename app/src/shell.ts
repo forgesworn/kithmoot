@@ -33,7 +33,7 @@ let destination: Place = 'chats'
 let level: 'list' | 'detail' = location.hash.length > 1 ? 'detail' : 'list'
 let levelBeforeSettings: 'list' | 'detail' = 'list'
 let peopleAvailable = false
-const counts: Record<'chats' | 'boards', number> = { chats: 0, boards: 0 }
+const counts: Record<'chats' | 'boards' | 'people', number> = { chats: 0, boards: 0, people: 0 }
 
 function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null
@@ -140,13 +140,13 @@ export function setPeopleAvailable(available: boolean): void {
  *  what needs you. Zero hides the pill; the spoken name carries the number. */
 export function setCounts(next: Partial<typeof counts>): void {
   Object.assign(counts, next)
-  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['boards', 'railBoards', 'Boards']] as const) {
+  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['boards', 'railBoards', 'Boards'], ['people', 'railPeople', 'People']] as const) {
     const button = el(id), pill = el(id + 'Count')
     if (!button || !pill) continue
     const n = counts[key]
     pill.hidden = n <= 0
     pill.textContent = n > 99 ? '99+' : String(n)
-    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} ${key === 'chats' ? 'unread' : 'need you'}` : label)
+    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} ${key === 'boards' ? 'need you' : 'unread'}` : label)
   }
 }
 
