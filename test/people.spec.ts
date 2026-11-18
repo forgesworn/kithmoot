@@ -171,6 +171,45 @@ test('People searches public names explicitly and prepares a Nostr message to th
   } finally { publisher.close(); await context.close() }
 })
 
+test('People resolves a pasted npub to a signed profile and remembers it for a follow', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), peerKey = generateSecretKey(), peer = getPublicKey(peerKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const name = 'Ellis Exact Profile'
+  const account = getPublicKey(key)
+  try {
+    await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [peer], new Map())
+    const page = await context.newPage()
+    const requests: unknown[] = []
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string') return
+      const [verb, , filter] = JSON.parse(payload)
+      if (verb === 'REQ' && filter?.kinds?.[0] === 0 && (filter.limit === 4 || filter.search !== undefined)) requests.push(filter)
+    }))
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await openPeople(page)
+    const row = page.locator(`#peopleRows li[data-person="${peer}"]`)
+    await expect(row).toContainText(shortNpub(peer))
+    const search = page.getByRole('searchbox', { name: 'Find a person' })
+    await search.fill('-' + npubEncode(peer))
+    await expect(row).toBeVisible()
+    expect(requests).toHaveLength(0)
+    const profile = finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ display_name: name }) }, peerKey)
+    await publisher.publish(profile)
+    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    await expect(row).toContainText(name)
+    expect(requests).toEqual([{ kinds: [0], authors: [peer], limit: 4 }])
+    await search.fill(name)
+    await expect(row).toBeVisible()
+    await expect.poll(() => page.evaluate(account => {
+      const stored = JSON.parse(localStorage.getItem('kithmoot.people-profiles.v1.' + account) ?? '[]')
+      return stored.map((row: { event: { id: string } }) => row.event.id)
+    }, account)).toContain(profile.id)
+  } finally { publisher.close(); await context.close() }
+})
+
 test('an invitation from somebody you follow carries their name, before People has ever been opened', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey(), bKey = generateSecretKey()
   const a = getPublicKey(aKey), b = getPublicKey(bKey)

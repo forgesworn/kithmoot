@@ -324,6 +324,11 @@ export class ProfileBook {
     return this.#enabled ? this.#found.get(pubkey)?.profile : undefined
   }
 
+  /** An explicit People search found a profile for someone already listed. */
+  rememberPublic(event: Event): void {
+    if (this.#ingest(event)) this.#opts.publicCache?.keep(event)
+  }
+
   close(): void {
     this.#closed = true
     for (const check of this.#checks) check.abort()
@@ -360,7 +365,6 @@ export class ProfileBook {
     try {
       if (this.#closed || !this.#enabled) return false
       if (event.kind !== 0 || event.created_at > Math.floor(Date.now() / 1000) + 60) return false
-      if (!this.#asked.room.has(event.pubkey) && !this.#asked.public.has(event.pubkey)) return false
       // The pool filters by author, but a relay is not obliged to honour a
       // filter and a signature is the only thing that actually binds this
       // profile to that key.

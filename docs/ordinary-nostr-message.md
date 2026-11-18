@@ -50,6 +50,10 @@ inbox with the user's npub when the user has set up their Nostr inbox relays.
   relays. Use the latest valid event by timestamp, then lowest ID on a tie.
   Retain a bounded account-scoped cache on the device. A usable cached name
   shows immediately and refreshes without moving the row under a tap or key.
+- With public profiles enabled, **Search Nostr** looks up a pasted npub by
+  author on purplepag.es, with Ditto as a fallback. Only a submitted name goes
+  to Ditto's text index. A result for a new person shows their signed name
+  and key without loading their picture.
 - The public profile preference controls lookup and display. The inbox works
   with shortened npubs while profiles are off or unavailable. Keep public
   sender lookups out of the private invitation and room views. With a new

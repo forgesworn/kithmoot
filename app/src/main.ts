@@ -63,7 +63,7 @@ import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './p
 import { PeopleNostrPanel } from './people-nostr-panel.js'
 import { PeopleProfileCache } from './people-profile-cache.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
-import { PEOPLE_SEARCH_RELAY, searchNostrPeople } from './people-search.js'
+import { PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY, peopleSearchKey, searchNostrPeople } from './people-search.js'
 import { forgetPeoplePictures } from './people-pictures.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
@@ -19528,10 +19528,18 @@ function linkSignetContacts(opener: HTMLElement): void {
     canSearchNostr: canSearchNostrPeople,
     searchNostr: async (query, signal) => {
       const account = nostrSession, network = accountNetwork.current()
-      const rows = await searchNostrPeople(query, () => relayConnections.pool('people-search',
-        [{ url: PEOPLE_SEARCH_RELAY, read: true, write: false }]), signal)
-      return nostrSession === account && network() && canSearchNostrPeople()
-        ? rows.filter(row => row.pubkey !== account?.pubkey) : []
+      const peer = peopleSearchKey(query)
+      if (peer && (peer === account?.pubkey || contactIsBlocked(peer))) return []
+      const urls = (peer ? [PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY] : [PEOPLE_SEARCH_RELAY]).filter(publicPeopleRelay)
+      const rows = await searchNostrPeople(query, urls, () => relayConnections.pool('people-search',
+        urls.map(url => ({ url, read: true, write: false }))), signal)
+      if (nostrSession !== account || !network() || !canSearchNostrPeople()) return []
+      const model = peopleModel()
+      const local = new Set([...model.contacts, ...model.following, ...model.conversations].map(person => person.pubkey))
+      for (const row of rows) {
+        if (row.event && local.has(row.pubkey) && !madeHere(row.pubkey)) profiles.rememberPublic(row.event)
+      }
+      return rows.filter(row => row.pubkey !== account?.pubkey)
     },
     isBlocked: contactIsBlocked,
     canMessageOnNostr: peer => !contactIsBlocked(peer) && (hasPeopleNostrThread(peer) ||
@@ -20411,7 +20419,8 @@ function peopleNostrComposeEligible(): boolean {
 }
 
 function canSearchNostrPeople(): boolean {
-  return profilesEnabled && peopleNostrComposeEligible() && publicPeopleRelay(PEOPLE_SEARCH_RELAY)
+  return profilesEnabled && peopleNostrComposeEligible() &&
+    (publicPeopleRelay(PEOPLE_SEARCH_RELAY) || publicPeopleRelay(PEOPLE_PROFILE_RELAY))
 }
 
 legacyMessagesPanel = new LegacyMessagePanel(document, {
