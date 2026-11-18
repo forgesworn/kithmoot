@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.166",
+  "currentRelease": "0.1.167",
   "releases": [
     {
-      "version": "0.1.166",
+      "version": "0.1.167",
       "updateTo": {
-        "version": "0.1.166",
-        "name": "0.1.166",
-        "pub_date": "2026-11-17T15:34:13Z",
-        "notes": "More → Connection details shows observed direct or TURN call paths, available relay hostnames and the room node separately. Video recovery accepts presented-frame progress when the playback clock stalls, avoiding an unnecessary reset. The reported Android-to-desktop flashes still need a live call check.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.166/KithMoot-0.1.166-mac-arm64.zip",
-        "sha256": "6333343f20281ca7fbe511a1e78d4dd68fa5f61f496fa19c7e6ac78fd2e4b174",
-        "size": 200354745
+        "version": "0.1.167",
+        "name": "0.1.167",
+        "pub_date": "2026-11-18T02:46:29Z",
+        "notes": "Each caller has a named microphone waveform, including you. Call controls wrap on narrower screens. Video recovery keeps the last frame visible while playback resumes.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.167/KithMoot-0.1.167-mac-arm64.zip",
+        "sha256": "a7518dfc13f19a40d008c118642ae72a3e43a9a0ba740b249c970f49bab20065",
+        "size": 200356489
       }
     }
   ]
