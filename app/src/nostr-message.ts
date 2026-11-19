@@ -22,7 +22,7 @@ export interface NostrMessageReview {
   readonly senderRelays: readonly string[]
   readonly replyTo?: string
 }
-interface Delivery { event: Event; relays: readonly string[]; accepted: boolean }
+interface Delivery { event: Event; relays: readonly string[]; accepted: boolean; unaccepted?: readonly string[] }
 interface Options {
   identity: NostrMessageIdentity
   current(): boolean
@@ -30,7 +30,8 @@ interface Options {
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
   allowsRelay?(url: string): boolean
   // The embedding must use a carrier that checks current at actual socket writes.
-  publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
+  // May name the relays that did not accept, for the status line.
+  publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void | { unaccepted: readonly string[] }>
   rememberCopy?(event: Event, current: () => boolean): Promise<void>
   changed(): void
   now?(): number
@@ -181,14 +182,19 @@ export class NostrMessage {
       for (const delivery of this.#deliveries) {
         if (!this.#current()) return
         if (delivery.accepted) continue
-        try { await this.options.publish(delivery.event, delivery.relays, this.#current); if (this.#current()) delivery.accepted = true }
+        try {
+          const result = await this.options.publish(delivery.event, delivery.relays, this.#current)
+          if (this.#current()) { delivery.accepted = true; delivery.unaccepted = result?.unaccepted ?? [] }
+        }
         catch { /* Preserve the exact envelope; never assume no write occurred. */ }
       }
       if (!this.#current()) return
       const [recipient, sender] = this.#deliveries
+      const missed = recipient?.accepted && recipient.unaccepted?.length
+        ? ` Not accepted by ${recipient.unaccepted.map(url => url.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ')}.` : ''
       this.#status = recipient?.accepted
-        ? sender?.accepted ? '○ public. A recipient relay accepted the message and a relay accepted your encrypted copy. This does not confirm that the person received or read it.'
-          : '○ public. A recipient relay accepted the message; your encrypted history copy is unconfirmed. Retry sends only the same unconfirmed copy.'
+        ? (sender?.accepted ? '○ public. A recipient relay accepted the message and a relay accepted your encrypted copy. This does not confirm that the person received or read it.'
+          : '○ public. A recipient relay accepted the message; your encrypted history copy is unconfirmed. Retry sends only the same unconfirmed copy.') + missed
         : '○ public. Recipient relay acceptance is unconfirmed. It may have arrived. Retry sends the same unconfirmed event, not a new message.'
     } catch { if (this.#current()) this.#status = 'Your signer did not prepare this message. Nothing was sent. You can choose Send public to try again.' }
     finally { this.#busy = false; this.#notify() }
