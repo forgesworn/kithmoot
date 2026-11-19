@@ -2,6 +2,7 @@ import { sha256 } from './mixed-invitation-metadata-audit.mjs'
 
 const HEX64 = /^[0-9a-f]{64}$/
 const SIGN_KINDS = new Set([21236, 20460, 22242, 24242])
+const ORDINARY_KINDS = new Set([1460, 1461, 1462, 1463, 20460, 20461, 20463, 20464, 20465, 20466, 20467, 20468, 20469])
 const EVENT_KEYS = new Set(['kind', 'created_at', 'content', 'tags', 'pubkey', 'id', 'sig'])
 const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value
@@ -27,9 +28,11 @@ export function publicOrdinaryContextDto(value) {
   return Object.freeze({ ...value })
 }
 
-function eventRequest(value, origin) {
-  if (!plain(value) || Object.keys(value).some(key => !EVENT_KEYS.has(key)) || !SIGN_KINDS.has(value.kind) ||
-      (value.created_at !== undefined && (!Number.isSafeInteger(value.created_at) || value.created_at <= 0)) || value.content !== '' ||
+function eventRequest(value, origin, ordinary) {
+  const ordinaryKind = ordinary && ORDINARY_KINDS.has(value?.kind)
+  if (!plain(value) || Object.keys(value).some(key => !EVENT_KEYS.has(key)) || (!SIGN_KINDS.has(value.kind) && !ordinaryKind) ||
+      (value.created_at !== undefined && (!Number.isSafeInteger(value.created_at) || value.created_at <= 0)) ||
+      typeof value.content !== 'string' || (!ordinaryKind && value.content !== '') ||
       !Array.isArray(value.tags) || value.tags.length > 64 ||
       value.tags.some(tag => !Array.isArray(tag) || tag.length < 2 || tag.length > 8 || tag.some(item => typeof item !== 'string' || item.length > 4096))) return
   if (value.kind === 21236 && (value.content !== '' ||
@@ -54,17 +57,18 @@ function provisionRequest(value) {
 }
 
 // For the private loopback handoff only. This never makes an approval decision.
-export function permittedApprovalDto(details, appOrigin, now = Date.now()) {
+export function permittedApprovalDto(details, appOrigin, now = Date.now(), ordinary = false) {
   if (!plain(details) || details.origin !== appOrigin || !HEX64.test(details.pubkey) ||
       !Number.isFinite(details.expiresAt) || details.expiresAt <= now) return
   let event = null, provision = null
   if (details.method === 'signEvent') {
-    event = eventRequest(details.event, appOrigin)
+    event = eventRequest(details.event, appOrigin, ordinary)
     if (!event || details.provision) return
   } else if (details.method === 'heartwood_provision_rendezvous') {
     provision = provisionRequest(details.provision)
     if (!provision || details.event) return
-  } else if (details.method === 'getPublicKey' || details.method === 'getRelays') {
+  } else if (details.method === 'getPublicKey' || details.method === 'getRelays' ||
+      ordinary && ['nip44.encrypt', 'nip44.decrypt'].includes(details.method)) {
     if (details.event || details.provision) return
   } else return
   const exact = { method:details.method, origin:details.origin, pubkey:details.pubkey, event, provision }

@@ -166,21 +166,24 @@ export async function retainAdminStorageRequest(tx: PersonaTransaction, sender: 
   try { if (bytes.length > 512 * 1024) throw new Error('Admin2 storage request custody is full.'); await tx.putVault(requestRecord, bytes) } finally { bytes.fill(0) }
 }
 /** Retain transport evidence before fresh wrapping or expiry pruning. This
- * own bounded object leaves the legacy expiring-attempt schema unchanged. */
+ * own bounded object leaves the legacy expiring-attempt schema unchanged;
+ * the opaque wrap remains only in the witnessed membership journal. */
 export async function retainAdminStorageAttempt(tx: PersonaTransaction, observation: MlsStandaloneObservation): Promise<void> {
   if (!observation.attempt) return
   const records = await bindings(tx), b = records.find(b => b.operation === observation.operation)
   if (!b) return
+  const retained = structuredClone(observation)
+  delete retained.attempt!.wrap
   const previous = b.attempts.find(a => a.requestRevision === observation.requestRevision)
   if (previous) {
-    const old = structuredClone(previous.attempt!), next = structuredClone(observation.attempt)
+    const old = structuredClone(previous.attempt!), next = structuredClone(retained.attempt!)
     const acknowledged = next.confirmed; old.confirmed = false; next.confirmed = false
     if (JSON.stringify(old) !== JSON.stringify(next)) throw new Error('Retained storage request attempt changed at the same revision.')
     if (!acknowledged || previous.attempt!.confirmed) return
     previous.attempt!.confirmed = true
   } else {
     if (b.attempts.length >= 64) throw new Error('This storage request has reached its retained attempt limit.')
-    b.attempts.push(structuredClone(observation))
+    b.attempts.push(retained)
   }
   const bytes = new TextEncoder().encode(JSON.stringify({ version: 1, records }))
   try { if (bytes.length > 512 * 1024) throw new Error('Admin2 storage request custody is full.'); await tx.putVault(requestRecord, bytes) } finally { bytes.fill(0) }

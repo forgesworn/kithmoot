@@ -38,6 +38,18 @@ test('only typed empty-content MLS signing and exact v1 provision schemas pass',
   assert.equal(permittedApprovalDto({...base,method:'getPublicKey',event},origin,now),undefined)
 })
 
+test('ordinary encrypted events need the explicit ordinary scope and an allowed kind', () => {
+  const event={kind:1463,created_at:123,content:'synthetic encrypted invitation',tags:[['d','ef'.repeat(32)]]}
+  assert.equal(permittedApprovalDto({...base,method:'signEvent',event},origin,now),undefined)
+  assert.deepEqual(permittedApprovalDto({...base,method:'signEvent',event},origin,now,true).event,event)
+  assert.equal(permittedApprovalDto({...base,method:'signEvent',event:{...event,kind:1}},origin,now,true),undefined)
+  assert.equal(permittedApprovalDto({...base,method:'nip44.encrypt'},origin,now),undefined)
+  const encryption=permittedApprovalDto({...base,method:'nip44.encrypt'},origin,now,true)
+  assert.equal(encryption.method,'nip44.encrypt')
+  assert.equal(encryption.event,null)
+  assert.equal(encryption.provision,null)
+})
+
 test('ordinary public context admits exact live room and account binding only', () => {
   const roomId='11'.repeat(32), device='22'.repeat(32)
   const live={sessionAssigned:true,roomId,participant:pubkey,device,arrivalRoomId:roomId,accountPubkey:pubkey,

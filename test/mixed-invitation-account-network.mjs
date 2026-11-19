@@ -23,6 +23,11 @@ export async function chooseAccountNetwork(page, mode) {
   for (const [panel, close] of [['#mlsWitnessSettings', '#mlsWitnessClose'], ['#mlsRoomDevelopment', '#mlsRoomDevelopment [data-close]'], ['#mlsGrantDevelopment', '#mlsGrantDevelopment [data-close]']]) {
     if (await page.locator(panel).isVisible()) await page.locator(close).click()
   }
+  if (await page.locator('#relaySettings').isVisible()) await page.locator('#relaySettingsClose').click()
+  if (await page.locator('#settingsPane').isVisible()) {
+    await page.locator('#railChats').evaluate(button => button.click())
+    await page.locator('#settingsPane').waitFor({ state: 'hidden' })
+  }
   if (!await page.locator('#accountNetworkDialog').isVisible()) {
     const opener = await page.locator(openers[0]).isVisible() ? openers[0]
       : await page.locator(openers[1]).isVisible() ? openers[1] : undefined
@@ -33,6 +38,7 @@ export async function chooseAccountNetwork(page, mode) {
   await page.locator(modes.get(mode).button).click()
   const actual = await accountNetworkState(page)
   if (actual.mode !== mode) throw new Error('Rendered account network choice did not apply')
-  await page.locator('#accountNetworkClose').click()
+  if (await page.locator('#accountNetworkDialog').isVisible()) await page.locator('#accountNetworkClose').click({force:true})
+  if (await page.locator('#accountNetworkDialog').isVisible()) throw new Error('Account network dialog did not close')
   return { ...actual, dialogVisible: false, chosenThroughUi: true }
 }

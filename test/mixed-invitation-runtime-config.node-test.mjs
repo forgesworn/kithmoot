@@ -6,6 +6,14 @@ test('read-only ready status derives the exact relay config without pairing fiel
   assert.deepEqual(readRuntimeConfig({...status,pairingUri:'private-unused',bunkerUri:'private-unused',fixture:{private:'unused'}}),
     {linkUrl:status.linkUrl,relayUrl:status.signerRelay,publicRelay:status.signerRelay})
 })
+test('a declared ordinary relay stays distinct from the signer and remains TLS-only', () => {
+  const publicRelay = 'wss://link-lab.forgesworn.dev:28443'
+  assert.deepEqual(readRuntimeConfig({...status,publicRelay}),
+    {linkUrl:status.linkUrl,relayUrl:status.signerRelay,publicRelay})
+  for (const changed of [{publicRelay:'ws://localhost:28443'},{publicRelay:'wss://user:secret@localhost:28443'}]) {
+    assert.throws(()=>readRuntimeConfig({...status,...changed}))
+  }
+})
 test('unready, missing and credential-bearing endpoints refuse', () => {
   for (const changed of [{ready:false},{linkUrl:undefined},{signerRelay:undefined},{linkUrl:'ws://localhost:28442'},
     {signerRelay:'wss://user:secret@localhost:28444'},{signerRelay:'wss://localhost:28444/?token=secret'}]) {

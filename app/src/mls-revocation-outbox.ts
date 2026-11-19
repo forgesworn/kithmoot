@@ -196,7 +196,8 @@ export class BrowserMlsRevocationOutbox {
       }
       if (revision === undefined && record.attempt) {
         if (JSON.stringify(record.attempt.private) !== JSON.stringify(destination)) throw new Error('The retained attempt used a different delivery destination. Check its revision before retrying.')
-        return { record: structuredClone(record), publish: false, credentialExpiresAt }
+        const retry = delivery.mode === 'private' && !record.attempt.confirmed && record.attempt.wrap !== undefined
+        return { record: structuredClone(record), publish: retry, credentialExpiresAt }
       }
       if (revision === undefined && record.requestRevision !== 0) throw new Error('Check the current request before choosing a fresh retry.')
       if (revision !== undefined && revision !== record.requestRevision) throw new Error('The request changed. Check it again before retrying.')
@@ -234,8 +235,22 @@ export class BrowserMlsRevocationOutbox {
       if (!alive()) throw new Error('The requesting account, credential or private permission changed.')
       const selected = (await delivery.options.endpoint.pairedBoxes(scope.vault.persona)).find(box => box.routeId === delivery.destination.routeId)
       if (!alive() || !selected || selected.eventUrl !== delivery.destination.eventUrl || mlsBoxNode(selected) !== delivery.destination.node) throw new Error('The selected private Bothy route changed.')
-      const event = await wrapVmlsRevocationRequest(signer, request, delivery.options.random, alive)
-      if (!alive()) throw new Error('The requesting account or private permission changed.')
+      let event = attempt.wrap
+      if (!event) {
+        event = await wrapVmlsRevocationRequest(signer, request, delivery.options.random, alive)
+        if (!alive()) throw new Error('The requesting account or private permission changed.')
+        const wrapped = await this.coordinator.transact(scope.vault.persona, async tx => {
+          const state = await mlsStandaloneState(tx, this.now()), record = state.observations.find(item => item.operation === operation)
+          if (!record) throw new Error('That standalone revocation request is no longer retained.')
+          this.#assertRecord(record, operation, scope.vault.persona)
+          if (!record.attempt || record.requestRevision !== attempt.revision || JSON.stringify(record.attempt) !== JSON.stringify(attempt)) throw new Error('The standalone request attempt changed after wrapping. Check its current state.')
+          record.attempt.wrap = structuredClone(event!)
+          const journal = await readMlsMembership(tx); journal.standalone = state; await saveMlsMembership(tx, journal)
+          return view(record)
+        }, alive)
+        if (wrapped.state !== 'active') return wrapped
+      }
+      attempt.wrap = structuredClone(event)
       const saved = await delivery.options.endpoint.resumeKeeperInbox(scope.vault.persona, delivery.destination, alive)
       if (!alive()) throw new Error('The selected private Bothy route changed.')
       await delivery.options.endpoint.depositKeeperInbox(saved, { keeper: frozen.keeper, permission: delivery.permission.permission,
