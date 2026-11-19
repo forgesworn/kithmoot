@@ -1,7 +1,7 @@
 import { VMLS_REVOCATION_REQUEST_SECONDS } from '../../src/vmls-revocation-request.js'
 import { readMlsMembership, saveMlsMembership } from './mls-membership-store.js'
 import type { PersonaTransaction } from './mls-persona-coordinator.js'
-import { validateMlsStandaloneState, type MlsStandaloneState } from './mls-revocation-outbox-store.js'
+import { validateMlsStandaloneState, type MlsStandaloneState } from './mls-revocation-outbox-store-a10-frozen.fixture.js'
 
 /** Only a witnessed action supplies the clock. Expiry removes transport
  * attempts, never the authenticated observations authorising future requests. */

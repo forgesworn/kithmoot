@@ -1,13 +1,15 @@
 import { createVmlsRevocationRumor, VMLS_REVOCATION_REQUEST_SECONDS } from '../../src/vmls-revocation-request.js'
 import { keeperInboxDestination } from './mls-keeper-inbox-auth.js'
+import { verifiedMlsKeeperInboxWrap } from './mls-keeper-inbox-relay.js'
 import { InvalidPersonaRecord } from './mls-persona-coordinator.js'
 import { mlsStandaloneRevocationOperation } from './mls-revocation-binding.js'
+import type { Event } from 'nostr-tools/pure'
 
 export const MAX_MLS_STANDALONE_OBSERVATIONS = 64
 export interface MlsPrivateRevocationDestination {
   routeId: string; eventUrl: string; node: string; keeper: string; permissionId: string; transmittingDevice: string
 }
-export interface MlsStandaloneAttempt { revision: number; createdAt: number; expiration: number; confirmed: boolean; private?: MlsPrivateRevocationDestination }
+export interface MlsStandaloneAttempt { revision: number; createdAt: number; expiration: number; confirmed: boolean; private?: MlsPrivateRevocationDestination; wrap?: Event }
 export interface MlsStandaloneObservation {
   operation: string; sender: string; keeper: string; device: string
   sessions: string[]; boxes: string[]; observedAt: number; requestRevision: number
@@ -31,7 +33,8 @@ export function validateMlsStandaloneState(state: MlsStandaloneState): void {
       !hints.every(hex) || hints.some((hint, index) => index > 0 && hints[index - 1]! >= hint)) invalid()
     if (item.attempt !== undefined) {
       const attempt = item.attempt
-      if (!attempt || !exact(attempt, attempt.private === undefined ? 'confirmed,createdAt,expiration,revision' : 'confirmed,createdAt,expiration,private,revision') || !time(attempt.revision) || attempt.revision < 1 || attempt.revision !== item.requestRevision ||
+      if (!attempt || !exact(attempt, [...(attempt.private === undefined ? [] : ['private']), ...(attempt.wrap === undefined ? [] : ['wrap']),
+        'confirmed','createdAt','expiration','revision'].sort().join(',')) || !time(attempt.revision) || attempt.revision < 1 || attempt.revision !== item.requestRevision ||
         !time(attempt.createdAt) || attempt.createdAt < item.observedAt || attempt.createdAt > state.checkedAt || !time(attempt.expiration) ||
         attempt.expiration !== attempt.createdAt + VMLS_REVOCATION_REQUEST_SECONDS || typeof attempt.confirmed !== 'boolean') invalid()
       if (attempt.private !== undefined) {
@@ -41,6 +44,8 @@ export function validateMlsStandaloneState(state: MlsStandaloneState): void {
           !hex(d.node) || !hex(d.keeper) || d.keeper !== item.keeper || !hex(d.permissionId) || !hex(d.transmittingDevice) ||
           d.eventUrl !== keeperInboxDestination(d.node) || typeof item.publicAttempted !== 'boolean') invalid()
       } else if (item.publicAttempted === false) invalid()
+      if (attempt.wrap !== undefined && (!attempt.private || !exact(attempt.wrap, 'content,created_at,id,kind,pubkey,sig,tags') ||
+        !verifiedMlsKeeperInboxWrap(attempt.wrap, item.keeper, Math.max(0, attempt.createdAt - 2 * 86400), attempt.createdAt))) invalid()
       try { createVmlsRevocationRumor({ sender: item.sender, keeper: item.keeper, device: item.device, sessions: item.sessions, boxes: item.boxes,
         createdAt: attempt.createdAt, expiration: attempt.expiration }) } catch { invalid() }
     }

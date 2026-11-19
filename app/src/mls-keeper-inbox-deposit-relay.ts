@@ -21,10 +21,11 @@ const HEX = /^[0-9a-f]{64}(?![\s\S])/
 const SIG = /^[0-9a-f]{128}(?![\s\S])/
 const epoch = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0
 const encoder = new TextEncoder()
+const RETAINED_WRAP_SECONDS = 9 * 86400
 
 function wrapSnapshot(value: Event, keeper: string, now: number): Event | undefined {
   if (!value || value.kind !== 1059 || !epoch(value.created_at) || value.created_at > now + 600 ||
-      value.created_at < Math.max(0, now - 2 * 86400 - 600) || typeof value.content !== 'string' ||
+      value.created_at < Math.max(0, now - RETAINED_WRAP_SECONDS - 600) || typeof value.content !== 'string' ||
       !value.content.length || value.content.length > 40_000 || encoder.encode(value.content).length > 40_000 ||
       !HEX.test(value.id) || !HEX.test(value.pubkey) || !SIG.test(value.sig) || !Array.isArray(value.tags) ||
       value.tags.length !== 1 || !Array.isArray(value.tags[0]) || value.tags[0].length !== 2 ||

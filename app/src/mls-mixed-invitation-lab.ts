@@ -6,6 +6,7 @@ import type { BrowserMlsRoomDevelopmentOwner } from './mls-room-development-owne
 import type { BrowserMlsGrantDevelopmentOwner } from './mls-grant-development-owner.js'
 import { base64Encode, base64Decode } from './mls-vault.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
+import { sha256 } from '@noble/hashes/sha2.js'
 
 // Explicit disposable controller. References come only from the actual app
 // panels; there is no constructor/context/service/signer/key injection surface.
@@ -129,8 +130,14 @@ function install() {
             const history = await Promise.all(v.history.map(async (m: any) => ({ id: m.id, direction: m.direction, leaf: m.leaf, epoch: m.epoch,
               sha256: bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', m.body))) })))
             v.history.forEach((m: any) => m.body.fill(0))
+            const commitEpochs = [...new Set(v.watch.filter((w: any) => w.kind.type === 'CommitSlot').map((w: any) => String(w.kind.epoch)))].sort()
+            const outbox = v.outbox.map((r: any) => ({ recordIdSha256: bytesToHex(sha256(r.recordId)), mailboxSha256: bytesToHex(sha256(r.mailbox)), type: r.destination.type,
+              ...(r.destination.type === 'CommitSlot' ? { epoch: String(r.destination.epoch), attempt: r.destination.attempt } : {}) }))
+            const watch = v.watch.map((w: any) => ({ mailboxSha256: bytesToHex(sha256(w.mailbox)), type: w.kind.type,
+              ...(w.kind.type === 'CommitSlot' ? { epoch: String(w.kind.epoch), attempt: w.kind.attempt } : {}) }))
             result = { state: 'done', value: { state: 'active', value: { session: v.session, generation: v.generation, phase: v.phase, updateRequired: v.updateRequired,
-              profile: v.profile, ...(v.adminRoles ? { adminRoles: v.adminRoles } : {}), members: v.members, ...(step !== 'roles' ? { history } : {}), outboxCount: v.outbox.length, watchCount: v.watch.length } } }
+              profile: v.profile, ...(v.adminRoles ? { adminRoles: v.adminRoles } : {}), members: v.members, ...(step !== 'roles' ? { history } : {}),
+              outboxCount: v.outbox.length, watchCount: v.watch.length, commitEpochs, outbox, watch } } }
           }
           break
         }

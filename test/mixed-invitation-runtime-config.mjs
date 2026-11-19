@@ -8,7 +8,7 @@ export function readRuntimeConfig(status) {
     return value
   }
   const linkUrl = websocket(status.linkUrl), relayUrl = websocket(status.signerRelay)
-  return { linkUrl, relayUrl, publicRelay: relayUrl }
+  return { linkUrl, relayUrl, publicRelay: status.publicRelay === undefined ? relayUrl : websocket(status.publicRelay) }
 }
 
 /** Two explicit disposable browser controllers; the listener stays loopback. */

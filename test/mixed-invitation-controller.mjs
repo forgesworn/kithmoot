@@ -5,11 +5,13 @@ import { npubEncode } from 'nostr-tools/nip19'
 import { sha256, endpointSummary, frameSummary, httpSummary, matchesNeedleNow, withinBudget, assertProspectiveNeedles, windowTransition, adminPolicyNeedles, keyClass, safeNumber } from './mixed-invitation-metadata-audit.mjs'
 import { permittedApprovalDto, publicOrdinaryContextDto } from './mixed-invitation-approval-guard.mjs'
 import { safeErrorDiagnostic } from './mixed-invitation-error-diagnostic.mjs'
+import { createBrowserMetadataWindow, createPublicControlTracker, createGeneralObservationStore } from './mixed-invitation-metadata-window.mjs'
 import { chromium } from '@playwright/test'
 import { createServer } from 'node:http'
 import { mkdir, readdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const controllerPort = readControllerPort(process.env.MIXED_INVITATION_CONTROLLER_PORT)
 const labProfile = process.env.MIXED_INVITATION_LAB_PROFILE ?? 'Invitation1'
@@ -37,6 +39,43 @@ const runtimeConfig = readRuntimeConfig(await runtimeReady.json())
 const blockedNetworkAttempts=[]
 const allowedNetworkOrigins = new Set([new URL(app).origin, new URL(app.replace(/^http/, 'ws')).origin, ...['linkUrl','relayUrl','publicRelay'].map(k => new URL(runtimeConfig[k]).origin)])
 const knownOrigins = Object.fromEntries([[app,'app'],[app.replace(/^http/,'ws'),'app-socket'],[runtimeConfig.linkUrl,'link'],[runtimeConfig.relayUrl,'signer-relay'],[runtimeConfig.publicRelay,'public-relay']].map(([url,alias])=>[new URL(url).origin,alias]))
+const generalVennelRoot = process.env.MIXED_INVITATION_VENNEL_ROOT
+const generalSpoolRoot = generalVennelRoot ? path.join(profile, 'general-observations') : null
+const createMetadataSpool = generalVennelRoot
+  ? (await import(pathToFileURL(path.join(generalVennelRoot, 'lab/metadata-spool.mjs')).href)).createMetadataSpool : null
+if (generalSpoolRoot) await mkdir(generalSpoolRoot, { recursive: true, mode: 0o700 })
+const newGeneralObservationStore = () => createMetadataSpool
+  ? createGeneralObservationStore({ directory: path.join(generalSpoolRoot, randomUUID()), createMetadataSpool }) : null
+let metadataWindow, metadataFinished = false
+async function startMetadataWindow(args) {
+  if (metadataWindow && !metadataFinished) throw Error('Browser metadata window already active')
+  const root = process.env.MIXED_INVITATION_VENNEL_ROOT
+  if (!root) throw Error('Explicit Vennel lab helper root required')
+  const observationModule = await import(pathToFileURL(path.join(root, 'lab/metadata-observation.mjs')).href)
+  const captureModule = await import(pathToFileURL(path.join(root, 'lab/metadata-capture.mjs')).href)
+  if (args.signerOrigin !== new URL(runtimeConfig.relayUrl).origin || args.origins?.signerOrigin !== args.signerOrigin ||
+      typeof args.saltHex !== 'string' || !/^[0-9a-f]{64}$/.test(args.saltHex)) throw Error('Metadata relay or salt mismatch')
+  const manifest = observationModule.fixedTermManifest({ terms: args.terms, salt: Buffer.from(args.saltHex, 'hex'),
+    actionSequence: args.actionSequence, durationMs: args.durationMs, signerOrigin: args.signerOrigin })
+  const origins = { ...args.origins, otherOrigins: [...args.origins.otherOrigins, `chrome-extension://${extension}`] }
+  let spoolDirectory
+  if (args.spoolDirectory !== undefined) {
+    if (typeof args.spoolDirectory !== 'string') throw Error('Browser metadata spool path required')
+    const runRoot = path.resolve(root, 'release/invitation-preview-b4-20261110')
+    spoolDirectory = path.resolve(args.spoolDirectory)
+    if (!spoolDirectory.startsWith(`${runRoot}${path.sep}`)) throw Error('Browser metadata spool must be run scoped')
+  }
+  const window = createBrowserMetadataWindow({ metadataObservation: observationModule.metadataObservation,
+    metadataCaptureHooks: captureModule.metadataCaptureHooks, manifest, origins, spoolDirectory })
+  window.start()
+  metadataWindow = window; metadataFinished = false
+  return { started: true, manifest: manifest.snapshot() }
+}
+function finishMetadataWindow() {
+  if (!metadataWindow || metadataFinished) throw Error('Browser metadata window is not active')
+  const snapshot = metadataWindow.finish(); metadataFinished = true
+  return snapshot
+}
 // Match only forbidden destinations. Selected ownstack sockets are wholly
 // native: they never enter a Playwright socket route or proxy.
 await context.routeWebSocket(url => !allowedNetworkOrigins.has(url.origin), socket => {
@@ -47,12 +86,16 @@ await context.route('**/*', route => { const u=new URL(route.request().url());if
 const page = await context.newPage()
 const namedWindows = new Set(['bootstrap', 'ordinary', 'private', 'fault', 'reconnect', 'refusal', 'admin-policy', 'admin-refusal'])
 let active, result, failures = 0, observe = true, windowName = 'bootstrap', needles = [], observations = [], violations = 0, activePrivateTerms = []
-let observedBytes = 0, observerOverflow = false, unattributedFrames = 0, frameCount = 0, httpBodyUnobserved = 0, publicControl = null, controlSubscription
+let observedBytes = 0, observerOverflow = false, unattributedFrames = 0, frameCount = 0, httpBodyUnobserved = 0, publicControl = null, controlSubscription, controlTracker
 const closedWindows = []
 const digest = sha256
 const fieldClass = keyClass
 const kindClass = safeNumber
-const record = value => { if(observations.length < 10000)observations.push(value);else observerOverflow=true }
+let generalObservation = newGeneralObservationStore(), finalObservation = null
+const record = value => {
+  if (generalObservation) return generalObservation.append(value)
+  if(observations.length < 10000)observations.push(value);else observerOverflow=true
+}
 
 function endpointOf(url) { const result=endpointSummary(url,knownOrigins);return result.endpointUnknown?undefined:result }
 function frame(payload, source, endpoint) {
@@ -62,7 +105,9 @@ function frame(payload, source, endpoint) {
   frameCount++
   if (!endpoint) unattributedFrames++
   violations+=matchesNeedleNow(needles,[wire])
-  record({window:windowName,source,...(endpoint??{endpointUnknown:true}),...frameSummary(wire,controlSubscription)})
+  const summary=frameSummary(wire,controlSubscription)
+  controlTracker?.frame(source,endpoint,summary)
+  record({window:windowName,source,...(endpoint??{endpointUnknown:true}),...summary})
 }
 function httpRequest(url, method, headers, body, hasPostData, source) {
   if(!observe)return
@@ -74,21 +119,45 @@ function httpRequest(url, method, headers, body, hasPostData, source) {
   violations+=matchesNeedleNow(needles,[url,...Object.entries(headers??{}).flat(),bytes])
   record({window:windowName,...httpSummary(url,method,headers,bytes,hasPostData,source,knownOrigins)})
 }
-page.on('websocket', socket => { socket.on('framesent', e => frame(e.payload, 'app-websocket', endpointOf(socket.url()))); socket.on('socketerror', () => failures++) })
-page.on('request', request => { const body=request.postDataBuffer();httpRequest(request.url(),request.method(),request.headers(),body,!!body,'app-http') })
+const relayRefusals=[]
+const appCdp=await context.newCDPSession(page)
+await appCdp.send('Network.enable')
+appCdp.on('Network.webSocketFrameReceived', event => {
+  const payload=event.response?.payloadData
+  if(typeof payload!=='string'||!payload.startsWith('["OK"'))return
+  try { const value=JSON.parse(payload);if(value[2]===false&&typeof value[3]==='string')relayRefusals.push(value[3].slice(0,160)) } catch {}
+})
+page.on('websocket', socket => {
+  socket.on('framesent', e => {
+    metadataWindow?.webSocket(e.payload, 'outgoing', 'production-app-page', socket.url())
+    frame(e.payload, 'app-websocket', endpointOf(socket.url()))
+  })
+  socket.on('framereceived', e => {
+    metadataWindow?.webSocket(e.payload, 'incoming', 'production-app-page', socket.url())
+    if(typeof e.payload!=='string'||!e.payload.startsWith('["OK"'))return
+    try { const value=JSON.parse(e.payload);if(value[2]===false&&typeof value[3]==='string')relayRefusals.push(value[3].slice(0,160)) } catch {}
+  })
+  socket.on('socketerror', () => failures++)
+})
+page.on('request', request => {
+  const body=request.postDataBuffer()
+  metadataWindow?.outgoingHttp({ url: request.url(), headers: request.headers(), postData: request.postData(), hasPostData: !!body }, 'production-app-page')
+  httpRequest(request.url(),request.method(),request.headers(),body,!!body,'app-http')
+})
 const diagnostics=[]
 const clean = (e,source='controller-operation') => safeErrorDiagnostic(e,new URL(app).origin,sourceRoot,sourceModules,source,
   {barkOrigin:`chrome-extension://${extension}`,barkModules,packageModules,dependencyModules,privateTerms:[...needles,...activePrivateTerms]})
 let diagnosticsOverflow=false
+let ordinaryExceptionDiagnostics=[]
 page.on('pageerror', e => { failures++; if(diagnostics.length<100)diagnostics.push(clean(e,'app-pageerror'));else diagnosticsOverflow=true })
 // CDP observes the built extension's actual worker socket, in addition to app
 // sockets. Payloads are immediately reduced to metadata and digests.
 const browserCdp = await context.browser().newBrowserCDPSession()
-const workerSessions = new Map(), workerTargets = new Set(), enabledWorkers = new Set(), workerSocketEndpoints = new Map()
+const workerSessions = new Map(), workerTargets = new Set(), enabledWorkers = new Set(), workerSocketEndpoints = new Map(), workerSocketUrls = new Map()
 const workerCoverage = { attached: 0, enabled: 0, detached: 0, errors: 0 }
 let cdpCommand = 0
 async function attachWorker(target) {
-  if (target.type !== 'service_worker' || !target.url.startsWith(`chrome-extension://${extension}/`) || workerTargets.has(target.targetId)) return
+  if (target.type !== 'service_worker' || !(target.url.startsWith(`chrome-extension://${extension}/`) || target.url.startsWith(new URL(app).origin)) || workerTargets.has(target.targetId)) return
   workerTargets.add(target.targetId)
   try {
     const { sessionId } = await browserCdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: false })
@@ -107,10 +176,25 @@ browserCdp.on('Target.receivedMessageFromTarget', event => {
       if (m.error) workerCoverage.errors++
       else if (!enabledWorkers.has(watched.target)) { enabledWorkers.add(watched.target); workerCoverage.enabled++ }
     }
-    if (m.method === 'Network.webSocketCreated') workerSocketEndpoints.set(`${event.sessionId}:${m.params.requestId}`, endpointOf(m.params.url))
-    if (m.method === 'Network.webSocketFrameSent') frame(m.params.response.opcode === 2 ? Buffer.from(m.params.response.payloadData, 'base64') : m.params.response.payloadData, 'bark-worker-websocket', workerSocketEndpoints.get(`${event.sessionId}:${m.params.requestId}`))
+    if (m.method === 'Network.webSocketCreated') {
+      const key = `${event.sessionId}:${m.params.requestId}`
+      workerSocketEndpoints.set(key, endpointOf(m.params.url)); workerSocketUrls.set(key, m.params.url)
+    }
+    if (m.method === 'Network.webSocketFrameReceived') {
+      const payload=m.params.response.payloadData
+      metadataWindow?.webSocket(payload, 'incoming', 'bark-service-worker', workerSocketUrls.get(`${event.sessionId}:${m.params.requestId}`))
+      if(typeof payload==='string'&&payload.startsWith('["OK"')) {
+        const value=JSON.parse(payload);if(value[2]===false&&typeof value[3]==='string')relayRefusals.push(value[3].slice(0,160))
+      }
+    }
+    if (m.method === 'Network.webSocketFrameSent') {
+      const payload = m.params.response.opcode === 2 ? Buffer.from(m.params.response.payloadData, 'base64') : m.params.response.payloadData
+      metadataWindow?.webSocket(payload, 'outgoing', 'bark-service-worker', workerSocketUrls.get(`${event.sessionId}:${m.params.requestId}`))
+      frame(payload, 'bark-worker-websocket', workerSocketEndpoints.get(`${event.sessionId}:${m.params.requestId}`))
+    }
     if (m.method === 'Network.requestWillBeSent') {
       const request=m.params.request
+      metadataWindow?.outgoingHttp(request, 'bark-service-worker')
       httpRequest(request.url,request.method,request.headers,request.postData,request.hasPostData,'bark-worker-http')
     }
   } catch { workerCoverage.errors++ }
@@ -132,22 +216,48 @@ await browserCdp.send('Target.setDiscoverTargets', { discover: true })
 for (const target of (await browserCdp.send('Target.getTargets')).targetInfos) await attachWorker(target)
 
 function auditWindow() {
-  const endpoints={}
-  for(const entry of observations) {
+  const persistent = generalObservation?.snapshot(), endpoints = persistent?.endpoints ?? {}
+  if (!persistent) for(const entry of observations) {
     const key=`${entry.source} ${entry.originAlias??'[unattributed]'} ${entry.originSha256??''} ${entry.pathSha256??''}`
     const count=endpoints[key]??={items:0,bytes:0}
     count.items++;count.bytes+=entry.length
   }
+  const currentOverflow = observerOverflow || persistent?.observerOverflow === true
   return {name:windowName,workerCoverage:{...workerCoverage},currentWorkerTargets:workerTargets.size,
-    observerOverflow,observedBytes,frames:frameCount,unattributedFrames,httpBodyUnobserved,violations,checkedNeedles:needles.length,
-    publicControl,observationChecksPassed:workerCoverage.enabled>0&&workerCoverage.errors===0&&!observerOverflow&&unattributedFrames===0&&httpBodyUnobserved===0&&publicControl?.outboundObserved===true&&publicControl?.closeObserved===true&&publicControl?.eose===true,
+    observerOverflow:currentOverflow,observedBytes,frames:frameCount,unattributedFrames,httpBodyUnobserved,violations,checkedNeedles:needles.length,
+    publicControl,observationChecksPassed:workerCoverage.enabled>0&&workerCoverage.errors===0&&!currentOverflow&&unattributedFrames===0&&httpBodyUnobserved===0&&publicControl?.outboundObserved===true&&publicControl?.closeObserved===true&&publicControl?.eose===true,
     coverageScope:'Actual app page outgoing WebSocket and reported HTTP; Bark extension worker outgoing WebSocket and CDP-reported HTTP. Prospective needles only. Browser-excluded app headers, unreported CDP bodies, Android traffic and retrospective audits are outside this observation.',
-    sourceCounts:observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),
-    endpoints,observationDigest:digest(JSON.stringify(observations))}
+    observationCount:persistent?.observationCount ?? observations.length,
+    sourceCounts:persistent?.sourceCounts ?? observations.reduce((counts,o)=>(counts[o.source]=(counts[o.source]??0)+1,counts),{}),
+    endpoints,observationDigest:persistent?.observationDigest ?? digest(JSON.stringify(observations)),
+    ...(persistent ? { observationSpool: persistent.observationSpool } : {})}
+}
+function finaliseGeneralObservation() {
+  if (finalObservation) return finalObservation
+  const window = auditWindow()
+  observe = false
+  const final = generalObservation.close()
+  Object.assign(window, { observerOverflow: window.observerOverflow || final.observerOverflow,
+    observationCount: final.observationCount, sourceCounts: final.sourceCounts, endpoints: final.endpoints,
+    observationDigest: final.observationDigest, observationSpool: final.observationSpool })
+  if (final.observerOverflow || !final.observationSpool.complete || final.observationSpool.failure) window.observationChecksPassed = false
+  generalObservation = null
+  finalObservation = { window, closedWindows, blockedNetworkAttempts, pageErrors: failures,
+    observations: [], persistentObservations: true }
+  return finalObservation
 }
 function startWindow(name, nextNeedles) {
+  if (finalObservation) throw Error('Final browser observation is already closed')
   const transition=windowTransition(auditWindow(),name,nextNeedles,namedWindows)
   const previous=transition.closed
+  if (generalObservation) {
+    const final = generalObservation.close()
+    Object.assign(previous, { observerOverflow: previous.observerOverflow || final.observerOverflow,
+      observationCount: final.observationCount, sourceCounts: final.sourceCounts, endpoints: final.endpoints,
+      observationDigest: final.observationDigest, observationSpool: final.observationSpool })
+    if (final.observerOverflow) previous.observationChecksPassed = false
+  }
+  generalObservation = newGeneralObservationStore()
   closedWindows.push(previous)
   windowName=transition.name;needles=transition.needles;observations=[];violations=0;observedBytes=0;observerOverflow=false;unattributedFrames=0;frameCount=0;httpBodyUnobserved=0;publicControl=null;controlSubscription=undefined
   return {started:name,previous}
@@ -161,9 +271,32 @@ async function approvalDetails(p) {
     if(chrome.runtime.lastError)reject(new Error('Bark approval query failed'));else resolve(v)
   })),requestId)
 }
+async function hasPendingBarkApproval() {
+  for(const approval of context.pages().filter(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))) {
+    const details=await approvalDetails(approval).catch(()=>null)
+    if(details&&Number.isFinite(details.expiresAt)&&details.expiresAt>Date.now())return true
+  }
+  return false
+}
+async function captureOrdinaryLengthException() {
+  ordinaryExceptionDiagnostics=[]
+  const session=await context.newCDPSession(page)
+  session.on('Debugger.paused',async event=>{
+    try {
+      const description=String(event.data?.description??event.data?.value??'')
+      if(!description.includes("reading 'length'"))return
+      const stack=event.callFrames.map(frame=>`at ${frame.functionName||'anonymous'} (${frame.url}:${frame.lineNumber+1}:${frame.columnNumber+1})`).join('\n')
+      const error=new Error(description);error.name='TypeError';error.stack=`TypeError: ${description}\n${stack}`
+      ordinaryExceptionDiagnostics.push(clean(error,'app-caught-exception'))
+    } finally {await session.send('Debugger.resume').catch(()=>{})}
+  })
+  await session.send('Debugger.enable')
+  await session.send('Debugger.setPauseOnExceptions',{state:'all'})
+  return async()=>{await session.send('Debugger.setPauseOnExceptions',{state:'none'}).catch(()=>{});await session.send('Debugger.disable').catch(()=>{});await session.detach().catch(()=>{})}
+}
 function checkApproval(details, expected) {
   if(!expected || typeof expected!=='object' || Array.isArray(expected))throw new Error('Prospective typed Bark binding required')
-  const allowed=new Set(['getPublicKey','getRelays','signEvent','heartwood_provision_rendezvous'])
+  const allowed=new Set(['getPublicKey','getRelays','signEvent','heartwood_provision_rendezvous','nip44.encrypt','nip44.decrypt'])
   if(!allowed.has(details?.method)||details.method!==expected.method)throw new Error('Unapproved Bark method')
   if(details.origin!==new URL(app).origin||details.origin!==expected.origin||details.pubkey!==expected.pubkey)throw new Error('Bark site or persona binding mismatch')
   if(!Number.isFinite(details.expiresAt)||details.expiresAt<=Date.now())throw new Error('Bark approval expired')
@@ -254,7 +387,8 @@ async function continueOrdinaryDoor(args) {
   const deadline=Date.now()+90_000
   while(Date.now()<deadline){
     if(await page.locator('#roomArea').isVisible())return {roomOpen:true}
-    if(context.pages().some(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){await page.waitForTimeout(200);continue}
+    if(await hasPendingBarkApproval()){await page.waitForTimeout(200);continue}
+    if(await page.locator('#accountNetworkDialog').isVisible()){await chooseAccountNetwork(page,'nostr');continue}
     if(await page.locator('#signet-login-dialog').isVisible()){
       if(!inlineSigninPending)await signinInline()
       await page.waitForTimeout(200);continue
@@ -275,7 +409,16 @@ async function continueOrdinaryDoor(args) {
           await page.locator('#joinMic').uncheck()
           await page.locator('#joinCamera').uncheck()
         }
-        lastJoin=Date.now();await join.click();continue
+        try {
+          const hit=await join.evaluate(element=>{const rect=element.getBoundingClientRect(),target=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)
+            return {hittable:target===element||element.contains(target),targetId:target?.id??'',openDialogs:[...document.querySelectorAll('dialog[open]')].map(dialog=>dialog.id)}})
+          if(!hit.hittable)throw new Error(`Ordinary join control is covered by ${hit.targetId||'another element'}; dialogs=${hit.openDialogs.join(',')}`)
+          lastJoin=Date.now();await join.evaluate(element=>element.click());continue
+        } catch(error) {
+          if(!error.message.includes('Resulting promise was garbage collected'))throw error
+          await page.locator('#roomArea').waitFor({state:'visible',timeout:5000})
+          return {roomOpen:true}
+        }
       }
       if(label==='Join'&&!await page.locator('#joinNostr').isVisible())throw new Error('Ordinary door only offers visitor identity; refusing')
     }
@@ -303,11 +446,19 @@ async function settings() {
   if(await page.locator('#settingsPane').getAttribute('data-page') !== 'main') await page.locator('#settingsBack').click()
   await page.locator('#settingsPane .infoRow').filter({has:page.locator('.infoRowTitle',{hasText:/^Relays$/})}).click()
 }
-async function openPanel(kind) {
-  await page.bringToFront()
+async function closePanels() {
   for(const id of ['#mlsWitnessSettings','#mlsRoomDevelopment','#mlsGrantDevelopment']) if(await page.locator(id).isVisible()) {
     const close=id==='#mlsWitnessSettings' ? page.locator('#mlsWitnessClose') : page.locator(id+' [data-close]'); await close.click()
   }
+  if(await page.locator('#relaySettings').isVisible()) await page.locator('#relaySettingsClose').click()
+  if(await page.locator('#settingsPane').isVisible()) {
+    await page.locator('#railChats').evaluate(button=>button.click())
+    await page.locator('#settingsPane').waitFor({state:'hidden'})
+  }
+}
+async function openPanel(kind) {
+  await page.bringToFront()
+  await closePanels()
   await settings()
   const ids={account:'mlsWitnessSettingsOpen',room:'mlsRoomDevelopmentOpen',grant:'mlsGrantDevelopmentOpen'}
   await page.locator('#'+ids[kind]).click()
@@ -367,22 +518,31 @@ async function run(step,args) {
     return state
   }
   if(step==='ordinary-create') {
-    if(ordinaryScenario(args)!=='alice-created')throw new Error('Only Alice-created scenario creates a browser room')
-    const name=boundedOrdinaryText(args.name,64,'synthetic room name')
-    if(expectedHash(args.expectedNameSha256,'room name')!==digest(name))throw new Error('Room name digest mismatch')
-    const opener=await page.locator('#newRoom').isVisible()?'#newRoom':'#homeNewRoom'
-    await page.locator(opener).click()
-    await page.locator('#newRoomDialog').waitFor({state:'visible'})
-    await page.locator('#roomName').fill(name)
-    await page.locator('#roomAsk').uncheck()
-    await page.locator('#roomEnds').selectOption('0')
-    if(await page.locator('#newRoomYourNameRow').isVisible())await page.locator('#newRoomYourName').fill(boundedOrdinaryText(args.displayName,64,'creator display name'))
-    if(await page.locator('#roomAsk').isChecked()||await page.locator('#roomEnds').inputValue()!=='0')throw new Error('Persistent group-room UI choice did not hold')
-    await page.locator('#create').click()
-    await continueOrdinaryDoor(args)
-    const snapshot=await ordinarySnapshot(args)
-    if(snapshot.roomTitleSha256!==args.expectedNameSha256)throw new Error('Created room title differs from expected synthetic name')
-    return {created:true,persistentGroup:true,admissionAsk:false,endsNever:true,...snapshot}
+    const stopCapture=await captureOrdinaryLengthException()
+    try {
+      if(ordinaryScenario(args)!=='alice-created')throw new Error('Only Alice-created scenario creates a browser room')
+      const name=boundedOrdinaryText(args.name,64,'synthetic room name')
+      if(expectedHash(args.expectedNameSha256,'room name')!==digest(name))throw new Error('Room name digest mismatch')
+      await closePanels()
+      const opener=await page.locator('#newRoom').isVisible()?'#newRoom':'#homeNewRoom'
+      await page.locator(opener).click()
+      await page.locator('#newRoomDialog').waitFor({state:'visible'})
+      await page.locator('#roomName').fill(name)
+      await page.locator('#roomAsk').uncheck()
+      await page.locator('#roomEnds').selectOption('0')
+      if(await page.locator('#newRoomYourNameRow').isVisible())await page.locator('#newRoomYourName').fill(boundedOrdinaryText(args.displayName,64,'creator display name'))
+      if(await page.locator('#roomAsk').isChecked()||await page.locator('#roomEnds').inputValue()!=='0')throw new Error('Persistent group-room UI choice did not hold')
+      await page.locator('#create').click()
+      await continueOrdinaryDoor(args)
+      let snapshot
+      for(let round=0;round<45;round++){
+        snapshot=await ordinarySnapshot(args)
+        if(snapshot.roomTitleSha256===args.expectedNameSha256)break
+        await page.waitForTimeout(1000)
+      }
+      if(snapshot.roomTitleSha256!==args.expectedNameSha256)throw new Error(`Created room title differs from expected synthetic name: ${await page.locator('#roomTitle').textContent()}`)
+      return {created:true,persistentGroup:true,admissionAsk:false,endsNever:true,...snapshot}
+    } finally {await stopCapture()}
   }
   if(step==='ordinary-open-link') {
     const scenario=ordinaryScenario(args)
@@ -411,9 +571,13 @@ async function run(step,args) {
     const input=page.locator('#chatInput')
     if(await input.inputValue())throw new Error('Current chat draft must be empty')
     const count=await page.locator('#chatLog .msg.mine .messageBody .bubble .text').evaluateAll((nodes,text)=>nodes.filter(n=>n.textContent===text).length,body)
+    const expectPending=args.expectPending===true
+    if(args.expectPending!==undefined&&typeof args.expectPending!=='boolean')throw new Error('Pending observation must be explicit')
+    const pendingCount=expectPending?await page.locator('#outbox .pendingMsg .bubble .pendingText').evaluateAll((nodes,text)=>nodes.filter(n=>n.textContent===text).length,body):0
     await input.fill(body);await input.press('Enter')
-    await page.waitForFunction(({text,count})=>[...document.querySelectorAll('#chatLog .msg.mine .messageBody .bubble .text')].filter(n=>n.textContent===text).length>count,{text:body,count},{timeout:30000})
-    return {scenario:args.scenario,actor:'alice',bodySha256:digest(body),localMessageObserved:true,roomTitleSha256:before.roomTitleSha256}
+    if(expectPending)await page.waitForFunction(({text,count})=>[...document.querySelectorAll('#outbox .pendingMsg .bubble .pendingText')].filter(n=>n.textContent===text).length>count,{text:body,count:pendingCount},{timeout:30000})
+    else await page.waitForFunction(({text,count})=>[...document.querySelectorAll('#chatLog .msg.mine .messageBody .bubble .text')].filter(n=>n.textContent===text).length>count,{text:body,count},{timeout:30000})
+    return {scenario:args.scenario,actor:'alice',bodySha256:digest(body),localMessageObserved:true,pendingObserved:expectPending||undefined,roomTitleSha256:before.roomTitleSha256}
   }
   if(step==='ordinary-receive') {
     ordinaryScenario(args)
@@ -464,22 +628,26 @@ async function run(step,args) {
   }
   if(step==='ordinary-host-remove') {
     if(ordinaryScenario(args)!=='keeper-created')throw new Error('Host removal belongs only to keeper-created scenario')
-    const participant=expectedPubkey(args.expectedParticipantPubkey), name=boundedOrdinaryText(args.expectedParticipantName,64,'participant name')
+    const participant=expectedPubkey(args.expectedParticipantPubkey), expectedName=args.expectedParticipantName===undefined?undefined:boundedOrdinaryText(args.expectedParticipantName,64,'participant name')
     const before=await ordinarySnapshot(args)
     if(!before.roomOpen||before.roomTitleSha256!==expectedHash(args.expectedRoomTitleSha256,'room title'))throw new Error('Actual room does not match removal target')
     await page.locator('#roomIdentity').click()
     await page.locator('#roomSheet').waitFor({state:'visible'})
     if(!await page.locator('#hostPanel').isVisible())throw new Error('Actual account has no Host panel')
     if(!await page.locator('#hostPanel').evaluate(e=>e.open))await page.locator('#hostPanel > summary').click()
-    const match=await page.evaluate(({participant,name})=>{
-      const roster=[...document.querySelectorAll('#sheetRoster [data-participant]')]
-      const target=roster.find(row=>row.dataset.participant===participant)
-      const names=roster.filter(row=>row.querySelector('.rosterIdentity .name')?.textContent===name)
+    const match=await page.evaluate(({participant,expectedName})=>{
+      const roster=[...document.querySelectorAll('#sheetRoster > .rosterRow[data-participant]')]
+      const targets=roster.filter(row=>row.dataset.participant===participant)
+      const name=targets.length===1?targets[0].querySelector('.rosterIdentity .name')?.textContent??'':undefined
+      const key=targets.length===1?targets[0].querySelector('.rosterIdentity .pubkey')?.title??'':undefined
       const hosts=[...document.querySelectorAll('#hostList .hostRow')]
-      const candidates=hosts.map((row,index)=>({row,index})).filter(({row})=>row.querySelector('.who .name')?.textContent===name&&[...row.querySelectorAll('button')].some(b=>b.textContent==='Remove'))
-      return {rosterMatched:target?.querySelector('.rosterIdentity .name')?.textContent===name,uniqueRosterName:names.length===1,hostMatches:candidates.length,hostIndex:candidates[0]?.index}
-    },{participant,name})
-    if(!match.rosterMatched||!match.uniqueRosterName||match.hostMatches!==1)throw new Error('Host row cannot be bound uniquely to expected participant')
+      const candidates=hosts.map((row,index)=>({row,index})).filter(({row})=>row.querySelector('.who .name')?.textContent===name&&(!key||row.querySelector('.who .pubkey')?.title===key)&&[...row.querySelectorAll('button')].some(b=>b.textContent==='Remove'))
+      const hostRows=hosts.map(row=>({namePresent:!!row.querySelector('.who .name'),keyPresent:!!row.querySelector('.who .pubkey'),nameMatches:row.querySelector('.who .name')?.textContent===name,keyMatches:!!key&&row.querySelector('.who .pubkey')?.title===key,removeCount:[...row.querySelectorAll('button')].filter(b=>b.textContent==='Remove').length}))
+      return {name,uniqueParticipant:targets.length===1,nameMatched:expectedName===undefined||name===expectedName,hostMatches:candidates.length,hostIndex:candidates[0]?.index,
+        diagnostic:{targetCount:targets.length,rosterCount:roster.length,hostCount:hosts.length,keyPresent:!!key,hostRows}}
+    },{participant,expectedName})
+    if(!match.name||!match.uniqueParticipant||!match.nameMatched||match.hostMatches!==1)throw new Error(`Host row cannot be bound uniquely to expected participant: ${JSON.stringify({namePresent:!!match.name,nameMatched:match.nameMatched,hostMatches:match.hostMatches,...match.diagnostic})}`)
+    const name=match.name
     await page.locator('#hostList .hostRow').nth(match.hostIndex).getByRole('button',{name:'Remove',exact:true}).click()
     const title=await page.locator('#actionTitle').textContent()
     if(!title?.startsWith(`Remove ${name}`)||await page.locator('#actionConfirm').textContent()!=='Remove from room')throw new Error('Unexpected host removal confirmation')
@@ -489,6 +657,15 @@ async function run(step,args) {
     return {scenario:'keeper-created',actor:'alice',participantSha256:digest(participant),nameSha256:digest(name),removeRequested:true,removedObserved}
   }
   if(step==='ordinary-snapshot')return ordinarySnapshot(args)
+  if(step==='ordinary-account-network-open') {
+    await closePanels()
+    await settings()
+    await page.locator('#settingsBack').click()
+    await page.locator('#appProfileSettings').click()
+    await page.locator('#profileAccountNetwork').click()
+    await page.locator('#accountNetworkDialog').waitFor({state:'visible'})
+    return {opened:true}
+  }
   if(step==='open') return openPanel(args.panel)
   if(step==='refresh-preview-shell') {
     const result = await page.evaluate(async ({origin, scope}) => {
@@ -508,7 +685,8 @@ async function run(step,args) {
   if(step==='reload') {await page.reload();return {reloaded:true}}
   if(step==='enrol-device') {await page.locator('#mlsWitnessVaultRead').click();await page.locator('#mlsWitnessDeviceNew').waitFor({state:'visible',timeout:60000});await page.locator('#mlsWitnessDeviceNew').click();return {awaitingConfirmation:true}}
   if(step==='approve-action') {
-    const text=await page.locator('#actionDescription').textContent();if(!args.expected?.length || !args.expected.every(v=>text.includes(v))) throw new Error('Unexpected app action confirmation')
+    await page.locator('#actionDialog').waitFor({state:'visible',timeout:60000})
+    const text=await page.locator('#actionDialog').textContent();if(!args.expected?.length || !args.expected.every(v=>text.includes(v))) throw new Error('Unexpected app action confirmation')
     await page.locator('#actionConfirm').click();return {approved:true}
   }
   if(step==='approve-room') {
@@ -527,7 +705,6 @@ async function run(step,args) {
     for(const approval of context.pages().filter(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))) {
       if(!await approval.locator('#allow-btn').isEnabled().catch(()=>false))continue
       const details=await approvalDetails(approval)
-      if(/(?:encrypt|decrypt)/i.test(details?.method??''))continue
       checkApproval(details,args.expected)
       await approval.locator('#allow-btn').click()
       return {approved:true,method:details.method,requestSha256:args.expected.sha256,allowOnce:true}
@@ -561,7 +738,14 @@ async function run(step,args) {
       provision:details.provision?{keyClasses:Object.keys(details.provision).sort().map(k=>['v','expectedPersona','targetDevice','index','expiresAt','nonce'].includes(k)?k:'other'),sha256:digest(JSON.stringify(stable(details.provision)))}:undefined})
   }return reviews }
   if(step==='ui-labels') return page.locator('button:visible').allTextContents()
-  if(step==='ui-state') return {visibility:await page.evaluate(()=>document.visibilityState),roomVisible:await page.locator('#mlsRoomDevelopment').isVisible(),startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:context.pages().some(p=>p.url().includes('/approve.html')),pageErrors:failures,diagnostics,diagnosticsOverflow}
+  if(step==='signet-status') return page.evaluate(() => {
+    const element=document.querySelector('#signet-login-nip07-elapsed'), text=element?.textContent??null
+    if(!text||text.length>256||!(/^(?:Waiting for |Connecting…$|✗ (?:auth-event-invalid:|nip07-))/.test(text)))return {present:!!element,text:null}
+    return {present:true,text}
+  })
+  if(step==='ui-state') return {visibility:await page.evaluate(()=>document.visibilityState),roomVisible:await page.locator('#mlsRoomDevelopment').isVisible(),startup:await page.locator('html').getAttribute('data-ordinary-startup'),startupFailure:await page.evaluate(()=>window.__mixedStartupFailure ?? null).then(v=>v?{name:v.name,message:clean(v.message,'app-startup')}:null),ordinaryDoor:await ordinaryDoorDiagnostics(),ordinaryStatus:clean(await page.locator('#status').textContent(),'app-status'),ordinaryExceptionDiagnostics,accountVisible:await page.locator('#mlsWitnessSettings').isVisible(),accountStatus:(await page.locator('#mlsWitnessNetworkStatus').textContent())?.slice(0,512),accountDevice:(await page.locator('#mlsWitnessDevice').textContent())?.slice(0,512),deviceReady:await page.locator('#mlsWitnessDevice').evaluateAll(es=>es.some(e=>e.textContent?.includes('Credential:'))),action:await page.locator('#actionDialog').isVisible(),roomConsent:await page.locator('#mlsRoomConsent').isVisible(),barkApproval:await hasPendingBarkApproval(),pageErrors:failures,relayRefusals:relayRefusals.slice(-10),diagnostics,diagnosticsOverflow}
+  if(step==='metadata-start') return startMetadataWindow(args)
+  if(step==='metadata-finish') return finishMetadataWindow()
   if(step==='observe-start') {
     if(args.adminRoles !== undefined && labProfile !== 'InvitationAdmins2') throw new Error('Admin policy observation requires the Admin2 lab')
     const selected = args.needles ?? []
@@ -570,9 +754,9 @@ async function run(step,args) {
   }
   if(step==='public-control') {
     if(page.url()==='about:blank')throw new Error('Navigate actual app before public positive control')
-    const before=observations.length
     const id=`metadata-control-${randomUUID()}`
-    controlSubscription=id
+    const tracker=createPublicControlTracker({subscription:id,origin:runtimeConfig.publicRelay})
+    controlTracker=tracker;controlSubscription=id
     let result
     try { result=await page.evaluate(({url,id})=>new Promise((resolve,reject)=>{
       const socket=new WebSocket(url)
@@ -580,17 +764,25 @@ async function run(step,args) {
       socket.onopen=()=>socket.send(JSON.stringify(['REQ',id,{kinds:[1],limit:1}]))
       socket.onmessage=e=>{try{const v=JSON.parse(e.data);if(v[0]==='EOSE'&&v[1]===id){clearTimeout(timeout);socket.send(JSON.stringify(['CLOSE',id]));socket.close();resolve({opened:true,eose:true})}}catch{}}
       socket.onerror=()=>{clearTimeout(timeout);reject(new Error('Public relay control socket failed'))}
-    }),{url:runtimeConfig.publicRelay,id}) } catch(error) { controlSubscription=undefined;throw error }
-    for(let i=0;i<20&&!observations.slice(before).some(o=>o.control==='CLOSE');i++)await page.waitForTimeout(50)
-    const related=observations.slice(before).filter(o=>o.source==='app-websocket'&&o.originSha256===digest(new URL(runtimeConfig.publicRelay).origin)&&o.subscriptionSha256===digest(id))
-    const sent=related.some(o=>o.control==='REQ'),closed=related.some(o=>o.control==='CLOSE')
-    controlSubscription=undefined
+    }),{url:runtimeConfig.publicRelay,id}) } catch(error) { controlSubscription=undefined;controlTracker=undefined;throw error }
+    for(let i=0;i<20&&!tracker.snapshot().close;i++)await page.waitForTimeout(50)
+    const {req:sent,close:closed}=tracker.snapshot()
+    controlSubscription=undefined;controlTracker=undefined
     publicControl={...result,subscriptionSha256:digest(id),outboundObserved:sent,closeObserved:closed}
     if(!sent||!closed)throw new Error('Exact public positive control REQ/CLOSE was not observed outbound')
+    if(args.phase!==undefined){
+      if(!['start','end'].includes(args.phase)||!metadataWindow||metadataFinished)throw new Error('Metadata control phase or window invalid')
+      const wires={req:JSON.stringify(['REQ',id,{kinds:[1],limit:1}]),eose:JSON.stringify(['EOSE',id]),close:JSON.stringify(['CLOSE',id])}
+      metadataWindow.positiveControl(args.phase,{req:sent,eose:result.eose===true,close:closed})
+      return {...publicControl,wires}
+    }
     return publicControl
   }
   if(step==='observe-audit') {assertProspectiveNeedles(args.needles,needles);return auditWindow()}
-  if(step==='observe') return {window:auditWindow(),closedWindows,blockedNetworkAttempts,pageErrors:failures,observations}
+  if(step==='observe') {
+    if (generalObservation || finalObservation) return finaliseGeneralObservation()
+    return {window:auditWindow(),closedWindows,blockedNetworkAttempts,pageErrors:failures,observations,persistentObservations:false}
+  }
   if(step==='witness-enrol') {
     const state=await page.evaluate(()=>window.__mixedInvitationLab.step('account-state'))
     const e=state.enrolment;if(e.state!=='genesis')throw new Error('Actual account has no genesis')
@@ -599,7 +791,7 @@ async function run(step,args) {
   await requireLabProfile()
   return page.evaluate(({step,args})=>window.__mixedInvitationLab.step(step,args),{step,args})
 }
-const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','signin-inline','ordinary-public-context','lab-profile','box-trace-read','account-network-state'])
+const sideSteps=new Set(['approve-action','approve-room','approve-bark','deny-bark','ui-state','ui-labels','signet-status','bark-review','bark-state','bark-connection-check','observe','observe-audit','public-control','metadata-start','metadata-finish','signin-inline','ordinary-public-context','lab-profile','box-trace-read','account-network-state'])
 const server=createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   res.setHeader('cache-control','no-store');
@@ -610,7 +802,7 @@ const server=createServer(async(req,res)=>{
       for(const approval of context.pages().filter(p=>p.url().startsWith(`chrome-extension://${extension}/approve.html`))){
         if(!await approval.locator('#allow-btn').isEnabled().catch(()=>false))continue
         const details=await approvalDetails(approval).catch(()=>null)
-        dto=permittedApprovalDto(details,new URL(app).origin)
+        dto=permittedApprovalDto(details,new URL(app).origin,Date.now(),typeof active==='string'&&active.startsWith('ordinary-'))
         if(dto)break
       }
       res.end(JSON.stringify(dto??null));return
@@ -636,8 +828,11 @@ const server=createServer(async(req,res)=>{
     activePrivateTerms=typeof step==='string'&&step.startsWith('ordinary-')&&args&&typeof args==='object'?['name','displayName','body','url'].map(key=>args[key]).filter(value=>typeof value==='string'&&value.length>0&&value.length<=8192):[]
     void run(step,args).then(value=>{result={step,ok:true,result:value}},error=>{result={step,ok:false,error:'Named browser operation refused',diagnostic:clean(error)};failures++}).finally(()=>{active=undefined;activePrivateTerms=[]})
     res.end(JSON.stringify({queued:true,step}))
-  }catch{res.writeHead(400).end(JSON.stringify({ok:false,error:'Browser controller refused command'}))}
+  }catch(error){res.writeHead(400).end(JSON.stringify({ok:false,error:'Browser controller refused command',diagnostic:clean(error)}))}
 })
 server.listen(controllerPort,'127.0.0.1',()=>console.log(`Mixed browser private controller ready on loopback port ${controllerPort}`))
-async function close(){server.close();await context.close();process.exit(0)}
+async function close(){
+  if (generalObservation) { observe = false; generalObservation.close(); generalObservation = null }
+  server.close();await context.close();process.exit(0)
+}
 process.on('SIGTERM',()=>void close());process.on('SIGINT',()=>void close())
