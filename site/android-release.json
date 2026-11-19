@@ -7,7 +7,7 @@
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71467392,
-  "apkSha256": "027d993252651ccfb7bd0f70b893f89c1ede9fd8ea3be45b59d8e6149fce8807",
+  "apkSha256": "24772116ea7a8915e2ec273631744c56e2aad7531ab16ec86fad45e8506d0a99",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -28,6 +28,6 @@
   "releaseNotes": [
     "Set up Nostr inbox relays beside a message or invitation, without losing your message draft.",
     "Clearer errors say whose published inbox is missing and preserve waiting encrypted copies for retry.",
-    "Includes inbox relay authentication fixes and the People alphabet index from 0.6.169."
+    "Send through inbox relays that require authentication, and jump through long People lists with the alphabet index."
   ]
 }

@@ -19,8 +19,9 @@ index. The deployed browser carries the matching inbox authentication fix.
 The production certificate and preview upgrade lineage are retained. Signed
 metadata identifies one immutable APK across the website, GitHub and Zapstore.
 
-The publication evidence records source qualification, package and signature
-checks, the isolated production upgrade, download hashes and store readback.
+The [publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.170/nostr-inbox-setup-publication-20261119.json)
+records source qualification, package and signature checks, the isolated
+production upgrade, download hashes and store readback.
 Emulator and relay acceptance do not establish physical GrapheneOS, external
 signer approval, receipt or reading by the other person.
 
