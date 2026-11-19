@@ -91,6 +91,7 @@ import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStan
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-preferences.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
+import { nostrInboxRelayDraft } from './nostr-inbox-settings.js'
 import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, ownFileServer, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
 import { attachmentCopyError, copyEnvelopeToWildbloom } from './attachment-copy.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
@@ -20080,17 +20081,18 @@ async function openDmRelaySettings(): Promise<void> {
   if (!account) return
   field.value = ''
   field.disabled = true
+  ;($('dmRelaySave') as HTMLButtonElement).disabled = true
   status.textContent = 'Looking up your list…'
   dialog.showModal()
   try {
     const current = latestDmRelayList(await lookUpDmRelayLists([account.pubkey], dmRelayListHome()), account.pubkey)
     if (nostrSession !== account) return
-    field.value = current.join('\n')
-    status.textContent = current.length ? '' : 'Publish an inbox relay to receive Nostr messages in People.'
-  } catch {
-    status.textContent = 'Your list could not be looked up. Saving replaces whatever is there.'
-  } finally {
+    field.value = nostrInboxRelayDraft(current)
+    status.textContent = current.length ? '' : 'Public defaults are ready. Save them to receive Nostr messages and invitations, or edit the list.'
     field.disabled = false
+    ;($('dmRelaySave') as HTMLButtonElement).disabled = false
+  } catch {
+    status.textContent = 'Your inbox relay list could not be checked. Close and reopen this page to retry before replacing it.'
   }
 }
 
