@@ -45,11 +45,25 @@ export class FakeRelayServer {
    *  only a request naming one of those kinds. */
   refuseReads: string | undefined = undefined
   refuseReadKinds: number[] | undefined = undefined
+  /** NIP-42: greet each new connection with this challenge and refuse every
+   *  `EVENT` from a connection that has not answered it with a valid `AUTH`. */
+  authChallenge: string | undefined = undefined
+  /** With `authChallenge`: drop the link on an unauthenticated `EVENT` instead
+   *  of answering it, the way a relay that closes before AUTH completes does. */
+  dropUnauthenticated = false
+  /** The public key of every connection that authenticated, in order. */
+  readonly authenticated: string[] = []
   /** Every connection attempt this relay has seen, refused or not. */
   attempts = 0
 
   readonly #subscriptions = new Map<string, { socket: FakeWebSocket; subId: string; filters: Filter[] }>()
   readonly #sockets = new Set<FakeWebSocket>()
+  readonly #authorised = new Set<FakeWebSocket>()
+
+  /** Called once a socket has opened. */
+  greet(socket: FakeWebSocket): void {
+    if (this.authChallenge) socket.deliver(JSON.stringify(['AUTH', this.authChallenge]))
+  }
 
   constructor(readonly url: string) {}
 
@@ -103,6 +117,7 @@ export class FakeRelayServer {
 
   detach(socket: FakeWebSocket): void {
     this.#sockets.delete(socket)
+    this.#authorised.delete(socket)
     for (const [key, sub] of this.#subscriptions) {
       if (sub.socket === socket) this.#subscriptions.delete(key)
     }
@@ -114,6 +129,22 @@ export class FakeRelayServer {
 
     if (this.silent) {
       if (message[0] === 'EVENT') this.stored.push(message[1] as Event)
+      return
+    }
+
+    if (message[0] === 'AUTH') {
+      const auth = message[1] as Event
+      const tag = (name: string) => auth.tags?.find(row => row[0] === name)?.[1]
+      const ok = this.authChallenge !== undefined && auth.kind === 22242 && tag('challenge') === this.authChallenge &&
+        tag('relay') !== undefined && normalizeURL(tag('relay')!) === this.url
+      if (ok) { this.#authorised.add(socket); this.authenticated.push(auth.pubkey) }
+      socket.deliver(JSON.stringify(['OK', auth.id, ok, ok ? '' : 'restricted: bad auth']))
+      return
+    }
+
+    if (message[0] === 'EVENT' && this.authChallenge && !this.#authorised.has(socket)) {
+      if (this.dropUnauthenticated) { socket.dropped(); return }
+      socket.deliver(JSON.stringify(['OK', (message[1] as Event).id, false, 'auth-required: you must auth']))
       return
     }
 
@@ -223,6 +254,7 @@ export class FakeWebSocket {
       this.readyState = FakeWebSocket.OPEN
       this.#server.attach(this)
       this.onopen?.()
+      this.#server.greet(this)
       if (this.#server.dropOnOpen) queueMicrotask(() => this.dropped())
     })
   }

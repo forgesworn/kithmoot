@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools/pure'
 import type { Filter } from 'nostr-tools/filter'
-import type { RelayTransport } from '../../src/relay-pool.js'
+import type { GuardedPublishOptions, RelayTransport } from '../../src/relay-pool.js'
 
 export type AccountNetworkMode = 'private-invitations' | 'nostr'
 export const ACCOUNT_NETWORK_KEY = 'kithmoot.account-network.v1'
@@ -121,7 +121,7 @@ export class AccountNetwork {
       get(target, property) {
         if (property === 'close') return close
         if (property === 'closed') return closed || Reflect.get(target, property, target) === true
-        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowedOrOptions?: (() => boolean) | { allRelays?: boolean }, options?: { allRelays?: boolean }) => {
+        if (property === 'publish' || property === 'publishGuarded') return async (event: Event, allowedOrOptions?: (() => boolean) | GuardedPublishOptions, options?: GuardedPublishOptions) => {
           requireLive()
           const allowed = typeof allowedOrOptions === 'function' ? allowedOrOptions : undefined
           const publishOptions = typeof allowedOrOptions === 'function' ? options : allowedOrOptions

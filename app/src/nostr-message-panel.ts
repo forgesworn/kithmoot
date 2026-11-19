@@ -13,7 +13,7 @@ interface Options {
   blocked(peer: string): boolean
   lookup(authors: string[], current: () => boolean): Promise<Event[]>
   allowsRelay?(url: string): boolean
-  publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void>
+  publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void | { unaccepted: readonly string[] }>
   rememberCopy(event: Event, account: SignetSession, current: () => boolean): Promise<void>
 }
 /** Explicit separate public conversation from the account home. No room

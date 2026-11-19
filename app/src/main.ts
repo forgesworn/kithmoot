@@ -1,3 +1,4 @@
+import { publishToInboxRelays } from './nostr-message-publish.js'
 import { directChatName } from './direct-chat-name.js'
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
@@ -20447,13 +20448,13 @@ nostrMessagePanel = new NostrMessagePanel(document, {
   publish: async (event, relays, current) => {
     const allowed = () => current() && relays.every(publicPeopleRelay)
     if (!allowed()) throw Error('Account view or public inbox routing changed.')
-    // Explicit hints define this pool; no NIP-65/default destination is added.
-    // The caller independently guards every queued socket write/retry.
-    const hold = relayConnections.pool('nostr-message', relays.map(url => ({ url, read: false, write: true })))
-    try {
-      if (!hold.publishGuarded) throw Error('A guarded public carrier is unavailable.')
-      await hold.publishGuarded(event, allowed)
-    } finally { hold.close() }
+    // Explicit hints define each carrier; no NIP-65/default destination is added.
+    // Every relay is offered the event on its own, and one that has not accepted
+    // is offered it again after authenticating with a throwaway key (never the
+    // account). The caller independently guards every queued socket write/retry.
+    const { unaccepted } = await publishToInboxRelays(event, relays, allowed,
+      url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]))
+    return { unaccepted: unaccepted.map(row => row.url) }
   },
 })
 peopleNostrPanel = new PeopleNostrPanel(document, {

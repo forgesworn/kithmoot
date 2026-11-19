@@ -41,11 +41,22 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
   frameGuard?: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => boolean
 }
 
+/** Options for one guarded publication. */
+export interface GuardedPublishOptions {
+  allRelays?: boolean
+  /** Identities this one carrier alone answers NIP-42 challenges with, added
+   *  to the pool's own grants. Never stored on the pool, so a throwaway key
+   *  cannot outlive the publication or reach a shared socket. */
+  authentication?: readonly RelayAuthentication[]
+  /** Overrides how long the carrier waits for a relay to finish authenticating. */
+  authenticationTimeoutMs?: number
+}
+
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
   publish(event: Event, options?: { allRelays?: boolean }): Promise<void>
   /** Optional guarded carrier; a sensitive decision must fail closed if absent. */
-  publishGuarded?(event: Event, current: () => boolean, options?: { allRelays?: boolean }): Promise<void>
+  publishGuarded?(event: Event, current: () => boolean, options?: GuardedPublishOptions): Promise<void>
   /** `via` is the relay URL that delivered the event, when the transport
    *  knows it. A consumer works out a message's lane from it and from
    *  nothing on the wire; see `lane.ts`. */
@@ -684,7 +695,7 @@ export class NostrRelayPool implements RelayTransport {
    * first acknowledgement by default, so slower relays cannot keep publishing
    * afterwards. A room-relay handover explicitly waits for each configured
    * write relay to acknowledge while the same guard remains current. */
-  async publishGuarded(event: Event, allowed: () => boolean, options: { allRelays?: boolean } = {}): Promise<void> {
+  async publishGuarded(event: Event, allowed: () => boolean, options: GuardedPublishOptions = {}): Promise<void> {
     const generation = this.#generation
     const current = () => {
       try { return !this.#closed && !this.#paused && generation === this.#generation && allowed() }
@@ -693,14 +704,18 @@ export class NostrRelayPool implements RelayTransport {
     if (!current()) throw new Error('Publication is no longer authorised.')
     const Base = this.options.websocketImplementation ?? globalThis.WebSocket
     if (!Base) throw new Error('A guarded WebSocket carrier is unavailable.')
-    const authentication = [...this.#authentication].map(([url, grant]) => ({ url,
-      identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null, ...(grant?.node ? { node: { ...grant.node } } : {}) }))
+    const extra = (options.authentication ?? []).map(entry => ({ ...entry, url: normaliseRelayConfig([entry.url], this.options.profile)[0]!.url }))
+    const inherited = [...this.#authentication].filter(([url]) => !extra.some(entry => entry.url === url))
+      .map(([url, grant]) => ({ url,
+        identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null, ...(grant?.node ? { node: { ...grant.node } } : {}) }))
+    const authentication = [...inherited, ...extra]
     // Its own sockets, never shared ones: closing the carrier after the first
     // acknowledgement has to end its writes everywhere, and the pool's guard
     // still applies on top of the decision's own.
     const parent = this.options.sendGuard
     const carrier = new NostrRelayPool(this.#relays, this.circleAtUse, { ...this.options, sharedSockets: undefined, sendGuard: undefined,
-      authentication, websocketImplementation: guardedWebSocket(Base, parent ? () => parent() && current() : current) })
+      authentication, ...(options.authenticationTimeoutMs ? { authenticationTimeoutMs: options.authenticationTimeoutMs } : {}),
+      websocketImplementation: guardedWebSocket(Base, parent ? () => parent() && current() : current) })
     // Cancellation closes a stalled handshake as well as preventing its
     // eventual queued write. This carrier publishes an already signed decision.
     const timer = setInterval(() => { if (!current()) carrier.close() }, 25)
