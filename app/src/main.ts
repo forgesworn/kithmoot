@@ -4039,8 +4039,12 @@ const follows = new FollowBook({
 follows.setEnabled(accountNetwork.nostr && profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('lookupProfiles').addEventListener('change', () => {
-  const enabled = ($('lookupProfiles') as HTMLInputElement).checked
+  setPublicProfiles(($('lookupProfiles') as HTMLInputElement).checked)
+})
+function setPublicProfiles(enabled: boolean): void {
+  if (enabled && !accountNetwork.nostr) return
   profilesEnabled = enabled
+  ;($('lookupProfiles') as HTMLInputElement).checked = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
   if (!enabled) {
     peopleProfiles.clear()
@@ -4053,7 +4057,8 @@ $('lookupProfiles').addEventListener('change', () => {
     repaintActiveChat()
   }
   renderIdentity()
-})
+  renderPeople()
+}
 
 ;($('verifyAddresses') as HTMLInputElement).checked = nip05Verify
 $('verifyAddresses').addEventListener('change', () => {
@@ -19510,6 +19515,8 @@ function linkSignetContacts(opener: HTMLElement): void {
 {
   const list = document.getElementById('peopleList'), pane = document.getElementById('peoplePane')
   if (list && pane) people = new PeopleView(list, pane, peopleModel, {
+    profileSettings: () => ({ enabled: profilesEnabled, available: accountNetwork.nostr }),
+    setPublicProfiles,
     blockedReason: peopleBlockedReason,
     block: peer => { setBlocked(peer, true) },
     message: messagePerson,

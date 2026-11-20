@@ -37,13 +37,13 @@ it('retries a failed transport but caps attempts, and cancelling lookups cancels
   expect(transport).toHaveBeenCalledTimes(4)
 })
 
-it('keeps participant keys off profile Nostr relays until the app has an explicit opt-in', () => {
+it('keeps participant keys off profile Nostr relays while the saved preference is off', () => {
   const subscribe = vi.fn(() => () => {})
   const transport = vi.fn(() => ({ subscribe, close() {} }) as unknown as NostrRelayPool)
   const book = new ProfileBook({ relays: () => ['wss://room.example/'],
     publicRelays: () => ['wss://profiles.example/'], transport, onChange: vi.fn() })
   books.push(book)
-  book.setEnabled(profilePreference({ getItem: () => null }))
+  book.setEnabled(profilePreference({ getItem: () => 'false' }))
   const participant = getPublicKey(generateSecretKey())
   book.want([participant], 'room')
   book.want([participant], 'public')
@@ -66,7 +66,7 @@ function fixture() {
     subscribe: (_filters: unknown, handler: typeof receive) => { receive = handler; return () => {} },
     close() {},
   }) as unknown as NostrRelayPool })
-  // These cases exercise verification itself; the default-off gate has its
+  // These cases exercise verification itself; the saved-preference gate has its
   // own tests below.
   book.setNip05Automatic(true)
   books.push(book)

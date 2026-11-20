@@ -66,6 +66,18 @@
   min-height: 44px;
 }
 
+.peopleList .peopleProfiles {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--s1) var(--s2);
+  margin: 0 var(--s4) var(--s2);
+  min-height: 44px;
+  cursor: pointer;
+}
+.peopleList .peopleProfiles input { width: auto; margin: 0; }
+.peopleList .peopleProfiles small { grid-column: 2; color: var(--muted); }
+
 .peopleList #peopleStatus {
   margin: 0 var(--s4) var(--s2);
 }

@@ -6,7 +6,7 @@ import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { dmPolicy } from '../src/dm.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings } from './browser.js'
+import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings, openProfileSettings } from './browser.js'
 
 /** These Following journeys start with a deliberate public-profile opt-in. */
 async function accountWithProfiles(...args: Parameters<typeof accountDevice>) {
@@ -502,7 +502,7 @@ test('Voice from People opens the private chat and starts a call in it', async (
   } finally { publisher.close(); await ac.close() }
 })
 
-test('with public profiles off, Following says how to see it and asks no relay', async ({ browser, baseURL }) => {
+test('a saved public profile opt-out can be changed inside People', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey()
   const ac = await accountDevice(browser, baseURL!, aKey)
   try {
@@ -510,9 +510,40 @@ test('with public profiles off, Following says how to see it and asks no relay',
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
-    await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Turn on public profiles in Settings to see the people you follow.')
+    await expect(alice.getByRole('switch', { name: 'Public profiles', exact: true })).not.toBeChecked()
+    await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Public profiles are off. Turn them on above to see who you follow.')
     await expect(alice.locator('#peopleEmpty')).toBeVisible()
     await alice.getByRole('searchbox', { name: 'Find a person' }).fill('Ellis')
     await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeHidden()
+    await alice.getByRole('switch', { name: 'Public profiles', exact: true }).check()
+    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeVisible()
+    expect(await alice.evaluate(() => localStorage.getItem('kithmoot.profiles.enabled'))).toBe('true')
   } finally { await ac.close() }
+})
+
+test('public profiles start on and the People switch shares the saved Settings preference', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey(), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Default profile']]))
+    const alice = await ac.newPage()
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    const toggle = alice.getByRole('switch', { name: 'Public profiles', exact: true })
+    await expect(toggle).toBeChecked()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
+    await toggle.uncheck()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toHaveCount(0)
+    await alice.reload(); await openPeople(alice)
+    await expect(toggle).not.toBeChecked()
+    await openProfileSettings(alice)
+    await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
+    await alice.locator('#lookupProfiles').check()
+    await alice.locator('#profileSettingsClose').click()
+    await openPeople(alice)
+    await expect(toggle).toBeChecked()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
+    await alice.screenshot({ path: test.info().outputPath('people-public-profiles-phone.png'), fullPage: true })
+  } finally { publisher.close(); await ac.close() }
 })
