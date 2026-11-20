@@ -1,9 +1,10 @@
 {
-  "id": "2026-11-18-people-npub-profile",
-  "date": "18 November 2026",
-  "title": "Look up a Nostr profile by npub",
+  "id": "2026-11-20-people-profile-controls",
+  "date": "20 November 2026",
+  "title": "Public profiles in People",
   "changes": [
-    "Paste an npub in People and choose Search Nostr to see the signed profile for that public key.",
-    "Profiles found for people you already follow can be shown again from the device cache."
+    "Public profiles are on by default when Nostr networking is on. The app keeps your saved choice.",
+    "Turn profiles on or off directly in People or in Privacy settings.",
+    "Nostr inbox setup suggests Primal, nos.lol and Ditto when you have no inbox relay list."
   ]
 }
