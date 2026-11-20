@@ -6,7 +6,7 @@ import { encodeRoomLink, parseRoomLink } from '../src/link.js'
 import { deriveRoom, generateRoomSecret } from '../src/room.js'
 import { dmPolicy } from '../src/dm.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings, openProfileSettings } from './browser.js'
+import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings, openProfileSettings, closeProfileSettings } from './browser.js'
 
 /** These Following journeys start with a deliberate public-profile opt-in. */
 async function accountWithProfiles(...args: Parameters<typeof accountDevice>) {
@@ -540,7 +540,7 @@ test('public profiles start on and the People switch shares the saved Settings p
     await openProfileSettings(alice)
     await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
     await alice.locator('#lookupProfiles').check()
-    await alice.locator('#profileSettingsClose').click()
+    await closeProfileSettings(alice)
     await openPeople(alice)
     await expect(toggle).toBeChecked()
     await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
