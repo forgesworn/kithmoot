@@ -6,6 +6,22 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.171, public inbox defaults
+
+Inbox setup offers Primal, nos.lol and Ditto when no published inbox list was
+found. Existing custom lists stay in place. The same defaults appear beside
+messages and invitations and in account settings, and remain an editable draft
+until the person publishes them. Recipient routing still requires the
+recipient's own published list.
+
+The three suggested relays passed an expiring encrypted gift-wrap publish and
+readback check on 19 November 2026 and accepted the test deletions. The web
+change passed Chromium and WebKit acceptance. The
+[publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.171/inbox-relay-defaults-publication-20261119.json)
+records the exact source qualification, APK identity, isolated production
+upgrade and public-channel verification. Emulator and relay checks do not
+establish physical-phone or actual-recipient acceptance.
+
 ## Android 0.6.170, 19 November 2026
 
 Nostr messages now open inbox relay setup beside the composer while retaining
