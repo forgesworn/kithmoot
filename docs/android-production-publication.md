@@ -6,6 +6,19 @@ releases use the same immutable APK across the website, GitHub and Zapstore.
 This runbook does not create an Android key, sign an APK or replace the
 physical-phone gates in the Android repository.
 
+## Android 0.6.172, public profiles in People
+
+Public profiles can be turned on or off directly in People. The control and
+Privacy settings share the same saved preference. Profiles start on, and an
+existing off choice is preserved. When account networking is paused, People
+explains that state without offering an unavailable action.
+
+The web and Android controls passed browser and Compose checks. The
+[publication receipt](https://github.com/forgesworn/kithmoot-android/releases/download/v0.6.172/people-profile-controls-publication-20261120.json)
+records source qualification, production signing, isolated upgrade and public
+website, GitHub and Zapstore verification. Physical-phone and actual-recipient
+acceptance remain separate checks.
+
 ## Android 0.6.171, public inbox defaults
 
 Inbox setup offers Primal, nos.lol and Ditto when no published inbox list was
