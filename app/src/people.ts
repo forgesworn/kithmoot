@@ -363,6 +363,7 @@ export class PeopleView {
 
   #followingNote(model: PeopleModel, query: string): string | undefined {
     if (query) return undefined
+    if (model.followStatus === 'off' && !this.#actions.profileSettings().available) return 'Public profiles are paused while Nostr networking is off.'
     if (model.followStatus === 'off') return 'Public profiles are off. Turn them on above to see who you follow.'
     if (model.followStatus === 'loading' && !model.following.length) return 'Looking for the people you follow…'
     return undefined
