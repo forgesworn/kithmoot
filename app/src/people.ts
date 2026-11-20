@@ -58,6 +58,8 @@ export interface PeopleModel {
 }
 
 export interface PeopleActions {
+  profileSettings(): { enabled: boolean; available: boolean }
+  setPublicProfiles(enabled: boolean): void
   /** Undefined when Message, Voice and Video can be used; otherwise why not. */
   blockedReason(pubkey: string): string | undefined
   message(person: Person): Promise<string | undefined>
@@ -106,6 +108,7 @@ export class PeopleView {
   readonly #actions: PeopleActions
   readonly #query: HTMLInputElement
   readonly #searchButton: HTMLButtonElement
+  readonly #profiles: HTMLInputElement
   #searchRequest?: AbortController
   #searchResults: PeopleSearchResult[] = []
   #searchNote = ''
@@ -151,6 +154,23 @@ export class PeopleView {
     head.append(title, this.#add)
 
     this.#menu = this.#buildMenu()
+
+    const profiles = document.createElement('label')
+    profiles.className = 'peopleProfiles'
+    this.#profiles = document.createElement('input')
+    this.#profiles.id = 'peoplePublicProfiles'
+    this.#profiles.type = 'checkbox'
+    this.#profiles.setAttribute('role', 'switch')
+    this.#profiles.addEventListener('change', () => this.#actions.setPublicProfiles(this.#profiles.checked))
+    const profilesText = document.createElement('span')
+    profilesText.id = 'peopleProfilesLabel'
+    profilesText.textContent = 'Public profiles'
+    this.#profiles.setAttribute('aria-labelledby', profilesText.id)
+    const profilesNote = document.createElement('small')
+    profilesNote.id = 'peopleProfilesNote'
+    profilesNote.textContent = 'Show who you follow, names and pictures. Uses public relays and picture hosts.'
+    this.#profiles.setAttribute('aria-describedby', profilesNote.id)
+    profiles.append(this.#profiles, profilesText, profilesNote)
 
     const form = document.createElement('form')
     const label = document.createElement('label')
@@ -203,7 +223,7 @@ export class PeopleView {
     messages.id = 'peopleNostrOpen'
     messages.className = 'quiet peopleNostrOpen'
     messages.setAttribute('aria-haspopup', 'dialog')
-    list.replaceChildren(head, this.#menu, messages, form, this.#status, this.#rows, this.#empty)
+    list.replaceChildren(head, this.#menu, profiles, messages, form, this.#status, this.#rows, this.#empty)
     this.#add.addEventListener('click', () => this.#openMenu(this.#add))
     this.#paintPane()
   }
@@ -251,6 +271,9 @@ export class PeopleView {
   /** Redraw from the model. Cheap enough to call on every change. */
   render(): void {
     const model = this.#model()
+    const profiles = this.#actions.profileSettings()
+    this.#profiles.checked = profiles.enabled
+    this.#profiles.disabled = !profiles.available
     const query = this.#query.value.trim().toLocaleLowerCase()
     if (!this.#actions.canSearchNostr()) this.resetSearch()
     this.#searchButton.hidden = !peopleSearchQuery(query) || !this.#actions.canSearchNostr()
@@ -274,7 +297,7 @@ export class PeopleView {
     ]
     // Names for everyone listed, a batch at a time. The follow list is
     // public already, so asking about its people tells the relays nothing
-    // new; the switch in Settings still decides whether anything is asked.
+    // new; the public profiles switch decides whether anything is asked.
     // Lookups switched off forget every profile, so ask again once back on.
     if (model.followStatus === 'off') this.#wanted.clear()
     else {
@@ -340,7 +363,8 @@ export class PeopleView {
 
   #followingNote(model: PeopleModel, query: string): string | undefined {
     if (query) return undefined
-    if (model.followStatus === 'off') return 'Turn on public profiles in Settings to see the people you follow.'
+    if (model.followStatus === 'off' && !this.#actions.profileSettings().available) return 'Public profiles are paused while Nostr networking is off.'
+    if (model.followStatus === 'off') return 'Public profiles are off. Turn them on above to see who you follow.'
     if (model.followStatus === 'loading' && !model.following.length) return 'Looking for the people you follow…'
     return undefined
   }

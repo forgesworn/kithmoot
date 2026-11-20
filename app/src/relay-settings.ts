@@ -525,11 +525,13 @@ function holding(pool: NostrRelayPool, release: () => void): NostrRelayPool {
   })
 }
 
-/** Public profile queries expose participant keys and picture hosts see visits.
- * Only a saved explicit opt-in permits these requests; unreadable storage does
- * not grant permission. Existing deliberate choices remain effective. */
+/** Public profiles start on. Preserve saved choices; unreadable or malformed
+ * storage keeps lookups off rather than overwriting an unknown preference. */
 export function profilePreference(storage: Pick<Storage, 'getItem'>): boolean {
-  try { return storage.getItem('kithmoot.profiles.enabled') === 'true' } catch { return false }
+  try {
+    const saved = storage.getItem('kithmoot.profiles.enabled')
+    return saved === null || saved === 'true'
+  } catch { return false }
 }
 
 /**
