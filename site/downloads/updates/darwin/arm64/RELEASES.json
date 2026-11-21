@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.174",
+  "currentRelease": "0.1.173",
   "releases": [
     {
-      "version": "0.1.174",
+      "version": "0.1.173",
       "updateTo": {
-        "version": "0.1.174",
-        "name": "0.1.174",
-        "pub_date": "2026-11-21T09:15:48Z",
-        "notes": "Open Public profile settings straight from Following. When you turn profiles on, the people you follow load in place.\nThe update summary has its own space, so you can use the room controls while it’s open.\nRoom bookmark sync reports relay acceptance even when it finishes while the room is opening.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.174/KithMoot-0.1.174-mac-arm64.zip",
-        "sha256": "3404921a9c55f239a3f2189c95ad937c7d96539b3a3c4ed3ed9dc8da7291f939",
-        "size": 198984502
+        "version": "0.1.173",
+        "name": "0.1.173",
+        "pub_date": "2026-11-20T16:25:48Z",
+        "notes": "Public profiles are on by default when Nostr networking is on. The app keeps your saved choice.\nTurn profiles on or off directly in People or in Privacy settings.\nNostr inbox setup suggests Primal, nos.lol and Ditto when you have no inbox relay list.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.173/KithMoot-0.1.173-mac-arm64.zip",
+        "sha256": "cd5c6e7fc370359953de2ff472b3e3dec7b1bf64e78597d0742f7336fb0337fe",
+        "size": 198984674
       }
     }
   ]
