@@ -1,9 +1,10 @@
 {
-  "id": "2026-11-21-nostr-dm-retry",
+  "id": "2026-11-21-nostr-dm-status",
   "date": "21 November 2026",
-  "title": "Retry encrypted Nostr messages",
+  "title": "See what happened to your Nostr message",
   "changes": [
-    "The Nostr message composer shows which encryption or signing request is waiting for your signer.",
-    "If preparation fails, check the guidance in the composer. Retry send keeps your draft and resumes from the failed step."
+    "Send an encrypted Nostr message from People with one button.",
+    "See whether an inbox relay accepted your message, the send is unconfirmed, or the draft stopped before sending. The conversation keeps the status on this device.",
+    "Retry only the encrypted message or inbox copy that still needs confirmation."
   ]
 }

@@ -1,4 +1,5 @@
 import './people-nostr.css'
+import type { OrdinarySendStatus } from './nostr-message-history.js'
 import { personAvatar, shortNpub } from './people.js'
 import type { PeopleNostrInbox } from './people-nostr-inbox.js'
 
@@ -22,6 +23,15 @@ interface Options {
   canCompose(): boolean
   invite(peer: string, name?: string): Promise<string | undefined>
   block(peer: string): void
+}
+
+function sendStatusLabel(status?: OrdinarySendStatus): HTMLElement {
+  const label = document.createElement('small')
+  label.className = 'peopleNostrDelivery'; label.dataset.status = status ?? 'history'
+  label.textContent = status === 'sent' ? 'Sent to inbox relay'
+    : status === 'copy-unconfirmed' ? 'Sent to inbox relay · Inbox sync unconfirmed'
+    : status === 'unconfirmed' ? 'Send unconfirmed' : 'Send status unavailable'
+  return label
 }
 
 export class PeopleNostrPanel {
@@ -75,6 +85,11 @@ export class PeopleNostrPanel {
     this.reconcile()
     if (peer) this.#markRead()
   }
+
+  showMessage(opener: HTMLElement, peer: string, messageId: string): void {
+    this.show(this.#opener ?? opener, peer)
+    this.#content.querySelector<HTMLElement>(`[data-message="${messageId}"]`)?.focus()
+  }
   close(focus = false): void {
     this.#peer = undefined
     this.#account = undefined
@@ -94,7 +109,7 @@ export class PeopleNostrPanel {
     const threads = inbox?.threads().map(thread => {
       const contact = this.options.contact(thread.peer)
       const request = !contact.known && !thread.messages.some(message => message.author === this.#account)
-      return { ...thread, ...contact, request }
+      return { ...thread, ...contact, request, sendStatus: thread.messages.at(-1)?.sendStatus }
     }) ?? []
     const thread = threads.find(row => row.peer === this.#peer)
     if (!thread) this.#peer = undefined
@@ -107,17 +122,18 @@ export class PeopleNostrPanel {
     this.#actions.hidden = !!thread
     this.#title.textContent = thread ? thread.name ?? shortNpub(thread.peer) : 'Nostr messages'
     const painted = JSON.stringify(thread
-      ? [thread.peer, thread.name, thread.unread, thread.messages.map(row => row.id), this.options.canCompose()]
-      : threads.map(({ peer, request, name, unread, picture }) => [peer, request, name, unread, picture]))
+      ? [thread.peer, thread.name, thread.unread, thread.messages.map(row => [row.id, row.sendStatus]), this.options.canCompose()]
+      : threads.map(({ peer, request, name, unread, picture, sendStatus }) => [peer, request, name, unread, picture, sendStatus]))
     if (painted === this.#painted) return
     this.#painted = painted
-    const focused = this.#content.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.action : undefined
+    const focused = this.#content.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset : undefined
     const body = thread ? this.#thread(thread) : this.#list(threads)
     this.#content.replaceChildren(body)
-    if (focused) this.#content.querySelector<HTMLElement>(`[data-action="${focused}"]`)?.focus({ preventScroll: true })
+    if (focused?.action) this.#content.querySelector<HTMLElement>(`[data-action="${focused.action}"]`)?.focus({ preventScroll: true })
+    if (focused?.message) this.#content.querySelector<HTMLElement>(`[data-message="${focused.message}"]`)?.focus({ preventScroll: true })
   }
 
-  #list(threads: { peer: string; request: boolean; name?: string; picture?: string; unread: number }[]): HTMLUListElement {
+  #list(threads: { peer: string; request: boolean; name?: string; picture?: string; unread: number; sendStatus?: OrdinarySendStatus }[]): HTMLUListElement {
     const list = document.createElement('ul'); list.className = 'peopleNostrThreads'
     for (const row of threads) {
       const item = document.createElement('li')
@@ -142,6 +158,12 @@ export class PeopleNostrPanel {
         request.textContent = 'Message request'
         description.append(request)
         button.setAttribute('aria-describedby', request.id)
+      }
+      if (row.sendStatus) {
+        const status = sendStatusLabel(row.sendStatus)
+        status.id = `peopleNostrDelivery-${row.peer}`
+        button.setAttribute('aria-describedby', status.id)
+        description.append(status)
       }
       button.append(personAvatar(row.peer, row.name, row.picture, 'personAvatar'), description)
       if (row.unread) {
@@ -168,11 +190,15 @@ export class PeopleNostrPanel {
     const messages = document.createElement('ol'); messages.className = 'peopleNostrTranscript'
     for (const row of thread.messages) {
       const item = document.createElement('li')
+      item.dataset.message = row.id; item.tabIndex = -1
       const meta = document.createElement('p'); meta.className = 'note'
-      const author = row.author === this.#account ? 'You' : thread.name ?? shortNpub(row.author)
+      const outgoing = row.author === this.#account
+      const author = outgoing ? 'You' : thread.name ?? shortNpub(row.author)
       meta.textContent = `${author} · ${new Date(row.sentAt * 1000).toLocaleString()}`
       const body = document.createElement('p'); body.textContent = row.text
-      item.append(meta, body); messages.append(item)
+      item.append(meta, body)
+      if (outgoing) item.append(sendStatusLabel(row.sendStatus))
+      messages.append(item)
     }
     const footer = document.createElement('div'); footer.className = 'peopleNostrActions'
     if (this.options.canCompose()) footer.append(this.#button('Reply on Nostr', () => this.#startMessage({ peer: thread.peer, parent: thread.messages.at(-1)!.id }), 'reply'))

@@ -4,6 +4,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event
 import { wrapEvent } from 'nostr-tools/nip59'
 import { decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { unwrapEvent } from 'nostr-tools/nip17'
+import { npubEncode } from 'nostr-tools/nip19'
 import { matchFilter, matchFilters, type Filter } from 'nostr-tools/filter'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
@@ -80,14 +81,24 @@ test('People counts verified incoming messages by default, keeps the read positi
     await expect(inbox.getByText(text, { exact: true })).toBeVisible()
     await expect(inbox.locator('.peopleNostrTranscript img')).toHaveCount(0)
     await expect(badge).toBeHidden()
+    await expect(inbox.locator('.peopleNostrTranscript li').filter({ hasText: 'Previous outgoing message' })).toContainText('Send status unavailable')
     await inbox.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
+    await expect(page.locator('#nostrMessageToName')).toHaveText('Nostr Test Sender')
+    await expect(page.locator('#nostrMessageAddress')).toBeHidden()
+    await expect(page.locator('#nostrMessageText')).toBeFocused()
     await page.locator('#nostrMessageText').fill('Reply from People')
-    await page.locator('#nostrMessageReview').click()
+    await expect(page.locator('#nostrMessageReview')).toBeHidden()
     await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm')
+    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
+    await page.locator('#nostrMessageDialog').screenshot({ path: info.outputPath('nostr-send-confirmed.png') })
     const toPeer = sent.find(event => event.tags[0]?.[1] === other)!
     expect(unwrapEvent(toPeer, peer)).toMatchObject({ kind: 14, pubkey: self, content: 'Reply from People' })
-    await page.locator('#nostrMessageClose').click()
+    await page.getByRole('button', { name: 'View conversation', exact: true }).click()
+    await expect(page.locator('#nostrMessageDialog')).toBeHidden()
+    const reply = inbox.locator('.peopleNostrTranscript li').filter({ hasText: 'Reply from People' })
+    await expect(reply).toContainText('Sent to inbox relay')
+    await expect(reply).toBeFocused()
     await expect(inbox.getByText(text, { exact: true })).toBeVisible()
     await page.reload()
     await expect(page.locator('#railPeople')).toBeVisible()
@@ -95,12 +106,74 @@ test('People counts verified incoming messages by default, keeps the read positi
     await page.locator('#peopleNostrOpen').click()
     await expect(request).toHaveAccessibleName('Nostr Test Sender')
     await expect(request).not.toHaveAccessibleName(/unread$/)
+    await expect(request).toHaveAccessibleDescription('Sent to inbox relay')
+    await request.click()
+    await expect(reply).toContainText('Sent to inbox relay')
     await inbox.getByRole('button', { name: 'Close', exact: true }).click()
     await page.locator('#railChats').click()
     await pool.publish(wrapEvent({ ...rumor, created_at: now - 2, content: 'A late arrival' }, peer, self))
     await expect(badge).toHaveText('1')
   } finally { pool.close(); await context.close() }
 })
+
+for (const waitingFor of ['recipient', 'sender copy'] as const) {
+  test(`People shows the send outcome and retries only the unconfirmed ${waitingFor}`, async ({ browser, baseURL }) => {
+    const account = generateSecretKey(), peer = generateSecretKey()
+    const self = getPublicKey(account), other = getPublicKey(peer), refused = waitingFor === 'recipient' ? other : self
+    const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+    const route = new URL('/__test-relay', baseURL); route.protocol = 'wss:'
+    const writes: Event[] = []
+    let refuse = true, releaseCopy: (() => void) | undefined
+    await context.routeWebSocket(route.href, socket => {
+      const relay = socket.connectToServer()
+      socket.onMessage(data => {
+        const [verb, event] = JSON.parse(String(data)) as [string, Event]
+        if (verb === 'EVENT' && event.kind === 1059 && event.tags.length === 1 && [self, other].includes(event.tags[0]?.[1] ?? '')) {
+          writes.push(event)
+          if (refuse && event.tags[0]?.[1] === refused) {
+            const reject = () => socket.send(JSON.stringify(['OK', event.id, false, 'restricted: synthetic refusal']))
+            if (waitingFor === 'sender copy') releaseCopy = reject
+            else reject()
+            return
+          }
+        }
+        relay.send(data)
+      })
+    })
+    try {
+      await inboxList(pool, account, baseURL!); await inboxList(pool, peer, baseURL!)
+      const page = await context.newPage()
+      await signInAccount(page, baseURL!); await page.locator('#railPeople').click(); await page.locator('#peopleNostrOpen').click()
+      await page.getByRole('button', { name: 'New message', exact: true }).click()
+      await page.locator('#nostrMessageRecipient').fill(npubEncode(other))
+      await page.locator('#nostrMessageText').fill('One encrypted message')
+      await page.getByRole('button', { name: 'Send encrypted message', exact: true }).click()
+      const state = page.locator('#nostrMessageState'), details = page.locator('#nostrMessageStatus')
+      if (waitingFor === 'sender copy') {
+        await expect.poll(() => Boolean(releaseCopy)).toBe(true)
+        await expect(state).toHaveText('Sent to inbox relay')
+        await expect(details).toHaveText('Syncing your encrypted inbox copy…')
+        releaseCopy!()
+      } else {
+        await expect(state).toHaveText('Send unconfirmed')
+        await expect(details).toContainText('may already be in their inbox')
+      }
+
+      const retry = page.getByRole('button', { name: waitingFor === 'recipient' ? 'Retry same message' : 'Retry inbox sync', exact: true })
+      await expect(retry).toBeVisible()
+      const first = [...writes]
+      expect(first).toHaveLength(2)
+      refuse = false
+      await retry.click()
+      await expect(details).toContainText('Delivery to their device is unconfirmed')
+      expect(writes.slice(2)).toEqual([first.find(event => event.tags[0]?.[1] === refused)])
+      await page.getByRole('button', { name: 'View conversation', exact: true }).click()
+      const sent = page.locator('.peopleNostrTranscript li').filter({ hasText: 'One encrypted message' })
+      await expect(sent).toHaveCount(1)
+      await expect(sent).toContainText('Sent to inbox relay')
+    } finally { pool.close(); await context.close() }
+  })
+}
 
 test('People puts unread messages above frequent conversations and keeps contact pictures across reloads', async ({ browser, baseURL }, info) => {
   const account = generateSecretKey(), frequent = generateSecretKey(), recent = generateSecretKey(), unread = generateSecretKey()
@@ -325,8 +398,8 @@ test('desktop People messaging works with the built-in in-memory signer', async 
     await expect(page.getByText('From an independent key', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
     await page.locator('#nostrMessageText').fill('Reply from the desktop build')
-    await page.locator('#nostrMessageReview').click(); await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm')
+    await page.locator('#nostrMessageSend').click()
+    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
     expect(unwrapEvent(sent.find(event => event.tags[0]?.[1] === other)!, peer).content).toBe('Reply from the desktop build')
   } finally { pool.close(); await context.close() }
 })
@@ -373,14 +446,14 @@ test('ordinary incoming text is literal, retained encrypted and replied to throu
     await expect(row.locator('img,a,video,audio,iframe')).toHaveCount(0); expect(requested).toEqual([])
     const saved = await page.evaluate(key => localStorage.getItem(key), ordinaryHistoryKey(self))
     expect(saved).not.toContain('ordinary-inbox.invalid'); expect(JSON.parse(saved!).events.some((event: Event) => event.id === copy.id)).toBe(true)
-    await row.getByRole('button', { name: 'Reply with public message', exact: true }).click()
+    await row.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
     await expect(page.locator('#nostrInboxDialog')).not.toBeVisible()
     await expect(page.locator('#nostrMessageText')).toHaveValue('')
     await page.locator('#nostrMessageText').fill('Explicit ordinary reply')
     await page.locator('#nostrMessageReview').click()
-    await expect(page.locator('#nostrMessageLane')).toHaveText('○ public'); expect(published).toEqual([])
+    await expect(page.locator('#nostrMessageLane')).toHaveText('Encrypted · Public Nostr relays'); expect(published).toEqual([])
     await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
     const received = [...new Map(published.map(event => [event.id, event])).values()]
     expect(received).toHaveLength(2)
     const toPeer = received.find(event => event.tags[0]?.[1] === getPublicKey(peer))!
@@ -422,7 +495,7 @@ test('a fresh app reload can reopen its original cached ciphertext while new Web
   } finally { pool.close(); await context.close() }
 })
 
-test('a refused browser history write holds Send public without publishing either prepared wrap', async ({ browser, baseURL }) => {
+test('a refused browser history write reports Not sent without publishing either prepared wrap', async ({ browser, baseURL }) => {
   const account = generateSecretKey(), peer = generateSecretKey()
   const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
   await context.addInitScript(() => {
@@ -437,11 +510,10 @@ test('a refused browser history write holds Send public without publishing eithe
     const page = await context.newPage(), published = writes(page)
     await signInAccount(page, baseURL!); await openSettings(page, 'Account')
     await page.locator('#nostrMessageEntry').click()
-    const { npubEncode } = await import('nostr-tools/nip19')
     await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(peer)))
     await page.locator('#nostrMessageText').fill('Do not send without the retained copy')
     await page.locator('#nostrMessageReview').click(); await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('Nothing was sent')
+    await expect(page.locator('#nostrMessageState')).toHaveText('Not sent')
     expect(published).toEqual([])
   } finally { pool.close(); await context.close() }
 })

@@ -57,7 +57,7 @@ import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
 import { NostrMessageInboxPanel } from './nostr-message-inbox-panel.js'
 import { ordinaryMessageDecrypt } from './nostr-message-receive-signer.js'
-import { rememberOrdinaryCopy } from './nostr-message-history.js'
+import { ordinarySendStatusKey, rememberOrdinaryCopy, rememberOrdinarySendStatus } from './nostr-message-history.js'
 import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
 import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './people-nostr-inbox.js'
@@ -20435,6 +20435,16 @@ function peopleNostrComposeEligible(): boolean {
   return currentDestination() === 'people' && canCheckAccountMessages()
 }
 
+function peopleNostrContact(peer: string): { name?: string; known: boolean; picture?: string } {
+  const view = grantedContactView
+  const granted = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts.find(row => row.pubkey === peer) : undefined
+  const card = contactFor(deviceStore, peer)
+  const profile = profiles.get(peer)
+  const known = mayMessageContact(peer)
+  const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profile?.name
+  return { name, known, picture: known ? profile?.picture : undefined }
+}
+
 function canSearchNostrPeople(): boolean {
   return profilesEnabled && peopleNostrComposeEligible() &&
     (publicPeopleRelay(PEOPLE_SEARCH_RELAY) || publicPeopleRelay(PEOPLE_PROFILE_RELAY))
@@ -20455,13 +20465,21 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
 nostrMessagePanel = new NostrMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   eligible: () => accountMessageViewEligible() || peopleNostrComposeEligible() && peopleNostrEnabled(),
+  direct: peopleNostrComposeEligible,
   allowLocal: peopleNostrComposeEligible,
   remoteSocket: () => peopleNostrComposeEligible() ? globalThis.WebSocket : undefined,
   blocked: contactIsBlocked,
   lookup: (authors, current) => lookUpOrdinaryInboxLists(authors, current, peopleNostrComposeEligible() ? ordinaryInboxDirectory() : undefined),
   allowsRelay: publicPeopleRelay,
   rememberCopy: (event, account, current) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, current),
-  publish: async (event, relays, current) => {
+  recordOutgoing: async (outgoing, account, current) => {
+    if (!current()) return
+    if (peopleNostrOwner === account) peopleNostrInbox?.recordOutgoing(outgoing)
+    await rememberOrdinarySendStatus(deviceStore, account.pubkey, outgoing.copy.id, outgoing.status, acquireOrdinaryMessageHistory, current)
+  },
+  recipientName: peer => peopleNostrContact(peer).name,
+  viewConversation: (opener, peer, messageId) => peopleNostrPanel?.showMessage(opener, peer, messageId),
+  publish: async (event, relays, current, acknowledged) => {
     const allowed = () => current() && relays.every(publicPeopleRelay)
     if (!allowed()) throw Error('Account view or public inbox routing changed.')
     // Explicit hints define each carrier; no NIP-65/default destination is added.
@@ -20469,7 +20487,7 @@ nostrMessagePanel = new NostrMessagePanel(document, {
     // is offered it again after authenticating with a throwaway key (never the
     // account). The caller independently guards every queued socket write/retry.
     const { unaccepted } = await publishToInboxRelays(event, relays, allowed,
-      url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]))
+      url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]), acknowledged)
     return { unaccepted: unaccepted.map(row => row.url) }
   },
 })
@@ -20490,15 +20508,7 @@ peopleNostrPanel = new PeopleNostrPanel(document, {
   refresh: () => reconcilePeopleNostrInbox(true),
   inbox: () => peopleNostrInbox,
   status: () => peopleNostrStatus,
-  contact: peer => {
-    const view = grantedContactView
-    const granted = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts.find(row => row.pubkey === peer) : undefined
-    const card = contactFor(deviceStore, peer)
-    const profile = profiles.get(peer)
-    const known = mayMessageContact(peer)
-    const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profile?.name
-    return { name, known, picture: known ? profile?.picture : undefined }
-  },
+  contact: peopleNostrContact,
   configure: () => void openDmRelaySettings(),
   canCompose: () => peopleNostrComposeEligible() && nostrMessagePanel?.available === true,
   invite: inviteToNodeChat,
@@ -20513,6 +20523,7 @@ window.addEventListener('pageshow', () => { peopleNostrSuspended = false; reconc
 window.addEventListener('storage', event => {
   if (!nostrSession) return
   if (event.key === peopleInboxReadKey(nostrSession.pubkey)) peopleNostrInbox?.refreshRead()
+  if (event.key === ordinarySendStatusKey(nostrSession.pubkey)) peopleNostrInbox?.refreshSendStatuses()
   if (event.key === null || event.key === peopleInboxEnabledKey(nostrSession.pubkey)) {
     peopleNostrStatus = ''
     reconcilePeopleNostrInbox()

@@ -94,7 +94,7 @@ export class NostrMessageInboxPanel {
         const text = this.root.createElement('p'); text.className = 'ordinaryMessageText'; text.tabIndex = -1
         const open = this.root.createElement('button'); open.type = 'button'; open.className = 'ordinaryMessageOpen'
         open.addEventListener('click', event => { if (event.isTrusted && this.#current()) void this.#inbox?.openMessage(row.copy) })
-        const reply = this.root.createElement('button'); reply.type = 'button'; reply.className = 'ordinaryMessageReply'; reply.textContent = 'Reply with public message'
+        const reply = this.root.createElement('button'); reply.type = 'button'; reply.className = 'ordinaryMessageReply'; reply.textContent = 'Reply on Nostr'
         reply.addEventListener('click', event => {
           if (!event.isTrusted || !this.#current()) return
           const selected = this.#inbox?.snapshot().messages.find(entry => entry.copy === row.copy)

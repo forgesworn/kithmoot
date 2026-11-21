@@ -6,11 +6,12 @@ import { latestDmRelayList } from '../../src/dm-relays.js'
 import { randomFraction } from '../../src/random.js'
 import { verifyEventUncached } from '../../src/verify.js'
 import { isSignerTimeout } from './signer-timeout.js'
+import type { OrdinaryOutgoingMessage, OrdinarySendStatus } from './nostr-message-history.js'
 
 const HEX = /^[0-9a-f]{64}$/
 export const NOSTR_MESSAGE_MAX_BYTES = 4096
-export const NOSTR_MESSAGE_LANE = '○ public'
-export const NOSTR_MESSAGE_WARNING = 'Start a separate public message? It begins a new conversation and takes nothing from this one. A relay operator could see who it was for and when.'
+export type NostrMessagePhase = 'draft' | 'checking' | 'ready' | 'preparing' | 'sending' | 'not-sent' | OrdinarySendStatus | 'closed'
+const sentDetail = 'Delivery to their device is unconfirmed.'
 export interface NostrMessageIdentity {
   readonly pubkey: string
   encrypt(peer: string, text: string, current: () => boolean): Promise<string>
@@ -36,8 +37,9 @@ interface Options {
   allowsRelay?(url: string): boolean
   // The embedding must use a carrier that checks current at actual socket writes.
   // May name the relays that did not accept, for the status line.
-  publish(event: Event, relays: readonly string[], current: () => boolean): Promise<void | { unaccepted: readonly string[] }>
+  publish(event: Event, relays: readonly string[], current: () => boolean, acknowledged: () => void): Promise<void | { unaccepted: readonly string[] }>
   rememberCopy?(event: Event, current: () => boolean): Promise<void>
+  recordOutgoing?(outgoing: OrdinaryOutgoingMessage, current: () => boolean): Promise<void>
   changed(): void
   now?(): number
 }
@@ -97,10 +99,13 @@ export class NostrMessage {
   #preparation?: MessagePreparation
   #retryPreparation = false
   #deliveries: Delivery[] = []
+  #outgoing?: Omit<OrdinaryOutgoingMessage, 'status'>
+  #recorded?: OrdinarySendStatus
   #closed = false
   #busy = false
   #attempted = false
-  #status = 'Enter a recipient and a new message. Nothing from a room is copied.'
+  #phase: NostrMessagePhase = 'draft'
+  #status = ''
   constructor(private readonly options: Options) {
     if (!HEX.test(options.identity.pubkey)) throw Error('A signed-in Nostr account is required.')
   }
@@ -109,44 +114,52 @@ export class NostrMessage {
     catch { return false }
   }
   #notify(): void { if (this.#current()) this.options.changed() }
-  snapshot(): { review?: NostrMessageReview; busy: boolean; attempted: boolean; retry: boolean; retryPreparation: boolean; status: string } {
-    if (!this.#current()) { this.close(); return { busy: false, attempted: false, retry: false, retryPreparation: false, status: '' } }
+  snapshot(): { review?: NostrMessageReview; messageId?: string; busy: boolean; attempted: boolean; retry: boolean; retryPreparation: boolean;
+    phase: NostrMessagePhase; status: string; unconfirmedRelays?: readonly string[] } {
+    if (!this.#current()) { this.close(); return { busy: false, attempted: false, retry: false, retryPreparation: false, phase: 'closed', status: '' } }
     return { review: this.#review, busy: this.#busy, attempted: this.#attempted,
-      retry: !this.#busy && this.#deliveries.some(row => !row.accepted), retryPreparation: this.#retryPreparation, status: this.#status }
+      retry: !this.#busy && this.#deliveries.some(row => !row.accepted), retryPreparation: this.#retryPreparation,
+      phase: this.#phase, status: this.#status, messageId: this.#outgoing?.message.id, unconfirmedRelays: this.#deliveries[0]?.unaccepted }
   }
   async review(recipient: string, text: string, replyTo?: string): Promise<void> {
     if (this.#busy || this.#attempted || !this.#current()) return
     this.#review = undefined
     this.#preparation = undefined
     this.#retryPreparation = false
-    if (!HEX.test(recipient) || replyTo !== undefined && !HEX.test(replyTo) || recipient === this.options.identity.pubkey || this.options.blocked(recipient) ||
-        text.length > NOSTR_MESSAGE_MAX_BYTES || !text.trim() || new TextEncoder().encode(text).byteLength > NOSTR_MESSAGE_MAX_BYTES) {
-      this.#status = 'Choose another person and a message of at most 4096 bytes.'; this.#notify(); return
+    if (!HEX.test(recipient) || replyTo !== undefined && !HEX.test(replyTo) || recipient === this.options.identity.pubkey || this.options.blocked(recipient)) {
+      this.#phase = 'not-sent'; this.#status = 'Choose another recipient.'; this.#notify(); return
     }
-    this.#busy = true; this.#status = 'Checking both accounts’ published inbox relays…'; this.#notify()
+    if (text.length > NOSTR_MESSAGE_MAX_BYTES || !text.trim() || new TextEncoder().encode(text).byteLength > NOSTR_MESSAGE_MAX_BYTES) {
+      this.#phase = 'not-sent'; this.#status = 'Enter a message of at most 4096 bytes.'; this.#notify(); return
+    }
+    this.#busy = true; this.#phase = 'checking'; this.#status = 'Looking up both accounts’ published inbox relays.'; this.#notify()
     const current = () => this.#current() && !this.options.blocked(recipient)
     try {
       const statements = await this.options.lookup([recipient, this.options.identity.pubkey], current)
-      if (!current()) return
+      if (!current()) {
+        if (this.#current()) { this.#phase = 'not-sent'; this.#status = 'Choose another recipient.' }
+        return
+      }
       const now = this.options.now?.() ?? Math.floor(Date.now() / 1000)
       const verified = statements.slice(0, 64).map(row => signedStatement(row, now, 10050)).filter((row): row is Event => !!row)
       const routes = (account: string) => latestDmRelayList(verified, account).filter(url => this.options.allowsRelay?.(url) !== false)
       const recipientRelays = routes(recipient), senderRelays = routes(this.options.identity.pubkey)
       if (!recipientRelays.length || !senderRelays.length) {
-        this.#status = !recipientRelays.length ? 'No usable published NIP-17 inbox was found for this person. Nothing was sent.'
-          : 'Publish your Nostr inbox relays in account settings first, so you retain an encrypted copy. Nothing was sent.'
+        this.#phase = 'not-sent'
+        this.#status = !recipientRelays.length ? 'This person needs usable inbox relays published in their Nostr app.'
+          : 'Publish your inbox relays under Nostr messages → Inbox relays so you can keep an encrypted copy.'
         return
       }
       this.#review = Object.freeze({ recipient, text, recipientRelays: Object.freeze(recipientRelays), senderRelays: Object.freeze(senderRelays),
         ...(replyTo ? { replyTo } : {}) })
-      this.#status = '○ public. This uses ordinary Nostr inbox relays, outside the sheltered conversation. Choose Send public to continue.'
-    } catch { if (current()) this.#status = 'Inbox relays could not be checked. Nothing was sent.' }
+      this.#phase = 'ready'; this.#status = 'Inbox relays found for both accounts.'
+    } catch { if (current()) { this.#phase = 'not-sent'; this.#status = 'Inbox relays could not be checked. Try again when connected.' } }
     finally { this.#busy = false; this.#notify() }
   }
 
   async #requestSigner<T>(action: 'encrypt' | 'sign', copy: string, request: () => Promise<T>): Promise<T> {
     const task = `${action} ${copy}`
-    this.#status = `Waiting for your signer to ${task}… Approve any prompt in your signer.`
+    this.#phase = 'preparing'; this.#status = `Waiting for your signer to ${task}. Approve any prompt in your signer.`
     this.#notify()
     if (!this.#current()) throw Error('Public message cancelled.')
     try { return await request() }
@@ -221,8 +234,17 @@ export class NostrMessage {
     if (!this.#current()) return
     this.#deliveries = [{ event: recipientEvent, relays: review.recipientRelays, accepted: false },
       { event: senderEvent, relays: review.senderRelays, accepted: false }]
+    this.#outgoing = { copy: senderEvent, message: { id: rumor.id, author: rumor.pubkey, peer: review.recipient,
+      sentAt: rumor.created_at, text: rumor.content, members: [rumor.pubkey, review.recipient].sort() } }
     this.#preparation = undefined
     this.#attempted = true
+  }
+
+  async #recordOutgoing(status: OrdinarySendStatus): Promise<void> {
+    if (!this.#outgoing || this.#recorded === status || !this.#current()) return
+    this.#recorded = status
+    try { await this.options.recordOutgoing?.({ ...this.#outgoing, status }, this.#current) }
+    catch { /* Delivery evidence still applies if the local status cannot be recorded. */ }
   }
 
   async send(): Promise<void> {
@@ -235,35 +257,54 @@ export class NostrMessage {
         catch (error) {
           if (this.#current()) {
             this.#retryPreparation = true
-            const reason = error instanceof MessagePreparationError ? error.message : 'KithMoot could not prepare the encrypted message.'
-            this.#status = `${reason} Nothing was sent.`
+            this.#phase = 'not-sent'
+            this.#status = error instanceof MessagePreparationError ? error.message : 'KithMoot could not prepare the encrypted message.'
           }
           return
         }
       }
       if (!this.#current()) return
-      this.#status = '○ public. Sending to the reviewed inbox relays…'; this.#notify()
+      const [recipient, sender] = this.#deliveries
+      if (!recipient || !sender) return
+      this.#phase = recipient.accepted ? 'copy-unconfirmed' : 'sending'
+      this.#status = recipient.accepted ? 'Syncing your encrypted inbox copy…' : 'Waiting for a recipient inbox relay to accept the message.'
+      this.#notify()
+      if (!recipient.accepted) await this.#recordOutgoing('unconfirmed')
       for (const delivery of this.#deliveries) {
         if (!this.#current()) return
         if (delivery.accepted) continue
+        let recording: Promise<void> | undefined
+        const acknowledged = () => {
+          if (!this.#current() || delivery.accepted) return
+          delivery.accepted = true
+          if (!recipient.accepted) return
+          this.#phase = sender.accepted ? 'sent' : 'copy-unconfirmed'
+          this.#status = sender.accepted ? sentDetail
+            : 'Syncing your encrypted inbox copy…'
+          this.#notify()
+          recording = this.#recordOutgoing(this.#phase)
+        }
         try {
-          const result = await this.options.publish(delivery.event, delivery.relays, this.#current)
-          if (this.#current()) { delivery.accepted = true; delivery.unaccepted = result?.unaccepted ?? [] }
+          const result = await this.options.publish(delivery.event, delivery.relays, this.#current, acknowledged)
+          if (this.#current()) {
+            acknowledged()
+            delivery.unaccepted = result?.unaccepted ?? []
+          }
         }
         catch { /* Preserve the exact envelope; never assume no write occurred. */ }
+        await recording
       }
       if (!this.#current()) return
-      const [recipient, sender] = this.#deliveries
-      const missed = recipient?.accepted && recipient.unaccepted?.length
-        ? ` Not accepted by ${recipient.unaccepted.map(url => url.replace(/^wss?:\/\//, '').replace(/\/$/, '')).join(', ')}.` : ''
-      this.#status = recipient?.accepted
-        ? (sender?.accepted ? '○ public. A recipient relay accepted the message and a relay accepted your encrypted copy. This does not confirm that the person received or read it.'
-          : '○ public. A recipient relay accepted the message; your encrypted history copy is unconfirmed. Retry sends only the same unconfirmed copy.') + missed
-        : '○ public. Recipient relay acceptance is unconfirmed. It may have arrived. Retry sends the same unconfirmed event, not a new message.'
+      this.#phase = recipient.accepted ? sender.accepted ? 'sent' : 'copy-unconfirmed' : 'unconfirmed'
+      this.#status = recipient.accepted
+        ? sender.accepted ? sentDetail
+          : 'Your copy is saved on this device. Retry inbox sync to make it available on other devices.'
+        : 'The message may already be in their inbox. Retry resends the same encrypted message.'
+      await this.#recordOutgoing(this.#phase)
     } finally { this.#busy = false; this.#notify() }
   }
   close(): void {
     this.#closed = true; this.#review = undefined; this.#preparation = undefined; this.#retryPreparation = false
-    this.#deliveries = []; this.#status = ''
+    this.#deliveries = []; this.#outgoing = undefined; this.#recorded = undefined; this.#status = ''; this.#phase = 'closed'
   }
 }

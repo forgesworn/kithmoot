@@ -52,7 +52,7 @@ describe('separate ordinary Nostr text message', () => {
   it('does not publish either prepared envelope when the encrypted-copy write is refused', async () => {
     const f = fixture(async () => { throw Error('Synthetic quota failure') })
     await f.message.review(f.peer, 'Held for retained history'); await f.message.send()
-    expect(f.wire).toEqual([]); expect(f.message.snapshot().status).toContain('Nothing was sent')
+    expect(f.wire).toEqual([]); expect(f.message.snapshot().phase).toBe('not-sent')
   })
   it('cannot publish after the account closes while its encrypted-copy writer lock is pending', async () => {
     let release!: () => void, reached!: () => void
@@ -76,7 +76,7 @@ describe('separate ordinary Nostr text message', () => {
     expect(received).toMatchObject({ kind: 14, pubkey: f.self, content: 'Exact ordinary Nostr text', tags: [['p', f.peer]], created_at: f.now })
     expect(received).not.toHaveProperty('sig')
     expect(f.wire[0]!.pubkey).not.toBe(f.self); expect(f.wire[0]!.pubkey).not.toBe(f.wire[1]!.pubkey)
-    expect(f.message.snapshot().status).toContain('does not confirm')
+    expect(f.message.snapshot().phase).toBe('sent')
     await f.message.send(); expect(f.wire).toHaveLength(2)
   })
   it('holds when either published inbox is absent, with no default or NIP65 destination substitution', async () => {
@@ -91,7 +91,7 @@ describe('separate ordinary Nostr text message', () => {
     const f = fixture()
     f.replace([f.list(f.sender, 'wss://sender.example'), f.list(f.recipient, 'wss://recipient.example', f.now - 1), f.list(f.recipient, '')])
     await f.message.review(f.peer, 'Not sent'); await f.message.send(); expect(f.wire).toEqual([])
-    expect(f.message.snapshot().status).toContain('No usable published')
+    expect(f.message.snapshot().status).toContain('This person needs usable inbox relays')
   })
   it('holds when the latest inbox points only to a relay outside the public route', async () => {
     const f = fixture(undefined, url => url !== 'wss://private.example/')
@@ -110,7 +110,7 @@ describe('separate ordinary Nostr text message', () => {
   for (const refusal of ['forged', 'refuse-copy'] as const) it(`sends neither half after ${refusal}`, async () => {
     const f = fixture(); f.mode(refusal)
     await f.message.review(f.peer, 'Not sent'); await f.message.send()
-    expect(f.wire).toEqual([]); expect(f.message.snapshot().status).toContain('Nothing was sent')
+    expect(f.wire).toEqual([]); expect(f.message.snapshot().phase).toBe('not-sent')
     expect(f.message.snapshot().status).toContain(refusal === 'forged' ? 'invalid seal' : 'refused to encrypt your inbox copy')
   })
   it('resumes signing the inbox copy after a signer timeout without repeating encryption or publishing early', async () => {
@@ -159,7 +159,7 @@ describe('separate ordinary Nostr text message', () => {
     const f = fixture(); f.reject(true)
     await f.message.review(f.peer, 'Same encrypted retry'); await f.message.send()
     const first = [...f.wire]; expect(f.message.snapshot().retry).toBe(true)
-    expect(f.message.snapshot().status).toContain('may have arrived')
+    expect(f.message.snapshot().phase).toBe('unconfirmed')
     f.reject(false); await f.message.send()
     expect(f.wire.slice(2)).toEqual(first); expect(f.signed).toHaveLength(2)
     expect(f.message.snapshot().retry).toBe(false)
@@ -174,12 +174,12 @@ describe('separate ordinary Nostr text message', () => {
     await f.message.review(f.peer, 'One accepted copy, one uncertain copy'); await f.message.send()
     const first = [...f.wire], pending = first.find(event => event.tags[0]![1] === target)!
     expect(first).toHaveLength(2); expect(f.message.snapshot().retry).toBe(true)
-    expect(f.message.snapshot().status).toContain(uncertain === 'recipient' ? 'It may have arrived' : 'your encrypted history copy is unconfirmed')
+    expect(f.message.snapshot().phase).toBe(uncertain === 'recipient' ? 'unconfirmed' : 'copy-unconfirmed')
     f.rejectRecipient(target, false); await f.message.send()
     expect(f.wire.slice(2)).toEqual([pending]); expect(f.wire[2]).toBe(pending)
     expect(f.encrypted).toHaveLength(2); expect(f.signed).toEqual([13, 13])
     expect(unwrapEvent(first[0]!, f.recipient)).toEqual(unwrapEvent(first[1]!, f.sender))
-    expect(f.message.snapshot().retry).toBe(false); expect(f.message.snapshot().status).toContain('does not confirm')
+    expect(f.message.snapshot().retry).toBe(false); expect(f.message.snapshot().phase).toBe('sent')
     await f.message.send(); expect(f.wire).toHaveLength(3)
   })
   it('refuses self-messages, empty text and a multibyte payload exceeding the byte limit', async () => {

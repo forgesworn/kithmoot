@@ -1076,7 +1076,7 @@
           <button id="accountNetworkOpen" type="button" class="quiet" aria-haspopup="dialog" aria-controls="accountNetworkDialog">Account network</button>
           <button id="signIn" type="button">Sign in with Nostr</button>
           <button id="signOut" type="button" hidden>Sign out</button>
-          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>New Nostr message</button>
           <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
           <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
           <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
@@ -1982,32 +1982,45 @@
       <div class="sheetBody">
         <p id="peopleNostrStatus" role="status" class="note"></p>
         <div id="peopleNostrActions" class="peopleNostrActions">
-          <button id="peopleNostrToggle" type="button">Turn off inbox</button>
+          <button id="peopleNostrCompose" type="button" hidden>New message</button>
           <button id="peopleNostrRelays" type="button" class="quiet">Inbox relays</button>
           <button id="peopleNostrRefresh" type="button" class="quiet" hidden>Refresh</button>
-          <button id="peopleNostrCompose" type="button" class="quiet" hidden>New Nostr message</button>
+          <button id="peopleNostrToggle" type="button" class="quiet">Turn off inbox</button>
         </div>
         <div id="peopleNostrContent"></div>
       </div>
     </dialog>
 
-    <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
-      <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+    <dialog id="nostrMessageDialog" class="sharedProjectsSheet nostrComposer" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
+      <div class="sheetBar"><h2 id="nostrMessageTitle">New Nostr message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
-        <p id="nostrMessageLane" class="nostrMessageWarning">○ public</p>
-        <p id="nostrMessageWarning" class="nostrMessageWarning"></p>
-        <p class="note">The message content stays encrypted. This sends an ordinary Nostr message through published inbox relays. It does not send a room invitation or include room history.</p>
+        <p id="nostrMessageTo" class="nostrComposerRecipient" hidden>To <strong id="nostrMessageToName"></strong> <bdi id="nostrMessageToKey" class="note"></bdi></p>
         <form id="nostrMessageForm">
-          <label for="nostrMessageRecipient">Their Nostr public key (npub)</label>
-          <input id="nostrMessageRecipient" name="recipient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
-          <label for="nostrMessageText">New message</label>
-          <textarea id="nostrMessageText" name="message" rows="5" maxlength="4096" autocomplete="off" required></textarea>
-          <p class="note">Review checks both accounts’ published Nostr inbox lists on your configured account relays. Your message stays on this device until you choose Send public. Closing clears this draft.</p>
-          <button id="nostrMessageReview" type="submit">Review public message</button>
+          <div id="nostrMessageAddress">
+            <label for="nostrMessageRecipient">Recipient’s Nostr public key</label>
+            <input id="nostrMessageRecipient" name="recipient" type="text" placeholder="npub1…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
+          </div>
+          <div id="nostrMessageDraft">
+            <label for="nostrMessageText">Message</label>
+            <textarea id="nostrMessageText" name="message" rows="4" maxlength="4096" autocomplete="off" required></textarea>
+          </div>
+          <div class="nostrComposerOutcome" id="nostrMessageOutcome" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <strong id="nostrMessageState"></strong>
+            <p id="nostrMessageStatus"></p>
+          </div>
+          <p id="nostrMessagePreview" class="nostrComposerPreview" hidden></p>
+          <p id="nostrMessageLane" class="nostrComposerRoute">Encrypted · Public Nostr relays</p>
+          <p id="nostrMessageWarning" class="note">Relays can see the recipient’s public key and when they receive the encrypted message.</p>
+          <details id="nostrMessageDetails" hidden>
+            <summary>Inbox relay details</summary>
+            <p id="nostrMessageSummary" class="note"></p>
+          </details>
+          <div class="nostrComposerActions">
+            <button id="nostrMessageReview" type="submit">Check inbox relays</button>
+            <button id="nostrMessageSend" type="button" hidden>Send encrypted message</button>
+            <button id="nostrMessageView" type="button" hidden>View conversation</button>
+          </div>
         </form>
-        <p id="nostrMessageSummary" class="note"></p>
-        <button id="nostrMessageSend" type="button" hidden>Send public</button>
-        <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
       </div>
     </dialog>
 
