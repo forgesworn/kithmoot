@@ -1042,7 +1042,7 @@ test('at 1440 Settings opens in the main pane beside the chats, with its pages a
     await expect(page.locator('#openAppSettings')).toHaveAttribute('aria-current', 'page')
     await expect(page.locator('#settingsPane')).toBeVisible()
     await expect(page.locator('#rooms')).toBeVisible()
-    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help'])
+    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help', 'What’s new'])
     await expect(page.locator('#settingsSubaccount')).toHaveText('Just a name · sign in with Nostr')
     expect(await page.evaluate(() => document.querySelector('dialog:modal'))).toBeNull()
     const pane = await box(page, '#settingsPane'), list = await box(page, '#listColumn')

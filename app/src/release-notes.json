@@ -1,10 +1,10 @@
 {
-  "id": "2026-11-20-people-profile-controls",
-  "date": "20 November 2026",
-  "title": "Public profiles in People",
+  "id": "2026-11-21-people-profile-settings",
+  "date": "21 November 2026",
+  "title": "Public profile settings from People",
   "changes": [
-    "Public profiles are on by default when Nostr networking is on. The app keeps your saved choice.",
-    "Turn profiles on or off directly in People or in Privacy settings.",
-    "Nostr inbox setup suggests Primal, nos.lol and Ditto when you have no inbox relay list."
+    "Open Public profile settings straight from Following. When you turn profiles on, the people you follow load in place.",
+    "The update summary has its own space, so you can use the room controls while it’s open.",
+    "Room bookmark sync reports relay acceptance even when it finishes while the room is opening."
   ]
 }

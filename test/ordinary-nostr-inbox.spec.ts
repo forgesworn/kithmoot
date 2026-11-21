@@ -1,4 +1,5 @@
-import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { rm } from 'node:fs/promises'
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { wrapEvent } from 'nostr-tools/nip59'
 import { decrypt, getConversationKey } from 'nostr-tools/nip44'
@@ -101,10 +102,16 @@ test('People counts verified incoming messages by default, keeps the read positi
   } finally { pool.close(); await context.close() }
 })
 
-test('People puts unread messages above frequent conversations and keeps contact pictures across reloads', async ({ browser, baseURL }) => {
+test('People puts unread messages above frequent conversations and keeps contact pictures across reloads', async ({ browser, baseURL }, info) => {
   const account = generateSecretKey(), frequent = generateSecretKey(), recent = generateSecretKey(), unread = generateSecretKey()
   const self = getPublicKey(account), top = getPublicKey(frequent), latest = getPublicKey(recent), incoming = getPublicKey(unread)
-  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  // A temporary WebKit context loses its CacheStorage entries on reload.
+  // Exercise the persistent browser profile used for keeping pictures.
+  const profile = info.project.name === 'webkit' ? info.outputPath('webkit-profile') : undefined
+  const browserWithProfile: Pick<Browser, 'newContext'> = profile
+    ? { newContext: options => browser.browserType().launchPersistentContext(profile, { ...options, ...info.project.use.launchOptions }) }
+    : browser
+  const context = await accountDevice(browserWithProfile, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
   const picture = 'https://picture.example.invalid/people.png'
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGOw7Mn8DwAEXgIuYNZitQAAAABJRU5ErkJggg==', 'base64')
   let imageRequests = 0
@@ -151,7 +158,11 @@ test('People puts unread messages above frequent conversations and keeps contact
     await expect(avatar).toBeAttached()
     await expect.poll(pictureIsLoaded).toBe(true)
     expect(imageRequests).toBe(1)
-  } finally { pool.close(); await context.close() }
+  } finally {
+    pool.close()
+    await context.close()
+    if (profile) await rm(profile, { recursive: true, force: true })
+  }
 })
 
 test('People prompts for a relay list without publishing one and remembers turning the inbox off', async ({ browser, baseURL }, info) => {

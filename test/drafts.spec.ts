@@ -427,7 +427,9 @@ test('cancelling a browser reload keeps a draft from another conversation', asyn
 test('pasted files stay staged until Send and text attachments display as inert text', async ({ browser, baseURL }) => {
   const { page, context } = await setup(browser, baseURL!)
   const origin = new URL(baseURL!).origin
+  let uploads = 0
   await context.route(`${origin}/upload`, async route => {
+    uploads++
     await route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
   })
   await context.route(url => url.origin === origin && url.pathname.startsWith('/blossom/'), async route => {
@@ -438,24 +440,24 @@ test('pasted files stay staged until Send and text attachments display as inert 
     await page.locator('#chatInput').fill('Attached notes')
     await page.locator('#chatInput').evaluate(input => {
       const clipboard = new DataTransfer()
-      clipboard.items.add(new File(['<script>window.previewExecuted = true</script>'], 'notes.html', { type: 'text/html' }))
+      clipboard.items.add(new File(['<script>window.previewExecuted = true</script>'], 'notes.txt', { type: 'text/plain' }))
       const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
       // Firefox ignores the constructor's synthetic clipboardData; provide
       // the same data a trusted paste supplies without depending on the OS clipboard.
       Object.defineProperty(event, 'clipboardData', { value: clipboard })
       input.dispatchEvent(event)
     })
-    // The tray lists the file; its size shows once it has uploaded.
-    await expect(page.locator('#attachStaged .attachChip')).toContainText('notes.html')
-    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ (B|KB)/, { timeout: 30_000 })
+    await expect(page.locator('#attachStaged .attachChip')).toContainText('notes.txt')
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ (B|KB)/)
     await expect(page.locator('#chatInput')).toHaveValue('Attached notes')
     await expect(page.locator('#chatLog .attachment')).toHaveCount(0)
+    expect(uploads).toBe(1)
     await page.locator('#chatForm button[type="submit"]').click()
     const attachment = page.locator('#chatLog .attachment').first()
     await attachment.getByRole('button', { name: /^Show/ }).click()
     await expect(attachment.locator('pre')).toContainText('<script>window.previewExecuted = true</script>')
     expect(await page.evaluate(() => (window as unknown as { previewExecuted?: boolean }).previewExecuted)).toBeUndefined()
-    await expect(attachment.getByRole('button', { name: 'Save notes.html…' })).toBeVisible()
+    await expect(attachment.getByRole('link', { name: 'Save notes.txt', exact: true })).toBeVisible()
   } finally { await context.close() }
 })
 
