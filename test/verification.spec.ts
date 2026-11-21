@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
+import { createRoom, join, newDeviceContext, open, openMember } from './browser.js'
 
 /**
  * Do the two sides actually say the same words?
@@ -16,9 +16,9 @@ import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
  * that somebody is an impostor.
  */
 
-/** Open the verification dialog from a tile and read the two words out of it. */
-async function openVerification(page: Page, tileText: string): Promise<{ mine: string; theirs: string }> {
-  await page.locator('#room .participant', { hasText: tileText }).locator('.verifyChip').click()
+/** Open the verification dialog from Room info and read both phrases. */
+async function openVerification(page: Page, name: string): Promise<{ mine: string; theirs: string }> {
+  await (await openMember(page, name)).locator('.verifyChip').click()
   const dialog = page.locator('#verifyDialog')
   await expect(dialog).toBeVisible()
   const mine = ((await page.locator('#verifyMine').textContent()) ?? '').trim()
@@ -47,20 +47,14 @@ test('both sides are shown the same words, and verifying is remembered', async (
     const pageB = await contextB.newPage()
 
     const url = await createRoom(pageA, baseURL!)
-    await joinWithMedia(pageA, url, 'Ada')
-    await joinWithMedia(pageB, url, 'Bob')
+    await open(pageB, url, 'Bob')
+    await join(pageB)
 
-    const bobOnAda = pageA.locator('#room .participant', { hasText: 'Bob' })
-    const adaOnBob = pageB.locator('#room .participant', { hasText: 'Ada' })
-    await expect(bobOnAda).toBeVisible({ timeout: 30_000 })
-    await expect(adaOnBob).toBeVisible({ timeout: 30_000 })
+    const bobOnAda = await openMember(pageA, 'Bob')
+    const adaOnBob = await openMember(pageB, 'Ada')
 
-    // Nobody has been checked yet, and that is not a warning. The chip says
-    // "not checked" rather than "not verified": the wording pass that came
-    // with the rebuilt page took the jargon out of every one of these, and
-    // the word on the button is what a person actually reads.
-    await expect(bobOnAda.locator('.verifyChip')).toHaveText('not checked')
-    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not checked')
+    await expect(bobOnAda.locator('.verifyChip')).toHaveText('Is this really them?')
+    await expect(adaOnBob.locator('.verifyChip')).toHaveText('Is this really them?')
 
     await bobOnAda.locator('.verifyChip').click()
     await expect(pageA.locator('#verifyConfirm')).toBeDisabled()
@@ -81,7 +75,7 @@ test('both sides are shown the same words, and verifying is remembered', async (
     await pageA.keyboard.press('Escape')
     await pageB.keyboard.press('Escape')
     await expect(pageA.locator('#verifyDialog')).toBeHidden()
-    await expect(bobOnAda.locator('.verifyChip'), 'dismissing must not verify').toHaveText('not checked')
+    await expect(bobOnAda.locator('.verifyChip'), 'dismissing must not verify').toHaveText('Is this really them?')
 
     // The whole ritual, in two assertions: what each says is what the other
     // is waiting to hear.
@@ -104,7 +98,7 @@ test('both sides are shown the same words, and verifying is remembered', async (
 
     // And it is this device's memory, not the room's: Bob's view of Ada is
     // untouched by Ada verifying Bob.
-    await expect(adaOnBob.locator('.verifyChip')).toHaveText('not checked')
+    await expect(adaOnBob.locator('.verifyChip')).toHaveText('Is this really them?')
   } finally {
     await contextA.close()
     await contextB.close()

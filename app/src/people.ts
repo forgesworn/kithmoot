@@ -60,6 +60,7 @@ export interface PeopleModel {
 export interface PeopleActions {
   profileSettings(): { enabled: boolean; available: boolean }
   setPublicProfiles(enabled: boolean): void
+  openProfileSettings(opener: HTMLElement, fallback: HTMLElement): void
   /** Undefined when Message, Voice and Video can be used; otherwise why not. */
   blockedReason(pubkey: string): string | undefined
   message(person: Person): Promise<string | undefined>
@@ -109,6 +110,7 @@ export class PeopleView {
   readonly #query: HTMLInputElement
   readonly #searchButton: HTMLButtonElement
   readonly #profiles: HTMLInputElement
+  readonly #followProfileSettings: HTMLButtonElement
   #searchRequest?: AbortController
   #searchResults: PeopleSearchResult[] = []
   #searchNote = ''
@@ -141,6 +143,7 @@ export class PeopleView {
     head.className = 'listHead'
     const title = document.createElement('h2')
     title.id = 'peopleTitle'
+    title.tabIndex = -1
     title.textContent = 'People'
     this.#add = document.createElement('button')
     this.#add.type = 'button'
@@ -171,6 +174,10 @@ export class PeopleView {
     profilesNote.textContent = 'Show who you follow, names and pictures. Uses public relays and picture hosts.'
     this.#profiles.setAttribute('aria-describedby', profilesNote.id)
     profiles.append(this.#profiles, profilesText, profilesNote)
+    this.#followProfileSettings = this.#textButton('Public profile settings', opener => this.#actions.openProfileSettings(opener, title))
+    this.#followProfileSettings.classList.add('linkish')
+    this.#followProfileSettings.setAttribute('aria-haspopup', 'dialog')
+    this.#followProfileSettings.setAttribute('aria-controls', 'profileSettings')
 
     const form = document.createElement('form')
     const label = document.createElement('label')
@@ -275,6 +282,7 @@ export class PeopleView {
     this.#profiles.checked = profiles.enabled
     this.#profiles.disabled = !profiles.available
     const query = this.#query.value.trim().toLocaleLowerCase()
+    this.#followProfileSettings.hidden = !!query || model.followStatus !== 'off' || !profiles.available
     if (!this.#actions.canSearchNostr()) this.resetSearch()
     this.#searchButton.hidden = !peopleSearchQuery(query) || !this.#actions.canSearchNostr()
     this.#searchButton.disabled = !!this.#searchRequest
@@ -320,7 +328,7 @@ export class PeopleView {
     const heads = new Map([...this.#rows.querySelectorAll<HTMLLIElement>('li[data-section]')].map(row => [row.dataset.section!, row]))
     const children: HTMLLIElement[] = []
     for (const [name, list] of sections) {
-      const followingNote = name === 'Following' ? this.#followingNote(model, query) : undefined
+      const followingNote = name === 'Following' ? this.#followingNote(model, query, profiles.available) : undefined
       if (!list.length && !followingNote) continue
       const head = heads.get(name) ?? document.createElement('li')
       head.dataset.section = name
@@ -331,7 +339,10 @@ export class PeopleView {
       note.className = 'note'
       note.textContent = followingNote ?? ''
       note.hidden = !followingNote
-      if (!head.childElementCount) head.append(heading, note)
+      if (!head.childElementCount) {
+        head.append(heading, note)
+        if (name === 'Following') head.append(this.#followProfileSettings)
+      }
       children.push(head)
       for (const person of list) children.push(this.#row(person, previous.get(person.pubkey)))
     }
@@ -361,10 +372,11 @@ export class PeopleView {
     this.render()
   }
 
-  #followingNote(model: PeopleModel, query: string): string | undefined {
+  #followingNote(model: PeopleModel, query: string, profilesAvailable: boolean): string | undefined {
     if (query) return undefined
-    if (model.followStatus === 'off' && !this.#actions.profileSettings().available) return 'Public profiles are paused while Nostr networking is off.'
-    if (model.followStatus === 'off') return 'Public profiles are off. Turn them on above to see who you follow.'
+    if (model.followStatus === 'off') return profilesAvailable
+      ? 'Turn on public profiles to see who you follow.'
+      : 'Public profiles are paused while Nostr networking is off.'
     if (model.followStatus === 'loading' && !model.following.length) return 'Looking for the people you follow…'
     return undefined
   }

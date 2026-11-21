@@ -2177,7 +2177,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     await deleteRoomArchive()
     await forgetPeoplePictures()
 
-    history.replaceState(null, '', joinLinkBase())
+    history.replaceState({ browserForgotten: true }, '', joinLinkBase())
     }) } finally { forgettingBrowser = false }
     if (!forgotten) {
       setForgetBrowserStatus('Private upload records are retained. Review and delete the recorded uploads before forgetting this browser; uncertain files may already be stored. Private file access is now held.')
@@ -4052,6 +4052,7 @@ function setPublicProfiles(enabled: boolean): void {
   }
   profiles.setEnabled(accountNetwork.nostr && enabled)
   follows.setEnabled(accountNetwork.nostr && enabled)
+  if (enabled && !$('peopleList').hidden) follows.ensure()
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
@@ -9934,7 +9935,9 @@ function renderCurrentRoomLogo(): void {
 
 function renderRoomLogoControls(): void {
   const s = session, me = meParticipant || currentParticipant()
-  const permitted = !nodeRoom && !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
+  // A bookmark can be accepted while this session is still joining.
+  const permitted = !nodeRoom && !!s && roomLogoFollowers.has(s) && !isQuietPolicy(roomPolicy) &&
+    !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
   $('roomLogoControls').hidden = !permitted
   if (permitted) renderLogo($('roomLogoPreview'), displayedRoomLogo(s!.roomId, roomProjectContext), currentRoomLabel())
   else clearLogo($('roomLogoPreview'))
@@ -19517,6 +19520,7 @@ function linkSignetContacts(opener: HTMLElement): void {
   if (list && pane) people = new PeopleView(list, pane, peopleModel, {
     profileSettings: () => ({ enabled: profilesEnabled, available: accountNetwork.nostr }),
     setPublicProfiles,
+    openProfileSettings,
     blockedReason: peopleBlockedReason,
     block: peer => { setBlocked(peer, true) },
     message: messagePerson,
@@ -19883,9 +19887,12 @@ async function openContextPanel(): Promise<void> {
 }
 $('openContext').addEventListener('click', () => { closeRoomSheet(); void openContextPanel().catch(error => setStatus(describeError(error))) })
 $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
-let profileReturnFocus: HTMLElement = $('roomMenu')
-function openProfileSettings(from: HTMLElement): void {
-  profileReturnFocus = from
+let restoreProfileFocus = () => $('roomMenu').focus({ preventScroll: true })
+function openProfileSettings(from: HTMLElement, fallback = from): void {
+  restoreProfileFocus = () => {
+    const target = from.getClientRects().length ? from : fallback
+    target.focus({ preventScroll: true })
+  }
   renderLookupHosts()
   closeRoomSheet()
   ;($('profileSettings') as HTMLDialogElement).showModal()
@@ -20157,7 +20164,7 @@ $('inviteToRoomForm').addEventListener('submit', event => {
   void sendRoomInvite(room)
 })
 $('profileSettings').addEventListener('close', () => {
-  profileReturnFocus.focus({ preventScroll: true })
+  restoreProfileFocus()
 })
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the

@@ -14,6 +14,7 @@ export function parseReleaseNotes(value: unknown): ReleaseNotes | undefined {
 /** Text-only notes. Reading them never activates an update or leaves a call. */
 export function installReleaseNotes(): { offer: (version?: string) => void } {
   let offered = false, version: string | undefined, generation = 0
+  const offer = (nextVersion?: string) => { offered = true; version = nextVersion }
   const dialog = document.createElement('dialog')
   dialog.id = 'releaseNotes'; dialog.className = 'profileSettings'; dialog.setAttribute('aria-labelledby', 'releaseNotesTitle')
   dialog.innerHTML = '<div class="profileSettingsHeader"><h2 id="releaseNotesTitle">What’s new</h2><button type="button" data-notes-close>Close</button></div><div data-notes-body aria-live="polite"></div>'
@@ -54,6 +55,12 @@ export function installReleaseNotes(): { offer: (version?: string) => void } {
   document.getElementById('appWhatsNew')?.addEventListener('click', () => void open(false))
   const key = 'kithmoot.release-notes-seen'
   try {
+    // The immediate reload after forgetting this browser must leave storage
+    // clear. The consumed history flag never enters the URL or device store.
+    if (history.state?.browserForgotten === true) {
+      history.replaceState(null, '')
+      return { offer }
+    }
     const previous = localStorage.getItem(key)
     // Older profiles predate this marker. Check presence only, before main
     // creates an identity for a first visit. No identity value enters the notes.
@@ -65,9 +72,9 @@ export function installReleaseNotes(): { offer: (version?: string) => void } {
       details.type = dismiss.type = 'button'
       details.addEventListener('click', () => { notice.remove(); void open(false) })
       dismiss.addEventListener('click', () => notice.remove())
-      notice.append(title, details, dismiss); document.body.append(notice)
+      notice.append(title, details, dismiss); document.getElementById('rail')!.before(notice)
     }
     localStorage.setItem(key, bundled.id)
   } catch { /* Storage can be unavailable; notes remain accessible. */ }
-  return { offer: nextVersion => { offered = true; version = nextVersion } }
+  return { offer }
 }

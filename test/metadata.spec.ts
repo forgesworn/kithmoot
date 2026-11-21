@@ -39,7 +39,13 @@ for (const profile of [
 ]) test(`${profile.name} profiles can read changes again without activating an update`, async ({ page, baseURL }) => {
   await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), profile)
   await page.goto(baseURL!)
-  await expect(page.locator('#releaseSummary')).toBeVisible()
+  const summary = page.locator('#releaseSummary')
+  await expect(summary).toBeVisible()
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 850 })
+    const bounds = (await summary.boundingBox())!
+    expect((await page.locator('#main').boundingBox())!.y).toBeGreaterThanOrEqual(bounds.y + bounds.height)
+  }
   await page.getByRole('button', { name: 'See what changed' }).click()
   const dialog = page.locator('#releaseNotes')
   await expect(dialog).toBeVisible()

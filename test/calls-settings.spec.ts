@@ -26,7 +26,7 @@ test('the list has Calls after Messages and a fresh device explains automatic re
   const { page, close } = await visit(browser, baseURL!)
   try {
     await openSettings(page)
-    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help'])
+    await expect(page.locator('#settingsPane [data-settings-page="main"] .infoRowTitle')).toHaveText(['Account', 'Profile', 'Notifications', 'Messages', 'Calls', 'Display', 'Privacy', 'Relays', 'Keyboard shortcuts', 'About and help', 'What’s new'])
     await expect(page.getByRole('button', { name: /Connections/ })).toHaveCount(0)
     await expect(page.locator('#settingsSubcalls')).toHaveText('Direct, with automatic relay fallback')
     await openSettings(page, 'Calls')
