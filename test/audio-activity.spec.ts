@@ -67,6 +67,20 @@ test('five callers keep independent microphone traces as speakers change and lea
   const contexts = await Promise.all(names.map(() => newDeviceContext(browser, baseURL!)))
   const pages = await Promise.all(contexts.map(async context => {
     await context.addInitScript(SYNTHETIC_MIC, { silentOutput: true })
+    await context.addInitScript(() => {
+      const events: string[] = []
+      Object.assign(window, { audioProbeEvents: events })
+      const original = RTCPeerConnection.prototype.setLocalDescription
+      RTCPeerConnection.prototype.setLocalDescription = function (description) {
+        events.push(`${Math.round(performance.now())} local ${description?.type ?? 'implicit'}`)
+        return original.call(this, description)
+      }
+      const replace = RTCRtpSender.prototype.replaceTrack
+      RTCRtpSender.prototype.replaceTrack = function (track) {
+        if (track?.kind === 'audio' || this.track?.kind === 'audio') events.push(`${Math.round(performance.now())} replace ${track?.kind ?? 'empty'}`)
+        return replace.call(this, track)
+      }
+    })
     await context.addInitScript(() => localStorage.setItem('kithmoot.call.micOnJoin', 'off'))
     return context.newPage()
   }))
@@ -120,6 +134,30 @@ test('five callers keep independent microphone traces as speakers change and lea
     await expect(card('Kit')).toHaveCount(0, { timeout: 15_000 })
     await expect(strip.locator('.audioSignalLabel')).toHaveText(labels.filter(label => label !== 'Kit'))
   } catch (error) {
+    const diagnosis = await bob!.evaluate(async () => {
+      const w = window as unknown as { __pcs: RTCPeerConnection[]; audioProbeEvents: string[] }
+      const senders = w.__pcs.filter(pc => pc.connectionState === 'connected').flatMap(pc => pc.getTransceivers()
+        .filter(t => t.sender.track?.kind === 'audio')
+        .map(t => ({ sender: t.sender, direction: t.currentDirection })))
+      const read = async (sender: RTCRtpSender) => {
+        const stats = [...(await sender.getStats()).values()]
+        const input = stats.find(s => s.type === 'media-source' && s.kind === 'audio')
+        const outgoing = stats.find(s => s.type === 'outbound-rtp' && s.kind === 'audio')
+        return { samples: input?.totalSamplesDuration, level: input?.audioLevel, packets: outgoing?.packetsSent }
+      }
+      const before = await Promise.all(senders.map(async ({ sender, direction }) => ({ direction, ...(await read(sender)) })))
+      const events = w.audioProbeEvents.slice()
+      for (const [i, { sender, direction }] of senders.entries()) {
+        if (before[i]?.packets !== 0 || (direction !== 'sendrecv' && direction !== 'sendonly')) continue
+        const track = sender.track
+        await sender.replaceTrack(null)
+        await sender.replaceTrack(track)
+      }
+      await new Promise(resolve => setTimeout(resolve, 800))
+      const after = await Promise.all(senders.map(({ sender }) => read(sender)))
+      return { events, before, after }
+    }).catch(error => String(error))
+    console.log('MICROPHONE_DIAGNOSIS', JSON.stringify(diagnosis))
     for (const [index, page] of [ada!, bob!, kit!].entries()) {
       const body = await collectAppDiagnostics(page).catch(() => undefined)
       if (body) await info.attach(`${names[index]} call diagnostics`, { body, contentType: 'application/json' })
