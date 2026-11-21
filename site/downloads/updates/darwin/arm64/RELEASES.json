@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.174",
+  "currentRelease": "0.1.175",
   "releases": [
     {
-      "version": "0.1.174",
+      "version": "0.1.175",
       "updateTo": {
-        "version": "0.1.174",
-        "name": "0.1.174",
-        "pub_date": "2026-11-21T10:13:06Z",
-        "notes": "Open Public profile settings straight from Following. When you turn profiles on, the people you follow load in place.\nThe update summary has its own space, so you can use the room controls while it’s open.\nRoom bookmark sync reports relay acceptance even when it finishes while the room is opening.\nOn a phone in landscape, the call waveforms leave more room for the call controls.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.174/KithMoot-0.1.174-mac-arm64.zip",
-        "sha256": "faa8e8946da0942dd905b004a36ddfb814c9b897daca3662fbc420da184b705d",
-        "size": 198984918
+        "version": "0.1.175",
+        "name": "0.1.175",
+        "pub_date": "2026-11-21T11:57:17Z",
+        "notes": "The Nostr message composer shows which encryption or signing request is waiting for your signer.\nIf preparation fails, check the guidance in the composer. Retry send keeps your draft and resumes from the failed step.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.175/KithMoot-0.1.175-mac-arm64.zip",
+        "sha256": "50ef04fc146dc01892110283de661489073d18f502e0621b68b11d0ee96dfc95",
+        "size": 198985340
       }
     }
   ]

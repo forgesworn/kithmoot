@@ -1,11 +1,9 @@
 {
-  "id": "2026-11-21-people-profile-settings",
+  "id": "2026-11-21-nostr-dm-retry",
   "date": "21 November 2026",
-  "title": "Public profile settings from People",
+  "title": "Retry encrypted Nostr messages",
   "changes": [
-    "Open Public profile settings straight from Following. When you turn profiles on, the people you follow load in place.",
-    "The update summary has its own space, so you can use the room controls while it’s open.",
-    "Room bookmark sync reports relay acceptance even when it finishes while the room is opening.",
-    "On a phone in landscape, the call waveforms leave more room for the call controls."
+    "The Nostr message composer shows which encryption or signing request is waiting for your signer.",
+    "If preparation fails, check the guidance in the composer. Retry send keeps your draft and resumes from the failed step."
   ]
 }

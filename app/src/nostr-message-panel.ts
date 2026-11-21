@@ -101,7 +101,7 @@ export class NostrMessagePanel {
     this.#recipient.disabled = state.busy || state.attempted; this.#text.disabled = state.busy || state.attempted
     this.#review.disabled = state.busy || state.attempted
     this.#send.hidden = !state.review; this.#send.disabled = state.busy || state.attempted && !state.retry
-    this.#send.textContent = state.retry ? 'Retry same public message' : 'Send public'
+    this.#send.textContent = state.retry ? 'Retry same public message' : state.retryPreparation ? 'Retry send' : 'Send public'
     this.#status.textContent = state.status
     this.#summary.textContent = state.review ? `To ${npubEncode(state.review.recipient)}\nRecipient inbox: ${state.review.recipientRelays.join(', ')}\nYour encrypted copy: ${state.review.senderRelays.join(', ')}` : ''
   }
