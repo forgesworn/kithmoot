@@ -122,7 +122,7 @@ test('five callers keep independent microphone traces as speakers change and lea
     await expect(card('Kit')).toHaveCount(0, { timeout: 15_000 })
     await expect(strip.locator('.audioSignalLabel')).toHaveText(labels.filter(label => label !== 'Kit'))
   } catch (error) {
-    for (const [index, page] of [ada!, bob!, kit!].entries()) {
+    for (const [index, page] of pages.slice(0, 3).entries()) {
       const body = await collectAppDiagnostics(page).catch(() => undefined)
       if (body) await info.attach(`${names[index]} call diagnostics`, { body, contentType: 'application/json' })
     }
