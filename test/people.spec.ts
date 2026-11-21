@@ -167,7 +167,9 @@ test('People searches public names explicitly and prepares a Nostr message to th
     await results.getByRole('button', { name: new RegExp('^' + name) }).click()
     await page.getByRole('button', { name: 'Message on Nostr', exact: true }).click()
     await expect(page.locator('#nostrMessageRecipient')).toHaveValue(npubEncode(peer))
-    await expect(page.locator('#nostrMessageSend')).toBeHidden()
+    await expect(page.locator('#nostrMessageTo')).toHaveText(`To ${name} ${shortNpub(peer)}`)
+    await expect(page.locator('#nostrMessageReview')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Send encrypted message', exact: true })).toBeVisible()
   } finally { publisher.close(); await context.close() }
 })
 
