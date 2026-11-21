@@ -7,11 +7,7 @@
         "version": "0.1.173",
         "name": "0.1.173",
         "pub_date": "2026-11-20T16:25:48Z",
-        "notes": [
-          "Public profiles are on by default when Nostr networking is on. The app keeps your saved choice.",
-          "Turn profiles on or off directly in People or in Privacy settings.",
-          "Nostr inbox setup suggests Primal, nos.lol and Ditto when you have no inbox relay list."
-        ],
+        "notes": "Public profiles are on by default when Nostr networking is on. The app keeps your saved choice.\nTurn profiles on or off directly in People or in Privacy settings.\nNostr inbox setup suggests Primal, nos.lol and Ditto when you have no inbox relay list.",
         "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.173/KithMoot-0.1.173-mac-arm64.zip",
         "sha256": "cd5c6e7fc370359953de2ff472b3e3dec7b1bf64e78597d0742f7336fb0337fe",
         "size": 198984674
