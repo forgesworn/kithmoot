@@ -68,6 +68,19 @@ describe('gift wrap delivery to NIP-42 inbox relays', () => {
     expect(good.stored).toHaveLength(1)
   })
 
+  it('reports the first acceptance while another inbox relay is still pending', async () => {
+    const first = 'wss://first.inbox.test', second = 'wss://second.inbox.test'
+    let release!: () => void
+    const pending = new Promise<void>(resolve => { release = resolve })
+    const acknowledged = vi.fn()
+    const done = publishToInboxRelays(wrap(), [first, second], () => true,
+      url => ({ publishGuarded: async () => { if (url === second) await pending }, close: () => {} }), acknowledged)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(acknowledged).toHaveBeenCalledTimes(1)
+    release()
+    await expect(done).resolves.toMatchObject({ accepted: [first, second] })
+  })
+
   it('does not retry or authenticate after a refusal that signing in cannot change', async () => {
     const relay = fakeRelay('wss://restricted.inbox.test'); relay.rejectPublishes = true; relay.rejectReason = 'restricted: not on the list'
     const result = await run(wrap(), ['wss://restricted.inbox.test'])

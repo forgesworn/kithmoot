@@ -11,7 +11,7 @@ import { TEST_RELAY_WS, openSettings } from './browser.js'
 // This is not actual external Coracle receipt or the complete C04 matrix.
 async function showComposer(page: Page) {
   await openSettings(page, 'Account')
-  await page.getByRole('button', { name: 'Start public message', exact: true }).click()
+  await page.getByRole('button', { name: 'New Nostr message', exact: true }).click()
   await expect(page.locator('#nostrMessageDialog')).toBeVisible()
 }
 function publishedWraps(page: Page) {
@@ -29,24 +29,25 @@ async function inbox(pool: NostrRelayPool, key: Uint8Array, baseURL: string) {
   await pool.publish(finalizeEvent({ kind: 10050, created_at: Math.floor(Date.now() / 1000), content: '',
     tags: [['relay', relay.href]] }, key))
 }
-test('public message requires review and visible downgrade, then sends ordinary text and an encrypted sender copy', async ({ browser, baseURL }) => {
+test('Account composer shows the public relay route and checks inboxes before explicitly sending', async ({ browser, baseURL }) => {
   const sender = generateSecretKey(), recipient = generateSecretKey(), context = await accountDevice(browser, baseURL!, sender)
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
     await inbox(pool, sender, baseURL!); await inbox(pool, recipient, baseURL!)
     const page = await context.newPage(), events = publishedWraps(page)
     await signInAccount(page, baseURL!); await showComposer(page)
-    await expect(page.locator('#nostrMessageLane')).toHaveText('○ public')
-    await expect(page.locator('#nostrMessageWarning')).toContainText('takes nothing from this one')
+    await expect(page.locator('#nostrMessageLane')).toHaveText('Encrypted · Public Nostr relays')
+    await expect(page.locator('#nostrMessageWarning')).toContainText('Relays can see the recipient’s public key')
     await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
     await page.locator('#nostrMessageText').fill('An ordinary Nostr message, without a room invitation')
-    await page.getByRole('button', { name: 'Review public message', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Send public', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Send encrypted message', exact: true })).toBeVisible()
     await expect(page.locator('#nostrMessageSummary')).toContainText(npubEncode(getPublicKey(recipient)))
     expect(events).toEqual([])
     await page.screenshot({ path: test.info().outputPath('public-warning-before-send.png') })
-    await page.getByRole('button', { name: 'Send public', exact: true }).click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm that the person received or read it')
+    await page.getByRole('button', { name: 'Send encrypted message', exact: true }).click()
+    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
     const unique = [...new Map(events.map(event => [event.id, event])).values()]
     expect(unique).toHaveLength(2); expect(unique.every(event => event.kind === 1059)).toBe(true)
     const received = unique.find(event => event.tags[0]?.[1] === getPublicKey(recipient))!
@@ -68,11 +69,12 @@ test('missing recipient inbox holds the message and editing a reviewed draft rem
     await signInAccount(page, baseURL!); await showComposer(page)
     await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(recipient)))
     await page.locator('#nostrMessageText').fill('Held for inbox configuration')
-    await page.getByRole('button', { name: 'Review public message', exact: true }).click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('No usable published NIP-17 inbox')
+    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
+    await expect(page.locator('#nostrMessageState')).toHaveText('Not sent')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('This person needs usable inbox relays')
     await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])
     await inbox(pool, recipient, baseURL!)
-    await page.getByRole('button', { name: 'Review public message', exact: true }).click()
+    await page.getByRole('button', { name: 'Check inbox relays', exact: true }).click()
     await expect(page.locator('#nostrMessageSend')).toBeVisible()
     await page.locator('#nostrMessageText').fill('A changed draft needs a new review')
     await expect(page.locator('#nostrMessageSend')).toBeHidden(); expect(events).toEqual([])

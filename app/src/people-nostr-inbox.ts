@@ -1,7 +1,8 @@
 import type { Event } from 'nostr-tools/pure'
 import type { RelayHealth, RelayTransport } from '../../src/relay-pool.js'
 import type { DeviceStore } from './device-store.js'
-import { OrdinaryMessageHistory, ordinaryHistoryKey, type OrdinaryHistoryLock } from './nostr-message-history.js'
+import { OrdinaryMessageHistory, mergeSendStatus, ordinaryHistoryKey, readOrdinarySendStatuses,
+  type OrdinaryHistoryLock, type OrdinaryOutgoingMessage, type OrdinarySendStatus } from './nostr-message-history.js'
 import { captureOrdinaryCopy, ORDINARY_MAX_COPIES, ordinaryExpired, type OrdinaryText } from './nostr-message-wire.js'
 import { openAccountMessage, type AccountMessageDecrypt, type OpenedInvitation } from './nostr-opened-message.js'
 
@@ -29,9 +30,10 @@ interface Options {
   now?(): number
 }
 
+type ThreadMessage = OrdinaryText & { sendStatus?: OrdinarySendStatus }
 export interface NostrPeopleThread {
   peer: string
-  messages: readonly OrdinaryText[]
+  messages: readonly ThreadMessage[]
   unread: number
 }
 
@@ -43,6 +45,7 @@ export class PeopleNostrInbox {
   #queued = new Map<string, { copy: Event; saved: boolean }>()
   #seen = new Set<string>()
   #messages = new Map<string, { message: OrdinaryText; copies: Set<string>; expiresAt?: number }>()
+  #sendStatuses = new Map<string, OrdinarySendStatus>()
   #read = new Set<string>()
   #started = false
   #draining = false
@@ -71,14 +74,23 @@ export class PeopleNostrInbox {
   get status(): string { return this.#status }
   threads(): NostrPeopleThread[] {
     if (!this.#current()) return []
-    const threads = new Map<string, { peer: string; messages: OrdinaryText[]; unread: number; sent: number }>()
+    const threads = new Map<string, { peer: string; messages: ThreadMessage[]; unread: number; sent: number }>()
     for (const { message, copies, expiresAt } of this.#messages.values()) {
       const peer = message.peer!
       if (this.options.blocked(peer) || expiresAt !== undefined && expiresAt <= this.#now()) continue
       const thread = threads.get(peer) ?? { peer, messages: [], unread: 0, sent: 0 }
-      thread.messages.push(message)
-      if (message.author === this.options.account) thread.sent++
-      else if (![...copies].some(copy => this.#read.has(copy))) thread.unread++
+      if (message.author === this.options.account) {
+        let sendStatus: OrdinarySendStatus | undefined
+        for (const copy of copies) {
+          const status = this.#sendStatuses.get(copy)
+          if (status) sendStatus = mergeSendStatus(sendStatus, status)
+        }
+        thread.messages.push(sendStatus ? { ...message, sendStatus } : message)
+        thread.sent++
+      } else {
+        thread.messages.push(message)
+        if (![...copies].some(copy => this.#read.has(copy))) thread.unread++
+      }
       threads.set(peer, thread)
     }
     for (const thread of threads.values()) thread.messages.sort((a, b) => a.sentAt - b.sentAt || a.id.localeCompare(b.id))
@@ -94,6 +106,7 @@ export class PeopleNostrInbox {
     this.#started = true
     try {
       this.#read = this.#storedRead()
+      this.#sendStatuses = readOrdinarySendStatuses(this.options.store, this.options.account)
       const history = new OrdinaryMessageHistory(this.options.store, this.options.account, () => this.#now())
       for (const copy of history.copies()) this.#queued.set(copy.id, { copy, saved: true })
       void this.#drain()
@@ -143,8 +156,7 @@ export class PeopleNostrInbox {
         for (const row of [...this.#queued.values()].slice(0, BATCH)) {
           if (!this.#current()) return
           this.#queued.delete(row.copy.id)
-          this.#seen.add(row.copy.id)
-          if (this.#seen.size > MAX_SEEN) this.#seen.delete(this.#seen.values().next().value!)
+          this.#markSeen(row.copy.id)
           if (ordinaryExpired(row.copy, this.#now())) continue
           try {
             const decrypt: AccountMessageDecrypt = async (peer, ciphertext, current) => {
@@ -210,6 +222,35 @@ export class PeopleNostrInbox {
     }
   }
 
+  #markSeen(id: string): void {
+    this.#seen.add(id)
+    if (this.#seen.size > MAX_SEEN) this.#seen.delete(this.#seen.values().next().value!)
+  }
+
+  /** The explicit composer already has this signed-in account's clear text
+   * and has saved its verified copy. Show it without asking to decrypt again. */
+  recordOutgoing({ message, copy, status }: OrdinaryOutgoingMessage): void {
+    if (!this.#current() || message.author !== this.options.account || !message.peer || this.options.blocked(message.peer)) return
+    this.#updateSendStatus(copy.id, status)
+    this.#queued.delete(copy.id)
+    this.#markSeen(copy.id)
+    this.#remember(message, copy)
+    this.#notify()
+  }
+
+  #updateSendStatus(id: string, status: OrdinarySendStatus): void {
+    const next = mergeSendStatus(this.#sendStatuses.get(id), status)
+    this.#sendStatuses.delete(id)
+    this.#sendStatuses.set(id, next)
+    if (this.#sendStatuses.size > ORDINARY_MAX_COPIES) this.#sendStatuses.delete(this.#sendStatuses.keys().next().value!)
+  }
+
+  refreshSendStatuses(): void {
+    if (!this.#current()) return
+    for (const [id, status] of readOrdinarySendStatuses(this.options.store, this.options.account)) this.#updateSendStatus(id, status)
+    this.#notify()
+  }
+
   #storedRead(): Set<string> {
     const raw = this.options.store.get(peopleInboxReadKey(this.options.account))
     if (!raw || raw.length > MAX_SEEN * 67 + 2) return new Set()
@@ -247,6 +288,6 @@ export class PeopleNostrInbox {
     clearTimeout(this.#timer)
     this.#off?.(); this.#off = undefined
     this.#transport?.close(); this.#transport = undefined
-    this.#queued.clear(); this.#messages.clear(); this.#seen.clear(); this.#read.clear()
+    this.#queued.clear(); this.#messages.clear(); this.#seen.clear(); this.#read.clear(); this.#sendStatuses.clear()
   }
 }

@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.175",
+  "currentRelease": "0.1.176",
   "releases": [
     {
-      "version": "0.1.175",
+      "version": "0.1.176",
       "updateTo": {
-        "version": "0.1.175",
-        "name": "0.1.175",
-        "pub_date": "2026-11-21T11:57:17Z",
-        "notes": "The Nostr message composer shows which encryption or signing request is waiting for your signer.\nIf preparation fails, check the guidance in the composer. Retry send keeps your draft and resumes from the failed step.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.175/KithMoot-0.1.175-mac-arm64.zip",
-        "sha256": "50ef04fc146dc01892110283de661489073d18f502e0621b68b11d0ee96dfc95",
-        "size": 198985340
+        "version": "0.1.176",
+        "name": "0.1.176",
+        "pub_date": "2026-11-21T15:57:32Z",
+        "notes": "Send an encrypted Nostr message from People with one button.\nSee whether an inbox relay accepted your message, the send is unconfirmed, or the draft stopped before sending. The conversation keeps the status on this device.\nRetry only the encrypted message or inbox copy that still needs confirmation.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.176/KithMoot-0.1.176-mac-arm64.zip",
+        "sha256": "51293f6f94779ee1c48e7939a7a9f816ef75bd86e2f2d703fe8effa2b6c887ec",
+        "size": 198986446
       }
     }
   ]

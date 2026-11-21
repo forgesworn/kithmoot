@@ -35,13 +35,14 @@ const reasonOf = (error: unknown): string => error instanceof Error ? error.mess
  * Resolves if at least one relay accepted; otherwise rejects.
  */
 export async function publishToInboxRelays(event: Event, relays: readonly string[], current: () => boolean,
-  open: (relay: string) => InboxCarrier): Promise<InboxDelivery> {
+  open: (relay: string) => InboxCarrier, acknowledged?: () => void): Promise<InboxDelivery> {
   const offer = async (url: string, options?: GuardedPublishOptions): Promise<void> => {
     if (!current()) throw new Error('Public message cancelled.')
     const hold = open(url)
     try {
       if (!hold.publishGuarded) throw new Error('A guarded public carrier is unavailable.')
       await hold.publishGuarded(event, current, options)
+      if (current()) acknowledged?.()
     } finally { hold.close() }
   }
   const results = await Promise.all([...new Set(relays)].map(async (url): Promise<{ url: string; reason?: string }> => {

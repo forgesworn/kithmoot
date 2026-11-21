@@ -16,3 +16,36 @@
 .peopleNostrTranscript li { padding-block: .55rem; border-block-end: 1px solid var(--border); }
 .peopleNostrTranscript p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .peopleNostrTranscript .note { margin-block-end: .25rem; }
+.peopleNostrDelivery { display: block; margin-block-start: .35rem; color: var(--muted); font-size: var(--fs-1); }
+.peopleNostrDelivery[data-status='sent'], .peopleNostrDelivery[data-status='copy-unconfirmed'] { color: var(--ok); }
+.peopleNostrDelivery[data-status='unconfirmed'] { color: var(--warn); }
+
+.nostrComposer { max-inline-size: 36rem; }
+.nostrComposer .sheetBar h2 { font-size: var(--fs-4); text-transform: none; }
+.nostrComposer form { display: grid; gap: .75rem; }
+.nostrComposer p { margin: 0; }
+.nostrComposer input, .nostrComposer textarea { display: block; inline-size: 100%; margin-block: .3rem 0; }
+.nostrComposer textarea { resize: vertical; }
+.nostrComposer .nostrComposerRecipient { margin-block-end: .8rem; overflow-wrap: anywhere; }
+.nostrComposerRecipient bdi { margin-inline-start: .25rem; }
+.nostrComposerPreview { padding: .7rem .85rem; background: var(--bubble); border-radius: var(--r-s); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nostrComposerRoute { font-weight: 600; font-size: var(--fs-2); }
+.nostrComposerRoute + p { margin-block-start: -.55rem; }
+.nostrComposer summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: var(--fs-2); }
+#nostrMessageSummary { margin-block-start: .45rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.nostrComposerOutcome {
+  --outcome-colour: var(--accent);
+  padding: .75rem .9rem;
+  border-inline-start: 3px solid var(--outcome-colour);
+  border-radius: var(--r-s);
+  background: color-mix(in srgb, var(--outcome-colour) 8%, var(--panel));
+}
+.nostrComposerOutcome[data-phase='sent'], .nostrComposerOutcome[data-phase='copy-unconfirmed'] { --outcome-colour: var(--ok); }
+.nostrComposerOutcome[data-phase='unconfirmed'] { --outcome-colour: var(--warn); }
+.nostrComposerOutcome[data-phase='not-sent'] { --outcome-colour: var(--danger); }
+.nostrComposerOutcome strong { color: var(--outcome-colour); }
+.nostrComposerOutcome p { margin-block-start: .15rem; font-size: var(--fs-2); }
+.nostrComposerActions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .5rem; }
+.nostrComposerActions button { margin: 0; min-height: 44px; }
+.nostrComposerActions button:not(.quiet):not(:disabled) { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.nostrComposerActions button:not(.quiet):not(:disabled):hover { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }

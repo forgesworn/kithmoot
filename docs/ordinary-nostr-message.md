@@ -115,6 +115,14 @@ with a 32-day window, including two days of outer timestamp skew. Browser
 history retains encrypted envelopes. Android uses the encrypted account
 journal and its public profile cache.
 
+In People, **Send encrypted message** checks both inbox lists and then asks
+the signer to prepare the message. **Not sent** keeps the draft available.
+**Send unconfirmed** offers a retry of the same encrypted message. **Sent to
+inbox relay** appears as soon as a recipient relay acknowledges the send.
+If only the sender copy still needs confirmation, **Retry inbox sync** sends
+that copy. People keeps these relay statuses on this device against the
+encrypted sender copy ID so they can be shown in the conversation after reload.
+
 Each People listener runs one narrow subscription per published inbox relay
 with a recent history limit of 128 envelopes. The reply goes to the
 recipient's published inbox relays and the account keeps a copy on its own.
