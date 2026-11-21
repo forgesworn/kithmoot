@@ -7,7 +7,8 @@ import { NostrMessage, nostrMessageRecipient, type NostrMessageIdentity } from '
 function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promise<void>, allowsRelay?: (url: string) => boolean) {
   const sender = generateSecretKey(), recipient = generateSecretKey(), self = getPublicKey(sender), peer = getPublicKey(recipient)
   const now = Math.floor(Date.now() / 1000), wire: Event[] = [], encrypted: string[] = [], signed: number[] = []
-  let live = true, blocked = false, reject = false, mode: 'good' | 'forged' | 'refuse-copy' = 'good'
+  let live = true, blocked = false, reject = false
+  let mode: 'good' | 'forged' | 'refuse-copy' | 'sender-signing-timeout' = 'good'
   let beforeEncrypt = async () => {}
   const rejectRecipients = new Set<string>()
   const list = (author: Uint8Array, url: string, at = now) => finalizeEvent({ kind: 10050, created_at: at,
@@ -17,12 +18,13 @@ function fixture(rememberCopy?: (event: Event, current: () => boolean) => Promis
     encrypt: async (to, text, current) => {
       await beforeEncrypt(); if (!current()) throw Error('cancelled')
       encrypted.push(to)
-      if (mode === 'refuse-copy' && to === self) throw Error('refused')
+      if (mode === 'refuse-copy' && to === self) throw Error('permission not granted')
       return nip44.v2.encrypt(text, nip44.v2.utils.getConversationKey(sender, to))
     },
     signEvent: async (template, current) => {
       if (!current()) throw Error('cancelled')
       signed.push(template.kind)
+      if (mode === 'sender-signing-timeout' && encrypted.at(-1) === self) throw Error('nip46-sign_event-timeout')
       return finalizeEvent(mode === 'forged' ? { ...template, content: 'substituted' } : template, sender)
     },
   }
@@ -109,6 +111,38 @@ describe('separate ordinary Nostr text message', () => {
     const f = fixture(); f.mode(refusal)
     await f.message.review(f.peer, 'Not sent'); await f.message.send()
     expect(f.wire).toEqual([]); expect(f.message.snapshot().status).toContain('Nothing was sent')
+    expect(f.message.snapshot().status).toContain(refusal === 'forged' ? 'invalid seal' : 'refused to encrypt your inbox copy')
+  })
+  it('resumes signing the inbox copy after a signer timeout without repeating encryption or publishing early', async () => {
+    const kept: Event[] = []
+    const f = fixture(async event => { kept.push(event) })
+    const text = 'Retry the pending signature'
+    await f.message.review(f.peer, text)
+    f.mode('sender-signing-timeout')
+    await f.message.send()
+    expect(f.message.snapshot().status).toContain('did not answer the request to sign your inbox copy')
+    expect(f.message.snapshot().review?.text).toBe(text)
+    expect(kept).toEqual([]); expect(f.wire).toEqual([])
+
+    f.mode('good')
+    await f.message.send()
+    expect(f.encrypted).toEqual([f.peer, f.self])
+    expect(f.signed).toEqual([13, 13, 13])
+    expect(f.wire).toHaveLength(2); expect(kept).toEqual([f.wire[1]])
+    expect(unwrapEvent(f.wire[0]!, f.recipient)).toEqual(unwrapEvent(f.wire[1]!, f.sender))
+    expect(unwrapEvent(f.wire[0]!, f.recipient).content).toBe(text)
+  })
+  it('discards partially prepared copies when the draft is reviewed again', async () => {
+    const f = fixture()
+    await f.message.review(f.peer, 'Original draft')
+    f.mode('refuse-copy'); await f.message.send()
+    expect(f.wire).toEqual([])
+
+    f.mode('good')
+    await f.message.review(f.peer, 'Revised draft'); await f.message.send()
+    expect(f.wire).toHaveLength(2)
+    expect(unwrapEvent(f.wire[0]!, f.recipient).content).toBe('Revised draft')
+    expect(unwrapEvent(f.wire[1]!, f.sender).content).toBe('Revised draft')
   })
   it('stops at a changed account while encryption is pending', async () => {
     const f = fixture(); let release!: () => void

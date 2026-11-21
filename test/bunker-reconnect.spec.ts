@@ -22,7 +22,7 @@ async function fakeBunker(user: Uint8Array) {
   const secret = generateSecretKey()
   const pubkey = getPublicKey(secret)
   const relay = await Relay.connect(TEST_RELAY_WS)
-  const state = { awake: false, requests: 0, decryptedPeers: new Set<string>() }
+  const state = { awake: false, requests: 0, decryptedPeers: new Set<string>(), encryptions: 0, seals: 0, refuseSeal: 0 }
   relay.subscribe([{ kinds: [24133], '#p': [pubkey], since: Math.floor(Date.now() / 1000) - 5 }], {
     onevent: async (event: NostrEvent) => {
       state.requests++
@@ -30,9 +30,13 @@ async function fakeBunker(user: Uint8Array) {
       const key = getConversationKey(secret, event.pubkey)
       const request = JSON.parse(decrypt(event.content, key)) as { id: string; method: string; params: string[] }
       const answer = (result: string) => ({ id: request.id, result })
-      const reply = request.method === 'connect' ? answer('ack')
+      const template = request.method === 'sign_event' ? JSON.parse(request.params[0]!) : undefined
+      if (request.method === 'nip44_encrypt') state.encryptions++
+      const refused = template?.kind === 13 && ++state.seals === state.refuseSeal
+      const reply = refused ? { id: request.id, result: '', error: 'permission not granted' }
+        : request.method === 'connect' ? answer('ack')
         : request.method === 'get_public_key' ? answer(getPublicKey(user))
-        : request.method === 'sign_event' ? answer(JSON.stringify(finalizeEvent(JSON.parse(request.params[0]!), user)))
+        : request.method === 'sign_event' ? answer(JSON.stringify(finalizeEvent(template, user)))
         : request.method === 'nip44_encrypt' ? answer(encrypt(request.params[1]!, getConversationKey(user, request.params[0]!)))
         : request.method === 'nip44_decrypt' ? answer(decrypt(request.params[1]!, getConversationKey(user, request.params[0]!)))
         : request.method === 'ping' ? answer('pong')
@@ -104,7 +108,7 @@ test('Reconnect asks the stored bunker again rather than pairing a new signer', 
   }
 })
 
-test('People receives from an authenticated Nostr inbox and replies through its remote signer', async ({ browser, baseURL }) => {
+test('People receives from an authenticated Nostr inbox and retries a refused remote signer reply', async ({ browser, baseURL }) => {
   test.setTimeout(90_000)
   const user = generateSecretKey(), peer = generateSecretKey(), account = getPublicKey(user), sender = getPublicKey(peer)
   const bunker = await fakeBunker(user), relay = await Relay.connect(TEST_RELAY_WS)
@@ -112,6 +116,7 @@ test('People receives from an authenticated Nostr inbox and replies through its 
   const context = await device(browser, baseURL!, user, bunker.pubkey, inbox)
   try {
     bunker.state.awake = true
+    bunker.state.refuseSeal = 2
     const peerInbox = new URL('/__test-relay', baseURL); peerInbox.protocol = 'wss:'
     const now = Math.floor(Date.now() / 1000)
     await relay.publish(finalizeEvent({ kind: 10050, created_at: now, tags: [['relay', inbox]], content: '' }, user))
@@ -159,8 +164,16 @@ test('People receives from an authenticated Nostr inbox and replies through its 
     await page.locator('#nostrMessageText').fill('Reply from the remote signer')
     await page.locator('#nostrMessageReview').click()
     await page.locator('#nostrMessageSend').click()
+    await expect(page.locator('#nostrMessageStatus')).toContainText('refused to sign your inbox copy')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Nothing was sent')
+    await expect(page.locator('#nostrMessageText')).toHaveValue('Reply from the remote signer')
+    expect(replies).toEqual([])
+    const encryptions = bunker.state.encryptions
+    await page.getByRole('button', { name: 'Retry send', exact: true }).click()
     await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm')
     await expect.poll(() => replies.length).toBe(1)
+    expect(bunker.state.encryptions).toBe(encryptions)
+    expect(bunker.state.seals).toBe(3)
     expect(unwrapEvent(replies[0]!, peer)).toMatchObject({ kind: 14, pubkey: account, content: 'Reply from the remote signer' })
   } finally {
     await context.close(); relay.close(); bunker.close(); user.fill(0); peer.fill(0)
