@@ -53,6 +53,18 @@ html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudio
   grid-row: 1;
 }
 html[data-desktop][data-call-pane='controls']:not([data-call-docked]) #callAudioActivity .audioTrace { height: 16px; }
+/* Keep the named traces in one row above the short landscape call stage. */
+@media (orientation: landscape) and (max-height: 499px) and (max-width: 1024px) {
+  #callAudioActivity { grid-auto-columns: minmax(10rem, 1fr); }
+  #callAudioActivity .audioSignal {
+    grid-template-columns: minmax(0, 1fr) minmax(2rem, 1.5fr) auto;
+    grid-template-rows: minmax(16px, auto);
+    padding-block: .2rem;
+  }
+  #callAudioActivity .audioSignalState { grid-column: 3; }
+  #callAudioActivity :is(.audioTrace, .audioLevel) { grid-column: 2; grid-row: 1; }
+  #callAudioActivity .audioTrace { height: 16px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .audioTrace { display: none; }
   .audioLevel { display: block; }

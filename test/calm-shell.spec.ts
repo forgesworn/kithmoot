@@ -2678,7 +2678,7 @@ for (const width of [390, 1440]) {
       await expect(page.locator('#bothyRoomStatus')).toContainText('Activation closes this room’s public connections')
       await expect(page.locator('#bothyRoomRoute option')).toHaveCount(0)
       await page.getByRole('button', { name: 'Activate or resume room', exact: true }).click()
-      await expect(page.locator('#bothyRoomStatus')).toHaveText('Connect and pair your Bothy in Settings first.')
+      await expect(page.locator('#bothyRoomStatus')).toHaveText('Connect Bothy or save a standalone Wok relay in Settings first.')
       await page.locator('#bothyRoomClose').click()
       await openRoomInfoPage(page, 'Privacy and connection')
       await expect(page.locator('#infoSubPrivacy')).toHaveText('Encrypted · public relays')

@@ -5,6 +5,7 @@
   "changes": [
     "Open Public profile settings straight from Following. When you turn profiles on, the people you follow load in place.",
     "The update summary has its own space, so you can use the room controls while it’s open.",
-    "Room bookmark sync reports relay acceptance even when it finishes while the room is opening."
+    "Room bookmark sync reports relay acceptance even when it finishes while the room is opening.",
+    "On a phone in landscape, the call waveforms leave more room for the call controls."
   ]
 }

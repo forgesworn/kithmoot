@@ -1,6 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { collectAppDiagnostics } from './app-diagnostics.js'
 import { createRoom, inbound, join, joinWithMedia, newDeviceContext, open, openCall, SYNTHETIC_MIC } from './browser.js'
+import { nativeMicrophoneBrowser } from './native-microphone.js'
 
 test('measured audio stays visible without cameras, with playback muted and with reduced motion', async ({ browser, baseURL }, info) => {
   test.setTimeout(180_000)
@@ -61,17 +62,18 @@ test('measured audio stays visible without cameras, with playback muted and with
   } finally { await a.close(); await b.close() }
 })
 
-test('five callers keep independent microphone traces as speakers change and leave', async ({ browser, baseURL }, info) => {
+test('five callers keep independent microphone traces as speakers change and leave', async ({ playwright, browserName, baseURL }, info) => {
   test.setTimeout(180_000)
   const names = ['Ada', 'Bob', 'Kit', 'Rowan', 'Sam', 'Chat only']
-  const contexts = await Promise.all(names.map(() => newDeviceContext(browser, baseURL!)))
-  const pages = await Promise.all(contexts.map(async context => {
-    await context.addInitScript(SYNTHETIC_MIC, { silentOutput: true })
-    await context.addInitScript(() => localStorage.setItem('kithmoot.call.micOnJoin', 'off'))
-    return context.newPage()
-  }))
-  const [ada, bob, kit] = pages
+  const fixture = await nativeMicrophoneBrowser(playwright[browserName], info.project.use.launchOptions)
+  const pages: Page[] = []
   try {
+    for (const _ of names) {
+      const context = await newDeviceContext(fixture.browser, baseURL!)
+      await context.addInitScript(() => localStorage.setItem('kithmoot.call.micOnJoin', 'off'))
+      pages.push(await context.newPage())
+    }
+    const [ada, bob, kit] = pages
     const url = await createRoom(ada!, baseURL!)
     const strip = ada!.locator('#callAudioActivity')
     const card = (name: string) => strip.locator('.audioSignal').filter({ has: ada!.getByText(name, { exact: true }) })
@@ -93,7 +95,7 @@ test('five callers keep independent microphone traces as speakers change and lea
     await expect(state('Sam')).toHaveText('Off')
     const labels = await strip.locator('.audioSignalLabel').allTextContents()
 
-    for (const [index, page] of [ada!, bob!, kit!].entries()) {
+    for (const [index, page] of pages.slice(0, 3).entries()) {
       await page.locator('#toggleMic').click()
       await expect(page.locator('#callAudioActivity [data-audio-signal="mic"] .audioSignalState')).toHaveText('Speaking')
       await expect(state(index === 0 ? 'You' : names[index]!)).toHaveText('Speaking', { timeout: 25_000 })
@@ -126,6 +128,6 @@ test('five callers keep independent microphone traces as speakers change and lea
     }
     throw error
   } finally {
-    await Promise.all(contexts.map(context => context.close()))
+    await fixture.close()
   }
 })
