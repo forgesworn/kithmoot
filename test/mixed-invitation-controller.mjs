@@ -481,8 +481,18 @@ async function run(step,args) {
     while(await page.locator('#relayList button[aria-label^="Remove "]').count())await page.locator('#relayList button[aria-label^="Remove "]').first().click()
     await page.locator('#relayUrl').fill(runtimeConfig.publicRelay);await page.locator('#relayAddForm button[type=submit]').click();await page.locator('#relaySave').click();await page.locator('#relaySettingsClose').click()
     await settings();await page.locator('#settingsBack').click();await page.locator('#appProfileSettings').click()
-    await page.locator('#lookupProfiles').uncheck();await page.locator('#verifyAddresses').uncheck();await page.locator('#profileSettingsClose').click()
-    return {configured:true,publicProfiles:false,nip05:false,defaultRelaySha256:digest(runtimeConfig.publicRelay),blockedAttemptsBeforeConfiguration:blockedNetworkAttempts.length}
+    // Private invitations pause both public lookups and disable their controls (KithMoot 77cbeb70):
+    // a disabled control is accepted only in that mode, and is left as the product set it.
+    const network = (await accountNetworkState(page)).mode
+    const quiet = async id => {
+      const control = page.locator(`#${id}`)
+      if (!await control.isDisabled()) { await control.uncheck(); return 'unchecked' }
+      if (network !== 'private-invitations') throw new Error(`${id} is disabled outside private invitations`)
+      return 'paused-by-private-invitations'
+    }
+    const profileLookups = await quiet('lookupProfiles'), addressChecks = await quiet('verifyAddresses')
+    await page.locator('#profileSettingsClose').click()
+    return {configured:true,publicProfiles:false,nip05:false,profileLookups,addressChecks,accountNetwork:network,defaultRelaySha256:digest(runtimeConfig.publicRelay),blockedAttemptsBeforeConfiguration:blockedNetworkAttempts.length}
   }
   if(step==='reload-built-bark') {
     const p = await context.newPage(); await p.goto(`chrome-extension://${extension}/diagnostic.html`)
