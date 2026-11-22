@@ -2,7 +2,7 @@ import { sendLegacyAttachment } from './legacy-attachment-fixture.js'
 import AxeBuilder from '@axe-core/playwright'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
-import { allowTestFileStorage, closeSettings, openSettings } from './browser.js'
+import { allowTestFileStorage, closeProfileSettings, closeSettings, openProfileSettings, openSettings } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -288,6 +288,8 @@ test.describe.serial('attachment safety', () => {
     const origin = new URL(readerUrl).origin
     let sourceCopy: Buffer | undefined, uploadedCopy: Buffer | undefined, refused = true
     let uploads = 0
+    let releaseRefusal!: () => void
+    const delayedRefusal = new Promise<void>(resolve => { releaseRefusal = resolve })
     try {
       await view.page.evaluate(([key, value]) => localStorage.setItem(key!, value!), ['kithmoot.file-storage.v1', JSON.stringify({ mode: 'shared', disclosure: 3, origin, via: 'wildbloom' })])
       await view.context.route(url => url.origin === origin && url.pathname.startsWith('/blossom/'), async route => {
@@ -298,13 +300,27 @@ test.describe.serial('attachment safety', () => {
       await view.context.route(url => url.origin === origin && url.pathname === '/upload', async route => {
         uploads++
         uploadedCopy = route.request().postDataBuffer() ?? undefined
-        if (refused) return route.fulfill({ status: 403, body: '' })
+        if (refused) {
+          await delayedRefusal
+          return route.fulfill({ status: 403, body: '' })
+        }
         return route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
       })
       const c = await open(view.page, 'route-notes.txt')
       const save = c.getByRole('button', { name: 'Save to my Wildbloom route-notes.txt' })
       await expect(save).toBeVisible()
       await save.click()
+      await expect.poll(() => uploads).toBe(1)
+      await expect(c.locator('[data-copy-status]')).toContainText('Saving an encrypted copy')
+
+      // Changing how names are shown rebuilds the chat while the upload is in flight.
+      const originalCard = await c.elementHandle()
+      await openProfileSettings(view.page)
+      await view.page.locator('#lookupProfiles').uncheck()
+      await closeProfileSettings(view.page)
+      await expect.poll(() => originalCard.evaluate(card => card.isConnected)).toBe(false)
+      releaseRefusal()
+
       await expect(c.locator('[data-copy-status]')).toContainText('didn’t let this identity save the file')
       expect(uploads).toBe(1)
       refused = false
@@ -318,7 +334,10 @@ test.describe.serial('attachment safety', () => {
       const roomUploadRecords = await view.page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.uploads.v1.')))
       expect(roomUploadRecords).toEqual([])
       await c.screenshot({ path: testInfo.outputPath('wildbloom-copy-saved.png') })
-    } finally { await view.context.close() }
+    } finally {
+      releaseRefusal()
+      await view.context.close()
+    }
   })
 
   test('the own-Wildbloom action fits a 320-pixel attachment card', async ({ browser }, testInfo) => {

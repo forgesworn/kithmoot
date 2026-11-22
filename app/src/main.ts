@@ -12010,7 +12010,10 @@ function renderInvites(): void {
  *  leaves the log, and never before, so a re-render never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
 const attachmentEnvelopes = new Map<string, Blob>()
-interface AttachmentCopyState { origin: string; status: 'saving' | 'saved' | 'error'; detail: string }
+type AttachmentCopyState = { origin: string; detail: string } & (
+  | { status: 'saving'; showResult: () => void }
+  | { status: 'saved' | 'error' }
+)
 const attachmentCopies = new Map<string, AttachmentCopyState>()
 const liveAttachmentKeys = new Map<string, Set<string>>()
 const attachmentViewer = new AttachmentViewer()
@@ -12105,7 +12108,8 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   }
   const render = (focus?: 'first' | 'save' | 'copy'): void => {
     const copyOrigin = attachmentEnvelopes.has(key) ? ownFileServer(deviceFileDestination()) : ''
-    const copy = attachmentCopies.get(key)?.origin === copyOrigin ? attachmentCopies.get(key) : undefined
+    const state = attachmentCopies.get(key)
+    const copy = state?.origin === copyOrigin ? state : undefined
     paintAttachmentCard(card, {
       id: key.replace(/[^A-Za-z0-9_-]/g, '_'),
       index,
@@ -12137,6 +12141,11 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     }
     focusInto(focus)
   }
+  const showCopyResult = (): void => {
+    if (!card.isConnected) return
+    const hadFocus = document.activeElement === document.body || card.contains(document.activeElement)
+    render(hadFocus ? 'copy' : undefined)
+  }
   const saveToWildbloom = async (): Promise<void> => {
     const origin = ownFileServer(deviceFileDestination())
     const envelope = attachmentEnvelopes.get(key)
@@ -12148,17 +12157,21 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       }
     }
     const host = fileHost(origin)
-    attachmentCopies.set(key, { origin, status: 'saving', detail: `Saving an encrypted copy to ${host}…` })
+    const saving: AttachmentCopyState = {
+      origin, status: 'saving', detail: `Saving an encrypted copy to ${host}…`, showResult: showCopyResult,
+    }
+    attachmentCopies.set(key, saving)
     render()
+    let result: AttachmentCopyState
     try {
       await copyEnvelopeToWildbloom({ server: origin, envelope, sha256: a.sha256, identity, current })
-      if (!liveAttachmentKeys.get(logId)?.has(key)) return
-      attachmentCopies.set(key, { origin, status: 'saved', detail: `Saved to ${host}. It stays encrypted with the room’s key.` })
+      result = { origin, status: 'saved', detail: `Saved to ${host}. It stays encrypted with the room’s key.` }
     } catch (error) {
-      if (!liveAttachmentKeys.get(logId)?.has(key)) return
-      attachmentCopies.set(key, { origin, status: 'error', detail: attachmentCopyError(error, host) })
+      result = { origin, status: 'error', detail: attachmentCopyError(error, host) }
     }
-    render('copy')
+    if (attachmentCopies.get(key) !== saving || !liveAttachmentKeys.get(logId)?.has(key)) return
+    attachmentCopies.set(key, result)
+    saving.showResult()
   }
   const openAttachment = async (button: HTMLButtonElement): Promise<void> => {
     button.disabled = true
@@ -12212,6 +12225,9 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     const hadFocus = document.activeElement === document.body || card.contains(document.activeElement)
     render(hadFocus && opened ? 'first' : undefined)
   }
+  // Chat can replace this card before Wildbloom replies. Let the new card show the result.
+  const pendingCopy = attachmentCopies.get(key)
+  if (pendingCopy?.status === 'saving') pendingCopy.showResult = showCopyResult
   render()
   return card
 }
