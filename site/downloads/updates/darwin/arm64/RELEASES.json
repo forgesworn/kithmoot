@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.176",
+  "currentRelease": "0.1.177",
   "releases": [
     {
-      "version": "0.1.176",
+      "version": "0.1.177",
       "updateTo": {
-        "version": "0.1.176",
-        "name": "0.1.176",
-        "pub_date": "2026-11-21T15:57:32Z",
-        "notes": "Send an encrypted Nostr message from People with one button.\nSee whether an inbox relay accepted your message, the send is unconfirmed, or the draft stopped before sending. The conversation keeps the status on this device.\nRetry only the encrypted message or inbox copy that still needs confirmation.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.176/KithMoot-0.1.176-mac-arm64.zip",
-        "sha256": "51293f6f94779ee1c48e7939a7a9f816ef75bd86e2f2d703fe8effa2b6c887ec",
-        "size": 198986446
+        "version": "0.1.177",
+        "name": "0.1.177",
+        "pub_date": "2026-11-22T22:33:43Z",
+        "notes": "An encrypted file shows whether your Wildbloom accepted the save, even when the chat updates while it is saving. If the save fails, you can retry from the attachment.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.177/KithMoot-0.1.177-mac-arm64.zip",
+        "sha256": "1345313cfe8aeea70a0a49160913aac94f1b0222ff21b06c9599bce35785fba3",
+        "size": 198986132
       }
     }
   ]

@@ -204,8 +204,9 @@ test('People resolves a pasted npub to a signed profile and remembers it for a f
       content: JSON.stringify({ display_name: name }) }, peerKey)
     await publisher.publish(profile)
     await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    // The name can arrive through the existing profile subscription first.
+    await expect.poll(() => requests).toEqual([{ kinds: [0], authors: [peer], limit: 4 }])
     await expect(row).toContainText(name)
-    expect(requests).toEqual([{ kinds: [0], authors: [peer], limit: 4 }])
     await search.fill(name)
     await expect(row).toBeVisible()
     await expect.poll(() => page.evaluate(account => {
