@@ -18,8 +18,8 @@ describe('signed Zapstore download sources', () => {
     expect(verifiedDownloadUrls(asset(github, mirror), manifest)).toEqual([github, mirror])
   })
 
-  it('retains the existing content-addressed Zapstore source', () => {
-    const cdn = `https://cdn.zapstore.dev/${manifest.apkSha256}`
+  it.each(['', '.apk'])('accepts the exact content-addressed Zapstore path with suffix %j', suffix => {
+    const cdn = `https://cdn.zapstore.dev/${manifest.apkSha256}${suffix}`
     expect(verifiedDownloadUrls(asset(cdn), manifest)).toEqual([cdn])
   })
 
@@ -36,6 +36,7 @@ describe('signed Zapstore download sources', () => {
     mirror.replace('kithmoot.app', 'kithmoot.app@attacker.example'),
     `${mirror}?redirect=https://attacker.example`,
     mirror.replace(manifest.apkSha256, 'f'.repeat(64)),
+    `https://cdn.zapstore.dev/${'f'.repeat(64)}.apk`,
   ])('rejects a source outside this exact production artifact: %s', url => {
     expect(() => verifiedDownloadUrls(asset(url), manifest)).toThrow('Unexpected APK download URL')
   })
