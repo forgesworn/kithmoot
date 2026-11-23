@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.172",
-  "versionCode": 195,
+  "versionName": "0.6.173",
+  "versionCode": 196,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71467392,
-  "apkSha256": "95f1eb04554797017fe047f7ac26f1c299c5f3ef231efa47400c18b61a9264fc",
+  "apkBytes": 71483776,
+  "apkSha256": "a98d97dc15a0ef89ac689d8b23b30ecb3a0c1ecf9d8ef9b04595abfe1af0e9cb",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.172-production.apk",
+  "downloadFilename": "kithmoot-0.6.173-production.apk",
   "releaseNotes": [
-    "Turn public profiles on or off directly in People, without leaving the tab.",
-    "The People switch and Privacy settings share your saved choice.",
-    "Public profiles start on; an existing off choice is kept."
+    "Tap your avatar to see or switch personas. Add a persona from a compatible My Signet app.",
+    "In a room, use More to open Account or search. Switching keeps the draft with its original persona.",
+    "Back from Settings returns to the screen you opened it from."
   ]
 }
