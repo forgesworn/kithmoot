@@ -140,6 +140,7 @@ export class PeopleView {
     pane.classList.add('peoplePane')
 
     const head = document.createElement('div')
+    head.id = 'peopleListHead'
     head.className = 'listHead'
     const title = document.createElement('h2')
     title.id = 'peopleTitle'

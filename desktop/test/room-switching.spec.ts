@@ -10,7 +10,7 @@ import { HOME } from '../policy.mjs'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
 const relay = 'ws://127.0.0.1:17777'
 
-test('room switching keeps the desktop steady and does not wait for old-room farewell or TURN', async () => {
+test('room switching keeps the desktop steady and does not wait for old-room farewell or TURN', async ({}, info) => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-switch-'))
   const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
   let holdFarewell = false
@@ -37,6 +37,7 @@ test('room switching keeps the desktop steady and does not wait for old-room far
       })
     })
     const page = await app.firstWindow()
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1100, 800))
     await page.addInitScript(({ rooms, relay }) => {
       const originalFetch = window.fetch.bind(window)
       ;(window as any).holdTurn = false
@@ -71,7 +72,7 @@ test('room switching keeps the desktop steady and does not wait for old-room far
     holdFarewell = true
     await page.evaluate(() => { (window as any).holdTurn = true })
     const started = Date.now()
-    await page.locator('#workspaceRooms .workspaceRoomLink', { hasText: 'Workshop' }).click()
+    await page.getByRole('button', { name: 'Open Workshop', exact: true }).click()
     await expect(page.locator('#roomTitle')).toHaveText('Workshop', { timeout: 1800 })
     await expect(page.locator('#chatInput')).toBeEditable({ timeout: 1800 })
     const elapsed = Date.now() - started
@@ -82,11 +83,11 @@ test('room switching keeps the desktop steady and does not wait for old-room far
     expect(await page.evaluate(() => (window as any).visitMarker)).toBe('same document')
     await expect(page.locator('#chatInput')).toHaveValue('')
     await page.locator('#chatInput').fill('Workshop has its own draft')
-    await page.locator('#workspaceRooms .workspaceRoomLink', { hasText: 'Studio' }).click()
+    await page.getByRole('button', { name: 'Open Studio', exact: true }).click()
     await expect(page.locator('#chatInput')).toHaveValue('Studio draft stays in Studio')
-    await page.locator('#workspaceRooms .workspaceRoomLink', { hasText: 'Workshop' }).click()
+    await page.getByRole('button', { name: 'Open Workshop', exact: true }).click()
     await expect(page.locator('#chatInput')).toHaveValue('Workshop has its own draft')
-    await page.screenshot({ path: join(desktop, 'artifacts/room-switching.png') })
+    await page.screenshot({ path: info.outputPath('room-switching.png') })
     console.log(`Room ready in ${elapsed} ms with farewell ACK withheld and TURN delayed 4.5 seconds; drafts and document retained`)
   } finally {
     await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})
@@ -95,7 +96,7 @@ test('room switching keeps the desktop steady and does not wait for old-room far
   }
 })
 
-test('relay-only joining still waits for TURN and never falls back to direct media', async () => {
+test('relay-only rooms stay available for chat while calls require a usable TURN relay', async () => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-relay-only-'))
   const app = await electron.launch({ executablePath: join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'), args: [desktop], env: { ...process.env, KITHMOOT_DESKTOP_TEST_PROFILE: profile } })
   try {
@@ -126,8 +127,11 @@ test('relay-only joining still waits for TURN and never falls back to direct med
     await expect(page.locator('#roomArea')).toBeHidden()
     expect(await page.evaluate(() => (window as any).peerCount)).toBe(0)
     await page.evaluate(() => (window as any).releaseTurn())
-    await expect(page.locator('#status')).toContainText('Could not join')
-    await expect(page.locator('#roomArea')).toBeHidden()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect(page.locator('#chatInput')).toBeEditable()
+    await page.locator('#callToggle').click()
+    await expect(page.locator('#status')).toContainText('no usable TURN relay')
+    await expect(page.locator('#relayMissingNote')).not.toHaveAttribute('hidden', /.*/)
     expect(await page.evaluate(() => (window as any).peerCount)).toBe(0)
   } finally {
     await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})

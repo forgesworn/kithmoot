@@ -123,7 +123,7 @@ import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
-import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
+import { currentDestination, openDestination, openDetail, closeDetail, closeSettings, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
 import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
@@ -2219,6 +2219,7 @@ async function changePersona(prepare: () => Promise<PreparedPersona | undefined>
       else renderWayBack()
       dialog.close()
       ;($('personaLabel') as HTMLInputElement).value = ''
+      ;($('personaNameOption') as HTMLDetailsElement).open = false
       setStatus('Persona switched.', 'done')
     } catch (error) {
       if (previous && !nostrSession) showConnectedAccount(previous)
@@ -5088,54 +5089,79 @@ function personaName(pubkey: string): string {
 function renderPersonas(): void {
   const current = nostrSession?.pubkey ?? activeSavedPersona()?.pubkey
   const choices = (personaMenuSelection ?? personaSelection)?.personas ?? []
+  const busy = loginBusy || identityRestoring
   const enabled = !!current || choices.length > 0
+  const name = current ? personaName(current) : 'Personas'
   const trigger = $('railPersonas')
   trigger.hidden = !enabled
-  trigger.setAttribute('aria-label', current ? `Account menu for ${personaName(current)}` : 'Personas')
-  $('railPersonaLabel').textContent = current ? personaName(current) : 'Personas'
+  trigger.setAttribute('aria-label', current ? `Account menu for ${name}` : 'Personas')
+  $('railPersonaTip').textContent = name
   const avatar = current ? doorAvatar(current) : document.createElement('span')
   avatar.className = 'joinAvatar'
-  if (current) avatar.dataset.initial = [...personaName(current)][0]?.toLocaleUpperCase() ?? ''
+  if (current) avatar.dataset.initial = [...name][0]?.toLocaleUpperCase() ?? ''
   else avatar.textContent = '…'
   $('railPersonaAvatar').replaceChildren(avatar)
   $('doorPersonas').hidden = !enabled
-  const add = $('addSignetPersona') as HTMLButtonElement
-  add.disabled = loginBusy || identityRestoring
+  const others = choices.filter(persona => persona.pubkey !== current)
+  const names = others.map(persona => personaName(persona.pubkey))
+  $('personaCurrent').hidden = !current
+  $('personaCurrentName').textContent = current ? name : ''
+  const shortKey = (pubkey: string): string => `…${npubEncode(pubkey).slice(-8)}`
+  const currentKey = $('personaCurrentKey')
+  currentKey.hidden = !current || !names.includes(name)
+  currentKey.textContent = !currentKey.hidden && current ? shortKey(current) : ''
+  const reconnect = $('reconnectPersona') as HTMLButtonElement
+  reconnect.hidden = !!nostrSession || !current || !choices.some(persona => persona.pubkey === current)
+  reconnect.disabled = busy
+  ;($('addSignetPersona') as HTMLButtonElement).disabled = busy
+  ;($('personaLabel') as HTMLInputElement).disabled = busy
   ;($('personasClose') as HTMLButtonElement).disabled = loginBusy
+  $('personaSwitch').hidden = others.length === 0
   const list = $('personaChoices')
   const focused = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.persona : undefined
-  const rows = choices.map(persona => {
+  const rows = others.map((persona, index) => {
+    const label = names[index]!
     const button = document.createElement('button')
     button.type = 'button'
     button.dataset.persona = persona.pubkey
-    button.textContent = personaName(persona.pubkey)
-    button.disabled = loginBusy || identityRestoring || nostrSession?.pubkey === persona.pubkey
-    if (persona.pubkey === current) button.setAttribute('aria-current', 'true')
-    button.addEventListener('click', () => runPersonaAction(async () => {
-      await changePersona(async () => {
-        const opened = await restoreSavedPersona(persona.pubkey)
-        if (!opened) throw new Error(`Could not reconnect ${personaName(persona.pubkey)}. Open your signer or add this persona again.`)
-        return opened
-      })
-    }, `Connecting ${personaName(persona.pubkey)}…`))
+    button.textContent = label
+    button.disabled = busy
+    if (label === name || names.indexOf(label) !== names.lastIndexOf(label)) {
+      const key = document.createElement('small')
+      key.textContent = shortKey(persona.pubkey)
+      button.append(key)
+    }
+    button.addEventListener('click', () => selectPersona(persona.pubkey))
     return button
   })
   list.replaceChildren(...rows)
   if (focused) rows.find(row => row.dataset.persona === focused && !row.disabled)?.focus({ preventScroll: true })
 }
 
+function selectPersona(pubkey: string): void {
+  const label = personaName(pubkey)
+  runPersonaAction(() => changePersona(async () => {
+    const opened = await restoreSavedPersona(pubkey)
+    if (!opened) throw new Error(`Could not reconnect ${label}. Open your signer or add this persona again.`)
+    return opened
+  }), `Connecting ${label}…`)
+}
+
 function runPersonaAction(action: () => Promise<void>, progress: string): void {
   const status = $('personasStatus')
   status.textContent = progress
+  status.focus({ preventScroll: true })
   void action().then(() => {
     if (status.textContent === progress) status.textContent = ''
   }, error => { status.textContent = describeError(error) })
   renderPersonas()
 }
 
-function openPersonas(): void {
+let personasOpener: HTMLElement | undefined
+function openPersonas(from: HTMLElement): void {
   const dialog = $('personasDialog') as HTMLDialogElement
   if (dialog.open) return
+  personasOpener = from
   $('personasStatus').textContent = personaStorageError ? 'Saved signer connections are unavailable. Try opening Personas again.' : ''
   renderPersonas()
   dialog.showModal()
@@ -5147,12 +5173,32 @@ function openPersonas(): void {
   }, () => { $('personasStatus').textContent = 'Saved signer connections are unavailable.' })
 }
 
-for (const id of ['railPersonas', 'accountPersonas', 'doorPersonas']) $(id).addEventListener('click', openPersonas)
+for (const id of ['railPersonas', 'accountPersonas', 'doorPersonas']) $(id).addEventListener('click', () => openPersonas($(id)))
+$('reconnectPersona').addEventListener('click', () => {
+  const saved = activeSavedPersona()
+  if (saved) selectPersona(saved.pubkey)
+})
 $('personasClose').addEventListener('click', () => { if (!loginBusy) ($('personasDialog') as HTMLDialogElement).close() })
 $('personasDialog').addEventListener('cancel', event => { if (loginBusy) event.preventDefault() })
+$('personasDialog').addEventListener('close', () => {
+  const from = personasOpener
+  personasOpener = undefined
+  if (document.querySelector('dialog:modal')) return
+  const target = from?.getClientRects().length ? from : $('railPersonas')
+  if (target.getClientRects().length) target.focus({ preventScroll: true })
+})
 $('addSignetPersona').addEventListener('click', () => {
   const label = ($('personaLabel') as HTMLInputElement).value
   runPersonaAction(() => connectPersona(label), 'Waiting for My Signet…')
+})
+for (const event of ['pointerenter', 'focus']) $('railPersonas').addEventListener(event, () => {
+  delete $('railPersonas').dataset.tipDismissed
+})
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog:modal')) return
+  if (getComputedStyle($('railPersonaTip')).visibility !== 'visible') return
+  $('railPersonas').dataset.tipDismissed = ''
+  event.preventDefault()
 })
 
 /** The four faces of the door (design-calm stage 6). Decided here and
@@ -19400,7 +19446,10 @@ function renderRoomMenu(): void {
     menu => {
       if (callButtonInMenu() && $('callToggle').getAttribute('aria-label')) menuItem(menu, $('callToggle').getAttribute('aria-label')!, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
       menuItem(menu, 'Room info', () => openRoomSheet('main', $('roomMenu')), { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
-      if (window.matchMedia(NARROW_ROOM_BAR).matches) menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
+      if (window.matchMedia(NARROW_ROOM_BAR).matches) {
+        menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
+        if (!$('railPersonas').hidden) menuItem(menu, 'Switch persona…', () => openPersonas($('roomMenu')), { icon: 'people', action: 'persona' })
+      }
       if (model.invite) menuItem(menu, 'Invite people…', () => openInviteDialog(false), { icon: 'personAdd', action: 'invite' })
       if (model.agent) menuItem(menu, 'Add an agent…', addAnAgent, { icon: 'agent', action: 'agent' })
     },
@@ -21556,7 +21605,7 @@ const SETTINGS_PARENT: Readonly<Record<string, string>> = {
   files: 'privacy', callRelay: 'calls', callNode: 'calls', callSpry: 'calls', callServer: 'calls', callPublic: 'calls', callAdvanced: 'calls',
 }
 $('settingsBack').addEventListener('click', () => {
-  if (settingsPage === 'main') { openDestination('chats'); return }
+  if (settingsPage === 'main') { closeSettings(); return }
   const parent = SETTINGS_PARENT[settingsPage] ?? 'main'
   const opener = settingsPane.querySelector<HTMLElement>(`[data-settings-open="${settingsPage}"]`)
   if (parent === 'main') {
