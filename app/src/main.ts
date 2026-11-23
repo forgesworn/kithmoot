@@ -1550,6 +1550,31 @@ function joinIdentityNow(): string | undefined {
   return loadCredential()?.pubkey ?? currentParticipant()
 }
 
+/** A completed join is local evidence. A synced bookmark alone cannot say
+ *  which persona this device actually used. */
+function roomPersonaLastUsed(choices: readonly { pubkey: string }[] = personaSelection?.personas ?? []): string | undefined {
+  if (choices.length === 0 || !accountNetwork.nostr || visitorChosen()) return undefined
+  const roomId = currentRoomId()
+  const inviteId = roomInvitationCapability && deriveInvitationId(roomInvitationCapability)
+  if (!roomId && !inviteId) return undefined
+  const active = nostrSession?.pubkey ?? expectedAccount
+  let latest: { pubkey: string; joinedAt: number } | undefined
+  for (const { pubkey } of choices) {
+    const store = accountRoomStore(deviceStore, pubkey)
+    const room = roomId ? knownRoom(store, roomId) : knownRooms(store).find(room => {
+      try {
+        const { invitation } = parseRoomLink(room.link)
+        return invitation && invitation.inviter === roomInvitationCapability?.inviter && deriveInvitationId(invitation) === inviteId
+      } catch { return false }
+    })
+    if (!room || roomIsEnded(room) || room.joinedAs !== pubkey || room.joinedAt === undefined) continue
+    if (!latest || room.joinedAt > latest.joinedAt || (room.joinedAt === latest.joinedAt && pubkey === active)) {
+      latest = { pubkey, joinedAt: room.joinedAt }
+    }
+  }
+  return latest?.pubkey
+}
+
 /** The room on this page, when this device has joined it as the identity it
  *  would join with now - the one case a link goes straight in. With
  *  `provisional`, a saved sign-in that is still being restored counts as the
@@ -1560,6 +1585,8 @@ function joinedRoomHere(provisional = false): KnownRoom | undefined {
   const roomId = currentRoomId()
   if (!roomId) return undefined
   const now = joinIdentityNow()
+  const previousPersona = roomPersonaLastUsed()
+  if (previousPersona && previousPersona !== now) return undefined
   const room = knownRoom(roomStore(), roomId)
   // A room that has ended opens nothing: its door says what became of it.
   if (room && roomIsEnded(room)) return undefined
@@ -5101,7 +5128,12 @@ function renderPersonas(): void {
   if (current) avatar.dataset.initial = [...name][0]?.toLocaleUpperCase() ?? ''
   else avatar.textContent = '…'
   $('railPersonaAvatar').replaceChildren(avatar)
-  $('doorPersonas').hidden = !enabled
+  const door = $('doorPersonas')
+  door.hidden = !enabled
+  const previous = !session && !$('identity').hidden ? roomPersonaLastUsed(choices) : undefined
+  const suggestion = previous && previous !== current ? previous : undefined
+  const doorLabel = suggestion ? `Switch persona · ${personaName(suggestion)} was last used here` : 'Switch persona'
+  if (door.textContent !== doorLabel) door.textContent = doorLabel
   const others = choices.filter(persona => persona.pubkey !== current)
   const names = others.map(persona => personaName(persona.pubkey))
   $('personaCurrent').hidden = !current
@@ -5130,6 +5162,11 @@ function renderPersonas(): void {
       const key = document.createElement('small')
       key.textContent = shortKey(persona.pubkey)
       button.append(key)
+    }
+    if (persona.pubkey === suggestion && personasOpener === door) {
+      const note = document.createElement('small')
+      note.textContent = 'Last used in this room'
+      button.append(note)
     }
     button.addEventListener('click', () => selectPersona(persona.pubkey))
     return button
