@@ -7,6 +7,7 @@ export function verifiedDownloadUrls(asset, manifest) {
   const { apkSha256: hash, versionName: version, downloadFilename: filename } = manifest
   const allowed = new Set([
     `https://cdn.zapstore.dev/${hash}`,
+    `https://cdn.zapstore.dev/${hash}.apk`,
     `https://github.com/forgesworn/kithmoot-android/releases/download/v${version}/${filename}`,
     ...['kithmoot.app', 'kithmoot.forgesworn.dev'].flatMap(host => [
       `https://${host}/apk/${filename}`,
