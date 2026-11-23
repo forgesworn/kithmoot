@@ -1,4 +1,5 @@
 import { test, expect, type Browser } from '@playwright/test'
+import { build } from 'esbuild'
 import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
 import { dmPolicy } from '../src/dm.js'
 import { NostrRelayPool } from '../src/relay-pool.js'
@@ -7,6 +8,8 @@ import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
 import { openNewRoomForm, openProfileSettings, nameCreator } from './browser.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
+import { ORDINARY_SIGNET_KEYS } from '../app/src/ordinary-signet-snapshot.js'
+import type { PersonaConnection } from '../app/src/persona-store.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -81,6 +84,66 @@ test('the account avatar reveals the persona name on hover, focus and activation
     await avatar.click()
     await expect(dialog.getByText('Work', { exact: true })).toBeVisible()
   } finally { pool.close(); await context.close() }
+})
+
+test('an invitation suggests the last persona used here and waits for explicit entry', async ({ browser, baseURL }) => {
+  const personalKey = generateSecretKey(), workKey = generateSecretKey()
+  const activeKey = personalKey.slice()
+  const context = await accountDevice(browser, baseURL!, activeKey)
+  const seedPage = new URL('/__persona-fixture', baseURL!).href
+  try {
+    await context.route(seedPage, route => route.fulfill({ contentType: 'text/html', body: '<!doctype html>' }))
+    const page = await context.newPage()
+    await page.goto(seedPage)
+    const fixture = await build({
+      stdin: { contents: 'export { PersonaStore } from "./app/src/persona-store.ts"', resolveDir: process.cwd() },
+      bundle: true, format: 'iife', globalName: 'TestPersonas', write: false,
+    })
+    await page.addScriptTag({ content: fixture.outputFiles[0]!.text })
+    const origin = new URL(baseURL!).origin
+    const at = Math.floor(Date.now() / 1000)
+    const connection = (key: Uint8Array, label: string): PersonaConnection => {
+      const pubkey = getPublicKey(key)
+      const proof = finalizeEvent({ kind: 21236, created_at: at,
+        tags: [['challenge', 'a'.repeat(64)], ['origin', origin], ['app', 'KithMoot']], content: '' }, key)
+      return { pubkey, label, method: 'nip07', session: {
+        [ORDINARY_SIGNET_KEYS.pubkey]: pubkey, [ORDINARY_SIGNET_KEYS.method]: 'nip07',
+        [ORDINARY_SIGNET_KEYS.authEvent]: JSON.stringify(proof),
+      } }
+    }
+    const work = connection(workKey, 'Work'), personal = connection(personalKey, 'Personal')
+    const relay = new URL('/__test-relay', baseURL!); relay.protocol = 'wss:'
+    const secret = generateRoomSecret(), roomId = deriveRoom(secret).roomId
+    const link = encodeJoinUrl(baseURL!, secret, [relay.href])
+    await page.evaluate(async ({ work, personal, roomId, link, at }) => {
+      const { PersonaStore } = (window as unknown as { TestPersonas: typeof import('../app/src/persona-store.js') }).TestPersonas
+      const store = new PersonaStore(location.origin)
+      await store.add(work)
+      await store.add(personal)
+      for (const persona of [personal, work]) {
+        localStorage.setItem(`kithmoot.account.${persona.pubkey}.kithmoot.room.${roomId}`, JSON.stringify({
+          roomId, link, openedAt: at - 120, joinedAt: persona === work ? at - 60 : at - 120, joinedAs: persona.pubkey,
+        }))
+      }
+    }, { work, personal, roomId, link, at })
+
+    await page.goto(link)
+    await expect(page.getByRole('button', { name: /Switch persona.*Work was last used here/ })).toBeVisible()
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await page.locator('#doorPersonas').click()
+    const choice = page.getByRole('button', { name: 'Work Last used in this room' })
+    await expect(choice).toBeVisible()
+    activeKey.set(workKey)
+    await page.evaluate(pubkey => { window.nostr!.getPublicKey = async () => pubkey }, work.pubkey)
+    await choice.click()
+    await expect(page.getByRole('dialog', { name: 'Personas' })).toBeHidden()
+    await expect(page.locator('#railPersonas')).toHaveAttribute('aria-label', 'Account menu for Work')
+    await expect(page.locator('#roomArea')).toBeHidden()
+    await page.locator('#join').click()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await expect.poll(() => page.evaluate(({ roomId, owner }) => JSON.parse(localStorage.getItem(`kithmoot.account.${owner}.kithmoot.room.${roomId}`)!).joinedAt,
+      { roomId, owner: work.pubkey })).toBeGreaterThan(at - 60)
+  } finally { await context.close() }
 })
 
 test('compact navigation keeps the account within reach in People, Boards and a chat', async ({ browser, baseURL }) => {
