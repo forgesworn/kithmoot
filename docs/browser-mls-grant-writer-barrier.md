@@ -1,7 +1,7 @@
 # Browser grant-writer barrier foundation
 
 This implements the dormant grant-storage foundation specified in
-[Vennel #213](https://github.com/forgesworn/vennel/pull/213). No application
+Vennel #213. No application
 runtime constructs `BrowserMlsGrantCustody` yet. Wiring the foreground owner
 and every grant operation requires a separate reviewed composition change.
 Production MLS, terminal no-live lapse and pruning remain disabled.

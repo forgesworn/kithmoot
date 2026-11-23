@@ -34,9 +34,9 @@ test('operator preview masks capability URLs, keys, tokens and prospective scala
   const hex='ab'.repeat(32)
   const token='private_encoded-token_1234567890abcd/next'
   const scalar='Moss room October 25'
-  const message=`Cannot open ${cap}; ${nsec}; ${hex}; ${token}; ${scalar}; https://localhost:28445/j/?cap=brief; file:///Users/darren/private/data`
+  const message=`Cannot open ${cap}; ${nsec}; ${hex}; ${token}; ${scalar}; https://localhost:28445/j/?cap=brief; file:///Users/alice/private/data`
   const preview=redactedMessagePreview(message,[scalar])
-  for(const secret of [cap,nsec,hex,token,scalar,'brief','/Users/darren/private/data'])assert.equal(preview.includes(secret),false)
+  for(const secret of [cap,nsec,hex,token,scalar,'brief','/Users/alice/private/data'])assert.equal(preview.includes(secret),false)
   assert.ok(preview.startsWith('Cannot open '))
   assert.ok(preview.length<=300)
   assert.equal(redactedMessagePreview('x'.repeat(500)).length<=300,true)
