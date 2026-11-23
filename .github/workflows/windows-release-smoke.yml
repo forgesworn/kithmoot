@@ -5,7 +5,7 @@ on:
     branches: [test/windows-0.1.179]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   exact-portable-build:
@@ -26,6 +26,7 @@ jobs:
         run: |
           $candidate = Join-Path $env:RUNNER_TEMP 'km-candidate.zip'
           gh api -H 'Accept: application/octet-stream' "repos/forgesworn/kithmoot/releases/assets/$env:ASSET_ID" > $candidate
+          if ($LASTEXITCODE) { throw "GitHub did not return the draft archive" }
           $sha = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($sha -ne $env:ARCHIVE_SHA256) { throw "Windows archive SHA-256 differs: $sha" }
           Write-Output "Verified archive SHA-256 $sha"
