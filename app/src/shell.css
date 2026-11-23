@@ -131,6 +131,13 @@ body:has(#roomArea:not([hidden])) .skipRoom { display: inline-block; }
   line-height: 1;
 }
 .railEnd { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
+#railPersonaAvatar .joinAvatar {
+  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  overflow: hidden; position: relative; background: var(--selected);
+}
+#railPersonaAvatar .joinAvatar::before { content: attr(data-initial); }
+#railPersonaAvatar .joinAvatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.personaChoices { display: grid; gap: var(--s1); margin-bottom: var(--s2); }
 
 /* ---- The list column ---------------------------------------------------- */
 

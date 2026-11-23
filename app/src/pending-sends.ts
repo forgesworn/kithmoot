@@ -172,7 +172,7 @@ export const CONNECT_POLL_MS = 1_000
  * later than this after its `created_at`. Raise it and the skew must grow.
  */
 export const UNSENT_AUTO_RETRY_LIMIT_SECONDS = 24 * 60 * 60
-const PREFIX = 'kithmoot.pending.'
+export const PENDING_SEND_PREFIX = 'kithmoot.pending.'
 /** A reload keeps this many unsent messages a room, newest last. */
 export const MAX_KEPT = 50
 
@@ -244,8 +244,8 @@ export class PendingSends {
     if (!!opts.store === !!opts.storage) throw new Error('choose exactly one pending-message storage owner')
     this.#opts = { now: () => Date.now(), onChange: () => {}, ...opts }
     this.#storage = opts.storage ?? {
-      load: async room => ({ durable: opts.store!.get(PREFIX + room), transient: null }),
-      retain: async (room, encoded) => { if (encoded === null) opts.store!.remove(PREFIX + room); else opts.store!.set(PREFIX + room, encoded) },
+      load: async room => ({ durable: opts.store!.get(PENDING_SEND_PREFIX + room), transient: null }),
+      retain: async (room, encoded) => { if (encoded === null) opts.store!.remove(PENDING_SEND_PREFIX + room); else opts.store!.set(PENDING_SEND_PREFIX + room, encoded) },
     }
   }
   #version(room: string): number { return this.#versions.get(room) ?? 0 }
