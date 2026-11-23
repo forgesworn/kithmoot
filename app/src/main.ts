@@ -100,7 +100,7 @@ import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
+import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, PENDING_SEND_PREFIX, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, deliveryLine, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter, type ReceiptPublisher } from '../../src/delivery-receipt-writer.js'
@@ -143,7 +143,11 @@ import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, late
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft, type FileTrayFailure } from './drafts.js'
 import {
+  CREDENTIAL_PREFIX,
   DEVICE_PREFIX,
+  KEPT_ADMISSION_PREFIX,
+  OWN_CREDENTIAL_PREFIX,
+  OWN_SEAL_PREFIX,
   browserDeviceStore,
   deviceKeyFor,
   forgetCredentialFor,
@@ -156,6 +160,7 @@ import {
   loadKeptAdmission,
   loadOwnCredentialFor,
   loadOwnSealKeysFor,
+  personaDeviceStore,
   storeCredentialFor,
   storeOwnCredentialFor,
   storeKeptAdmission,
@@ -419,6 +424,9 @@ import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-l
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
+import { PersonaSessionStorage, PersonaStore, personaConnection, forgetLegacyPersonaConnection,
+  type PersonaConnection, type PersonaSelection } from './persona-store.js'
+import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { captureBarkRendezvous, barkRendezvousFor } from './mls-bark-rendezvous.js'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
@@ -508,7 +516,13 @@ let linkArrivalOver = false
 /** This device's unsent messages, kept across a reload for ordinary chat,
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
 const pendingSends = new PendingSends({
-  store: browserDeviceStore(localStorage),
+  // Closing a room releases its queue before the selected store can change.
+  store: {
+    get: key => roomDeviceStore().get(key),
+    set: (key, value) => roomDeviceStore().set(key, value),
+    remove: key => roomDeviceStore().remove(key),
+    keys: () => roomDeviceStore().keys(),
+  },
   onStorageHold: () => setStatus('Your message is held because this browser could not save its state. Check local storage, then retry.'),
   // Browser connectivity is only a heuristic: a local relay can remain
   // reachable without an internet-facing interface. Use the active route's
@@ -1571,7 +1585,7 @@ function loadParticipantKey(): Uint8Array | undefined {
 
 function loadCredential(): DeviceCredential | undefined {
   const roomId = currentRoomId()
-  const credential = roomId ? loadCredentialFor(deviceStore, roomId) : undefined
+  const credential = roomId ? loadCredentialFor(roomDeviceStore(), roomId) : undefined
   // Signing in chooses an identity. A paired credential belongs to its
   // issuer and must never silently put that account in as somebody else.
   return credential && (!nostrSession || credential.pubkey === nostrSession.pubkey) ? credential : undefined
@@ -1580,14 +1594,15 @@ function loadCredential(): DeviceCredential | undefined {
 function storeCredential(credential: DeviceCredential): void {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to keep a credential for')
-  storeCredentialFor(deviceStore, roomId, credential)
+  storeCredentialFor(roomDeviceStore(), roomId, credential)
 }
 
 function forgetCredential(): void {
   const roomId = currentRoomId()
   if (!roomId) return
-  forgetCredentialFor(deviceStore, roomId)
-  forgetOwnCredentials(deviceStore, roomId)
+  const store = roomDeviceStore()
+  forgetCredentialFor(store, roomId)
+  forgetOwnCredentials(store, roomId)
 }
 
 /** This device's own key for the current room, kept across loads so a
@@ -1598,7 +1613,7 @@ function deviceKey(): Uint8Array {
   if (nodeRoom) return nodeRoom.deviceSk.slice()
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to hold a device key for')
-  return deviceKeyFor(deviceStore, roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
+  return deviceKeyFor(roomDeviceStore(), roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
 }
 
 /** The participant key, minting one on first use - but never on a device
@@ -1617,6 +1632,81 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+const PERSONA_TAB_ACCOUNT = 'kithmoot.persona-tab'
+const PERSONAS_PRESENT = 'kithmoot.personas.v1'
+let personaVault: PersonaStore | undefined
+let personaSelection: PersonaSelection | undefined
+let personaMenuSelection: PersonaSelection | undefined
+let personaStorageError = false
+function personaStore(): PersonaStore { return personaVault ??= new PersonaStore(location.origin) }
+
+function expectingSavedPersonas(): boolean {
+  try { return localStorage.getItem(PERSONAS_PRESENT) === '1' || sessionStorage.getItem(PERSONA_TAB_ACCOUNT) !== null }
+  catch { return false }
+}
+
+function activeSavedPersona() {
+  const pubkey = nostrSession?.pubkey ?? expectedAccount
+  return personaSelection?.personas.find(persona => persona.pubkey === pubkey)
+}
+
+function roomDeviceStore(store = deviceStore, pubkey = nostrSession?.pubkey ?? (activeSavedPersona() && !visitorChosen() ? expectedAccount : undefined)) {
+  return personaSelection && pubkey ? personaDeviceStore(store, pubkey) : store
+}
+
+/** Carry the original sign-in's saved access into its persona. Retire
+ * matching local records only after the encrypted signer selection commits. */
+function migratePersonaRoomAccess(pubkey: string): () => void {
+  const target = personaDeviceStore(deviceStore, pubkey)
+  const tab = browserDeviceStore(sessionStorage)
+  const tabTarget = personaDeviceStore(tab, pubkey)
+  const retire: Array<() => void> = []
+  const copy = (source: typeof deviceStore, destination: typeof deviceStore, keys: string[], owned = false) => {
+    for (const key of keys) {
+      const value = source.get(key)
+      if (value === null) continue
+      if (destination.get(key) === null) destination.set(key, value)
+      if (owned) retire.push(() => {
+        if (source.get(key) === value && destination.get(key) === value) source.remove(key)
+      })
+    }
+  }
+  copy(deviceStore, target, [NAME_STORAGE_KEY])
+  for (const room of knownRooms(accountRoomStore(deviceStore, pubkey))) {
+    if (room.joinedAs && room.joinedAs !== pubkey) continue
+    const held = loadCredentialFor(deviceStore, room.roomId) ?? loadOwnCredentialFor(deviceStore, room.roomId, 0)
+    if (held && held.pubkey !== pubkey) continue
+    const owned = held?.pubkey === pubkey || room.joinedAs === pubkey
+    const keys = [DEVICE_PREFIX, CREDENTIAL_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, PENDING_SEND_PREFIX].map(prefix => prefix + room.roomId)
+    if (owned) {
+      copy(deviceStore, target, keys, true)
+      copy(tab, tabTarget, keys, true)
+    }
+    let invitation: RoomInvitation | undefined
+    try { invitation = parseRoomLink(room.link).invitation } catch { /* Node rooms already scope their access by account. */ }
+    if (invitation) {
+      const id = deriveInvitationId(invitation)
+      if (owned) copy(deviceStore, target, [INVITATION_OWNER_PREFIX + id], true)
+      copy(deviceStore, target, [KEPT_ADMISSION_PREFIX + id], owned)
+      if (owned) copy(tab, tabTarget, [ADMISSION_CACHE_PREFIX + id], true)
+    }
+  }
+  return () => { for (const remove of retire) remove() }
+}
+
+function keepPersonaSelection(selection: PersonaSelection, pubkey: string | null): void {
+  personaSelection = selection
+  personaMenuSelection = selection
+  personaStorageError = false
+  expectedAccount = pubkey ?? undefined
+  expectedMethod = selection.personas.find(persona => persona.pubkey === pubkey)?.method
+  try {
+    sessionStorage.setItem(PERSONA_TAB_ACCOUNT, pubkey ?? '')
+    localStorage.setItem(PERSONAS_PRESENT, '1')
+    localStorage.removeItem(ACCOUNT_STORAGE_KEY)
+    localStorage.removeItem(ACCOUNT_METHOD_STORAGE_KEY)
+  } catch { /* The selected connection is already committed in the vault. */ }
+}
 let nostrMessagePanel: NostrMessagePanel | undefined
 let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
@@ -1663,6 +1753,19 @@ function storeName(name: string): void {
   else localStorage.removeItem(NAME_STORAGE_KEY)
 }
 
+function typedJoiningName(): string {
+  const store = roomDeviceStore()
+  return store === deviceStore ? typedName : sanitiseDisplayName(store.get(NAME_STORAGE_KEY)) ?? ''
+}
+
+function storeJoiningName(name: string): void {
+  const store = roomDeviceStore()
+  if (store === deviceStore) { storeName(name); return }
+  const cleaned = sanitiseDisplayName(name)
+  if (cleaned) store.set(NAME_STORAGE_KEY, cleaned)
+  else store.remove(NAME_STORAGE_KEY)
+}
+
 /**
  * The name this device joins under.
  *
@@ -1681,7 +1784,7 @@ function joiningName(): string | undefined {
     const remembered = lastKnownProfileNames.get(nostrSession.pubkey)
     if (remembered) return remembered
   }
-  return typedName || (nodeRoom ? 'Guest' : undefined)
+  return typedJoiningName() || (nodeRoom ? 'Guest' : undefined)
 }
 
 /**
@@ -1712,13 +1815,14 @@ function accountPassForRoom(): DeviceCredential | undefined {
   if (!roomId || !expectedAccount || nostrSession) return undefined
   try {
     const now = nowSeconds()
-    const pass = loadOwnCredentialFor(deviceStore, roomId, now)
+    const store = roomDeviceStore()
+    const pass = loadOwnCredentialFor(store, roomId, now)
     if (!pass || pass.pubkey !== expectedAccount) return undefined
     // A pass naming a seal key whose secret is not kept here is one the
     // session will not resume (nothing sealed to it would open), and with
     // no signer it could not mint another.
     const seal = credentialSeal(pass)
-    if (typeof seal === 'string' && !loadOwnSealKeysFor(deviceStore, roomId).some(sk => getPublicKey(sk) === seal)) return undefined
+    if (typeof seal === 'string' && !loadOwnSealKeysFor(store, roomId).some(sk => getPublicKey(sk) === seal)) return undefined
     const expiresAt = Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1])
     return expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? pass : undefined
   } catch {
@@ -1840,20 +1944,26 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) void pauseBrowserMls().catch(() => undefined)
-    nostrSession = account
-    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
-    browserRoomRoutes.resume()
-    rememberAccount(account)
-    startRoomBookmarks(account)
-    closedRoomKeepers.refresh()
-    wantProfiles([account.pubkey], 'public')
-    renderIdentity()
-    renderNudgeChoice()
+    showConnectedAccount(account)
     // A room may already be open on this account's pass. Invitations that
     // arrived while its signer was unavailable have not been decrypted yet.
     if (session?.participant === account.pubkey) void handleInvites(conversationMessages(undefined))
     return true
   })
+}
+
+function showConnectedAccount(account: SignetSession): void {
+  nostrSession = account
+  if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
+  browserRoomRoutes.resume()
+  if (personaSelection) {
+    expectedAccount = account.pubkey
+    expectedMethod = account.signer.method
+  } else rememberAccount(account)
+  startRoomBookmarks(account)
+  closedRoomKeepers.refresh()
+  wantProfiles([account.pubkey], 'public')
+  renderIdentity()
 }
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
@@ -1868,6 +1978,7 @@ function reachStoredSignerOnSignetRelay(): void {
 }
 
 function storedBunkerSession(): boolean {
+  if (personaSelection) return activeSavedPersona()?.method === 'bunker'
   try {
     return localStorage.getItem('signet:login.method') === 'bunker' && !!localStorage.getItem('signet:login.bunkerUri')
   } catch { return false }
@@ -1907,8 +2018,11 @@ function retryStoredBunker(): Promise<boolean> {
   if ((session || joining) && session?.participant !== expectedAccount) return Promise.resolve(false)
   const generation = identityGeneration
   bunkerRetryAt = Date.now()
-  reachStoredSignerOnSignetRelay()
-  bunkerRetry = restoreSession()
+  if (!personaSelection) reachStoredSignerOnSignetRelay()
+  const restore = personaSelection && expectedAccount
+    ? restoreSavedPersona(expectedAccount).then(opened => opened?.account ?? null)
+    : restoreSession()
+  bunkerRetry = restore
     .then(async (restored) => {
       if (!restored) return false
       const current = generation === identityGeneration && !nostrSession && !loginBusy
@@ -1959,7 +2073,184 @@ async function reconnectNostr(): Promise<void> {
   await signInWithNostr()
 }
 
+interface PreparedPersona {
+  account: SignetSession
+  connection?: PersonaConnection
+  saved?: PersonaConnection
+}
+
+async function restoreSavedPersona(pubkey: string): Promise<PreparedPersona | undefined> {
+  const saved = await personaStore().connection(pubkey)
+  if (!saved) return undefined
+  const storage = new PersonaSessionStorage(saved.session)
+  const uri = storage.getItem(ORDINARY_SIGNET_KEYS.bunkerUri)
+  const onSignetRelay = uri && withSignetRelay(uri)
+  if (onSignetRelay) storage.setItem(ORDINARY_SIGNET_KEYS.bunkerUri, onSignetRelay)
+  const account = await restoreSession({ storage })
+  if (account?.pubkey !== pubkey || !account.signer.capabilities.canSignEvents) {
+    await account?.signer.close().catch(() => {})
+    return undefined
+  }
+  try {
+    const connection = personaConnection(storage, pubkey, saved.label, location.origin)
+    if (!connection) throw new Error('The signer did not return the saved persona.')
+    const displayName = connection.session[ORDINARY_SIGNET_KEYS.displayName]
+    return { account: displayName ? { ...account, displayName } : account, connection, saved }
+  } catch (error) {
+    await account.signer.close().catch(() => {})
+    throw error
+  }
+}
+
+async function connectPersona(label: string, signetOnly = true): Promise<void> {
+  await changePersona(async () => {
+    await personaStore().selection()
+    const storage = new PersonaSessionStorage()
+    const account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS), storage,
+      methods: signetOnly ? ['local-signet', 'remote-signet'] : ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
+    if (!account) return undefined
+    try {
+      if (!account.signer.capabilities.canSignEvents) {
+        throw new Error('Your identity was approved. Turn on Bunker in My Signet and approve a signing connection.')
+      }
+      const connection = personaConnection(storage, account.pubkey, label, location.origin)
+      if (!connection && account.method !== 'nsec') throw new Error('Your signer did not return a connection KithMoot could save.')
+      return { account, connection }
+    } catch (error) {
+      await account.signer.close().catch(() => {})
+      throw error
+    }
+  })
+}
+
+async function changePersona(prepare: () => Promise<PreparedPersona | undefined>): Promise<void> {
+  return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
+    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+      throw new Error('Finish the current room action or board edits before switching personas.')
+    }
+    loginBusy = true
+    const previous = nostrSession, generation = identityGeneration
+    let prepared: PreparedPersona | undefined
+    let closingRoom = false
+    let routesPaused = false
+    let reopenDoor = false
+    const dialog = $('personasDialog') as HTMLDialogElement
+    dialog.setAttribute('data-keep-open', '')
+    try {
+      prepared = await prepare()
+      if (!prepared || generation !== identityGeneration || nostrSession !== previous) return
+      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+        throw new Error('Finish the current room action or board edits before switching personas.')
+      }
+      if (!await confirmLeavingWaitingMessage()) return
+      if ((callIsLive() || onCall() || dockedCall) && !await confirmRoomAction({
+        title: 'Leave the call and switch personas?',
+        message: 'Switching ends this call and turns off your microphone and camera.',
+        confirmLabel: 'Leave and switch',
+      })) return
+      if (generation !== identityGeneration || nostrSession !== previous || switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) return
+
+      const legacyKey = previous?.pubkey ?? expectedAccount
+      const legacy = !personaSelection && !personaStorageError && legacyKey
+        ? personaConnection(localStorage, legacyKey, shownAs(legacyKey).name ?? '', location.origin) : undefined
+      const hadRoom = !!session || !!dockedCall
+      reopenDoor = !hadRoom && !$('identity').hidden && location.hash.length > 1
+      if (hadRoom || reopenDoor) {
+        switchingRoom = closingRoom = true
+        if (session) captureDraft()
+        await closeRoomSession()
+        await endDockedCall()
+        resetRoomState()
+        outbox.render()
+        $('roomArea').hidden = true
+        pendingJoin = false
+        visitorChosenKey = undefined
+        previousRoom = switchDestination = undefined
+        $('returnToPreviousRoom').hidden = true
+        if (hadRoom) history.replaceState(null, '', joinLinkBase())
+        else await roomArrival.catch(() => {})
+      }
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
+      browserRoomRoutes.pause()
+      routesPaused = true
+      await browserLinkPanel.stop()
+      await boardsPanel?.reset()
+      await closeRoomBoardCatalogues()
+      workspaceWork?.reset()
+      closeContextPanel()
+      participantCard.close()
+      packGrant = undefined
+      ++identityGeneration
+      admissionController?.abort()
+      clearImportedHistorySearch()
+      historyRecoveryView = { status: '', rows: [] }
+      relayConnections.clearAuthentication()
+      stopSpryAccountSync()
+      bookmarks?.close(); bookmarks = undefined
+      readSync?.close(); readSync = undefined
+      lastRoomOrder = undefined
+      for (const room of roomWatches.keys()) stopWatching(room)
+      closeContactInbox()
+      nostrSession = undefined
+      closedRoomKeepers.refresh()
+      await sharedProjects.detach()
+
+      const { account, connection, saved } = prepared
+      const retireLegacyRoomAccess = legacy && migratePersonaRoomAccess(legacy.pubkey)
+      const selection = saved && connection ? await personaStore().select(saved, connection)
+        : connection ? await personaStore().add(connection, legacy) : await personaStore().disconnect()
+      keepPersonaSelection(selection, connection?.pubkey ?? null)
+      forgetWayBack()
+      try { retireLegacyRoomAccess?.() } catch { /* The moved records are already saved. */ }
+      // Remove the previous SDK location only after protected storage is confirmed.
+      try {
+        if (legacy && localStorage.getItem(ORDINARY_SIGNET_KEYS.authEvent) === legacy.session[ORDINARY_SIGNET_KEYS.authEvent]) {
+          forgetLegacyPersonaConnection(localStorage)
+        }
+      } catch { /* The encrypted connection has committed. */ }
+      clearTimeout(bunkerRetryTimer)
+      bunkerRetryTimer = undefined
+      bunkerRetryDelay = bunkerRetryAt = 0
+      bunkerRetryForeign = false
+      await previous?.signer.close().catch(() => {})
+      showConnectedAccount(account)
+      if (hadRoom) showRoomsList()
+      else renderWayBack()
+      dialog.close()
+      ;($('personaLabel') as HTMLInputElement).value = ''
+      setStatus('Persona switched.', 'done')
+    } catch (error) {
+      if (previous && !nostrSession) showConnectedAccount(previous)
+      else if (routesPaused) browserRoomRoutes.resume()
+      if (closingRoom && !reopenDoor && !session) showRoomsList()
+      throw error
+    } finally {
+      if (prepared && prepared.account !== nostrSession) await prepared.account.signer.close().catch(() => {})
+      if (closingRoom) switchingRoom = false
+      dialog.removeAttribute('data-keep-open')
+      loginBusy = false
+      renderPersonas()
+      if (reopenDoor) void reopenPersonaDoor()
+      else tryPendingJoin()
+    }
+  })
+}
+
+async function reopenPersonaDoor(): Promise<void> {
+  const generation = roomGeneration
+  armStopOpening()
+  try {
+    if (await roomFromLocation() && generation === roomGeneration) { showRoomUi(); renderIdentity() }
+  } catch (error) {
+    if (generation === roomGeneration) showArrivalFailure(error)
+  } finally {
+    if (generation === roomGeneration) disarmStopOpening()
+  }
+}
+
 async function signInWithNostr(): Promise<void> {
+  if (personaSelection || personaStorageError) return connectPersona('', false)
   return withLegacyMessagesClosed(async () => {
     closeContextPanel()
     if (loginBusy) return
@@ -2007,14 +2298,7 @@ async function signInWithNostr(): Promise<void> {
     await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
     relayConnections.clearAuthentication()
-    nostrSession = account
-    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
-    browserRoomRoutes.resume()
-    rememberAccount(account)
-    startRoomBookmarks(account)
-    closedRoomKeepers.refresh()
-    wantProfiles([account.pubkey], 'public')
-    renderIdentity()
+    showConnectedAccount(account)
     if (previous && previous !== account.pubkey) {
       const now = shownAs(account.pubkey), before = shownAs(previous)
       setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
@@ -2024,54 +2308,67 @@ async function signInWithNostr(): Promise<void> {
 
 async function signOutOfNostr(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
     if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
-    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
-    participantCard.close()
-    packGrant = undefined
-    browserRoomRoutes.pause()
-    await browserLinkPanel.stop()
-    closeContextPanel()
     if (session || joining) throw new Error('Leave the room before signing out.')
-    workspaceWork?.reset()
-    await boardsPanel?.reset()
-    await closeRoomBoardCatalogues()
-    // A signed-out account must not leave its device-specific rendezvous child
-    // behind. Do this before changing the visible account state: a storage
-    // failure keeps the account connected rather than pretending the clear won.
-    // Clear a child only for a captured provision-capable account. Avoid
-    // initialising the encrypted vault for ordinary extension/remote sign-ins
-    // merely because they are signing out.
-    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
-    identityGeneration++
-    admissionController?.abort()
-    clearImportedHistorySearch()
-    relayConnections.clearAuthentication()
-    const account = nostrSession
-    closeContactInbox()
-    void sharedProjects.detach()
-    stopSpryAccountSync()
-    bookmarks?.close()
-    bookmarks = undefined
-    readSync?.close()
-    readSync = undefined
-    nostrSession = undefined
-    // Signed out: the closed-room keepers drop this account's keys and sockets now.
-    closedRoomKeepers.refresh()
-    browserRoomRoutes.resume()
-    // Each one speaks for the account in a room; a session under another
-    // identity would refuse them anyway, but they should not outlive it here.
-    try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
-    sessionStorage.removeItem(WAY_BACK_KEY)
-    $('roomSyncStatus').textContent = ''
-    refreshAccountRooms()
-    renderIdentity()
-    if (account) {
-      // clearPersistentClientKey: true also forgets the NIP-46 client key a
-      // bunker approved for this browser. Without it, logout only clears the
-      // session - the approved client key survives and anyone with this
-      // browser profile could still sign as it.
-      await logout(account, { clearPersistentClientKey: true })
-      setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+    loginBusy = true
+    try {
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
+      participantCard.close()
+      packGrant = undefined
+      browserRoomRoutes.pause()
+      await browserLinkPanel.stop()
+      closeContextPanel()
+      if (session || joining) throw new Error('Leave the room before signing out.')
+      workspaceWork?.reset()
+      await boardsPanel?.reset()
+      await closeRoomBoardCatalogues()
+      // A signed-out account must not leave its device-specific rendezvous child
+      // behind. Do this before changing the visible account state: a storage
+      // failure keeps the account connected rather than pretending the clear won.
+      // Clear a child only for a captured provision-capable account. Avoid
+      // initialising the encrypted vault for ordinary extension/remote sign-ins
+      // merely because they are signing out.
+      if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
+      const account = nostrSession
+      const managed = personaSelection !== undefined
+      if (managed) keepPersonaSelection(await personaStore().disconnect(account?.pubkey), null)
+      identityGeneration++
+      admissionController?.abort()
+      clearImportedHistorySearch()
+      relayConnections.clearAuthentication()
+      closeContactInbox()
+      void sharedProjects.detach()
+      stopSpryAccountSync()
+      bookmarks?.close()
+      bookmarks = undefined
+      readSync?.close()
+      readSync = undefined
+      nostrSession = undefined
+      // Signed out: the closed-room keepers drop this account's keys and sockets now.
+      closedRoomKeepers.refresh()
+      browserRoomRoutes.resume()
+      // Each one speaks for the account in a room; a session under another
+      // identity would refuse them anyway, but they should not outlive it here.
+      try { forgetOwnCredentials(roomDeviceStore(deviceStore, account?.pubkey)) } catch { /* storage may be unavailable */ }
+      forgetWayBack()
+      renderWayBack()
+      $('roomSyncStatus').textContent = ''
+      refreshAccountRooms()
+      renderIdentity()
+      if (account) {
+        // clearPersistentClientKey: true also forgets the NIP-46 client key a
+        // bunker approved for this browser. Without it, logout only clears the
+        // session - the approved client key survives and anyone with this
+        // browser profile could still sign as it.
+        await logout(account, { clearPersistentClientKey: true, ...(managed ? { storage: new PersonaSessionStorage() } : {}) })
+        setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+      }
+    } finally {
+      loginBusy = false
+      browserRoomRoutes.resume()
+      renderPersonas()
+      tryPendingJoin()
     }
   })
 }
@@ -2099,6 +2396,7 @@ function setForgetBrowserStatus(message: string): void {
 async function forgetThisBrowser(): Promise<void> {
   $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
@@ -2122,7 +2420,7 @@ async function forgetThisBrowserContents(): Promise<void> {
         + '- every room kept here, its keys and the history this browser kept of it\n'
         + '- contacts and verified people\n'
         + '- text size and volume choices\n'
-        + '- the saved connection to a Nostr signer\n\n'
+        + '- saved connections to Nostr signers\n\n'
         + "It does not remove anything from relays or from other people's devices. "
         + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
       confirmLabel: 'Forget this browser',
@@ -2136,6 +2434,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     await closeRoomBoardCatalogues()
     closeContextPanel()
     await browserLinkPanel.link.forget()
+    if (personaSelection || personaMenuSelection || expectingSavedPersonas()) await personaStore().erase()
     // As above, avoid creating a vault on a browser that never held one.
     if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
@@ -2240,6 +2539,7 @@ function refreshAccountRooms(): void {
  *  leaves this device. A secret arriving with a bookmark is kept only where
  *  this device has none of its own. */
 function groupAdmissions(account: string): BookmarkAdmissions {
+  const roomAccess = roomDeviceStore(deviceStore, account)
   const invitationIdOf = (link: string): string | undefined => {
     try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? deriveInvitationId(invitation) : undefined } catch { return undefined }
   }
@@ -2270,7 +2570,7 @@ function groupAdmissions(account: string): BookmarkAdmissions {
         }
       } finally { node?.secret.fill(0); node?.deviceSk.fill(0); node?.authoritySk?.fill(0) }
       const invitation = held ? undefined : groupInvitationOf(room.link)
-      const made = invitation && loadInvitationOwner(invitation)
+      const made = invitation && loadInvitationOwner(invitation, roomAccess)
       if (made) try {
         if (deriveRoom(made.roomSecret).roomId === room.roomId && getPublicKey(made.inviterSk) === invitationAuthority(invitation!)) held = { key: bytesToHex(made.inviterSk), members: [], removed: [] }
       } finally { made.roomSecret.fill(0); made.inviterSk.fill(0) }
@@ -2305,14 +2605,14 @@ function groupAdmissions(account: string): BookmarkAdmissions {
         finally { held?.secret.fill(0); held?.deviceSk.fill(0); held?.authoritySk?.fill(0) }
       }
       const id = invitationIdOf(room.link)
-      const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
+      const kept = id && loadKeptAdmission(roomAccess, id, nowSeconds())
       return kept && 'persistent' in kept && kept.persistent ? bytesToHex(kept.secret) : undefined
     },
     adopt: (room, secret) => {
       const id = invitationIdOf(room.link)
-      if (!id || loadKeptAdmission(deviceStore, id, nowSeconds())) return
+      if (!id || loadKeptAdmission(roomAccess, id, nowSeconds())) return
       // A conference room's end comes with the bookmark, and stays with the membership.
-      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}), ...(room.destruct ? { destruct: true as const } : {}) }, nowSeconds())
+      storeKeptAdmission(roomAccess, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}), ...(room.destruct ? { destruct: true as const } : {}) }, nowSeconds())
     },
     // Another of this person's devices tidied a self-destructing room away
     // and tombstoned its bookmark. This device has its own events there to
@@ -2688,7 +2988,7 @@ function ownerStorageKey(invitation: RoomInvitation): string {
 }
 
 function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array, endsAt?: number, destruct = false): void {
-  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds(), endsAt, destruct) }
+  try { writeInvitationOwner(roomDeviceStore(), invitation, room, hostSk, nowSeconds(), endsAt, destruct) }
   catch (error) {
     // A temporary meeting can still run entirely in this tab. A group must
     // retain its creator authority before offering durable access to others.
@@ -2696,13 +2996,13 @@ function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, host
   }
 }
 
-function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number; destruct?: true } | undefined {
-  try { return readInvitationOwner(deviceStore, invitation, nowSeconds()) } catch { return undefined }
+function loadInvitationOwner(invitation: RoomInvitation, store = roomDeviceStore()): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number; destruct?: true } | undefined {
+  try { return readInvitationOwner(store, invitation, nowSeconds()) } catch { return undefined }
 }
 
 function forgetInvitationOwner(invitation: RoomInvitation): void {
   try {
-    localStorage.removeItem(ownerStorageKey(invitation))
+    roomDeviceStore().remove(ownerStorageKey(invitation))
   } catch {
     // An in-memory host can still be retired even when storage is blocked.
   }
@@ -2755,9 +3055,9 @@ function admissionEpochHint(admission: SavedRoomAdmission): number | undefined {
   return 'persistent' in admission ? undefined : admission.epoch
 }
 
-function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
+function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission, store = browserDeviceStore(sessionStorage)): void {
   try {
-    storeTabAdmission(browserDeviceStore(sessionStorage), invitation, admission)
+    storeTabAdmission(store, invitation, admission)
   } catch {
     // A reload will simply repeat the one-tap admission exchange.
   }
@@ -2765,7 +3065,7 @@ function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmissio
 
 function loadCachedAdmission(invitation: RoomInvitation): SavedRoomAdmission | undefined {
   try {
-    const raw = sessionStorage.getItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
+    const raw = roomDeviceStore(browserDeviceStore(sessionStorage)).get(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
     if (!raw) return undefined
     const value = JSON.parse(raw) as Partial<StoredAdmission>
     if (
@@ -2812,7 +3112,7 @@ function refreshKeptAdmission(): void {
   const admission = currentJoinerAdmission()
   if (!admission) return
   try {
-    storeKeptAdmission(deviceStore, deriveInvitationId(invitation), admission, nowSeconds())
+    storeKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), admission, nowSeconds())
   } catch {
     // Storage may be unavailable. The room still opens; only the way to
     // read it later goes unwritten.
@@ -2827,7 +3127,7 @@ function setKeepRoomChoice(on: boolean): void {
     setKeepRoom(roomStore(), roomId, on)
   }
   if (on) refreshKeptAdmission()
-  else forgetKeptAdmission(deviceStore, deriveInvitationId(roomInvitationCapability))
+  else forgetKeptAdmission(roomDeviceStore(), deriveInvitationId(roomInvitationCapability))
   renderKeepChoice()
 }
 
@@ -3584,9 +3884,14 @@ function serveCurrentInvitation(): void {
 // rotated it. Removing the owner record is broadcast by the browser's
 // `storage` event; every other tab retires that inviter in memory at once.
 window.addEventListener('storage', (event) => {
-  if (event.newValue !== null || !event.key?.startsWith(INVITATION_OWNER_PREFIX)) return
+  if (event.newValue !== null || !event.key) return
   const invitation = roomInvitationCapability
-  if (!invitation || event.key !== ownerStorageKey(invitation) || invitationDelegation.length !== 0) return
+  if (!invitation || invitationDelegation.length !== 0) return
+  const account = personaSelection && nostrSession?.pubkey
+  const key = ownerStorageKey(invitation)
+  if (event.key !== (account ? `kithmoot.account.${account}.${key}` : key)) return
+  if (!account && nostrSession && expectingSavedPersonas() &&
+      personaDeviceStore(deviceStore, nostrSession.pubkey).get(key) === event.oldValue) return
   stopInvitationHost()
   invitationAuthoritySk = undefined
   const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
@@ -4700,8 +5005,9 @@ function renderIdentity(): void {
   grantedContactsPanel.reconcile()
   follows.setAccount(nostrSession?.pubkey)
   renderPeople()
+  renderPersonas()
   const input = $('displayName') as HTMLInputElement
-  if (document.activeElement !== input) input.value = typedName
+  if (document.activeElement !== input) input.value = typedJoiningName()
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   // A DM relay list is the account's to publish; a visitor has none.
@@ -4773,6 +5079,82 @@ function renderIdentity(): void {
   renderNudgeChoice()
 }
 
+function personaName(pubkey: string): string {
+  const shown = shownAs(pubkey)
+  return (personaMenuSelection ?? personaSelection)?.personas.find(persona => persona.pubkey === pubkey)?.label
+    || shown.name || shown.npub
+}
+
+function renderPersonas(): void {
+  const current = nostrSession?.pubkey ?? activeSavedPersona()?.pubkey
+  const choices = (personaMenuSelection ?? personaSelection)?.personas ?? []
+  const enabled = !!current || choices.length > 0
+  const trigger = $('railPersonas')
+  trigger.hidden = !enabled
+  trigger.setAttribute('aria-label', current ? `Account menu for ${personaName(current)}` : 'Personas')
+  $('railPersonaLabel').textContent = current ? personaName(current) : 'Personas'
+  const avatar = current ? doorAvatar(current) : document.createElement('span')
+  avatar.className = 'joinAvatar'
+  if (current) avatar.dataset.initial = [...personaName(current)][0]?.toLocaleUpperCase() ?? ''
+  else avatar.textContent = '…'
+  $('railPersonaAvatar').replaceChildren(avatar)
+  $('doorPersonas').hidden = !enabled
+  const add = $('addSignetPersona') as HTMLButtonElement
+  add.disabled = loginBusy || identityRestoring
+  ;($('personasClose') as HTMLButtonElement).disabled = loginBusy
+  const list = $('personaChoices')
+  const focused = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.persona : undefined
+  const rows = choices.map(persona => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.persona = persona.pubkey
+    button.textContent = personaName(persona.pubkey)
+    button.disabled = loginBusy || identityRestoring || nostrSession?.pubkey === persona.pubkey
+    if (persona.pubkey === current) button.setAttribute('aria-current', 'true')
+    button.addEventListener('click', () => runPersonaAction(async () => {
+      await changePersona(async () => {
+        const opened = await restoreSavedPersona(persona.pubkey)
+        if (!opened) throw new Error(`Could not reconnect ${personaName(persona.pubkey)}. Open your signer or add this persona again.`)
+        return opened
+      })
+    }, `Connecting ${personaName(persona.pubkey)}…`))
+    return button
+  })
+  list.replaceChildren(...rows)
+  if (focused) rows.find(row => row.dataset.persona === focused && !row.disabled)?.focus({ preventScroll: true })
+}
+
+function runPersonaAction(action: () => Promise<void>, progress: string): void {
+  const status = $('personasStatus')
+  status.textContent = progress
+  void action().then(() => {
+    if (status.textContent === progress) status.textContent = ''
+  }, error => { status.textContent = describeError(error) })
+  renderPersonas()
+}
+
+function openPersonas(): void {
+  const dialog = $('personasDialog') as HTMLDialogElement
+  if (dialog.open) return
+  $('personasStatus').textContent = personaStorageError ? 'Saved signer connections are unavailable. Try opening Personas again.' : ''
+  renderPersonas()
+  dialog.showModal()
+  void Promise.resolve().then(() => personaStore().selection()).then(selection => {
+    if (!dialog.open || loginBusy) return
+    personaMenuSelection = selection
+    if (selection) personaStorageError = false
+    renderPersonas()
+  }, () => { $('personasStatus').textContent = 'Saved signer connections are unavailable.' })
+}
+
+for (const id of ['railPersonas', 'accountPersonas', 'doorPersonas']) $(id).addEventListener('click', openPersonas)
+$('personasClose').addEventListener('click', () => { if (!loginBusy) ($('personasDialog') as HTMLDialogElement).close() })
+$('personasDialog').addEventListener('cancel', event => { if (loginBusy) event.preventDefault() })
+$('addSignetPersona').addEventListener('click', () => {
+  const label = ($('personaLabel') as HTMLInputElement).value
+  runPersonaAction(() => connectPersona(label), 'Waiting for My Signet…')
+})
+
 /** The four faces of the door (design-calm stage 6). Decided here and
  *  nowhere else: `name` is a stranger, `signedIn` an account that is
  *  connected, `reconnect` an account used here before that is not, and
@@ -4839,7 +5221,11 @@ function focusDoor(mode: DoorMode): void {
 function renderDoorMode(): void {
   applyHideIpDefault()
   // The knock door keeps its own controls (Request to join).
-  if (guestAdmissionPreview) return
+  if (guestAdmissionPreview) {
+    const persona = activeSavedPersona()
+    $('requestAdmission').textContent = persona ? `Request to join as ${personaName(persona.pubkey)}` : 'Request to join'
+    return
+  }
   const mode = doorMode()
   const join = $('join') as HTMLButtonElement
   const known = joiningName()
@@ -4854,7 +5240,8 @@ function renderDoorMode(): void {
   if (!joining) {
     // The account's own name; the name typed on this device is a visitor's
     // unless the account is connected and has none of its own.
-    const named = account ? ((mode === 'signedIn' && nostrSession ? known : undefined) ?? shownAs(account).name ?? lastKnownProfileNames.get(account)) : undefined
+    const label = personaSelection?.personas.find(persona => persona.pubkey === account)?.label
+    const named = label || (account ? ((mode === 'signedIn' && nostrSession ? known : undefined) ?? shownAs(account).name ?? lastKnownProfileNames.get(account)) : undefined)
     const text = mode === 'name' ? 'Join'
       : mode === 'extension' ? 'Continue with your Nostr extension'
       : named ? `Continue as ${named}` : 'Continue with your Nostr account'
@@ -5302,6 +5689,7 @@ async function admitOwnNodeDevice(node: NodeRoomRecord, participant: Participant
 interface ContactNodeOpening { record: string; allowed(): boolean }
 async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boolean> {
   if (location.hash.length <= 1) return false
+  if (identityRestoring && expectingSavedPersonas()) await identityReady
   const node = parseNodeRoomLink(location.href, nowSeconds())
   if (nodeOpening && (node?.event.id !== nodeOpening.record || !nodeOpening.allowed())) throw Error('The private invitation is no longer available.')
   if (node) {
@@ -5398,7 +5786,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
       // This tab's session first, then what the person chose to keep on
       // this device, then the live rendezvous.
       const tabCached = loadCachedAdmission(invitation)
-      const saved = tabCached ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
+      const saved = tabCached ?? loadKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), nowSeconds())
       // An updated group link must load its signed durable invitation once,
       // so an earlier temporary grant cannot keep the twelve-hour storage rule.
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
@@ -5417,7 +5805,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
         // this visit, so its hint stands, unless it is a group's (see
         // `admissionEpochHint`).
         expectedEpoch = cached === tabCached ? admissionEpochHint(cached) : undefined
-        cacheAdmission(invitation, cached)
+        cacheAdmission(invitation, cached, roomDeviceStore(browserDeviceStore(sessionStorage)))
         serveCurrentInvitation()
       } else {
         $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : roomName ? `Ask to join ${roomName}` : 'Ask to join this room'
@@ -5448,6 +5836,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
               mic: $('previewAdmissionMic') as HTMLButtonElement, video: $('admissionPreviewVideo') as HTMLVideoElement,
               meter: $('admissionPreviewMeter') as HTMLMeterElement, signal: pending.signal, cancelRequest: () => pending.abort() })
             guestAdmissionPreview = preview
+            renderDoorMode()
             await preview.ready
             if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview.requested)
             $('arrivalTitle').textContent = 'Waiting to be admitted'
@@ -5507,7 +5896,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
           expectedEpoch = admissionEpochHint(admission)
-          cacheAdmission(invitation, admission)
+          cacheAdmission(invitation, admission, roomDeviceStore(browserDeviceStore(sessionStorage)))
           // The ending to "Getting you in…". It says the waiting is over
           // and that the next move is the reader's, which is the thing they
           // could not tell while a line saying "in progress" sat under a
@@ -7212,10 +7601,11 @@ function addContact(text: string, status: HTMLElement = $('contactCardStatus')):
 async function showMyCard(out = $('myCardOut') as HTMLInputElement, qr = $('myCardQr') as HTMLCanvasElement): Promise<void> {
   const rz = bytesToHex(schnorr.getPublicKey(myRendezvousSecret(deviceStore, () => randomBytes(32))))
   const identity = currentIdentity()
+  const name = typedJoiningName()
   const card = await buildCardWith(identity.pubkey, (unsigned) => identity.signEvent(unsigned), {
     rz,
     ephemeralPrivateKey: randomBytes(32),
-    ...(typedName ? { name: typedName } : {}),
+    ...(name ? { name } : {}),
     relays: RELAYS,
     boxes: [],
     ttlSeconds: 7 * 24 * 3600,
@@ -15554,6 +15944,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     restoreExistingNodeRoom()
     requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
     if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
+    const credentialStore = roomDeviceStore()
     const deviceSk = deviceKey()
     // A device key is per room. Beside a docked call `myDeviceId` stays the
     // call's, because every media decision is made against it.
@@ -15875,10 +16266,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // only if it is still this device's and still good. Kept by the
           // room id this session was built for, which a docked call may
           // not share with the screen.
-          resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
-          sealKeys: loadOwnSealKeysFor(deviceStore, sessionRoomId),
+          resume: loadOwnCredentialFor(credentialStore, sessionRoomId, nowSeconds()),
+          sealKeys: loadOwnSealKeysFor(credentialStore, sessionRoomId),
           onCredential: (minted, sealSk) => {
-            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
+            try { storeOwnCredentialFor(credentialStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
           },
           deviceSk,
           factory: roomUsesBothy ? undefined : factory,
@@ -16477,7 +16868,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
   return (
     loadInvitationOwner(link.invitation)?.roomSecret ??
     loadCachedAdmission(link.invitation)?.secret ??
-    loadKeptAdmission(deviceStore, deriveInvitationId(link.invitation), nowSeconds())?.secret
+    loadKeptAdmission(roomDeviceStore(), deriveInvitationId(link.invitation), nowSeconds())?.secret
   )
 }
 
@@ -16518,7 +16909,8 @@ function watchKnownRoom(room: KnownRoom): void {
   // This device's copy of a rekey opens with its key for the room and the
   // seal keys its credentials named there, as the session's does.
   const authority = link.invitation ? invitationAuthority(link.invitation) : undefined
-  const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId)
+  const credentialStore = roomDeviceStore()
+  const deviceSk = loadDeviceKeyFor(credentialStore, roomId) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId)
   let named: RoomNameRecord | undefined
   const followName = (): void => {
     const name = watch.roomName()
@@ -16551,7 +16943,7 @@ function watchKnownRoom(room: KnownRoom): void {
       receipts: {
         deviceSk,
         credential: () => {
-          const held = loadOwnCredentialFor(deviceStore, roomId, nowSeconds())
+          const held = loadOwnCredentialFor(credentialStore, roomId, nowSeconds())
           return held && held.pubkey.toLowerCase() === roomSelf(roomId).toLowerCase() ? held : undefined
         },
         ...(room.endsAt !== undefined ? { expiresAt: room.endsAt } : {}),
@@ -16566,7 +16958,7 @@ function watchKnownRoom(room: KnownRoom): void {
     ...(authority && deviceSk ? {
       authority,
       deviceSk,
-      sealSks: () => loadOwnSealKeysFor(deviceStore, roomId).reverse(),
+      sealSks: () => loadOwnSealKeysFor(credentialStore, roomId).reverse(),
       onEpoch: (moved: WatchedRekey) => keepWatchedRekey(roomId, secret, moved),
       // Closed while this device was not in it: the list says so, and a
       // room that self-destructs is tidied away from here.
@@ -18310,9 +18702,10 @@ function forgetLocally(roomId: string): void {
   receiptWriter.forget(roomId)
   deliveredLedger.forget(roomId)
   retireMeetingCode({ roomId })
-  forgetRoomAccess(deviceStore, roomId)
-  forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
-  forgetOwnCredentials(deviceStore, roomId)
+  const access = roomDeviceStore()
+  forgetRoomAccess(access, roomId)
+  forgetRoomAccess(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId)
+  forgetOwnCredentials(access, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
   forgetRoomUploads(deviceStore, roomId)
@@ -19668,7 +20061,8 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   let link: RoomLink
   try { link = parseRoomLink(room.link) } catch { return 'This room invitation is unavailable.' }
   if (isQuietPolicy(link.policy)) return 'Open this quiet conversation to read its messages and work.'
-  const credentialStore = workspaceAccountAdmission(deviceStore, room.roomId, account, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
+  const localAccess = roomDeviceStore()
+  const credentialStore = workspaceAccountAdmission(localAccess, room.roomId, account, nowSeconds()) ? localAccess : roomDeviceStore(browserDeviceStore(sessionStorage))
   const valid = (): boolean => {
     const saved = knownRoom(roomStore(), room.roomId)
     return account === nostrSession?.pubkey && !!saved && saved.endedAt === undefined && saved.endsAt === undefined && !saved.destruct
@@ -19939,8 +20333,9 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
   if (s && s.participant !== account.pubkey) throw new Error('Join this room as your signed-in account first.')
   if (hasUnsentWork() || switchingBlocked() || onCall() || docked()) throw new Error('Finish pending work and leave calls before changing this room’s route.')
   if (isQuietPolicy(roomPolicy) || (s?.epoch ?? loadRoomEpoch(room)?.epoch ?? 0) !== 0) throw new Error('This activation journey currently supports text rooms before their first rekey. Later epochs need separately granted scopes.')
-  const deviceSk = loadDeviceKeyFor(deviceStore, room) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), room)
-  const credential = s?.credential ?? loadOwnCredentialFor(deviceStore, room, nowSeconds())
+  const credentialStore = roomDeviceStore()
+  const deviceSk = loadDeviceKeyFor(credentialStore, room) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), room)
+  const credential = s?.credential ?? loadOwnCredentialFor(credentialStore, room, nowSeconds())
   if (!deviceSk || !credential || credential.pubkey !== account.pubkey) throw new Error('Join the room once with this account to establish its device credential.')
   const { roomKey } = deriveRoom(roomSecret)
   const device = getPublicKey(deviceSk)
@@ -21238,7 +21633,7 @@ $('displayName').addEventListener('input', (event) => {
   // Stored as typed, sanitised on the way in. The identity line below the
   // field re-renders as you go, so what other people will see is on screen
   // before you commit to anything.
-  storeName((event.target as HTMLInputElement).value)
+  storeJoiningName((event.target as HTMLInputElement).value)
   renderIdentity()
 })
 
@@ -21287,7 +21682,7 @@ $('createRoomForm').addEventListener('submit', async event => {
     }
     nameField.removeAttribute('aria-invalid')
     $('newRoomYourNameError').hidden = true
-    storeName(chosen)
+    storeJoiningName(chosen)
   }
   button.disabled = true
   button.textContent = 'Starting…'
@@ -22997,7 +23392,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
     : relayConnections.configuration(`room:${roomId}`, link?.relays ?? []).filter(relay => relay.write).map(relay => relay.url)
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
-  const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
+  const deviceSk = loadDeviceKeyFor(roomDeviceStore(), roomId) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId) ?? generateSecretKey()
   const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation ? invitationAuthority(link.invitation) : undefined)
   // The room on screen knows every channel it opened; one in the background
   // is read in epoch 0 and the epochs its records keep, in the channels every
@@ -25518,22 +25913,45 @@ renderIdentity()
  * was right there. Wait for it, briefly, and restore again.
  */
 async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  let tabAccount: string | null = null
+  const managed = expectingSavedPersonas()
+  try { tabAccount = sessionStorage.getItem(PERSONA_TAB_ACCOUNT) }
+  catch { /* The encrypted store can still supply its selected persona. */ }
+  const selection = await Promise.resolve().then(() => personaStore().selection()).catch(() => undefined)
+  if (selection) {
+    const chosen = tabAccount ?? selection.active
+    const persona = selection.personas.find(candidate => candidate.pubkey === chosen)
+    keepPersonaSelection(selection, persona?.pubkey ?? null)
+    if (!persona) return null
+    if (persona.method === 'nip07') await waitForExtensionSigner()
+    return (await restoreSavedPersona(persona.pubkey))?.account ?? null
+  }
+  if (managed) {
+    personaStorageError = true
+    expectedAccount = expectedMethod = undefined
+    setStatus('Saved signer connections are unavailable. Open Personas in Account settings to retry.')
+    return null
+  }
   reachStoredSignerOnSignetRelay()
   const session = await restoreSession()
   if (session?.signer.capabilities.canSignEvents) return session
   let storedMethod: string | null = null
   try { storedMethod = localStorage.getItem('signet:login.method') } catch { /* no storage, nothing stored */ }
   if (storedMethod !== 'nip07') return session
-  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
+  await waitForExtensionSigner()
   if (!extensionSignerPresent()) return session
   return restoreSession()
 }
 
+async function waitForExtensionSigner(): Promise<void> {
+  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
 const identityReady = restoreSessionWithExtensionGrace()
   .then(async (session) => {
-    if (identityGeneration !== 0) return
+    if (identityGeneration !== 0) { await session?.signer.close().catch(() => {}); return }
     if (!session?.signer.capabilities.canSignEvents) {
       if (accountNetwork.nostr && !location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
         history.replaceState(null, '', joinLinkBase())

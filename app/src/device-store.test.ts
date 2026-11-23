@@ -19,6 +19,7 @@ import {
   loadOwnSealKeysFor,
   MAX_OWN_SEAL_KEYS,
   memoryDeviceStore,
+  personaDeviceStore,
   storeCredentialFor,
   storeKeptAdmission,
   storeOwnCredentialFor,
@@ -157,6 +158,25 @@ describe('per-room device keys', () => {
     expect(loadOwnCredentialFor(store, ROOM_B, NOW)).toBeUndefined()
     // A paired credential is somebody else's to revoke, not sign-out's.
     expect(loadCredentialFor(store, ROOM_B)).toBeDefined()
+  })
+
+  it('keeps different device keys and credentials for personas in the same room', () => {
+    const root = memoryDeviceStore()
+    const work = personaDeviceStore(root, '1'.repeat(64))
+    const personal = personaDeviceStore(root, '2'.repeat(64))
+    const workKey = deviceKeyFor(work, ROOM_A, NOW, generateSecretKey)
+    const personalKey = deviceKeyFor(personal, ROOM_A, NOW, generateSecretKey)
+    const own = { ...credential('device'), tags: [['expiration', String(NOW + 3600)]] }
+    storeOwnCredentialFor(work, ROOM_A, own)
+    storeOwnCredentialFor(personal, ROOM_A, own)
+
+    expect(loadDeviceKeyFor(work, ROOM_A)).toEqual(workKey)
+    expect(loadDeviceKeyFor(personal, ROOM_A)).toEqual(personalKey)
+    expect(personalKey).not.toEqual(workKey)
+    expect(loadDeviceKeyFor(root, ROOM_A)).toBeUndefined()
+    forgetOwnCredentials(work)
+    expect(loadOwnCredentialFor(work, ROOM_A, NOW)).toBeUndefined()
+    expect(loadOwnCredentialFor(personal, ROOM_A, NOW)).toEqual(own)
   })
 
   it('drops the single shared device key and credential this replaces', () => {

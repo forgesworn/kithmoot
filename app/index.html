@@ -48,6 +48,7 @@
       <button id="railMetadata" class="railItem" type="button" data-destination="metadata" aria-controls="metadataPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-eye"/></svg></span><span class="railLabel">Metadata</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
+        <button id="railPersonas" class="railItem" type="button" aria-haspopup="dialog" aria-controls="personasDialog" hidden><span id="railPersonaAvatar" class="railIcon" aria-hidden="true"></span><span id="railPersonaLabel" class="railLabel">Personas</span></button>
         <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
         <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
@@ -1075,6 +1076,7 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="accountNetworkOpen" type="button" class="quiet" aria-haspopup="dialog" aria-controls="accountNetworkDialog">Account network</button>
           <button id="signIn" type="button">Sign in with Nostr</button>
+          <button id="accountPersonas" type="button" aria-haspopup="dialog" aria-controls="personasDialog">Personas</button>
           <button id="signOut" type="button" hidden>Sign out</button>
           <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>New Nostr message</button>
           <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
@@ -1180,6 +1182,7 @@
           </fieldset>
           <button id="join" type="submit" class="primary" hidden>Join</button>
           <button id="doorBothyRecovery" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings" hidden>Recover Bothy room access</button>
+          <button id="doorPersonas" type="button" class="quiet linkish" aria-haspopup="dialog" aria-controls="personasDialog" hidden>Switch persona</button>
           <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
           <button id="joinVisitor" type="button" class="quiet linkish" hidden>Join with just a name instead</button>
           <p id="joinPrivacy" class="note">Microphone and camera stay off until you turn them on.</p>
@@ -2116,6 +2119,14 @@
           <button id="inviteToRoomSend" type="submit" class="primary" disabled>Send invite</button>
         </div>
       </form>
+    </dialog>
+    <dialog id="personasDialog" class="profileSettings" aria-labelledby="personasTitle">
+      <div class="profileSettingsHeader"><h2 id="personasTitle">Personas</h2><button id="personasClose" type="button">Close</button></div>
+      <div id="personaChoices" class="personaChoices"></div>
+      <label for="personaLabel">Name on this device (optional)</label>
+      <input id="personaLabel" maxlength="48" autocomplete="off" />
+      <button id="addSignetPersona" type="button">Add from My Signet</button>
+      <p id="personasStatus" class="note" role="status"></p>
     </dialog>
     <dialog id="accountNetworkDialog" class="profileSettings" aria-labelledby="accountNetworkTitle">
       <div class="profileSettingsHeader"><h2 id="accountNetworkTitle">Account network</h2><button id="accountNetworkClose" type="button">Close</button></div>
