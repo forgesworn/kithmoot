@@ -1,10 +1,10 @@
 {
-  "id": "2026-11-23-persona-picker",
-  "date": "23 November 2026",
-  "title": "Find and switch personas more easily",
+  "id": "2026-11-24-room-entry",
+  "date": "24 November 2026",
+  "title": "Easier room entry and more resilient calls",
   "changes": [
-    "Click or tap your avatar to see your current persona, switch to a saved one or add one from My Signet. You can also see the name on hover or keyboard focus.",
-    "On narrow screens, the avatar is available in Chats, People and Boards. In a room, find Switch persona in the More menu.",
-    "Back from Settings returns to the screen you opened it from."
+    "Invitations suggest the persona you last used here. Review it, switch if needed, then join.",
+    "If an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.",
+    "Calls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app."
   ]
 }
