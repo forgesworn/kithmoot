@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.179",
+  "currentRelease": "0.1.180",
   "releases": [
     {
-      "version": "0.1.179",
+      "version": "0.1.180",
       "updateTo": {
-        "version": "0.1.179",
-        "name": "0.1.179",
-        "pub_date": "2026-11-23T17:46:36Z",
-        "notes": "Click or tap your avatar to see your current persona, switch to a saved one or add one from My Signet. You can also see the name on hover or keyboard focus.\nOn narrow screens, the avatar is available in Chats, People and Boards. In a room, find Switch persona in the More menu.\nBack from Settings returns to the screen you opened it from.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.179/KithMoot-0.1.179-mac-arm64.zip",
-        "sha256": "81f044a5dc121a6277d7b2d872e5bd2c02e926dde6bff8e965a994870f4ee42f",
-        "size": 198989679
+        "version": "0.1.180",
+        "name": "0.1.180",
+        "pub_date": "2026-11-24T00:00:00Z",
+        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.180/KithMoot-0.1.180-mac-arm64.zip",
+        "sha256": "72f672c384c5ed200c7b0082b30722172fdfd752e3919d53d9a5dda1d6885d78",
+        "size": 198989949
       }
     }
   ]
