@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.177",
+  "currentRelease": "0.1.178",
   "releases": [
     {
-      "version": "0.1.177",
+      "version": "0.1.178",
       "updateTo": {
-        "version": "0.1.177",
-        "name": "0.1.177",
-        "pub_date": "2026-11-22T22:33:43Z",
-        "notes": "An encrypted file shows whether your Wildbloom accepted the save, even when the chat updates while it is saving. If the save fails, you can retry from the attachment.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.177/KithMoot-0.1.177-mac-arm64.zip",
-        "sha256": "1345313cfe8aeea70a0a49160913aac94f1b0222ff21b06c9599bce35785fba3",
-        "size": 198986132
+        "version": "0.1.178",
+        "name": "0.1.178",
+        "pub_date": "2026-11-23T10:13:27Z",
+        "notes": "Choose Add from My Signet in the account menu to approve another persona.\nSwitch between saved personas and return to each one’s rooms, drafts and queued messages.\nApproved connections are stored encrypted on this device. KithMoot reconnects the selected persona when you reopen it.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.178/KithMoot-0.1.178-mac-arm64.zip",
+        "sha256": "d08f84b4b0488d15f7c685f6bdb26d47b0e1ad39a5e9d085f2fc47e66e417201",
+        "size": 198988597
       }
     }
   ]
