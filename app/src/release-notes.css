@@ -1,0 +1,7 @@
+#releaseNotes { max-width: min(38rem, calc(100vw - 2rem)); }
+#releaseNotes [data-notes-body] { overflow-y: auto; overflow-wrap: anywhere; }
+#releaseNotes li { margin-block: 0.8rem; line-height: 1.5; }
+#releaseSummary { grid-column: 1 / -1; grid-row: 1; padding: var(--s2) var(--s4); background: var(--raised); border-bottom: 1px solid var(--line); display: flex; align-items: center; flex-wrap: wrap; gap: var(--s2); }
+#releaseSummary strong { flex: 1 1 auto; }
+#releaseSummary button { margin: 0; }
+#releaseSummary button, #releaseNotes button, #updateChanges { min-height: 44px; }

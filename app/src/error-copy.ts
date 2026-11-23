@@ -80,8 +80,9 @@ export function describeFailure(err: unknown): string {
 
 /** A call on a node room that the node's call relay has no room for. Calls,
  *  not rooms, are what a node runs out of first: each person on a call holds
- *  relay ports for as long as they are on it. */
-export const NODE_CALLS_FULL_COPY = "This node's calls are full. Try again when a call ends."
+ *  relay ports for as long as they are on it. One big call can use up a
+ *  small node on its own, so the words do not say another call must end. */
+export const NODE_CALLS_FULL_COPY = "This node has no more room for calls. Space frees up when someone leaves a call."
 
 /** How long a call waits, with nobody reached, before the node's own word
  *  that it is full is taken as the reason. Under it, a call still setting up

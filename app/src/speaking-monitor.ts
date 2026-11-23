@@ -32,6 +32,10 @@ export interface SpeakingMonitorOptions {
    *  times a second for no reason is how a speaking indicator becomes the
    *  most expensive thing on the page. */
   onChange?: (speaking: ReadonlySet<string>) => void
+  /** Raw RMS, before playback volume. Null means no usable samples. */
+  onLevels?: (levels: ReadonlyMap<string, number | null>) => void
+  /** Bounded min/max PCM peaks for the current analyser block, never a history. */
+  onWaveforms?: (waveforms: ReadonlyMap<string, readonly number[]>) => void
 }
 
 interface Tap {
@@ -40,6 +44,7 @@ interface Tap {
   gain: GainNode
   bytes: Uint8Array<ArrayBuffer>
   track: MediaStreamTrack
+  speaker: string
 }
 
 export class SpeakingMonitor {
@@ -48,6 +53,8 @@ export class SpeakingMonitor {
   readonly #createContext: () => AudioContext
   readonly #intervalMs: number
   readonly #onChange: ((speaking: ReadonlySet<string>) => void) | undefined
+  readonly #onLevels: SpeakingMonitorOptions['onLevels']
+  readonly #onWaveforms: SpeakingMonitorOptions['onWaveforms']
 
   #context: AudioContext | null = null
   #timer: ReturnType<typeof setInterval> | undefined
@@ -58,6 +65,8 @@ export class SpeakingMonitor {
     this.#createContext = options.createContext ?? (() => new AudioContext())
     this.#intervalMs = options.intervalMs ?? 50
     this.#onChange = options.onChange
+    this.#onLevels = options.onLevels
+    this.#onWaveforms = options.onWaveforms
   }
 
   /**
@@ -69,7 +78,7 @@ export class SpeakingMonitor {
    * renegotiation is a new source and the old one's last state is not
    * evidence about it.
    */
-  watch(key: string, track: MediaStreamTrack): void {
+  watch(key: string, track: MediaStreamTrack, speaker = key): void {
     const existing = this.#taps.get(key)
     if (existing?.track === track) return
     if (existing) this.unwatch(key)
@@ -94,8 +103,9 @@ export class SpeakingMonitor {
       gain,
       bytes: new Uint8Array(analyser.fftSize),
       track,
+      speaker,
     })
-    this.#set.forget(key)
+    this.#set.forget(speaker)
 
     // A context opened outside a user gesture starts suspended, and a
     // suspended context's analyser answers with silence for ever without
@@ -123,7 +133,8 @@ export class SpeakingMonitor {
       // is gone, which is what was wanted.
     }
     this.#taps.delete(key)
-    this.#set.forget(key)
+    if (![...this.#taps.values()].some(other => other.speaker === tap.speaker)) this.#set.forget(tap.speaker)
+    this.poll()
     if (this.#taps.size === 0) this.stop()
   }
 
@@ -131,7 +142,7 @@ export class SpeakingMonitor {
   retain(keys: Iterable<string>): void {
     const keep = new Set(keys)
     for (const key of [...this.#taps.keys()]) if (!keep.has(key)) this.unwatch(key)
-    this.#set.retain(keep)
+    this.#set.retain(new Set([...this.#taps.values()].map(tap => tap.speaker)))
   }
 
   isSpeaking(key: string): boolean {
@@ -158,10 +169,30 @@ export class SpeakingMonitor {
    * than wait for a timer.
    */
   poll(now: number = performance.now()): void {
+    const levels = new Map<string, number | null>()
+    const waveforms = new Map<string, readonly number[]>()
     for (const [key, tap] of this.#taps) {
-      tap.analyser.getByteTimeDomainData(tap.bytes)
-      this.#set.update(key, rmsFromByteTimeDomain(tap.bytes), now)
+      let level: number | null = null
+      if (this.#context?.state === 'running' && tap.track.readyState !== 'ended') {
+        if (tap.track.enabled === false) level = 0
+        else {
+          tap.analyser.getByteTimeDomainData(tap.bytes)
+          const measured = rmsFromByteTimeDomain(tap.bytes)
+          // A remote track can retain its muted flag after packets resume.
+          // Use the decoded sound and keep Waiting for a muted, silent source.
+          if (!tap.track.muted || measured > 0) {
+            level = measured
+            if (this.#onWaveforms) waveforms.set(key, pcmPeaks(tap.bytes))
+          }
+        }
+      }
+      levels.set(key, level)
     }
+    const speakers = new Map<string, number>()
+    for (const [key, tap] of this.#taps) speakers.set(tap.speaker, Math.max(speakers.get(tap.speaker) ?? 0, levels.get(key) ?? 0))
+    for (const [speaker, level] of speakers) this.#set.update(speaker, level, now)
+    this.#onWaveforms?.(waveforms)
+    this.#onLevels?.(levels)
     if (!this.#onChange) return
 
     const current = this.#set.active()
@@ -187,4 +218,19 @@ export class SpeakingMonitor {
     void this.#context?.close().catch(() => {})
     this.#context = null
   }
+}
+
+/** Keep both extrema of each bucket so narrow transients survive drawing. */
+export function pcmPeaks(bytes: Uint8Array): number[] {
+  const buckets = Math.min(128, bytes.length)
+  const result: number[] = []
+  for (let bucket = 0; bucket < buckets; bucket++) {
+    let low = 1, high = -1
+    for (let i = Math.floor(bucket * bytes.length / buckets); i < Math.floor((bucket + 1) * bytes.length / buckets); i++) {
+      const value = (bytes[i]! - 128) / 128
+      low = Math.min(low, value); high = Math.max(high, value)
+    }
+    result.push(low, high)
+  }
+  return result
 }

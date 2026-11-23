@@ -2,6 +2,7 @@ import { NostrRelayPool, verifyEventUncached, sanitiseDisplayName } from '../../
 import type { RelayPoolClient } from '../../src/relay-pool.js'
 import type { Event } from 'nostr-tools/pure'
 import { normalizeURL } from 'nostr-tools/utils'
+import { newerProfile } from './people-profile-cache.js'
 
 /**
  * Nostr profiles (kind 0) for the people in a room.
@@ -70,6 +71,8 @@ export interface Profile {
 const LOOKUP_TIMEOUT_MS = 15_000
 const ADDRESS_TIMEOUT_MS = 5_000
 const LOOKUP_RETRY_MS = [1_000, 5_000]
+const PUBLIC_BATCH_SIZE = 48
+const PUBLIC_BATCH_PAUSE_MS = 1_000
 
 /** Only these schemes are ever put in an `<img src>`. */
 const PICTURE_SCHEMES = ['http://', 'https://']
@@ -104,6 +107,13 @@ export interface ProfileBookOptions {
   /** Opens the pool for one scope's relays. Each scope has its own, so
    *  leaving a room can close its sockets and leave the public ones. */
   transport?: (relays: string[], scope: LookupScope) => RelayPoolClient
+  /** May this profile initiate a request to its own address domain? */
+  verifyAddress?: (pubkey: string) => boolean
+  /** A device cache for the eligible authors from public queries. */
+  publicCache?: {
+    read(authors: string[]): readonly { event: Event; fresh: boolean }[]
+    keep(event: Event): void
+  }
 }
 
 const SCOPES: readonly LookupScope[] = ['room', 'public']
@@ -116,7 +126,9 @@ export class ProfileBook {
    *  the scope they were asked in. */
   readonly #asked: Record<LookupScope, Set<string>> = { room: new Set(), public: new Set() }
   readonly #timers: Record<LookupScope, Set<ReturnType<typeof setTimeout>>> = { room: new Set(), public: new Set() }
-  readonly #found = new Map<string, { profile: Profile; createdAt: number; nip05Claim?: string }>()
+  readonly #found = new Map<string, { profile: Profile; event: Pick<Event, 'created_at' | 'id'>; nip05Claim?: string }>()
+  readonly #publicPending = new Map<string, number>()
+  #publicBusy = false
   #checks = new Set<AbortController>()
   #closed = false
   #enabled = true
@@ -165,6 +177,10 @@ export class ProfileBook {
     this.#unsubs[scope].clear()
     this.#pools[scope]?.close()
     delete this.#pools[scope]
+    if (scope === 'public') {
+      this.#publicPending.clear()
+      this.#publicBusy = false
+    }
   }
 
   /**
@@ -203,24 +219,71 @@ export class ProfileBook {
     const fresh = [...new Set(pubkeys)].filter((p) => !this.#asked.room.has(p) && (scope === 'room' || !this.#asked.public.has(p)))
     if (fresh.length === 0) return
     for (const pubkey of fresh) this.#asked[scope].add(pubkey)
-    this.#lookup(fresh, scope, 0)
+    const usable = new Set<string>()
+    let restored = false
+    if (scope === 'public' && this.#opts.publicCache) {
+      const requested = new Set(fresh)
+      for (const { event, fresh: checked } of this.#opts.publicCache.read(fresh)) {
+        if (!requested.has(event.pubkey) || !this.#ingest(event, false)) continue
+        restored = true
+        if (checked) usable.add(event.pubkey)
+      }
+    }
+    const pending = fresh.filter(key => !usable.has(key))
+    if (scope === 'public') {
+      this.#queuePublic(pending, 0)
+    } else if (pending.length) this.#lookup(pending, scope, 0)
+    if (restored) queueMicrotask(() => { if (this.#enabled && !this.#closed) this.#opts.onChange() })
   }
 
-  #later(scope: LookupScope, delay: number, work: () => void): void {
+  #queuePublic(pubkeys: string[], attempt: number): void {
+    for (const key of pubkeys) this.#publicPending.set(key, attempt)
+    this.#nextPublicBatch()
+  }
+
+  /** Opening People can queue a whole follow list. Read one small batch at
+   * a time, including when new senders arrive while a batch is in flight. */
+  #nextPublicBatch(): void {
+    if (this.#publicBusy || !this.#enabled || this.#closed || !this.#publicPending.size) return
+    const batch: string[] = []
+    let attempt: number | undefined
+    for (const [key, queuedAttempt] of this.#publicPending) {
+      if (attempt !== undefined && queuedAttempt !== attempt) break
+      this.#publicPending.delete(key)
+      if (this.#asked.room.has(key) || queuedAttempt > 0 && this.#found.has(key)) continue
+      attempt = queuedAttempt
+      batch.push(key)
+      if (batch.length === PUBLIC_BATCH_SIZE) break
+    }
+    if (attempt === undefined) return
+    this.#publicBusy = true
+    this.#lookup(batch, 'public', attempt, () => {
+      this.#later('public', PUBLIC_BATCH_PAUSE_MS, () => {
+        this.#publicBusy = false
+        this.#nextPublicBatch()
+      })
+    })
+  }
+
+  #later(scope: LookupScope, delay: number, work: () => void): ReturnType<typeof setTimeout> {
     const timer = setTimeout(() => {
       this.#timers[scope].delete(timer)
       work()
     }, delay)
     this.#timers[scope].add(timer)
     ;(timer as unknown as { unref?: () => void }).unref?.()
+    return timer
   }
 
-  #lookup(pubkeys: string[], scope: LookupScope, attempt: number): void {
+  #lookup(pubkeys: string[], scope: LookupScope, attempt: number, publicBatchDone?: () => void): void {
     if (this.#closed || !this.#enabled) return
     const retry = () => {
       const missing = pubkeys.filter(key => !this.#found.has(key))
       const delay = LOOKUP_RETRY_MS[attempt]
-      if (missing.length && delay !== undefined) this.#later(scope, delay, () => this.#lookup(missing, scope, attempt + 1))
+      if (missing.length && delay !== undefined) this.#later(scope, delay, () => {
+        if (scope === 'public') this.#queuePublic(missing, attempt + 1)
+        else this.#lookup(missing, scope, attempt + 1)
+      })
     }
 
     // Lazily, so a browser that never opens a room never opens a socket.
@@ -229,28 +292,41 @@ export class ProfileBook {
     // socket - must never take the door or the room down with it. The
     // caller is `render()`.
     let unsub: () => void
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const finish = (ended: boolean) => {
+      if (!this.#unsubs[scope].delete(unsub)) return
+      if (timeout !== undefined) { clearTimeout(timeout); this.#timers[scope].delete(timeout) }
+      unsub()
+      if (!ended) retry()
+      publicBatchDone?.()
+    }
     try {
       const urls = uniqueRelays(scope === 'room' ? this.#opts.relays() : this.#opts.publicRelays())
       const pool = this.#pools[scope] ??= this.#opts.transport?.(urls, scope) ?? new NostrRelayPool(urls)
-      unsub = pool.subscribe([{ kinds: [0], authors: pubkeys }], (event) => this.#ingest(event))
+      const requested = new Set(pubkeys)
+      unsub = pool.subscribe([{ kinds: [0], authors: pubkeys, ...(publicBatchDone ? { limit: pubkeys.length } : {}) }], event => {
+        if (!requested.has(event.pubkey) || !this.#ingest(event)) return
+        if (scope === 'public' && this.#enabled) this.#opts.publicCache?.keep(event)
+      }, publicBatchDone ? () => queueMicrotask(() => finish(true)) : undefined)
     } catch {
       retry()
+      publicBatchDone?.()
       return
     }
     this.#unsubs[scope].add(unsub)
 
-    // Close each bounded read, then retry only missing profiles. A cold
-    // connection or unavailable relay must not leave the account nameless
-    // for the rest of the visit. Successful profiles are not queried again.
-    this.#later(scope, LOOKUP_TIMEOUT_MS, () => {
-      this.#unsubs[scope].delete(unsub)
-      unsub()
-      retry()
-    })
+    // Public reads finish at EOSE or the deadline. Missing profiles on
+    // timed-out batches can retry through the same queue.
+    timeout = this.#later(scope, LOOKUP_TIMEOUT_MS, () => finish(false))
   }
 
   get(pubkey: string): Profile | undefined {
     return this.#enabled ? this.#found.get(pubkey)?.profile : undefined
+  }
+
+  /** An explicit People search found a profile for someone already listed. */
+  rememberPublic(event: Event): void {
+    if (this.#ingest(event)) this.#opts.publicCache?.keep(event)
   }
 
   close(): void {
@@ -261,7 +337,7 @@ export class ProfileBook {
   }
 
   async #checkAddress(pubkey: string, profile: Profile, value: unknown): Promise<void> {
-    if (typeof value !== 'string') return
+    if (typeof value !== 'string' || this.#opts.verifyAddress?.(pubkey) === false) return
     const match = /^([a-z0-9_.-]+)@([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)$/i.exec(value)
     if (!match || value.length > 254) return
     const [, name, domain] = match
@@ -285,18 +361,17 @@ export class ProfileBook {
   }
 
   /** Never throws: this runs inside a relay subscription handler. */
-  #ingest(event: Event): void {
+  #ingest(event: Event, notify = true): boolean {
     try {
-      if (this.#closed || !this.#enabled) return
-      if (event.kind !== 0) return
-      if (!this.#asked.room.has(event.pubkey) && !this.#asked.public.has(event.pubkey)) return
+      if (this.#closed || !this.#enabled) return false
+      if (event.kind !== 0 || event.created_at > Math.floor(Date.now() / 1000) + 60) return false
       // The pool filters by author, but a relay is not obliged to honour a
       // filter and a signature is the only thing that actually binds this
       // profile to that key.
-      if (!verifyEventUncached(event)) return
+      if (!verifyEventUncached(event)) return false
 
       const existing = this.#found.get(event.pubkey)
-      if (existing && existing.createdAt >= event.created_at) return
+      if (existing && !newerProfile(event, existing.event)) return existing.event.id === event.id
 
       const content = JSON.parse(event.content) as Record<string, unknown>
       const profile: Profile = {
@@ -308,11 +383,13 @@ export class ProfileBook {
       // The claim is kept (a settings switch may later verify it); the
       // fetch it describes runs only when verification is switched on.
       const claim = typeof content.nip05 === 'string' ? content.nip05 : undefined
-      this.#found.set(event.pubkey, { profile, createdAt: event.created_at, ...(claim !== undefined ? { nip05Claim: claim } : {}) })
-      if (!this.#closed) this.#opts.onChange()
+      this.#found.set(event.pubkey, { profile, event: { id: event.id, created_at: event.created_at }, ...(claim !== undefined ? { nip05Claim: claim } : {}) })
+      if (notify) this.#opts.onChange()
       if (this.#nip05Automatic) void this.#checkAddress(event.pubkey, profile, content.nip05)
+      return true
     } catch {
       // A malformed profile is a missing profile, not a broken room.
+      return false
     }
   }
 }

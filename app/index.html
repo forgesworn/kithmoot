@@ -24,6 +24,7 @@
     <aside id="updateNotice" hidden role="status" aria-atomic="true">
       <div><strong>Update ready</strong><span>Update when you are ready. Your room will reopen.</span></div>
       <button id="updateApp" type="button">Update now</button>
+      <button id="updateChanges" type="button">What’s new</button>
     </aside>
     <!-- Skip links come first in the tab order (design-calm-shell, section
          9.1). They are links, but a real #fragment would overwrite the
@@ -42,10 +43,12 @@
     <nav id="rail" aria-label="Main">
       <button id="appHome" class="railLogo brandHome" type="button" aria-label="KithMoot, start page"><img src="/pwa-192x192.png" width="32" height="32" alt="" /></button>
       <button id="railChats" class="railItem" type="button" data-destination="chats" aria-current="page"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-chats"/></svg><span id="railChatsCount" class="railCount" hidden></span></span><span class="railLabel">Chats</span></button>
-      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg></span><span class="railLabel">People</span></button>
+      <button id="railPeople" class="railItem" type="button" data-destination="people" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-people"/></svg><span id="railPeopleCount" class="railCount" hidden></span></span><span class="railLabel">People</span></button>
       <button id="railBoards" class="railItem" type="button" data-destination="boards"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-board"/></svg><span id="railBoardsCount" class="railCount" hidden></span></span><span class="railLabel">Boards</span></button>
+      <button id="railMetadata" class="railItem" type="button" data-destination="metadata" aria-controls="metadataPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-eye"/></svg></span><span class="railLabel">Metadata</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
+        <button id="railPersonas" class="railItem" type="button" aria-label="Personas" aria-haspopup="dialog" aria-controls="personasDialog" hidden><span id="railPersonaAvatar" class="railIcon" aria-hidden="true"></span><span id="railPersonaTip" aria-hidden="true"></span></button>
         <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
         <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
@@ -114,6 +117,7 @@
       </nav>
       <noscript><p class="note">KithMoot needs JavaScript to open encrypted rooms. Enable it for this site, then reload.</p></noscript>
       <div id="workspaceContent">
+      <section id="metadataPane" aria-label="Metadata" hidden></section>
       <section id="peoplePane" aria-label="Contact" hidden>
         <p class="note">People is coming in this build.</p>
       </section>
@@ -170,6 +174,7 @@
             <span class="infoRowText"><span class="infoRowTitle">About and help</span><span class="infoRowSub" id="settingsSubabout">Report abuse</span></span>
             <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
           </button>
+          <button id="appWhatsNew" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="releaseNotes"><span class="infoRowText"><span class="infoRowTitle">What’s new</span><span class="infoRowSub">Changes in this version</span></span><svg class="i infoChevron" aria-hidden="true"><use href="#i-chevron"/></svg></button>
           </div>
         </div>
         <section class="settingsPage" data-settings-page="account" data-settings-title="Account" hidden>
@@ -287,7 +292,7 @@
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="dmRelaySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="dmRelaySettings" hidden>
-                    <span class="infoRowText"><span class="infoRowTitle">Relays for private chats</span><span class="infoRowSub">Where one-to-one chats with you are kept. This list is public.</span></span>
+                    <span class="infoRowText"><span class="infoRowTitle">Nostr inbox relays</span><span class="infoRowSub">The public list of relays that accept encrypted Nostr messages for you</span></span>
                     <svg class="i infoChevron" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg>
                   </button>
                   <button id="bothySettingsOpen" type="button" class="infoRow" aria-haspopup="dialog" aria-controls="bothySettings">
@@ -465,7 +470,7 @@
            out). Still a <dialog> element because `WorkspaceWorkPanel` gates
            everything on it being open; it is opened without showModal(). -->
       <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
-        <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
+        <div id="workspaceWorkHead" class="sheetBar listHead"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
         <div class="workFilters" role="group" aria-label="Boards"><button id="workspaceInboxTab" type="button" aria-pressed="true">Needs you</button><button id="workspaceWorkTab" type="button" aria-pressed="false">All</button></div>
         <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
         <p id="workspaceWorkStatus" role="status"></p>
@@ -511,6 +516,7 @@
             <button id="callDockLeave" type="button" class="danger" aria-label="Leave call">Leave</button>
           </span>
         </div>
+        <div id="callAudioActivity" data-audio-activity hidden></div>
         <div id="callStage">
         <!-- Nobody is on a call, so the call area is one line: what the room
              is doing, and the way to start. Shown only by the installed
@@ -635,6 +641,7 @@
                  and shown by app/src/main.ts only where the window offers
                  them. -->
             <div id="shareExtras" class="toggles shareExtras" hidden></div>
+            <section id="callConnections"><div id="callConnectionsContent"></div></section>
             <button id="resumeCallMedia" type="button">Resume call media</button>
             <button id="toggleFloatingMarks" class="toggle" data-on="false" aria-pressed="false" hidden>Show drawings in a floating window</button>
             <!-- Filled in by `renderWakeLockNote` in app/src/main.ts. It is
@@ -863,6 +870,7 @@
             <button id="callChatBarLeave" type="button" class="danger" aria-label="Leave call">Leave</button>
           </span>
         </div>
+        <div id="chatAudioActivity" data-audio-activity hidden></div>
         <nav id="conversationNav" class="conversationNav" aria-label="Room conversations"></nav>
         <div id="workAttention" class="workAttention" hidden>
           <span id="workAttentionText"></span>
@@ -1068,8 +1076,9 @@
           <p id="accountLead" class="note">Sign in to find your rooms across devices. Just visiting? Open the invite link you were sent; no account needed.</p>
           <button id="accountNetworkOpen" type="button" class="quiet" aria-haspopup="dialog" aria-controls="accountNetworkDialog">Account network</button>
           <button id="signIn" type="button">Sign in with Nostr</button>
+          <button id="accountPersonas" type="button" aria-haspopup="dialog" aria-controls="personasDialog">Personas</button>
           <button id="signOut" type="button" hidden>Sign out</button>
-          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>Start public message</button>
+          <button id="nostrMessageEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrMessageDialog" aria-describedby="nostrMessageAvailability" hidden>New Nostr message</button>
           <button id="nostrInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Nostr messages</button>
           <button id="nostrAccountInboxEntry" type="button" class="quiet" aria-haspopup="dialog" aria-controls="nostrInboxDialog" hidden>Check invitations on account relays</button>
           <p id="nostrMessageAvailability" class="note" hidden>Use a browser extension that supports modern Nostr encryption to send from here. This account view is available outside rooms and calls.</p>
@@ -1173,6 +1182,7 @@
           </fieldset>
           <button id="join" type="submit" class="primary" hidden>Join</button>
           <button id="doorBothyRecovery" type="button" aria-haspopup="dialog" aria-controls="bothyRoomSettings" hidden>Recover Bothy room access</button>
+          <button id="doorPersonas" type="button" class="quiet linkish" aria-haspopup="dialog" aria-controls="personasDialog" hidden>Switch persona</button>
           <button id="joinNostr" type="button" class="quiet linkish">Already on Nostr? Sign in</button>
           <button id="joinVisitor" type="button" class="quiet linkish" hidden>Join with just a name instead</button>
           <p id="joinPrivacy" class="note">Microphone and camera stay off until you turn them on.</p>
@@ -1907,7 +1917,7 @@
       </section>
 
       <section class="infoPage" data-info-page="name" data-info-title="Name and picture" hidden>
-        <p class="note">Anyone here can change them.</p>
+        <p class="note" id="roomNameScope">Anyone here can change them.</p>
         <form id="roomRename" class="channelNew" hidden>
           <label for="roomRenameInput" class="note">
             Rename this room for everyone in it.
@@ -1915,6 +1925,7 @@
           <input id="roomRenameInput" autocomplete="off" maxlength="32" required
                  aria-label="Room name" />
           <button type="submit" id="roomRenameSave">Rename for everyone</button>
+          <button type="button" id="roomRenameReset" hidden>Use their name</button>
         </form>
         <div id="roomLogoControls" class="roomLogoControls" hidden>
           <span id="roomLogoPreview" class="privateLogo"></span>
@@ -1969,23 +1980,50 @@
       </div>
     </dialog>
 
-    <dialog id="nostrMessageDialog" class="sharedProjectsSheet" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
-      <div class="sheetBar"><h2 id="nostrMessageTitle">Start public message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+    <dialog id="peopleNostrDialog" class="sharedProjectsSheet" aria-labelledby="peopleNostrTitle">
+      <div class="sheetBar"><h2 id="peopleNostrTitle">Nostr messages</h2><button id="peopleNostrClose" type="button" autofocus>Close</button></div>
       <div class="sheetBody">
-        <p id="nostrMessageLane" class="nostrMessageWarning">○ public</p>
-        <p id="nostrMessageWarning" class="nostrMessageWarning"></p>
-        <p class="note">The message content stays encrypted. This sends an ordinary Nostr message through published inbox relays. It does not send a room invitation or include room history. Use a browser extension that supports modern Nostr encryption to send from here.</p>
+        <p id="peopleNostrStatus" role="status" class="note"></p>
+        <div id="peopleNostrActions" class="peopleNostrActions">
+          <button id="peopleNostrCompose" type="button" hidden>New message</button>
+          <button id="peopleNostrRelays" type="button" class="quiet">Inbox relays</button>
+          <button id="peopleNostrRefresh" type="button" class="quiet" hidden>Refresh</button>
+          <button id="peopleNostrToggle" type="button" class="quiet">Turn off inbox</button>
+        </div>
+        <div id="peopleNostrContent"></div>
+      </div>
+    </dialog>
+
+    <dialog id="nostrMessageDialog" class="sharedProjectsSheet nostrComposer" aria-labelledby="nostrMessageTitle" aria-describedby="nostrMessageWarning">
+      <div class="sheetBar"><h2 id="nostrMessageTitle">New Nostr message</h2><button id="nostrMessageClose" type="button" autofocus>Close</button></div>
+      <div class="sheetBody">
+        <p id="nostrMessageTo" class="nostrComposerRecipient" hidden>To <strong id="nostrMessageToName"></strong> <bdi id="nostrMessageToKey" class="note"></bdi></p>
         <form id="nostrMessageForm">
-          <label for="nostrMessageRecipient">Their Nostr public key (npub)</label>
-          <input id="nostrMessageRecipient" name="recipient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
-          <label for="nostrMessageText">New message</label>
-          <textarea id="nostrMessageText" name="message" rows="5" maxlength="4096" autocomplete="off" required></textarea>
-          <p class="note">Review checks both accounts’ published Nostr inbox lists on your configured account relays. Your message stays on this device until you choose Send public. Closing clears this draft.</p>
-          <button id="nostrMessageReview" type="submit">Review public message</button>
+          <div id="nostrMessageAddress">
+            <label for="nostrMessageRecipient">Recipient’s Nostr public key</label>
+            <input id="nostrMessageRecipient" name="recipient" type="text" placeholder="npub1…" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="1024" required>
+          </div>
+          <div id="nostrMessageDraft">
+            <label for="nostrMessageText">Message</label>
+            <textarea id="nostrMessageText" name="message" rows="4" maxlength="4096" autocomplete="off" required></textarea>
+          </div>
+          <div class="nostrComposerOutcome" id="nostrMessageOutcome" role="status" aria-live="polite" aria-atomic="true" hidden>
+            <strong id="nostrMessageState"></strong>
+            <p id="nostrMessageStatus"></p>
+          </div>
+          <p id="nostrMessagePreview" class="nostrComposerPreview" hidden></p>
+          <p id="nostrMessageLane" class="nostrComposerRoute">Encrypted · Public Nostr relays</p>
+          <p id="nostrMessageWarning" class="note">Relays can see the recipient’s public key and when they receive the encrypted message.</p>
+          <details id="nostrMessageDetails" hidden>
+            <summary>Inbox relay details</summary>
+            <p id="nostrMessageSummary" class="note"></p>
+          </details>
+          <div class="nostrComposerActions">
+            <button id="nostrMessageReview" type="submit">Check inbox relays</button>
+            <button id="nostrMessageSend" type="button" hidden>Send encrypted message</button>
+            <button id="nostrMessageView" type="button" hidden>View conversation</button>
+          </div>
         </form>
-        <p id="nostrMessageSummary" class="note"></p>
-        <button id="nostrMessageSend" type="button" hidden>Send public</button>
-        <p id="nostrMessageStatus" class="note" role="status" aria-live="polite"></p>
       </div>
     </dialog>
 
@@ -2082,6 +2120,24 @@
         </div>
       </form>
     </dialog>
+    <dialog id="personasDialog" class="profileSettings" aria-labelledby="personasTitle">
+      <div class="profileSettingsHeader"><h2 id="personasTitle">Personas</h2><button id="personasClose" type="button" autofocus>Close</button></div>
+      <div id="personaCurrent" class="personaCurrent" hidden>
+        <div><span class="note">Current persona</span><strong id="personaCurrentName"></strong><small id="personaCurrentKey" class="note" hidden></small></div>
+        <button id="reconnectPersona" type="button" hidden>Reconnect</button>
+      </div>
+      <div id="personaSwitch" hidden>
+        <h3>Switch persona</h3>
+        <div id="personaChoices" class="personaChoices"></div>
+      </div>
+      <details id="personaNameOption">
+        <summary>Name on this device (optional)</summary>
+        <label for="personaLabel" class="sr-only">Name for the new persona</label>
+        <input id="personaLabel" maxlength="48" autocomplete="off" />
+      </details>
+      <button id="addSignetPersona" type="button">Add from My Signet</button>
+      <p id="personasStatus" class="note" role="status" tabindex="-1"></p>
+    </dialog>
     <dialog id="accountNetworkDialog" class="profileSettings" aria-labelledby="accountNetworkTitle">
       <div class="profileSettingsHeader"><h2 id="accountNetworkTitle">Account network</h2><button id="accountNetworkClose" type="button">Close</button></div>
       <p id="accountNetworkStatus" class="note" role="status"></p>
@@ -2100,6 +2156,7 @@
       <p class="note">Show the picture and name published by each person’s Nostr key. Names are chosen by their owners.</p>
       <p class="note">This looks up people in rooms, in your private chat list and in People, and whoever sent you an invitation. It sends their keys to public profile servers, and for people in the room you have open to that room’s relays as well. It loads pictures from their hosts. Those services can connect the requests with your visit. Turning it off stops further lookups and removes loaded profiles. Your choice is saved on this device.</p>
       <p id="lookupHosts" class="note"></p>
+      <p class="note">Choosing Search Nostr in People sends the name you enter to relay.ditto.pub.</p>
       <p class="note">While Nostr account networking is enabled, your signed-in account’s own name and picture are loaded separately from the public profile servers. Turning off other people’s profiles keeps your own account name. Private invitations pauses these account lookups too.</p>
       <label class="profileChoice"><input id="verifyAddresses" type="checkbox" /> Verify Nostr addresses</label>
       <p class="note">Checks a Nostr address with the domain it names, and shows the address only if the domain confirms it for that person’s key. That domain is chosen by the person being looked up: its operator learns your address, timing and rough browser. The check is off until you ask for it; turning it off stops checks in flight. Verified addresses are remembered until profiles are turned off above. Your choice is saved on this device.</p>
@@ -2110,6 +2167,11 @@
       <div class="profileSettingsHeader"><h2 id="bothySettingsTitle">Bothy connection</h2><button id="bothyClose" type="button">Close</button></div>
       <p>Pair this browser with your Bothy over Link. Your Link relay carries encrypted traffic and can observe connection timing and volume.</p>
       <p class="note">Pairing prepares a connection. Choose Bothy room routing in a room’s settings to activate that room separately.</p>
+      <label>Standalone Wok relay (optional) <input id="wokRelayUrl" type="text" autocomplete="off" spellcheck="false" placeholder="wss://relay.example.org/events"></label>
+      <p class="note">Use a relay you operate directly, without Bothy, Link or Archipelago. Saving it only offers the route; each room still needs separate activation.</p>
+      <button id="wokRelaySave" type="button">Save standalone relay</button>
+      <button id="wokRelayForget" type="button" class="quiet">Forget standalone relay</button>
+      <p id="wokRelayStatus" class="note" role="status"></p>
       <label>Link relay addresses <input id="bothyRelays" type="text" autocomplete="off" spellcheck="false" placeholder="wss://…"></label>
       <p class="note">Use the relay addresses supplied by your Bothy keeper. Leave blank to resume the saved connection.</p>
       <button id="bothyConnect" type="button">Connect or resume</button>
@@ -2124,11 +2186,11 @@
     <dialog id="bothyRoomSettings" class="profileSettings" aria-labelledby="bothyRoomTitle" data-keep-open>
       <div class="profileSettingsHeader"><h2 id="bothyRoomTitle">Bothy room routing</h2><button id="bothyRoomClose" type="button">Close</button></div>
       <p id="bothyRoomLabel"></p>
-      <p>This moves this room’s text and presence to one paired Bothy. Calls, media, new invitations and ungranted channels remain unavailable on this route. Account and profile connections keep their own settings.</p>
+      <p>This moves this room’s text and presence to one paired Bothy or standalone Wok relay. Calls, media, new invitations and ungranted channels remain unavailable on this route. Account and profile connections keep their own settings.</p>
       <p>Update or close older KithMoot tabs first. A sleeping tab that cannot confirm closure blocks activation.</p>
       <p class="note">Public history recovery and cleanup are paused while a Bothy room selection is saved in this browser.</p>
-      <label>Paired Bothy <select id="bothyRoomRoute"></select></label>
-      <p><label><input id="bothyRoomKeeper" type="checkbox"> I keep this Bothy: grant my device and the current devices below access for 30 days.</label></p>
+      <label>Private relay route <select id="bothyRoomRoute"></select></label>
+      <p><label><input id="bothyRoomKeeper" type="checkbox"> I keep this relay: grant my device and the current devices below access for 30 days.</label></p>
       <p id="bothyRoomDevices" class="note"></p>
       <button id="bothyRoomActivate" type="button">Activate or resume room</button>
       <button id="bothyRoomRenew" type="button">Renew keeper grants</button>
@@ -2169,17 +2231,17 @@
 
     <dialog id="dmRelaySettings" class="profileSettings" aria-labelledby="dmRelaySettingsTitle">
       <div class="profileSettingsHeader">
-        <h2 id="dmRelaySettingsTitle">Relays for private conversations</h2>
-        <button id="dmRelaySettingsClose" type="button" aria-label="Close relays for private conversations">Close</button>
+        <h2 id="dmRelaySettingsTitle">Nostr inbox relays</h2>
+        <button id="dmRelaySettingsClose" type="button" aria-label="Close Nostr inbox relays">Close</button>
       </div>
-      <p class="note">Private conversations started with you, and by you, are kept on these relays. Choose ones that keep messages and will not turn you away: your own, or one you pay for. One per line, up to six.</p>
+      <p class="note">Choose one to three public Nostr relays that accept encrypted messages for your account. Enter one address per line.</p>
       <label for="dmRelayList">Relays</label>
       <textarea id="dmRelayList" rows="4" placeholder="wss://relay.example" autocomplete="off" spellcheck="false"></textarea>
       <div class="toolRow">
         <button id="dmRelaySave" type="button" class="primary">Save to your Nostr account</button>
       </div>
       <p id="dmRelayStatus" class="note" role="status"></p>
-      <p class="note">This list is public, as the Nostr standard for it (NIP-17) requires: anyone can see which relays you use for private conversations, though not what is said on them or with whom.</p>
+      <p class="note">Anyone can look up this list to find where to send you an encrypted Nostr message.</p>
     </dialog>
 
     <dialog id="assignmentPanel" aria-labelledby="assignmentTitle">

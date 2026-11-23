@@ -3,13 +3,17 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createRoom, joinWithMedia, INSTRUMENT, SYNTHETIC_MIC, SYNTHETIC_SCREEN, expectToSeeAndHear, inbound, openRoomBoards } from '../../test/browser.js'
+import WebSocket from 'ws'
+import {
+  chooseCallMore, createRoom, expectToSeeAndHear, inbound, INSTRUMENT, join as joinRoom,
+  open, openCall, roomMenuItem, SYNTHETIC_MIC, SYNTHETIC_SCREEN, turnOnMedia,
+} from '../../test/browser.js'
 import { localAsset, HOME } from '../policy.mjs'
 const desktop = fileURLToPath(new URL('../', import.meta.url))
-const relays = ['ws://127.0.0.1:17777']
+const relays = ['wss://call-relay.invalid']
 process.env.E2E_RELAYS = relays.join(',')
 
-test('Mac desktop and browser exchange moving video, audio and chat; leaving stops only this device', async ({ browser }) => {
+test('Mac desktop and browser exchange moving video, audio and chat; leaving stops only this device', async ({ browser }, info) => {
   const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-call-'))
   const native = await electron.launch({
     executablePath: process.env.ELECTRON_EXECUTABLE ?? join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
@@ -18,9 +22,21 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
   })
   const context = await browser.newContext({ permissions: ['camera', 'microphone', 'local-network-access'] })
   try {
-    // Proxy only the synthetic relay, avoiding host local-network permission state.
+    // Keep the renderer on WSS and send synthetic relay traffic to the local fixture.
     for (const isolated of [native.context(), context]) {
-      await isolated.routeWebSocket(url => url.origin === relays[0], socket => { socket.connectToServer() })
+      await isolated.routeWebSocket(url => url.origin === relays[0], socket => {
+        const backend = new WebSocket('ws://127.0.0.1:17777')
+        const pending: Array<string | Buffer> = []
+        socket.onMessage(message => {
+          if (backend.readyState === WebSocket.OPEN) backend.send(message)
+          else pending.push(message)
+        })
+        backend.on('open', () => { for (const message of pending.splice(0)) backend.send(message) })
+        backend.on('message', message => socket.send(message.toString()))
+        backend.on('error', () => socket.close())
+        backend.on('close', () => socket.close())
+        socket.onClose(() => backend.close())
+      })
     }
     await context.route('https://kithmoot.forgesworn.dev/**', async route => {
       const path = localAsset(route.request().url(), join(desktop, 'web'))
@@ -40,13 +56,23 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
     web.on('console', message => { if (message.type() === 'error') console.log('WEB:', message.text()) })
     console.log('Creating room')
     const url = await createRoom(mac, HOME, relays, 'Desktop test')
-    console.log('Joining desktop')
-    await joinWithMedia(mac, url, 'Desktop test')
-    console.log('Joining browser')
-    await joinWithMedia(web, url, 'Browser test')
+    for (const [page, name] of [[mac, 'Desktop test'], [web, 'Browser test']] as const) {
+      await open(page, url, name)
+      await joinRoom(page)
+      if (page === web) await expect(page.locator('#callToggle')).toHaveText('Join call')
+      await openCall(page)
+      await expect(page.locator('#toggleMic')).toHaveAttribute('data-on', 'true')
+      await turnOnMedia(page)
+    }
     console.log('Checking media')
     await expectToSeeAndHear(mac, 'Mac desktop')
     await expectToSeeAndHear(web, 'Browser')
+    for (const [page, peer] of [[mac, 'Browser test'], [web, 'Desktop test']] as const) {
+      const strip = page.locator('#callAudioActivity')
+      await expect(strip.getByText('You', { exact: true })).toBeVisible()
+      await expect(strip.getByText(peer, { exact: true })).toBeVisible()
+      await expect(strip.locator('.audioSignal[data-speaking]')).toHaveCount(2)
+    }
     await mac.locator('#chatInput').fill('Synthetic desktop hello')
     await mac.locator('#chatInput').press('Enter')
     await expect(web.locator('#chatLog')).toContainText('Synthetic desktop hello')
@@ -63,16 +89,16 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
         })
       }), { message: `Composer and Leave call must fit ${width}x${height}` }).toBe(true).catch(async error => {
         console.log('Native layout bounds', await mac.evaluate(() => ({width: innerWidth, height: innerHeight, elements: ['chatInput', 'leaveCall', 'callSurface', 'roomArea'].map(id => ({id, bounds: document.getElementById(id)?.getBoundingClientRect().toJSON()}))})))
-        await mac.screenshot({path: join(desktop, 'artifacts/boards-call-layout-failure.png'), fullPage: true})
+        await mac.screenshot({path: info.outputPath('boards-call-layout-failure.png'), fullPage: true})
         throw error
       })
     }
     await native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1320, 852))
-    await mac.screenshot({ path: join(desktop, 'artifacts/call.png') })
+    await mac.screenshot({ path: info.outputPath('call.png') })
     // Exercise the actual floating frame and its pointer controls without
     // granting access to or capturing any pixels from the user's desktop.
     const popupReady = native.waitForEvent('window')
-    await mac.locator('#shareArea').click()
+    await chooseCallMore(mac, 'Share an area')
     const area = await popupReady
     const areaBounds = () => native.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('kithmoot-share-area'))!.getBounds())
     await expect(area.getByRole('button', { name: 'Start sharing', exact: true })).toBeEnabled()
@@ -134,7 +160,7 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
       return { left: r.left, top: r.top, right: innerWidth - r.right, bottom: innerHeight - r.bottom }
     })
     expect(geometry).toEqual({ left: 8, top: 52, right: 8, bottom: 40 })
-    await area.screenshot({ path: join(desktop, 'artifacts/share-area-controls.png') })
+    await area.screenshot({ path: info.outputPath('share-area-controls.png') })
     await area.getByRole('button', { name: 'Cancel', exact: true }).click()
     await expect.poll(() => native.windows().length).toBe(1)
     console.log('PASS: native sharing frame pointer resize, keyboard move, opposite-corner anchoring, always-on-top/workspaces, invalid IPC rejection and capture insets')
@@ -161,10 +187,10 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
       await expect.poll(() => mac.evaluate(() => {
         const room = document.getElementById('roomArea')!.getBoundingClientRect()
         const chat = document.getElementById('chatLog')!.getBoundingClientRect()
-        const input = document.getElementById('chatInput')!.getBoundingClientRect()
-        return Math.abs(chat.right - room.right) <= 4 && Math.abs(input.right - room.right) <= 4
-          && chat.width / room.width > .95 && input.width / room.width > .95
-          && input.bottom <= innerHeight && input.left >= 0
+        const composer = document.getElementById('chatForm')!.getBoundingClientRect()
+        return Math.abs(chat.right - room.right) <= 4 && Math.abs(composer.right - room.right) <= 4
+          && chat.width / room.width > .95 && composer.width / room.width > .95
+          && composer.bottom <= innerHeight && composer.left >= 0
       }), { message: 'Chat and composer must fill the native room without leaving the window' }).toBe(true)
       await expect(mac.locator('#chatInput')).toHaveValue('A draft kept while resizing the desktop')
     }
@@ -172,16 +198,17 @@ test('Mac desktop and browser exchange moving video, audio and chat; leaving sto
       await native.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]!.setContentSize(size[0]!, size[1]!), [width, height])
       await expectFullWidthChat()
     }
-    await mac.screenshot({ path: join(desktop, 'artifacts/chat-wide.png') })
-    await mac.locator('#projectsRailToggle').click()
-    await expect(mac.locator('html')).toHaveAttribute('data-rail', 'collapsed')
+    await mac.screenshot({ path: info.outputPath('chat-wide.png') })
+    const chatListWidth = mac.getByRole('separator', { name: 'Resize chats list' })
+    await chatListWidth.press('End')
+    await expect(chatListWidth).toHaveAttribute('aria-valuenow', '480')
     await expectFullWidthChat()
-    await openRoomBoards(mac); await mac.getByRole('button', {name: 'New room task', exact: true}).click()
+    await roomMenuItem(mac, 'New task…')
     await expect(mac.locator('#assignmentPanel')).toBeVisible()
     await expectFullWidthChat()
     await mac.locator('#assignmentClose').click()
-    await mac.locator('#projectsRailToggle').click()
-    await expect(mac.locator('html')).toHaveAttribute('data-rail', 'open')
+    await chatListWidth.press('Home')
+    await expect(chatListWidth).toHaveAttribute('aria-valuenow', '300')
     await expectFullWidthChat()
   } finally {
     await native.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.destroy() }).catch(() => {})

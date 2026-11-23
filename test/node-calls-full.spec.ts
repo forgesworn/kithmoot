@@ -14,7 +14,7 @@ import { turnWire } from './node-turn-wire.mjs'
 // Opt-in, disposable local node on the `tiny` profile: eight relay ports.
 // Raw TURN clients on a separate scratch room hold ports so that the two
 // browser devices meet a full node, then the test lets them go.
-const COPY = "This node's calls are full. Try again when a call ends."
+const COPY = "This node has no more room for calls. Space frees up when someone leaves a call."
 const TURN = { udpTcp: 34780, tls: 53489 }
 
 test('a full node says so instead of showing a silent call', async ({ baseURL }, info) => {

@@ -253,6 +253,9 @@ export interface PictureLook {
    *  receiver, not off the element, because a parked element's clock stops
    *  and a wedged decoder's does too while the packets keep coming. */
   arriving: boolean
+  /** Missing packets are a transient gap while the sender still advertises
+   *  this role. Undefined presence is not an instruction to hide it either. */
+  advertised?: boolean
   /** Whether the call is on screen at all. */
   visible: boolean
   at: number
@@ -270,21 +273,24 @@ export type PictureAction =
   | 'rebind'
 
 /** The playback clock only establishes progress once a picture exists. */
-export function pictureAdvanced(previous: number, current: number, hasFrame: boolean): boolean {
+export function pictureAdvanced(previous: number, current: number, hasFrame: boolean, previousFrames?: number, frames?: number): boolean {
   // -1 marks a new/rebound sink. Its initial zero clock is not a decoded
   // frame: calling it played lets recovery park it before decoding starts.
-  return hasFrame && current > Math.max(0, previous) + 0.001
+  return hasFrame && (current > Math.max(0, previous) + 0.001
+    || previousFrames !== undefined && frames !== undefined && frames > previousFrames)
 }
 
 /**
  * What to do about one picture this second.
  *
- * Pure, so the three rules that used to be tangled in the poller can be
+ * Pure, so the rules that used to be tangled in the poller can be
  * asked directly. They are:
  *
  * - a picture whose PACKETS are arriving is not parked, and a parked one is
  *   restored the moment they arrive again. A parked element's clock stops -
  *   see `parkPicture` - so the clock cannot be the way back.
+ * - missing packets do not mean a camera stopped: keep its last picture
+ *   while the role is advertised or its presence is temporarily unknown.
  * - a picture that comes back on screen starts its stall count again, or a
  *   still one - a shared slide, a paused camera - is parked and restored and
  *   parked again every three seconds for the rest of the call.
@@ -321,7 +327,7 @@ export function judgePicture(state: PictureState, look: PictureLook): { action: 
   if (!next.played) return { action, state: next }
 
   next.stalled += 1
-  if (next.stalled >= STALLED_CHECKS && next.onScreen && !look.arriving) {
+  if (next.stalled >= STALLED_CHECKS && next.onScreen && !look.arriving && look.advertised === false) {
     next.onScreen = false
     return { action: 'park', state: next }
   }

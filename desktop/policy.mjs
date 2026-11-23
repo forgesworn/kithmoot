@@ -85,6 +85,9 @@ export function localAsset(value, root) {
   let name
   try { name = decodeURIComponent(u.pathname.slice(3)) || 'index.html' } catch { return null }
   if (name.includes('\0') || name.includes('\\') || name.split('/').includes('..')) return null
+  // Only this text-only document may read the offered release instead of
+  // the bundled copy. Executable assets always remain pinned to the app.
+  if (name === 'whats-new.json' && u.searchParams.has('update')) return undefined
   // Never permit a PWA worker to replace code shipped inside this app.
   if (/^(sw\.js|workbox-|registerSW)/.test(name)) return null
   const path = resolve(root, name)

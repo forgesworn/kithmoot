@@ -1,6 +1,7 @@
+import { CompositorMarks } from './compositor-marks.mjs'
 import { ShareArea, AREA_URL } from './share-area.mjs'
 import { Redaction, BOX_WINDOW, boxId } from './redaction.mjs'
-import { MarksOverlay, MARKS_URL, MARKS_WINDOW } from './marks-overlay.mjs'
+import { MarksOverlay, MARKS_URL, MARKS_WINDOW, MARKS_TOOLS_URL, MARKS_TOOLS_WINDOW } from './marks-overlay.mjs'
 import { createDesktopUpdater } from './updater.mjs'
 import { createPackageUpdater, packageVersionFile, readPackageVersion } from './package-updater.mjs'
 import { createArchiveUpdater } from './archive-updater.mjs'
@@ -130,9 +131,13 @@ const shareArea = new ShareArea(() => win, areaMode)
 // Redaction boxes need a window placed on the real screen, which Wayland
 // forbids: there the preview area share is the way to keep things private.
 const redaction = areaMode === 'frame' ? new Redaction(() => win) : undefined
-// Marks drawn on a whole-screen share, shown over that screen. It goes where
-// the capture the redaction boxes are mapped onto is, so it needs the same mode.
+// Marks over the selected native window or display use the recorded capture
+// source. Native Wayland uses the opt-in compositor companion instead.
 const marksOverlay = redaction ? new MarksOverlay(() => redaction.capture) : undefined
+if (marksOverlay) marksOverlay.changed = drawing => { if (win && !win.isDestroyed()) win.webContents.send('desktop:marks-drawing', drawing) }
+const compositorMarks = areaMode === 'preview' ? new CompositorMarks(join(process.env.XDG_STATE_HOME || join(app.getPath('home'), '.local/state'), 'kithmoot')) : undefined
+let compositorLease
+const marksLease = value => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value)
 // Unpackaged automation stands in for the capture source, which a synthetic
 // presentation never asks the main process to choose.
 if (testProfile) globalThis.kithmootTest = { redaction, shareArea, marksOverlay }
@@ -149,6 +154,8 @@ function releaseCall() {
   shareArea.close()
   redaction?.closeAll()
   marksOverlay?.close()
+  compositorLease = undefined
+  void compositorMarks?.stop().catch(error => console.warn('Drawing companion cleanup failed:', error.message))
   callActive = false
   if (powerBlock !== undefined) powerSaveBlocker.stop(powerBlock)
   powerBlock = undefined
@@ -163,6 +170,8 @@ async function external(url) {
 }
 /** An invitation that arrived before there was a window to open it in. */
 let pendingInvitation
+let pendingSpryPairing
+let spryPairingReady = false
 /** Where to go back to if the page keeps itself open after an invitation moved its address. */
 let invitationRevert
 
@@ -177,6 +186,18 @@ async function openInvitation(link) {
   if (!win || win.isDestroyed()) { pendingInvitation = target; return }
   if (win.isMinimized()) win.restore()
   win.show(); win.focus()
+  const pairingHash = new URL(target).hash
+  if (pairingHash.startsWith('#spry=') && pairingHash.length <= 4096 && /^#spry=[A-Za-z0-9_-]+$/.test(pairingHash)) {
+    // Pairing is an approval in the current app, not a room navigation.
+    // Wait for a renderer subscription, including the gap between window
+    // creation and its first load. Never lose a code in an empty window.
+    pendingSpryPairing = pairingHash
+    if (spryPairingReady && !win.webContents.isLoadingMainFrame()) {
+      win.webContents.send('desktop:pair-spry', pendingSpryPairing)
+      pendingSpryPairing = undefined
+    }
+    return
+  }
   if (callActive && !confirmClose('Leave the call and open the invitation?', 'The call on this device will end. Your other devices and everyone else stay connected.', 'Leave call and open')) return
   const current = win.webContents.getURL()
   // A link that differs only after the # is a same-document change, which
@@ -335,9 +356,10 @@ async function createWindow() {
           { type: 'separator' }, { label: 'Cancel', click: cancel },
         ]).popup({ window: win, callback: () => setTimeout(cancel, 250) }),
       }))
-    // The system picker never tells us what was chosen, so it is used only
-    // while no redaction box exists; a box then shows black, not a guess.
-    }, { useSystemPicker: !area && !(redaction?.boxes.size) })
+    // The native macOS picker withholds the chosen window's identity. Use
+    // our source chooser so the renderer can safely preview another app's
+    // window without also enabling recursive previews of KithMoot itself.
+    }, { useSystemPicker: !area && !redaction })
     configureDisplayCapture()
     ses.on('will-download', (_event, item) => {
       // Chromium's save dialog provides a destination for attachments.
@@ -402,11 +424,11 @@ async function createWindow() {
         },
       }
     }
-    if (marksOverlay && url === MARKS_URL) {
+    if (marksOverlay && (url === MARKS_URL || url === MARKS_TOOLS_URL)) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
-          ...MARKS_WINDOW, title: 'Marks on your screen',
+          ...(url === MARKS_URL ? MARKS_WINDOW : MARKS_TOOLS_WINDOW), title: 'Marks on your screen',
           webPreferences: {
             session: ses, preload: join(here, 'preload.cjs'), additionalArguments: preloadArguments,
             nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true,
@@ -438,6 +460,7 @@ async function createWindow() {
     const id = boxId(details.url)
     if (id && redaction) redaction.attach(child, id)
     if (details.url === MARKS_URL && marksOverlay) marksOverlay.attach(child)
+    if (details.url === MARKS_TOOLS_URL && marksOverlay) marksOverlay.attachTools(child)
   })
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
@@ -508,6 +531,14 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
   // Windows and Linux start a closed app with the link as an argument.
   pendingInvitation = invitationTarget(invitationIn(process.argv) ?? '')
   app.whenReady().then(async () => {
+    ipcMain.on('desktop:pairing-ready', event => {
+      if (!trusted(event.sender) || event.senderFrame !== win?.webContents.mainFrame) return
+      spryPairingReady = true
+      if (pendingSpryPairing) {
+        win.webContents.send('desktop:pair-spry', pendingSpryPairing)
+        pendingSpryPairing = undefined
+      }
+    })
     // First, before any window: no spelling dictionaries from Google.
     for (const ses of [session.defaultSession, session.fromPartition(DESKTOP_PARTITION)]) keepSpellingLocal(ses)
     const trustedAttachment = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame
@@ -549,6 +580,41 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     ipcMain.on('desktop:redaction-action', (event, id, action, value) => {
       if (!trusted(event.sender) || !redaction || typeof action !== 'string' || (id !== null && typeof id !== 'string')) return
       redaction.action(id, action, value)
+    })
+    ipcMain.on('desktop:marks-action', (event, action, value) => { if (trusted(event.sender)) marksOverlay?.action(action, value) })
+    const marksSender = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame
+    ipcMain.handle('desktop:compositor-marks-begin', async (event, lease, kind) => {
+      if (!marksSender(event) || !callActive || !compositorMarks || !marksLease(lease) || !['window', 'screen'].includes(kind)) return false
+      compositorLease = lease
+      try {
+        const started = await compositorMarks.start(kind, command => {
+          if (compositorLease === lease && callActive && trusted(event.sender)) event.sender.send('desktop:compositor-mark', lease, command)
+        })
+        if (!started || compositorLease !== lease || !callActive) return false
+        void compositorMarks.waitForCompanion().then(async available => {
+          if (compositorLease !== lease || !callActive) return
+          if (available) {
+            const notice = 'Focus your shared window and press Super+Shift+D, or use Super+Shift+S for the shared display. Escape returns to normal use; Super+Shift+C clears drawings.'
+            if (Notification.isSupported()) new Notification({ title: 'Drawings on your share', body: notice }).show()
+            return
+          }
+          const { response } = await dialog.showMessageBox(win, {
+            type: 'info', message: 'Set up drawings on Wayland',
+            detail: 'Direct drawings need the opt-in GNOME Shell or KDE Plasma companion. Your share is running. Open the setup instructions to install and enable it, then focus the shared window and press Super+Shift+D.',
+            buttons: ['Open setup instructions', 'Keep sharing'], defaultId: 0, cancelId: 1,
+          })
+          if (response === 0) await shell.openPath(join(app.isPackaged ? join(process.resourcesPath, 'drawing') : join(here, 'compositors'), 'README.md'))
+        }).catch(error => console.warn('Drawing companion setup failed:', error.message))
+        return true
+      } catch (error) { console.warn('Drawing companion could not start:', error.message); return false }
+    })
+    ipcMain.on('desktop:compositor-marks-paint', (event, lease, strokes) => {
+      if (marksSender(event) && callActive && compositorLease === lease) compositorMarks?.render(strokes)
+    })
+    ipcMain.on('desktop:compositor-marks-end', (event, lease) => {
+      if (!marksSender(event) || compositorLease !== lease) return
+      compositorLease = undefined
+      void compositorMarks?.stop().catch(error => console.warn('Drawing companion cleanup failed:', error.message))
     })
     ipcMain.on('desktop:area-action', (event, action, value) => { if (trusted(event.sender)) { shareArea.action(action, value); if (action === 'close') configureDisplayCapture() } })
     ipcMain.on('desktop:unread', (event, count) => {

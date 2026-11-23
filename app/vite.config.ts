@@ -13,6 +13,15 @@ import { VitePWA } from 'vite-plugin-pwa'
 const here = dirname(fileURLToPath(import.meta.url))
 const BASE = '/j/'
 const desktop = process.env.VITE_DESKTOP === 'true'
+const releaseNotes = JSON.parse(readFileSync(join(here, 'src/release-notes.json'), 'utf8'))
+const desktopVersion = JSON.parse(readFileSync(join(here, '../desktop/package.json'), 'utf8')).version
+const notesSource = JSON.stringify({ ...releaseNotes, desktopVersion })
+const whatsNew = (): Plugin => ({ name: 'kithmoot-release-notes', generateBundle() { this.emitFile({ type: 'asset', fileName: 'whats-new.json', source: notesSource }) }, configureServer(server) {
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.split('?')[0] !== `${BASE}whats-new.json`) return next()
+    res.setHeader('content-type', 'application/json'); res.setHeader('cache-control', 'no-store'); res.end(notesSource)
+  })
+} })
 // The acceptance companion's port (test/ws-relay.mjs). playwright.config.ts
 // passes E2E_RELAY_PORT to the `vite preview` command it spawns so this
 // proxy always targets the same relay the specs were told to use; unset
@@ -128,7 +137,7 @@ export default defineConfig({
     },
   },
   plugins: [{ name: 'validate-account-network-default', configResolved(config) { accountNetworkDefault(config.env.VITE_ACCOUNT_NETWORK_DEFAULT) } }, admin2ProductCandidate(), girnelAssets(), pinnedWasmPreview(),
-    audioWorklet(),
+    audioWorklet(), whatsNew(),
     shortLinkPage(desktop),
     // getUserMedia and getDisplayMedia both require a secure context. A
     // phone reaching the laptop over its LAN IP is not one without this -

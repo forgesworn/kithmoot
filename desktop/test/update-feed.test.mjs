@@ -19,6 +19,8 @@ test('the static Mac update feed exactly identifies the published signed archive
   assert.equal(entry.updateTo.version, feed.currentRelease)
   assert.equal(entry.updateTo.name, feed.currentRelease)
   assert.match(entry.updateTo.pub_date, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+  assert.ok(entry.updateTo.notes === undefined || typeof entry.updateTo.notes === 'string',
+    'Squirrel.Mac requires updateTo.notes to be text when present')
   // A platform can stay on its last accepted archive while other platforms
   // advance. Its feed must identify the newest published archive for that Mac.
   const macReleases = versions.desktop.filter(item => item.files.some(file => file.os === 'mac' && file.arch === 'arm64'))

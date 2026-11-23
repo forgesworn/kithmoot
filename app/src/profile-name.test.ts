@@ -4,6 +4,18 @@ import { resolveShownName, LastKnownNames } from './profile-name.js'
 const ADA = 'a'.repeat(64)
 const BOB = 'b'.repeat(64)
 
+it('keeps an already held contact name when neither the roster nor a public profile supplies one', () => {
+  for (const profilesEnabled of [false, true]) expect(resolveShownName({
+    profileName: undefined, rememberedName: undefined, assertedName: undefined,
+    localName: 'Rowan', profilesEnabled,
+  })).toBe('Rowan')
+})
+
+it('does not let a local fallback override a current name from the person', () => {
+  expect(resolveShownName({ profileName: undefined, rememberedName: undefined,
+    assertedName: 'Robin', localName: 'Rowan', profilesEnabled: false })).toBe('Robin')
+})
+
 it('prefers a fresh profile over both a remembered name and the announced name', () => {
   expect(resolveShownName({
     profileName: 'Ada', rememberedName: 'Nickname', assertedName: 'Announced', profilesEnabled: true,

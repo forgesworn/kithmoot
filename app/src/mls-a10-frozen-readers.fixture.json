@@ -10,8 +10,14 @@
     "mls-revocation-outbox-state-a10-frozen.fixture.ts": {
       "originalPath": "app/src/mls-revocation-outbox-state.ts",
       "originalSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
-      "fixtureSha256": "1226829ea4efc47be123bdc2f2e974cecee2a6902d104cf6f4c9f42ce5390db9",
-      "transformation": "Verbatim original source."
+      "fixtureSha256": "7c17617b57641d7394bbdb74ed9d03ea55f3ab85c4a913bb387d9d5603005a3d",
+      "transformation": "Only outbox-store relative import redirected to the frozen store fixture; all other source bytes unchanged."
+    },
+    "mls-revocation-outbox-store-a10-frozen.fixture.ts": {
+      "originalPath": "app/src/mls-revocation-outbox-store.ts",
+      "originalSha256": "6b48ba8a298052ff764e9e4f83a45651772725068d6fb774e09f5fe7bf272144",
+      "fixtureSha256": "6b48ba8a298052ff764e9e4f83a45651772725068d6fb774e09f5fe7bf272144",
+      "transformation": "Verbatim schema dependency pinned by the A10 compatibility tests."
     },
     "mls-grant-custody-a10-frozen.fixture.ts": {
       "originalPath": "app/src/mls-grant-custody.ts",
@@ -23,7 +29,6 @@
   },
   "unchangedDataContractDependencies": {
     "mls-membership-store.ts": "75a12cdab90ca36eaed6bf77f903fce4870bacbd89d60d247989f373927ccda2",
-    "mls-revocation-outbox-store.ts": "6b48ba8a298052ff764e9e4f83a45651772725068d6fb774e09f5fe7bf272144",
     "mls-revocation-binding.ts": "7519d89fa4cd4ba2a035593a2c137206fcd7d82dd44f85c19173bb0369cbf475",
     "mls-keeper-inbox-auth.ts": "8bd452baa8a29d2915eb868549fb0174c0882cd7b6ee0f9565bd8f1a4eca4a46",
     "../../src/vmls-revocation-request.ts": "3e043ca73e30c9d0918728369acca3e6daf1ed1c657a281a8717c4f9bd979e82"

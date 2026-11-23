@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.154",
-  "versionCode": 177,
+  "versionName": "0.6.173",
+  "versionCode": 196,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 70967360,
-  "apkSha256": "14825ff521237fa410b3df08be8f7626c223bb463e0a5b395c644ddae72edc43",
+  "apkBytes": 71483776,
+  "apkSha256": "a98d97dc15a0ef89ac689d8b23b30ecb3a0c1ecf9d8ef9b04595abfe1af0e9cb",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.154-production.apk",
+  "downloadFilename": "kithmoot-0.6.173-production.apk",
   "releaseNotes": [
-    "Your own phone now lets itself into a node room that your computer has just made, instead of waiting for someone to let it in.",
-    "Update over your existing app to keep your account and rooms."
+    "Tap your avatar to see or switch personas. Add a persona from a compatible My Signet app.",
+    "In a room, use More to open Account or search. Switching keeps the draft with its original persona.",
+    "Back from Settings returns to the screen you opened it from."
   ]
 }

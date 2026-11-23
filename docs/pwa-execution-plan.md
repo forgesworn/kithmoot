@@ -318,22 +318,27 @@ recovery all pass physically; G2/G3 retain their additional acceptance checks.
 
 ### P2.4 Ordinary Nostr interoperability
 
-Added 26 October for G18; qualify the
-[existing candidate](ordinary-nostr-message.md) rather than treating room
-invitations as ordinary messaging.
+Deliver the G18 [People inbox](ordinary-nostr-message.md#people-inbox-design)
+on the shared web/desktop app and native Android.
 
-- Build and qualify the exact candidate, then exchange text/replies in both
-  directions with an independent client and actual supported external signer.
-- Exercise inbox changes/refusal, restart, signer/account changes, partial
-  acknowledgements and exact-envelope retries. Keep sender history separate
-  from delivery claims and preserve private-room route/data isolation.
-- Record the supported client/signer subset and unsupported cases before
-  enabling it. Candidate source and simulated provider checks alone do not
-  close independent-client acceptance.
+1. Qualify the existing NIP-17 text path. Separate inbox discovery, recipient
+   AUTH, delivery and private room routing. Make inbox setup available from
+   People using the existing signed kind-10050 list.
+2. Subscribe from the signed-in account lifecycle. Open messages with the
+   permitted signer path, deduplicate them and persist device read state.
+   Display unread counts, requests and threads in People. Reuse the Android
+   People profile cache and use equivalent signed-event caching on web and
+   desktop.
+3. Reuse the private invitation flow with an explicit private room route.
+   Exercise the entire route, including resolution, admission, catch-up,
+   reconnect and a private relay outage, from both sides of the invitation.
+4. Qualify the exact builds against an independent Nostr client and actual
+   supported signers. Exercise inbox changes and refusal, account changes,
+   restart, spam filtering, partial acknowledgements and exact-envelope retry.
 
-Exit: retain a reproducible consenting interoperability receipt, including
-exact revisions, sender/recipient applications and restart behaviour. This
-does not add external-network bridges or a new private-group protocol.
+Exit when the first-contact, reply and private-chat journey passes on web,
+installed desktop and physical no-Play GrapheneOS, with relay traffic evidence
+and the supported signer and notification behaviour recorded for each build.
 
 ## P3 — make it a daily workspace
 

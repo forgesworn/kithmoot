@@ -1,5 +1,157 @@
 # Separate ordinary Nostr messages
 
+## People inbox design
+
+People is the way into Nostr messaging. Keep the existing Contacts and
+Following lists and add a place for conversations, with new senders under
+**Message requests**. A number on People shows unread incoming DMs across the
+inbox. Each conversation shows its own unread count. Open a thread to read it
+and reply in place. Offer **Accept**, **Dismiss** and **Block** for requests.
+Accepting or replying keeps the conversation in People without publishing a
+follow or granting any KithMoot room access. Unknown senders can reach the
+inbox with the user's npub when the user has set up their Nostr inbox relays.
+
+### Nostr inbox and unread state
+
+- Use the published, signed kind-10050 inbox list of each account. Subscribe
+  to gift wraps addressed to the signed-in account on its inbox relays. Send
+  the recipient's and sender's encrypted copies to their respective inbox
+  relays. Provide a setup and status entry in People for the account's list,
+  so the user can publish or repair it inside KithMoot. A missing list or
+  failed relay check has a visible state and a recovery action.
+- A public Nostr relay can still require NIP-42 AUTH to serve someone's inbox.
+  Identify the account only to its explicitly authorised inbox relays, using
+  the selected signer. Use a dedicated inbox connection. Keep ordinary DM
+  traffic off room and node relay pools. Public relays carry encrypted
+  envelopes and can see connection metadata and the outer recipient tag.
+- In Nostr mode, catch up and listen for new arrivals automatically while
+  the app is open. Respect the account's device preference to turn off the
+  inbox. Stop it on sign-out, account change or selection of Private
+  invitations mode. Use non-interactive decryption where the signer authorises
+  it. If it needs attention, show a prompt to unlock or check messages in
+  People. Keep sealed copies available for that action.
+- Count incoming text only after verifying the gift wrap, seal, canonical
+  rumor and sender/recipient bindings. Deduplicate by rumor ID across relays,
+  rewraps and reconnects. The sender's own history copy, an invitation, a
+  blocked sender and an invalid or expired event do not count. Persist read
+  state with the account's device history. Record which messages were shown
+  when a thread was read so a late message with the same or an older timestamp
+  still appears unread. Cross-device read sync is a separate capability.
+- Catch up over a rolling window that covers the NIP-17 timestamp jitter.
+  Advance each relay's history checkpoint only after it completes the queried
+  page, including timestamp ties. Keep inbox health visible when any configured
+  relay or the signer prevents a complete catch-up. Bound work on unsolicited
+  envelopes and leave ordinary room messaging usable throughout.
+
+### People and profiles
+
+- Use the verified author key from the message and the account's public kind-3
+  following list to resolve kind-0 metadata in batches on public profile
+  relays. Use the latest valid event by timestamp, then lowest ID on a tie.
+  Retain a bounded account-scoped cache on the device. A usable cached name
+  shows immediately and refreshes without moving the row under a tap or key.
+- With public profiles enabled, **Search Nostr** looks up a pasted npub by
+  author on purplepag.es, with Ditto as a fallback. Only a submitted name goes
+  to Ditto's text index. A result for a new person shows their signed name
+  and key without loading their picture.
+- The public profile preference controls lookup and display. The inbox works
+  with shortened npubs while profiles are off or unavailable. Keep public
+  sender lookups out of the private invitation and room views. With a new
+  sender, display text and a local avatar initial until the user chooses to
+  allow their remote picture or links. A self-asserted name does not mark the
+  public key as checked.
+
+### Invite to a private KithMoot chat
+
+Choose **Invite to KithMoot chat** from a People profile or a Nostr thread.
+The inviter pairs their KithMoot node in Settings → Calls. KithMoot creates
+a room on that node and signs a room record naming both Nostr accounts. It
+sends that record inside an encrypted invitation to each account's published
+Nostr inbox. The node handles admission and the room uses that node's relay
+for chat. The inviter's keeper device can admit the named recipient when it
+is online. The recipient accepts from Chats and reviews the host before
+contacting it. If the node is unavailable, the room waits for that node.
+
+### Acceptance journey
+
+| Screen | Exercise | Expected result |
+| --- | --- | --- |
+| People and Message requests | With KithMoot in Chats, send two DMs from a fresh account in an independent Nostr client. Replay one on another relay and deliver the recipient's self-authored copy. | People increments by two. The new sender appears once. Reopen KithMoot and check that the badge and cached name return. |
+| Thread | Open the request, reply, then send a late message from the independent client. Block a second unknown sender. | Opening clears the displayed unread messages. The reply reaches the independent client. The late message becomes unread. A block removes that sender's messages from the badge. |
+| People and Following | Load a follow list and names. Supply a newer signed profile, a forged replacement and an unreachable profile relay. Toggle public profiles off. | Cached names are usable on a warm start. Only the valid replacement wins. With profiles off, the inbox and follow-independent requests remain usable by key. |
+| Invite to KithMoot chat and Chats | Pair a KithMoot node, then invite a contact from People or a Nostr thread. Inspect relay traffic on both clients. Repeat with the node refusing admission or offline. | Public relay traffic contains ordinary DMs and the encrypted invitation envelope. Admission and room chat stay on the node's private relay. The recipient chooses when to join. |
+| Inbox setup and connection status | Change or remove the signed list, deny relay AUTH, revoke signer approval, switch accounts, and select Private invitations mode. | Status identifies the action needed. The old account's badges, content and subscriptions retire. Room operation follows its existing route. |
+
+Run the journey on the web, the installed desktop app and native Android on
+GrapheneOS without Google Play. Verify catch-up after the app was closed on
+each platform. Qualify alerting while the app is closed separately using
+each platform's supported background and signer capabilities.
+
+Protocol references are [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md),
+[NIP-42](https://github.com/nostr-protocol/nips/blob/master/42.md),
+[NIP-02](https://github.com/nostr-protocol/nips/blob/master/02.md) and
+[NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md), and
+[NIP-46](https://github.com/nostr-protocol/nips/blob/master/46.md).
+
+## People inbox candidate
+
+The inbox starts automatically for a signed-in account in Nostr mode. Open
+**People → Nostr messages** to read it or turn it off on this device.
+**Inbox relays** opens the signed public list editor. If no list is found,
+publishing one is an explicit account action. Each new person's
+conversation appears under **Message requests**. Read and reply from here or
+block a sender. The People badge counts incoming messages, including arrivals
+while viewing Chats. Opening a thread marks the messages it displayed as read.
+Read state is per device. Use the existing public profile preference to turn
+on cached signed profile names for senders and follows.
+
+The browser and desktop builds support sending and receiving with a browser
+extension or the in-memory key option. A remote NIP-46 signer can receive
+messages. Sending and inbox relay authentication with a remote signer in
+those builds require a Signet SDK transport that can cancel queued signing
+and encryption requests. Android uses its local signer, NIP-55 with the
+required approvals, or NIP-46. The inbox uses a bounded recent-history query
+with a 32-day window, including two days of outer timestamp skew. Browser
+history retains encrypted envelopes. Android uses the encrypted account
+journal and its public profile cache.
+
+In People, **Send encrypted message** checks both inbox lists and then asks
+the signer to prepare the message. **Not sent** keeps the draft available.
+**Send unconfirmed** offers a retry of the same encrypted message. **Sent to
+inbox relay** appears as soon as a recipient relay acknowledges the send.
+If only the sender copy still needs confirmation, **Retry inbox sync** sends
+that copy. People keeps these relay statuses on this device against the
+encrypted sender copy ID so they can be shown in the conversation after reload.
+
+Each People listener runs one narrow subscription per published inbox relay
+with a recent history limit of 128 envelopes. The reply goes to the
+recipient's published inbox relays and the account keeps a copy on its own.
+Setup suggests one to three inbox relays, as recommended by
+[NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md#relays).
+Reopening the listener can reuse a recent relay list lookup. Public profile
+requests in web and desktop use one batch of up to 48 authors at a time.
+Relay rate-limit holds apply across the pools in each running client.
+KithMoot stops retrying subscriptions when the relay reports a ban.
+The Android listener for older private invitations can also query a published
+inbox relay. Both listeners use the same rate-limit hold.
+
+Loopback tests in Chromium, Firefox and the desktop renderer verified unread
+counts, late arrivals, signed sender and follow names, replies and inbox relay
+authentication. A phone-width Chromium viewport exercised receiving and replying
+from People. Chromium also opened messages with a disposable remote signer.
+Two Chromium sessions sent the encrypted invitation
+over the public inbox fixture, exchanged messages through a real local
+Shelter node relay, and observed no room traffic on the public relay. The
+Electron shell also passed the earlier inbox receive and reply check against
+the loopback relay. Android compiled and passed direct-message, remote-signer
+and invitation JVM tests.
+
+Request acceptance and dismissal for ordinary Nostr threads, paginated history
+and alerts while the app is closed are open. Production relay coverage, Safari
+and native acceptance on a physical GrapheneOS device are pending.
+
+## Earlier Settings candidate
+
 Source preparation for Vennel DG09.6 / G5. **Not compiled, tested, released or
 accepted at runtime.** This candidate integrates the legacy-receive and ordinary
 message feature with KithMoot main `da3ac9b4`, including desktop release

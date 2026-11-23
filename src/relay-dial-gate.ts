@@ -44,6 +44,11 @@ export function relayReason(reason: string): string | undefined {
  *  node room's node is its only relay, so a hold there fails every send. */
 const LAGGED_READER = /reader fell behind|reconnect and query again/i
 
+/** A shared socket can place future subscriptions elsewhere when its own limit is reached. */
+export function noticeSocketSubscriptionLimit(message: string): boolean {
+  return /too many (concurrent )?(reqs|subscriptions)/i.test(message)
+}
+
 /** Whether a relay's `NOTICE` asks this client to slow down: rate limiting by
  *  any wording, or strfry's "too many concurrent REQs" for a connection past
  *  its subscription cap. bothy's lagged-reader notice is not one. */

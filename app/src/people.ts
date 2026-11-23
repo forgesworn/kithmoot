@@ -2,6 +2,8 @@ import './people.css'
 import { npubEncode } from 'nostr-tools/nip19'
 import { icon, type IconName } from './icons.js'
 import { avatarInitial, avatarSlot } from './room-sections.js'
+import { setPeoplePicture } from './people-pictures.js'
+import { peopleSearchKey, peopleSearchQuery, type PeopleSearchResult } from './people-search.js'
 
 /**
  * People: the signed-in person's contacts, and the people they follow on
@@ -23,12 +25,14 @@ export interface Person {
   tier?: string
   /** A Signet check, or a word check done here. */
   checked?: boolean
-  /** Contact cards and Signet grants are contacts; follows are Following. */
-  section: 'contacts' | 'following'
+  section: 'contacts' | 'following' | 'conversations' | 'nostr'
   /** Where a contact came from, said when there is no tier or check to show. */
   source?: 'signet' | 'card'
   /** A Nostr address, only once it has been checked. */
   address?: string
+  chatName?: string
+  /** Unread count of an existing Nostr conversation, including zero. */
+  unread?: number
 }
 
 export interface SharedRoom {
@@ -46,6 +50,7 @@ export interface SentInvitation extends SharedRoom {
 export interface PeopleModel {
   contacts: Person[]
   following: Person[]
+  conversations: Person[]
   /** Why Following may be empty: lookups off, still asking, or answered. */
   followStatus: 'off' | 'none' | 'loading' | 'ready'
   /** A line about the Signet contacts, when they need attention. */
@@ -53,9 +58,13 @@ export interface PeopleModel {
 }
 
 export interface PeopleActions {
+  profileSettings(): { enabled: boolean; available: boolean }
+  setPublicProfiles(enabled: boolean): void
+  openProfileSettings(opener: HTMLElement, fallback: HTMLElement): void
   /** Undefined when Message, Voice and Video can be used; otherwise why not. */
   blockedReason(pubkey: string): string | undefined
   message(person: Person): Promise<string | undefined>
+  inviteToNodeChat(person: Person): Promise<string | undefined>
   call(person: Person, video: boolean): Promise<string | undefined>
   /** Open the private chat, then choose a room to invite them to. */
   invite(person: Person): Promise<string | undefined>
@@ -75,9 +84,15 @@ export interface PeopleActions {
   block(pubkey: string): void
   /** Look up names and pictures for these keys (the public-profile switch decides). */
   want(pubkeys: string[]): void
+  canSearchNostr(): boolean
+  searchNostr(query: string, signal: AbortSignal): Promise<PeopleSearchResult[]>
+  isBlocked(pubkey: string): boolean
+  canMessageOnNostr(pubkey: string): boolean
+  messageOnNostr(pubkey: string, opener: HTMLElement): void
   pasteCard(opener: HTMLElement): void
   linkSignet(opener: HTMLElement): void
   showMyCard(opener: HTMLElement): void
+  openNostrMessages(opener: HTMLElement): void
   /** At phone width, show the contact over the list; elsewhere a no-op. */
   openDetail(): void
   closeDetail(): void
@@ -93,6 +108,13 @@ export class PeopleView {
   readonly #model: () => PeopleModel
   readonly #actions: PeopleActions
   readonly #query: HTMLInputElement
+  readonly #searchButton: HTMLButtonElement
+  readonly #profiles: HTMLInputElement
+  readonly #followProfileSettings: HTMLButtonElement
+  #searchRequest?: AbortController
+  #searchResults: PeopleSearchResult[] = []
+  #searchNote = ''
+  #lastSearch = -Infinity
   readonly #rows: HTMLUListElement
   readonly #status: HTMLElement
   readonly #empty: HTMLElement
@@ -118,9 +140,11 @@ export class PeopleView {
     pane.classList.add('peoplePane')
 
     const head = document.createElement('div')
+    head.id = 'peopleListHead'
     head.className = 'listHead'
     const title = document.createElement('h2')
     title.id = 'peopleTitle'
+    title.tabIndex = -1
     title.textContent = 'People'
     this.#add = document.createElement('button')
     this.#add.type = 'button'
@@ -135,6 +159,28 @@ export class PeopleView {
 
     this.#menu = this.#buildMenu()
 
+    const profiles = document.createElement('label')
+    profiles.className = 'peopleProfiles'
+    this.#profiles = document.createElement('input')
+    this.#profiles.id = 'peoplePublicProfiles'
+    this.#profiles.type = 'checkbox'
+    this.#profiles.setAttribute('role', 'switch')
+    this.#profiles.addEventListener('change', () => this.#actions.setPublicProfiles(this.#profiles.checked))
+    const profilesText = document.createElement('span')
+    profilesText.id = 'peopleProfilesLabel'
+    profilesText.textContent = 'Public profiles'
+    this.#profiles.setAttribute('aria-labelledby', profilesText.id)
+    const profilesNote = document.createElement('small')
+    profilesNote.id = 'peopleProfilesNote'
+    profilesNote.textContent = 'Show who you follow, names and pictures. Uses public relays and picture hosts.'
+    this.#profiles.setAttribute('aria-describedby', profilesNote.id)
+    profiles.append(this.#profiles, profilesText, profilesNote)
+    this.#followProfileSettings = this.#textButton('Public profile settings', opener => this.#actions.openProfileSettings(opener, title))
+    this.#followProfileSettings.classList.add('linkish')
+    this.#followProfileSettings.setAttribute('aria-haspopup', 'dialog')
+    this.#followProfileSettings.setAttribute('aria-controls', 'profileSettings')
+
+    const form = document.createElement('form')
     const label = document.createElement('label')
     label.className = 'sr-only'
     label.htmlFor = 'peopleQuery'
@@ -146,8 +192,18 @@ export class PeopleView {
     this.#query.type = 'search'
     this.#query.autocomplete = 'off'
     this.#query.placeholder = 'Find a person'
-    this.#query.addEventListener('input', () => { this.#order = undefined; this.render() })
+    this.#query.addEventListener('input', () => { this.#order = undefined; this.#note = ''; this.resetSearch(); this.render() })
     search.append(icon('search'), this.#query)
+    this.#searchButton = document.createElement('button')
+    this.#searchButton.type = 'submit'
+    this.#searchButton.className = 'quiet peopleSearchNostr'
+    this.#searchButton.textContent = 'Search Nostr'
+    this.#searchButton.hidden = true
+    form.append(label, search, this.#searchButton)
+    form.addEventListener('submit', event => {
+      event.preventDefault()
+      if (event.isTrusted) void this.#searchNostr()
+    })
 
     this.#status = document.createElement('p')
     this.#status.id = 'peopleStatus'
@@ -171,7 +227,11 @@ export class PeopleView {
     const link = this.#textButton('Link Signet contacts', opener => this.#actions.linkSignet(opener))
     this.#empty.append(none, addCard, link)
 
-    list.replaceChildren(head, this.#menu, label, search, this.#status, this.#rows, this.#empty)
+    const messages = this.#textButton('Nostr messages', opener => this.#actions.openNostrMessages(opener))
+    messages.id = 'peopleNostrOpen'
+    messages.className = 'quiet peopleNostrOpen'
+    messages.setAttribute('aria-haspopup', 'dialog')
+    list.replaceChildren(head, this.#menu, profiles, messages, form, this.#status, this.#rows, this.#empty)
     this.#add.addEventListener('click', () => this.#openMenu(this.#add))
     this.#paintPane()
   }
@@ -179,12 +239,61 @@ export class PeopleView {
   /** The person on show, if any. */
   get selected(): string | undefined { return this.#selected }
 
+  resetSearch(): void {
+    this.#searchRequest?.abort()
+    this.#searchRequest = undefined
+    this.#searchResults = []
+    this.#searchNote = ''
+  }
+
+  async #searchNostr(): Promise<void> {
+    const query = peopleSearchQuery(this.#query.value)
+    if (!query || !this.#actions.canSearchNostr() || this.#searchRequest) return
+    if (performance.now() - this.#lastSearch < 1_500) {
+      this.#searchNote = 'Wait a moment and try again.'
+      this.render()
+      return
+    }
+    this.#lastSearch = performance.now()
+    const request = new AbortController()
+    this.#searchRequest = request
+    this.#searchNote = 'Searching Nostr…'
+    this.render()
+    try {
+      const rows = await this.#actions.searchNostr(query, request.signal)
+      if (request !== this.#searchRequest) return
+      this.#searchResults = rows
+      this.#searchNote = rows.some(row => !this.#actions.isBlocked(row.pubkey)) ? '' : 'No matching Nostr profiles found.'
+    } catch {
+      if (request === this.#searchRequest) this.#searchNote = 'The Nostr search relay could not be reached. Try again.'
+    } finally {
+      if (request === this.#searchRequest) { this.#searchRequest = undefined; this.render() }
+    }
+  }
+
+  #publicPeople(): Person[] {
+    return this.#searchResults.filter(row => !this.#actions.isBlocked(row.pubkey))
+      .map(({ pubkey, name }) => ({ pubkey, name, section: 'nostr' }))
+  }
+
   /** Redraw from the model. Cheap enough to call on every change. */
   render(): void {
     const model = this.#model()
+    const profiles = this.#actions.profileSettings()
+    this.#profiles.checked = profiles.enabled
+    this.#profiles.disabled = !profiles.available
     const query = this.#query.value.trim().toLocaleLowerCase()
+    this.#followProfileSettings.hidden = !!query || model.followStatus !== 'off' || !profiles.available
+    if (!this.#actions.canSearchNostr()) this.resetSearch()
+    this.#searchButton.hidden = !peopleSearchQuery(query) || !this.#actions.canSearchNostr()
+    this.#searchButton.disabled = !!this.#searchRequest
+    const local = [...model.contacts, ...model.following, ...model.conversations]
+    const localKeys = new Set(local.map(person => person.pubkey))
+    const publicPeople = this.#publicPeople(), publicKeys = new Set(publicPeople.map(person => person.pubkey))
+    const exactKey = peopleSearchKey(query)
     const matches = (person: Person): boolean => !query
-      || `${person.name ?? ''} ${npubEncode(person.pubkey)}`.toLocaleLowerCase().includes(query)
+      || person.pubkey === exactKey || publicKeys.has(person.pubkey)
+      || [person.name, person.chatName, person.address, npubEncode(person.pubkey)].some(value => value?.toLocaleLowerCase().includes(query))
     const byName = (a: Person, b: Person): number => {
       if (!a.name !== !b.name) return a.name ? -1 : 1
       return (a.name ?? a.pubkey).localeCompare(b.name ?? b.pubkey, undefined, { sensitivity: 'base' })
@@ -192,15 +301,19 @@ export class PeopleView {
     const sections: [string, Person[]][] = [
       ['Contacts', model.contacts.filter(matches).sort(byName)],
       ['Following', model.following.filter(matches).sort(byName)],
+      ['Conversations', model.conversations.filter(matches)],
+      ['Nostr results', publicPeople.filter(person => !localKeys.has(person.pubkey))],
     ]
     // Names for everyone listed, a batch at a time. The follow list is
     // public already, so asking about its people tells the relays nothing
-    // new; the switch in Settings still decides whether anything is asked.
+    // new; the public profiles switch decides whether anything is asked.
     // Lookups switched off forget every profile, so ask again once back on.
     if (model.followStatus === 'off') this.#wanted.clear()
-    const fresh = [...model.contacts, ...model.following].map(person => person.pubkey).filter(key => !this.#wanted.has(key))
-    for (const key of fresh) this.#wanted.add(key)
-    for (let i = 0; i < fresh.length; i += WANT_BATCH) this.#actions.want(fresh.slice(i, i + WANT_BATCH))
+    else {
+      const fresh = [...model.contacts, ...model.following].map(person => person.pubkey).filter(key => !this.#wanted.has(key))
+      for (const key of fresh) this.#wanted.add(key)
+      for (let i = 0; i < fresh.length; i += WANT_BATCH) this.#actions.want(fresh.slice(i, i + WANT_BATCH))
+    }
 
     let people = sections.flatMap(([, list]) => list)
     if (this.#held() && this.#order) {
@@ -216,7 +329,7 @@ export class PeopleView {
     const heads = new Map([...this.#rows.querySelectorAll<HTMLLIElement>('li[data-section]')].map(row => [row.dataset.section!, row]))
     const children: HTMLLIElement[] = []
     for (const [name, list] of sections) {
-      const followingNote = name === 'Following' ? this.#followingNote(model, query) : undefined
+      const followingNote = name === 'Following' ? this.#followingNote(model, query, profiles.available) : undefined
       if (!list.length && !followingNote) continue
       const head = heads.get(name) ?? document.createElement('li')
       head.dataset.section = name
@@ -227,7 +340,10 @@ export class PeopleView {
       note.className = 'note'
       note.textContent = followingNote ?? ''
       note.hidden = !followingNote
-      if (!head.childElementCount) head.append(heading, note)
+      if (!head.childElementCount) {
+        head.append(heading, note)
+        if (name === 'Following') head.append(this.#followProfileSettings)
+      }
       children.push(head)
       for (const person of list) children.push(this.#row(person, previous.get(person.pubkey)))
     }
@@ -241,13 +357,12 @@ export class PeopleView {
     const stop = buttons.find(button => button.closest<HTMLElement>('li')?.dataset.person === this.#selected) ?? buttons[0]
     for (const button of buttons) button.tabIndex = button === stop ? 0 : -1
 
-    const anyone = model.contacts.length + model.following.length > 0
-    this.#empty.hidden = anyone || model.followStatus === 'loading'
-    this.#status.textContent = this.#note || model.contactsNote
-      || (query && anyone && !people.length ? `Nobody matches “${this.#query.value.trim()}”.` : '')
+    this.#empty.hidden = !!query || local.length > 0 || model.followStatus === 'loading'
+    this.#status.textContent = this.#note || this.#searchNote
+      || (query && !people.length ? 'No matching contacts or conversations.' : model.contactsNote ?? '')
     this.#status.hidden = !this.#status.textContent
     if (this.#selected && !people.some(person => person.pubkey === this.#selected)
-      && ![...model.contacts, ...model.following].some(person => person.pubkey === this.#selected)) this.#selected = undefined
+      && !localKeys.has(this.#selected)) this.#selected = undefined
     this.#paintPane()
   }
 
@@ -258,9 +373,11 @@ export class PeopleView {
     this.render()
   }
 
-  #followingNote(model: PeopleModel, query: string): string | undefined {
+  #followingNote(model: PeopleModel, query: string, profilesAvailable: boolean): string | undefined {
     if (query) return undefined
-    if (model.followStatus === 'off') return 'Turn on public profiles in Settings to see the people you follow.'
+    if (model.followStatus === 'off') return profilesAvailable
+      ? 'Turn on public profiles to see who you follow.'
+      : 'Public profiles are paused while Nostr networking is off.'
     if (model.followStatus === 'loading' && !model.following.length) return 'Looking for the people you follow…'
     return undefined
   }
@@ -324,13 +441,14 @@ export class PeopleView {
 
   #paintPane(): void {
     const model = this.#model()
-    const person = [...model.contacts, ...model.following].find(entry => entry.pubkey === this.#selected)
+    const person = [...model.contacts, ...model.following, ...model.conversations, ...this.#publicPeople()].find(entry => entry.pubkey === this.#selected)
     const shared = person ? this.#actions.sharedRooms(person.pubkey) : []
     const sent = person ? this.#actions.sentInvitations(person.pubkey) : []
     const check = person ? this.#actions.check(person) : undefined
     // Only what is drawn goes in: a day word changes at midnight, not every tick.
     const today = Date.now()
-    const shown = person ? JSON.stringify([person, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
+    const onNostr = !!person && this.#actions.canMessageOnNostr(person.pubkey)
+    const shown = person ? JSON.stringify([person, onNostr, this.#actions.blockedReason(person.pubkey), this.#busy, this.#note, this.#actions.privateChat(person.pubkey)?.label,
       check, shared.map(room => [room.roomId, room.label]), sent.map(invite => [invite.roomId, invite.label, invite.joined, invite.at === undefined ? '' : dayWords(invite.at, today)])]) : 'none'
     if (shown === this.#painted && this.#pane.childElementCount) return
     this.#painted = shown
@@ -407,17 +525,21 @@ export class PeopleView {
       })
       return button
     }
-    actions.append(
+    if (onNostr) actions.append(action('peopleMessageNostr', person.unread === undefined ? 'Message on Nostr' : 'Open Nostr messages',
+      'chat', opener => this.#actions.messageOnNostr(person.pubkey, opener), false))
+    const contactActions = person.section === 'contacts' || person.section === 'following'
+    if (contactActions) actions.append(
       action('peopleMessage', 'Message', 'chat', () => this.#actions.message(person)),
       action('peopleVoice', 'Voice', 'phone', () => this.#actions.call(person, false)),
       action('peopleVideo', 'Video', 'video', () => this.#actions.call(person, true)),
       action('peopleInvite', 'Invite', 'personAdd', () => this.#actions.invite(person)),
+      action('peopleInvitePrivate', 'Invite to KithMoot chat', 'chat', () => this.#actions.inviteToNodeChat(person)),
     )
     const note = document.createElement('p')
     note.id = 'peopleActionNote'
     note.className = 'note'
     note.setAttribute('role', 'status')
-    note.textContent = this.#note || reason || (person.section === 'following'
+    note.textContent = this.#note || (contactActions ? reason : '') || (person.section === 'following'
       ? 'Message, Voice and Video start a private chat. They reach this person only if they use KithMoot.' : '')
 
     card.append(avatar(person, 'contactAvatar'), heading, meta, actions, note)
@@ -457,7 +579,7 @@ export class PeopleView {
       }
       card.append(list.section)
     }
-    if (check) {
+    if (check && contactActions) {
       // Words are compared in the private chat, so the row is off whenever Message is.
       const section = document.createElement('div')
       section.className = 'contactSection'
@@ -654,6 +776,9 @@ export function shortNpub(pubkey: string): string {
  *  when Signet shares them, else where the contact came from; for someone
  *  followed, their Nostr address once checked, else nothing. */
 function subline(person: Person): string {
+  if (person.unread) return `${person.unread} unread`
+  if (person.section === 'nostr') return person.name ? shortNpub(person.pubkey) : ''
+  if (person.section === 'conversations') return person.chatName ? 'Private chat' : 'Nostr messages'
   if (person.section === 'following') return person.address ?? ''
   const trust = [person.tier ? person.tier[0]!.toUpperCase() + person.tier.slice(1) : '', person.checked ? 'checked' : ''].filter(Boolean).join(' · ')
   return trust || (person.source === 'signet' ? 'Signet' : person.source === 'card' ? 'Contact card' : '')
@@ -679,9 +804,9 @@ export function personAvatar(pubkey: string, name: string | undefined, picture: 
     image.alt = ''
     image.loading = 'lazy'
     image.referrerPolicy = 'no-referrer'
-    image.src = picture
     image.addEventListener('error', () => image.remove(), { once: true })
     span.append(image)
+    setPeoplePicture(image, picture)
   }
   return span
 }

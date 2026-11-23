@@ -109,7 +109,7 @@ for (const boundary of ['current', 'close', 'account', 'block'] as const) {
         expect(incoming.kind).toBe(1059); expect(copy.kind).toBe(1059)
         expect(unwrapEvent(incoming, recipientKey)).toEqual(unwrapEvent(copy, senderKey))
         expect(unwrapEvent(incoming, recipientKey).content).toBe('Only the reviewed current ordinary draft')
-        expect(message.snapshot().status).toContain('does not confirm')
+        expect(message.snapshot().phase).toBe('sent')
       } else {
         expect(recipientRelay.events()).toEqual([]); expect(senderRelay.events()).toEqual([])
         expect(message.snapshot().review).toBeUndefined()

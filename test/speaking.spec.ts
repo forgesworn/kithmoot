@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createRoom, joinWithMedia, newDeviceContext } from './browser.js'
+import { createRoom, joinWithMedia, newDeviceContext, SYNTHETIC_MIC } from './browser.js'
 
 /**
  * Does the speaking indicator light up for real audio?
@@ -28,6 +28,8 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
 
   const contextA = await newDeviceContext(browser, baseURL!)
   const contextB = await newDeviceContext(browser, baseURL!)
+  await contextA.addInitScript(SYNTHETIC_MIC)
+  await contextB.addInitScript(SYNTHETIC_MIC)
   try {
     const pageA = await contextA.newPage()
     const pageB = await contextB.newPage()
@@ -43,6 +45,20 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     const url = await createRoom(pageA, baseURL!)
     await joinWithMedia(pageA, url, 'Ada')
     await joinWithMedia(pageB, url, 'Bob')
+
+    const activityA = pageA.locator('#callAudioActivity')
+    const activityB = pageB.locator('#callAudioActivity')
+    await expect(activityA).toBeVisible()
+    await expect(activityB.locator('[data-audio-signal="participant"]')).toContainText('Speaking', { timeout: 30_000 })
+    await expect(activityA.locator('[data-audio-signal="mic"]')).toContainText('Speaking')
+    await expect.poll(() => activityB.locator('.audioEnvelope').last().evaluate(path =>
+      [...(path.getAttribute('d') ?? '').matchAll(/[ML][\d.]+,([\d.]+)/g)].some(point => Number(point[1]) !== 12),
+    )).toBe(true)
+    await expect(activityB).not.toHaveAttribute('aria-live')
+    await pageB.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' })
+    await expect(activityB.locator('.audioTrace').last()).toBeHidden()
+    await expect(activityB.locator('.audioLevel').last()).toBeVisible()
+    await pageB.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'none' })
 
     // Ada's tile as Bob sees it. The fake microphone is a continuous tone,
     // so once her audio is flowing this must light and stay lit.
@@ -84,6 +100,8 @@ test('a talking device lights its tile for everybody else, and goes dark when mu
     // hidden, not "Speaking: You".
     await pageB.locator('#toggleMic').click()
     await expect(pageB.locator('#toggleMic')).toHaveAttribute('data-on', 'false')
+    await expect(activityB.locator('[data-audio-signal="mic"]')).toContainText('Muted')
+    await expect(activityA.locator('[data-audio-signal="participant"]')).toContainText('Muted', { timeout: 15_000 })
     await expect(pageA.locator('#speakingLine'), "Ada's line named herself once Bob had muted").toBeEmpty({
       timeout: 15_000,
     })

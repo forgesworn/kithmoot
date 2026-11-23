@@ -1,8 +1,10 @@
-import { test, expect, type Page } from '@playwright/test'
-import { finalizeEvent, generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure'
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test'
+import { rm } from 'node:fs/promises'
+import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools/pure'
 import { wrapEvent } from 'nostr-tools/nip59'
 import { decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { unwrapEvent } from 'nostr-tools/nip17'
+import { npubEncode } from 'nostr-tools/nip19'
 import { matchFilter, matchFilters, type Filter } from 'nostr-tools/filter'
 import { NostrRelayPool } from '../src/relay-pool.js'
 import { accountDevice, signInAccount } from './nostr-account.js'
@@ -13,10 +15,15 @@ import { encodeRoomLink } from '../src/link.js'
 import { dmPolicy, localPeerCrypt } from '../src/dm.js'
 import { contactInvitationRumor, wrapContactInvitation } from '../src/contact-invitation.js'
 import { ordinaryHistoryKey } from '../app/src/nostr-message-history.js'
+import { peopleInboxEnabledKey } from '../app/src/people-nostr-inbox.js'
+import { parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 
 async function showInbox(page: Page) {
   await openSettings(page, 'Account'); await page.getByRole('button', { name: 'Nostr messages', exact: true }).click()
   await expect(page.locator('#nostrInboxDialog')).toBeVisible()
+}
+async function useManualSettingsInbox(context: BrowserContext, self: string) {
+  await context.addInitScript(key => localStorage.setItem(key, '0'), peopleInboxEnabledKey(self))
 }
 async function inboxList(pool: NostrRelayPool, account: Uint8Array, baseURL: string) {
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
@@ -30,6 +37,373 @@ function writes(page: Page) {
   return events
 }
 
+test('People counts verified incoming messages by default, keeps the read position and replies on Nostr', async ({ browser, baseURL }, info) => {
+  const account = generateSecretKey(), peer = generateSecretKey(), followedKey = generateSecretKey()
+  const self = getPublicKey(account), other = getPublicKey(peer), now = Math.floor(Date.now() / 1000)
+  const followed = getPublicKey(followedKey)
+  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
+    await inboxList(pool, account, baseURL!); await inboxList(pool, peer, baseURL!)
+    await pool.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Nostr Test Sender' }) }, peer))
+    await pool.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Nostr Test Follow' }) }, followedKey))
+    await pool.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', followed]], content: '' }, account))
+    const text = '<img src="https://people-message.invalid/pixel">'
+    const rumor = { kind: 14, created_at: now - 1, tags: [['p', self]], content: text }
+    const incoming = wrapEvent(rumor, peer, self), duplicate = wrapEvent(rumor, peer, self)
+    const selfCopy = wrapEvent({ ...rumor, tags: [['p', other]], content: 'Previous outgoing message' }, account, self)
+    for (const copy of [incoming, duplicate, selfCopy]) await pool.publish(copy)
+
+    const page = await context.newPage(), sent = writes(page)
+    const requests: Filter[] = []
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      const frame = JSON.parse(String(payload))
+      if (frame[0] === 'REQ') requests.push(...frame.slice(2).filter((filter: Filter) =>
+        filter.kinds?.[0] === 1059 && filter['#p']?.includes(self) && filter.limit === 128))
+    }))
+    if (info.project.name === 'chromium') await page.setViewportSize({ width: 390, height: 844 })
+    else if (info.project.name === 'chromium-desktop') await page.setViewportSize({ width: 1100, height: 840 })
+    const badge = page.locator('#railPeopleCount'), inbox = page.locator('#peopleNostrDialog')
+    await signInAccount(page, baseURL!)
+    await expect(badge).toHaveText('1')
+    await page.locator('#railPeople').click()
+    await expect(page.locator('#peopleList')).toContainText('Nostr Test Follow')
+    await expect.poll(() => page.evaluate(key => localStorage.getItem(`kithmoot.people-profiles.v1.${key}`), self)).toContain(followed)
+    await page.locator('#peopleNostrOpen').click()
+    await expect(inbox.getByRole('button', { name: 'Turn off inbox', exact: true })).toBeVisible()
+    const request = inbox.locator(`button[data-action="${other}"]`)
+    await expect(request).not.toHaveAccessibleDescription('Message request')
+    await expect(request).toHaveAccessibleName('Nostr Test Sender, 1 unread')
+    await expect.poll(() => page.evaluate(key => localStorage.getItem(`kithmoot.people-profiles.v1.${key}`), self)).toContain(other)
+    await expect(badge).toHaveText('1')
+    expect(requests).toHaveLength(1)
+    await request.click()
+    await expect(inbox.getByText(text, { exact: true })).toBeVisible()
+    await expect(inbox.locator('.peopleNostrTranscript img')).toHaveCount(0)
+    await expect(badge).toBeHidden()
+    await expect(inbox.locator('.peopleNostrTranscript li').filter({ hasText: 'Previous outgoing message' })).toContainText('Send status unavailable')
+    await inbox.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
+    await expect(page.locator('#nostrMessageToName')).toHaveText('Nostr Test Sender')
+    await expect(page.locator('#nostrMessageAddress')).toBeHidden()
+    await expect(page.locator('#nostrMessageText')).toBeFocused()
+    await page.locator('#nostrMessageText').fill('Reply from People')
+    await expect(page.locator('#nostrMessageReview')).toBeHidden()
+    await page.locator('#nostrMessageSend').click()
+    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
+    await page.locator('#nostrMessageDialog').screenshot({ path: info.outputPath('nostr-send-confirmed.png') })
+    const toPeer = sent.find(event => event.tags[0]?.[1] === other)!
+    expect(unwrapEvent(toPeer, peer)).toMatchObject({ kind: 14, pubkey: self, content: 'Reply from People' })
+    await page.getByRole('button', { name: 'View conversation', exact: true }).click()
+    await expect(page.locator('#nostrMessageDialog')).toBeHidden()
+    const reply = inbox.locator('.peopleNostrTranscript li').filter({ hasText: 'Reply from People' })
+    await expect(reply).toContainText('Sent to inbox relay')
+    await expect(reply).toBeFocused()
+    await expect(inbox.getByText(text, { exact: true })).toBeVisible()
+    await page.reload()
+    await expect(page.locator('#railPeople')).toBeVisible()
+    await page.locator('#railPeople').click()
+    await page.locator('#peopleNostrOpen').click()
+    await expect(request).toHaveAccessibleName('Nostr Test Sender')
+    await expect(request).not.toHaveAccessibleName(/unread$/)
+    await expect(request).toHaveAccessibleDescription('Sent to inbox relay')
+    await request.click()
+    await expect(reply).toContainText('Sent to inbox relay')
+    await inbox.getByRole('button', { name: 'Close', exact: true }).click()
+    await page.locator('#railChats').click()
+    await pool.publish(wrapEvent({ ...rumor, created_at: now - 2, content: 'A late arrival' }, peer, self))
+    await expect(badge).toHaveText('1')
+  } finally { pool.close(); await context.close() }
+})
+
+for (const waitingFor of ['recipient', 'sender copy'] as const) {
+  test(`People shows the send outcome and retries only the unconfirmed ${waitingFor}`, async ({ browser, baseURL }) => {
+    const account = generateSecretKey(), peer = generateSecretKey()
+    const self = getPublicKey(account), other = getPublicKey(peer), refused = waitingFor === 'recipient' ? other : self
+    const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+    const route = new URL('/__test-relay', baseURL); route.protocol = 'wss:'
+    const writes: Event[] = []
+    let refuse = true, releaseCopy: (() => void) | undefined
+    await context.routeWebSocket(route.href, socket => {
+      const relay = socket.connectToServer()
+      socket.onMessage(data => {
+        const [verb, event] = JSON.parse(String(data)) as [string, Event]
+        if (verb === 'EVENT' && event.kind === 1059 && event.tags.length === 1 && [self, other].includes(event.tags[0]?.[1] ?? '')) {
+          writes.push(event)
+          if (refuse && event.tags[0]?.[1] === refused) {
+            const reject = () => socket.send(JSON.stringify(['OK', event.id, false, 'restricted: synthetic refusal']))
+            if (waitingFor === 'sender copy') releaseCopy = reject
+            else reject()
+            return
+          }
+        }
+        relay.send(data)
+      })
+    })
+    try {
+      await inboxList(pool, account, baseURL!); await inboxList(pool, peer, baseURL!)
+      const page = await context.newPage()
+      await signInAccount(page, baseURL!); await page.locator('#railPeople').click(); await page.locator('#peopleNostrOpen').click()
+      await page.getByRole('button', { name: 'New message', exact: true }).click()
+      await page.locator('#nostrMessageRecipient').fill(npubEncode(other))
+      await page.locator('#nostrMessageText').fill('One encrypted message')
+      await page.getByRole('button', { name: 'Send encrypted message', exact: true }).click()
+      const state = page.locator('#nostrMessageState'), details = page.locator('#nostrMessageStatus')
+      if (waitingFor === 'sender copy') {
+        await expect.poll(() => Boolean(releaseCopy)).toBe(true)
+        await expect(state).toHaveText('Sent to inbox relay')
+        await expect(details).toHaveText('Syncing your encrypted inbox copy…')
+        releaseCopy!()
+      } else {
+        await expect(state).toHaveText('Send unconfirmed')
+        await expect(details).toContainText('may already be in their inbox')
+      }
+
+      const retry = page.getByRole('button', { name: waitingFor === 'recipient' ? 'Retry same message' : 'Retry inbox sync', exact: true })
+      await expect(retry).toBeVisible()
+      const first = [...writes]
+      expect(first).toHaveLength(2)
+      refuse = false
+      await retry.click()
+      await expect(details).toContainText('Delivery to their device is unconfirmed')
+      expect(writes.slice(2)).toEqual([first.find(event => event.tags[0]?.[1] === refused)])
+      await page.getByRole('button', { name: 'View conversation', exact: true }).click()
+      const sent = page.locator('.peopleNostrTranscript li').filter({ hasText: 'One encrypted message' })
+      await expect(sent).toHaveCount(1)
+      await expect(sent).toContainText('Sent to inbox relay')
+    } finally { pool.close(); await context.close() }
+  })
+}
+
+test('People puts unread messages above frequent conversations and keeps contact pictures across reloads', async ({ browser, baseURL }, info) => {
+  const account = generateSecretKey(), frequent = generateSecretKey(), recent = generateSecretKey(), unread = generateSecretKey()
+  const self = getPublicKey(account), top = getPublicKey(frequent), latest = getPublicKey(recent), incoming = getPublicKey(unread)
+  // A temporary WebKit context loses its CacheStorage entries on reload.
+  // Exercise the persistent browser profile used for keeping pictures.
+  const profile = info.project.name === 'webkit' ? info.outputPath('webkit-profile') : undefined
+  const browserWithProfile: Pick<Browser, 'newContext'> = profile
+    ? { newContext: options => browser.browserType().launchPersistentContext(profile, { ...options, ...info.project.use.launchOptions }) }
+    : browser
+  const context = await accountDevice(browserWithProfile, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  const picture = 'https://picture.example.invalid/people.png'
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGOw7Mn8DwAEXgIuYNZitQAAAABJRU5ErkJggg==', 'base64')
+  let imageRequests = 0
+  try {
+    await context.addInitScript(() => localStorage.setItem('kithmoot.profiles.enabled', 'true'))
+    await context.route(picture, async route => {
+      imageRequests++
+      if (imageRequests > 1) { await route.abort(); return }
+      await route.fulfill({ body: png, headers: { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=600' } })
+    })
+    await inboxList(pool, account, baseURL!)
+    const now = Math.floor(Date.now() / 1000)
+    await pool.publish(finalizeEvent({ kind: 0, created_at: now, tags: [], content: JSON.stringify({ name: 'Frequent contact', picture }) }, frequent))
+    await pool.publish(finalizeEvent({ kind: 3, created_at: now, tags: [['p', top]], content: '' }, account))
+    for (const [author, peer, time, text] of [
+      [account, top, now - 60, 'First message to my frequent contact'],
+      [account, top, now - 50, 'Second message to my frequent contact'],
+      [unread, self, now - 40, 'Unread message'],
+      [account, latest, now - 30, 'Most recent outgoing message'],
+    ] as const) {
+      await pool.publish(wrapEvent({ kind: 14, created_at: time, tags: [['p', peer]], content: text }, author, self))
+    }
+
+    const page = await context.newPage()
+    const rows = page.locator('.peopleNostrThreads button')
+    const order = () => rows.evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.action))
+    const showPeople = async () => { await page.locator('#railPeople').click(); await page.locator('#peopleNostrOpen').click() }
+    const avatar = page.locator(`.peopleNostrThreads button[data-action="${top}"] img`)
+    const pictureIsLoaded = () => avatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)
+    await signInAccount(page, baseURL!)
+    await showPeople()
+    await expect.poll(order).toEqual([incoming, top, latest])
+    await expect(rows.first()).toHaveAccessibleDescription('Message request')
+    await expect(avatar).toBeAttached()
+    await expect.poll(pictureIsLoaded).toBe(true)
+    await rows.first().click()
+    await expect(page.getByText('Unread message', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Back to messages' }).click()
+    await expect.poll(order).toEqual([top, latest, incoming])
+
+    await page.reload()
+    await showPeople()
+    await expect.poll(order).toEqual([top, latest, incoming])
+    await expect(avatar).toBeAttached()
+    await expect.poll(pictureIsLoaded).toBe(true)
+    expect(imageRequests).toBe(1)
+  } finally {
+    pool.close()
+    await context.close()
+    if (profile) await rm(profile, { recursive: true, force: true })
+  }
+})
+
+test('People prompts for a relay list without publishing one and remembers turning the inbox off', async ({ browser, baseURL }, info) => {
+  const account = generateSecretKey(), peer = generateSecretKey(), self = getPublicKey(account)
+  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  const requests: Filter[] = [], lists: Event[] = []
+  try {
+    const page = await context.newPage()
+    if (info.project.name === 'chromium-desktop') await page.setViewportSize({ width: 1100, height: 840 })
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      const [command, value, ...filters] = JSON.parse(String(payload))
+      if (command === 'EVENT' && value.kind === 10050) lists.push(value)
+      if (command === 'REQ') requests.push(...filters.filter((filter: Filter) => filter.kinds?.includes(1059) &&
+        filter['#p']?.includes(self) && filter.limit === 128))
+    }))
+    const badge = page.locator('#railPeopleCount')
+    const open = async () => {
+      await page.locator('#railPeople').click()
+      await page.locator('#peopleNostrOpen').click()
+    }
+    await signInAccount(page, baseURL!)
+    await open()
+    await expect(page.locator('#peopleNostrStatus')).toContainText('Open Inbox relays to publish one.')
+    expect(lists).toEqual([])
+    expect(requests).toEqual([])
+    await inboxList(pool, account, baseURL!)
+    await pool.publish(wrapEvent({ kind: 14, created_at: Math.floor(Date.now() / 1000), tags: [['p', self]], content: 'Now my inbox is set up' }, peer, self))
+    await page.locator('#peopleNostrRefresh').click()
+    await expect(badge).toHaveText('1')
+    await page.getByRole('button', { name: 'Turn off inbox', exact: true }).click()
+    await expect(badge).toBeHidden()
+    const beforeReload = requests.length
+    await page.reload()
+    await open()
+    const on = page.getByRole('button', { name: 'Turn on inbox', exact: true })
+    await expect(on).toBeVisible()
+    await expect(badge).toBeHidden()
+    expect(requests).toHaveLength(beforeReload)
+    await on.click()
+    await expect(badge).toHaveText('1')
+    expect(lists).toEqual([])
+    await expect.poll(() => requests.length).toBe(beforeReload + 1)
+  } finally { pool.close(); await context.close() }
+})
+
+test('People offers a private node chat through the public inbox, then asks before contacting the node', async ({ browser, baseURL }, info) => {
+  const creator = generateSecretKey(), guest = generateSecretKey()
+  const sender = getPublicKey(creator), recipient = getPublicKey(guest), now = Math.floor(Date.now() / 1000)
+  const ownerContext = await accountDevice(browser, baseURL!, creator), guestContext = await accountDevice(browser, baseURL!, guest)
+  const pool = new NostrRelayPool([TEST_RELAY_WS]), node = 'https://node.example'
+  const serviceKey = getPublicKey(generateSecretKey()), ownerRequests: string[] = [], guestSockets: string[] = []
+  const publicEvents: Event[] = []
+  try {
+    await inboxList(pool, creator, baseURL!); await inboxList(pool, guest, baseURL!)
+    await pool.publish(wrapEvent({ kind: 14, created_at: now, tags: [['p', sender]], content: 'Could we continue in KithMoot?' }, guest, sender))
+    await ownerContext.route(`${node}/**`, async route => {
+      const allowed = { 'Access-Control-Allow-Origin': new URL(baseURL!).origin,
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
+      if (route.request().method() === 'OPTIONS') { await route.fulfill({ status: 204, headers: allowed }); return }
+      const path = new URL(route.request().url()).pathname
+      ownerRequests.push(path)
+      const answer = path === '/node/v1/enrol' ? { enrolled: true } : path === '/groups/v1/events' ? { accepted: true } : undefined
+      await route.fulfill({ status: answer ? 200 : 403, json: answer ?? {}, headers: allowed })
+    })
+    await guestContext.routeWebSocket('wss://node.example/events', socket => { guestSockets.push(socket.url()); socket.close() })
+    const owner = await ownerContext.newPage(), guestPage = await guestContext.newPage()
+    if (info.project.name === 'chromium-desktop') {
+      await owner.setViewportSize({ width: 1100, height: 840 })
+      await guestPage.setViewportSize({ width: 1100, height: 840 })
+    }
+    owner.on('websocket', socket => {
+      if (new URL(socket.url()).pathname !== '/__test-relay') return
+      socket.on('framesent', ({ payload }) => {
+        try { const frame = JSON.parse(String(payload)); if (frame[0] === 'EVENT') publicEvents.push(frame[1]) } catch { /* Browser probe. */ }
+      })
+    })
+    await signInAccount(owner, baseURL!); await signInAccount(guestPage, baseURL!)
+    await owner.evaluate(pair => localStorage.setItem('kithmoot.node-pair.v1.' + pair.owner, JSON.stringify(pair)), { v: 1, owner: sender, origin: node, serviceKey })
+    await owner.locator('#railPeople').click(); await owner.locator('#peopleNostrOpen').click()
+    await guestPage.locator('#railChats').click()
+    const thread = owner.locator('#peopleNostrDialog')
+    await thread.locator(`button[data-action="${recipient}"]`).click()
+    await thread.getByRole('button', { name: 'Invite to KithMoot chat' }).click()
+    await owner.getByRole('button', { name: 'Send invitation', exact: true }).click()
+    const accept = guestPage.locator('#chatInvitations').getByRole('button', { name: /^Accept private chat with / })
+    await expect(accept).toBeVisible({ timeout: 30_000 })
+    expect(ownerRequests).toContain('/node/v1/enrol')
+    expect(ownerRequests).toContain('/groups/v1/events')
+    const wrapper = publicEvents.find(event => event.kind === 1059 && event.tags[0]?.[1] === recipient)!
+    const invitation = unwrapEvent(wrapper, guest)
+    const pinned = parseNodeRoomLink(invitation.content, Math.floor(Date.now() / 1000))!
+    expect(invitation.tags).toEqual([['p', recipient], ['kithmoot-invitation', '2', pinned.room]])
+    expect(pinned.relay).toBe('wss://node.example/events')
+    expect(pinned.existing?.policy).toEqual(dmPolicy(sender, recipient))
+    expect(publicEvents.filter(event => event.tags.some(tag => tag.includes(pinned.room)))).toEqual([])
+    expect(guestSockets).toEqual([])
+    await accept.click()
+    await expect(guestPage.getByText(/This room is hosted on node\.example/)).toBeVisible()
+    expect(guestSockets).toEqual([])
+    await guestPage.getByRole('button', { name: 'Ask to join', exact: true }).click()
+    await expect.poll(() => guestSockets).toContain('wss://node.example/events')
+  } finally { pool.close(); await Promise.all([ownerContext.close(), guestContext.close()]) }
+})
+
+test('People authenticates only with the published Nostr inbox relay that asks', async ({ browser, baseURL }) => {
+  const account = generateSecretKey(), peer = generateSecretKey(), self = getPublicKey(account)
+  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const challenge = 'people-inbox-challenge', writes: Event[] = []
+  try {
+    await inboxList(pool, account, baseURL!)
+    const copy = wrapEvent({ kind: 14, created_at: Math.floor(Date.now() / 1000), tags: [['p', self]], content: 'Behind AUTH' }, peer, self)
+    await context.routeWebSocket(relay.href, browserSocket => {
+      const server = browserSocket.connectToServer()
+      let authenticated = false
+      browserSocket.send(JSON.stringify(['AUTH', challenge]))
+      browserSocket.onMessage(raw => {
+        const message = JSON.parse(String(raw))
+        if (message[0] === 'AUTH') {
+          const event = message[1] as Event
+          writes.push(event)
+          authenticated = event.kind === 22242 && event.pubkey === self && verifyEvent(event) &&
+            event.tags.some(tag => tag[0] === 'relay' && tag[1] === relay.href) &&
+            event.tags.some(tag => tag[0] === 'challenge' && tag[1] === challenge)
+          browserSocket.send(JSON.stringify(['OK', event.id, authenticated, '']))
+        } else if (message[0] === 'REQ' && message.slice(2).some((f: Filter) => f.limit === 128 && f.kinds?.includes(1059) && f['#p']?.includes(self))) {
+          const id = message[1]
+          if (authenticated) {
+            browserSocket.send(JSON.stringify(['EVENT', id, copy]))
+            browserSocket.send(JSON.stringify(['EOSE', id]))
+          } else browserSocket.send(JSON.stringify(['CLOSED', id, 'auth-required: inbox owner only']))
+        } else server.send(raw)
+      })
+    })
+    const page = await context.newPage()
+    await signInAccount(page, baseURL!)
+    await expect(page.locator('#railPeopleCount')).toHaveText('1')
+    expect(writes).toHaveLength(1)
+  } finally { pool.close(); await context.close() }
+})
+
+test('desktop People messaging works with the built-in in-memory signer', async ({ browser, baseURL }, info) => {
+  test.skip(info.project.name !== 'chromium-desktop', 'Exercises the built-in sign-in path in the desktop build')
+  const account = generateSecretKey(), peer = generateSecretKey(), self = getPublicKey(account), other = getPublicKey(peer)
+  const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
+  try {
+    await inboxList(pool, account, baseURL!); await inboxList(pool, peer, baseURL!)
+    await pool.publish(wrapEvent({ kind: 14, created_at: Math.floor(Date.now() / 1000), tags: [['p', self]], content: 'From an independent key' }, peer, self))
+    const page = await context.newPage(), sent = writes(page)
+    await page.setViewportSize({ width: 1100, height: 840 })
+    await page.goto(baseURL! + '?signin=nostr')
+    await page.getByRole('button', { name: 'Advanced', exact: true }).click()
+    await page.getByRole('button', { name: /Paste private key/ }).click()
+    await page.locator('#signet-login-nsec-input').fill(Buffer.from(account).toString('hex'))
+    await page.getByRole('dialog').getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(page.locator('#homeSignIn')).toBeHidden()
+    await page.locator('#railPeople').click()
+    await page.locator('#peopleNostrOpen').click()
+    await page.locator(`#peopleNostrDialog button[data-action="${other}"]`).click()
+    await expect(page.getByText('From an independent key', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
+    await page.locator('#nostrMessageText').fill('Reply from the desktop build')
+    await page.locator('#nostrMessageSend').click()
+    await expect(page.locator('#nostrMessageState')).toHaveText('Sent to inbox relay')
+    expect(unwrapEvent(sent.find(event => event.tags[0]?.[1] === other)!, peer).content).toBe('Reply from the desktop build')
+  } finally { pool.close(); await context.close() }
+})
+
 // Built actual app and real loopback relay, using the existing declared
 // synthetic NIP07/default-WS fixture. Not an external-client or physical proof.
 test('ordinary incoming text is literal, retained encrypted and replied to through explicit public controls', async ({ browser, baseURL }) => {
@@ -37,6 +411,7 @@ test('ordinary incoming text is literal, retained encrypted and replied to throu
   const starts: string[] = []
   const context = await accountDevice(browser, baseURL!, account, true, undefined, undefined, undefined, { started: (_peer, text) => { starts.push(text) } }), pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
+    await useManualSettingsInbox(context, self)
     await inboxList(pool, account, baseURL!); await inboxList(pool, peer, baseURL!)
     const text = '<img src="https://ordinary-inbox.invalid/pixel">\nhttps://ordinary-inbox.invalid/literal'
     const copy = wrapEvent({ kind: 14, created_at: Math.floor(Date.now() / 1000), tags: [['p', self]], content: text }, peer, self)
@@ -71,14 +446,14 @@ test('ordinary incoming text is literal, retained encrypted and replied to throu
     await expect(row.locator('img,a,video,audio,iframe')).toHaveCount(0); expect(requested).toEqual([])
     const saved = await page.evaluate(key => localStorage.getItem(key), ordinaryHistoryKey(self))
     expect(saved).not.toContain('ordinary-inbox.invalid'); expect(JSON.parse(saved!).events.some((event: Event) => event.id === copy.id)).toBe(true)
-    await row.getByRole('button', { name: 'Reply with public message', exact: true }).click()
+    await row.getByRole('button', { name: 'Reply on Nostr', exact: true }).click()
     await expect(page.locator('#nostrInboxDialog')).not.toBeVisible()
     await expect(page.locator('#nostrMessageText')).toHaveValue('')
     await page.locator('#nostrMessageText').fill('Explicit ordinary reply')
     await page.locator('#nostrMessageReview').click()
-    await expect(page.locator('#nostrMessageLane')).toHaveText('○ public'); expect(published).toEqual([])
+    await expect(page.locator('#nostrMessageLane')).toHaveText('Encrypted · Public Nostr relays'); expect(published).toEqual([])
     await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('does not confirm')
+    await expect(page.locator('#nostrMessageStatus')).toContainText('Delivery to their device is unconfirmed')
     const received = [...new Map(published.map(event => [event.id, event])).values()]
     expect(received).toHaveLength(2)
     const toPeer = received.find(event => event.tags[0]?.[1] === getPublicKey(peer))!
@@ -120,7 +495,7 @@ test('a fresh app reload can reopen its original cached ciphertext while new Web
   } finally { pool.close(); await context.close() }
 })
 
-test('a refused browser history write holds Send public without publishing either prepared wrap', async ({ browser, baseURL }) => {
+test('a refused browser history write reports Not sent without publishing either prepared wrap', async ({ browser, baseURL }) => {
   const account = generateSecretKey(), peer = generateSecretKey()
   const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
   await context.addInitScript(() => {
@@ -135,11 +510,10 @@ test('a refused browser history write holds Send public without publishing eithe
     const page = await context.newPage(), published = writes(page)
     await signInAccount(page, baseURL!); await openSettings(page, 'Account')
     await page.locator('#nostrMessageEntry').click()
-    const { npubEncode } = await import('nostr-tools/nip19')
     await page.locator('#nostrMessageRecipient').fill(npubEncode(getPublicKey(peer)))
     await page.locator('#nostrMessageText').fill('Do not send without the retained copy')
     await page.locator('#nostrMessageReview').click(); await page.locator('#nostrMessageSend').click()
-    await expect(page.locator('#nostrMessageStatus')).toContainText('Nothing was sent')
+    await expect(page.locator('#nostrMessageState')).toHaveText('Not sent')
     expect(published).toEqual([])
   } finally { pool.close(); await context.close() }
 })
@@ -242,6 +616,7 @@ test('closing the actual inbox during a pending inner invitation decrypt cannot 
   })
   const pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
+    await useManualSettingsInbox(context, self)
     await inboxList(pool, account, baseURL!); await pool.publish(invite.copy)
     const page = await context.newPage(); await signInAccount(page, baseURL!); await showInbox(page)
     const before = await page.evaluate(key => localStorage.getItem(key), `kithmoot.contact-inbox.v1.${self}`)
@@ -263,6 +638,7 @@ test('two actual inbox panes respect the account writer hold without replacing s
   const account = generateSecretKey(), peer = generateSecretKey(), self = getPublicKey(account)
   const context = await accountDevice(browser, baseURL!, account), pool = new NostrRelayPool([TEST_RELAY_WS])
   try {
+    await useManualSettingsInbox(context, self)
     await inboxList(pool, account, baseURL!)
     const copy = wrapEvent({ kind: 14, created_at: Math.floor(Date.now() / 1000), tags: [['p', self]], content: 'Shared writer guard' }, peer, self)
     await pool.publish(copy)

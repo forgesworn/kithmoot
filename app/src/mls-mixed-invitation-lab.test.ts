@@ -58,6 +58,19 @@ test('snapshot preserves applied native profile and roles while hashing and wipi
   expect(read.value.value.history[0].body).toBeUndefined()
   expect(body.every(byte => byte === 0)).toBe(true)
 })
+test('snapshot projects only commit epochs and mailbox hashes, never envelopes', async () => {
+  await setup()
+  const value = active(), recordId = new Uint8Array(32).fill(1), mailbox = new Uint8Array(32).fill(2), envelope = new TextEncoder().encode('private-envelope')
+  ;(value.value.value.outbox as any[]).push({ recordId, mailbox, envelope, destination: { type: 'CommitSlot', homeBox: new Uint8Array(32).fill(3), epoch: 4n, attempt: 0 } })
+  ;(value.value.value.watch as any[]).push({ mailbox, homeBox: new Uint8Array(32).fill(3), kind: { type: 'CommitSlot', epoch: 4n, attempt: 0 } })
+  owner.invitation.mockResolvedValue(value)
+  const read = await lab.step('snapshot', { session, routeId: 'route' })
+  expect(read.value.value.commitEpochs).toEqual(['4'])
+  expect(read.value.value.outbox).toEqual([{ recordIdSha256: expect.stringMatching(/^[0-9a-f]{64}$/), mailboxSha256: expect.stringMatching(/^[0-9a-f]{64}$/), type: 'CommitSlot', epoch: '4', attempt: 0 }])
+  expect(read.value.value.watch).toEqual([{ mailboxSha256: expect.stringMatching(/^[0-9a-f]{64}$/), type: 'CommitSlot', epoch: '4', attempt: 0 }])
+  expect(JSON.stringify(read)).not.toContain('private-envelope')
+  expect(read.value.value.outbox[0].envelope).toBeUndefined()
+})
 test('role changes bind one exact leaf, boolean and last reviewed commitment then consume that review', async () => {
   await setup()
   const args = { routeId: 'route', session, leafId: leaf, makeAdmin: false, expectedCommitment: commitment }

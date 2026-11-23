@@ -1,6 +1,42 @@
+## Desktop 0.1.168
+
+People shows unread encrypted Nostr messages and requests from new senders.
+The inbox starts with your published inbox relays in Nostr mode. Reply on
+Nostr or send an invitation to chat privately on your paired KithMoot node.
+
+## Desktop 0.1.167
+
+Every caller has a named microphone waveform, including You, with a level bar when reduced motion is on. A recovering camera keeps its last picture visible while the replacement is getting ready. Calls can recover from a lost initial connection answer, and the meters use decoded audio when the browser’s track mute status is stale.
+
+## Desktop 0.1.166: call connection details
+
+More → Connection details shows observed direct or TURN media paths, relay hostnames where exposed, and the room node separately. The video watchdog accepts presented-frame progress when the playback clock stalls, avoiding an unnecessary reset. Automated checks cover this regression; the reported Android-to-desktop flashes still need live-call acceptance.
+
 # KithMoot desktop preview
 
-Version 0.1.157 closes an open menu on Escape wherever keyboard focus is, including straight after the click that opened it.
+Version 0.1.165 keeps a decoded camera visible through missing progress readings while the caller still advertises it. Call labels can fall back to locally held contact or private-chat names without enabling public profile lookups. Live-call acceptance on the intended devices remains separate from the automated checks.
+
+Version 0.1.164 replaces the filled loudness history with a live PCM peak waveform. A white baseline and cyan sound trace keep detail visible on the dark plot. Written states, muted-playback metering and reduced-motion bars remain available.
+
+Version 0.1.162 keeps call pictures full-sized while spare receivers await their first frame and stops recovery from repeatedly reviving stalled pictures without fresh media. Quiet audio traces are white; sound uses the theme accent. See [call video stability](../docs/call-video-stability.md).
+
+## Version 0.1.161
+
+Version 0.1.161 gives each person their own name for a one-to-one chat. By default, you see the other person's profile name. Choose a private label in Room info → Name and picture; it syncs only with your own account. Use their name restores the default. Group names remain shared. See [direct-chat names](../docs/direct-chat-names.md).
+
+The release uses the existing signing and update paths. Package checks and publication receipts remain separate from the owner's installed-app and physical-device acceptance.
+
+## Version 0.1.160
+
+Adds Metadata connection visibility, local file metadata cleaning, readable update notes and reliable Spry pairing prompts during a running call.
+
+## Version 0.1.159
+
+Calls show measured microphone and incoming audio activity, with text states
+and a reduced-motion level bar. Incoming activity remains visible when
+playback is muted. See [visual audio activity](../docs/audio-activity.md).
+
+Version 0.1.158 explains that a node has no more room for calls and that space frees up when someone leaves a call, including when one large call fills the node.
 
 The desktop client shares the web call/video, mobile layout, long-text and notification controls.
 
@@ -146,6 +182,8 @@ Desktop badges count resolved, unretracted messages from other participants, usi
 Linux badge integration uses Electron's LauncherEntry D-Bus API with the installed `.desktop` identity. KDE/Ubuntu-style launchers can display the number; plain GNOME setups may need a dock extension. The window title carries the same count as a fallback. See [Electron badge documentation](https://www.electronjs.org/docs/latest/api/app#appsetbadgecountcount-linux-macos) and [native notifications](https://www.electronjs.org/docs/latest/tutorial/notifications).
 
 Share Area is available in the Linux desktop app on X11 and Wayland. On X11 it uses the same movable, resizable crop frame as macOS and Windows, as a shaped window: the hole is cut out of it, so clicks there go to whatever is beneath without KithMoot watching the cursor, and marks show in the hole only while Draw is on. `test/linux-x11/` drives the packaged app with the real pointer under Cinnamon's window manager. Wayland does not let an app position its own window or read screen coordinates, so there Share an area opens a preview window instead: the system's screen-share dialog chooses the monitor, the person drags a box on the preview, and only that box is sent, through the same crop and drawing path. The selection can be moved while sharing. `KITHMOOT_DESKTOP_AREA_MODE=preview` forces the preview in an unpackaged run so `test/area-preview.spec.ts` can drive it on a Mac; the portal itself is only exercised on a real Wayland desktop. Ordinary screen sharing on Wayland takes the portal's one answer without a second KithMoot menu. Linux shares video without system audio: Electron's display-media loopback output is not supported on Linux. An id-less capture source is accepted only on a single-display desktop; KithMoot refuses to guess on a multi-display setup because guessing could expose the wrong monitor.
+Direct drawings over a selected native window or entire display are described in [shared-window drawing](../docs/shared-window-drawing.md). Native Wayland requires the opt-in [GNOME or Plasma companion](compositors/README.md); packages include its source and installer under `resources/drawing`.
+
 
 Validation:
 

@@ -8,6 +8,7 @@ import type { BrowserLink } from './browser-link.js'
 import { validateConsent, type RoomConsent } from './browser-room-consent.js'
 import { PrivateFileVault, sameFileScope, type PrivateFileScope, type PrivateFileTicket, type PrivateFileUpload } from './private-file-vault.js'
 import type { NostrMessageIdentity } from './nostr-message.js'
+import { cleanAttachment } from './attachment-metadata.js'
 
 export const MAX_PRIVATE_FILE_BYTES = 64 * 1024 * 1024
 export interface PrivateFileContext {
@@ -81,7 +82,9 @@ export class BrowserBothyFiles {
   async #upload(file: File, signal: AbortSignal, context: PrivateFileContext): Promise<ChatAttachment> {
     const operation = await this.#operation(signal, context)
     if (!file.size || file.size > MAX_PRIVATE_FILE_BYTES) throw new Error('Choose a non-empty file that fits within 64 MiB after encryption.')
-    const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type }, { maxSourceBytes: MAX_PRIVATE_FILE_BYTES })
+    const cleaned = await cleanAttachment(file, signal)
+    await this.#guard(operation, signal)
+    const sealed = await encryptEnvelopeBlob(cleaned, { name: cleaned.name, type: cleaned.type }, { maxSourceBytes: MAX_PRIVATE_FILE_BYTES })
     try {
       await this.#guard(operation, signal)
       if (sealed.envelope.size > MAX_PRIVATE_FILE_BYTES) throw new Error('This file is larger than 64 MiB after encryption. Nothing was uploaded.')

@@ -5,7 +5,8 @@ import { nip44 } from 'nostr-tools'
 import type { RelayTransport } from '../../src/relay-pool.js'
 import { memoryDeviceStore } from './device-store.js'
 import { NostrMessageInbox } from './nostr-message-inbox.js'
-import { OrdinaryMessageHistory, ordinaryHistoryKey, rememberOrdinaryCopy } from './nostr-message-history.js'
+import { OrdinaryMessageHistory, ordinaryHistoryKey, ordinarySendStatusKey, readOrdinarySendStatuses,
+  rememberOrdinaryCopy, rememberOrdinarySendStatus } from './nostr-message-history.js'
 import { captureOrdinaryCopy, ordinaryInboxRelays } from './nostr-message-wire.js'
 
 afterEach(() => { vi.useRealTimers() })
@@ -229,6 +230,18 @@ it('retains an exact prepared sender copy only under a current account writer lo
   current = false; unlock(() => { release++ })
   await expect(task).rejects.toThrow('changed'); expect(release).toBe(1)
   expect(f.store.get(ordinaryHistoryKey(f.self))).toBeNull()
+})
+
+it('keeps the strongest relay confirmation for the sender copy without changing encrypted history', async () => {
+  const f = fixture(), copy = f.envelope(), acquire = async () => () => {}
+  await rememberOrdinaryCopy(f.store, f.self, copy, acquire, () => true)
+  const history = f.store.get(ordinaryHistoryKey(f.self))
+  await rememberOrdinarySendStatus(f.store, f.self, copy.id, 'copy-unconfirmed', acquire, () => true)
+  await rememberOrdinarySendStatus(f.store, f.self, copy.id, 'sent', acquire, () => true)
+  await rememberOrdinarySendStatus(f.store, f.self, copy.id, 'unconfirmed', acquire, () => true)
+  expect(f.store.get(ordinarySendStatusKey(f.self))).toBe(JSON.stringify([[copy.id, 'sent']]))
+  expect(readOrdinarySendStatuses(f.store, f.self).get(copy.id)).toBe('sent')
+  expect(f.store.get(ordinaryHistoryKey(f.self))).toBe(history)
 })
 
 it('preserves published-inbox relay hints and does not revive an older list after an empty or expired latest statement', () => {

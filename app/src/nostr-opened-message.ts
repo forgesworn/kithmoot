@@ -10,8 +10,8 @@ export interface OpenedInvitation { readonly invitation: Readonly<ContactInvitat
 const invitations = new WeakMap<OpenedInvitation, { account: string; copy: Event; rumor: ContactInvitationRumor; current: () => boolean }>()
 export type OpenedAccountMessage = { kind: 'text'; message: OrdinaryText } | { kind: 'invitation'; token: OpenedInvitation }
 
-/** One explicit two-layer operation shared by text and invitations. Network
- * receipt and journal restoration never call it. It receives only decrypt. */
+/** Verify both encrypted layers under the caller's account and signer lifetime.
+ * A successfully opened invitation still needs separate journal permission. */
 export async function openAccountMessage(input: Event, account: string, decrypt: AccountMessageDecrypt,
   current: () => boolean, blocked: (peer: string) => boolean, now: () => number): Promise<OpenedAccountMessage> {
   const copy = captureOrdinaryCopy(input, account, now())

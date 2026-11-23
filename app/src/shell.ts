@@ -20,7 +20,7 @@
  *   data-level        list | detail, meaningful only below 900 px
  */
 
-export type Destination = 'chats' | 'people' | 'boards' | 'settings'
+export type Destination = 'chats' | 'people' | 'boards' | 'metadata' | 'settings'
 type Place = Destination
 
 const root = document.documentElement
@@ -31,9 +31,10 @@ const COMPACT = window.matchMedia('(max-width: 599px)')
 
 let destination: Place = 'chats'
 let level: 'list' | 'detail' = location.hash.length > 1 ? 'detail' : 'list'
+let destinationBeforeSettings: Place = 'chats'
 let levelBeforeSettings: 'list' | 'detail' = 'list'
 let peopleAvailable = false
-const counts: Record<'chats' | 'boards', number> = { chats: 0, boards: 0 }
+const counts: Record<'chats' | 'boards' | 'people', number> = { chats: 0, boards: 0, people: 0 }
 
 function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null
@@ -66,6 +67,8 @@ function render(): void {
   if (peoplePane) peoplePane.hidden = !people
   const settingsPane = el('settingsPane')
   if (settingsPane) settingsPane.hidden = destination !== 'settings'
+  const metadataPane = el('metadataPane')
+  if (metadataPane) metadataPane.hidden = destination !== 'metadata'
   // Below 900 px with the main pane hidden, the list is what a screen reader
   // should find as the page's main landmark. The real main is not rendered
   // then, so there is still exactly one.
@@ -76,6 +79,7 @@ function render(): void {
     if (listIsMain) column.setAttribute('role', 'main')
     else column.removeAttribute('role')
   }
+  placeEnd()
 }
 
 function announce(): void {
@@ -91,10 +95,23 @@ export function openDestination(name: Destination): void {
   // wants a room opens it from there. Settings is the exception on the way in
   // and out: it remembers what was showing, so back from it returns to the
   // room that was open.
-  if (name === 'settings') { if (from !== 'settings') levelBeforeSettings = level; level = 'detail' }
-  else level = from === 'settings' && name === 'chats' ? levelBeforeSettings : 'list'
+  const standalone = (place: Place) => place === 'settings' || place === 'metadata'
+  if (standalone(name)) {
+    if (!standalone(from)) {
+      destinationBeforeSettings = from
+      levelBeforeSettings = level
+    }
+    level = 'detail'
+  } else level = standalone(from) && name === destinationBeforeSettings ? levelBeforeSettings : 'list'
   render()
   announce()
+}
+
+export function closeSettings(): void {
+  const back = destinationBeforeSettings === 'people' && !peopleAvailable ? 'chats' : destinationBeforeSettings
+  openDestination(back)
+  const trigger = el('openAppSettings')
+  if (trigger?.getClientRects().length) trigger.focus({ preventScroll: true })
 }
 
 /** At one-pane widths, push the main pane over the list: a full screen with
@@ -114,7 +131,7 @@ export function openDetail(): void {
 export function closeDetail(): void {
   // Settings is only a main pane, and a list drawing itself behind it (a sign-out,
   // say) must not close it. The way back from it is its own arrow, or Chats.
-  if (destination === 'settings') return
+  if (destination === 'settings' || destination === 'metadata') return
   level = 'list'
   render()
 }
@@ -137,13 +154,13 @@ export function setPeopleAvailable(available: boolean): void {
  *  what needs you. Zero hides the pill; the spoken name carries the number. */
 export function setCounts(next: Partial<typeof counts>): void {
   Object.assign(counts, next)
-  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['boards', 'railBoards', 'Boards']] as const) {
+  for (const [key, id, label] of [['chats', 'railChats', 'Chats'], ['boards', 'railBoards', 'Boards'], ['people', 'railPeople', 'People']] as const) {
     const button = el(id), pill = el(id + 'Count')
     if (!button || !pill) continue
     const n = counts[key]
     pill.hidden = n <= 0
     pill.textContent = n > 99 ? '99+' : String(n)
-    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} ${key === 'chats' ? 'unread' : 'need you'}` : label)
+    button.setAttribute('aria-label', n > 0 ? `${label}, ${n} ${key === 'boards' ? 'need you' : 'unread'}` : label)
   }
 }
 
@@ -202,17 +219,19 @@ function skip(kind: string): void {
   }
 }
 
-/** Under 600 px there is no rail, so Settings and Sign in sit in the list's
- *  own header beside New, as they do in the Android app. A first run has no
- *  list, and they sit at the top of the start page instead: somebody who
- *  needs bigger text needs Settings before anything else. */
+/** Use the visible destination's header when navigation moves to the bottom. */
 function placeEnd(): void {
   const end = el('railEnd'), rail = el('rail')
-  const first = root.dataset.list === 'off'
-  const head = first ? el('homeHead') : document.querySelector<HTMLElement>('#rooms .listHead')
-  if (!end || !head || !rail) return
-  if (COMPACT.matches) { if (end.parentElement !== head) head.insertBefore(end, first ? null : el('newMenuButton')) }
-  else if (end.parentElement !== rail) rail.append(end)
+  if (!end || !rail) return
+  if (!COMPACT.matches) {
+    if (end.parentElement !== rail) rail.append(end)
+    return
+  }
+  const before = destination === 'people' ? el('peopleAdd') : destination === 'chats' ? el('newMenuButton') : null
+  const head = destination === 'boards' ? el('workspaceWorkHead')
+    : destination === 'chats' && root.dataset.list === 'off' ? el('homeHead')
+      : before?.parentElement
+  if (head && end.parentElement !== head) head.insertBefore(end, before?.parentElement === head ? before : null)
 }
 
 /** Where this device remembers how wide the list is. The key the old rooms
@@ -321,7 +340,6 @@ function init(): void {
   COMPACT.addEventListener('change', placeEnd)
   // The list comes and goes with a first run (`data-list`, set where the list is drawn).
   new MutationObserver(placeEnd).observe(root, { attributes: true, attributeFilter: ['data-list'] })
-  placeEnd()
   render()
 }
 

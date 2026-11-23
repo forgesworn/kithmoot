@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SpeakingMonitor } from './speaking-monitor.js'
+import { SpeakingMonitor, pcmPeaks } from './speaking-monitor.js'
 import { SPEAKING } from '../../src/index.js'
 
 /**
@@ -85,6 +85,67 @@ function monitorWith(fake: ReturnType<typeof fakeContext>, onChange?: (s: Readon
 }
 
 describe('SpeakingMonitor', () => {
+  it('measures tracks before playback gain and clears missing, muted and suspended sources', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels })
+    const mic = track()
+    m.watch('mic', mic)
+    fake.setLevel(192)
+    m.poll(0)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeCloseTo(0.5)
+    mic.enabled = false
+    m.poll(200)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBe(0)
+    mic.enabled = true
+    Object.assign(mic, { muted: true })
+    fake.setLevel(SILENT)
+    m.poll(400)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
+    Object.assign(mic, { muted: false })
+    fake.context.state = 'suspended'
+    m.poll(600)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeNull()
+    fake.context.state = 'running'
+    fake.setLevel(192)
+    m.poll(800)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeCloseTo(0.5)
+    m.unwatch('mic')
+    expect(onLevels.mock.lastCall![0].size).toBe(0)
+    m.close()
+  })
+
+  it('shows decoded speech when the remote track still reports muted', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn(), onWaveforms = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels, onWaveforms })
+    const mic = Object.assign(track(), { muted: true })
+    m.watch('mic', mic)
+    fake.setLevel(LOUD)
+    m.poll(0)
+    expect(m.isSpeaking('mic')).toBe(true)
+    expect(onLevels.mock.lastCall![0].get('mic')).toBeGreaterThan(0)
+    expect(onWaveforms.mock.lastCall![0].get('mic')).toContain((LOUD - 128) / 128)
+    m.close()
+  })
+
+  it('keeps both microphone and share taps for one speaker, removing only the ended tap', () => {
+    const fake = fakeContext()
+    const onLevels = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onLevels })
+    m.watch('dev|mic', track('mic'), 'dev')
+    m.watch('dev|share', track('share'), 'dev')
+    fake.setLevel(LOUD)
+    m.poll(0)
+    expect(m.isSpeaking('dev')).toBe(true)
+    expect(onLevels.mock.lastCall![0].size).toBe(2)
+    m.retain(['dev|share'])
+    expect(m.isSpeaking('dev')).toBe(true)
+    expect([...onLevels.mock.lastCall![0].keys()]).toEqual(['dev|share'])
+    m.close()
+    expect(m.speaking().size).toBe(0)
+  })
+
   it('routes the analyser to a destination through a silent gain', () => {
     // The failure this prevents: Web Audio only guarantees a node runs when
     // there is a path to a destination, and an analyser with nothing
@@ -238,5 +299,37 @@ describe('SpeakingMonitor', () => {
     m.close()
     expect(m.isSpeaking('dev1')).toBe(false)
     expect(fake.context.close).toHaveBeenCalled()
+  })
+})
+
+
+describe('live PCM traces', () => {
+  it('preserves brief positive and negative peaks instead of averaging them away', () => {
+    const samples = new Uint8Array(1024).fill(128)
+    samples[3] = 255; samples[4] = 0
+    const peaks = pcmPeaks(samples)
+    expect(peaks).toHaveLength(256)
+    expect(peaks.slice(0, 2)).toEqual([-1, 127 / 128])
+    expect(peaks.slice(2).every(value => value === 0)).toBe(true)
+    expect(pcmPeaks(new Uint8Array())).toEqual([])
+  })
+  it('replaces the trace and clears it on mute, suspension and track removal', () => {
+    const fake = fakeContext()
+    const onWaveforms = vi.fn()
+    const m = new SpeakingMonitor({ createContext: () => fake.context as unknown as AudioContext, onWaveforms })
+    const mic = track()
+    m.watch('mic', mic)
+    fake.setLevel(192)
+    m.poll(0)
+    expect(onWaveforms.mock.lastCall![0].get('mic').slice(0, 2)).toEqual([-0.5, 0.5])
+    mic.enabled = false; m.poll(50)
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    mic.enabled = true; fake.context.state = 'suspended'; m.poll(100)
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    fake.context.state = 'running'; m.poll(150)
+    expect(onWaveforms.mock.lastCall![0].get('mic')).toHaveLength(256)
+    m.unwatch('mic')
+    expect(onWaveforms.mock.lastCall![0].size).toBe(0)
+    m.close()
   })
 })

@@ -105,7 +105,7 @@ test('resizing keeps the opposite corner and a minimum size', () => {
 test('a capture source maps to a display only when it cannot be another', () => {
   const displays = [{ id: 1 }, { id: 2 }]
   assert.deepEqual(captureOf({ id: 'screen:2:0', display_id: '2' }, displays), { kind: 'screen', displayId: '2' })
-  assert.deepEqual(captureOf({ id: 'window:123:0', display_id: '' }, displays), { kind: 'window' })
+  assert.deepEqual(captureOf({ id: 'window:123:0', display_id: '' }, displays), { kind: 'window', captureId: 'window:123:0' })
   // Linux capturers may omit display_id: fine with one display, unknown with two.
   assert.equal(captureOf({ id: 'screen:0:0', display_id: '' }, displays), null)
   assert.deepEqual(captureOf({ id: 'screen:0:0', display_id: '' }, [{ id: 7 }]), { kind: 'screen', displayId: '7' })

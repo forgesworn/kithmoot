@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
+import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey } from 'nostr-tools/pure'
+import { encodeNodeRoomLink, signNodeRoom } from '@forgesworn/fold-kit/node-room'
 import { nip44 } from 'nostr-tools'
 import { createRoomInvitation } from './invitation.js'
 import { encodeRoomLink } from './link.js'
@@ -54,6 +55,26 @@ describe('account-addressed private conversation invitations', () => {
     const valid = invitationLink(a.pubkey, b.pubkey)
     const rumor = contactInvitationRumor(a.pubkey, b.pubkey, valid.room, valid.link, now)
     expect(readContactInvitation({ ...rumor, content: wrong.link }, b.pubkey, now)).toBeUndefined()
+  })
+  it('binds a signed node route to both accounts and the room in the encrypted invitation', async () => {
+    const a = invitationIdentity(), b = invitationIdentity(), outsider = invitationIdentity()
+    const room = deriveRoom(generateRoomSecret()).roomId
+    const descriptor = { room, authoritySk: generateSecretKey(), origin: 'https://node.example', serviceKey: outsider.pubkey, now }
+    const linkFor = (keys: string[]) => encodeNodeRoomLink('https://kithmoot.example/j/', signNodeRoom({ ...descriptor,
+      existing: { destruct: false, policy: { tier: 'open', members: keys.sort() } } }), now)
+    const link = linkFor([a.pubkey, b.pubkey])
+    const rumor = contactInvitationRumor(a.pubkey, b.pubkey, room, link, now)
+    expect(rumor.tags[1]).toEqual(['kithmoot-invitation', '2', room])
+    const wrap = await wrapContactInvitation(rumor, a, b.pubkey, now, () => true)
+    expect(wrap.tags).toEqual([['p', b.pubkey]])
+    expect(await unwrapContactInvitation(wrap, b, now)).toEqual(rumor)
+    expect(await unwrapContactInvitation(wrap, outsider, now)).toBeUndefined()
+    expect(readContactInvitation(rumor, b.pubkey, now)).toMatchObject({ node: true, sender: a.pubkey, recipient: b.pubkey, room, link })
+    expect(() => contactInvitationRumor(a.pubkey, b.pubkey, outsider.pubkey, link, now)).toThrow()
+    expect(() => contactInvitationRumor(a.pubkey, b.pubkey, room, linkFor([a.pubkey, outsider.pubkey]), now)).toThrow()
+    expect(() => contactInvitationRumor(a.pubkey, b.pubkey, room, linkFor([a.pubkey, b.pubkey, outsider.pubkey]), now)).toThrow()
+    const downgrade = { ...rumor, tags: [rumor.tags[0]!, ['kithmoot-invitation', '1', room]] }
+    expect(readContactInvitation({ ...downgrade, id: getEventHash(downgrade) }, b.pubkey, now)).toBeUndefined()
   })
   it('rechecks account and contact authority after a delayed encryption or signature', async () => {
     const a = invitationIdentity(), b = invitationIdentity(), room = invitationLink(a.pubkey, b.pubkey)

@@ -48,7 +48,8 @@ async function fixture(credentialSeconds = 86400, storageMode = false) {
   let tail = Promise.resolve()
   const coordinator = { invalidate() {}, transact: (_persona: string, work: (tx: PersonaTransaction) => Promise<unknown>, current: () => boolean) => {
     const turn = tail.then(async () => {
-      if (beforeConfirmation) { const work = beforeConfirmation; beforeConfirmation = undefined; await work() }
+      const wrapped = [...tx.vault.values()].some(bytes => JSON.parse(new TextDecoder().decode(bytes)).standalone?.observations.some((item: any) => item.attempt?.wrap))
+      if (beforeConfirmation && wrapped) { const work = beforeConfirmation; beforeConfirmation = undefined; await work() }
       if (held || !current()) return { state: 'pending', reason: 'stale', refused: false }
       const candidate = new MemoryTransaction(new Map([...tx.vault].map(([id, bytes]) => [id, bytes.slice()])))
       const value = await work(candidate)
@@ -116,7 +117,7 @@ async function fixture(credentialSeconds = 86400, storageMode = false) {
   const publicTransport = { directory: vi.fn(async () => [await keeper.signEvent(dmRelayListTemplate(['wss://keeper.test/'], clock))]), publish: vi.fn(async () => {}) }
   return { outbox, restart, operation, storageMode, coordinator, context, viewTx, options, identity, keeper, permit, permission, node, box, boxes, tx, vault, ctx, endpoint, start, engine, sent, listeners, reservations, nativeSocket, consent, publicTransport,
     now: () => clock, clock: (value: number) => { clock = value }, unpermit: () => { permitted = false }, hide: () => { live = false; controller.abort() },
-    swap: () => { generation++ }, replaceSigner: () => { activeIdentity = { ...identity } }, hold: () => { held = true }, refuseAuth: () => { auth = false }, refuseAck: () => { ack = false }, acceptAck: () => { ack = true },
+    swap: () => { generation++ }, replaceSigner: () => { activeIdentity = { ...identity } }, hold: () => { held = true }, refuseAuth: () => { auth = false }, acceptAuth: () => { auth = true }, refuseAck: () => { ack = false }, acceptAck: () => { ack = true; stallAck = false },
     stallAck: () => { stallAck = true }, stallAuth: () => { stallAuth = true },
     cleanupReservation: (work: () => void | Promise<void>) => { reservationCleanup = work },
     beforeConfirmation: (work: () => void | Promise<void>) => { beforeConfirmation = work },
@@ -258,7 +259,9 @@ describe('concrete private standalone revocation sending', () => {
     expect(adminStorageRequestTarget(f.identity.pubkey, transmitter, [{ ...target, leafId: '99'.repeat(32), device: transmitter, own: true }, target], fresh, f.now())).toEqual(target)
     await withAdminStorageRequestGate(f.identity.pubkey, f.operation, () => retainAdminStorageRequest(f.tx, f.identity.pubkey, transmitter, target, fresh))
     const retained = [...f.tx.vault.values()].map(bytes => JSON.parse(new TextDecoder().decode(bytes))).find(j => j.records?.[0]?.attempts)
-    expect(retained.records[0].attempts).toContainEqual(previous)
+    const storagePrevious = structuredClone(previous); delete storagePrevious.attempt!.wrap
+    expect(previous.attempt!.wrap).toBeDefined()
+    expect(retained.records[0].attempts).toContainEqual(storagePrevious)
     expect(await f.outbox.sendPrivately(f.operation, f.options({ permission: fresh.permission }), expected.requestRevision)).toMatchObject({ value: { requestState: 'sent', requestRevision: expected.requestRevision + 1 } })
     noPublic(f)
   })
@@ -482,13 +485,50 @@ describe('concrete private standalone revocation sending', () => {
     await expect(f.outbox.sendPrivately(f.operation, f.options({ consent }))).rejects.toThrow()
     expect(f.sent).toEqual([]); expect((await record(f)).attempt?.confirmed).toBe(false); noPublic(f)
   })
-  it.each(['AUTH', 'EVENT'] as const)('retains an uncertain private attempt after %s refusal and never automatically retries', async phase => {
+  it.each(['AUTH', 'EVENT'] as const)('retries the exact retained wrap after %s refusal and restart', async phase => {
     const f = await fixture(); if (phase === 'AUTH') f.refuseAuth(); else f.refuseAck()
     await expect(f.outbox.sendPrivately(f.operation, f.options())).rejects.toThrow()
-    expect((await record(f)).attempt?.confirmed).toBe(false)
-    const count = f.sent.length
-    expect(await f.restart().sendPrivately(f.operation, f.options())).toMatchObject({ value: { requestState: 'unconfirmed' } })
-    expect(f.sent).toHaveLength(count); noPublic(f)
+    const retained = (await record(f)).attempt
+    expect(retained?.confirmed).toBe(false)
+    const original = retained?.wrap as Event
+    expect(original.kind).toBe(1059)
+    const seals = f.identity.signEvent.mock.calls.length, encryptions = f.identity.encrypt.mock.calls.length
+    if (phase === 'AUTH') f.acceptAuth(); else f.acceptAck()
+    expect(await f.restart().sendPrivately(f.operation, f.options())).toMatchObject({ value: { requestState: 'sent' } })
+    const published = f.sent.filter(frame => frame[0] === 'EVENT').map(frame => frame[1])
+    expect(published).toEqual(phase === 'EVENT' ? [original, original] : [original])
+    expect(f.identity.signEvent).toHaveBeenCalledTimes(seals)
+    expect(f.identity.encrypt).toHaveBeenCalledTimes(encryptions)
+    expect((await record(f)).attempt?.wrap).toEqual(original)
+    noPublic(f)
+  })
+  it('retries the same wrap bytes after the deposit acknowledgement is lost', async () => {
+    const f = await fixture(); f.stallAck()
+    const first = f.outbox.sendPrivately(f.operation, f.options())
+    await vi.waitFor(() => expect(f.sent.map(frame => frame[0])).toEqual(['AUTH', 'EVENT']))
+    const original = (await record(f)).attempt!.wrap!
+    f.listeners[0]!.onClosed?.('lost deposit acknowledgement')
+    await expect(first).rejects.toThrow('not confirmed')
+    f.acceptAck()
+    expect(await f.restart().sendPrivately(f.operation, f.options())).toMatchObject({ value: { requestState: 'sent' } })
+    const published = f.sent.filter(frame => frame[0] === 'EVENT').map(frame => frame[1] as Event)
+    expect(published.map(event => JSON.stringify(event))).toEqual([JSON.stringify(published[0]), JSON.stringify(published[0])])
+    expect(published).toEqual([original, original])
+    expect(f.identity.signEvent).toHaveBeenCalledOnce()
+    expect(f.identity.encrypt).toHaveBeenCalledOnce()
+    noPublic(f)
+  })
+  it('accepts the exact maximally backdated wrap when a live retry crosses the outer-age boundary', async () => {
+    const f = await fixture(), options = f.options({ random: () => 0.999999 }); f.refuseAck()
+    await expect(f.outbox.sendPrivately(f.operation, options)).rejects.toThrow()
+    const original = (await record(f)).attempt!.wrap!
+    expect(f.now() - original.created_at).toBe(172800)
+    f.clock(f.now() + 601); f.acceptAck()
+    expect(await f.restart().sendPrivately(f.operation, options)).toMatchObject({ value: { requestState: 'sent' } })
+    expect(f.sent.filter(frame => frame[0] === 'EVENT').map(frame => frame[1])).toEqual([original, original])
+    expect(f.identity.signEvent).toHaveBeenCalledOnce()
+    expect(f.identity.encrypt).toHaveBeenCalledOnce()
+    noPublic(f)
   })
   it.each(['expired', 'revoked'] as const)('sends no EVENT when the original credential becomes %s while AUTH ACK is pending', async change => {
     const f = await fixture(change === 'expired' ? 1 : 86400); f.stallAuth()

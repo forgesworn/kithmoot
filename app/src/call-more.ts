@@ -24,6 +24,7 @@ export interface CallMoreHooks {
   invitePeople(): (() => void) | undefined
   /** This call goes through the relay only: its IP address is hidden. */
   ipHidden(): boolean
+  connectionsChanged?(open: boolean): void
 }
 
 const COMPACT = '(max-width: 599px)'
@@ -52,6 +53,7 @@ export function installCallMore(hooks: CallMoreHooks): CallMore {
   const panels: Panel[] = [
     { el: byId('effects')!, title: 'Effects' },
     { el: byId('meetingPanel')!, title: 'Run as a meeting' },
+    { el: byId('callConnections')!, title: 'Connection details' },
   ]
   let openPanel: Panel | undefined
 
@@ -97,11 +99,13 @@ export function installCallMore(hooks: CallMoreHooks): CallMore {
     for (const section of panel.el.querySelectorAll<HTMLDetailsElement>(':scope details')) section.open = true
     if (panel.el instanceof HTMLDetailsElement) panel.el.open = true
     panel.el.querySelector<HTMLElement>('.callPanelHeading')!.focus()
+    if (panel.el.id === 'callConnections') hooks.connectionsChanged?.(true)
   }
 
   function closePanels(restoreFocus = false): void {
     if (!openPanel) return
     try { openPanel.el.hidePopover() } catch { /* Already closed. */ }
+    if (openPanel.el.id === 'callConnections') hooks.connectionsChanged?.(false)
     delete openPanel.el.dataset.panel
     openPanel = undefined
     if (restoreFocus && opener.isConnected) opener.focus({ preventScroll: true })
@@ -185,6 +189,7 @@ export function installCallMore(hooks: CallMoreHooks): CallMore {
         if (invite) menuItem(menu, 'Invite people…', invite, { icon: 'personAdd', action: 'invite' })
       },
       menu => {
+        menuItem(menu, 'Connection details…', () => showPanel(panels[2]), { action: 'connections' })
         if (hooks.ipHidden()) note(menu, 'IP address hidden on this call')
         if (shown(wake)) note(menu, wake.textContent?.trim() ?? '')
       },

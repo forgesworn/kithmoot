@@ -8,6 +8,8 @@ import { BrowserRoomConsents, planRoomGrants, ROOM_GRANT_TERM, ROOM_READ_KINDS, 
 import { BrowserRoomBarrier } from './browser-room-barrier.js'
 import { PUBLIC_ROOM_OPERATIONS } from './public-room-operation.js'
 
+export interface RoomRouteSource extends Pick<BrowserLink, 'resume' | 'boxes' | 'pairedBoxes' | 'openSocket'> {}
+
 export interface RoomActivationInput {
   room: string
   box: PairedBox
@@ -27,7 +29,7 @@ type Carrier = (consent: RoomConsent, kinds: number[]) => RelayTransport
  * it never invents another grant ID or restores public routing implicitly. */
 export class BrowserRoomActivation {
   constructor(private identity: () => ParticipantIdentity | undefined,
-    private link: Pick<BrowserLink, 'resume' | 'boxes' | 'openSocket'>,
+    private link: RoomRouteSource,
     readonly store: Store = new BrowserRoomConsents(), readonly barrier: Barrier = new BrowserRoomBarrier(),
     private carrier: Carrier = (consent, kinds) => new BrowserLinkRelay(link, consent.box, this.#identity(consent.account), { room: consent.room, kinds }),
     private now: () => number = () => Math.floor(Date.now() / 1000),
@@ -39,9 +41,12 @@ export class BrowserRoomActivation {
     return identity
   }
   async #route(consent: RoomConsent): Promise<void> {
-    await this.link.resume(consent.account)
+    if (consent.box.eventUrl.startsWith('ws://')) await this.link.resume(consent.account)
     this.#identity(consent.account)
-    if (!this.link.boxes().some(b => b.routeId === consent.box.routeId && b.eventUrl === consent.box.eventUrl)) throw new Error('The saved Bothy pairing is unavailable. Public routing remains held.')
+    if (!this.link.boxes().some(b => b.routeId === consent.box.routeId && b.eventUrl === consent.box.eventUrl)) {
+      const route = consent.box.eventUrl.startsWith('wss://') ? 'standalone Wok relay' : 'Bothy pairing'
+      throw new Error(`The saved ${route} is unavailable. Public routing remains held.`)
+    }
   }
   async #save(consent: RoomConsent): Promise<void> { await this.store.put(consent); this.barrier.changed() }
   async activate(input: RoomActivationInput): Promise<void> {

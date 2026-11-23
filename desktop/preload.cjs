@@ -5,6 +5,12 @@ const shareAreaMode = ['frame', 'preview'].includes(areaSwitch) ? areaSwitch : n
 // Set only on the main window when the main process applied an inset title bar.
 const titleBarSwitch = process.argv.find(arg => arg.startsWith('--kithmoot-title-bar='))?.split('=')[1]
 const attachmentWrites = new Map()
+let pendingSpryPairing, spryPairingListener
+ipcRenderer.on('desktop:pair-spry', (_event, hash) => {
+  if (typeof hash !== 'string' || hash.length > 4096 || !/^#spry=[A-Za-z0-9_-]+$/.test(hash)) return
+  if (spryPairingListener) spryPairingListener(hash)
+  else pendingSpryPairing = hash
+})
 function writeAttachment(id, chunk, finish) {
   const previous = attachmentWrites.get(id) ?? Promise.resolve()
   const next = previous.catch(() => false)
@@ -29,6 +35,12 @@ function closeAttachments() {
     .catch(() => {})
 }
 contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
+  onSpryPairing(listener) {
+    if (typeof listener !== 'function') return
+    spryPairingListener = listener
+    ipcRenderer.send('desktop:pairing-ready')
+    if (pendingSpryPairing) { const hash = pendingSpryPairing; pendingSpryPairing = undefined; listener(hash) }
+  },
   titleBar: titleBarSwitch === 'inset' ? 'inset' : null,
   onWindowState(listener) {
     const handler = (_event, state) => { if (state && typeof state.fullScreen === 'boolean') listener({ fullScreen: state.fullScreen }) }
@@ -45,6 +57,21 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
   shareAreaAction(action, value) { ipcRenderer.send('desktop:area-action', action, value) },
   // Boxes are placed on the real screen, which only the frame mode can do.
   supportsRedaction: shareAreaMode === 'frame',
+  marksAction(action, value) { ipcRenderer.send('desktop:marks-action', action, value) },
+  onMarksDrawing(listener) {
+    const handler = (_event, drawing) => { if (typeof drawing === 'boolean') listener(drawing) }
+    ipcRenderer.on('desktop:marks-drawing', handler)
+    return () => ipcRenderer.removeListener('desktop:marks-drawing', handler)
+  },
+  supportsCompositorMarks: shareAreaMode === 'preview',
+  compositorMarksBegin(lease, kind) { return ipcRenderer.invoke('desktop:compositor-marks-begin', lease, kind) },
+  compositorMarksPaint(lease, strokes) { ipcRenderer.send('desktop:compositor-marks-paint', lease, strokes) },
+  compositorMarksEnd(lease) { ipcRenderer.send('desktop:compositor-marks-end', lease) },
+  onCompositorMark(listener) {
+    const handler = (_event, lease, command) => listener(lease, command)
+    ipcRenderer.on('desktop:compositor-mark', handler)
+    return () => ipcRenderer.removeListener('desktop:compositor-mark', handler)
+  },
   redactionBegin() { return ipcRenderer.invoke('desktop:redaction-begin') },
   redactionState() { return ipcRenderer.invoke('desktop:redaction-state') },
   redactionAction(id, action, value) { ipcRenderer.send('desktop:redaction-action', id, action, value) },

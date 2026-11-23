@@ -67,6 +67,23 @@ function roomWithSecret(name = 'Private chat') {
 }
 
 describe('private Nostr room bookmarks', () => {
+  it('syncs a personal chat label only to our own devices, including a reset', async () => {
+    const a = harness(), second = harness(a.identity), other = harness()
+    const r = { ...room('Legacy shared name'), chatLabel: 'Taylor at work' }
+    a.library.save(r)
+    await saved(a)
+    expect(a.events[0].content).not.toContain('Taylor at work')
+    await second.library.receive(a.events[0])
+    await other.library.receive(a.events[0])
+    expect(knownRooms(second.library.rooms)[0]?.chatLabel).toBe('Taylor at work')
+    expect(knownRooms(other.library.rooms)).toEqual([])
+    const { chatLabel: _label, ...reset } = r
+    a.library.save(reset)
+    await saved(a, 2)
+    await second.library.receive(a.events[1])
+    expect(knownRooms(second.library.rooms)[0]?.chatLabel).toBeUndefined()
+    a.library.close(); second.library.close(); other.library.close()
+  })
   it('encrypts names, ids and links to self; does not sync device state', async () => {
     const h = harness()
     const r = room()

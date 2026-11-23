@@ -1404,7 +1404,7 @@ export class Peer implements NegotiatingPeer {
     const offered = sdpSession(sdp)
     if (offered.id !== undefined && this.#opts.retiredRemoteSessions?.has(offered.id)) return
     if (this.#canHandOn() && replacesSession(offered, this.#remoteSession)) {
-      this.#handOnRemoteRestart(sdp)
+      this.#handOnRemoteRestart(sdp, seq)
       return
     }
 
@@ -1434,15 +1434,17 @@ export class Peer implements NegotiatingPeer {
     try {
       await this.#pc.setRemoteDescription({ type: 'offer', sdp })
     } catch (error) {
-      // The fallback for a new far-end session the comparison above could
-      // not see: the connection's own refusal says the same thing. Only for
-      // an offer from a different session id, though. One from the session
-      // this connection is negotiated with is the far end's own connection
-      // contradicting itself, a new connection here would not fit it any
-      // better, and replacing on it is how two sides would take turns
-      // rebuilding for ever.
-      if (this.#canHandOn() && offered.id !== this.#remoteSession?.id && isSessionMismatch(error)) {
-        this.#handOnRemoteRestart(sdp)
+      // If the first answer went missing, the offerer can roll back its
+      // unconfirmed m-lines and give them new mids in its next ICE offer.
+      // We already committed the original mids. A fresh receiver can answer
+      // the newer offer, but a pair that has carried media must keep its
+      // established session when a same-session offer is incompatible.
+      const previous = this.#remoteSession
+      const renumberedStartup = !this.#everConnected && offered.id !== undefined && offered.id === previous?.id &&
+        offered.ufrag !== undefined && previous.ufrag !== undefined && offered.ufrag !== previous.ufrag &&
+        seq !== undefined && this.#lastAnswerReplyTo !== undefined && seq > this.#lastAnswerReplyTo
+      if (this.#canHandOn() && isSessionMismatch(error) && (offered.id !== previous?.id || renumberedStartup)) {
+        this.#handOnRemoteRestart(sdp, seq)
         return
       }
       throw error
@@ -1569,7 +1571,7 @@ export class Peer implements NegotiatingPeer {
    * Candidates that overtook the offer were held rather than refused (see
    * `#handleIce`) and go with it.
    */
-  #handOnRemoteRestart(sdp: string | undefined): void {
+  #handOnRemoteRestart(sdp: string | undefined, seq: number | undefined): void {
     const restart = this.#opts.onRemoteRestart
     if (!restart) return
     this.#remoteRestarted = true
@@ -1579,7 +1581,7 @@ export class Peer implements NegotiatingPeer {
     this.#pendingCandidates = []
     const retired = this.#remoteSession?.id
     restart(
-      { type: 'offer', roomId: '', sdp },
+      { type: 'offer', roomId: '', sdp, ...(seq !== undefined ? { seq } : {}) },
       carried.map((candidate) => ({ type: 'ice', roomId: '', candidate: JSON.stringify(candidate) })),
       retired !== undefined && retired !== sdpSession(sdp).id ? retired : undefined,
     )

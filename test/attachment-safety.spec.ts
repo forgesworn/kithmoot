@@ -1,8 +1,9 @@
+import { sendLegacyAttachment } from './legacy-attachment-fixture.js'
 import AxeBuilder from '@axe-core/playwright'
 import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
-import { allowTestFileStorage } from './browser.js'
-import { routeTestBlossom } from './blossom.js'
+import { allowTestFileStorage, closeProfileSettings, closeSettings, openProfileSettings, openSettings } from './browser.js'
+import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
  * Attachment safety, as a reader meets it: one person sends the director's
@@ -60,18 +61,7 @@ async function join(browser: Browser, url: string, name: string, viewport: { wid
 }
 
 async function sendFile(page: Page, sample: Sample, expected: number): Promise<void> {
-  await page.locator('#chatInput').evaluate((input, s) => {
-    const bytes = s.bytes === 'png'
-      ? Uint8Array.from(atob(s.png), c => c.charCodeAt(0))
-      : typeof s.bytes === 'string' ? new TextEncoder().encode(s.bytes) : Uint8Array.from(s.bytes)
-    const clipboard = new DataTransfer()
-    clipboard.items.add(new File([bytes], s.name, { type: s.type }))
-    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'clipboardData', { value: clipboard })
-    input.dispatchEvent(event)
-  }, { ...sample, png: PNG_1X1 })
-  await page.locator('#chatForm button[type="submit"]').click()
-  await expect(page.locator('#chatLog .attachment')).toHaveCount(expected, { timeout: 30_000 })
+  await sendLegacyAttachment(page, sample, expected, PNG_1X1)
 }
 
 const card = (page: Page, name: string): Locator => page.locator('#chatLog .attachment').filter({ has: page.locator('.attName', { hasText: name }) })
@@ -290,6 +280,83 @@ test.describe.serial('attachment safety', () => {
       })))
       expect(boxes.length).toBe(2)
       for (const b of boxes) { expect(b.border).toBeGreaterThanOrEqual(2); expect(b.icon).toBeGreaterThan(0) }
+    } finally { await view.context.close() }
+  })
+
+  test('a reader saves the exact encrypted attachment to their own Wildbloom, with refusal and retry', async ({ browser }, testInfo) => {
+    const view = await join(browser, readerUrl, 'Ada', { width: 1280, height: 860 }, 'light')
+    const origin = new URL(readerUrl).origin
+    let sourceCopy: Buffer | undefined, uploadedCopy: Buffer | undefined, refused = true
+    let uploads = 0
+    let releaseRefusal!: () => void
+    const delayedRefusal = new Promise<void>(resolve => { releaseRefusal = resolve })
+    try {
+      await view.page.evaluate(([key, value]) => localStorage.setItem(key!, value!), ['kithmoot.file-storage.v1', JSON.stringify({ mode: 'shared', disclosure: 3, origin, via: 'wildbloom' })])
+      await view.context.route(url => url.origin === origin && url.pathname.startsWith('/blossom/'), async route => {
+        const response = await fetchFromTestBlossom(route, origin)
+        sourceCopy = await response.body()
+        await route.fulfill({ response })
+      })
+      await view.context.route(url => url.origin === origin && url.pathname === '/upload', async route => {
+        uploads++
+        uploadedCopy = route.request().postDataBuffer() ?? undefined
+        if (refused) {
+          await delayedRefusal
+          return route.fulfill({ status: 403, body: '' })
+        }
+        return route.fulfill({ response: await fetchFromTestBlossom(route, origin) })
+      })
+      const c = await open(view.page, 'route-notes.txt')
+      const save = c.getByRole('button', { name: 'Save to my Wildbloom route-notes.txt' })
+      await expect(save).toBeVisible()
+      await save.click()
+      await expect.poll(() => uploads).toBe(1)
+      await expect(c.locator('[data-copy-status]')).toContainText('Saving an encrypted copy')
+
+      // Changing how names are shown rebuilds the chat while the upload is in flight.
+      const originalCard = await c.elementHandle()
+      await openProfileSettings(view.page)
+      await view.page.locator('#lookupProfiles').uncheck()
+      await closeProfileSettings(view.page)
+      await expect.poll(() => originalCard.evaluate(card => card.isConnected)).toBe(false)
+      releaseRefusal()
+
+      await expect(c.locator('[data-copy-status]')).toContainText('didn’t let this identity save the file')
+      expect(uploads).toBe(1)
+      refused = false
+      await c.getByRole('button', { name: 'Try saving to my Wildbloom again route-notes.txt' }).click()
+      await expect(c.locator('[data-copy-status]')).toHaveText(`Saved to ${new URL(origin).host}. It stays encrypted with the room’s key.`)
+      await expect(c.getByRole('button', { name: 'Saved to my Wildbloom route-notes.txt' })).toBeDisabled()
+      expect(uploads).toBe(2)
+      expect(sourceCopy).toBeDefined()
+      expect(uploadedCopy).toBeDefined()
+      expect(uploadedCopy!.equals(sourceCopy!)).toBe(true)
+      const roomUploadRecords = await view.page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.uploads.v1.')))
+      expect(roomUploadRecords).toEqual([])
+      await c.screenshot({ path: testInfo.outputPath('wildbloom-copy-saved.png') })
+    } finally {
+      releaseRefusal()
+      await view.context.close()
+    }
+  })
+
+  test('the own-Wildbloom action fits a 320-pixel attachment card', async ({ browser }, testInfo) => {
+    const view = await join(browser, readerUrl, 'Ada', { width: 320, height: 640 }, 'light')
+    const origin = new URL(readerUrl).origin
+    try {
+      const c = await open(view.page, 'route-notes.txt')
+      await expect(c.getByRole('button', { name: 'Save to my Wildbloom route-notes.txt' })).toHaveCount(0)
+      await openSettings(view.page, 'Privacy')
+      await view.page.locator('#privacyFiles').click()
+      await view.page.getByRole('radio', { name: 'My own server' }).check()
+      await view.page.locator('#attachServer').fill(origin)
+      await view.page.locator('#saveFileStorage').click()
+      await closeSettings(view.page)
+      await expect(c.getByRole('button', { name: 'Save to my Wildbloom route-notes.txt' })).toBeVisible()
+      expect(await view.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      const meta = await c.locator('.attMeta').boundingBox(), actions = await c.locator('.attActions').boundingBox()
+      expect(actions!.y).toBeGreaterThanOrEqual(meta!.y + meta!.height - 1)
+      await c.screenshot({ path: testInfo.outputPath('wildbloom-copy-320.png') })
     } finally { await view.context.close() }
   })
 

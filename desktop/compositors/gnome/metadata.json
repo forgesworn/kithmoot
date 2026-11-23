@@ -1,0 +1,8 @@
+{
+  "uuid": "kithmoot-marks@forgesworn.dev",
+  "name": "KithMoot shared-window drawings",
+  "description": "Show and draw ephemeral call marks over the window or display you are presenting. Only active during a KithMoot share.",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "version": 1,
+  "url": "https://github.com/forgesworn/kithmoot"
+}

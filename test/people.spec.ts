@@ -2,9 +2,11 @@ import { test, expect, type Page } from '@playwright/test'
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { npubEncode } from 'nostr-tools/nip19'
 import { NostrRelayPool } from '../src/relay-pool.js'
-import { parseRoomLink } from '../src/link.js'
+import { encodeRoomLink, parseRoomLink } from '../src/link.js'
+import { deriveRoom, generateRoomSecret } from '../src/room.js'
+import { dmPolicy } from '../src/dm.js'
 import { accountDevice, configureAccountTestRelay, signInAccount } from './nostr-account.js'
-import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings } from './browser.js'
+import { TEST_RELAY_WS, openNewRoomForm, openRoomDetails, openSettings, openProfileSettings, closeProfileSettings } from './browser.js'
 
 /** These Following journeys start with a deliberate public-profile opt-in. */
 async function accountWithProfiles(...args: Parameters<typeof accountDevice>) {
@@ -102,6 +104,116 @@ test('People lists the people you follow, and Message starts a private chat with
     await expect(bob.locator('#chatLog')).toContainText('Hello Bob, found you through who I follow')
     await expect(bob.locator('#chatInvitations')).toBeHidden()
   } finally { publisher.close(); await ac.close(); await bc.close() }
+})
+
+test('People finds a saved private chat by its local name without a card or follow', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), self = getPublicKey(key), peer = getPublicKey(generateSecretKey())
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const secret = generateRoomSecret()
+  const { roomId } = deriveRoom(secret)
+  const link = encodeRoomLink(baseURL!, { secret, relays: [TEST_RELAY_WS], iceUrls: [], policy: dmPolicy(self, peer) })
+  const room = { roomId, link, chatLabel: 'Ellis', openedAt: Math.floor(Date.now() / 1000), readAt: 0 }
+  try {
+    await context.addInitScript(({ self, room }) => {
+      localStorage.setItem(`kithmoot.account.${self}.kithmoot.room.${room.roomId}`, JSON.stringify(room))
+    }, { self, room })
+    const page = await context.newPage()
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await page.locator('#railChats').click()
+    await expect(page.locator('#roomList')).toContainText('Ellis')
+    await openPeople(page)
+    await page.getByRole('searchbox', { name: 'Find a person' }).fill('ellis')
+    await page.locator('#peopleRows').getByRole('button', { name: /^Ellis/ }).click({ timeout: 5_000 })
+    await expect(page.locator('#peoplePaneTitle')).toHaveText('Ellis')
+    await expect(page.getByRole('heading', { name: 'Private chat', exact: true })).toBeVisible()
+  } finally { await context.close() }
+})
+
+test('People searches public names explicitly and prepares a Nostr message to the selected key', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), peerKey = generateSecretKey(), peer = getPublicKey(peerKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const name = 'Sula Search Fixture'
+  try {
+    await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [], new Map([[peer, name]]))
+    await publisher.publish(finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ name: 'About only', about: name }) }, generateSecretKey()))
+    const page = await context.newPage()
+    const requests: unknown[] = []
+    const activeSearches = new Set<string>()
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string') return
+      const [verb, id, filter] = JSON.parse(payload)
+      if (verb === 'REQ' && filter?.search !== undefined) {
+        requests.push(filter)
+        activeSearches.add(id)
+      }
+      if (verb === 'CLOSE') activeSearches.delete(id)
+    }))
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await openPeople(page)
+    const search = page.getByRole('searchbox', { name: 'Find a person' })
+    await search.fill(name)
+    await expect(page.locator('#peopleStatus')).toHaveText('No matching contacts or conversations.')
+    expect(requests).toHaveLength(0)
+    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    const results = page.locator('#peopleRows')
+    await expect(results.getByRole('heading', { name: 'Nostr results' })).toBeVisible()
+    expect(requests).toEqual([{ kinds: [0], search: name, limit: 16 }])
+    await expect.poll(() => activeSearches.size).toBe(0)
+    await expect(results.getByRole('button', { name: /About only/ })).toHaveCount(0)
+    const recipient = shortNpub(peer)
+    await results.getByRole('button', { name: `${name}, ${recipient}`, exact: true }).click()
+    await page.getByRole('button', { name: 'Message on Nostr', exact: true }).click()
+    await expect(page.locator('#nostrMessageRecipient')).toHaveValue(npubEncode(peer))
+    const recipientLabel = page.locator('#nostrMessageTo')
+    await expect(recipientLabel).toBeVisible()
+    await expect(recipientLabel).toContainText(recipient)
+    await expect(page.locator('#nostrMessageReview')).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Send encrypted message', exact: true })).toBeVisible()
+  } finally { publisher.close(); await context.close() }
+})
+
+test('People resolves a pasted npub to a signed profile and remembers it for a follow', async ({ browser, baseURL }) => {
+  const key = generateSecretKey(), peerKey = generateSecretKey(), peer = getPublicKey(peerKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const context = await accountWithProfiles(browser, baseURL!, key)
+  const name = 'Ellis Exact Profile'
+  const account = getPublicKey(key)
+  try {
+    await seed(publisher, baseURL!, { account: key, peers: [peerKey] }, [peer], new Map())
+    const page = await context.newPage()
+    const requests: unknown[] = []
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      if (typeof payload !== 'string') return
+      const [verb, , filter] = JSON.parse(payload)
+      if (verb === 'REQ' && filter?.kinds?.[0] === 0 && (filter.limit === 4 || filter.search !== undefined)) requests.push(filter)
+    }))
+    await configureAccountTestRelay(page, baseURL!)
+    await signInAccount(page, baseURL!)
+    await openPeople(page)
+    const row = page.locator(`#peopleRows li[data-person="${peer}"]`)
+    await expect(row).toContainText(shortNpub(peer))
+    const search = page.getByRole('searchbox', { name: 'Find a person' })
+    await search.fill('-' + npubEncode(peer))
+    await expect(row).toBeVisible()
+    expect(requests).toHaveLength(0)
+    const profile = finalizeEvent({ kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [],
+      content: JSON.stringify({ display_name: name }) }, peerKey)
+    await publisher.publish(profile)
+    await page.getByRole('button', { name: 'Search Nostr', exact: true }).click()
+    // The name can arrive through the existing profile subscription first.
+    await expect.poll(() => requests).toEqual([{ kinds: [0], authors: [peer], limit: 4 }])
+    await expect(row).toContainText(name)
+    await search.fill(name)
+    await expect(row).toBeVisible()
+    await expect.poll(() => page.evaluate(account => {
+      const stored = JSON.parse(localStorage.getItem('kithmoot.people-profiles.v1.' + account) ?? '[]')
+      return stored.map((row: { event: { id: string } }) => row.event.id)
+    }, account)).toContain(profile.id)
+  } finally { publisher.close(); await context.close() }
 })
 
 test('an invitation from somebody you follow carries their name, before People has ever been opened', async ({ browser, baseURL }) => {
@@ -396,7 +508,7 @@ test('Voice from People opens the private chat and starts a call in it', async (
   } finally { publisher.close(); await ac.close() }
 })
 
-test('with public profiles off, Following says how to see it and asks no relay', async ({ browser, baseURL }) => {
+test('a saved public profile opt-out can be changed inside People', async ({ browser, baseURL }) => {
   const aKey = generateSecretKey()
   const ac = await accountDevice(browser, baseURL!, aKey)
   try {
@@ -404,7 +516,60 @@ test('with public profiles off, Following says how to see it and asks no relay',
     const alice = await ac.newPage(); await alice.setViewportSize({ width: 1280, height: 900 })
     await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
     await openPeople(alice)
-    await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Turn on public profiles in Settings to see the people you follow.')
+    await expect(alice.getByRole('switch', { name: 'Public profiles', exact: true })).not.toBeChecked()
+    const following = alice.locator('#peopleRows li[data-section="Following"]')
+    await expect(following.locator('.note')).toHaveText('Turn on public profiles to see who you follow.')
+    const profileSettings = following.getByRole('button', { name: 'Public profile settings' })
+    await profileSettings.press('Enter')
+    await expect(alice.getByRole('dialog', { name: 'Profile pictures and names' })).toBeVisible()
+    await expect(alice.locator('#lookupProfiles')).toBeFocused()
+    await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
+    await alice.keyboard.press('Escape')
+    await expect(profileSettings).toBeFocused()
     await expect(alice.locator('#peopleEmpty')).toBeVisible()
+    await alice.getByRole('searchbox', { name: 'Find a person' }).fill('Ellis')
+    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeHidden()
+    await alice.getByRole('switch', { name: 'Public profiles', exact: true }).check()
+    await expect(alice.getByRole('button', { name: 'Search Nostr', exact: true })).toBeVisible()
+    expect(await alice.evaluate(() => localStorage.getItem('kithmoot.profiles.enabled'))).toBe('true')
   } finally { await ac.close() }
+})
+
+test('public profiles start on and the People switch shares the saved Settings preference', async ({ browser, baseURL }) => {
+  const aKey = generateSecretKey(), bKey = generateSecretKey(), b = getPublicKey(bKey)
+  const publisher = new NostrRelayPool([TEST_RELAY_WS])
+  const ac = await accountDevice(browser, baseURL!, aKey)
+  try {
+    await seed(publisher, baseURL!, { account: aKey, peers: [bKey] }, [b], new Map([[b, 'Default profile']]))
+    const alice = await ac.newPage()
+    await configureAccountTestRelay(alice, baseURL!); await signInAccount(alice, baseURL!)
+    await openPeople(alice)
+    const toggle = alice.getByRole('switch', { name: 'Public profiles', exact: true })
+    const profileSettings = alice.getByRole('button', { name: 'Public profile settings' })
+    await expect(toggle).toBeChecked()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
+    await expect(profileSettings).toBeHidden()
+    await toggle.uncheck()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toHaveCount(0)
+    await alice.reload(); await openPeople(alice)
+    await expect(toggle).not.toBeChecked()
+    await profileSettings.click()
+    await expect(alice.locator('#lookupProfiles')).not.toBeChecked()
+    await alice.locator('#lookupProfiles').check()
+    await alice.locator('#profileSettingsClose').click()
+    await expect(alice.getByRole('heading', { name: 'People', exact: true })).toBeFocused()
+    await expect(toggle).toBeChecked()
+    await expect(alice.locator(`#peopleRows li[data-person="${b}"]`)).toContainText('Default profile')
+    await alice.screenshot({ path: test.info().outputPath('people-public-profiles-phone.png'), fullPage: true })
+    await openProfileSettings(alice)
+    await alice.locator('#profileAccountNetwork').click()
+    await alice.locator('#choosePrivateInvitations').click()
+    await alice.locator('#accountNetworkClose').click()
+    await closeProfileSettings(alice)
+    await openPeople(alice)
+    await expect(toggle).toBeChecked()
+    await expect(toggle).toBeDisabled()
+    await expect(alice.locator('#peopleRows li[data-section="Following"] .note')).toHaveText('Public profiles are paused while Nostr networking is off.')
+    await expect(profileSettings).toBeHidden()
+  } finally { publisher.close(); await ac.close() }
 })

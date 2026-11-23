@@ -4,7 +4,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, type Event, type EventT
 import { encrypt, decrypt, getConversationKey } from 'nostr-tools/nip44'
 
 /** A test NIP-07 provider: signing keys stay in Node, never in the app. */
-export async function accountDevice(browser: Browser, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {},
+export async function accountDevice(browser: Pick<Browser, 'newContext'>, baseURL: string, secret = generateSecretKey(), nip44 = true, beforePublicKey = async () => {},
   nip04?: { decrypt(peer: string, ciphertext: string): Promise<string>; encrypt(peer: string, text: string): Promise<string> },
   effects?: { encrypt(peer: string, text: string): Promise<string>; sign(template: EventTemplate): Promise<Event> },
   receiving?: { started?(peer: string, ciphertext: string): void; decrypt?(peer: string, ciphertext: string): Promise<string> }): Promise<BrowserContext> {

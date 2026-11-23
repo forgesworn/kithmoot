@@ -8,7 +8,7 @@ import { isSafeRelayUrl, MAX_RELAY_HINTS } from './network-hints.js'
 import { AUTH_TIMEOUT_MS, authenticatedWebSocket, type AuthenticationGrant, type RelayAuthentication, type RelayPoolOptions } from './relay-auth.js'
 import { normaliseTorRelayUrl, type NetworkProfile } from './anonymous.js'
 import type { SharedRelaySockets } from './shared-relay-sockets.js'
-import { doublingBackoff, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
+import { doublingBackoff, noticeSocketSubscriptionLimit, noticeThrottles, relayDials, relayReason, type RelayDialGate, type RelayDialLease } from './relay-dial-gate.js'
 import { guardedWebSocket, handshakeObservedWebSocket } from './guarded-websocket.js'
 export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 
@@ -41,11 +41,22 @@ export interface NostrRelayPoolOptions extends RelayPoolOptions {
   frameGuard?: (data: string | ArrayBufferLike | Blob | ArrayBufferView) => boolean
 }
 
+/** Options for one guarded publication. */
+export interface GuardedPublishOptions {
+  allRelays?: boolean
+  /** Identities this one carrier alone answers NIP-42 challenges with, added
+   *  to the pool's own grants. Never stored on the pool, so a throwaway key
+   *  cannot outlive the publication or reach a shared socket. */
+  authentication?: readonly RelayAuthentication[]
+  /** Overrides how long the carrier waits for a relay to finish authenticating. */
+  authenticationTimeoutMs?: number
+}
+
 /** The transport seam shared by real relays and the in-process simulator. */
 export interface RelayTransport {
   publish(event: Event, options?: { allRelays?: boolean }): Promise<void>
   /** Optional guarded carrier; a sensitive decision must fail closed if absent. */
-  publishGuarded?(event: Event, current: () => boolean, options?: { allRelays?: boolean }): Promise<void>
+  publishGuarded?(event: Event, current: () => boolean, options?: GuardedPublishOptions): Promise<void>
   /** `via` is the relay URL that delivered the event, when the transport
    *  knows it. A consumer works out a message's lane from it and from
    *  nothing on the wire; see `lane.ts`. */
@@ -131,14 +142,14 @@ export function closedReadEvidence(reason: string): ReadEvidence | undefined {
   const prefix = relayReason(reason)
   if (prefix === 'auth-required') return 'authentication-required'
   // `error:` is the relay failing, not a decision about this reader.
-  return prefix && ['blocked', 'restricted', 'rate-limited', 'invalid', 'unsupported', 'pow'].includes(prefix) ? 'refused' : undefined
+  return prefix && ['blocked', 'banned', 'restricted', 'rate-limited', 'invalid', 'unsupported', 'pow'].includes(prefix) ? 'refused' : undefined
 }
 
 /** A relay's refusal of a subscription that means "do not ask again": the
  *  relay will not serve this filter to this client, whatever the timing. */
 export function refusalStops(reason: string, granted: boolean): boolean {
   const prefix = relayReason(reason)
-  return prefix === 'blocked' || prefix === 'restricted' || prefix === 'pow' || (prefix === 'auth-required' && !granted)
+  return prefix === 'blocked' || prefix === 'banned' || prefix === 'restricted' || prefix === 'pow' || (prefix === 'auth-required' && !granted)
 }
 
 /** A fixed description of a relay's `OK false`, by its NIP-01 prefix. The
@@ -149,7 +160,7 @@ export function writeRefusal(reason: string): string {
   if (prefix === 'auth-required') return 'Write refused: authentication required'
   if (prefix === 'rate-limited') return 'Write refused: rate limited'
   if (prefix === 'pow') return 'Write refused: proof of work required'
-  if (prefix === 'blocked' || prefix === 'restricted') return 'Write refused: not accepted from this account or kind'
+  if (prefix === 'blocked' || prefix === 'banned' || prefix === 'restricted') return 'Write refused: not accepted from this account or kind'
   if (prefix === 'invalid') return 'Write refused as invalid'
   return 'Write refused'
 }
@@ -457,9 +468,9 @@ export class NostrRelayPool implements RelayTransport {
     return pool
   }
 
-  /** Read a relay's `NOTICE`s, which nostr-tools only logs. One that asks
-   *  this client to slow down holds writes to that relay across the process.
-   *  The relay object is new after every close, so this runs for each dial. */
+  /** Read a relay's `NOTICE`s, which nostr-tools only logs. A rate-limit
+   *  notice holds new reads and writes across the process. The relay object
+   *  is new after every close, so this runs for each dial. */
   #listen(relay: unknown, url: string, generation: number): void {
     const target = relay as { onnotice?: (message: string) => void } | undefined
     if (!target) return
@@ -467,6 +478,11 @@ export class NostrRelayPool implements RelayTransport {
       if (generation !== this.#generation || this.#closed || typeof message !== 'string') return
       this.#heard(url)
       if (!noticeThrottles(message)) return
+      // Shared sockets already adjust placement for a concurrent subscription
+      // limit. An explicit rate limit still applies to the whole relay.
+      if (!this.#sharing || relayReason(message) === 'rate-limited' || !noticeSocketSubscriptionLimit(message)) {
+        this.#dials.readRateLimited(url)
+      }
       this.#dials.throttled(url)
       this.#mark(url, { lastError: WRITE_HELD_HEALTH })
     }
@@ -679,7 +695,7 @@ export class NostrRelayPool implements RelayTransport {
    * first acknowledgement by default, so slower relays cannot keep publishing
    * afterwards. A room-relay handover explicitly waits for each configured
    * write relay to acknowledge while the same guard remains current. */
-  async publishGuarded(event: Event, allowed: () => boolean, options: { allRelays?: boolean } = {}): Promise<void> {
+  async publishGuarded(event: Event, allowed: () => boolean, options: GuardedPublishOptions = {}): Promise<void> {
     const generation = this.#generation
     const current = () => {
       try { return !this.#closed && !this.#paused && generation === this.#generation && allowed() }
@@ -688,14 +704,18 @@ export class NostrRelayPool implements RelayTransport {
     if (!current()) throw new Error('Publication is no longer authorised.')
     const Base = this.options.websocketImplementation ?? globalThis.WebSocket
     if (!Base) throw new Error('A guarded WebSocket carrier is unavailable.')
-    const authentication = [...this.#authentication].map(([url, grant]) => ({ url,
-      identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null, ...(grant?.node ? { node: { ...grant.node } } : {}) }))
+    const extra = (options.authentication ?? []).map(entry => ({ ...entry, url: normaliseRelayConfig([entry.url], this.options.profile)[0]!.url }))
+    const inherited = [...this.#authentication].filter(([url]) => !extra.some(entry => entry.url === url))
+      .map(([url, grant]) => ({ url,
+        identity: grant ? { pubkey: grant.pubkey, signEvent: grant.sign } : null, ...(grant?.node ? { node: { ...grant.node } } : {}) }))
+    const authentication = [...inherited, ...extra]
     // Its own sockets, never shared ones: closing the carrier after the first
     // acknowledgement has to end its writes everywhere, and the pool's guard
     // still applies on top of the decision's own.
     const parent = this.options.sendGuard
     const carrier = new NostrRelayPool(this.#relays, this.circleAtUse, { ...this.options, sharedSockets: undefined, sendGuard: undefined,
-      authentication, websocketImplementation: guardedWebSocket(Base, parent ? () => parent() && current() : current) })
+      authentication, ...(options.authenticationTimeoutMs ? { authenticationTimeoutMs: options.authenticationTimeoutMs } : {}),
+      websocketImplementation: guardedWebSocket(Base, parent ? () => parent() && current() : current) })
     // Cancellation closes a stalled handshake as well as preventing its
     // eventual queued write. This carrier publishes an already signed decision.
     const timer = setInterval(() => { if (!current()) carrier.close() }, 25)

@@ -77,9 +77,9 @@ describe('device relay preferences', () => {
     expect(() => connections.save(room, [{ url: 'wss://other.test', read: true, write: true }])).toThrow('storage full')
     expect(connections.configuration(room)[0]!.url).toBe('wss://default.test/')
   })
-  it('requires a saved profile opt-in and honours deliberate choices', () => {
+  it('starts public profiles on and honours deliberate choices', () => {
     const saved = storage()
-    expect(profilePreference(saved)).toBe(false)
+    expect(profilePreference(saved)).toBe(true)
     saved.setItem('kithmoot.profiles.enabled', 'false')
     expect(profilePreference(saved)).toBe(false)
     saved.setItem('kithmoot.profiles.enabled', 'true')

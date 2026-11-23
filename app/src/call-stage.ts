@@ -90,8 +90,10 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
         id: child.dataset.participant ?? `tile-${index}`,
         name,
         self: child.dataset.self === 'true',
-        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview)')],
-        shares: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video.screenPreview')],
+        // Empty fixed-slot receivers need a rendered sink to start decoding,
+        // but must not take half of a real camera's slot while they wait.
+        cameras: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video:not(.screenPreview):not(.awaitingFrame)')],
+        shares: [...child.querySelectorAll<HTMLVideoElement>(':scope > .media > video.screenPreview:not(.awaitingFrame)')],
         onCall: child.classList.contains('onCall'),
       })
     }
@@ -100,7 +102,16 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
 
   function apply(): void {
     for (const paused of pausedVideos) if (!paused.isConnected) pausedVideos.delete(paused)
+    // A replacement stream can inherit its old sink's off-page pause. Let
+    // pending sinks decode their first frame before deciding whether their
+    // camera/share belongs on this page; otherwise they can never become
+    // eligible for layout again.
+    for (const video of room.querySelectorAll<HTMLVideoElement>('video.awaitingFrame')) pageVideo(video, false)
     const everyone = people()
+    // Voice-only calls keep the tiles mounted for audio but collapse their
+    // gallery. The speaking label lives in the visible call bar, so update
+    // it even when the gallery has no measurable width or height.
+    renderSpeaking(everyone)
     const anyPicture = everyone.some(person => person.cameras.length > 0 || person.shares.length > 0)
     const width = room.clientWidth
     const height = room.clientHeight
@@ -327,8 +338,6 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
     setAttr(pager.root, 'data-page', String(pages.page + 1))
     pager.previous.disabled = pages.page === 0
     pager.next.disabled = pages.page === pages.pages - 1
-    const talking = everyone.filter(person => !person.self && person.box.classList.contains('speaking')).map(person => person.name)
-    setText(pager.speaking, talking.length ? `Speaking: ${talking.join(', ')}` : 'Nobody is speaking')
   }
 
   function boxOrigin(box: HTMLElement): { x: number; y: number } {
@@ -485,14 +494,17 @@ export function installCallStage(room: HTMLElement, host: HTMLElement, storage: 
       setAttr(button, 'aria-pressed', String(value === current))
       button.disabled = value === 'share' && shareCount === 0
     }
-    // This device's own person never appears on the line - their tile keeps
-    // its speaking ring, but seeing your own name here while you talk is
-    // pointless. When you are the only one speaking, this reads exactly as
-    // when nobody is.
-    const talking = everyone.filter(person => !person.self && person.box.classList.contains('speaking')).map(person => person.name)
-    setText(bar.speakingLine, talking.length ? `Speaking: ${talking.join(', ')}` : 'Nobody is speaking')
-    setAttr(bar.speakingLine, 'data-quiet', talking.length ? null : '')
     bar.move.hidden = out.mode !== 'solo'
+  }
+
+  function renderSpeaking(everyone: Person[]): void {
+    const talking = everyone.filter(person => !person.self && person.box.classList.contains('speaking')).map(person => person.name)
+    // This device may be a companion with no incoming tracks, or its audio
+    // analyser may be suspended. Lack of a detection does not prove silence.
+    const text = talking.length ? `Speaking: ${talking.join(', ')}` : 'No speech detected on this device'
+    setText(bar.speakingLine, text)
+    setText(pager.speaking, text)
+    setAttr(bar.speakingLine, 'data-quiet', talking.length ? null : '')
   }
 
   // --- Dragging your own picture in a call of two ---------------------------

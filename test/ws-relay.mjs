@@ -27,8 +27,13 @@
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import { WebSocketServer } from 'ws'
-import { matchFilters } from 'nostr-tools/filter'
+import { matchFilter } from 'nostr-tools/filter'
 import { verifyEvent } from 'nostr-tools/pure'
+
+function matchFilters(filters, event) {
+  return filters.some(filter => matchFilter(filter, event)
+    && (!filter.search || event.content.toLowerCase().includes(filter.search.toLowerCase())))
+}
 
 const port = Number(process.env.RELAY_PORT ?? 7777)
 const host = process.env.RELAY_HOST ?? '127.0.0.1'

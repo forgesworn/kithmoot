@@ -79,6 +79,18 @@ export function browserDeviceStore(storage: Storage): DeviceStore {
   }
 }
 
+/** The account's own device keys and admissions, even when two personas
+ * enter the same room on this browser. */
+export function personaDeviceStore(store: DeviceStore, pubkey: string): DeviceStore {
+  const prefix = `kithmoot.account.${pubkey}.`
+  return {
+    get: key => store.get(prefix + key),
+    set: (key, value) => store.set(prefix + key, value),
+    remove: key => store.remove(prefix + key),
+    keys: () => store.keys().filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
+  }
+}
+
 function readDeviceKey(store: DeviceStore, roomId: string): StoredDeviceKey | undefined {
   const raw = store.get(DEVICE_PREFIX + roomId)
   if (!raw) return undefined

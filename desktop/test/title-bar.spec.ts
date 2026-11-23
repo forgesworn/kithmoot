@@ -91,8 +91,10 @@ test.describe('macOS hidden title bar', () => {
     try {
       const page = await app.firstWindow()
       await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]!.setContentSize(900, 640) })
-      await page.addInitScript(() => localStorage.setItem('kithmoot.textSize', 'huge'))
-      await page.reload()
+      await page.locator('#openAppSettings').click()
+      await page.locator('#settingsRowdisplay').click()
+      await page.getByRole('radio', { name: 'Huge' }).check()
+      await expect(page.locator('html')).toHaveAttribute('data-text-size', 'huge')
       await expect(page.locator('#rail')).toBeVisible()
       const bottom = await page.evaluate(() => {
         const items = [...document.querySelectorAll('#rail > *')].filter(element => element.getBoundingClientRect().height > 0)

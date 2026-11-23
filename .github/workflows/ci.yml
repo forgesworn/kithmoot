@@ -288,6 +288,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check mixed invitation guards and metadata windows
+        run: node --test test/mixed-invitation-*.node-test.mjs test/mixed-invitation-metadata-window.test.mjs
+
       - name: Check desktop notification and security boundaries
         run: node --test desktop/test/*.test.mjs
 
@@ -526,6 +529,12 @@ jobs:
       - name: Browser MLS preview account lifecycle and production gate
         if: matrix.project == 'chromium'
         run: npm run build:lib && npx playwright test -c playwright.mls-app.config.ts
+
+      - name: Protected Admin2 consent and native invitation journey
+        if: matrix.project == 'chromium'
+        run: |
+          node scripts/prepare-admin-invitation-preview.mjs app/admin2-native
+          npx playwright test -c playwright.admin-invitation.config.ts
 
       - name: Keep the traces of anything that failed
         if: failure()

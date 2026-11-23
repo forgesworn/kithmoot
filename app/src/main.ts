@@ -1,3 +1,5 @@
+import { publishToInboxRelays } from './nostr-message-publish.js'
+import { directChatName } from './direct-chat-name.js'
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
@@ -5,7 +7,7 @@ import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, longNodeRoomLink, inspectNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
 import { createBrowserNodeRoom, resumeBrowserNodeCreation, askBrowserNodeRoom, admitOwnBrowserNodeDevice, openBrowserNodeRoom, type BrowserNodeRuntime } from './node-room-runtime.js'
-import { loadPairedNode, loadNodeRoom, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
+import { loadPairedNode, loadNodeRoom, listNodeRooms, storeNodeRoom, forgetNodeRoom, readNodeKeeperLists, adoptSharedNodeAuthority, type BrowserNodeRoom } from './node-rooms.js'
 import { keepSharedOwner, loadSharedOwner, mergeSharedOwner, type SharedOwner } from './room-owner-share.js'
 import { keepClosedNodeRooms } from './node-room-keepers.js'
 import { nodeRoomTransport, nodeQuietRoomTransport, queryNodeAccess, KithmootNodeError } from '../../src/kithmoot-node.js'
@@ -32,10 +34,11 @@ import { BrowserLink } from './browser-link.js'
 import { boardAgentRoomCurrent, borrowBoardAgentRoom } from './board-agent-room.js'
 import { startBrowserLink } from './browser-link-runtime.js'
 import { BrowserRoomRoutes } from './browser-room-routes.js'
+import { BrowserRoomConnections, StandaloneRoomConnection } from './standalone-room-connection.js'
 import { BrowserBothyFiles } from './browser-bothy-files.js'
 import { PrivateFileVault } from './private-file-vault.js'
 import { privateAttachmentLocation } from '../../src/private-attachment.js'
-import { nostrEventSigner } from './nostr-message-signer.js'
+import { nostrEventSigner, nostrMessageIdentity } from './nostr-message-signer.js'
 import { PrivateFileUploadsPanel } from './private-file-uploads-panel.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
 import { BrowserRoomPanel } from './browser-room-panel.js'
@@ -53,10 +56,16 @@ import { GrantedContactsPanel } from './granted-contacts-panel.js'
 import type { GrantedContactsView } from './granted-contacts.js'
 import { ContactInbox } from './contact-inbox.js'
 import { NostrMessageInboxPanel } from './nostr-message-inbox-panel.js'
-import { rememberOrdinaryCopy } from './nostr-message-history.js'
+import { ordinaryMessageDecrypt } from './nostr-message-receive-signer.js'
+import { ordinarySendStatusKey, rememberOrdinaryCopy, rememberOrdinarySendStatus } from './nostr-message-history.js'
 import { ordinaryInboxRelays } from './nostr-message-wire.js'
 import { FollowBook } from './follow-list.js'
+import { PeopleNostrInbox, peopleInboxEnabledKey, peopleInboxReadKey } from './people-nostr-inbox.js'
+import { PeopleNostrPanel } from './people-nostr-panel.js'
+import { PeopleProfileCache } from './people-profile-cache.js'
 import { PeopleView, shortNpub as personKey, type PeopleModel, type Person } from './people.js'
+import { PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY, peopleSearchKey, searchNostrPeople } from './people-search.js'
+import { forgetPeoplePictures } from './people-pictures.js'
 import { InvitationsView, inviterIdentity, type WaitingInvitation } from './invitations.js'
 import { declineAndBlockInvitation } from './invitation-block-action.js'
 import { NostrMessagePanel } from './nostr-message-panel.js'
@@ -82,14 +91,16 @@ import { CALL_STANCE_LABELS, CALL_STANCE_TITLES, PaneSettler, callPane, callStan
 import { notificationMode, setNotificationMode, roomNotificationsEnabled, roomNotificationLevel, roomMute, muteRoom, unmuteRoom, pruneMutes, nextMuteEnd, MUTE_FOR, type NotificationScope, type NotificationMode } from './notification-scopes.js'
 import { preferredReaction } from './emoji-preferences.js'
 import { DEFAULT_PUBLIC_RELAYS } from '../../src/public-relays.js'
-import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
+import { nostrInboxRelayDraft } from './nostr-inbox-settings.js'
+import { FILE_STORAGE_KEY, FILE_STORAGE_REQUIRED, PUBLIC_FILE_SERVERS, acceptDefaultFileServer, chooseFileServer, defaultFileServer, describeUploadFailure, destinationLimit, destinationOrigin, formatLimit, ownFileServer, publicFileServer, resolveFileDestination, retireForgeSwornConsent, FORGESWORN_STORAGE_CLOSED, stopFileUploads, storedFileServer, type FileDestination } from './file-storage.js'
+import { attachmentCopyError, copyEnvelopeToWildbloom } from './attachment-copy.js'
 import { composerModels, modelCompletions, prepareModelMessage, type ComposerModel } from './composer-models.js'
 import { createReactionIndex, REACTION_EMOJIS, toggleReaction, reactionText } from '../../src/reactions.js'
 import { planChatRender, type ChatRenderSnapshot } from './chat-render-plan.js'
 import './style.css'
 import { installUpdates } from './updates.js'
 import { Outbox } from './outbox.js'
-import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
+import { PendingSends, StorageStuckError, NODE_MOVE_WAITING, PENDING_SEND_PREFIX, renewOptions, type PendingSend, type RenewSend } from './pending-sends.js'
 import { DeliveryTicks, deliveryWords, isTickMessage, type DeliveryState } from './delivery-state.js'
 import { DeliveredLedger, DELIVERY_RECEIPTS_SETTING, DELIVERED_FOOTNOTE, DELIVERED_LINK_ROOM_NOTE, deliveredView, deliveredWords, deliveryLine, sendsDeliveryReceipts, type DeliveredBy, type DeliveredView } from './delivery-receipts.js'
 import { DeliveryReceiptWriter, type ReceiptPublisher } from '../../src/delivery-receipt-writer.js'
@@ -105,12 +116,14 @@ import { editableBy, latestEditable } from './composer-edit.js'
 import { installCallStage } from './call-stage.js'
 import { installCallFocus } from './call-focus.js'
 import { installCallMore } from './call-more.js'
+import { observedCallConnection } from './call-connection.js'
+import { CallConnectionsPanel } from './call-connections-panel.js'
 import { installAgentsHear } from './call-agents-hear.js'
 import { installPeerAssist, PEER_ASSIST_PAUSED } from './call-assist.js'
 import './call-surface.css'
 import './shell.css'
 import './room-info.css'
-import { currentDestination, openDestination, openDetail, closeDetail, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
+import { currentDestination, openDestination, openDetail, closeDetail, closeSettings, setPeopleAvailable, setCounts, focusSearch } from './shell.js'
 import { wireMenu, menuItem, menuGroups, menuSeparator, menuSubmenu, type MenuHandle } from './menu.js'
 import { MessageActions, type MessageAction } from './message-actions.js'
 import { ConversationSearch } from './conversation-search.js'
@@ -130,7 +143,11 @@ import { KIND_DM_RELAYS, KIND_RELAY_LIST, dmRelayListTemplate, inboxRelays, late
 import type { MarkAuthor } from './share-marks.js'
 import { ConversationDrafts, draftHasWork, draftSubmissionSnapshot, type ConversationDraft, type FileTrayFailure } from './drafts.js'
 import {
+  CREDENTIAL_PREFIX,
   DEVICE_PREFIX,
+  KEPT_ADMISSION_PREFIX,
+  OWN_CREDENTIAL_PREFIX,
+  OWN_SEAL_PREFIX,
   browserDeviceStore,
   deviceKeyFor,
   forgetCredentialFor,
@@ -143,6 +160,7 @@ import {
   loadKeptAdmission,
   loadOwnCredentialFor,
   loadOwnSealKeysFor,
+  personaDeviceStore,
   storeCredentialFor,
   storeOwnCredentialFor,
   storeKeptAdmission,
@@ -172,6 +190,10 @@ import { readAgentRequestStatuses, type RequestAgent } from './agent-request-sta
 import { RoomBookmarks, accountRoomStore, type BookmarkAdmissions } from './room-bookmarks.js'
 import { cadenceReservedCounters } from './cadence-store.js'
 import { SpeakingMonitor } from './speaking-monitor.js'
+import { AudioActivity, type AudioSignal, type ParticipantSignal } from './audio-activity.js'
+import { MetadataPanel } from './metadata-panel.js'
+import { metadataConnection } from './metadata-connection.js'
+import { cleanAttachment } from './attachment-metadata.js'
 import { describeShareError, isSystemRefusal } from './share-error.js'
 import { inviteLinks, shortLinkPageFor } from './share-link.js'
 import { describeFailure as describeFailureForPerson, isNetworkFailure, isRetryableNodeFailure, nodeCreateRetryDelay, nodeRetryCopy, NODE_CREATE_ATTEMPTS, PersonError,
@@ -402,6 +424,9 @@ import { createMadeHere, hostList, lookupHosts, routeLookups } from './profile-l
 import { RelayConnections, RelaySettingsPanel, profilePreference, nip05VerifyPreference } from './relay-settings.js'
 import { LARGE_QR_WIDTH, renderQr } from './qr.js'
 import { login, logout, restoreSession, type SignetSession } from 'signet-login'
+import { PersonaSessionStorage, PersonaStore, personaConnection, forgetLegacyPersonaConnection,
+  type PersonaConnection, type PersonaSelection } from './persona-store.js'
+import { ORDINARY_SIGNET_KEYS } from './ordinary-signet-snapshot.js'
 import { decrypt as nip44Decrypt, getConversationKey } from 'nostr-tools/nip44'
 import { captureBarkRendezvous, barkRendezvousFor } from './mls-bark-rendezvous.js'
 import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vault.js'
@@ -491,7 +516,13 @@ let linkArrivalOver = false
 /** This device's unsent messages, kept across a reload for ordinary chat,
  *  and sent as soon as a relay will take them. See pending-sends.ts. */
 const pendingSends = new PendingSends({
-  store: browserDeviceStore(localStorage),
+  // Closing a room releases its queue before the selected store can change.
+  store: {
+    get: key => roomDeviceStore().get(key),
+    set: (key, value) => roomDeviceStore().set(key, value),
+    remove: key => roomDeviceStore().remove(key),
+    keys: () => roomDeviceStore().keys(),
+  },
   onStorageHold: () => setStatus('Your message is held because this browser could not save its state. Check local storage, then retry.'),
   // Browser connectivity is only a heuristic: a local relay can remain
   // reachable without an internet-facing interface. Use the active route's
@@ -735,10 +766,12 @@ const desktopShareArea = new DesktopShareArea({
   wholeDisplay: whole => { shareMayShowItself = whole; applySelfMirrorGuard() },
 })
 const browserShare = new BrowserShare(() => screenTrack?.dispatchEvent(new Event('ended')))
-// Marks drawn on a whole-screen share, shown over the screen being shared:
-// that share's own preview is a blank tile (see `applySelfMirrorGuard`).
+// Drawings over the native window or display being shared.
 const shareMarksOverlay = new ShareMarksOverlay(window.kithmootDesktop, {
+  watch: (id, paint) => shareViewer.watchMarks(id, paint),
   paint: (canvas, id) => shareViewer.areaOverlay(canvas, id),
+  draw: annotation => shareViewer.draw(annotation),
+  stop: () => { if (screenTrack) void toggleScreen() },
 })
 const drawingNoticeGate = new DrawingNoticeGate()
 const participantCard = new ParticipantCard(copyMessageText)
@@ -904,6 +937,8 @@ const publicRelayRoutes = new WeakMap<RoomSession, { start(): Promise<void>; end
 /** Said in place of the generic notice once a discovered relay is lost. */
 let callRelayLostNotice: string | undefined
 const browserLink = new BrowserLink(startBrowserLink)
+const standaloneRoom = new StandaloneRoomConnection(localStorage)
+const browserRoomConnections = new BrowserRoomConnections(browserLink, standaloneRoom)
 // Default-off source candidate; native provenance remains qualification-only.
 const browserMlsPreview = browserMlsEnabled()
 let browserMlsPanel: BrowserMlsPanel | undefined
@@ -922,7 +957,7 @@ let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } 
 const heldEnvelopes = new HeldEnvelopes()
 /** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
 const waitingAttachments = new WeakSet<ChatAttachment>()
-const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserLink, async room => {
+const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserRoomConnections, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
   if (session?.roomId === room && !roomUsesBothy) {
     captureDraft()
@@ -1550,7 +1585,7 @@ function loadParticipantKey(): Uint8Array | undefined {
 
 function loadCredential(): DeviceCredential | undefined {
   const roomId = currentRoomId()
-  const credential = roomId ? loadCredentialFor(deviceStore, roomId) : undefined
+  const credential = roomId ? loadCredentialFor(roomDeviceStore(), roomId) : undefined
   // Signing in chooses an identity. A paired credential belongs to its
   // issuer and must never silently put that account in as somebody else.
   return credential && (!nostrSession || credential.pubkey === nostrSession.pubkey) ? credential : undefined
@@ -1559,14 +1594,15 @@ function loadCredential(): DeviceCredential | undefined {
 function storeCredential(credential: DeviceCredential): void {
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to keep a credential for')
-  storeCredentialFor(deviceStore, roomId, credential)
+  storeCredentialFor(roomDeviceStore(), roomId, credential)
 }
 
 function forgetCredential(): void {
   const roomId = currentRoomId()
   if (!roomId) return
-  forgetCredentialFor(deviceStore, roomId)
-  forgetOwnCredentials(deviceStore, roomId)
+  const store = roomDeviceStore()
+  forgetCredentialFor(store, roomId)
+  forgetOwnCredentials(store, roomId)
 }
 
 /** This device's own key for the current room, kept across loads so a
@@ -1577,7 +1613,7 @@ function deviceKey(): Uint8Array {
   if (nodeRoom) return nodeRoom.deviceSk.slice()
   const roomId = currentRoomId()
   if (!roomId) throw new Error('no room to hold a device key for')
-  return deviceKeyFor(deviceStore, roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
+  return deviceKeyFor(roomDeviceStore(), roomId, nowSeconds(), generateSecretKey, retainDeviceKey)
 }
 
 /** The participant key, minting one on first use - but never on a device
@@ -1596,10 +1632,94 @@ function participantKey(): Uint8Array {
  *  signet-login persists whatever it needs to reconnect (a bunker URI, a
  *  client key), and deliberately never an nsec. */
 let nostrSession: SignetSession | undefined
+const PERSONA_TAB_ACCOUNT = 'kithmoot.persona-tab'
+const PERSONAS_PRESENT = 'kithmoot.personas.v1'
+let personaVault: PersonaStore | undefined
+let personaSelection: PersonaSelection | undefined
+let personaMenuSelection: PersonaSelection | undefined
+let personaStorageError = false
+function personaStore(): PersonaStore { return personaVault ??= new PersonaStore(location.origin) }
+
+function expectingSavedPersonas(): boolean {
+  try { return localStorage.getItem(PERSONAS_PRESENT) === '1' || sessionStorage.getItem(PERSONA_TAB_ACCOUNT) !== null }
+  catch { return false }
+}
+
+function activeSavedPersona() {
+  const pubkey = nostrSession?.pubkey ?? expectedAccount
+  return personaSelection?.personas.find(persona => persona.pubkey === pubkey)
+}
+
+function roomDeviceStore(store = deviceStore, pubkey = nostrSession?.pubkey ?? (activeSavedPersona() && !visitorChosen() ? expectedAccount : undefined)) {
+  return personaSelection && pubkey ? personaDeviceStore(store, pubkey) : store
+}
+
+/** Carry the original sign-in's saved access into its persona. Retire
+ * matching local records only after the encrypted signer selection commits. */
+function migratePersonaRoomAccess(pubkey: string): () => void {
+  const target = personaDeviceStore(deviceStore, pubkey)
+  const tab = browserDeviceStore(sessionStorage)
+  const tabTarget = personaDeviceStore(tab, pubkey)
+  const retire: Array<() => void> = []
+  const copy = (source: typeof deviceStore, destination: typeof deviceStore, keys: string[], owned = false) => {
+    for (const key of keys) {
+      const value = source.get(key)
+      if (value === null) continue
+      if (destination.get(key) === null) destination.set(key, value)
+      if (owned) retire.push(() => {
+        if (source.get(key) === value && destination.get(key) === value) source.remove(key)
+      })
+    }
+  }
+  copy(deviceStore, target, [NAME_STORAGE_KEY])
+  for (const room of knownRooms(accountRoomStore(deviceStore, pubkey))) {
+    if (room.joinedAs && room.joinedAs !== pubkey) continue
+    const held = loadCredentialFor(deviceStore, room.roomId) ?? loadOwnCredentialFor(deviceStore, room.roomId, 0)
+    if (held && held.pubkey !== pubkey) continue
+    const owned = held?.pubkey === pubkey || room.joinedAs === pubkey
+    const keys = [DEVICE_PREFIX, CREDENTIAL_PREFIX, OWN_CREDENTIAL_PREFIX, OWN_SEAL_PREFIX, PENDING_SEND_PREFIX].map(prefix => prefix + room.roomId)
+    if (owned) {
+      copy(deviceStore, target, keys, true)
+      copy(tab, tabTarget, keys, true)
+    }
+    let invitation: RoomInvitation | undefined
+    try { invitation = parseRoomLink(room.link).invitation } catch { /* Node rooms already scope their access by account. */ }
+    if (invitation) {
+      const id = deriveInvitationId(invitation)
+      if (owned) copy(deviceStore, target, [INVITATION_OWNER_PREFIX + id], true)
+      copy(deviceStore, target, [KEPT_ADMISSION_PREFIX + id], owned)
+      if (owned) copy(tab, tabTarget, [ADMISSION_CACHE_PREFIX + id], true)
+    }
+  }
+  return () => { for (const remove of retire) remove() }
+}
+
+function keepPersonaSelection(selection: PersonaSelection, pubkey: string | null): void {
+  personaSelection = selection
+  personaMenuSelection = selection
+  personaStorageError = false
+  expectedAccount = pubkey ?? undefined
+  expectedMethod = selection.personas.find(persona => persona.pubkey === pubkey)?.method
+  try {
+    sessionStorage.setItem(PERSONA_TAB_ACCOUNT, pubkey ?? '')
+    localStorage.setItem(PERSONAS_PRESENT, '1')
+    localStorage.removeItem(ACCOUNT_STORAGE_KEY)
+    localStorage.removeItem(ACCOUNT_METHOD_STORAGE_KEY)
+  } catch { /* The selected connection is already committed in the vault. */ }
+}
 let nostrMessagePanel: NostrMessagePanel | undefined
 let nostrInboxPanel: NostrMessageInboxPanel | undefined
 let legacyMessagesPanel: LegacyMessagePanel | undefined
-function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); privateFileUploadsPanel.close() }
+let peopleNostrPanel: PeopleNostrPanel | undefined
+let peopleNostrInbox: PeopleNostrInbox | undefined
+let peopleNostrOwner: SignetSession | undefined
+let peopleNostrIdentity = -1
+let peopleNostrNetwork = -1
+let peopleNostrStatus = ''
+let peopleNostrSuspended = false
+let peopleNostrPeers = new Set<string>()
+let peopleNostrRoutes: { account: SignetSession; directory: string; until: number; statements: NostrEvent[] } | undefined
+function closeAccountMessageViews(): void { nostrInboxPanel?.close(); legacyMessagesPanel?.close(); nostrMessagePanel?.close(); peopleNostrPanel?.close(); people?.resetSearch(); privateFileUploadsPanel.close() }
 function reconcileAccountMessageViews(): void {
   ;($('legacyMessagesEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !legacyMessagesPanel?.available
   ;($('nostrMessageEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrMessagePanel?.available
@@ -1607,6 +1727,7 @@ function reconcileAccountMessageViews(): void {
   ;($('nostrAccountInboxEntry') as HTMLButtonElement).disabled = accountNetwork.nostr && !nostrInboxPanel?.available
   $('nostrMessageAvailability').hidden = !nostrSession || nostrMessagePanel?.available === true
   nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
+  reconcilePeopleNostrInbox()
 }
 const legacyMessageLifetime = new LegacyMessageLifetime(closeAccountMessageViews, reconcileAccountMessageViews)
 /** Deny reopening across every await in an account transition. The counter
@@ -1632,6 +1753,19 @@ function storeName(name: string): void {
   else localStorage.removeItem(NAME_STORAGE_KEY)
 }
 
+function typedJoiningName(): string {
+  const store = roomDeviceStore()
+  return store === deviceStore ? typedName : sanitiseDisplayName(store.get(NAME_STORAGE_KEY)) ?? ''
+}
+
+function storeJoiningName(name: string): void {
+  const store = roomDeviceStore()
+  if (store === deviceStore) { storeName(name); return }
+  const cleaned = sanitiseDisplayName(name)
+  if (cleaned) store.set(NAME_STORAGE_KEY, cleaned)
+  else store.remove(NAME_STORAGE_KEY)
+}
+
 /**
  * The name this device joins under.
  *
@@ -1650,7 +1784,7 @@ function joiningName(): string | undefined {
     const remembered = lastKnownProfileNames.get(nostrSession.pubkey)
     if (remembered) return remembered
   }
-  return typedName || (nodeRoom ? 'Guest' : undefined)
+  return typedJoiningName() || (nodeRoom ? 'Guest' : undefined)
 }
 
 /**
@@ -1681,13 +1815,14 @@ function accountPassForRoom(): DeviceCredential | undefined {
   if (!roomId || !expectedAccount || nostrSession) return undefined
   try {
     const now = nowSeconds()
-    const pass = loadOwnCredentialFor(deviceStore, roomId, now)
+    const store = roomDeviceStore()
+    const pass = loadOwnCredentialFor(store, roomId, now)
     if (!pass || pass.pubkey !== expectedAccount) return undefined
     // A pass naming a seal key whose secret is not kept here is one the
     // session will not resume (nothing sealed to it would open), and with
     // no signer it could not mint another.
     const seal = credentialSeal(pass)
-    if (typeof seal === 'string' && !loadOwnSealKeysFor(deviceStore, roomId).some(sk => getPublicKey(sk) === seal)) return undefined
+    if (typeof seal === 'string' && !loadOwnSealKeysFor(store, roomId).some(sk => getPublicKey(sk) === seal)) return undefined
     const expiresAt = Number(pass.tags.find(tag => tag[0] === 'expiration')?.[1])
     return expiresAt - now >= RESUME_MIN_REMAINING_SECONDS ? pass : undefined
   } catch {
@@ -1809,20 +1944,26 @@ async function adoptRestoredSession(account: SignetSession): Promise<boolean> {
     await closeCataloguesBeforeAccountAdoption(account,()=>closeRoomBoardCatalogues(),()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previous){if(nostrSession!==account)await account.signer.close();return false}
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) void pauseBrowserMls().catch(() => undefined)
-    nostrSession = account
-    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
-    browserRoomRoutes.resume()
-    rememberAccount(account)
-    startRoomBookmarks(account)
-    closedRoomKeepers.refresh()
-    wantProfiles([account.pubkey], 'public')
-    renderIdentity()
-    renderNudgeChoice()
+    showConnectedAccount(account)
     // A room may already be open on this account's pass. Invitations that
     // arrived while its signer was unavailable have not been decrypted yet.
     if (session?.participant === account.pubkey) void handleInvites(conversationMessages(undefined))
     return true
   })
+}
+
+function showConnectedAccount(account: SignetSession): void {
+  nostrSession = account
+  if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
+  browserRoomRoutes.resume()
+  if (personaSelection) {
+    expectedAccount = account.pubkey
+    expectedMethod = account.signer.method
+  } else rememberAccount(account)
+  startRoomBookmarks(account)
+  closedRoomKeepers.refresh()
+  wantProfiles([account.pubkey], 'public')
+  renderIdentity()
 }
 
 /** signet-login keeps a bunker's URI and client key when a restore fails,
@@ -1837,6 +1978,7 @@ function reachStoredSignerOnSignetRelay(): void {
 }
 
 function storedBunkerSession(): boolean {
+  if (personaSelection) return activeSavedPersona()?.method === 'bunker'
   try {
     return localStorage.getItem('signet:login.method') === 'bunker' && !!localStorage.getItem('signet:login.bunkerUri')
   } catch { return false }
@@ -1876,8 +2018,11 @@ function retryStoredBunker(): Promise<boolean> {
   if ((session || joining) && session?.participant !== expectedAccount) return Promise.resolve(false)
   const generation = identityGeneration
   bunkerRetryAt = Date.now()
-  reachStoredSignerOnSignetRelay()
-  bunkerRetry = restoreSession()
+  if (!personaSelection) reachStoredSignerOnSignetRelay()
+  const restore = personaSelection && expectedAccount
+    ? restoreSavedPersona(expectedAccount).then(opened => opened?.account ?? null)
+    : restoreSession()
+  bunkerRetry = restore
     .then(async (restored) => {
       if (!restored) return false
       const current = generation === identityGeneration && !nostrSession && !loginBusy
@@ -1928,7 +2073,185 @@ async function reconnectNostr(): Promise<void> {
   await signInWithNostr()
 }
 
+interface PreparedPersona {
+  account: SignetSession
+  connection?: PersonaConnection
+  saved?: PersonaConnection
+}
+
+async function restoreSavedPersona(pubkey: string): Promise<PreparedPersona | undefined> {
+  const saved = await personaStore().connection(pubkey)
+  if (!saved) return undefined
+  const storage = new PersonaSessionStorage(saved.session)
+  const uri = storage.getItem(ORDINARY_SIGNET_KEYS.bunkerUri)
+  const onSignetRelay = uri && withSignetRelay(uri)
+  if (onSignetRelay) storage.setItem(ORDINARY_SIGNET_KEYS.bunkerUri, onSignetRelay)
+  const account = await restoreSession({ storage })
+  if (account?.pubkey !== pubkey || !account.signer.capabilities.canSignEvents) {
+    await account?.signer.close().catch(() => {})
+    return undefined
+  }
+  try {
+    const connection = personaConnection(storage, pubkey, saved.label, location.origin)
+    if (!connection) throw new Error('The signer did not return the saved persona.')
+    const displayName = connection.session[ORDINARY_SIGNET_KEYS.displayName]
+    return { account: displayName ? { ...account, displayName } : account, connection, saved }
+  } catch (error) {
+    await account.signer.close().catch(() => {})
+    throw error
+  }
+}
+
+async function connectPersona(label: string, signetOnly = true): Promise<void> {
+  await changePersona(async () => {
+    await personaStore().selection()
+    const storage = new PersonaSessionStorage()
+    const account = await login({ appName: 'KithMoot', relayUrls: signinRelays(RELAYS), storage,
+      methods: signetOnly ? ['local-signet', 'remote-signet'] : ['nip07', 'amber', 'remote-signet', 'local-signet', 'bunker', 'nostrconnect', 'nsec'] })
+    if (!account) return undefined
+    try {
+      if (!account.signer.capabilities.canSignEvents) {
+        throw new Error('Your identity was approved. Turn on Bunker in My Signet and approve a signing connection.')
+      }
+      const connection = personaConnection(storage, account.pubkey, label, location.origin)
+      if (!connection && account.method !== 'nsec') throw new Error('Your signer did not return a connection KithMoot could save.')
+      return { account, connection }
+    } catch (error) {
+      await account.signer.close().catch(() => {})
+      throw error
+    }
+  })
+}
+
+async function changePersona(prepare: () => Promise<PreparedPersona | undefined>): Promise<void> {
+  return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
+    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+      throw new Error('Finish the current room action or board edits before switching personas.')
+    }
+    loginBusy = true
+    const previous = nostrSession, generation = identityGeneration
+    let prepared: PreparedPersona | undefined
+    let closingRoom = false
+    let routesPaused = false
+    let reopenDoor = false
+    const dialog = $('personasDialog') as HTMLDialogElement
+    dialog.setAttribute('data-keep-open', '')
+    try {
+      prepared = await prepare()
+      if (!prepared || generation !== identityGeneration || nostrSession !== previous) return
+      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+        throw new Error('Finish the current room action or board edits before switching personas.')
+      }
+      if (!await confirmLeavingWaitingMessage()) return
+      if ((callIsLive() || onCall() || dockedCall) && !await confirmRoomAction({
+        title: 'Leave the call and switch personas?',
+        message: 'Switching ends this call and turns off your microphone and camera.',
+        confirmLabel: 'Leave and switch',
+      })) return
+      if (generation !== identityGeneration || nostrSession !== previous || switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) return
+
+      const legacyKey = previous?.pubkey ?? expectedAccount
+      const legacy = !personaSelection && !personaStorageError && legacyKey
+        ? personaConnection(localStorage, legacyKey, shownAs(legacyKey).name ?? '', location.origin) : undefined
+      const hadRoom = !!session || !!dockedCall
+      reopenDoor = !hadRoom && !$('identity').hidden && location.hash.length > 1
+      if (hadRoom || reopenDoor) {
+        switchingRoom = closingRoom = true
+        if (session) captureDraft()
+        await closeRoomSession()
+        await endDockedCall()
+        resetRoomState()
+        outbox.render()
+        $('roomArea').hidden = true
+        pendingJoin = false
+        visitorChosenKey = undefined
+        previousRoom = switchDestination = undefined
+        $('returnToPreviousRoom').hidden = true
+        if (hadRoom) history.replaceState(null, '', joinLinkBase())
+        else await roomArrival.catch(() => {})
+      }
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
+      browserRoomRoutes.pause()
+      routesPaused = true
+      await browserLinkPanel.stop()
+      await boardsPanel?.reset()
+      await closeRoomBoardCatalogues()
+      workspaceWork?.reset()
+      closeContextPanel()
+      participantCard.close()
+      packGrant = undefined
+      ++identityGeneration
+      admissionController?.abort()
+      clearImportedHistorySearch()
+      historyRecoveryView = { status: '', rows: [] }
+      relayConnections.clearAuthentication()
+      stopSpryAccountSync()
+      bookmarks?.close(); bookmarks = undefined
+      readSync?.close(); readSync = undefined
+      lastRoomOrder = undefined
+      for (const room of roomWatches.keys()) stopWatching(room)
+      closeContactInbox()
+      nostrSession = undefined
+      closedRoomKeepers.refresh()
+      await sharedProjects.detach()
+
+      const { account, connection, saved } = prepared
+      const retireLegacyRoomAccess = legacy && migratePersonaRoomAccess(legacy.pubkey)
+      const selection = saved && connection ? await personaStore().select(saved, connection)
+        : connection ? await personaStore().add(connection, legacy) : await personaStore().disconnect()
+      keepPersonaSelection(selection, connection?.pubkey ?? null)
+      forgetWayBack()
+      try { retireLegacyRoomAccess?.() } catch { /* The moved records are already saved. */ }
+      // Remove the previous SDK location only after protected storage is confirmed.
+      try {
+        if (legacy && localStorage.getItem(ORDINARY_SIGNET_KEYS.authEvent) === legacy.session[ORDINARY_SIGNET_KEYS.authEvent]) {
+          forgetLegacyPersonaConnection(localStorage)
+        }
+      } catch { /* The encrypted connection has committed. */ }
+      clearTimeout(bunkerRetryTimer)
+      bunkerRetryTimer = undefined
+      bunkerRetryDelay = bunkerRetryAt = 0
+      bunkerRetryForeign = false
+      await previous?.signer.close().catch(() => {})
+      showConnectedAccount(account)
+      if (hadRoom) showRoomsList()
+      else renderWayBack()
+      dialog.close()
+      ;($('personaLabel') as HTMLInputElement).value = ''
+      ;($('personaNameOption') as HTMLDetailsElement).open = false
+      setStatus('Persona switched.', 'done')
+    } catch (error) {
+      if (previous && !nostrSession) showConnectedAccount(previous)
+      else if (routesPaused) browserRoomRoutes.resume()
+      if (closingRoom && !reopenDoor && !session) showRoomsList()
+      throw error
+    } finally {
+      if (prepared && prepared.account !== nostrSession) await prepared.account.signer.close().catch(() => {})
+      if (closingRoom) switchingRoom = false
+      dialog.removeAttribute('data-keep-open')
+      loginBusy = false
+      renderPersonas()
+      if (reopenDoor) void reopenPersonaDoor()
+      else tryPendingJoin()
+    }
+  })
+}
+
+async function reopenPersonaDoor(): Promise<void> {
+  const generation = roomGeneration
+  armStopOpening()
+  try {
+    if (await roomFromLocation() && generation === roomGeneration) { showRoomUi(); renderIdentity() }
+  } catch (error) {
+    if (generation === roomGeneration) showArrivalFailure(error)
+  } finally {
+    if (generation === roomGeneration) disarmStopOpening()
+  }
+}
+
 async function signInWithNostr(): Promise<void> {
+  if (personaSelection || personaStorageError) return connectPersona('', false)
   return withLegacyMessagesClosed(async () => {
     closeContextPanel()
     if (loginBusy) return
@@ -1976,14 +2299,7 @@ async function signInWithNostr(): Promise<void> {
     await closeCataloguesBeforeAccountAdoption(account,async()=>{await browserLinkPanel.stop();await closeRoomBoardCatalogues()},()=>nostrSession)
     if(generation!==identityGeneration||nostrSession!==previousSession||session||joining){if(nostrSession!==account)await account.signer.close();return}
     relayConnections.clearAuthentication()
-    nostrSession = account
-    if (browserMlsPreview) captureBarkRendezvous(account.signer, account.pubkey)
-    browserRoomRoutes.resume()
-    rememberAccount(account)
-    startRoomBookmarks(account)
-    closedRoomKeepers.refresh()
-    wantProfiles([account.pubkey], 'public')
-    renderIdentity()
+    showConnectedAccount(account)
     if (previous && previous !== account.pubkey) {
       const now = shownAs(account.pubkey), before = shownAs(previous)
       setStatus(`Signed in as ${now.name ?? now.npub}. Last time this was ${before.name ?? before.npub}, and the rooms saved under that account are not here. To get them back, select that account in your extension and sign in again.`)
@@ -1993,54 +2309,67 @@ async function signInWithNostr(): Promise<void> {
 
 async function signOutOfNostr(): Promise<void> {
   return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
     if (boardsPanel?.hasPendingEdits) { setStatus('Save or finish the open board edits before signing out. Check your popped-out board windows too.'); return }
-    if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
-    participantCard.close()
-    packGrant = undefined
-    browserRoomRoutes.pause()
-    await browserLinkPanel.stop()
-    closeContextPanel()
     if (session || joining) throw new Error('Leave the room before signing out.')
-    workspaceWork?.reset()
-    await boardsPanel?.reset()
-    await closeRoomBoardCatalogues()
-    // A signed-out account must not leave its device-specific rendezvous child
-    // behind. Do this before changing the visible account state: a storage
-    // failure keeps the account connected rather than pretending the clear won.
-    // Clear a child only for a captured provision-capable account. Avoid
-    // initialising the encrypted vault for ordinary extension/remote sign-ins
-    // merely because they are signing out.
-    if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
-    identityGeneration++
-    admissionController?.abort()
-    clearImportedHistorySearch()
-    relayConnections.clearAuthentication()
-    const account = nostrSession
-    closeContactInbox()
-    void sharedProjects.detach()
-    stopSpryAccountSync()
-    bookmarks?.close()
-    bookmarks = undefined
-    readSync?.close()
-    readSync = undefined
-    nostrSession = undefined
-    // Signed out: the closed-room keepers drop this account's keys and sockets now.
-    closedRoomKeepers.refresh()
-    browserRoomRoutes.resume()
-    // Each one speaks for the account in a room; a session under another
-    // identity would refuse them anyway, but they should not outlive it here.
-    try { forgetOwnCredentials(deviceStore) } catch { /* storage may be unavailable */ }
-    sessionStorage.removeItem(WAY_BACK_KEY)
-    $('roomSyncStatus').textContent = ''
-    refreshAccountRooms()
-    renderIdentity()
-    if (account) {
-      // clearPersistentClientKey: true also forgets the NIP-46 client key a
-      // bunker approved for this browser. Without it, logout only clears the
-      // session - the approved client key survives and anyone with this
-      // browser profile could still sign as it.
-      await logout(account, { clearPersistentClientKey: true })
-      setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+    loginBusy = true
+    try {
+      if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
+      participantCard.close()
+      packGrant = undefined
+      browserRoomRoutes.pause()
+      await browserLinkPanel.stop()
+      closeContextPanel()
+      if (session || joining) throw new Error('Leave the room before signing out.')
+      workspaceWork?.reset()
+      await boardsPanel?.reset()
+      await closeRoomBoardCatalogues()
+      // A signed-out account must not leave its device-specific rendezvous child
+      // behind. Do this before changing the visible account state: a storage
+      // failure keeps the account connected rather than pretending the clear won.
+      // Clear a child only for a captured provision-capable account. Avoid
+      // initialising the encrypted vault for ordinary extension/remote sign-ins
+      // merely because they are signing out.
+      if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
+      const account = nostrSession
+      const managed = personaSelection !== undefined
+      if (managed) keepPersonaSelection(await personaStore().disconnect(account?.pubkey), null)
+      identityGeneration++
+      admissionController?.abort()
+      clearImportedHistorySearch()
+      relayConnections.clearAuthentication()
+      closeContactInbox()
+      void sharedProjects.detach()
+      stopSpryAccountSync()
+      bookmarks?.close()
+      bookmarks = undefined
+      readSync?.close()
+      readSync = undefined
+      nostrSession = undefined
+      // Signed out: the closed-room keepers drop this account's keys and sockets now.
+      closedRoomKeepers.refresh()
+      browserRoomRoutes.resume()
+      // Each one speaks for the account in a room; a session under another
+      // identity would refuse them anyway, but they should not outlive it here.
+      try { forgetOwnCredentials(roomDeviceStore(deviceStore, account?.pubkey)) } catch { /* storage may be unavailable */ }
+      forgetWayBack()
+      renderWayBack()
+      $('roomSyncStatus').textContent = ''
+      refreshAccountRooms()
+      renderIdentity()
+      if (account) {
+        // clearPersistentClientKey: true also forgets the NIP-46 client key a
+        // bunker approved for this browser. Without it, logout only clears the
+        // session - the approved client key survives and anyone with this
+        // browser profile could still sign as it.
+        await logout(account, { clearPersistentClientKey: true, ...(managed ? { storage: new PersonaSessionStorage() } : {}) })
+        setStatus("Signed out. This forgets this browser's connection to your signer, including any bunker pairing.", 'done')
+      }
+    } finally {
+      loginBusy = false
+      browserRoomRoutes.resume()
+      renderPersonas()
+      tryPendingJoin()
     }
   })
 }
@@ -2068,6 +2397,7 @@ function setForgetBrowserStatus(message: string): void {
 async function forgetThisBrowser(): Promise<void> {
   $('forgetBrowserStatus').textContent = ''
   return withLegacyMessagesClosed(async () => {
+    if (loginBusy) return
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
     const { withMlsRoomLinkForgetGuard } = await import('./mls-room-link-forget.js')
     if (!await withMlsRoomLinkForgetGuard(forgetThisBrowserContents)) {
@@ -2091,7 +2421,7 @@ async function forgetThisBrowserContents(): Promise<void> {
         + '- every room kept here, its keys and the history this browser kept of it\n'
         + '- contacts and verified people\n'
         + '- text size and volume choices\n'
-        + '- the saved connection to a Nostr signer\n\n'
+        + '- saved connections to Nostr signers\n\n'
         + "It does not remove anything from relays or from other people's devices. "
         + 'Signed-in room bookmarks on your Nostr account stay unless you Forget each room first.',
       confirmLabel: 'Forget this browser',
@@ -2105,6 +2435,7 @@ async function forgetThisBrowserContents(): Promise<void> {
     await closeRoomBoardCatalogues()
     closeContextPanel()
     await browserLinkPanel.link.forget()
+    if (personaSelection || personaMenuSelection || expectingSavedPersonas()) await personaStore().erase()
     // As above, avoid creating a vault on a browser that never held one.
     if (nostrSession && (rendezvousBunker(nostrSession) || barkRendezvousFor(nostrSession.signer))) await rendezvousVault().clear(nostrSession.pubkey)
     identityGeneration++
@@ -2144,8 +2475,9 @@ async function forgetThisBrowserContents(): Promise<void> {
     }
     // The rooms' kept history goes with the rooms.
     await deleteRoomArchive()
+    await forgetPeoplePictures()
 
-    history.replaceState(null, '', joinLinkBase())
+    history.replaceState({ browserForgotten: true }, '', joinLinkBase())
     }) } finally { forgettingBrowser = false }
     if (!forgotten) {
       setForgetBrowserStatus('Private upload records are retained. Review and delete the recorded uploads before forgetting this browser; uncertain files may already be stored. Private file access is now held.')
@@ -2208,6 +2540,7 @@ function refreshAccountRooms(): void {
  *  leaves this device. A secret arriving with a bookmark is kept only where
  *  this device has none of its own. */
 function groupAdmissions(account: string): BookmarkAdmissions {
+  const roomAccess = roomDeviceStore(deviceStore, account)
   const invitationIdOf = (link: string): string | undefined => {
     try { const { invitation } = parseRoomLink(link); return invitation?.persistent ? deriveInvitationId(invitation) : undefined } catch { return undefined }
   }
@@ -2238,7 +2571,7 @@ function groupAdmissions(account: string): BookmarkAdmissions {
         }
       } finally { node?.secret.fill(0); node?.deviceSk.fill(0); node?.authoritySk?.fill(0) }
       const invitation = held ? undefined : groupInvitationOf(room.link)
-      const made = invitation && loadInvitationOwner(invitation)
+      const made = invitation && loadInvitationOwner(invitation, roomAccess)
       if (made) try {
         if (deriveRoom(made.roomSecret).roomId === room.roomId && getPublicKey(made.inviterSk) === invitationAuthority(invitation!)) held = { key: bytesToHex(made.inviterSk), members: [], removed: [] }
       } finally { made.roomSecret.fill(0); made.inviterSk.fill(0) }
@@ -2273,14 +2606,14 @@ function groupAdmissions(account: string): BookmarkAdmissions {
         finally { held?.secret.fill(0); held?.deviceSk.fill(0); held?.authoritySk?.fill(0) }
       }
       const id = invitationIdOf(room.link)
-      const kept = id && loadKeptAdmission(deviceStore, id, nowSeconds())
+      const kept = id && loadKeptAdmission(roomAccess, id, nowSeconds())
       return kept && 'persistent' in kept && kept.persistent ? bytesToHex(kept.secret) : undefined
     },
     adopt: (room, secret) => {
       const id = invitationIdOf(room.link)
-      if (!id || loadKeptAdmission(deviceStore, id, nowSeconds())) return
+      if (!id || loadKeptAdmission(roomAccess, id, nowSeconds())) return
       // A conference room's end comes with the bookmark, and stays with the membership.
-      storeKeptAdmission(deviceStore, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}), ...(room.destruct ? { destruct: true as const } : {}) }, nowSeconds())
+      storeKeptAdmission(roomAccess, id, { secret: hexToBytes(secret), persistent: true, epoch: 0, ...(room.endsAt !== undefined ? { endsAt: room.endsAt } : {}), ...(room.destruct ? { destruct: true as const } : {}) }, nowSeconds())
     },
     // Another of this person's devices tidied a self-destructing room away
     // and tombstoned its bookmark. This device has its own events there to
@@ -2319,6 +2652,7 @@ function startRoomBookmarks(account: SignetSession): void {
         if (rooms.length && roomsTimer === undefined) roomsTimer = setInterval(renderRooms, 5000)
         renderRooms()
       }
+      if (session) { renderRoomTitle(); renderRoomRename() }
       renderWorkspace(); renderContactInbox()
     },
     status: message => {
@@ -2655,7 +2989,7 @@ function ownerStorageKey(invitation: RoomInvitation): string {
 }
 
 function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, hostSk: Uint8Array, endsAt?: number, destruct = false): void {
-  try { writeInvitationOwner(deviceStore, invitation, room, hostSk, nowSeconds(), endsAt, destruct) }
+  try { writeInvitationOwner(roomDeviceStore(), invitation, room, hostSk, nowSeconds(), endsAt, destruct) }
   catch (error) {
     // A temporary meeting can still run entirely in this tab. A group must
     // retain its creator authority before offering durable access to others.
@@ -2663,13 +2997,13 @@ function storeInvitationOwner(invitation: RoomInvitation, room: Uint8Array, host
   }
 }
 
-function loadInvitationOwner(invitation: RoomInvitation): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number; destruct?: true } | undefined {
-  try { return readInvitationOwner(deviceStore, invitation, nowSeconds()) } catch { return undefined }
+function loadInvitationOwner(invitation: RoomInvitation, store = roomDeviceStore()): { roomSecret: Uint8Array; inviterSk: Uint8Array; endsAt?: number; destruct?: true } | undefined {
+  try { return readInvitationOwner(store, invitation, nowSeconds()) } catch { return undefined }
 }
 
 function forgetInvitationOwner(invitation: RoomInvitation): void {
   try {
-    localStorage.removeItem(ownerStorageKey(invitation))
+    roomDeviceStore().remove(ownerStorageKey(invitation))
   } catch {
     // An in-memory host can still be retired even when storage is blocked.
   }
@@ -2722,9 +3056,9 @@ function admissionEpochHint(admission: SavedRoomAdmission): number | undefined {
   return 'persistent' in admission ? undefined : admission.epoch
 }
 
-function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission): void {
+function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmission, store = browserDeviceStore(sessionStorage)): void {
   try {
-    storeTabAdmission(browserDeviceStore(sessionStorage), invitation, admission)
+    storeTabAdmission(store, invitation, admission)
   } catch {
     // A reload will simply repeat the one-tap admission exchange.
   }
@@ -2732,7 +3066,7 @@ function cacheAdmission(invitation: RoomInvitation, admission: SavedRoomAdmissio
 
 function loadCachedAdmission(invitation: RoomInvitation): SavedRoomAdmission | undefined {
   try {
-    const raw = sessionStorage.getItem(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
+    const raw = roomDeviceStore(browserDeviceStore(sessionStorage)).get(ADMISSION_CACHE_PREFIX + deriveInvitationId(invitation))
     if (!raw) return undefined
     const value = JSON.parse(raw) as Partial<StoredAdmission>
     if (
@@ -2779,7 +3113,7 @@ function refreshKeptAdmission(): void {
   const admission = currentJoinerAdmission()
   if (!admission) return
   try {
-    storeKeptAdmission(deviceStore, deriveInvitationId(invitation), admission, nowSeconds())
+    storeKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), admission, nowSeconds())
   } catch {
     // Storage may be unavailable. The room still opens; only the way to
     // read it later goes unwritten.
@@ -2794,7 +3128,7 @@ function setKeepRoomChoice(on: boolean): void {
     setKeepRoom(roomStore(), roomId, on)
   }
   if (on) refreshKeptAdmission()
-  else forgetKeptAdmission(deviceStore, deriveInvitationId(roomInvitationCapability))
+  else forgetKeptAdmission(roomDeviceStore(), deriveInvitationId(roomInvitationCapability))
   renderKeepChoice()
 }
 
@@ -3551,9 +3885,14 @@ function serveCurrentInvitation(): void {
 // rotated it. Removing the owner record is broadcast by the browser's
 // `storage` event; every other tab retires that inviter in memory at once.
 window.addEventListener('storage', (event) => {
-  if (event.newValue !== null || !event.key?.startsWith(INVITATION_OWNER_PREFIX)) return
+  if (event.newValue !== null || !event.key) return
   const invitation = roomInvitationCapability
-  if (!invitation || event.key !== ownerStorageKey(invitation) || invitationDelegation.length !== 0) return
+  if (!invitation || invitationDelegation.length !== 0) return
+  const account = personaSelection && nostrSession?.pubkey
+  const key = ownerStorageKey(invitation)
+  if (event.key !== (account ? `kithmoot.account.${account}.${key}` : key)) return
+  if (!account && nostrSession && expectingSavedPersonas() &&
+      personaDeviceStore(deviceStore, nostrSession.pubkey).get(key) === event.oldValue) return
   stopInvitationHost()
   invitationAuthoritySk = undefined
   const rotate = document.getElementById('rotateShare') as HTMLButtonElement | null
@@ -3896,6 +4235,8 @@ const accountProfiles = new AccountProfileBook({
   },
 })
 
+const peopleProfiles = new PeopleProfileCache(deviceStore)
+window.addEventListener('pagehide', () => peopleProfiles.flush())
 const profiles = new ProfileBook({
   // For the people in the room on screen: its relays as well as the public
   // ones. `wantProfiles` asks here only while a room is open.
@@ -3907,6 +4248,18 @@ const profiles = new ProfileBook({
   // the room never chose before it would show Join. And one each, so that
   // what is asked for the room can be closed with the room.
   transport: (urls, scope) => relayConnections.pool(scope === 'room' ? 'profiles' : 'public-profiles', urls),
+  verifyAddress: peer => !peopleNostrPeers.has(peer) || mayMessageContact(peer),
+  publicCache: {
+    read: authors => {
+      const account = nostrSession?.pubkey
+      if (!account) return []
+      return peopleProfiles.read(account, new Set(authors.filter(key => follows.follows(key) || peopleNostrPeers.has(key))))
+    },
+    keep: event => {
+      const account = nostrSession?.pubkey
+      if (account && (follows.follows(event.pubkey) || peopleNostrPeers.has(event.pubkey))) peopleProfiles.keep(account, event)
+    },
+  },
   onChange: () => {
     renderIdentity()
     if (session) {
@@ -3992,17 +4345,27 @@ const follows = new FollowBook({
 follows.setEnabled(accountNetwork.nostr && profilesEnabled)
 ;($('lookupProfiles') as HTMLInputElement).checked = profilesEnabled
 $('lookupProfiles').addEventListener('change', () => {
-  const enabled = ($('lookupProfiles') as HTMLInputElement).checked
+  setPublicProfiles(($('lookupProfiles') as HTMLInputElement).checked)
+})
+function setPublicProfiles(enabled: boolean): void {
+  if (enabled && !accountNetwork.nostr) return
   profilesEnabled = enabled
+  ;($('lookupProfiles') as HTMLInputElement).checked = enabled
   try { localStorage.setItem('kithmoot.profiles.enabled', String(enabled)) } catch { /* The switch still applies to this visit. */ }
+  if (!enabled) {
+    peopleProfiles.clear()
+    void forgetPeoplePictures()
+  }
   profiles.setEnabled(accountNetwork.nostr && enabled)
   follows.setEnabled(accountNetwork.nostr && enabled)
+  if (enabled && !$('peopleList').hidden) follows.ensure()
   if (session) {
     render(session.participants(), meParticipant)
     repaintActiveChat()
   }
   renderIdentity()
-})
+  renderPeople()
+}
 
 ;($('verifyAddresses') as HTMLInputElement).checked = nip05Verify
 $('verifyAddresses').addEventListener('change', () => {
@@ -4134,10 +4497,22 @@ function shownAs(pubkey: string, asserted?: string): Shown {
   // fresh, and nothing at all when the feature is off.
   if (profile !== undefined) donations.want([pubkey])
   if (profile?.name) rememberProfileName(pubkey, profile.name)
+  // Contact names belong to their exact key. They remain useful when a
+  // caller omits its roster name or public profile lookups are disabled.
+  const contactName = sanitiseDisplayName(grantedContactView?.status !== 'unavailable'
+    ? grantedContactView?.contacts.find(contact => contact.pubkey === pubkey)?.name : undefined)
+    ?? sanitiseDisplayName(contactFor(deviceStore, pubkey)?.name)
+  const owner = mediaSession()
+  const room = owner ? knownRoom(roomStore(), owner.roomId) : undefined
+  const peerName = room && dmPeerOf(room) === pubkey ? directChatName({
+    rememberedName: room.name,
+    selfName: owner?.participants().find(view => view.participant === mediaMe())?.name,
+  }) : undefined
   const name = resolveShownName({
     profileName: profile?.name,
     rememberedName: lastKnownProfileNames.get(pubkey),
     assertedName: asserted,
+    localName: contactName ?? (peerName !== 'Private chat' ? peerName : undefined),
     profilesEnabled: isOwnAccount(pubkey) || accountNetwork.nostr && profilesEnabled,
   })
   noteName(pubkey, name)
@@ -4323,8 +4698,10 @@ let contactInboxGeneration = 0
 let contactInboxMessage = ''
 let startingContactMessage = false
 let contactsReturn: HTMLElement | undefined
+let openingContactInbox: Promise<void> | undefined
 function closeContactInbox(): void {
   ++contactInboxGeneration; contactInbox?.close(); contactInbox = undefined; contactInboxMessage = ''
+  openingContactInbox = undefined
   ;($('contactsDialog') as HTMLDialogElement).close()
   renderContactInbox()
 }
@@ -4339,6 +4716,16 @@ function mayMessageContact(peer: string): boolean {
   const view = grantedContactView
   const granted = !!view && (view.status === 'ready' || view.status === 'stale') && view.contacts.some(contact => contact.pubkey === peer)
   return granted || contactFor(deviceStore, peer) !== undefined || follows.follows(peer)
+}
+function mayInviteToNodeChat(peer: string): boolean {
+  const account = nostrSession
+  return !!account && accountNetwork.nostr && account.pubkey !== peer && /^[a-f0-9]{64}$/.test(peer)
+    && !!account.signer.nip44 && account.signer.capabilities.canSignEvents && !contactIsBlocked(peer)
+}
+function publicPeopleRelay(url: string): boolean {
+  if (relayConnections.isCircle(url)) return false
+  const pair = nostrSession && loadPairedNode(deviceStore, nostrSession.pubkey)
+  return !pair || url !== `wss://${new URL(pair.origin).host}/events`
 }
 async function startContactInbox(account: SignetSession): Promise<void> {
   closeContactInbox()
@@ -4360,10 +4747,19 @@ async function startContactInbox(account: SignetSession): Promise<void> {
       pool: relays => relayConnections.pool('contact-send', relays),
       current: () => nostrSession === account && generation === contactInboxGeneration,
       allowed: mayMessageContact, blocked: contactIsBlocked,
+      publicInvitations: { allowed: mayInviteToNodeChat, relayAllowed: publicPeopleRelay,
+        sender: current => {
+          const signer = nostrMessageIdentity(account, () => nostrSession, true)
+          if (!signer) return
+          return { pubkey: signer.pubkey, encrypt: (peer, text) => signer.encrypt(peer, text, current),
+            signEvent: event => signer.signEvent(event, current), decrypt: (peer, text) => crypt.decrypt(peer, text) }
+        },
+        pool: relays => relayConnections.pool('nostr-message', relays.map(url => ({ url, read: false, write: true }))) },
       changed: renderContactInbox,
     })
     contactInbox = inbox
-    await inbox.open()
+    openingContactInbox = inbox.open()
+    await openingContactInbox
   } catch (error) {
     if (generation === contactInboxGeneration) { contactInboxMessage = describeError(error); renderContactInbox() }
   }
@@ -4377,12 +4773,66 @@ async function openContactInvitation(invitation: ContactInvitation): Promise<voi
   const account = nostrSession, inbox = contactInbox
   if (!account || !inbox) return
   const peer = invitation.sender === account.pubkey ? invitation.recipient : invitation.sender
-  if (contactIsBlocked(peer) || bookmarks?.forgotten(invitation.room) || !inbox.snapshot().invitations.some(entry => entry.id === invitation.id)) return
+  const current = () => nostrSession === account && contactInbox === inbox && !contactIsBlocked(peer) && !bookmarks?.forgotten(invitation.room)
+    && inbox.snapshot().invitations.some(entry => entry.id === invitation.id)
+  if (!current()) return
   const name = grantedContactView?.contacts.find(contact => contact.pubkey === peer)?.name
+  if (invitation.node) {
+    const node = parseNodeRoomLink(invitation.link, nowSeconds())
+    if (!node || node.room !== invitation.room) throw Error('This private chat invitation has expired.')
+    peopleNostrPanel?.close()
+    ;($('contactsDialog') as HTMLDialogElement).close()
+    await switchRoom(contactInvitationRoom(invitation, name), undefined, { record: node.event.id, allowed: current })
+    return
+  }
   const room = rememberRoom(roomStore(), contactInvitationRoom(invitation, name))
   bookmarks?.save(room)
   ;($('contactsDialog') as HTMLDialogElement).close()
   await switchRoom(room)
+}
+async function inviteToNodeChat(peer: string, name?: string): Promise<string | undefined> {
+  const account = nostrSession, inbox = contactInbox
+  if (!account || !inbox?.snapshot().ready || !mayInviteToNodeChat(peer)) return 'Wait for your private invitation inbox to open.'
+  if (startingContactMessage) return 'A private conversation is already opening.'
+  const network = accountNetwork.current()
+  const current = () => nostrSession === account && contactInbox === inbox && network() && mayInviteToNodeChat(peer)
+  const offered = preferredDm(inbox.snapshot().invitations.filter(invite => invite.node && !bookmarks?.forgotten(invite.room)
+    && (invite.sender === peer || invite.recipient === peer)))
+  if (offered) {
+    if (offered.sender === account.pubkey) void inbox.retry()
+    await openContactInvitation(offered)
+    return
+  }
+  const known = knownRooms(roomStore()).find(room => dmPeer(parseNodeRoomLink(room.link, nowSeconds())?.existing?.policy, account.pubkey) === peer)
+  if (known) { peopleNostrPanel?.close(); openFromPeople(known); return }
+  const pair = loadPairedNode(deviceStore, account.pubkey)
+  if (!pair) return 'Pair your KithMoot node in Settings → Calls to invite someone to a private chat.'
+  const signer = nostrMessageIdentity(account, () => nostrSession, true)
+  if (!signer) return 'This signer can receive on Nostr here. Connect a browser signer to send a private chat invitation.'
+  const owner: Parameters<typeof createBrowserNodeRoom>[2] = { pubkey: signer.pubkey, signEvent: event => signer.signEvent(event, current) }
+  const label = name ?? shortKey(peer)
+  startingContactMessage = true
+  try {
+    if (!await confirmAction({ title: `Invite ${label} to a private chat?`, message: `KithMoot sends the encrypted invitation through Nostr. Your chat runs on ${new URL(pair.origin).hostname}.`,
+      confirmLabel: 'Send invitation', isCurrent: current })) return
+    const lists = await lookUpOrdinaryInboxLists([account.pubkey, peer], current, ordinaryInboxDirectory())
+    const destinations = (author: string) => ordinaryInboxRelays(lists, author, nowSeconds()).filter(publicPeopleRelay)
+    const theirs = destinations(peer), own = destinations(account.pubkey)
+    if (!theirs.length) return 'This person needs to publish a public Nostr inbox relay before you can send an invitation.'
+    if (!own.length) return 'Publish your public Nostr inbox relays before sending an invitation.'
+    if (!current() || JSON.stringify(loadPairedNode(deviceStore, account.pubkey)) !== JSON.stringify(pair)) return 'Your account, contact or node pairing changed.'
+    const held = preferredDm(listNodeRooms(deviceStore, account.pubkey).filter(state => state.authoritySk && !state.node.endsAt && !bookmarks?.forgotten(state.node.room)
+      && state.node.origin === pair.origin && state.node.serviceKey === pair.serviceKey && dmPeer(state.node.existing?.policy, account.pubkey) === peer)
+      .map(state => ({ room: state.node.room, sentAt: state.startsAt, state })))?.state
+    const room = held ?? await createBrowserNodeRoom(deviceStore, pair, owner, { allowed: current, name: label, membersPolicy: dmPolicy(account.pubkey, peer) })
+    if (held?.phase === 'creating') await resumeBrowserNodeCreation(deviceStore, held, pair, owner, { allowed: current })
+    if (!current()) return 'Your account or contact changed.'
+    const invitation = await inbox.enqueue(peer, room.node.room, encodeNodeRoomLink(joinLinkBase(), room.node.event, nowSeconds()), theirs, own)
+    void inbox.retry()
+    await openContactInvitation(invitation)
+  } catch (error) {
+    return describeError(error)
+  } finally { startingContactMessage = false }
 }
 function renderContactInbox(): void {
   nostrInboxPanel?.reconcile(); legacyMessagesPanel?.reconcile(); nostrMessagePanel?.reconcile()
@@ -4425,7 +4875,7 @@ async function messageContact(peer: string, name?: string): Promise<void> {
   if (startingContactMessage || !mayMessageContact(peer)) return
   const account = nostrSession!, inbox = contactInbox, generation = contactInboxGeneration
   const current = () => nostrSession === account && generation === contactInboxGeneration && mayMessageContact(peer)
-  const existing = preferredDm(knownRooms(roomStore()).filter(room => dmPeer(parseRoomLink(room.link).policy, account.pubkey) === peer && !isQuietRoom(room))
+  const existing = preferredDm(knownRooms(roomStore()).filter(room => dmPeerOf(room, account.pubkey) === peer && !isQuietRoom(room))
     .map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))
   const offered = preferredDm((inbox?.snapshot().invitations ?? []).filter(invitation => !bookmarks?.forgotten(invitation.room) && (invitation.sender === peer || invitation.recipient === peer))
     .map(invitation => ({ room: invitation.room, sentAt: invitation.sentAt, invitation })))
@@ -4556,8 +5006,9 @@ function renderIdentity(): void {
   grantedContactsPanel.reconcile()
   follows.setAccount(nostrSession?.pubkey)
   renderPeople()
+  renderPersonas()
   const input = $('displayName') as HTMLInputElement
-  if (document.activeElement !== input) input.value = typedName
+  if (document.activeElement !== input) input.value = typedJoiningName()
 
   ;($('signIn') as HTMLButtonElement).hidden = nostrSession !== undefined
   // A DM relay list is the account's to publish; a visitor has none.
@@ -4629,6 +5080,127 @@ function renderIdentity(): void {
   renderNudgeChoice()
 }
 
+function personaName(pubkey: string): string {
+  const shown = shownAs(pubkey)
+  return (personaMenuSelection ?? personaSelection)?.personas.find(persona => persona.pubkey === pubkey)?.label
+    || shown.name || shown.npub
+}
+
+function renderPersonas(): void {
+  const current = nostrSession?.pubkey ?? activeSavedPersona()?.pubkey
+  const choices = (personaMenuSelection ?? personaSelection)?.personas ?? []
+  const busy = loginBusy || identityRestoring
+  const enabled = !!current || choices.length > 0
+  const name = current ? personaName(current) : 'Personas'
+  const trigger = $('railPersonas')
+  trigger.hidden = !enabled
+  trigger.setAttribute('aria-label', current ? `Account menu for ${name}` : 'Personas')
+  $('railPersonaTip').textContent = name
+  const avatar = current ? doorAvatar(current) : document.createElement('span')
+  avatar.className = 'joinAvatar'
+  if (current) avatar.dataset.initial = [...name][0]?.toLocaleUpperCase() ?? ''
+  else avatar.textContent = '…'
+  $('railPersonaAvatar').replaceChildren(avatar)
+  $('doorPersonas').hidden = !enabled
+  const others = choices.filter(persona => persona.pubkey !== current)
+  const names = others.map(persona => personaName(persona.pubkey))
+  $('personaCurrent').hidden = !current
+  $('personaCurrentName').textContent = current ? name : ''
+  const shortKey = (pubkey: string): string => `…${npubEncode(pubkey).slice(-8)}`
+  const currentKey = $('personaCurrentKey')
+  currentKey.hidden = !current || !names.includes(name)
+  currentKey.textContent = !currentKey.hidden && current ? shortKey(current) : ''
+  const reconnect = $('reconnectPersona') as HTMLButtonElement
+  reconnect.hidden = !!nostrSession || !current || !choices.some(persona => persona.pubkey === current)
+  reconnect.disabled = busy
+  ;($('addSignetPersona') as HTMLButtonElement).disabled = busy
+  ;($('personaLabel') as HTMLInputElement).disabled = busy
+  ;($('personasClose') as HTMLButtonElement).disabled = loginBusy
+  $('personaSwitch').hidden = others.length === 0
+  const list = $('personaChoices')
+  const focused = list.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.persona : undefined
+  const rows = others.map((persona, index) => {
+    const label = names[index]!
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.dataset.persona = persona.pubkey
+    button.textContent = label
+    button.disabled = busy
+    if (label === name || names.indexOf(label) !== names.lastIndexOf(label)) {
+      const key = document.createElement('small')
+      key.textContent = shortKey(persona.pubkey)
+      button.append(key)
+    }
+    button.addEventListener('click', () => selectPersona(persona.pubkey))
+    return button
+  })
+  list.replaceChildren(...rows)
+  if (focused) rows.find(row => row.dataset.persona === focused && !row.disabled)?.focus({ preventScroll: true })
+}
+
+function selectPersona(pubkey: string): void {
+  const label = personaName(pubkey)
+  runPersonaAction(() => changePersona(async () => {
+    const opened = await restoreSavedPersona(pubkey)
+    if (!opened) throw new Error(`Could not reconnect ${label}. Open your signer or add this persona again.`)
+    return opened
+  }), `Connecting ${label}…`)
+}
+
+function runPersonaAction(action: () => Promise<void>, progress: string): void {
+  const status = $('personasStatus')
+  status.textContent = progress
+  status.focus({ preventScroll: true })
+  void action().then(() => {
+    if (status.textContent === progress) status.textContent = ''
+  }, error => { status.textContent = describeError(error) })
+  renderPersonas()
+}
+
+let personasOpener: HTMLElement | undefined
+function openPersonas(from: HTMLElement): void {
+  const dialog = $('personasDialog') as HTMLDialogElement
+  if (dialog.open) return
+  personasOpener = from
+  $('personasStatus').textContent = personaStorageError ? 'Saved signer connections are unavailable. Try opening Personas again.' : ''
+  renderPersonas()
+  dialog.showModal()
+  void Promise.resolve().then(() => personaStore().selection()).then(selection => {
+    if (!dialog.open || loginBusy) return
+    personaMenuSelection = selection
+    if (selection) personaStorageError = false
+    renderPersonas()
+  }, () => { $('personasStatus').textContent = 'Saved signer connections are unavailable.' })
+}
+
+for (const id of ['railPersonas', 'accountPersonas', 'doorPersonas']) $(id).addEventListener('click', () => openPersonas($(id)))
+$('reconnectPersona').addEventListener('click', () => {
+  const saved = activeSavedPersona()
+  if (saved) selectPersona(saved.pubkey)
+})
+$('personasClose').addEventListener('click', () => { if (!loginBusy) ($('personasDialog') as HTMLDialogElement).close() })
+$('personasDialog').addEventListener('cancel', event => { if (loginBusy) event.preventDefault() })
+$('personasDialog').addEventListener('close', () => {
+  const from = personasOpener
+  personasOpener = undefined
+  if (document.querySelector('dialog:modal')) return
+  const target = from?.getClientRects().length ? from : $('railPersonas')
+  if (target.getClientRects().length) target.focus({ preventScroll: true })
+})
+$('addSignetPersona').addEventListener('click', () => {
+  const label = ($('personaLabel') as HTMLInputElement).value
+  runPersonaAction(() => connectPersona(label), 'Waiting for My Signet…')
+})
+for (const event of ['pointerenter', 'focus']) $('railPersonas').addEventListener(event, () => {
+  delete $('railPersonas').dataset.tipDismissed
+})
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog:modal')) return
+  if (getComputedStyle($('railPersonaTip')).visibility !== 'visible') return
+  $('railPersonas').dataset.tipDismissed = ''
+  event.preventDefault()
+})
+
 /** The four faces of the door (design-calm stage 6). Decided here and
  *  nowhere else: `name` is a stranger, `signedIn` an account that is
  *  connected, `reconnect` an account used here before that is not, and
@@ -4695,7 +5267,11 @@ function focusDoor(mode: DoorMode): void {
 function renderDoorMode(): void {
   applyHideIpDefault()
   // The knock door keeps its own controls (Request to join).
-  if (guestAdmissionPreview) return
+  if (guestAdmissionPreview) {
+    const persona = activeSavedPersona()
+    $('requestAdmission').textContent = persona ? `Request to join as ${personaName(persona.pubkey)}` : 'Request to join'
+    return
+  }
   const mode = doorMode()
   const join = $('join') as HTMLButtonElement
   const known = joiningName()
@@ -4710,7 +5286,8 @@ function renderDoorMode(): void {
   if (!joining) {
     // The account's own name; the name typed on this device is a visitor's
     // unless the account is connected and has none of its own.
-    const named = account ? ((mode === 'signedIn' && nostrSession ? known : undefined) ?? shownAs(account).name ?? lastKnownProfileNames.get(account)) : undefined
+    const label = personaSelection?.personas.find(persona => persona.pubkey === account)?.label
+    const named = label || (account ? ((mode === 'signedIn' && nostrSession ? known : undefined) ?? shownAs(account).name ?? lastKnownProfileNames.get(account)) : undefined)
     const text = mode === 'name' ? 'Join'
       : mode === 'extension' ? 'Continue with your Nostr extension'
       : named ? `Continue as ${named}` : 'Continue with your Nostr account'
@@ -5155,9 +5732,12 @@ async function admitOwnNodeDevice(node: NodeRoomRecord, participant: Participant
  * performs the live one-tap rendezvous. Legacy v1 links still decode through
  * src/room.ts so old links do not break during rollout.
  */
-async function roomFromLocation(): Promise<boolean> {
+interface ContactNodeOpening { record: string; allowed(): boolean }
+async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boolean> {
   if (location.hash.length <= 1) return false
+  if (identityRestoring && expectingSavedPersonas()) await identityReady
   const node = parseNodeRoomLink(location.href, nowSeconds())
+  if (nodeOpening && (node?.event.id !== nodeOpening.record || !nodeOpening.allowed())) throw Error('The private invitation is no longer available.')
   if (node) {
     if (identityRestoring) await identityReady
     // A failed signer restore must not turn a returning account into a
@@ -5166,6 +5746,7 @@ async function roomFromLocation(): Promise<boolean> {
     const openingIdentity = () => nostrSession?.signer ?? (expectedAccount ? waitingAccountIdentity(expectedAccount) : currentIdentity())
     const participant = openingIdentity(), generation = roomGeneration
     const current = () => roomGeneration === generation && (nostrSession?.pubkey ?? expectedAccount ?? currentParticipant()) === participant.pubkey
+      && (nodeOpening?.allowed() ?? true)
     let held = loadNodeRoom(deviceStore, participant.pubkey, node.room)
     if (held && held.node.event.id !== node.event.id) throw Error('This room link names a different node record. Ask the keeper for the current link.')
     if (held?.phase === 'creating') {
@@ -5251,7 +5832,7 @@ async function roomFromLocation(): Promise<boolean> {
       // This tab's session first, then what the person chose to keep on
       // this device, then the live rendezvous.
       const tabCached = loadCachedAdmission(invitation)
-      const saved = tabCached ?? loadKeptAdmission(deviceStore, deriveInvitationId(invitation), nowSeconds())
+      const saved = tabCached ?? loadKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), nowSeconds())
       // An updated group link must load its signed durable invitation once,
       // so an earlier temporary grant cannot keep the twelve-hour storage rule.
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
@@ -5270,7 +5851,7 @@ async function roomFromLocation(): Promise<boolean> {
         // this visit, so its hint stands, unless it is a group's (see
         // `admissionEpochHint`).
         expectedEpoch = cached === tabCached ? admissionEpochHint(cached) : undefined
-        cacheAdmission(invitation, cached)
+        cacheAdmission(invitation, cached, roomDeviceStore(browserDeviceStore(sessionStorage)))
         serveCurrentInvitation()
       } else {
         $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : roomName ? `Ask to join ${roomName}` : 'Ask to join this room'
@@ -5301,6 +5882,7 @@ async function roomFromLocation(): Promise<boolean> {
               mic: $('previewAdmissionMic') as HTMLButtonElement, video: $('admissionPreviewVideo') as HTMLVideoElement,
               meter: $('admissionPreviewMeter') as HTMLMeterElement, signal: pending.signal, cancelRequest: () => pending.abort() })
             guestAdmissionPreview = preview
+            renderDoorMode()
             await preview.ready
             if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview.requested)
             $('arrivalTitle').textContent = 'Waiting to be admitted'
@@ -5360,7 +5942,7 @@ async function roomFromLocation(): Promise<boolean> {
           invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
           invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
           expectedEpoch = admissionEpochHint(admission)
-          cacheAdmission(invitation, admission)
+          cacheAdmission(invitation, admission, roomDeviceStore(browserDeviceStore(sessionStorage)))
           // The ending to "Getting you in…". It says the waiting is over
           // and that the next move is the reader's, which is the thing they
           // could not tell while a line saying "in progress" sat under a
@@ -6819,7 +7401,7 @@ function renderRoomInfo(): void {
   const route = nodeRoom ? 'KithMoot node · Calls through this node' : roomUsesBothy ? 'Bothy route' : 'public relays'
   setInfoSub('infoSubPrivacy', `Encrypted · ${route}`)
   renderRoomFilesLine()
-  setInfoSub('infoSubName', $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
+  setInfoSub('infoSubName', peer ? 'Your name for this chat' : $('roomRename').hidden && $('roomLogoControls').hidden ? '' : 'Anyone here can change them')
   $('infoRowName').hidden = $('roomRename').hidden && $('roomLogoControls').hidden
   setInfoSub('infoSubPhone', '')
   $('infoRowPhone').hidden = !!nodeRoom || isPairedSecondary(deviceStore)
@@ -7065,10 +7647,11 @@ function addContact(text: string, status: HTMLElement = $('contactCardStatus')):
 async function showMyCard(out = $('myCardOut') as HTMLInputElement, qr = $('myCardQr') as HTMLCanvasElement): Promise<void> {
   const rz = bytesToHex(schnorr.getPublicKey(myRendezvousSecret(deviceStore, () => randomBytes(32))))
   const identity = currentIdentity()
+  const name = typedJoiningName()
   const card = await buildCardWith(identity.pubkey, (unsigned) => identity.signEvent(unsigned), {
     rz,
     ephemeralPrivateKey: randomBytes(32),
-    ...(typedName ? { name: typedName } : {}),
+    ...(name ? { name } : {}),
     relays: RELAYS,
     boxes: [],
     ttlSeconds: 7 * 24 * 3600,
@@ -7860,6 +8443,10 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
         deviceId: stream.getVideoTracks()[0]?.getSettings().deviceId,
         ownIds: await window.kithmootDesktop?.ownCaptureIds?.().catch(() => undefined),
       }
+      if (desktopRedaction.supported) {
+        const state = await desktopRedaction.refresh()
+        if (state.source?.kind === 'window') capture.chosenId = state.source.captureId
+      }
       if (!protectedShare && !area && desktopRedaction.supported) {
         const raw = stream
         stream = await desktopRedaction.redact(raw, renderRedactionNote).catch(error => { for (const track of raw.getTracks()) track.stop(); throw error })
@@ -7912,13 +8499,17 @@ async function toggleScreen(area = false, protectedShare = false): Promise<void>
       clearShareError()
       publishActiveTracks()
       offerFloatingMarks()
-      // A whole screen: other people's marks go over the screen itself. The
+      // Native drawings follow the selected window or display. The
       // main process's record of what was captured has to agree with the
       // track's own idea of it, as it does for redaction.
+      if (!area && window.kithmootDesktop?.supportsCompositorMarks) {
+        const shared = screenTrack
+        void shareMarksOverlay.openCompositor(surface === 'window' ? 'window' : 'screen', () => screenTrack === shared ? screenSource(meParticipant, myDeviceId)?.id ?? shared.id : undefined)
+      }
       if (!area && shareMarksOverlay.supported) {
         const shared = screenTrack
         void desktopRedaction.refresh().then(state => {
-          if (screenTrack !== shared || effectiveSource(state.source, surface)?.kind !== 'screen') return
+          if (screenTrack !== shared || !effectiveSource(state.source, surface)) return
           shareMarksOverlay.open(() => screenSource(meParticipant, myDeviceId)?.id ?? shared.id)
         })
       }
@@ -7999,8 +8590,7 @@ function addLocalPreview(kind: 'camera' | 'screen', track: MediaStreamTrack): vo
  * `ShareViewer#overlay`) is untouched - it paints on a canvas of its own,
  * never a copy of the video's pixels - so drawing on a full-screen share
  * still shows up for the sharer, just without a live picture behind it. In
- * the desktop app a whole-screen share's marks also go over the screen
- * itself (`shareMarksOverlay`), which is where the sharer is looking.
+ * the desktop app, marks also go directly over the shared window or screen (`shareMarksOverlay`), which is where the sharer is looking.
  */
 function applySelfMirrorGuard(): void {
   const preview = localPreviewEls.get('screen')
@@ -8331,6 +8921,7 @@ function updateRedactionControls(): void {
 }
 
 function updateUi(): void {
+  paintAudioActivity(true)
   if ((callIsLive() || onCall()) && !docked()) setCallOpen(true)
   setToggle('toggleMic', !!micTrack?.enabled)
   setToggle('toggleCamera', !!cameraTrack)
@@ -8498,7 +9089,9 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // mirrored like this device's own camera, or left and right swap.
   for (const [key, entry] of remoteVideos) {
     const device = tileDevice(key)
-    entry.el.classList.toggle('ownCameraView', device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera'))
+    const ownCamera = device !== myDeviceId && ownDevices.has(device) && key === tileKey(device, 'camera')
+    entry.el.classList.toggle('ownCameraView', ownCamera)
+    entry.previous?.el.classList.toggle('ownCameraView', ownCamera)
   }
   cachedMonitorHere = monitorHere
   cachedOwnDevices = ownDevices
@@ -8552,10 +9145,10 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
   // the room's, not the call's - but a person who has pressed Leave is
   // shown the names and the banner, not the faces, until they press Join.
   // The poll puts them back the moment they do.
-  if (leftCall) for (const entry of remoteVideos.values()) if (onScreen(entry)) parkPicture(entry.el)
+  if (leftCall) for (const entry of remoteVideos.values()) if (onScreen(entry)) parkRemoteVideo(entry)
   // Nor of anybody meeting mode keeps off the stage. Parked, not removed,
   // so a person made a speaker is back on screen at the next poll.
-  for (const [key, entry] of remoteVideos) if (onScreen(entry) && meetingGated(tileDevice(key))) parkPicture(entry.el)
+  for (const [key, entry] of remoteVideos) if (onScreen(entry) && meetingGated(tileDevice(key))) parkRemoteVideo(entry)
 
   const root = $('room')
   const kept = new Set<string>()
@@ -8742,8 +9335,8 @@ function renderCallMedia(views: ParticipantView[], me: string): void {
       const openViewer = (): void => { if (!mirrored()) shareViewer.open(source, expand!) }
       expand.onclick = openViewer
       if (!ready) continue
-      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remoteVideos.get(tileKey(device, 'screen'))?.el
-        ?? [...remoteVideos.values()].find(entry => entry.track === available.track)?.el
+      const remote = remoteVideos.get(tileKey(device, 'screen')) ?? [...remoteVideos.values()].find(entry => entry.track === available.track)
+      const preview = device === myDeviceId ? localPreviewEls.get('screen') : remote?.previous?.el ?? remote?.el
       if (preview) {
         preview.classList.add('screenPreview')
         if (device === myDeviceId) preview.ondblclick = openViewer
@@ -9778,7 +10371,9 @@ function renderCurrentRoomLogo(): void {
 
 function renderRoomLogoControls(): void {
   const s = session, me = meParticipant || currentParticipant()
-  const permitted = !nodeRoom && !!s && !isQuietPolicy(roomPolicy) && !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
+  // A bookmark can be accepted while this session is still joining.
+  const permitted = !nodeRoom && !!s && roomLogoFollowers.has(s) && !isQuietPolicy(roomPolicy) &&
+    !(me && dmPeer(roomPolicy, me)) && !s.channel(CONTROL_CHANNEL).readOnly
   $('roomLogoControls').hidden = !permitted
   if (permitted) renderLogo($('roomLogoPreview'), displayedRoomLogo(s!.roomId, roomProjectContext), currentRoomLabel())
   else clearLogo($('roomLogoPreview'))
@@ -9825,6 +10420,8 @@ function storeRoomNameRecord(roomId: string, record: Pick<RoomNameRecord, 'name'
 
 /** The room's name changed, by a rename this device read or made. */
 function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
+  const known = knownRoom(roomStore(), s.roomId)
+  if (session === s ? !!dmPeer(roomPolicy, s.participant) : !!known && !!dmPeerOf(known)) return
   storeRoomNameRecord(s.roomId, record)
   if (session === s) {
     if (roomName === record.name) return
@@ -9846,7 +10443,7 @@ function adoptSharedRoomName(s: RoomSession, record: RoomNameRecord): void {
  *  keeps and the name is new. */
 function saveKnownRoomName(roomId: string, name: string): void {
   const known = knownRoom(roomStore(), roomId)
-  if (!known || known.name === name) return
+  if (!known || dmPeerOf(known) || known.name === name) return
   try {
     bookmarks?.save(rememberRoom(roomStore(), { roomId, link: known.link, name, openedAt: known.openedAt }))
   } catch { /* The name still shows in the room itself. */ }
@@ -9914,7 +10511,7 @@ function followSharedRoomName(s: RoomSession): void {
       seed: loadRoomNameRecord(s.roomId),
       onName: (record) => { if (record) adoptSharedRoomName(s, record) },
       onRename: (record, message) => {
-        if (session !== s) return
+        if (session !== s || dmPeer(roomPolicy, s.participant)) return
         addSystemLine(`${personLabel(record.by)} renamed the room to “${record.name}”.`, message.sentAt)
       },
     })
@@ -9988,6 +10585,7 @@ function scheduleNodeRoomName(s: RoomSession): void {
 /** Rename the room for everybody in it. */
 async function renameRoomForEveryone(name: string): Promise<void> {
   const s = session
+  if (s && dmPeer(roomPolicy, s.participant)) throw new Error('A private chat has personal names. Use “Save name for me”.')
   const follower = s ? roomNameFollowers.get(s) : undefined
   if (!s || !follower) throw new Error('Join the room before renaming it.')
   const record = await follower.rename(name)
@@ -10001,9 +10599,29 @@ function renderRoomRename(): void {
   renderRoomLogoControls()
   const form = $('roomRename') as HTMLFormElement
   const me = meParticipant || currentParticipant()
-  form.hidden = !session || (me ? dmPeer(roomPolicy, me) !== undefined : false)
+  const direct = !!(me && dmPeer(roomPolicy, me))
+  form.hidden = !session
+  $('roomNameScope').textContent = direct ? 'Your name for this chat is private to you and syncs with your own account. The other person keeps their own name for it.' : 'Anyone here can change them.'
+  form.querySelector('label')!.textContent = direct ? 'Choose your name for this chat.' : 'Rename this room for everyone in it.'
+  $('roomRenameSave').textContent = direct ? 'Save name for me' : 'Rename for everyone'
+  $('roomRenameReset').hidden = !direct || !knownRoom(roomStore(), currentRoomId() ?? '')?.chatLabel
   const input = $('roomRenameInput') as HTMLInputElement
-  if (document.activeElement !== input) input.value = roomName ?? ''
+  input.setAttribute('aria-label', direct ? 'Your chat name' : 'Room name')
+  if (document.activeElement !== input) input.value = direct ? knownRoom(roomStore(), currentRoomId() ?? '')?.chatLabel ?? '' : roomName ?? ''
+}
+
+/** Personal bookmark metadata: never sent on the room's control channel. */
+function nameDirectChatForMe(name: string | null): void {
+  const s = session
+  if (!s || !dmPeer(roomPolicy, s.participant)) throw new Error('Open your private chat before changing its name.')
+  const store = roomStore()
+  const known = knownRoom(store, s.roomId)
+  if (!known) throw new Error('Wait for this chat to be saved before naming it.')
+  const room = rememberRoom(store, { ...known, chatLabel: name })
+  bookmarks?.save(room)
+  renderRoomTitle()
+  renderRooms()
+  renderRoomRename()
 }
 
 /** The authority: every member should use these relays too. */
@@ -11827,6 +12445,12 @@ function renderInvites(): void {
  *  An object URL is revoked when its attachment is retracted, edited away or
  *  leaves the log, and never before, so a re-render never fetches twice. */
 const openedAttachments = new Map<string, OpenedAttachment>()
+const attachmentEnvelopes = new Map<string, Blob>()
+type AttachmentCopyState = { origin: string; detail: string } & (
+  | { status: 'saving'; showResult: () => void }
+  | { status: 'saved' | 'error' }
+)
+const attachmentCopies = new Map<string, AttachmentCopyState>()
 const liveAttachmentKeys = new Map<string, Set<string>>()
 const attachmentViewer = new AttachmentViewer()
 const nativeAttachmentViewer = new NativeAttachmentViewer()
@@ -11860,6 +12484,8 @@ function disposeOpenedAttachment(key: string): void {
     URL.revokeObjectURL(opened.url)
   }
   openedAttachments.delete(key)
+  attachmentEnvelopes.delete(key)
+  attachmentCopies.delete(key)
 }
 
 /** Drop what was opened for attachments no longer visible in this log. */
@@ -11907,14 +12533,19 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
   const closed = cleanFileName(a.name ?? 'Encrypted file')
   const closedMeta = `${familyLabel({ ext: closed.ext, declaredType: a.type })}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
   const host = (() => { try { return new URL(a.url).host } catch { return 'the server' } })()
-  const focusInto = (focus: 'first' | 'save' | undefined): void => {
+  const focusInto = (focus: 'first' | 'save' | 'copy' | undefined): void => {
     if (!focus) return
     const target = focus === 'save'
       ? card.querySelector<HTMLElement>('[data-save-warned]')
-      : card.querySelector<HTMLElement>('[data-question]') ?? card.querySelector<HTMLElement>('[data-focus-key]')
+      : focus === 'copy'
+        ? card.querySelector<HTMLElement>('[data-copy-status]') ?? card.querySelector<HTMLElement>('[data-wildbloom-copy]')
+        : card.querySelector<HTMLElement>('[data-question]') ?? card.querySelector<HTMLElement>('[data-focus-key]')
     target?.focus({ preventScroll: true })
   }
-  const render = (focus?: 'first' | 'save'): void => {
+  const render = (focus?: 'first' | 'save' | 'copy'): void => {
+    const copyOrigin = attachmentEnvelopes.has(key) ? ownFileServer(deviceFileDestination()) : ''
+    const state = attachmentCopies.get(key)
+    const copy = state?.origin === copyOrigin ? state : undefined
     paintAttachmentCard(card, {
       id: key.replace(/[^A-Za-z0-9_-]/g, '_'),
       index,
@@ -11923,6 +12554,12 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       opened: openedAttachments.get(key),
       desktop: import.meta.env.VITE_DESKTOP === 'true',
       nativeMedia: nativeAttachmentSupport(),
+      ...(copyOrigin ? { wildbloom: {
+        host: fileHost(copyOrigin),
+        status: copy?.status ?? 'ready',
+        detail: copy?.detail ?? '',
+      } } : {}),
+      saveToWildbloom: () => { void saveToWildbloom() },
       formatBytes,
       openViewer: openAttachmentViewer,
       copyText: copyMessageText,
@@ -11939,6 +12576,38 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       card.append(notice)
     }
     focusInto(focus)
+  }
+  const showCopyResult = (): void => {
+    if (!card.isConnected) return
+    const hadFocus = document.activeElement === document.body || card.contains(document.activeElement)
+    render(hadFocus ? 'copy' : undefined)
+  }
+  const saveToWildbloom = async (): Promise<void> => {
+    const origin = ownFileServer(deviceFileDestination())
+    const envelope = attachmentEnvelopes.get(key)
+    if (!origin || !envelope || attachmentCopies.get(key)?.status === 'saving') return
+    const identity = currentIdentity(), accountGeneration = identityGeneration
+    const current = (): void => {
+      if (identityGeneration !== accountGeneration || currentParticipant() !== identity.pubkey || ownFileServer(deviceFileDestination()) !== origin) {
+        throw new Error('Your account or Wildbloom destination changed. Review it and try again.')
+      }
+    }
+    const host = fileHost(origin)
+    const saving: AttachmentCopyState = {
+      origin, status: 'saving', detail: `Saving an encrypted copy to ${host}…`, showResult: showCopyResult,
+    }
+    attachmentCopies.set(key, saving)
+    render()
+    let result: AttachmentCopyState
+    try {
+      await copyEnvelopeToWildbloom({ server: origin, envelope, sha256: a.sha256, identity, current })
+      result = { origin, status: 'saved', detail: `Saved to ${host}. It stays encrypted with the room’s key.` }
+    } catch (error) {
+      result = { origin, status: 'error', detail: attachmentCopyError(error, host) }
+    }
+    if (attachmentCopies.get(key) !== saving || !liveAttachmentKeys.get(logId)?.has(key)) return
+    attachmentCopies.set(key, result)
+    saving.showResult()
   }
   const openAttachment = async (button: HTMLButtonElement): Promise<void> => {
     button.disabled = true
@@ -11974,6 +12643,7 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
       // origin; an isolated renderer receives the Blob for every preview.
       const blob = new Blob([file.source], { type: decision.mime })
       const url = URL.createObjectURL(blob)
+      attachmentEnvelopes.set(key, file.envelope)
       openedAttachments.set(key, {
         url, blob, name: decision.name, type: decision.mime, size: file.size, decision,
         ...(text !== undefined ? { text } : {}),
@@ -11991,6 +12661,9 @@ function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAtt
     const hadFocus = document.activeElement === document.body || card.contains(document.activeElement)
     render(hadFocus && opened ? 'first' : undefined)
   }
+  // Chat can replace this card before Wildbloom replies. Let the new card show the result.
+  const pendingCopy = attachmentCopies.get(key)
+  if (pendingCopy?.status === 'saving') pendingCopy.showResult = showCopyResult
   render()
   return card
 }
@@ -13926,8 +14599,12 @@ interface RemoteVideo {
   el: HTMLVideoElement
   container: HTMLDivElement
   track: MediaStreamTrack
+  /** The last visible sink while its replacement decodes its first frame. */
+  previous?: { el: HTMLVideoElement; expiresAt: number }
   /** `currentTime` at the last check - a picture that is moving is live. */
   last: number
+  /** Decoded frames are independent evidence when a browser's clock stalls. */
+  lastFrames?: number
   /** Consecutive checks with no new frame. */
   stalled: number
   /**
@@ -14077,6 +14754,76 @@ function showVerification(view: ParticipantView, name: string, status: string): 
 }
 
 const LOCAL_SPEAKING_KEY = 'self'
+const audioActivity = new AudioActivity(document.querySelectorAll<HTMLElement>('[data-audio-activity]'))
+let audioLevels: ReadonlyMap<string, number | null> = new Map()
+let audioWaveforms: ReadonlyMap<string, readonly number[]> = new Map()
+let audioActivityScope = ''
+let callerMics: (Omit<ParticipantSignal, 'signal' | 'waveform'> & {
+  source?: string
+  status?: Exclude<AudioSignal, number | null>
+})[] = []
+
+function paintAudioActivity(force = false): void {
+  const owner = mediaSession()
+  const callId = owner?.call?.id
+  const scope = owner && callId && !leavingCall ? `${owner.roomId}:${callId}` : ''
+  // Resolve identity, membership and mic ownership on a call UI repaint.
+  // Audio polling only reads the cached sources and updates their meters.
+  if (force || scope !== audioActivityScope) {
+    audioActivityScope = scope
+    callerMics = []
+    if (scope && owner) {
+      const me = mediaMe()
+      const meeting = callMeeting()
+      const views = owner.participants()
+      const myView = views.find(view => view.participant === me)
+      const callers = views.filter(view => view.participant !== me && view.call?.id === callId)
+      callers.sort((a, b) => a.participant.localeCompare(b.participant))
+      const labels = callers.map(view => shownAs(view.participant, view.name))
+
+      const micFor = (view?: ParticipantView): string | undefined => {
+        const device = view?.mic
+        if (device && view.call && view.call.id === callId && view.call.devices.includes(device) &&
+          view.tracks.some(track => track.device === device && track.role === 'mic')) return device
+        return undefined
+      }
+      const ownMic = micFor(myView)
+      const ownOnThisDevice = !ownMic || ownMic === owner.device
+      const statusFor = (participant: string, view: ParticipantView | undefined, device: string | undefined) =>
+        !meetingAllows(meeting, participant, 'audio') ? 'Listen only'
+          : !device ? 'Off' : view && selfMutedMic(view) ? 'Muted' : undefined
+      callerMics.push({
+        id: me, label: 'You', self: true,
+        ...(ownOnThisDevice ? {
+          source: LOCAL_SPEAKING_KEY,
+          status: meetingAllows(meeting, me, 'audio') ? undefined : 'Listen only',
+        } : { source: tileKey(ownMic, 'mic'), status: statusFor(me, myView, ownMic) }),
+      })
+      callers.forEach((view, index) => {
+        const shown = labels[index]!
+        const device = micFor(view)
+        callerMics.push({
+          id: view.participant,
+          label: shown.name && nameCollides(shown.pubkey, shown.name)
+            ? `${shown.name} · ${shown.short}` : shown.name ?? 'Somebody',
+          source: device && tileKey(device, 'mic'),
+          status: statusFor(view.participant, view, device),
+        })
+      })
+    }
+  }
+  audioActivity.update(scope, callerMics.map(person => {
+    const { source, status } = person
+    const local = source === LOCAL_SPEAKING_KEY
+    const reading = source && (local ? micTrack : remoteAudios.get(source)?.track)?.readyState === 'live'
+    return {
+      ...person,
+      signal: status ?? (local && !micTrack ? 'Off' : local && !micTrack?.enabled ? 'Muted'
+        : reading ? audioLevels.get(source) ?? null : null),
+      waveform: reading ? audioWaveforms.get(source) : undefined,
+    }
+  }), force)
+}
 
 /**
  * Who is talking. Keyed by device, because that is what carries a track -
@@ -14089,6 +14836,8 @@ const LOCAL_SPEAKING_KEY = 'self'
  */
 const speakingMonitor = new SpeakingMonitor({
   onChange: () => paintSpeaking(),
+  onWaveforms: waveforms => { audioWaveforms = waveforms },
+  onLevels: levels => { audioLevels = levels; paintAudioActivity() },
 })
 
 /** Applies the current speaking state to whichever tiles are on screen.
@@ -14378,6 +15127,61 @@ function onScreen(entry: RemoteVideo): boolean {
   return entry.el.parentElement === entry.container
 }
 
+const PICTURE_HANDOFF_MS = 3_000
+
+function hasVideoFrame(el: HTMLVideoElement): boolean {
+  return el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && el.videoWidth > 0 && el.videoHeight > 0
+}
+
+function releaseVideoSink(el: HTMLVideoElement): void {
+  el.remove()
+  el.pause()
+  el.srcObject = null
+}
+
+function releasePreviousPicture(entry: RemoteVideo): void {
+  if (entry.previous) releaseVideoSink(entry.previous.el)
+  entry.previous = undefined
+}
+
+function parkRemoteVideo(entry: RemoteVideo): void {
+  releasePreviousPicture(entry)
+  parkPicture(entry.el)
+}
+
+function removeRemoteVideo(entry: RemoteVideo): void {
+  releasePreviousPicture(entry)
+  releaseVideoSink(entry.el)
+}
+
+function setRemoteVideoSource(entry: RemoteVideo, track: MediaStreamTrack): void {
+  const old = entry.el
+  if (onScreen(entry) && old.isConnected && !old.hasAttribute('data-gallery-off-page') &&
+      !old.classList.contains('awaitingFrame') && hasVideoFrame(old)) {
+    const next = old.cloneNode(false) as HTMLVideoElement
+    next.muted = old.muted
+    next.classList.add('awaitingFrame')
+    old.after(next)
+    entry.previous = { el: old, expiresAt: performance.now() + PICTURE_HANDOFF_MS }
+    entry.el = next
+    next.addEventListener('loadeddata', () => {
+      if (entry.el !== next || !next.isConnected || !hasVideoFrame(next)) return
+      releasePreviousPicture(entry)
+      next.classList.remove('awaitingFrame')
+      repaint()
+    }, { once: true })
+  }
+  entry.track = track
+  entry.el.dataset.track = track.id
+  entry.el.classList.add('awaitingFrame')
+  entry.el.srcObject = new MediaStream([track])
+  entry.last = -1
+  entry.lastFrames = undefined
+  entry.stalled = 0
+  entry.played = false
+  entry.frozenSince = undefined
+}
+
 /**
  * Take a picture off screen when it stops moving, and put it back when it
  * starts again.
@@ -14550,20 +15354,27 @@ function syncRemoteVideos(): void {
   for (const device of new Set([...remoteVideos.keys(), ...remoteAudios.keys()].map(tileDevice))) deviceReceivers(device, now)
   for (const [key, entry] of remoteVideos) {
     const clock = entry.el.currentTime
-    const hasFrame = entry.el.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && entry.el.videoWidth > 0 && entry.el.videoHeight > 0
-    const moving = pictureAdvanced(entry.last, clock, hasFrame)
+    const hasFrame = hasVideoFrame(entry.el)
+    const quality = entry.el.getVideoPlaybackQuality?.()
+    const frames = quality ? quality.totalVideoFrames - quality.droppedVideoFrames : undefined
+    const moving = pictureAdvanced(entry.last, clock, hasFrame, entry.lastFrames, frames)
     entry.last = clock
+    entry.lastFrames = frames
     if (moving) {
       noteProgress(entry.track, now)
     }
     // Reveal real picture data even when a still frame's clock is zero.
     // An initial empty sink must remain attached without claiming playback.
     if (hasFrame && entry.el.classList.contains('awaitingFrame')) { entry.el.classList.remove('awaitingFrame'); changed = true }
+    if (entry.previous && (hasFrame || now >= entry.previous.expiresAt)) {
+      releasePreviousPicture(entry)
+      changed = true
+    }
     const progressedAt = trackProgressAt.get(entry.track)
     if (progressedAt !== undefined) tileLiveness.progressed(key, progressedAt)
     if (entry.track.readyState === 'ended' || tileLiveness.gone(key, advertised(key), now)) {
       if (onScreen(entry)) changed = true
-      entry.el.remove()
+      removeRemoteVideo(entry)
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(key.split('|')[0]), 'video')
       continue
@@ -14581,7 +15392,7 @@ function syncRemoteVideos(): void {
     // stops, and so does a wedged decoder's while the packets keep coming.
     const { action, state } = judgePicture(
       { stalled: entry.stalled, played: entry.played, onScreen: onScreen(entry), frozenSince: entry.frozenSince },
-      { moving, arriving: trackReceivingRtp(entry.track, now), visible: $('callStage').checkVisibility(), at: now },
+      { moving, arriving: trackReceivingRtp(entry.track, now), advertised: advertised(key), visible: $('callStage').checkVisibility(), at: now },
     )
     entry.stalled = state.stalled
     entry.played = state.played
@@ -14591,14 +15402,12 @@ function syncRemoteVideos(): void {
       changed = true
     }
     if (action === 'park') {
-      parkPicture(entry.el)
+      parkRemoteVideo(entry)
       changed = true
     }
     if (action === 'rebind') {
-      // The same track, a new decoder. Cheap, and at worst it repeats every
-      // fifteen seconds for as long as the picture stays frozen.
-      entry.el.srcObject = new MediaStream([entry.track])
-      entry.last = -1
+      // Reopen the decoder while keeping the last frame in the tile.
+      setRemoteVideoSource(entry, entry.track)
       if (!leftCall && entry.el.paused) void entry.el.play().catch(() => { /* the next pass tries again */ })
       callTimeline.record('tile-bound', short(tileDevice(key)), 'video')
     }
@@ -14619,10 +15428,7 @@ function syncRemoteVideos(): void {
     entry.el.remove()
     remoteAudios.delete(key)
     remoteVolume.detach(key)
-    const device = tileDevice(key)
-    const remaining = [...remoteAudios].find(([other]) => other.startsWith(`${device}|`))
-    if (remaining) speakingMonitor.watch(device, remaining[1].track)
-    else speakingMonitor.unwatch(device)
+    speakingMonitor.unwatch(key)
     changed = true
   }
   tileLiveness.retain([...remoteVideos.keys(), ...remoteAudios.keys()])
@@ -14659,14 +15465,25 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
   // two names.
   if (track.kind === 'video' && !remoteVideos.has(key)) {
     const alias = [...remoteVideos].find(([, entry]) => entry.track === track)
-    if (alias) { remoteVideos.delete(alias[0]); remoteVideos.set(key, alias[1]); callTimeline.record('tile-bound', short(device)) }
+    if (alias) {
+      releasePreviousPicture(alias[1])
+      remoteVideos.delete(alias[0])
+      remoteVideos.set(key, alias[1])
+      callTimeline.record('tile-bound', short(device))
+    }
   }
   if (track.kind === 'audio' && !remoteAudios.has(key)) {
     const alias = [...remoteAudios].find(([, entry]) => entry.track === track)
     // Any route the old key held is torn down rather than left dangling
     // under a name `remoteAudios` no longer has; `render()` opens a fresh
     // one under the new key on its next pass.
-    if (alias) { remoteAudios.delete(alias[0]); remoteAudios.set(key, alias[1]); remoteVolume.detach(alias[0]); callTimeline.record('tile-bound', short(device)) }
+    if (alias) {
+      remoteAudios.delete(alias[0])
+      remoteAudios.set(key, alias[1])
+      remoteVolume.detach(alias[0])
+      speakingMonitor.unwatch(alias[0])
+      callTimeline.record('tile-bound', short(device))
+    }
   }
 
   // One element PER TRACK, not per kind. A device sharing its screen while
@@ -14678,22 +15495,14 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
   // second audio track alongside the mic.
   if (track.kind === 'video') {
     const existing = remoteVideos.get(key)
-    const el = existing?.el ?? document.createElement('video')
-    // The same key, a different track object: the mesh rebuilt the
-    // connection to this device - a rung down the ladder, or a fresh one
-    // after a rest - and the far end's track arrived again on it. The
-    // element is kept, so the picture never blinks, but everything that
-    // judges it has to follow the new track: the stall poller reads
-    // `entry.track.readyState`, and the old track ends the moment the old
-    // connection closes. Left pointing at the old one, the poller and the
-    // old track's `ended` both took the element off the screen while it
-    // was showing live frames from the new one, and nothing put it back -
-    // `ontrack` for that track had already fired. That was a picture gone
-    // for the rest of the call, on a connection that was working.
     const replaced = existing !== undefined && existing.track !== track
-    if (!existing || replaced) el.srcObject = new MediaStream([track])
-    if (existing) existing.track = track
+    if (replaced) setRemoteVideoSource(existing, track)
+    const el = existing?.el ?? document.createElement('video')
+    // The negotiated role is known before its roster advert arrives. An
+    // early screen receiver must never count as another camera meanwhile.
+    el.classList.toggle('screenPreview', tileRole(key) === 'screen')
     if (!existing) {
+      el.srcObject = new MediaStream([track])
       el.autoplay = true
       el.playsInline = true
       el.muted = true
@@ -14719,25 +15528,16 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
     // `autoplay` is a request, not proof of playback. WebKit can leave this
     // connected element paused after replacing its MediaStream, so explicitly
     // resume it while this device is still on the call.
-    if (!leftCall && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
-    if (replaced) {
-      // A new track has never played, whatever the old one did, and the
-      // clock it is judged by starts again.
-      existing!.last = -1
-      existing!.stalled = 0
-      existing!.played = false
-      el.classList.add('awaitingFrame')
-    }
-    track.addEventListener('ended', () => {
-      // Only the track currently on this element may take it down. The
-      // one this listener was registered for may have been replaced since,
-      // in which case its ending is old news about a closed connection.
-      if (remoteVideos.get(key)?.track !== track) return
-      el.remove()
-      remoteVideos.delete(key)
+    if (!leftCall && !el.hasAttribute('data-gallery-off-page') && el.paused) void el.play().catch(() => { /* A later recovery tick or user gesture retries. */ })
+    if (!existing || replaced) track.addEventListener('ended', () => {
+      // A replacement track or an updated role may now hold this tile.
+      const current = [...remoteVideos].find(([, entry]) => entry.track === track)
+      if (!current) return
+      removeRemoteVideo(current[1])
+      remoteVideos.delete(current[0])
       callTimeline.record('track-removed', short(device), 'video')
       repaint()
-    })
+    }, { once: true })
   } else {
     // Audio is never taken off screen for going quiet. A picture that
     // outlives its media is a lie about what the room can see; an `<audio>`
@@ -14765,17 +15565,14 @@ function attachRemoteTrack(device: string, track: MediaStreamTrack, slot?: strin
       if (existing) existing.track = track
     }
     if (!leftCall && el.paused) void el.play().catch((err) => reportAutoplayBlock(err))
-    // Tap it for the speaking indicator. Keyed by device rather than by
-    // track, so a device sending both a microphone and its screen's audio
-    // lights its tile from whichever is making noise - which is what a
-    // person watching the grid means by "they are talking".
-    speakingMonitor.watch(device, track)
+    // Only a microphone contributes to a participant's speaking cue.
+    if (tileRole(key) === 'mic') speakingMonitor.watch(key, track, device)
     track.addEventListener('ended', () => {
       if (remoteAudios.get(key)?.track !== track) return
       el.remove()
       remoteAudios.delete(key)
       remoteVolume.detach(key)
-      speakingMonitor.unwatch(device)
+      speakingMonitor.unwatch(key)
       paintSpeaking()
       callTimeline.record('track-removed', short(device), 'audio')
       repaint()
@@ -14816,14 +15613,14 @@ function dropUnboundTiles(device: string, kind: MediaKind, binding: ReadonlyMap<
     if (kind === 'video') {
       const video = entry as RemoteVideo
       if (onScreen(video)) changedTiles = true
-      video.el.remove()
+      removeRemoteVideo(video)
       remoteVideos.delete(key)
       callTimeline.record('tile-orphaned', short(device), 'video')
     } else {
       entry.el.remove()
       remoteAudios.delete(key)
       remoteVolume.detach(key)
-      speakingMonitor.unwatch(device)
+      speakingMonitor.unwatch(key)
       changedTiles = true
       callTimeline.record('track-removed', short(device), 'audio')
     }
@@ -14853,7 +15650,7 @@ function recoverRemoteTracks(): void {
       // device at once: who should hold each slot, given what the roster
       // advertises, what the tiles show now, and whose packets are moving.
       const binding = bindRoles({ kind, adverts, receivers, bound: boundTracks(device, kind) })
-      dropUnboundTiles(device, kind, binding)
+      if (kind === 'audio') dropUnboundTiles(device, kind, binding)
       for (const [role, chosen] of binding) {
         const track = chosen as MediaStreamTrack
         if (track.readyState !== 'live') continue
@@ -14868,8 +15665,15 @@ function recoverRemoteTracks(): void {
         // Safari can keep the sink connected but pause it when a rebuilt peer
         // swaps in a new MediaStream. A connected element is not necessarily a
         // playing one; make the recovery path repair both states.
-        if (entry?.track !== track || !entry.el.isConnected || entry.el.paused) attachRemoteTrack(device, track, key)
+        // syncRemoteVideos owns restoring parked pictures when RTP returns.
+        // A paused parked sink is not evidence of recovery: reattaching it
+        // here fights the watchdog every two seconds. Off-page gallery sinks
+        // are intentionally paused and belong to the stage's paging logic.
+        const resume = entry && entry.el.paused && (kind === 'audio'
+          || onScreen(entry as RemoteVideo) && !entry.el.hasAttribute('data-gallery-off-page'))
+        if (entry?.track !== track || !entry.el.isConnected || resume) attachRemoteTrack(device, track, key)
       }
+      if (kind === 'video') dropUnboundTiles(device, kind, binding)
     }
   }
   if (changedTiles) {
@@ -15186,6 +15990,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     restoreExistingNodeRoom()
     requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
     if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
+    const credentialStore = roomDeviceStore()
     const deviceSk = deviceKey()
     // A device key is per room. Beside a docked call `myDeviceId` stays the
     // call's, because every media decision is made against it.
@@ -15397,7 +16202,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // `shareDroppedFile`.
     if (roomUsesBothy) {
       if (!nostrSession) throw new Error('Reconnect this room’s account before resuming its Bothy route.')
-      await browserLink.resume(nostrSession.pubkey)
+      const selected = await browserRoomRoutes.selected(currentRoomId()!)
+      if (selected?.box.eventUrl.startsWith('ws://')) await browserLink.resume(nostrSession.pubkey)
       browserRoomRoutes.changed()
     }
     requireOpeningNetwork(roomUsesBothy || !!roomNode)
@@ -15506,10 +16312,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           // only if it is still this device's and still good. Kept by the
           // room id this session was built for, which a docked call may
           // not share with the screen.
-          resume: loadOwnCredentialFor(deviceStore, sessionRoomId, nowSeconds()),
-          sealKeys: loadOwnSealKeysFor(deviceStore, sessionRoomId),
+          resume: loadOwnCredentialFor(credentialStore, sessionRoomId, nowSeconds()),
+          sealKeys: loadOwnSealKeysFor(credentialStore, sessionRoomId),
           onCredential: (minted, sealSk) => {
-            try { storeOwnCredentialFor(deviceStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
+            try { storeOwnCredentialFor(credentialStore, sessionRoomId, minted, sealSk) } catch { /* storage may be unavailable */ }
           },
           deviceSk,
           factory: roomUsesBothy ? undefined : factory,
@@ -16108,7 +16914,7 @@ function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
   return (
     loadInvitationOwner(link.invitation)?.roomSecret ??
     loadCachedAdmission(link.invitation)?.secret ??
-    loadKeptAdmission(deviceStore, deriveInvitationId(link.invitation), nowSeconds())?.secret
+    loadKeptAdmission(roomDeviceStore(), deriveInvitationId(link.invitation), nowSeconds())?.secret
   )
 }
 
@@ -16149,7 +16955,8 @@ function watchKnownRoom(room: KnownRoom): void {
   // This device's copy of a rekey opens with its key for the room and the
   // seal keys its credentials named there, as the session's does.
   const authority = link.invitation ? invitationAuthority(link.invitation) : undefined
-  const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId)
+  const credentialStore = roomDeviceStore()
+  const deviceSk = loadDeviceKeyFor(credentialStore, roomId) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId)
   let named: RoomNameRecord | undefined
   const followName = (): void => {
     const name = watch.roomName()
@@ -16182,7 +16989,7 @@ function watchKnownRoom(room: KnownRoom): void {
       receipts: {
         deviceSk,
         credential: () => {
-          const held = loadOwnCredentialFor(deviceStore, roomId, nowSeconds())
+          const held = loadOwnCredentialFor(credentialStore, roomId, nowSeconds())
           return held && held.pubkey.toLowerCase() === roomSelf(roomId).toLowerCase() ? held : undefined
         },
         ...(room.endsAt !== undefined ? { expiresAt: room.endsAt } : {}),
@@ -16197,7 +17004,7 @@ function watchKnownRoom(room: KnownRoom): void {
     ...(authority && deviceSk ? {
       authority,
       deviceSk,
-      sealSks: () => loadOwnSealKeysFor(deviceStore, roomId).reverse(),
+      sealSks: () => loadOwnSealKeysFor(credentialStore, roomId).reverse(),
       onEpoch: (moved: WatchedRekey) => keepWatchedRekey(roomId, secret, moved),
       // Closed while this device was not in it: the list says so, and a
       // room that self-destructs is tidied away from here.
@@ -17027,13 +17834,12 @@ function isQuietRoom(room: Pick<KnownRoom, 'link'>): boolean {
   try { return isQuietPolicy(parseRoomLink(room.link).policy) } catch { return false }
 }
 
-function dmPeerOf(room: Pick<KnownRoom, 'link'>): string | undefined {
-  const me = meParticipant || currentParticipant()
+function dmPeerOf(room: Pick<KnownRoom, 'link'>, me = meParticipant || currentParticipant()): string | undefined {
   if (!me) return undefined
   const key = `${me}:${room.link}`
   if (!dmPeerCache.has(key)) {
     let peer: string | undefined
-    try { peer = dmPeer(parseRoomLink(room.link).policy, me) } catch { peer = undefined }
+    try { peer = dmPeer(parseNodeRoomLink(room.link, nowSeconds())?.existing?.policy ?? parseRoomLink(room.link).policy, me) } catch { peer = undefined }
     dmPeerCache.set(key, peer)
   }
   return dmPeerCache.get(key)
@@ -17057,20 +17863,23 @@ function knownRoomLabel(room: KnownRoom): string {
 }
 
 /** The person on the other end of a known private chat: the name remembered
- *  when the conversation was started or received, then whatever a profile
- *  says, then the key. A DM link carries no room name. */
+ *  in this account's personal label, then their profile or roster name.
+ *  Old saved room names are only an offline fallback. */
 function dmPersonName(room: KnownRoom, peer: string): string {
-  return room.name ?? shownAs(peer).name ?? 'Private chat'
+  const onRoster = session?.roomId === room.roomId ? session.participants().find(view => view.participant === peer)?.name : undefined
+  return directChatName({ chatLabel: room.chatLabel, peerName: shownAs(peer).name, rosterName: onRoster,
+    rememberedName: room.name, selfName: shownAs(meParticipant || currentParticipant() || '').name })
 }
 
 /** The room this page is in, named the same way. */
 /** What to call the person on the other end of the room this page is in:
  *  what the roster says, then the name remembered when the conversation
- *  was started or received, then the key. */
+ *  was started or received. Personal labels are account-private. */
 function dmPeerName(peer: string): string {
   const onRoster = session?.participants().find((v) => v.participant === peer)?.name
-  const remembered = knownRooms(roomStore()).find((room) => room.roomId === currentRoomId())?.name
-  return shownAs(peer, onRoster ?? remembered).name ?? 'Private chat'
+  const room = knownRoom(roomStore(), currentRoomId() ?? '')
+  return directChatName({ chatLabel: room?.chatLabel, peerName: shownAs(peer).name, rosterName: onRoster,
+    rememberedName: room?.name, selfName: shownAs(meParticipant || currentParticipant() || '').name })
 }
 
 function currentRoomLabel(): string {
@@ -17255,7 +18064,7 @@ function showRoomPane(): void {
   openDetail()
 }
 
-async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
+async function switchRoom(room: KnownRoom, project?: string, invitation?: ContactNodeOpening): Promise<void> {
   if (switchingRoom) return
   closeAccountMessageViews()
   if (session && room.roomId === currentRoomId()) {
@@ -17307,7 +18116,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
     $('identity').hidden = false
     setStatus('')
     showOpening(room)
-    if (!await roomFromLocation()) throw new Error('The room has no invitation link.')
+    if (!await roomFromLocation(invitation)) throw new Error('The room has no invitation link.')
     if ((sharedProjects.forRoom(room.roomId).length || dmPeerOf(room)) && currentRoomId() !== room.roomId) throw new Error('This invitation opened a different room. Ask the sender to correct it before continuing.')
     showRoomUi()
     renderIdentity()
@@ -17326,6 +18135,7 @@ async function switchRoom(room: KnownRoom, project?: string): Promise<void> {
       renderArrival()
     }
   } catch (error) {
+    if (invitation && !nodeRoom) history.replaceState(null, '', joinLinkBase())
     showArrivalFailure(error)
     // Keep the room list within reach when admission fails. Drafts in the
     // previous room remain in memory and return with its next successful join.
@@ -17410,7 +18220,11 @@ function tearDownCallMedia(): void {
   void callWakeLock.release()
   speakingMonitor.retain([])
   remoteVolume.retain([])
-  for (const entry of [...remoteVideos.values(), ...remoteAudios.values()]) {
+  for (const entry of remoteVideos.values()) {
+    entry.track.stop()
+    removeRemoteVideo(entry)
+  }
+  for (const entry of remoteAudios.values()) {
     entry.track.stop()
     entry.el.pause()
     entry.el.srcObject = null
@@ -17749,6 +18563,7 @@ async function endDockedCall(reason: 'user' | 'preempted' = 'user', notice?: str
 /** The call surface is a permanent sibling of the route panels. Navigation
  *  changes its presentation, never its parent or the media elements in it. */
 function renderDock(): void {
+  paintAudioActivity(true)
   const surface = $('callSurface')
   const dock = $('callDock')
   const c = dockedCall
@@ -17933,9 +18748,10 @@ function forgetLocally(roomId: string): void {
   receiptWriter.forget(roomId)
   deliveredLedger.forget(roomId)
   retireMeetingCode({ roomId })
-  forgetRoomAccess(deviceStore, roomId)
-  forgetRoomAccess(browserDeviceStore(sessionStorage), roomId)
-  forgetOwnCredentials(deviceStore, roomId)
+  const access = roomDeviceStore()
+  forgetRoomAccess(access, roomId)
+  forgetRoomAccess(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId)
+  forgetOwnCredentials(access, roomId)
   forgetQuietState(deviceStore, roomId)
   forgetRoom(deviceStore, roomId)
   forgetRoomUploads(deviceStore, roomId)
@@ -18630,7 +19446,10 @@ function renderRoomMenu(): void {
     menu => {
       if (callButtonInMenu() && $('callToggle').getAttribute('aria-label')) menuItem(menu, $('callToggle').getAttribute('aria-label')!, () => $('callToggle').click(), { icon: 'phone', action: 'call' })
       menuItem(menu, 'Room info', () => openRoomSheet('main', $('roomMenu')), { icon: 'info', shortcut: ROOM_INFO_KEYS, action: 'info' })
-      if (window.matchMedia(NARROW_ROOM_BAR).matches) menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
+      if (window.matchMedia(NARROW_ROOM_BAR).matches) {
+        menuItem(menu, 'Search in room', () => conversationSearch.open($('roomMenu')), { icon: 'search', action: 'search' })
+        if (!$('railPersonas').hidden) menuItem(menu, 'Switch persona…', () => openPersonas($('roomMenu')), { icon: 'people', action: 'persona' })
+      }
       if (model.invite) menuItem(menu, 'Invite people…', () => openInviteDialog(false), { icon: 'personAdd', action: 'invite' })
       if (model.agent) menuItem(menu, 'Add an agent…', addAnAgent, { icon: 'agent', action: 'agent' })
     },
@@ -18650,9 +19469,48 @@ function renderRoomMenu(): void {
 wireMenu($('roomMenu'), $('roomMoreMenu'), { beforeOpen: renderRoomMenu, sheet: NARROW_ROOM_BAR })
 
 // More, in the call bar: a menu built from the same parts as the room's ⋯.
+const callConnections = new CallConnectionsPanel($('callConnectionsContent'), async () => {
+  const s = mediaSession()
+  if (!s) return { room: ['No active call.'], people: [] }
+  const runtime = nodeRuntimes.get(s)
+  const nodeHost = runtime ? new URL(runtime.state.node.origin).hostname : undefined
+  const transport = dockedCall?.session === s ? dockedCall.transport : sessionTransport
+  const room = runtime ? [`KithMoot room node · ${nodeHost}`] : ['Room relay connections:']
+  for (const relay of transport?.health() ?? []) {
+    // Host only: private relay paths and query parameters can hold room data.
+    try { room.push(`${new URL(relay.url).host} · ${relay.state}`) } catch { /* No raw URL fallback. */ }
+  }
+  const routes = s.routes
+  const peers = [...openConnections]
+  const views = s.participants().filter(view => view.devices.some(device => device !== myDeviceId && view.call?.devices.includes(device)))
+  const people = await Promise.all(views.map(async view => ({
+    name: shownAs(view.participant, view.name).name ?? 'Somebody',
+    devices: await Promise.all(view.devices.filter(device => device !== myDeviceId && view.call?.devices.includes(device)).map(async (device, index) => {
+      const route = routes.get(device)
+      const endpoint = route?.endpoint ?? device
+      const choices = peers.filter(([key]) => connectionDevice(key) === endpoint)
+      const connection = [...choices].reverse().find(([, pc]) => pc.connectionState === 'connected') ?? choices.at(-1)
+      const rows: Record<string, unknown>[] = []
+      if (connection) {
+        // Keep an unresponsive browser stats API from blocking panel refresh.
+        let timer: number | undefined
+        try {
+          const report = await Promise.race([connection[1].getStats(), new Promise<undefined>(resolve => { timer = window.setTimeout(resolve, 1500) })])
+          report?.forEach(row => rows.push(row as unknown as Record<string, unknown>))
+        } catch { /* Unknown is displayed; configured relays are not proof. */ }
+        finally { clearTimeout(timer) }
+      }
+      const via = route?.tier === 'assist' ? `volunteer ${nameOfDevice(endpoint)}` : route?.tier === 'forwarder' ? 'a room forwarder' : undefined
+      return { label: `Device ${index + 1}`, connection: observedCallConnection(connection?.[1].connectionState ?? 'connecting', rows, { via, nodeHost }) }
+    })),
+  })))
+  if (mediaSession() !== s) throw Error('Call changed')
+  return { room, people }
+})
 installCallMore({
   invitePeople: () => roomMenuModel().invite ? () => openInviteDialog(false, $('callExtras')) : undefined,
   ipHidden: () => { const s = mediaSession(); return !!s && sessionRelayOnly.get(s) === true },
+  connectionsChanged: open => callConnections.setOpen(open),
 })
 // The first unmute in a call with an agent in the room asks about hearing.
 installAgentsHear({
@@ -18775,7 +19633,8 @@ function peopleModel(): PeopleModel {
     if (pubkey === self || contactIsBlocked(pubkey) || byKey.has(pubkey)) return
     const profile = profiles.get(pubkey)
     // Checked: by Signet, or words compared on this device under this account.
-    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name, ...(profile?.picture ? { picture: profile.picture } : {}),
+    const remembered = accountNetwork.nostr && profilesEnabled ? lastKnownProfileNames.get(pubkey) : undefined
+    byKey.set(pubkey, { pubkey, ...person, name: person.name ?? profile?.name ?? remembered, ...(profile?.picture ? { picture: profile.picture } : {}),
       ...(person.checked || checkedHere.has(pubkey) ? { checked: true } : {}) })
   }
   if (view && (view.status === 'ready' || view.status === 'stale')) {
@@ -18786,20 +19645,44 @@ function peopleModel(): PeopleModel {
     })
   }
   for (const card of contacts(deviceStore)) add(card.p, { section: 'contacts', source: 'card', ...(card.name ? { name: contactLabel(card) } : {}) })
-  const contactsList = [...byKey.values()]
   const snapshot = follows.snapshot()
   // A Nostr address shows only once checked; ProfileBook holds it only then.
   for (const pubkey of snapshot.pubkeys) {
     const address = profiles.get(pubkey)?.nip05
     add(pubkey, { section: 'following', ...(address ? { address } : {}) })
   }
-  const following = [...byKey.values()].filter(person => person.section === 'following')
+  if (self) {
+    const rooms = knownRooms(accountRoomStore(deviceStore, self)).sort((a, b) => b.openedAt - a.openedAt || a.roomId.localeCompare(b.roomId))
+    const chatPeers = new Set<string>()
+    for (const room of rooms) {
+      const peer = dmPeerOf(room, self)
+      if (!peer || chatPeers.has(peer) || isQuietRoom(room) || contactIsBlocked(peer)) continue
+      chatPeers.add(peer)
+      const chatName = directChatName({ chatLabel: room.chatLabel, rememberedName: room.name,
+        selfName: accountProfiles.get(self)?.name })
+      add(peer, { section: 'conversations' })
+      const person = byKey.get(peer)!
+      person.chatName = chatName
+      if (chatName !== 'Private chat') person.name ??= chatName
+    }
+    for (const thread of peopleNostrInbox?.threads() ?? []) {
+      if (contactIsBlocked(thread.peer)) continue
+      add(thread.peer, { section: 'conversations' })
+      const person = byKey.get(thread.peer)
+      if (person) person.unread = thread.unread
+      if (person?.section === 'conversations' && !chatPeers.has(thread.peer) && !thread.messages.some(message => message.author === self)) delete person.picture
+    }
+  }
+  const all = [...byKey.values()]
+  const contactsList = all.filter(person => person.section === 'contacts')
+  const following = all.filter(person => person.section === 'following')
+  const conversations = all.filter(person => person.section === 'conversations').sort((a, b) => Number(!!b.unread) - Number(!!a.unread))
   const contactsNote = view?.status === 'stale' ? 'Open Signet to refresh your contacts. Names may be out of date.'
     : view?.status === 'lapsed' ? 'Open Signet and unlock your contacts to see their names again.'
     : view?.status === 'revoked' ? 'Your Signet contact grant was withdrawn.'
     : view?.status === 'unavailable' ? 'Your contacts need attention. Choose Add a contact, then Link Signet contacts.'
     : undefined
-  return { contacts: contactsList, following, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
+  return { contacts: contactsList, following, conversations, followStatus: snapshot.status, ...(contactsNote ? { contactsNote } : {}) }
 }
 
 /** Invitations (invitations.ts): the inbox's waiting private-chat requests,
@@ -18852,6 +19735,7 @@ function renderInvitations(): void {
 
 function renderPeople(): void {
   if (people && document.getElementById('peopleList')?.hidden === false) people.render()
+  renderPeopleNostr()
 }
 
 function peopleBlockedReason(pubkey: string): string | undefined {
@@ -18867,9 +19751,8 @@ function peopleBlockedReason(pubkey: string): string | undefined {
 function privateChatWith(peer: string): KnownRoom | undefined {
   const self = nostrSession?.pubkey
   if (!self) return undefined
-  return preferredDm(knownRooms(roomStore()).filter(room => !isQuietRoom(room) && (() => {
-    try { return dmPeer(parseRoomLink(room.link).policy, self) === peer } catch { return false }
-  })()).map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))?.known
+  return preferredDm(knownRooms(roomStore()).filter(room => !isQuietRoom(room) && dmPeerOf(room, self) === peer)
+    .map(room => ({ room: room.roomId, sentAt: room.openedAt, known: room })))?.known
 }
 
 /** Whether this device has seen this person in a room: on its roster now, or
@@ -19093,9 +19976,13 @@ function linkSignetContacts(opener: HTMLElement): void {
 {
   const list = document.getElementById('peopleList'), pane = document.getElementById('peoplePane')
   if (list && pane) people = new PeopleView(list, pane, peopleModel, {
+    profileSettings: () => ({ enabled: profilesEnabled, available: accountNetwork.nostr }),
+    setPublicProfiles,
+    openProfileSettings,
     blockedReason: peopleBlockedReason,
     block: peer => { setBlocked(peer, true) },
     message: messagePerson,
+    inviteToNodeChat: person => inviteToNodeChat(person.pubkey, person.name),
     call: callPerson,
     invite: invitePerson,
     privateChat: peer => {
@@ -19109,6 +19996,30 @@ function linkSignetContacts(opener: HTMLElement): void {
       roomId: room.roomId, label: knownRoomLabel(room), joined, ...(at !== undefined ? { at } : {}), open: () => openFromPeople(room),
     })),
     want: pubkeys => wantProfiles(pubkeys, 'public'),
+    canSearchNostr: canSearchNostrPeople,
+    searchNostr: async (query, signal) => {
+      const account = nostrSession, network = accountNetwork.current()
+      const peer = peopleSearchKey(query)
+      if (peer && (peer === account?.pubkey || contactIsBlocked(peer))) return []
+      const urls = (peer ? [PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY] : [PEOPLE_SEARCH_RELAY]).filter(publicPeopleRelay)
+      const rows = await searchNostrPeople(query, urls, () => relayConnections.pool('people-search',
+        urls.map(url => ({ url, read: true, write: false }))), signal)
+      if (nostrSession !== account || !network() || !canSearchNostrPeople()) return []
+      const model = peopleModel()
+      const local = new Set([...model.contacts, ...model.following, ...model.conversations].map(person => person.pubkey))
+      for (const row of rows) {
+        if (row.event && local.has(row.pubkey) && !madeHere(row.pubkey)) profiles.rememberPublic(row.event)
+      }
+      return rows.filter(row => row.pubkey !== account?.pubkey)
+    },
+    isBlocked: contactIsBlocked,
+    canMessageOnNostr: peer => !contactIsBlocked(peer) && (hasPeopleNostrThread(peer) ||
+      peopleNostrEnabled() && nostrMessagePanel?.available === true),
+    messageOnNostr: (peer, opener) => {
+      if (hasPeopleNostrThread(peer)) peopleNostrPanel?.show(opener, peer)
+      else nostrMessagePanel?.show(opener, { peer })
+    },
+    openNostrMessages: opener => peopleNostrPanel?.show(opener),
     pasteCard: pasteContactCard,
     linkSignet: linkSignetContacts,
     showMyCard: showMyCardSheet,
@@ -19116,9 +20027,10 @@ function linkSignetContacts(opener: HTMLElement): void {
     closeDetail: closeDetail,
   })
   document.addEventListener('shell:destination', event => {
-    if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') return
+    peopleNostrPanel?.reconcile()
+    if ((event as CustomEvent<{ destination?: string }>).detail?.destination !== 'people') { people?.resetSearch(); return }
     follows.refresh()
-    people?.render()
+    renderPeople()
   })
 }
 
@@ -19198,7 +20110,8 @@ function observeWorkspaceRoom(room: KnownRoom, changed: () => void): WorkspaceOb
   let link: RoomLink
   try { link = parseRoomLink(room.link) } catch { return 'This room invitation is unavailable.' }
   if (isQuietPolicy(link.policy)) return 'Open this quiet conversation to read its messages and work.'
-  const credentialStore = workspaceAccountAdmission(deviceStore, room.roomId, account, nowSeconds()) ? deviceStore : browserDeviceStore(sessionStorage)
+  const localAccess = roomDeviceStore()
+  const credentialStore = workspaceAccountAdmission(localAccess, room.roomId, account, nowSeconds()) ? localAccess : roomDeviceStore(browserDeviceStore(sessionStorage))
   const valid = (): boolean => {
     const saved = knownRoom(roomStore(), room.roomId)
     return account === nostrSession?.pubkey && !!saved && saved.endedAt === undefined && saved.endsAt === undefined && !saved.destruct
@@ -19433,9 +20346,12 @@ async function openContextPanel(): Promise<void> {
 }
 $('openContext').addEventListener('click', () => { closeRoomSheet(); void openContextPanel().catch(error => setStatus(describeError(error))) })
 $('chatSearch').addEventListener('click', () => conversationSearch.open($('chatSearch')))
-let profileReturnFocus: HTMLElement = $('roomMenu')
-function openProfileSettings(from: HTMLElement): void {
-  profileReturnFocus = from
+let restoreProfileFocus = () => $('roomMenu').focus({ preventScroll: true })
+function openProfileSettings(from: HTMLElement, fallback = from): void {
+  restoreProfileFocus = () => {
+    const target = from.getClientRects().length ? from : fallback
+    target.focus({ preventScroll: true })
+  }
   renderLookupHosts()
   closeRoomSheet()
   ;($('profileSettings') as HTMLDialogElement).showModal()
@@ -19443,16 +20359,32 @@ function openProfileSettings(from: HTMLElement): void {
 }
 const browserLinkPanel = new BrowserLinkPanel(() => nostrSession?.pubkey, document, browserLink,
   async () => !(await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired'))
-const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserLink, browserRoomRoutes.store, browserRoomRoutes.barrier)
-const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoomRoutes, browserLink, async () => {
+;($('wokRelayUrl') as HTMLInputElement).value = standaloneRoom.boxes()[0]?.eventUrl ?? ''
+$('wokRelaySave').addEventListener('click', () => {
+  try {
+    const box = standaloneRoom.configure(($('wokRelayUrl') as HTMLInputElement).value.trim())
+    $('wokRelayStatus').textContent = `Standalone relay saved: ${box.eventUrl}. Choose it in a room’s routing settings to activate that room.`
+  } catch (error) { $('wokRelayStatus').textContent = describeError(error) }
+})
+$('wokRelayForget').addEventListener('click', () => {
+  void (async () => {
+    if ((await browserRoomRoutes.store.all()).some(c => c.phase !== 'retired' && c.box.eventUrl.startsWith('wss://'))) throw new Error('Withdraw every saved standalone room permission before forgetting this relay.')
+    standaloneRoom.clear()
+    ;($('wokRelayUrl') as HTMLInputElement).value = ''
+    $('wokRelayStatus').textContent = 'Standalone relay forgotten on this browser.'
+  })().catch(error => { $('wokRelayStatus').textContent = describeError(error) })
+})
+const browserRoomActivation = new BrowserRoomActivation(() => nostrSession?.signer, browserRoomConnections, browserRoomRoutes.store, browserRoomRoutes.barrier)
+const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoomRoutes, browserRoomConnections, async () => {
   const s = session, account = nostrSession
   const room = currentRoomId()
   if (!account || !room) throw new Error('Open this room with its signed-in account before changing Bothy routing.')
   if (s && s.participant !== account.pubkey) throw new Error('Join this room as your signed-in account first.')
   if (hasUnsentWork() || switchingBlocked() || onCall() || docked()) throw new Error('Finish pending work and leave calls before changing this room’s route.')
   if (isQuietPolicy(roomPolicy) || (s?.epoch ?? loadRoomEpoch(room)?.epoch ?? 0) !== 0) throw new Error('This activation journey currently supports text rooms before their first rekey. Later epochs need separately granted scopes.')
-  const deviceSk = loadDeviceKeyFor(deviceStore, room) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), room)
-  const credential = s?.credential ?? loadOwnCredentialFor(deviceStore, room, nowSeconds())
+  const credentialStore = roomDeviceStore()
+  const deviceSk = loadDeviceKeyFor(credentialStore, room) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), room)
+  const credential = s?.credential ?? loadOwnCredentialFor(credentialStore, room, nowSeconds())
   if (!deviceSk || !credential || credential.pubkey !== account.pubkey) throw new Error('Join the room once with this account to establish its device credential.')
   const { roomKey } = deriveRoom(roomSecret)
   const device = getPublicKey(deviceSk)
@@ -19623,17 +20555,18 @@ async function openDmRelaySettings(): Promise<void> {
   if (!account) return
   field.value = ''
   field.disabled = true
+  ;($('dmRelaySave') as HTMLButtonElement).disabled = true
   status.textContent = 'Looking up your list…'
   dialog.showModal()
   try {
     const current = latestDmRelayList(await lookUpDmRelayLists([account.pubkey], dmRelayListHome()), account.pubkey)
     if (nostrSession !== account) return
-    field.value = current.join('\n')
-    status.textContent = current.length ? '' : 'You have no list yet. Until you save one, private conversations use the relays of the room they are started from.'
-  } catch {
-    status.textContent = 'Your list could not be looked up. Saving replaces whatever is there.'
-  } finally {
+    field.value = nostrInboxRelayDraft(current)
+    status.textContent = current.length ? '' : 'Public defaults are ready. Save them to receive Nostr messages and invitations, or edit the list.'
     field.disabled = false
+    ;($('dmRelaySave') as HTMLButtonElement).disabled = false
+  } catch {
+    status.textContent = 'Your inbox relay list could not be checked. Close and reopen this page to retry before replacing it.'
   }
 }
 
@@ -19656,7 +20589,10 @@ async function saveDmRelaySettings(): Promise<void> {
   const pool = relayConnections.pool('profiles', dmRelayListHome(urls))
   try {
     await pool.publish(await account.signer.signEvent(template))
-    status.textContent = 'Saved. New private conversations will use these relays.'
+    if (nostrSession === account) {
+      status.textContent = 'Your Nostr inbox relays were published.'
+      reconcilePeopleNostrInbox(true)
+    }
   } catch (err) {
     status.textContent = `Not saved: ${describeError(err)}.`
   } finally {
@@ -19688,7 +20624,7 @@ $('inviteToRoomForm').addEventListener('submit', event => {
   void sendRoomInvite(room)
 })
 $('profileSettings').addEventListener('close', () => {
-  profileReturnFocus.focus({ preventScroll: true })
+  restoreProfileFocus()
 })
 // A tap on the backdrop, which is the gesture people expect of a sheet. The
 // dialog element itself fills the screen, so a click that lands ON the
@@ -19772,6 +20708,30 @@ let settingsPage = 'main'
 let settingsRow: HTMLElement | undefined
 let settingsHomes: { el: HTMLElement; parent: Node; next: Node | null; hidden: boolean }[] | undefined
 const settingsPane = $('settingsPane')
+const metadataPanel = new MetadataPanel($('metadataPane'), async () => {
+  const observed = await Promise.all([...openConnections.values()].map(async pc => {
+    const rows: Record<string, unknown>[] = []
+    try { (await pc.getStats()).forEach(row => rows.push(row as unknown as Record<string, unknown>)) } catch { /* Unavailable is shown explicitly. */ }
+    return metadataConnection(pc.connectionState, rows)
+  }))
+  const relayScopes = new Set(['default', roomRelayScope])
+  const relays = [...relayScopes].flatMap(scope => relayConnections.health(scope, scope === roomRelayScope ? roomRelayHints : []))
+  const destination = fileDestination()
+  const storage = destination.kind === 'bothy' ? 'This room’s selected private Bothy.'
+    : destination.kind === 'group' ? 'This room’s own group storage.'
+    : destination.kind === 'off' || destination.kind === 'withdrawn' ? 'File uploads are off or storage is unavailable.'
+    : destination.origin
+  return {
+    identity: nostrSession ? npubEncode(nostrSession.pubkey) : undefined,
+    relays: [...new Map(relays.map(relay => [relay.url, relay])).values()], storage,
+    calls: observed.map(value => value.call), addresses: [...new Set(observed.flatMap(value => value.addresses))],
+    profiles: accountNetwork.nostr && profilesEnabled,
+  }
+}, () => openDestination('chats'))
+document.addEventListener('shell:destination', () => {
+  if (currentDestination() === 'metadata') { void metadataPanel.refresh(); $('metadataPane').querySelector('h2')?.focus() }
+  else metadataPanel.hide()
+})
 nodeSettings = new NodeSettings({ store: deviceStore, owner: () => nostrSession?.signer.capabilities.canSignEvents ? nostrSession.signer : undefined, changed: () => renderCalls() })
 const ONE_PANE_SETTINGS = window.matchMedia('(max-width: 899px)')
 
@@ -19792,9 +20752,19 @@ function acquireOrdinaryMessageHistory(key: string): Promise<() => void> {
     }).catch(reject)
   })
 }
-async function lookUpOrdinaryInboxLists(authors: string[], current: () => boolean): Promise<NostrEvent[]> {
+function ordinaryInboxDirectory(): string[] {
+  return distinctRelays([
+    ...relayConnections.configuration('default').filter(relay => relay.read).map(relay => relay.url),
+    ...PROFILE_RELAYS,
+  ]).filter(publicPeopleRelay)
+}
+
+async function lookUpOrdinaryInboxLists(authors: string[], current: () => boolean, directory?: readonly string[]): Promise<NostrEvent[]> {
     if (!current()) throw Error('Account view changed.')
-    const hold = relayConnections.pool('default')
+    if (directory && !directory.length) throw Error('No public Nostr directory relays are configured.')
+    const hold = directory
+      ? relayConnections.pool('nostr-directory', directory.map(url => ({ url, read: true, write: false })))
+      : relayConnections.pool('default')
     const found: NostrEvent[] = []
     let stop: (() => void) | undefined, timer: ReturnType<typeof setTimeout> | undefined, cancel: ReturnType<typeof setInterval> | undefined
     try {
@@ -19809,6 +20779,137 @@ async function lookUpOrdinaryInboxLists(authors: string[], current: () => boolea
       return found
     } finally { clearTimeout(timer); clearInterval(cancel); stop?.(); hold.close() }
 }
+
+function peopleNostrEnabled(account = nostrSession): boolean {
+  try { return !!account && deviceStore.get(peopleInboxEnabledKey(account.pubkey)) !== '0' }
+  catch { return false }
+}
+
+function renderPeopleNostr(): void {
+  if (!peopleNostrPanel) return
+  const threads = peopleNostrInbox?.threads() ?? []
+  const unread = threads.reduce((sum, thread) => sum + thread.unread, 0)
+  setCounts({ people: unread })
+  const entry = document.getElementById('peopleNostrOpen') as HTMLButtonElement | null
+  if (entry) {
+    entry.disabled = !accountNetwork.nostr || !nostrSession
+    entry.textContent = unread ? `Nostr messages (${unread > 99 ? '99+' : unread})` : 'Nostr messages'
+    entry.setAttribute('aria-label', unread ? `Nostr messages, ${unread} unread` : 'Nostr messages')
+  }
+  const account = nostrSession?.pubkey
+  peopleNostrPeers = new Set(threads.filter(thread => thread.messages.some(message => message.author !== account)).map(thread => thread.peer))
+  if (peopleNostrPeers.size) {
+    follows.ensure()
+    wantProfiles([...peopleNostrPeers], 'public')
+  }
+  peopleNostrPanel.reconcile()
+}
+
+function hasPeopleNostrThread(peer: string): boolean {
+  return peopleNostrInbox?.threads().some(thread => thread.peer === peer) === true
+}
+
+function stopPeopleNostrInbox(): void {
+  peopleNostrInbox?.close()
+  peopleNostrInbox = undefined
+  peopleNostrOwner = undefined
+  peopleNostrPeers.clear()
+}
+
+function reconcilePeopleNostrInbox(refresh = false): void {
+  if (!peopleNostrPanel) return
+  const account = nostrSession
+  const network = accountNetwork.generation
+  const generation = identityGeneration
+  if (refresh || !accountNetwork.nostr || peopleNostrRoutes?.account !== account) peopleNostrRoutes = undefined
+  const ready = account && accountNetwork.nostr && !forgettingBrowser && !loginBusy && !peopleNostrSuspended && legacyMessageLifetime.idle
+  const enabled = ready && peopleNostrEnabled(account)
+  if (!enabled || refresh || peopleNostrOwner !== account || peopleNostrIdentity !== generation || peopleNostrNetwork !== network) {
+    stopPeopleNostrInbox()
+  }
+  if (enabled && !peopleNostrInbox) {
+    const decrypt = ordinaryMessageDecrypt(account, () => nostrSession, true, globalThis.WebSocket)
+    if (!decrypt) peopleNostrStatus = 'This signer is unavailable for Nostr messages in People.'
+    else {
+      peopleNostrOwner = account
+      peopleNostrIdentity = generation
+      peopleNostrNetwork = network
+      peopleNostrStatus = ''
+      const publicNetwork = accountNetwork.current()
+      const inbox: PeopleNostrInbox = new PeopleNostrInbox({ account: account.pubkey, store: deviceStore, acquire: acquireOrdinaryMessageHistory,
+        decrypt, blocked: contactIsBlocked, changed: renderPeople,
+        keepNodeInvitation: async (token, current) => {
+          const journal = contactInbox
+          await openingContactInbox
+          if (!current() || journal !== contactInbox || !journal?.snapshot().ready) return false
+          return journal.keepOpenedInvitation(token, () => current() && contactInbox === journal)
+        },
+        current: () => inbox === peopleNostrInbox && nostrSession === account && generation === identityGeneration &&
+          publicNetwork() && !forgettingBrowser && !loginBusy && !peopleNostrSuspended && legacyMessageLifetime.idle &&
+          (account.expiresAt === undefined || Date.now() < account.expiresAt) && peopleNostrEnabled(account),
+        receive: async current => {
+          const directory = ordinaryInboxDirectory(), directoryKey = directory.join(' ')
+          const cached = peopleNostrRoutes
+          let statements: NostrEvent[]
+          if (cached?.account === account && cached.directory === directoryKey && Date.now() < cached.until) statements = cached.statements
+          else {
+            statements = await lookUpOrdinaryInboxLists([account.pubkey], current, directory)
+            if (!current()) throw Error('Account view changed.')
+            // Keep the lookup through a room change or page resume. Revalidate
+            // the signed list and its expiry each time a listener opens.
+            peopleNostrRoutes = { account, directory: directoryKey, statements,
+              until: Date.now() + (statements.length ? 5 * 60_000 : 30_000) }
+          }
+          const published = ordinaryInboxRelays(statements, account.pubkey, nowSeconds()).filter(publicPeopleRelay)
+          if (!published.length) throw Error('No usable public inbox relay list. Open Inbox relays to publish one.')
+          const pool = relayConnections.pool('people-nostr-inbox', published.map(url => ({ url, read: true, write: false })))
+          const signer = nostrEventSigner(account, () => nostrSession, true, globalThis.WebSocket)
+          const authorised = new Set<string>()
+          return {
+            subscribe: pool.subscribe.bind(pool), close: pool.close.bind(pool), health: pool.health.bind(pool),
+            authenticate: (required, active) => {
+              if (!signer || !active()) return false
+              const next = required.filter(url => published.includes(url) && publicPeopleRelay(url) && !authorised.has(url))
+              if (!next.length) return false
+              for (const url of next) authorised.add(url)
+              queueMicrotask(() => {
+                if (!active() || pool.closed) return
+                pool.setAuthentication([...authorised].map(url => ({
+                  url,
+                  identity: { pubkey: account.pubkey, signEvent: template => signer.signEvent(template, () => active() && publicPeopleRelay(url)) },
+                })))
+              })
+              return true
+            },
+          }
+        },
+      })
+      peopleNostrInbox = inbox
+      void inbox.open()
+    }
+  }
+  renderPeople()
+}
+
+function peopleNostrComposeEligible(): boolean {
+  return currentDestination() === 'people' && canCheckAccountMessages()
+}
+
+function peopleNostrContact(peer: string): { name?: string; known: boolean; picture?: string } {
+  const view = grantedContactView
+  const granted = view && (view.status === 'ready' || view.status === 'stale') ? view.contacts.find(row => row.pubkey === peer) : undefined
+  const card = contactFor(deviceStore, peer)
+  const profile = profiles.get(peer)
+  const known = mayMessageContact(peer)
+  const name = granted?.name || (card?.name ? contactLabel(card) : undefined) || profile?.name
+  return { name, known, picture: known ? profile?.picture : undefined }
+}
+
+function canSearchNostrPeople(): boolean {
+  return profilesEnabled && peopleNostrComposeEligible() &&
+    (publicPeopleRelay(PEOPLE_SEARCH_RELAY) || publicPeopleRelay(PEOPLE_PROFILE_RELAY))
+}
+
 legacyMessagesPanel = new LegacyMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
   // Default account pools bypass the per-room private router. This first
@@ -19823,21 +20924,72 @@ legacyMessagesPanel = new LegacyMessagePanel(document, {
 })
 nostrMessagePanel = new NostrMessagePanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration,
-  eligible: accountMessageViewEligible,
+  eligible: () => accountMessageViewEligible() || peopleNostrComposeEligible() && peopleNostrEnabled(),
+  direct: peopleNostrComposeEligible,
+  allowLocal: peopleNostrComposeEligible,
+  remoteSocket: () => peopleNostrComposeEligible() ? globalThis.WebSocket : undefined,
   blocked: contactIsBlocked,
-  lookup: lookUpOrdinaryInboxLists,
+  lookup: (authors, current) => lookUpOrdinaryInboxLists(authors, current, peopleNostrComposeEligible() ? ordinaryInboxDirectory() : undefined),
+  allowsRelay: publicPeopleRelay,
   rememberCopy: (event, account, current) => rememberOrdinaryCopy(deviceStore, account.pubkey, event, acquireOrdinaryMessageHistory, current),
-  publish: async (event, relays, current) => {
-    if (!current()) throw Error('Account view changed.')
-    // Explicit hints define this pool; no NIP-65/default destination is added.
-    // The caller independently guards every queued socket write/retry.
-    const hold = relayConnections.pool('nostr-message', relays.map(url => ({ url, read: false, write: true })))
-    try {
-      if (!hold.publishGuarded) throw Error('A guarded public carrier is unavailable.')
-      await hold.publishGuarded(event, current)
-    } finally { hold.close() }
+  recordOutgoing: async (outgoing, account, current) => {
+    if (!current()) return
+    if (peopleNostrOwner === account) peopleNostrInbox?.recordOutgoing(outgoing)
+    await rememberOrdinarySendStatus(deviceStore, account.pubkey, outgoing.copy.id, outgoing.status, acquireOrdinaryMessageHistory, current)
+  },
+  recipientName: peer => peopleNostrContact(peer).name,
+  viewConversation: (opener, peer, messageId) => peopleNostrPanel?.showMessage(opener, peer, messageId),
+  publish: async (event, relays, current, acknowledged) => {
+    const allowed = () => current() && relays.every(publicPeopleRelay)
+    if (!allowed()) throw Error('Account view or public inbox routing changed.')
+    // Explicit hints define each carrier; no NIP-65/default destination is added.
+    // Every relay is offered the event on its own, and one that has not accepted
+    // is offered it again after authenticating with a throwaway key (never the
+    // account). The caller independently guards every queued socket write/retry.
+    const { unaccepted } = await publishToInboxRelays(event, relays, allowed,
+      url => relayConnections.pool('nostr-message', [{ url, read: false, write: true }]), acknowledged)
+    return { unaccepted: unaccepted.map(row => row.url) }
   },
 })
+peopleNostrPanel = new PeopleNostrPanel(document, {
+  account: () => nostrSession?.pubkey,
+  available: () => currentDestination() === 'people' && accountNetwork.nostr && !!nostrSession && legacyMessageLifetime.idle && !loginBusy && !forgettingBrowser,
+  enabled: peopleNostrEnabled,
+  toggle: async () => {
+    const account = nostrSession
+    if (!account) return
+    peopleNostrStatus = ''
+    try {
+      const key = peopleInboxEnabledKey(account.pubkey)
+      deviceStore.set(key, peopleNostrEnabled(account) ? '0' : '1')
+      reconcilePeopleNostrInbox()
+    } catch { peopleNostrStatus = 'The inbox preference could not be saved on this device.' }
+  },
+  refresh: () => reconcilePeopleNostrInbox(true),
+  inbox: () => peopleNostrInbox,
+  status: () => peopleNostrStatus,
+  contact: peopleNostrContact,
+  configure: () => void openDmRelaySettings(),
+  canCompose: () => peopleNostrComposeEligible() && nostrMessagePanel?.available === true,
+  invite: inviteToNodeChat,
+  compose: (opener, reply) => nostrMessagePanel?.show(opener, reply),
+  block: peer => {
+    try { setBlocked(peer, true) }
+    catch { peopleNostrStatus = 'This sender could not be blocked on this device.' }
+  },
+})
+window.addEventListener('pagehide', () => { peopleNostrSuspended = true; stopPeopleNostrInbox() })
+window.addEventListener('pageshow', () => { peopleNostrSuspended = false; reconcilePeopleNostrInbox() })
+window.addEventListener('storage', event => {
+  if (!nostrSession) return
+  if (event.key === peopleInboxReadKey(nostrSession.pubkey)) peopleNostrInbox?.refreshRead()
+  if (event.key === ordinarySendStatusKey(nostrSession.pubkey)) peopleNostrInbox?.refreshSendStatuses()
+  if (event.key === null || event.key === peopleInboxEnabledKey(nostrSession.pubkey)) {
+    peopleNostrStatus = ''
+    reconcilePeopleNostrInbox()
+  }
+})
+reconcilePeopleNostrInbox()
 nostrInboxPanel = new NostrMessageInboxPanel(document, {
   account: () => nostrSession, epoch: () => identityGeneration, eligible: accountMessageViewEligible,
   store: deviceStore, acquire: acquireOrdinaryMessageHistory, blocked: contactIsBlocked,
@@ -20453,7 +21605,7 @@ const SETTINGS_PARENT: Readonly<Record<string, string>> = {
   files: 'privacy', callRelay: 'calls', callNode: 'calls', callSpry: 'calls', callServer: 'calls', callPublic: 'calls', callAdvanced: 'calls',
 }
 $('settingsBack').addEventListener('click', () => {
-  if (settingsPage === 'main') { openDestination('chats'); return }
+  if (settingsPage === 'main') { closeSettings(); return }
   const parent = SETTINGS_PARENT[settingsPage] ?? 'main'
   const opener = settingsPane.querySelector<HTMLElement>(`[data-settings-open="${settingsPage}"]`)
   if (parent === 'main') {
@@ -20530,7 +21682,7 @@ $('displayName').addEventListener('input', (event) => {
   // Stored as typed, sanitised on the way in. The identity line below the
   // field re-renders as you go, so what other people will see is on screen
   // before you commit to anything.
-  storeName((event.target as HTMLInputElement).value)
+  storeJoiningName((event.target as HTMLInputElement).value)
   renderIdentity()
 })
 
@@ -20579,7 +21731,7 @@ $('createRoomForm').addEventListener('submit', async event => {
     }
     nameField.removeAttribute('aria-invalid')
     $('newRoomYourNameError').hidden = true
-    storeName(chosen)
+    storeJoiningName(chosen)
   }
   button.disabled = true
   button.textContent = 'Starting…'
@@ -22289,7 +23441,7 @@ function destructContext(room: KnownRoom): TidyUpContext {
     : relayConnections.configuration(`room:${roomId}`, link?.relays ?? []).filter(relay => relay.write).map(relay => relay.url)
   // A device that never wrote in the room holds no key for it: a fresh one
   // finds nothing to delete, which is the truth.
-  const deviceSk = loadDeviceKeyFor(deviceStore, roomId) ?? loadDeviceKeyFor(browserDeviceStore(sessionStorage), roomId) ?? generateSecretKey()
+  const deviceSk = loadDeviceKeyFor(roomDeviceStore(), roomId) ?? loadDeviceKeyFor(roomDeviceStore(browserDeviceStore(sessionStorage)), roomId) ?? generateSecretKey()
   const tidyGroups = tidyUpGroupDeletes(roomId, deviceSk, link?.invitation ? invitationAuthority(link.invitation) : undefined)
   // The room on screen knows every channel it opened; one in the background
   // is read in epoch 0 and the epochs its records keep, in the channels every
@@ -23330,6 +24482,11 @@ $('roomRename').addEventListener('submit', (event) => {
     setStatus('A room name cannot be empty.')
     return
   }
+  if (session && dmPeer(roomPolicy, session.participant)) {
+    try { nameDirectChatForMe(name); input.blur(); setStatus(`Your name for this chat is “${name}”.`) }
+    catch (err) { setStatus(describeError(err)) }
+    return
+  }
   if (name === roomName) return
   const button = $('roomRenameSave') as HTMLButtonElement
   button.disabled = true
@@ -23337,6 +24494,11 @@ $('roomRename').addEventListener('submit', (event) => {
     .then(() => { input.blur(); setStatus(`Renamed the room to “${name}” for everyone.`) })
     .catch((err) => setStatus(describeError(err)))
     .finally(() => { button.disabled = false; renderRoomRename() })
+})
+
+$('roomRenameReset').addEventListener('click', () => {
+  try { nameDirectChatForMe(null); setStatus('This chat uses the other person’s name again.') }
+  catch (err) { setStatus(describeError(err)) }
 })
 
 $('roomLogoEdit').addEventListener('click', () => {
@@ -23708,6 +24870,7 @@ function fileDestinationChanged(): void {
   if (!fileStorageBooted) return
   renderStaged()
   renderComposer()
+  repaintActiveChat()
 }
 
 async function renderPrivateFileStorage(render: number, generation: number): Promise<void> {
@@ -23814,9 +24977,12 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // through `shareDroppedFileToGroup`. This door is closed so no caller can use it by mistake.
   if (roomStorageRecord()) throw new Error('This room keeps its files on its own storage.')
   const startGeneration = roomGeneration
+  dropProgress(draft, 'Removing file metadata on this device:', file)
+  const cleaned = await cleanAttachment(file, signal)
+  if (roomGeneration !== startGeneration) throw new Error('The room changed while cleaning this file. Nothing was uploaded.')
   if (bothyFiles()) {
     dropProgress(draft, 'Encrypting and uploading through Bothy:', file)
-    const attachment = await privateFiles.upload(file, signal)
+    const attachment = await privateFiles.upload(cleaned, signal)
     signal.throwIfAborted()
     if (roomGeneration !== startGeneration || !bothyFiles()) throw new Error('The room changed. Its private upload record was retained; nothing was added to this draft.')
     draft.attachments.push(attachment)
@@ -23846,7 +25012,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   signal.throwIfAborted()
-  const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type })
+  const sealed = await encryptEnvelopeBlob(cleaned, { name: cleaned.name, type: cleaned.type })
 
   let descriptor: Awaited<ReturnType<typeof uploadEnvelopeBlob>>
   try {
@@ -23939,6 +25105,9 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
   if (nodeRoom && !nodeRoom.node.existing) throw Error('Files are off in this hosted room.')
   signal.throwIfAborted()
   const startGeneration = roomGeneration
+  dropProgress(draft, 'Removing file metadata on this device:', file)
+  const cleaned = await cleanAttachment(file, signal)
+  if (roomGeneration !== startGeneration) throw new Error('The room changed while cleaning this file. Nothing was uploaded.')
   const record = roomStorageRecord()
   if (!record) throw new Error('This room does not name storage of its own.')
   if (!record.nodes.length) throw new TrayError({ text: GROUP_NO_STORAGE })
@@ -23956,7 +25125,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
   // Let the line above paint before the main thread is busy sealing.
   await new Promise((resolve) => setTimeout(resolve, 0))
   signal.throwIfAborted()
-  const sealed = await encryptEnvelopeBlob(file, { name: file.name, type: file.type })
+  const sealed = await encryptEnvelopeBlob(cleaned, { name: cleaned.name, type: cleaned.type })
 
   let result: Awaited<ReturnType<GroupStorage['upload']>>
   try {
@@ -24552,7 +25721,7 @@ const pendingRoomSwitch = (() => {
 armStopOpening()
 // Defer until identityReady has been initialised below. Admission can then
 // wait for a returning account without delaying the first door paint.
-const roomArrival = Promise.resolve().then(roomFromLocation)
+const roomArrival = Promise.resolve().then(() => roomFromLocation())
 // A meeting code End room, New link or Forget could not delete last time.
 drainMeetingCodeRetirements()
 roomArrival
@@ -24749,6 +25918,7 @@ function reconcileAccountNetwork(): void {
   for (const roomId of [...roomWatches.keys()]) stopWatching(roomId)
   if (!enabled) {
     participantCard.close()
+    void forgetPeoplePictures()
     // Remove retained avatar elements immediately, including views currently
     // closed. Repainting below supplies local initials rather than remote URLs.
     for (const image of document.querySelectorAll<HTMLImageElement>('img.avatar, .joinAvatar img, .personAvatar img, .contactAvatar img, .invitationAvatar img, .roomAvatar img')) { image.removeAttribute('src'); image.remove() }
@@ -24792,22 +25962,45 @@ renderIdentity()
  * was right there. Wait for it, briefly, and restore again.
  */
 async function restoreSessionWithExtensionGrace(): Promise<SignetSession | null> {
+  let tabAccount: string | null = null
+  const managed = expectingSavedPersonas()
+  try { tabAccount = sessionStorage.getItem(PERSONA_TAB_ACCOUNT) }
+  catch { /* The encrypted store can still supply its selected persona. */ }
+  const selection = await Promise.resolve().then(() => personaStore().selection()).catch(() => undefined)
+  if (selection) {
+    const chosen = tabAccount ?? selection.active
+    const persona = selection.personas.find(candidate => candidate.pubkey === chosen)
+    keepPersonaSelection(selection, persona?.pubkey ?? null)
+    if (!persona) return null
+    if (persona.method === 'nip07') await waitForExtensionSigner()
+    return (await restoreSavedPersona(persona.pubkey))?.account ?? null
+  }
+  if (managed) {
+    personaStorageError = true
+    expectedAccount = expectedMethod = undefined
+    setStatus('Saved signer connections are unavailable. Open Personas in Account settings to retry.')
+    return null
+  }
   reachStoredSignerOnSignetRelay()
   const session = await restoreSession()
   if (session?.signer.capabilities.canSignEvents) return session
   let storedMethod: string | null = null
   try { storedMethod = localStorage.getItem('signet:login.method') } catch { /* no storage, nothing stored */ }
   if (storedMethod !== 'nip07') return session
-  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
+  await waitForExtensionSigner()
   if (!extensionSignerPresent()) return session
   return restoreSession()
 }
 
+async function waitForExtensionSigner(): Promise<void> {
+  for (let waited = 0; waited < 3000 && !extensionSignerPresent(); waited += 100) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
 const identityReady = restoreSessionWithExtensionGrace()
   .then(async (session) => {
-    if (identityGeneration !== 0) return
+    if (identityGeneration !== 0) { await session?.signer.close().catch(() => {}); return }
     if (!session?.signer.capabilities.canSignEvents) {
       if (accountNetwork.nostr && !location.hash && new URL(location.href).searchParams.get('signin') === 'nostr') {
         history.replaceState(null, '', joinLinkBase())
@@ -24870,6 +26063,7 @@ async function pairSpryOnThisDevice(hash: string, pasted = false): Promise<void>
   finally { spryPairingInFlight = false; button.disabled = false }
 }
 if (spryPairingHash) void pairSpryOnThisDevice(spryPairingHash)
+window.kithmootDesktop?.onSpryPairing?.(hash => { void pairSpryOnThisDevice(hash) })
 if (nodePairingHash) void identityReady.finally(() => {
   const fragment = nodePairingHash; nodePairingHash = undefined
   openDestination('settings'); showSettingsPage('callNode')

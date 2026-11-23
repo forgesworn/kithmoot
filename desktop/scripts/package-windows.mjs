@@ -1,3 +1,4 @@
+import { stageWindowHelper } from './window-helper.mjs'
 import { packager } from '@electron/packager'
 import { createHash } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -12,6 +13,7 @@ const { version } = JSON.parse(await readFile(resolve(root, 'package.json'), 'ut
 // like the app.
 const helper = await stageHelper('win32-x64')
 await writeManifest({ 'win32-x64': helper.sha256 }, { version: helper.version })
+const windowHelper = await stageWindowHelper('win32', 'x64')
 const [directory] = await packager({
   dir: root,
   out: resolve(root, 'out'),
@@ -23,9 +25,9 @@ const [directory] = await packager({
   appVersion: version,
   overwrite: true,
   asar: true,
-  extraResource: [helper.dir],
+  extraResource: [helper.dir, windowHelper.dir],
   icon: resolve(root, 'artifacts/KithMoot.ico'),
-  ignore: [/^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
+  ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
 })
 
 await writeFile(resolve(directory, 'README.txt'), `KithMoot ${version} - Windows x64 portable preview

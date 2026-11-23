@@ -1,7 +1,8 @@
 import { finalizeEvent, generateSecretKey, getEventHash, type Event, type EventTemplate } from 'nostr-tools/pure'
 import { nip44 } from 'nostr-tools'
+import { parseNodeRoomLink } from '@forgesworn/fold-kit/node-room'
 import { parseRoomLink } from './link.js'
-import { dmPeer, type PeerCrypt } from './dm.js'
+import { dmPeer, dmPolicy, type PeerCrypt } from './dm.js'
 import { randomFraction } from './random.js'
 import { verifyEventUncached } from './verify.js'
 
@@ -20,13 +21,15 @@ export interface ContactInvitation {
   room: string
   link: string
   sentAt: number
+  node?: true
 }
 export type ContactInvitationRumor = EventTemplate & { pubkey: string; id: string }
 const HEX = /^[0-9a-f]{64}$/
 
 export function contactInvitationRumor(sender: string, recipient: string, room: string, link: string, now: number): ContactInvitationRumor {
+  const version = parseNodeRoomLink(link, now) ? '2' : '1'
   const event = { kind: 14, pubkey: sender, created_at: now,
-    tags: [['p', recipient], [CONTACT_INVITATION_TAG, '1', room]], content: link }
+    tags: [['p', recipient], [CONTACT_INVITATION_TAG, version, room]], content: link }
   const rumor = { ...event, id: getEventHash(event) }
   if (!readContactInvitation(rumor, sender, now)) throw new Error('Invalid private conversation invitation')
   return rumor
@@ -42,12 +45,23 @@ export function readContactInvitation(value: unknown, self: string, now: number)
       || typeof r.content !== 'string' || r.content.length > 12_000 || r.id !== getEventHash(r)) return
     const [p, marker] = r.tags
     if (!p || p.length !== 2 || p[0] !== 'p' || !HEX.test(p[1]!) || p[1] === r.pubkey
-      || !marker || marker.length !== 3 || marker[0] !== CONTACT_INVITATION_TAG || marker[1] !== '1' || !HEX.test(marker[2]!)
+      || !marker || marker.length !== 3 || marker[0] !== CONTACT_INVITATION_TAG || !HEX.test(marker[2]!)
       || self !== r.pubkey && self !== p[1]) return
+    const invitation = { id: r.id, sender: r.pubkey, recipient: p[1]!, room: marker[2]!, link: r.content, sentAt: r.created_at }
+    if (marker[1] === '2') {
+      // The signed node record pins both accounts and the transport. The
+      // carrier never receives either a device grant or a traffic key.
+      const node = parseNodeRoomLink(r.content, r.created_at)
+      const policy = node?.existing?.policy
+      if (node?.room !== invitation.room || policy?.tier !== 'open' || policy.quiet || policy.agents || policy.admitted
+        || policy.members?.join(',') !== dmPolicy(r.pubkey, p[1]!).members!.join(',')) return
+      return { ...invitation, node: true }
+    }
+    if (marker[1] !== '1') return
     const parsed = parseRoomLink(r.content)
     if (!parsed.invitation?.persistent || parsed.secret || parsed.pairingCode || parsed.policy?.quiet
       || dmPeer(parsed.policy, r.pubkey) !== p[1] || dmPeer(parsed.policy, p[1]!) !== r.pubkey) return
-    return { id: r.id, sender: r.pubkey, recipient: p[1]!, room: marker[2]!, link: r.content, sentAt: r.created_at }
+    return invitation
   } catch { return }
 }
 

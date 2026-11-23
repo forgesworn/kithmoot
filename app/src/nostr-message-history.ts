@@ -1,9 +1,54 @@
 import type { Event } from 'nostr-tools/pure'
 import type { DeviceStore } from './device-store.js'
-import { captureOrdinaryCopy, ordinaryExpired, ORDINARY_MAX_COPIES, ORDINARY_MAX_HISTORY_BYTES } from './nostr-message-wire.js'
+import { captureOrdinaryCopy, ordinaryExpired, ORDINARY_MAX_COPIES, ORDINARY_MAX_HISTORY_BYTES, type OrdinaryText } from './nostr-message-wire.js'
 
 export type OrdinaryHistoryLock = (key: string) => Promise<() => void>
 export const ordinaryHistoryKey = (account: string): string => `kithmoot.ordinary-message-copies.v1.${account}`
+export const ordinarySendStatusKey = (account: string): string => `kithmoot.ordinary-message-send-status.v1.${account}`
+const sendStatuses = ['unconfirmed', 'copy-unconfirmed', 'sent'] as const
+export type OrdinarySendStatus = typeof sendStatuses[number]
+export interface OrdinaryOutgoingMessage {
+  message: OrdinaryText
+  copy: Event
+  status: OrdinarySendStatus
+}
+
+export function mergeSendStatus(previous: OrdinarySendStatus | undefined, update: OrdinarySendStatus): OrdinarySendStatus {
+  return previous && sendStatuses.indexOf(previous) > sendStatuses.indexOf(update) ? previous : update
+}
+
+/** Local relay acknowledgements keyed by the encrypted sender-copy ID. The
+ * ciphertext history format stays readable by older clients. */
+export function readOrdinarySendStatuses(store: DeviceStore, account: string): Map<string, OrdinarySendStatus> {
+  const statuses = new Map<string, OrdinarySendStatus>()
+  try {
+    const raw = store.get(ordinarySendStatusKey(account))
+    if (!raw || raw.length > ORDINARY_MAX_COPIES * 100) return statuses
+    const rows: unknown = JSON.parse(raw)
+    if (!Array.isArray(rows) || rows.length > ORDINARY_MAX_COPIES) return statuses
+    for (const row of rows) {
+      if (Array.isArray(row) && row.length === 2 && typeof row[0] === 'string' && /^[0-9a-f]{64}$/.test(row[0]) && sendStatuses.includes(row[1])) {
+        statuses.set(row[0], mergeSendStatus(statuses.get(row[0]), row[1]))
+      }
+    }
+  } catch { /* Encrypted history is still usable without local send statuses. */ }
+  return statuses
+}
+
+export async function rememberOrdinarySendStatus(store: DeviceStore, account: string, copyId: string, status: OrdinarySendStatus,
+  acquire: OrdinaryHistoryLock, current: () => boolean): Promise<void> {
+  if (!current()) return
+  const key = ordinarySendStatusKey(account)
+  const release = await acquire(key)
+  try {
+    if (!current()) return
+    const saved = readOrdinarySendStatuses(store, account)
+    const next = mergeSendStatus(saved.get(copyId), status)
+    saved.delete(copyId)
+    saved.set(copyId, next)
+    store.set(key, JSON.stringify([...saved].slice(-ORDINARY_MAX_COPIES)))
+  } finally { release() }
+}
 
 /** Original gift wraps only: no plaintext, decoded sender, conversation index,
  * new key or native authority. The caller holds this account's writer lock.
@@ -33,9 +78,18 @@ export class OrdinaryMessageHistory {
   }
   copies(): readonly Event[] { return this.#events.filter(event => !ordinaryExpired(event, this.now())) }
   append(input: Event, current: () => boolean): { retained: readonly Event[]; limited: boolean } {
-    const event = captureOrdinaryCopy(input, this.account, this.now())
-    if (!event || !current()) throw Error('Message history is no longer current.')
-    const next = [...this.copies().filter(row => row.id !== event.id), event]
+    return this.merge([input], current)
+  }
+  merge(inputs: readonly Event[], current: () => boolean): { retained: readonly Event[]; limited: boolean } {
+    if (!current()) throw Error('Message history is no longer current.')
+    const copies = new Map(this.copies().map(copy => [copy.id, copy]))
+    for (const input of inputs) {
+      const event = captureOrdinaryCopy(input, this.account, this.now())
+      if (!event) throw Error('Message history received an invalid copy.')
+      copies.delete(event.id)
+      copies.set(event.id, event)
+    }
+    const next = [...copies.values()]
     let limited = false
     const encode = () => JSON.stringify({ v: 1, account: this.account, events: next })
     let raw = encode()

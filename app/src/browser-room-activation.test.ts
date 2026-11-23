@@ -6,7 +6,7 @@ import type { BrowserLink } from './browser-link.js'
 import type { RelayTransport } from '../../src/relay-pool.js'
 
 const room = 'a'.repeat(64), box = { routeId: 'route', eventUrl: `ws://${'a'.repeat(52)}/events` }
-function fixture() {
+function fixture(route = box) {
   const key = generateSecretKey(), deviceKey = generateSecretKey(), guest = getPublicKey(generateSecretKey())
   let now = 1000
   const signer = { pubkey: getPublicKey(key), signEvent: async (e: Parameters<typeof finalizeEvent>[0]) => finalizeEvent(e, key) }
@@ -31,11 +31,12 @@ function fixture() {
     }, close: () => {} }
   }
   const barrier = { changed: vi.fn(), closed: vi.fn(async (_room: string, work: () => Promise<void>) => work()) }
-  const link = { resume: async () => [box], boxes: () => [box] } as unknown as BrowserLink
+  const resume = vi.fn(async () => [route])
+  const link = { resume, boxes: () => [route] } as unknown as BrowserLink
   const controller = new BrowserRoomActivation(() => identity, link, store, barrier, carrier, () => now, async (_room, work) => work())
-  const input = { room, box, device: getPublicKey(deviceKey), scopes: [room], aliases: [], guests: [{ persona: guest, device: guest }],
+  const input = { room, box: route, device: getPublicKey(deviceKey), scopes: [room], aliases: [], guests: [{ persona: guest, device: guest }],
     readiness: async () => finalizeEvent({ kind: 20461, created_at: now, tags: [['d',room]], content: 'encrypted roster fixture' }, deviceKey) }
-  return { controller, input, publications, snapshots, store, signer, barrier, get saved() { return saved }, set saveFails(v: boolean) { refuseSave = v }, set writeFails(v: boolean) { refuseWrite = v }, signOut: () => { identity = undefined }, advance: (n: number) => { now += n } }
+  return { controller, input, publications, snapshots, store, signer, barrier, resume, get saved() { return saved }, set saveFails(v: boolean) { refuseSave = v }, set writeFails(v: boolean) { refuseWrite = v }, signOut: () => { identity = undefined }, advance: (n: number) => { now += n } }
 }
 
 describe('durable browser room activation', () => {
@@ -46,6 +47,13 @@ describe('durable browser room activation', () => {
     expect(f.saved!.grants).toHaveLength(2)
     expect(f.barrier.closed.mock.calls.map(c => c[0])).toContain(room)
     expect(f.publications.map(e => e.kind)).toEqual([24242,24242,20461])
+  })
+  it('activates standalone WSS without resuming a Bothy endpoint', async () => {
+    const f = fixture({ routeId: 'standalone-wok', eventUrl: 'wss://relay.example.org/events' })
+    await f.controller.activate(f.input)
+    expect(f.resume).not.toHaveBeenCalled()
+    expect(f.saved!.phase).toBe('active')
+    expect(f.saved!.grants[0].active.tags.find(t => t[0] === 'server')).toEqual(['server', 'wss://relay.example.org/events'])
   })
   it('sends nothing if the durable save fails', async () => {
     const f = fixture(); f.saveFails = true
