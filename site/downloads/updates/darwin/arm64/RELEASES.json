@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.178",
+  "currentRelease": "0.1.179",
   "releases": [
     {
-      "version": "0.1.178",
+      "version": "0.1.179",
       "updateTo": {
-        "version": "0.1.178",
-        "name": "0.1.178",
-        "pub_date": "2026-11-23T10:13:27Z",
-        "notes": "Choose Add from My Signet in the account menu to approve another persona.\nSwitch between saved personas and return to each one’s rooms, drafts and queued messages.\nApproved connections are stored encrypted on this device. KithMoot reconnects the selected persona when you reopen it.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.178/KithMoot-0.1.178-mac-arm64.zip",
-        "sha256": "d08f84b4b0488d15f7c685f6bdb26d47b0e1ad39a5e9d085f2fc47e66e417201",
-        "size": 198988597
+        "version": "0.1.179",
+        "name": "0.1.179",
+        "pub_date": "2026-11-23T17:46:36Z",
+        "notes": "Click or tap your avatar to see your current persona, switch to a saved one or add one from My Signet. You can also see the name on hover or keyboard focus.\nOn narrow screens, the avatar is available in Chats, People and Boards. In a room, find Switch persona in the More menu.\nBack from Settings returns to the screen you opened it from.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.179/KithMoot-0.1.179-mac-arm64.zip",
+        "sha256": "81f044a5dc121a6277d7b2d872e5bd2c02e926dde6bff8e965a994870f4ee42f",
+        "size": 198989679
       }
     }
   ]

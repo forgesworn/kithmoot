@@ -6,6 +6,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure
 import { readFile } from 'node:fs/promises'
 import { TEST_RELAY_WS } from './relays.js'
 import { openNewRoomForm, openProfileSettings, nameCreator } from './browser.js'
+import { accountDevice, signInAccount } from './nostr-account.js'
 
 async function device(browser: Browser, baseURL: string) {
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 740 } })
@@ -27,6 +28,97 @@ async function device(browser: Browser, baseURL: string) {
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
   return { context, relay: relay.href }
 }
+
+test('the account avatar reveals the persona name on hover, focus and activation', async ({ browser, baseURL }) => {
+  const secret = generateSecretKey()
+  const context = await accountDevice(browser, baseURL!, secret)
+  const pool = new NostrRelayPool([TEST_RELAY_WS])
+  const picture = 'https://avatars.example.test/work.png'
+  try {
+    await context.route(picture, async route => route.fulfill({ contentType: 'image/png', body: await readFile('app/public/pwa-192x192.png') }))
+    await pool.publish(finalizeEvent({
+      kind: 0, tags: [], created_at: Math.floor(Date.now() / 1000), content: JSON.stringify({ name: 'Work', picture }),
+    }, secret))
+    const page = await context.newPage()
+    await signInAccount(page, baseURL!)
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const avatar = page.getByRole('button', { name: 'Account menu for Work' })
+    await expect(avatar.locator('img')).toHaveAttribute('src', picture)
+    const tooltip = avatar.locator('#railPersonaTip')
+    await expect(tooltip).toHaveText('Work')
+    await expect(tooltip).toBeHidden()
+    await avatar.hover()
+    await expect(tooltip).toBeVisible()
+    const box = (await tooltip.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 })
+    await expect(tooltip).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(tooltip).toBeHidden()
+    await page.mouse.move(300, 10)
+    await avatar.hover()
+    await expect(tooltip).toBeVisible()
+    await page.mouse.move(300, 10)
+    await expect(tooltip).toBeHidden()
+
+    await page.keyboard.press('Tab')
+    await avatar.focus()
+    await expect(tooltip).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(tooltip).toBeHidden()
+    await expect(avatar).toBeFocused()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog', { name: 'Personas' })
+    await expect(dialog.getByText('Work', { exact: true })).toBeVisible()
+    await expect(dialog.getByText('Current persona')).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+    await expect(dialog.getByRole('textbox', { name: 'Name for the new persona' })).toBeHidden()
+    await expect(dialog.getByRole('button', { name: 'Add from My Signet' })).toBeEnabled()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    await expect(avatar).toBeFocused()
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await avatar.click()
+    await expect(dialog.getByText('Work', { exact: true })).toBeVisible()
+  } finally { pool.close(); await context.close() }
+})
+
+test('compact navigation keeps the account within reach in People, Boards and a chat', async ({ browser, baseURL }) => {
+  const context = await accountDevice({ newContext: options => browser.newContext({ ...options, hasTouch: true }) }, baseURL!)
+  try {
+    const page = await context.newPage()
+    await page.setViewportSize({ width: 320, height: 640 })
+    await signInAccount(page, baseURL!)
+    const dialog = page.getByRole('dialog', { name: 'Personas' })
+    for (const [destination, header] of [['People', '#peopleListHead'], ['Boards', '#workspaceWorkHead']]) {
+      await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: destination }).tap()
+      const avatar = page.locator(header).getByRole('button', { name: /^Account menu for / })
+      const box = await avatar.boundingBox()
+      expect(box?.width).toBeGreaterThanOrEqual(44)
+      expect(box?.height).toBeGreaterThanOrEqual(44)
+      expect((box?.x ?? 320) + (box?.width ?? 1)).toBeLessThanOrEqual(320)
+      await avatar.tap()
+      await expect(dialog.getByText('Current persona')).toBeVisible()
+      await dialog.getByRole('button', { name: 'Close' }).tap()
+      const settings = page.locator(header).getByRole('button', { name: 'Settings' })
+      await settings.tap()
+      await page.locator('#settingsBack').tap()
+      await expect(avatar).toBeVisible()
+      await expect(settings).toBeFocused()
+    }
+    await page.locator('#railChats').tap()
+    await openNewRoomForm(page)
+    await page.locator('#roomName').fill('Design review')
+    await nameCreator(page, 'Ada')
+    await page.locator('#create').tap()
+    await expect(page.locator('#roomArea')).toBeVisible()
+    await page.locator('#roomMenu').tap()
+    await page.getByRole('menuitem', { name: 'Switch persona…' }).tap()
+    await expect(dialog.getByText('Current persona')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close' }).tap()
+    await expect(page.locator('#roomArea')).toBeVisible()
+  } finally { await context.close() }
+})
 
 test('private chat rows show the peer picture before opening and respect the profile switch', async ({ browser, baseURL }) => {
   const { context, relay } = await device(browser, baseURL!)

@@ -48,7 +48,7 @@
       <button id="railMetadata" class="railItem" type="button" data-destination="metadata" aria-controls="metadataPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-eye"/></svg></span><span class="railLabel">Metadata</span></button>
       <div id="railEnd" class="railEnd">
         <button id="headerSignIn" class="railItem" type="button" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-signin"/></svg></span><span class="railLabel">Sign in</span></button>
-        <button id="railPersonas" class="railItem" type="button" aria-haspopup="dialog" aria-controls="personasDialog" hidden><span id="railPersonaAvatar" class="railIcon" aria-hidden="true"></span><span id="railPersonaLabel" class="railLabel">Personas</span></button>
+        <button id="railPersonas" class="railItem" type="button" aria-label="Personas" aria-haspopup="dialog" aria-controls="personasDialog" hidden><span id="railPersonaAvatar" class="railIcon" aria-hidden="true"></span><span id="railPersonaTip" aria-hidden="true"></span></button>
         <button id="railRelay" class="railItem" type="button" aria-label="Call relay on" hidden><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-relay"/></svg></span><span class="railLabel">Relay on</span></button>
         <button id="openAppSettings" class="railItem" type="button" data-destination="settings" aria-controls="settingsPane"><span class="railIcon"><svg class="i" aria-hidden="true" focusable="false"><use href="#i-settings"/></svg></span><span class="railLabel">Settings</span></button>
       </div>
@@ -470,7 +470,7 @@
            out). Still a <dialog> element because `WorkspaceWorkPanel` gates
            everything on it being open; it is opened without showModal(). -->
       <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
-        <div class="sheetBar"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
+        <div id="workspaceWorkHead" class="sheetBar listHead"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
         <div class="workFilters" role="group" aria-label="Boards"><button id="workspaceInboxTab" type="button" aria-pressed="true">Needs you</button><button id="workspaceWorkTab" type="button" aria-pressed="false">All</button></div>
         <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
         <p id="workspaceWorkStatus" role="status"></p>
@@ -2121,12 +2121,22 @@
       </form>
     </dialog>
     <dialog id="personasDialog" class="profileSettings" aria-labelledby="personasTitle">
-      <div class="profileSettingsHeader"><h2 id="personasTitle">Personas</h2><button id="personasClose" type="button">Close</button></div>
-      <div id="personaChoices" class="personaChoices"></div>
-      <label for="personaLabel">Name on this device (optional)</label>
-      <input id="personaLabel" maxlength="48" autocomplete="off" />
+      <div class="profileSettingsHeader"><h2 id="personasTitle">Personas</h2><button id="personasClose" type="button" autofocus>Close</button></div>
+      <div id="personaCurrent" class="personaCurrent" hidden>
+        <div><span class="note">Current persona</span><strong id="personaCurrentName"></strong><small id="personaCurrentKey" class="note" hidden></small></div>
+        <button id="reconnectPersona" type="button" hidden>Reconnect</button>
+      </div>
+      <div id="personaSwitch" hidden>
+        <h3>Switch persona</h3>
+        <div id="personaChoices" class="personaChoices"></div>
+      </div>
+      <details id="personaNameOption">
+        <summary>Name on this device (optional)</summary>
+        <label for="personaLabel" class="sr-only">Name for the new persona</label>
+        <input id="personaLabel" maxlength="48" autocomplete="off" />
+      </details>
       <button id="addSignetPersona" type="button">Add from My Signet</button>
-      <p id="personasStatus" class="note" role="status"></p>
+      <p id="personasStatus" class="note" role="status" tabindex="-1"></p>
     </dialog>
     <dialog id="accountNetworkDialog" class="profileSettings" aria-labelledby="accountNetworkTitle">
       <div class="profileSettingsHeader"><h2 id="accountNetworkTitle">Account network</h2><button id="accountNetworkClose" type="button">Close</button></div>
