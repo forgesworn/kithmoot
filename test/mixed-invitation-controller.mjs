@@ -61,7 +61,8 @@ async function startMetadataWindow(args) {
   let spoolDirectory
   if (args.spoolDirectory !== undefined) {
     if (typeof args.spoolDirectory !== 'string') throw Error('Browser metadata spool path required')
-    const runRoot = path.resolve(root, 'release/invitation-preview-b4-20261110')
+    // The harness names its run directory; the spool stays inside it.
+    const runRoot = path.resolve(process.env.MIXED_INVITATION_RUN_ROOT ?? path.join(root, 'release/invitation-preview-b4-20261110'))
     spoolDirectory = path.resolve(args.spoolDirectory)
     if (!spoolDirectory.startsWith(`${runRoot}${path.sep}`)) throw Error('Browser metadata spool must be run scoped')
   }
