@@ -1,0 +1,46 @@
+name: KithMoot 0.1.179 Windows release smoke
+
+on:
+  push:
+    branches: [test/windows-0.1.179]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-portable-build:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - name: Download and hash the portable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: '783920410'
+          ARCHIVE_SHA256: '7706711189e15aa01916ae361327ad77880387112d3b8fe4215d303fd2c7b0cf'
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'km-candidate.zip'
+          gh api -H 'Accept: application/octet-stream' "repos/forgesworn/kithmoot/releases/assets/$env:ASSET_ID" > $candidate
+          $sha = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $env:ARCHIVE_SHA256) { throw "Windows archive SHA-256 differs: $sha" }
+          Write-Output "Verified archive SHA-256 $sha"
+          Expand-Archive -LiteralPath $candidate -DestinationPath (Join-Path $env:RUNNER_TEMP 'km-candidate')
+      - name: Run the installed Electron shell with a disposable account
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'km-smoke'
+          New-Item -ItemType Directory -Path $path
+          Copy-Item test/ws-relay.mjs (Join-Path $path 'ws-relay.mjs')
+          Copy-Item .github/packaged-release-smoke.mjs (Join-Path $path 'packaged-smoke.mjs')
+          $locked = Get-Content package-lock.json -Raw | ConvertFrom-Json
+          $nostr = $locked.packages.'node_modules/nostr-tools'.version
+          $playwright = $locked.packages.'node_modules/@playwright/test'.version
+          $ws = $locked.packages.'node_modules/ws'.version
+          Push-Location $path
+          npm install --no-save --ignore-scripts --no-audit --no-fund --package-lock=false "@playwright/test@$playwright" "nostr-tools@$nostr" "ws@$ws"
+          $file = Join-Path $env:RUNNER_TEMP 'km-candidate/KithMoot-win32-x64/KithMoot.exe'
+          node packaged-smoke.mjs $file win32 x64 0.1.179
