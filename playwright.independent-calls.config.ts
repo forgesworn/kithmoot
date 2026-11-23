@@ -7,6 +7,9 @@ export default defineConfig({
   testMatch: ['independent-calls.spec.ts'],
   timeout: 180_000,
   outputDir: 'test-results/independent-calls',
+  // Keep a failed run's trace: these failures are timing faults in live
+  // calls, and the log alone does not say which connection stalled.
+  use: { ...publisher.use, trace: 'retain-on-failure' },
   projects: publisher.projects!.map(project => ({ ...project, use: {
     ...project.use, launchOptions: { args: [
       ...(project.use?.launchOptions?.args ?? []),
