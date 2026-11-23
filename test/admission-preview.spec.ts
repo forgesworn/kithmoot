@@ -1,6 +1,8 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import { newDeviceContext, openNewRoomForm, requestAdmission, nameCreator } from './browser.js'
+import { join, newDeviceContext, openNewRoomForm, openRoomInfoPage, requestAdmission, nameCreator } from './browser.js'
 import { testRelaysFor } from './relays.js'
+import { deriveRoom, encodeJoinUrl, generateRoomSecret } from '../src/room.js'
+import { parseRoomLink } from '../src/link.js'
 
 async function setup(browser: Browser, baseURL: string, phone = false) {
   const hostContext = await newDeviceContext(browser, baseURL)
@@ -74,6 +76,41 @@ test('a phone guest reviews details before one deliberate request, and retry nee
     await requestAdmission(f.guest)
     await expect.poll(() => new Set(f.requests).size).toBe(2)
   } finally { await f.close() }
+})
+
+test('recovery from a shared room key starts fresh and admits the intended guest explicitly', async ({ browser, baseURL }) => {
+  const relay = testRelaysFor(baseURL!)![0]!
+  const contexts = await Promise.all([newDeviceContext(browser, baseURL!), newDeviceContext(browser, baseURL!)])
+  try {
+    const [host, guest] = await Promise.all(contexts.map(context => context.newPage()))
+    const secret = generateRoomSecret()
+    const original = encodeJoinUrl(baseURL!, secret, [relay])
+    await host!.goto(original)
+    await host!.locator('#displayName').fill('Host')
+    await join(host!)
+    await openRoomInfoPage(host!, 'Invite link')
+    await host!.getByRole('button', { name: 'Recover from a shared room key' }).click()
+    await host!.getByRole('button', { name: 'Create protected room' }).click()
+    await expect(host!.locator('#inviteDialog')).toBeVisible()
+    const replacement = await host!.locator('#shareUrl').inputValue()
+    const parsed = parseRoomLink(replacement)
+    expect(parsed.secret).toBeUndefined()
+    expect(parsed.invitation?.persistent).not.toBeTruthy()
+    expect(parsed.relays).toEqual([relay])
+    const savedIds = await host!.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('kithmoot.room.')))
+    expect(savedIds).toContain('kithmoot.room.' + deriveRoom(secret).roomId)
+    expect(savedIds.filter(key => /^kithmoot\.room\.[0-9a-f]{64}$/.test(key))).toHaveLength(2)
+    await host!.locator('#inviteClose').click()
+    await guest!.goto(replacement)
+    await guest!.locator('#displayName').fill('Approved guest')
+    await requestAdmission(guest!)
+    const ask = host!.locator('#approvals .approvalCard.knock')
+    await expect(ask).toContainText('Approved guest wants to join')
+    await expect(guest!.locator('#roomArea')).toBeHidden()
+    await ask.getByRole('button', { name: 'Let in' }).click()
+    await join(guest!)
+    await expect(guest!.locator('#roomArea')).toBeVisible()
+  } finally { await Promise.all(contexts.map(context => context.close())) }
 })
 
 test('cancelling while an acknowledged grant is delayed cannot cache access or open the room', async ({ browser, baseURL }) => {

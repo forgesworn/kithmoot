@@ -6406,8 +6406,15 @@ function adoptNodeRoom(held: BrowserNodeRoom): void {
   iceUrls = []; roomUsesBothy = false
 }
 
-async function startNewRoom(): Promise<void> {
-  if (($('roomOnNode') as HTMLInputElement).checked) {
+interface RoomReplacement {
+  name: string | undefined
+  relays: string[]
+  ice: string[]
+  policy: RoomPolicy | undefined
+}
+
+async function startNewRoom(replacement?: RoomReplacement): Promise<void> {
+  if (!replacement && ($('roomOnNode') as HTMLInputElement).checked) {
     const owner = nostrSession?.signer, pair = owner && loadPairedNode(deviceStore, owner.pubkey)
     if (!owner || !pair) throw new PersonError('Pair your node under Settings → Calls → Your KithMoot node first.')
     const choice = ($('roomEnds') as HTMLSelectElement).value
@@ -6445,7 +6452,7 @@ async function startNewRoom(): Promise<void> {
     // asking its owner, see `askToLetIn`. It cannot be self-service from the
     // relay, which is exactly the point, and it is why such a room needs
     // somebody online to let people in.
-    const ask = ($('roomAsk') as HTMLInputElement).checked
+    const ask = !!replacement || ($('roomAsk') as HTMLInputElement).checked
     const persistent = !ask
     // Only a group can be a conference room: a meeting that asks before
     // anybody joins already ends when its people leave.
@@ -6463,10 +6470,11 @@ async function startNewRoom(): Promise<void> {
     const relayScope = `room:${deriveRoom(secret).roomId}`
     // Snapshot access modes too: an invitation carries URLs, so reconstructing
     // this room from its link must not turn a read-only default into a writer.
-    relayConnections.inheritDefaults(relayScope)
+    if (replacement) relayConnections.save(relayScope, replacement.relays.map(url => ({ url, read: true, write: true })))
+    else relayConnections.inheritDefaults(relayScope)
     // The room's own relays: the ones this device reads and writes, fixed
     // now and named in its signed invitation, so every member uses them.
-    const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
+    const roomRelays = replacement?.relays ?? invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
     relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
     // Persist the owner's recovery before publishing. Failure leaves the form
     // usable and never offers a link whose asynchronous admission was not saved.
@@ -6478,15 +6486,15 @@ async function startNewRoom(): Promise<void> {
     roomDestruct = destruct
     roomStartsAt = nowSeconds()
     expectedEpoch = 0
-    roomPolicy = undefined
+    roomPolicy = replacement?.policy
     roomSecret = secret
     roomInvitationCapability = created.invitation
     invitationAuthoritySk = created.inviterSk
     invitationDelegation = []
     roomRelayScope = relayScope
     useRoomRelays()
-    iceUrls = parseIceInput()
-    roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
+    iceUrls = replacement?.ice ?? parseIceInput()
+    roomName = replacement ? replacement.name : sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
     profiles.restartRoom()
     serveCurrentInvitation()
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
@@ -6568,6 +6576,7 @@ function renderShareControls(): void {
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
     roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
+  $('recoverExposedLink').hidden = !canRecoverExposedLink()
   // The sentence about a new link goes with the button that makes one.
   // Only the browser that opened the room has that button, so everybody
   // else was reading about a control that was not on their page.
@@ -6583,6 +6592,11 @@ function renderInvitationAvailability(): void {
   if (nodeRoom) {
     $('ownLink').hidden = true
     $('invitationAvailability').textContent = 'The keeper must have this room open to admit people. The link only lets somebody ask; the keeper signs each device’s access.'
+    return
+  }
+  if (!roomInvitationCapability) {
+    $('ownLink').hidden = true
+    $('invitationAvailability').textContent = 'This older link carries the key for this room.'
     return
   }
   const lapsed = cannotAnswerRoomLink()
@@ -18215,7 +18229,7 @@ function newRoomRefusal(): string | undefined {
  *  went up over the old room, whose session went on taking the messages, the
  *  roster and a rename. A node room still being made is this sheet's own
  *  retry and is kept for `startNewRoom` to resume. */
-async function leaveRoomForNewOne(): Promise<'left' | 'stayed' | 'busy'> {
+async function leaveRoomForNewOne(endCall = false): Promise<'left' | 'stayed' | 'busy'> {
   if (!session && !joining) {
     if (currentRoomId() && nodeRoom?.phase !== 'creating') { resetRoomState(); history.replaceState(null, '', joinLinkBase()) }
     return 'left'
@@ -18224,9 +18238,9 @@ async function leaveRoomForNewOne(): Promise<'left' | 'stayed' | 'busy'> {
   if (!await confirmLeavingWaitingMessage()) return 'stayed'
   // Nothing a person navigates to ends a call. See `DockedCall`.
   const live = !dockedCall && (callIsLive() || onCall())
-  const dockRoom = live ? dockableRoom() : undefined
+  const dockRoom = live && !endCall ? dockableRoom() : undefined
   // A room this device has no link kept for cannot be come back to.
-  if (live && !dockRoom && !await confirmRoomAction({ title: 'Leave this call?', message: 'Starting a room leaves your current call. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return 'stayed'
+  if (live && !dockRoom && !endCall && !await confirmRoomAction({ title: 'Leave this call?', message: 'Starting a room leaves your current call. Your microphone and camera will turn off.', confirmLabel: 'Leave call' })) return 'stayed'
   if (switchingRoom || switchingBlocked()) return 'busy'
   captureDraft()
   switchingRoom = true
@@ -19577,6 +19591,7 @@ let inviteOpener: HTMLElement = $('roomMenu')
 function openInviteDialog(qrFirst: boolean, from: HTMLElement = $('roomMenu')): void {
   if (roomUsesBothy) { setStatus('New invitations are unavailable on this Bothy text route.'); return }
   if (!session || roomPolicy?.members?.length || inviteDialog.open) return
+  renderShareControls()
   // The link and its controls are one set of elements: on loan to this sheet,
   // they cannot also be showing on Room info's Invite link page.
   if (infoSheet().open && infoPage === 'invite') showInfoPage('main')
@@ -22622,6 +22637,36 @@ $('rotateShare').addEventListener('click', async () => {
   ++roomOperation
   try { await rotateRoomInvitation() } catch (err) { setStatus(describeError(err)) }
   finally { --roomOperation; refreshRoomNavigation() }
+})
+
+function canRecoverExposedLink(): boolean {
+  return !!roomSecret && !session?.closed && !nodeRoom && !roomUsesBothy && !roomInvitationCapability && accountNetwork.nostr
+}
+
+$('recoverExposedLink').addEventListener('click', async () => {
+  const original = session
+  if (!original || !canRecoverExposedLink()) return
+  if (!await confirmRoomAction({
+    title: 'Move to a protected room?',
+    message: 'Start a room with a fresh key and send its invitation privately to the people you want to bring across. Each person asks to join. The earlier conversation remains in the original room. This ends any call you have in this room.',
+    confirmLabel: 'Create protected room',
+  }) || session !== original || !canRecoverExposedLink()) return
+  const destinationRelays = invitationRelaysFrom(roomRelayConfig.filter(relay => relay.read && relay.write).map(relay => relay.url))
+  if (!destinationRelays.length) { setStatus('This room needs a relay that can both read and write before it can be replaced.'); return }
+  const replacement: RoomReplacement = { name: roomName, relays: destinationRelays, ice: [...iceUrls], policy: roomPolicy }
+  try {
+    const left = await leaveRoomForNewOne(true)
+    if (left === 'busy') setStatus('Finish the current room action before starting its replacement.')
+    if (left !== 'left') return
+    await startNewRoom(replacement)
+    linkArrivalOver = true
+    showRoomUi()
+    await startSession()
+    if (session && session !== original) {
+      setStatus('Protected room ready. Share its invitation with the people you want to bring across.', 'done')
+      openInviteDialog(false)
+    }
+  } catch (error) { setStatus(describeFailureForPerson(error)) }
 })
 $('ownLink').addEventListener('click', async () => {
   const button = $('ownLink') as HTMLButtonElement
