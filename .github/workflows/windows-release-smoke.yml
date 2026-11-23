@@ -37,7 +37,7 @@ jobs:
           New-Item -ItemType Directory -Path $path
           Copy-Item test/ws-relay.mjs (Join-Path $path 'ws-relay.mjs')
           Copy-Item .github/packaged-release-smoke.mjs (Join-Path $path 'packaged-smoke.mjs')
-          $locked = Get-Content package-lock.json -Raw | ConvertFrom-Json
+          $locked = Get-Content package-lock.json -Raw | ConvertFrom-Json -AsHashtable
           $nostr = $locked.packages.'node_modules/nostr-tools'.version
           $playwright = $locked.packages.'node_modules/@playwright/test'.version
           $ws = $locked.packages.'node_modules/ws'.version
