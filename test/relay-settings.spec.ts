@@ -21,6 +21,7 @@ import { TEST_RELAY_WS } from './relays.js'
 for (const liveSigner of [false, true]) test(`Signet approval ${liveSigner ? 'connects a live signer and signs a room join' : 'explains a missing signing connection'}`, async ({ browser, baseURL }) => {
   const user = generateSecretKey(), endpoint = generateSecretKey()
   const pubkey = getPublicKey(user), endpointPubkey = getPublicKey(endpoint)
+  const approvedHandle = 'Signet fixture persona'
   const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
   const server = await Relay.connect(TEST_RELAY_WS)
   const signedKinds: number[] = []
@@ -54,7 +55,7 @@ for (const liveSigner of [false, true]) test(`Signet approval ${liveSigner ? 'co
     const request = new URL(await link.getAttribute('href') ?? '')
     const challenge = request.searchParams.get('challenge')!, origin = request.searchParams.get('origin')!
     const authEvent = finalizeEvent({ kind: 21236, created_at: Math.floor(Date.now() / 1000), tags: [['challenge', challenge], ['origin', origin]], content: '' }, user)
-    const response = { type: 'signet-auth-response', requestId: challenge, authEvent,
+    const response = { type: 'signet-auth-response', requestId: challenge, authEvent, displayName: approvedHandle,
       ...(liveSigner ? { bunkerUri: `bunker://${endpointPubkey}?relay=${encodeURIComponent(relay.href)}` } : {}) }
     const recipient = request.searchParams.get('sessionPubkey')!
     const rumor = createRumor({ kind: 29999, created_at: Math.floor(Date.now() / 1000),
@@ -73,6 +74,12 @@ for (const liveSigner of [false, true]) test(`Signet approval ${liveSigner ? 'co
       await expect(page.locator('#signet-login-dialog')).toHaveCount(0)
       await expect.poll(() => page.evaluate(() => localStorage.getItem('signet:login.pubkey'))).toBe(pubkey)
       await expect(page.locator('#homeSignIn')).toBeHidden()
+      const avatar = page.locator('#railPersonas')
+      await expect(avatar).toHaveAttribute('aria-label', `Account menu for ${approvedHandle}`)
+      await expect(page.locator('#railPersonaTip')).toHaveText(approvedHandle)
+      await avatar.click()
+      await expect(page.locator('#personaCurrentName')).toHaveText(approvedHandle)
+      await page.locator('#personasClose').click()
       await openNewRoomForm(page)
       await page.locator('#roomName').fill('Signet signing fixture')
       await nameCreator(page, 'Ada')

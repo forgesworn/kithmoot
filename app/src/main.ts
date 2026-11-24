@@ -5109,8 +5109,9 @@ function renderIdentity(): void {
 
 function personaName(pubkey: string): string {
   const shown = shownAs(pubkey)
+  const approvedName = nostrSession?.pubkey === pubkey ? sanitiseDisplayName(nostrSession.displayName) : undefined
   return (personaMenuSelection ?? personaSelection)?.personas.find(persona => persona.pubkey === pubkey)?.label
-    || shown.name || shown.npub
+    || approvedName || shown.name || shown.npub
 }
 
 function renderPersonas(): void {
