@@ -1,5 +1,5 @@
 {
-  "id": "2026-11-24-signet-avatar",
+  "id": "2026-11-24-screen-share",
   "date": "24 November 2026",
   "title": "Easier room entry and steadier conversations",
   "changes": [
@@ -7,6 +7,7 @@
     "If an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.",
     "Calls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.",
     "Message actions stay available when an incoming edit updates the conversation.",
-    "The avatar shows your approved My Signet persona name as soon as you sign in."
+    "The avatar shows your approved My Signet persona name as soon as you sign in.",
+    "View a screen shared from your other device when the share and microphone start at the same time."
   ]
 }

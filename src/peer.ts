@@ -19,6 +19,42 @@ function mediaSectionOrder(sdp: string | undefined): string | undefined {
   return JSON.stringify(sections.map(section => [section.kind, section.mid]))
 }
 
+// Chromium can keep extension IDs from a rolled-back first offer when it
+// adds the missing media to the established BUNDLE group. These extensions
+// are optional and can be omitted from the new media section on that pair.
+const OPTIONAL_RTP_EXTENSIONS = new Set([
+  'urn:ietf:params:rtp-hdrext:ssrc-audio-level',
+  'urn:ietf:params:rtp-hdrext:toffset',
+  'urn:3gpp:video-orientation',
+])
+
+function bundledExtensionConflicts(sdp: string, establishedMids: ReadonlySet<string>): Map<string, Set<string>> {
+  const conflicts = new Map<string, Set<string>>()
+  const sections = sdp.split(/(?=^m=)/m).slice(1).map(section => ({
+    mid: /^a=mid:(\S+)/m.exec(section)?.[1] ?? '',
+    kind: /^m=(audio|video) /m.exec(section)?.[1],
+    extensions: [...section.matchAll(/^a=extmap:(\d+)(?:\/\S+)?[ \t]+(\S+)/gm)],
+  }))
+  for (const [, members] of sdp.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)) {
+    const mids = new Set(members.trim().split(/\s+/))
+    const bundled = sections.filter(section => mids.has(section.mid))
+    const negotiated = new Map(bundled
+      .filter(section => establishedMids.has(section.mid))
+      .flatMap(section => section.extensions.map(([, id, uri]) => [id, uri] as const)))
+    for (const { mid, kind, extensions } of bundled) {
+      if (!kind || establishedMids.has(mid)) continue
+      for (const [, id, uri] of extensions) {
+        const bound = negotiated.get(id)
+        if (bound === undefined || bound === uri || !OPTIONAL_RTP_EXTENSIONS.has(uri)) continue
+        const blocked = conflicts.get(kind) ?? new Set<string>()
+        blocked.add(uri)
+        conflicts.set(kind, blocked)
+      }
+    }
+  }
+  return conflicts
+}
+
 /** The half of an `RTCRtpSender` a fixed slot uses, and nothing else:
  *  swapping what a slot carries without renegotiating it. */
 export interface RtpSenderLike {
@@ -30,6 +66,11 @@ export interface RtpSenderLike {
    *  read" must not be mistaken for "not being received". Optional, so a
    *  double written before any of this existed stays valid. */
   getStats?(): Promise<StatsReportLike>
+}
+
+interface HeaderExtensionPreference {
+  readonly uri: string
+  readonly direction: RTCRtpTransceiverDirection
 }
 
 /**
@@ -47,6 +88,8 @@ export interface RtpTransceiverLike {
   direction: RTCRtpTransceiverDirection
   readonly currentDirection?: RTCRtpTransceiverDirection | null
   readonly sender: RtpSenderLike
+  getHeaderExtensionsToNegotiate?(): HeaderExtensionPreference[]
+  setHeaderExtensionsToNegotiate?(extensions: HeaderExtensionPreference[]): void
   /** The receiving half, and the one thing the health sampler wants from it:
    *  a report scoped to this m-line, for the browsers that omit `mid` from
    *  `inbound-rtp`. Optional, because a double written before any of this
@@ -646,9 +689,9 @@ export class Peer implements NegotiatingPeer {
      * purely on which offer happened to win.
      *
      * Queued like every other negotiation step, and skipped unless the
-     * connection is idle - a change that arrives mid-negotiation is
-     * re-reported when the connection returns to `stable`, so skipping one
-     * loses nothing and offering into a half-applied state loses plenty.
+     * connection is idle. An event delivered while an offer is outstanding
+     * can be stale. After a rollback, `#handleOffer` checks for local
+     * senders left out of the completed exchange.
      *
      * "Idle" is judged HERE, in the event handler, and not inside the
      * queued operation. `negotiationneeded` is delivered as a queued task,
@@ -1022,12 +1065,15 @@ export class Peer implements NegotiatingPeer {
    * the other is "the connection says what it is carrying no longer matches
    * what it should be".
    */
-  async #offer(): Promise<void> {
+  async #offer(displaced: readonly RtpTransceiverLike[] = []): Promise<void> {
     if (this.#closed) return
     this.#makingOffer = true
     this.#clearNegotiationTimers()
     try {
-      const offer = await this.#pc.createOffer()
+      let offer = await this.#pc.createOffer()
+      if (offer.sdp && displaced.length && this.#repairRtpExtensions(offer.sdp, displaced)) {
+        offer = await this.#pc.createOffer()
+      }
       await this.#gather(() => this.#pc.setLocalDescription(offer), offer.sdp, (sdp) => {
         if (this.#offerSeq === Number.MAX_SAFE_INTEGER) throw new Error('call offer identifiers exhausted')
         const sequence = this.#opts.nextOfferSequence?.() ?? this.#offerSeq + 1
@@ -1041,6 +1087,22 @@ export class Peer implements NegotiatingPeer {
     this.#retryAttempt = 0
     this.#armOfferRetry()
     this.#armWedgeBreaker()
+  }
+
+  #repairRtpExtensions(sdp: string, displaced: readonly RtpTransceiverLike[]): boolean {
+    const mids = new Set(this.#pc.getTransceivers?.().flatMap(t => t.mid === null ? [] : [t.mid]))
+    const conflicts = bundledExtensionConflicts(sdp, mids)
+    let changed = false
+    for (const transceiver of displaced) {
+      const blocked = conflicts.get(transceiver.sender.track?.kind ?? '')
+      if (!blocked || !transceiver.getHeaderExtensionsToNegotiate || !transceiver.setHeaderExtensionsToNegotiate) continue
+      const extensions = transceiver.getHeaderExtensionsToNegotiate()
+      if (!extensions.some(extension => extension.direction !== 'stopped' && blocked.has(extension.uri))) continue
+      transceiver.setHeaderExtensionsToNegotiate(extensions.map(extension =>
+        blocked.has(extension.uri) ? { ...extension, direction: 'stopped' } : extension))
+      changed = true
+    }
+    return changed
   }
 
   /**
@@ -1415,6 +1477,9 @@ export class Peer implements NegotiatingPeer {
     const ignoreOffer = !this.polite && collision
     if (ignoreOffer) return
 
+    const pending = collision
+      ? this.#pc.getTransceivers?.().filter(t => t.mid !== null && t.currentDirection === null) ?? []
+      : []
     if (collision) {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
@@ -1495,10 +1560,15 @@ export class Peer implements NegotiatingPeer {
      * and neither end has anything left to say about it. So say something:
      * one offer from `stable` settles both ends on one description.
      */
-    if (reanswered && answeredBefore !== undefined && !sameShape(answeredBefore, answer.sdp)) {
+    // A browser may give no second negotiationneeded event for the
+    // track whose section disappeared when its first offer rolled back.
+    const displaced = pending.filter(({ mid, sender }) =>
+      mid === null && sender.track?.readyState === 'live' && this.#addedTracks.has(sender.track))
+    const changedAnswer = reanswered && answeredBefore !== undefined && !sameShape(answeredBefore, answer.sdp)
+    if (displaced.length || changedAnswer) {
       if (this.#closed || this.#makingOffer || this.#senderRefused) return
       if (this.#pc.signalingState !== 'stable') return
-      await this.#offer()
+      await this.#offer(displaced)
     }
   }
 
