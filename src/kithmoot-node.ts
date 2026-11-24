@@ -10,6 +10,7 @@ import { parseGroupEvent, type GroupEvent, type ParsedGrant, type ParsedReset } 
 import { spryHash, type SpryCredential, type SpryOffer } from './spry.js'
 import { NostrRelayPool, type RelayTransport, type RelayPoolClient } from './relay-pool.js'
 import type { PeerContext, PeerFactory, RTCPeerConnectionLike } from './peer.js'
+import { callRelayPeerConnection, callRelaySetConfiguration } from './turn-configuration.js'
 
 export class KithmootNodeError extends Error {
   /** `code` is the node's own short reason for a refusal, when it gave one. */
@@ -416,7 +417,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
       const next = configuration()
       selectedRoutes.set(peer, preferredRoute!)
       prepareRepair.get(peer)?.()
-      peer.setConfiguration(next); if (restart) restart(); else peer.restartIce()
+      callRelaySetConfiguration(peer, next); if (restart) restart(); else peer.restartIce()
     } catch { peer.close(); peers.delete(peer) }
   }
   const runRenewal = async (): Promise<void> => {
@@ -488,7 +489,7 @@ export async function nodeCallFactory(record: NodeRoomRecord, device: Participan
   options.signal?.addEventListener('abort', close, { once: true })
   const factory: PeerFactory = context => {
       if (!allowed() || remaining() <= 0) { close(); throw new KithmootNodeError(0, 'expired') }
-      const peer = new Base(configuration()), end = peer.close.bind(peer)
+      const peer = callRelayPeerConnection(configuration(), config => new Base(config)), end = peer.close.bind(peer)
       peerDeadlines.set(peer, credentialDeadline)
       selectedRoutes.set(peer, preferredRoute!)
       let connected = false, recovering = false

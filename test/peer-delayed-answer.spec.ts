@@ -63,19 +63,35 @@ test('a delayed camera-off answer leaves the replacement camera offer pending', 
     pendingUnchanged: true, finalState: 'stable', replacementDirection: 'sendonly' })
 })
 
-test('a screen on a rolled-back offer still gets negotiated when the browser gives no new event', async ({ page }) => {
+test('a screen from a conflicting first offer is still negotiated when the browser gives no new event', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const Peer = (window as unknown as { TestPeer: typeof import('../src/peer.js').Peer }).TestPeer
     type Signal = import('../src/signal.js').SignalBody
     type Connection = import('../src/peer.js').RTCPeerConnectionLike
     const screenSignals: Signal[] = [], micSignals: Signal[] = []
-    const screenPc = new RTCPeerConnection(), micPc = new RTCPeerConnection()
-    const options = { onTrack: () => {}, candidateGatherMs: 0 }
-    const screenPeer = new Peer({
+    let screenPc = new RTCPeerConnection()
+    const micPc = new RTCPeerConnection()
+    const options = { onTrack: () => {}, candidateGatherMs: 0, offerRetry: { intervalMs: 30_000, wedgeMs: 60_000 } }
+    let replacement: Promise<void> | undefined
+    let screenSequence = 0
+    const createScreenPeer = (): InstanceType<typeof Peer> => new Peer({
       ...options,
       factory: () => screenPc as unknown as Connection, localDevice: '11'.repeat(32), remoteDevice: '22'.repeat(32),
+      nextOfferSequence: () => ++screenSequence,
       onSignal: body => screenSignals.push(body),
+      onRemoteRestart: (offer, candidates, _retired, answerFirst) => {
+        if (!answerFirst) throw new Error('Expected the first offer to be answered on the fresh connection')
+        screenPeer.close()
+        screenPc = new RTCPeerConnection()
+        screenPeer = createScreenPeer()
+        replacement = (async () => {
+          await screenPeer.handleSignal(offer)
+          for (const candidate of candidates) await screenPeer.handleSignal(candidate)
+          await screenPeer.start([screen])
+        })()
+      },
     })
+    let screenPeer = createScreenPeer()
     const micPeer = new Peer({
       ...options,
       factory: () => micPc as unknown as Connection, localDevice: '22'.repeat(32), remoteDevice: '11'.repeat(32),
@@ -85,33 +101,38 @@ test('a screen on a rolled-back offer still gets negotiated when the browser giv
     const screen = canvas.captureStream(10).getVideoTracks()[0]!
     const sound = new AudioContext()
     const mic = sound.createMediaStreamDestination().stream.getAudioTracks()[0]!
-    const firstOffer = async (signals: Signal[]) => {
+    const nextOffer = async (signals: Signal[], after = 0) => {
       const end = Date.now() + 5000
       while (Date.now() < end) {
-        const offer = signals.find(body => body.type === 'offer')
+        const offer = signals.filter(body => body.type === 'offer')[after]
         if (offer) return offer
         await new Promise(resolve => setTimeout(resolve, 10))
       }
-      throw new Error('No initial offer')
+      throw new Error('Expected an offer for the published track')
     }
     try {
       await Promise.all([screenPeer.start([screen]), micPeer.start([mic])])
-      const [screenOffer, micOffer] = await Promise.all([firstOffer(screenSignals), firstOffer(micSignals)])
+      const [screenOffer, micOffer] = await Promise.all([nextOffer(screenSignals), nextOffer(micSignals)])
       // Reproduce Chromium's missing event after answering the competing, audio-only offer.
       screenPc.onnegotiationneeded = null
       await micPeer.handleSignal(screenOffer)
       await screenPeer.handleSignal(micOffer)
+      await replacement
+      const followUp = await nextOffer(screenSignals, 1)
       const descriptionOrder = screenSignals.filter(body => body.type !== 'ice').map(body => body.type)
-      const followUp = screenSignals.filter(body => body.type === 'offer')[1]
-      if (followUp) {
-        await micPeer.handleSignal(screenSignals.find(body => body.type === 'answer')!)
-        await micPeer.handleSignal(followUp)
-        await screenPeer.handleSignal(micSignals.find(body => body.type === 'answer')!)
+      await micPeer.handleSignal(screenSignals.find(body => body.type === 'answer')!)
+      await micPeer.handleSignal(followUp)
+      await screenPeer.handleSignal(micSignals.find(body => body.type === 'answer')!)
+      return {
+        descriptionOrder,
+        screenDirection: screenPc.getTransceivers().find(t => t.sender.track === screen)?.currentDirection,
       }
-      return { descriptionOrder, screenDirection: screenPc.getTransceivers().find(t => t.sender.track === screen)?.currentDirection }
     } finally {
       screenPeer.close(); micPeer.close(); screen.stop(); mic.stop(); await sound.close()
     }
   })
-  expect(result).toEqual({ descriptionOrder: ['offer', 'answer', 'offer'], screenDirection: 'sendonly' })
+  expect(result).toEqual({
+    descriptionOrder: ['offer', 'answer', 'offer'],
+    screenDirection: 'sendonly',
+  })
 })
