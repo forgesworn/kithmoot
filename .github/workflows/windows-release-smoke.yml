@@ -1,0 +1,48 @@
+name: KithMoot 0.1.183 Windows release smoke
+
+on:
+  push:
+    branches: [test/windows-0.1.183]
+
+permissions:
+  contents: write
+
+jobs:
+  exact-portable-build:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - name: Download and hash the portable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: '786893208'
+          ARCHIVE_SHA256: '6be75c183dca01b3c92f830ac1051f03f14fcad6c4941c59c6f68169cb8a29ab'
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'km-candidate.zip'
+          gh api -H 'Accept: application/octet-stream' "repos/forgesworn/kithmoot/releases/assets/$env:ASSET_ID" > $candidate
+          if ($LASTEXITCODE) { throw "GitHub did not return the draft archive" }
+          $sha = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $env:ARCHIVE_SHA256) { throw "Windows archive SHA-256 differs: $sha" }
+          Write-Output "Verified archive SHA-256 $sha"
+          Expand-Archive -LiteralPath $candidate -DestinationPath (Join-Path $env:RUNNER_TEMP 'km-candidate')
+      - name: Run the installed Electron shell with a disposable account
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'km-smoke'
+          New-Item -ItemType Directory -Path $path
+          Copy-Item .github/packaged-signet-avatar.mjs $path
+          Copy-Item .github/isolated-app.mjs $path
+          $locked = Get-Content package-lock.json -Raw | ConvertFrom-Json -AsHashtable
+          $nostr = $locked.packages.'node_modules/nostr-tools'.version
+          $playwright = $locked.packages.'node_modules/@playwright/test'.version
+          Push-Location $path
+          npm install --no-save --ignore-scripts --no-audit --no-fund --package-lock=false "@playwright/test@$playwright" "nostr-tools@$nostr"
+          if ($LASTEXITCODE) { throw "Test dependency installation failed" }
+          $file = Join-Path $env:RUNNER_TEMP 'km-candidate/KithMoot-win32-x64/KithMoot.exe'
+          node packaged-signet-avatar.mjs $file
+          if ($LASTEXITCODE) { throw "The exact Windows app did not complete the Signet check" }
