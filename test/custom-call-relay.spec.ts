@@ -1,28 +1,35 @@
 import { test, expect, type Page } from '@playwright/test'
 import { createRoom, inbound, joinWithMedia, newDeviceContext, openCallSettings, openSettings, closeSettings, remoteAudioCount, remotePictures, SYNTHETIC_MIC } from './browser.js'
-import { callRelayPeerConnection, withoutPlainTurnTcp } from '../app/src/call-relay.js'
+import { callRelayPeerConnection, callRelaySetConfiguration, compatibleTurnConfiguration } from '../src/turn-configuration.js'
 
 interface Relay { urls: string[]; username: string; credential: string }
 
 test('configured URI alternatives work in the real browser constructor and retain relay-only privacy', async ({ page }) => {
   // Execute the implementation itself in each browser. About:blank has no
   // application CSP; this evaluates only our own source, with synthetic login.
-  const result = await page.evaluate(([helper, source]) => {
-    // The constructor calls its WebKit filter by name, so define it first.
+  const result = await page.evaluate(([helper, constructorSource, updateSource]) => {
     globalThis.eval(helper)
-    const create = globalThis.eval(`(${source})`) as (config: RTCConfiguration) => RTCPeerConnection
-    const pc = create({ iceTransportPolicy: 'relay', iceServers: [{
-      urls: ['turn:relay.example:3478', 'turn:relay.example:3478?transport=tcp', 'turns:relay.example:5349'],
+    const create = globalThis.eval(`(${constructorSource})`) as typeof callRelayPeerConnection
+    const update = globalThis.eval(`(${updateSource})`) as typeof callRelaySetConfiguration
+    const config: RTCConfiguration = { iceTransportPolicy: 'relay', iceServers: [{
+      urls: ['turn:relay.example:3478?transport=udp', 'turn:relay.example:3479?transport=tcp', 'turns:relay.example:5349?transport=tcp'],
       username: 'compat-test', credential: 'synthetic-compat-password',
-    }] })
+    }] }
+    const pc = create(config)
     try {
-      const config = pc.getConfiguration()
-      return { policy: config.iceTransportPolicy, urls: config.iceServers?.flatMap(server => [server.urls].flat()), username: config.iceServers?.[0].username }
+      const initial = pc.getConfiguration()
+      update(pc, { ...config, iceServers: [{ ...config.iceServers![0], username: 'renewed-compat-test' }] })
+      return [initial, pc.getConfiguration()]
     } finally { pc.close() }
-  }, [withoutPlainTurnTcp.toString(), callRelayPeerConnection.toString()] as const)
-  expect(result.policy).toBe('relay')
-  expect(result.urls).toEqual(expect.arrayContaining(['turn:relay.example:3478', 'turns:relay.example:5349']))
-  expect(result.username).toBe('compat-test')
+  }, [compatibleTurnConfiguration.toString(), callRelayPeerConnection.toString(), callRelaySetConfiguration.toString()] as const)
+  for (const [index, config] of result.entries()) {
+    expect(config.iceTransportPolicy).toBe('relay')
+    expect(config.iceServers?.[0].username).toBe(index === 0 ? 'compat-test' : 'renewed-compat-test')
+    expect(config.iceServers?.[0].credential).toBe('synthetic-compat-password')
+    const urls = config.iceServers?.flatMap(server => [server.urls].flat()) ?? []
+    const endpoints = urls.map(url => url.split('?')[0])
+    expect(endpoints).toEqual(expect.arrayContaining(['turn:relay.example:3478', 'turns:relay.example:5349']))
+  }
 })
 
 async function configure(page: Page, relay: Relay) {

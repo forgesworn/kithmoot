@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { CALL_RELAY_KEY, callRelayPeerConnection, callRelaySetConfiguration, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay } from './call-relay.js'
+import { callRelayPeerConnection, callRelaySetConfiguration } from '../../src/turn-configuration.js'
+import { CALL_RELAY_KEY, callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay } from './call-relay.js'
 import { resolveIceServers } from './ice-resolve.js'
 
 const relay = parseCallRelay('turn:relay.example:3478, turns:relay.example:5349', 'friend', 'test-secret')!
@@ -36,11 +37,15 @@ describe('a device-owned call relay', () => {
   it('retries WebKit syntax rejection with the same authenticated UDP and TLS hosts and privacy policy', () => {
     let calls = 0
     const config: RTCConfiguration = { iceTransportPolicy: 'relay', iceServers: [{
-      urls: ['turn:relay.example:3478', 'turn:relay.example:3478?transport=tcp', 'turns:relay.example:5349'], username: 'u', credential: 'p',
+      urls: ['turn:[2001:db8::1]:3478?transport=udp', 'turn:relay.example:3479?transport=tcp', 'turns:relay.example:5349?transport=tcp'],
+      username: 'u', credential: 'p',
     }] }
     callRelayPeerConnection(config, next => {
-      if (++calls === 1) throw new DOMException('unsupported URI', 'SyntaxError')
-      expect(next).toEqual({ ...config, iceServers: [{ ...config.iceServers![0], urls: ['turn:relay.example:3478', 'turns:relay.example:5349'] }] })
+      if (++calls === 1) {
+        expect(next).toBe(config)
+        throw new DOMException('Invalid TURN URL query string', 'SyntaxError')
+      }
+      expect(next).toEqual({ ...config, iceServers: [{ ...config.iceServers![0], urls: ['turn:[2001:db8::1]:3478', 'turns:relay.example:5349'] }] })
       return {} as RTCPeerConnection
     })
     expect(calls).toBe(2)
@@ -74,15 +79,15 @@ describe('a device-owned call relay', () => {
 })
 
 describe('renewing a live connection', () => {
-  it('goes through the same WebKit TURN/TCP filter', () => {
-    const config = { iceServers: [{ urls: ['turn:relay.example.org:3478?transport=udp', 'turn:relay.example.org:3478?transport=tcp'], username: 'u', credential: 'p' }] }
+  it('retries an explicit UDP address even when there is no plain TCP alternative', () => {
+    const config: RTCConfiguration = { iceTransportPolicy: 'relay', iceServers: [{ urls: 'turn:relay.example.org:3478?transport=udp', username: 'u', credential: 'p' }] }
     const applied: RTCConfiguration[] = []
     const pc = { setConfiguration(next: RTCConfiguration) {
-      if ((next.iceServers ?? []).some(server => [server.urls].flat().some(url => url.endsWith('transport=tcp')))) throw new DOMException('unsupported URI', 'SyntaxError')
+      if (next === config) throw new DOMException('Invalid TURN URL query string', 'SyntaxError')
       applied.push(next)
     } }
     callRelaySetConfiguration(pc, config)
-    expect(applied).toEqual([{ iceServers: [{ urls: ['turn:relay.example.org:3478?transport=udp'], username: 'u', credential: 'p' }] }])
+    expect(applied).toEqual([{ ...config, iceServers: [{ urls: ['turn:relay.example.org:3478'], username: 'u', credential: 'p' }] }])
     expect(() => callRelaySetConfiguration({ setConfiguration() { throw new Error('closed') } }, config)).toThrow('closed')
   })
 })
