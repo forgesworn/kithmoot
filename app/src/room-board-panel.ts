@@ -10,6 +10,8 @@ interface RoomBoardHost {
   subscribe(listener: (update: Uint8Array) => void): () => void
   self: string
   members(): Array<{ pubkey: string; name: string }>
+  discuss?(card: { id: string; title: string; description: string }): void
+  invite?(): void
   signal?: AbortSignal
 }
 type RoomBoardWindow = Window & { girnelRoomBoard?: { start(host: RoomBoardHost): void; hasPendingEdits(): boolean } }
@@ -25,6 +27,8 @@ export interface RoomBoardRoom {
   members(): Array<{ pubkey: string; name: string }>
   /** The session's one board log, opened on first use. */
   board(): Promise<RoomBoardLog>
+  /** Whether this room can be invited to. A private chat cannot. */
+  canInvite: boolean
 }
 
 interface View {
@@ -69,66 +73,62 @@ function errorText(error: unknown): string {
  * it: there is nothing to create, name, share or join, and no account to
  * sign in to beyond being in the room.
  *
- * The frame holds Girnel's board view and nothing else. The room keeps the
- * board (`RoomBoardLog`): this panel hands the view the board's state and
- * its later changes, and hands the room each edit the view accepts. No key,
- * signer or relay crosses into the frame.
+ * It is shown in the Boards destination, as the tab named after the room
+ * (`WorkspaceWorkPanel` gives it the container). The frame holds Girnel's
+ * whole board screen. The room keeps the board (`RoomBoardLog`): this panel
+ * hands the screen the board's state and its later changes, and hands the
+ * room each edit the screen accepts. No key, signer or relay crosses into
+ * the frame.
  */
 export class RoomBoardPanel {
-  readonly dialog: HTMLDialogElement
+  readonly element: HTMLElement
   #view?: View
-  #return?: HTMLElement
-  readonly #title: HTMLElement
   readonly #status: HTMLElement
-  readonly #shell: HTMLElement
-  readonly #tasks: HTMLButtonElement
-  #others!: HTMLButtonElement
   #watch?: ReturnType<typeof setInterval>
 
   constructor(readonly root: Document, readonly options: {
     /** The room now open, or undefined when there is none. */
     current(): object | undefined
-    /** The room's tasks. */
-    roomTasks(from: HTMLElement): void
-    /** Boards kept outside the room and shared with it (the older Boards
-     *  view), and how many this room has been handed. */
-    otherBoards(from: HTMLElement): void
-    otherBoardsCount(): number
+    /** Back to the room's conversation. */
+    back(): void
+    /** Take a card into the room's conversation: its title, into the draft. */
+    discuss(card: { id: string; title: string; description: string }): void
+    /** The room's own invitation, for somebody who is to have the board. */
+    invite(): void
   }) {
-    this.dialog = root.createElement('dialog'); this.dialog.id = 'roomBoardPanel'; this.dialog.setAttribute('aria-labelledby', 'roomBoardTitle')
-    this.#shell = this.el('div'); this.#shell.className = 'boardsShell'
-    const bar = this.el('div'); bar.className = 'boardsBar'
-    this.#title = this.el('h2', 'Board'); this.#title.id = 'roomBoardTitle'; this.#title.tabIndex = -1
-    this.#tasks = this.button('Room tasks', () => { const opener = this.#return; this.dialog.close(); this.options.roomTasks(opener?.isConnected ? opener : this.#tasks) }); this.#tasks.id = 'roomBoardTasks'
-    const others = this.button('Other boards', () => { const opener = this.#return; this.dialog.close(); this.options.otherBoards(opener?.isConnected ? opener : others) }); others.id = 'roomBoardOthers'
-    this.#others = others
-    const close = this.button('Close', () => this.dialog.close()); close.id = 'roomBoardClose'
-    bar.append(this.#title, this.#tasks, others, close)
-    this.#status = this.el('p'); this.#status.id = 'roomBoardStatus'; this.#status.className = 'roomBoardStatus'; this.#status.setAttribute('role', 'status')
-    this.#shell.append(bar, this.#status); this.dialog.append(this.#shell); root.body.append(this.dialog)
-    this.dialog.addEventListener('close', () => {
-      if (this.#watch) { clearInterval(this.#watch); this.#watch = undefined }
-      if (this.#return?.isConnected) this.#return.focus({ preventScroll: true })
-    })
+    this.element = root.createElement('section'); this.element.id = 'roomBoardPanel'; this.element.className = 'roomBoardSurface'
+    this.#status = root.createElement('p'); this.#status.id = 'roomBoardStatus'; this.#status.className = 'roomBoardStatus'; this.#status.setAttribute('role', 'status')
+    // One line over the board: where it stands with the room, and the way
+    // back to the conversation, which a phone has no rail to offer.
+    const bar = root.createElement('div'); bar.className = 'roomBoardBar'
+    const back = root.createElement('button'); back.type = 'button'; back.id = 'roomBoardBack'; back.className = 'quiet'; back.textContent = 'Back to chat'
+    back.onclick = () => this.options.back()
+    bar.append(this.#status, back)
+    this.element.append(bar)
     window.addEventListener('pagehide', () => this.reset())
   }
-  private el(tag: string, text = '') { const element = this.root.createElement(tag); element.textContent = text; return element }
-  private button(text: string, run: () => void) { const button = this.root.createElement('button'); button.type = 'button'; button.textContent = text; button.onclick = run; return button }
 
-  /** Open the board of `room`. Shown at once; the board follows as soon as
-   *  this device's copy has been read. */
-  open(from: HTMLElement, room: RoomBoardRoom): void {
-    this.#return = from
+  /** Show the board of `room` in `container`. Shown at once; the board
+   *  follows as soon as this device's copy has been read. Asked again for a
+   *  board already showing, it changes nothing. */
+  show(container: HTMLElement, room: RoomBoardRoom): void {
     if (this.#view && (this.#view.room.key !== room.key || this.#view.abort.signal.aborted || this.#view.log?.closed)) this.closeView()
-    this.#title.textContent = `Board · ${room.name}`
-    this.labelOthers()
+    if (this.element.parentElement !== container) container.append(this.element)
+    this.element.setAttribute('aria-label', `Board · ${room.name}`)
     if (!this.#view) this.mount(room)
-    else { this.#view.room = room; this.render() }
-    if (!this.dialog.open) this.dialog.showModal()
+    else { this.#view.room = room; if (this.#view.frame) this.#view.frame.title = `Board · ${room.name}`; this.render() }
     // A room left or changed under an open board takes the board with it.
     this.#watch ??= setInterval(() => this.sync(), 1000)
-    this.#title.focus()
   }
+
+  /** Another tab was chosen, or Boards was left. The board stays as it is,
+   *  out of sight, so what was half typed is still there on the way back. */
+  hide(): void {
+    if (this.#watch) { clearInterval(this.#watch); this.#watch = undefined }
+  }
+
+  /** Whether a board is showing for the room `key`. */
+  showing(key: object): boolean { return this.#view?.room.key === key && !this.#view.abort.signal.aborted }
 
   private mount(room: RoomBoardRoom): void {
     const view: View = { room, abort: new AbortController() }
@@ -161,6 +161,9 @@ export class RoomBoardPanel {
                 view.abort.signal.addEventListener('abort', stop, { once: true })
                 return stop
               },
+              // What comes back from the frame is another realm's: read as plain text and nothing more.
+              discuss: card => { if (current()) this.options.discuss({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
+              ...(room.canInvite ? { invite: () => { if (current()) this.options.invite() } } : {}),
               signal: view.abort.signal,
             })
           } catch (error) { if (current()) this.#status.textContent = errorText(error) }
@@ -168,19 +171,12 @@ export class RoomBoardPanel {
         if (child.girnelRoomBoard) start(); else child.addEventListener('girnel-room-ready', start, { once: true })
       })
       view.frame = frame
-      this.#shell.append(frame)
+      this.element.append(frame)
       this.render()
     }).catch(error => { if (current()) this.#status.textContent = errorText(error) })
   }
 
-  /** Boards shared with this room before it had one of its own stay one step away. */
-  private labelOthers(): void {
-    const count = this.options.otherBoardsCount()
-    this.#others.textContent = count > 0 ? `Other boards (${count})` : 'Other boards'
-  }
-
   private render(): void {
-    this.labelOthers()
     const log = this.#view?.log
     if (!log) return
     const status = log.status()
@@ -208,12 +204,11 @@ export class RoomBoardPanel {
     if (!view) return
     if (this.options.current() === view.room.key && !view.log?.closed) return
     this.closeView()
-    if (this.dialog.open) this.dialog.close()
   }
 
   reset(): void {
     this.closeView()
-    if (this.dialog.open) this.dialog.close()
+    this.hide()
   }
 
   /** Text typed into the open board and not yet saved to it. What is saved

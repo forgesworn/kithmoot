@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import type * as Y from 'yjs'
 import { RoomAgent } from '../src/agent.js'
 import { memoryRoomBoardStorage } from '../src/room-board-wire.js'
-import { createRoom, join, leaveToChats, newDeviceContext, open, openRoomBoard } from './browser.js'
+import { closeRoomBoard, createRoom, join, leaveToChats, newDeviceContext, open, openRoomBoard } from './browser.js'
 import { agentRelaysFor, testRelaysFor } from './relays.js'
 
 // The room's own board, walked the way people meet it: nobody creates it,
@@ -46,7 +46,7 @@ test('every room has a board that everybody in it shares, with nothing to set up
   await addCard(ada, 'Book the hall')
   await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
   // Now that something is on it, the room has a Board tab.
-  await ada.locator('#roomBoardClose').click()
+  await closeRoomBoard(ada)
   await expect(ada.locator('#conversationNav button[data-board]')).toBeVisible()
   await openRoomBoard(ada)
 
@@ -89,7 +89,7 @@ test('every room has a board that everybody in it shares, with nothing to set up
   }
 
   // Closed and opened again, and after a reload, it is the same board.
-  await cy.locator('#roomBoardClose').click()
+  await closeRoomBoard(cy)
   await expect(cy.locator('#roomBoardPanel')).toBeHidden()
   await openRoomBoard(cy)
   await expect(card(cy, 'Find the urn')).toBeVisible()
@@ -98,6 +98,138 @@ test('every room has a board that everybody in it shares, with nothing to set up
   await openRoomBoard(cy)
   await expect(card(cy, 'Book the hall')).toBeVisible()
   await cyContext.close()
+})
+
+test('the room’s board is the whole of Girnel, one click from Boards, for people with only the link', async ({ browser, baseURL }) => {
+  const adaContext = await newDeviceContext(browser, baseURL!)
+  const ada = await adaContext.newPage()
+  await ada.setViewportSize({ width: 1440, height: 900 })
+  const url = await createRoom(ada, baseURL!, testRelaysFor(baseURL!))
+  // Boards, in a room nobody has touched: the board of this room, first, with
+  // no account asked for and nothing to set up.
+  await ada.locator('#railBoards').click()
+  await expect(ada.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
+  await expect(ada.locator('#roomBoardPanel')).toBeVisible()
+  await expect(ada.locator('#workspaceWorkSignIn')).toBeHidden()
+  for (const column of ['To do', 'Doing', 'Done']) await expect(board(ada).getByRole('heading', { name: column, exact: true })).toBeVisible()
+  await addCard(ada, 'Book the hall')
+  await addCard(ada, 'Order the tea')
+
+  const bobContext = await newDeviceContext(browser, baseURL!)
+  const bob = await bobContext.newPage()
+  await bob.setViewportSize({ width: 1440, height: 900 })
+  await enter(bob, url, 'Bob')
+  await bob.locator('#railBoards').click()
+  await expect(card(bob, 'Book the hall')).toBeVisible()
+  const tool = (page: Page, name: string) => board(page).getByRole('button', { name, exact: true })
+
+  // The same cards as a table and on a calendar.
+  await tool(bob, 'Table view').click()
+  const table = board(bob).getByRole('region', { name: 'Cards table', exact: true })
+  await expect(table.getByRole('table')).toContainText('Book the hall')
+  await expect(table.getByRole('table')).toContainText('Order the tea')
+  await tool(bob, 'Calendar view').click()
+  await expect(board(bob).getByRole('region', { name: 'Cards calendar', exact: true })).toBeVisible()
+  await tool(bob, 'Board view').click()
+
+  // Filters.
+  await tool(bob, 'Filter cards').click()
+  const filters = board(bob).getByRole('dialog', { name: 'Filter cards', exact: true })
+  await filters.getByRole('searchbox').fill('tea')
+  await filters.getByRole('button', { name: 'Apply filters', exact: true }).click()
+  await expect(board(bob).getByText('1 matching card')).toBeVisible()
+  await expect(card(bob, 'Order the tea')).toBeVisible()
+  await expect(card(bob, 'Book the hall')).toHaveCount(0)
+  await tool(bob, 'Clear filters').click()
+  await expect(card(bob, 'Book the hall')).toBeVisible()
+
+  // An edit says who made it, to the other person, by the name the room knows them by.
+  await card(bob, 'Book the hall').click()
+  await board(bob).getByRole('combobox', { name: /^Column/ }).selectOption({ label: 'Doing' })
+  await expect(board(bob).getByText('Bob moved this from To do to Doing.')).toBeVisible()
+  await card(ada, 'Book the hall').click()
+  await expect(board(ada).getByText('Bob moved this from To do to Doing.')).toBeVisible()
+  await expect(board(ada).getByRole('combobox', { name: /^Column/ })).toHaveValue('doing')
+
+  // Undo takes back Bob's move and nothing of Ada's, on both boards.
+  await board(ada).getByRole('textbox', { name: 'Description', exact: true }).fill('Ring the caretaker first')
+  await board(ada).getByRole('textbox', { name: 'Description', exact: true }).blur()
+  await expect(board(bob).getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Ring the caretaker first')
+  await tool(bob, 'Undo').click()
+  await expect(board(bob).getByRole('combobox', { name: /^Column/ })).toHaveValue('todo')
+  await expect(board(ada).getByRole('combobox', { name: /^Column/ })).toHaveValue('todo')
+  await expect(board(ada).getByRole('textbox', { name: 'Description', exact: true })).toHaveValue('Ring the caretaker first')
+
+  // Export hands over a file made in the frame.
+  const download = bob.waitForEvent('download')
+  await tool(bob, 'Export board').click()
+  const exporting = board(bob).getByRole('dialog', { name: 'Export this board', exact: true })
+  await exporting.getByRole('button', { name: 'Save readable JSON', exact: true }).click()
+  const saved = await download
+  expect(saved.suggestedFilename()).toBe('girnel-board.json')
+  const exported = JSON.parse((await (await saved.createReadStream()).toArray()).join('')) as { cards: Array<{ title: string }> }
+  expect(exported.cards.map(entry => entry.title).sort()).toEqual(['Book the hall', 'Order the tea'])
+  await exporting.getByRole('button', { name: 'Close', exact: true }).click()
+
+  // A card deleted by one is gone for both.
+  await tool(bob, 'Delete card').click()
+  await board(bob).getByRole('dialog', { name: 'Delete Book the hall?', exact: true }).getByRole('button', { name: 'Delete card', exact: true }).click()
+  await expect(card(bob, 'Book the hall')).toHaveCount(0)
+  await expect(card(ada, 'Book the hall')).toHaveCount(0)
+  await expect(card(ada, 'Order the tea')).toBeVisible()
+  await expect(bob.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
+
+  // What the room has and a board alone has not: its invitation, which is
+  // how somebody comes to have the board, and its conversation, where a card
+  // goes as a draft for the person to finish.
+  await tool(bob, 'Invite people').click()
+  await expect(bob.locator('#inviteDialog')).toBeVisible()
+  await bob.keyboard.press('Escape')
+  await expect(bob.locator('#inviteDialog')).toBeHidden()
+  await bob.locator('#railBoards').click()
+  await card(bob, 'Order the tea').click()
+  await tool(bob, 'Discuss in chat').click()
+  await expect(bob.locator('#roomArea')).toBeVisible()
+  await expect(bob.locator('#chatInput')).toHaveValue('About “Order the tea” on the board: ')
+  await expect(bob.locator('#chatInput')).toBeFocused()
+  // The room now has its Board tab, which leads back to the same card.
+  await expect(bob.locator('#conversationNav button[data-board]')).toBeVisible()
+  await bob.locator('#conversationNav button[data-board]').click()
+  await expect(board(bob).getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Order the tea')
+  await closeRoomBoard(bob)
+  await adaContext.close(); await bobContext.close()
+})
+
+test('another chat is one click from the board, and what is half typed there is not thrown away unasked', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!)
+  const page = await context.newPage()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await createRoom(page, baseURL!, testRelaysFor(baseURL!))
+  await createRoom(page, baseURL!, testRelaysFor(baseURL!))
+  const other = page.locator('#roomList .open:not([aria-current="true"])')
+  await expect(other).toHaveCount(1)
+  await page.locator('#railBoards').click()
+  const composer = board(page).getByRole('textbox', { name: 'Add a card to To do', exact: true })
+  await composer.fill('Half a thought')
+  // The other chat, in the list beside the board.
+  await other.click()
+  const asking = page.locator('#actionDialog')
+  await expect(asking).toBeVisible()
+  await expect(asking).toContainText('Leave what you were typing on the board?')
+  await asking.getByRole('button', { name: 'Stay', exact: true }).click()
+  await expect(asking).toBeHidden()
+  await expect(composer).toHaveValue('Half a thought')
+  await composer.press('Enter')
+  await expect(card(page, 'Half a thought')).toBeVisible()
+  // With nothing half typed there is nothing to ask, and the other chat's
+  // board is its own: this card is not on it.
+  await other.click()
+  await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
+  await expect(asking).toBeHidden()
+  await page.locator('#railBoards').click()
+  await expect(board(page).getByRole('heading', { name: 'To do', exact: true })).toBeVisible()
+  await expect(card(page, 'Half a thought')).toHaveCount(0)
+  await context.close()
 })
 
 test('a card written with the relay unreachable is kept, and sent when it is back', async ({ browser, baseURL }) => {
@@ -223,7 +355,7 @@ test('forgetting a room removes this browser\u2019s copy of its board, and nothi
   await addCard(page, 'Gone with the room')
   await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
   await expect.poll(async () => (await keptRecords(page)).length).toBeGreaterThan(0)
-  await page.locator('#roomBoardClose').click()
+  await closeRoomBoard(page)
   // Somebody else is in the room and goes on using its board afterwards.
   const bobContext = await newDeviceContext(browser, baseURL!)
   const bob = await bobContext.newPage()

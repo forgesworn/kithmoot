@@ -471,7 +471,7 @@
            everything on it being open; it is opened without showModal(). -->
       <dialog id="workspaceWorkPanel" aria-labelledby="workspaceWorkTitle">
         <div id="workspaceWorkHead" class="sheetBar listHead"><h2 id="workspaceWorkTitle" tabindex="-1">Boards</h2><button id="workspaceWorkClose" type="button" hidden>Close</button></div>
-        <div class="workFilters" role="group" aria-label="Boards"><button id="workspaceInboxTab" type="button" aria-pressed="true">Needs you</button><button id="workspaceWorkTab" type="button" aria-pressed="false">All</button></div>
+        <div class="workFilters" role="group" aria-label="Boards"><button id="workspaceRoomTab" type="button" aria-pressed="false" aria-controls="roomBoardPanel" hidden></button><button id="workspaceInboxTab" type="button" aria-pressed="true">Needs you</button><button id="workspaceWorkTab" type="button" aria-pressed="false">All</button></div>
         <label for="workspaceWorkProject">Project</label><select id="workspaceWorkProject"><option value="*">All projects</option></select>
         <p id="workspaceWorkStatus" role="status"></p>
         <button id="workspaceWorkSignIn" type="button">Sign in with Nostr</button>
@@ -479,6 +479,9 @@
         <button id="workspaceWorkRefresh" type="button" class="quiet">Refresh recent activity</button>
         <button id="workspaceBoardsOpen" type="button" class="quiet" aria-haspopup="dialog" aria-controls="boardsPanel">Open a board</button>
         <div id="workspaceWorkCards"></div>
+        <!-- The board of the room that is open, when it has one of its own: filled
+             by `RoomBoardPanel` in app/src/room-board-panel.ts. -->
+        <div id="workspaceRoomBoard" hidden></div>
       </dialog>
 
       <!-- Somebody has started a call in the room on screen and this device is

@@ -5,6 +5,9 @@ import { RoomAgent } from '../src/agent.js'
 import { localIdentity } from '../src/identity.js'
 import { npubEncode } from 'nostr-tools/nip19'
 import { encodeRoomLink } from '../src/link.js'
+import { deriveChannel } from '../src/chat.js'
+import { deriveRoom } from '../src/room.js'
+import { ROOM_BOARD_CHANNEL } from '../src/room-board-wire.js'
 import { agentRelaysFor } from './relays.js'
 import { INSTRUMENT, SYNTHETIC_MIC, inbound, newDeviceContext, open, turnOnMedia, leaveToChats, openProjects, openBoardsDestination, showChats, openRoomTasks, openSettings, closeSettings } from './browser.js'
 
@@ -191,8 +194,11 @@ test(`cross-project Inbox routes a question, human mention, reply and exact-resu
     await expect(card).toHaveCount(0)
     await page.locator('#workspaceWorkProject').selectOption('*')
     const requests = await page.evaluate(() => (window as unknown as { workspaceRequests: unknown[][] }).workspaceRequests)
-    const chatFilters = requests.flatMap(request => request.slice(2) as Array<{ kinds?: number[]; limit?: number; since?: number }>)
-      .filter(filter => filter.kinds?.includes(1460))
+    // What is bounded here is conversation history. The board of the room
+    // that is open is another stream, read from its start (docs/room-board.md).
+    const boardStreams = new Set(keepers.map(keeper => { const { roomId, roomKey } = deriveRoom(keeper.keeperState!.secret); return deriveChannel(roomId, roomKey, ROOM_BOARD_CHANNEL).id }))
+    const chatFilters = requests.flatMap(request => request.slice(2) as Array<{ kinds?: number[]; limit?: number; since?: number; '#d'?: string[] }>)
+      .filter(filter => filter.kinds?.includes(1460) && !(filter['#d']?.length && filter['#d'].every(id => boardStreams.has(id))))
     expect(chatFilters.length).toBeGreaterThan(0)
     if (!retainCall) {
       expect(chatFilters.every(filter => filter.limit !== undefined && filter.limit <= 128 && filter.since !== undefined)).toBe(true)

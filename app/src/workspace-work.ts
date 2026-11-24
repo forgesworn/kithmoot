@@ -40,11 +40,15 @@ export interface WorkspaceObservation {
  *  `showModal()` and closed when the person goes elsewhere. "Needs you"
  *  (`inbox`) is what waits on this account; "All" (`work`) is every task
  *  board. It opens on Needs you when there is anything there, and on All
- *  when there is not, until the person picks a tab themselves. */
+ *  when there is not, until the person picks a tab themselves.
+ *
+ *  When a room is open that has a board of its own, that board is the first
+ *  tab (`room`), named after the room, and is what Boards opens on: the
+ *  board of where you are, with no account needed. */
 export class WorkspaceWorkPanel {
   readonly dialog: HTMLDialogElement
   #account?: string
-  #mode: 'inbox' | 'work' = 'inbox'
+  #mode: 'room' | 'inbox' | 'work' = 'inbox'
   /** The person chose a tab, so the panel stops choosing for them. */
   #picked = false
   #observations = new Map<string, WorkspaceObservation>()
@@ -67,6 +71,10 @@ export class WorkspaceWorkPanel {
     person(pubkey: string): string
     agent(room: KnownRoom, pubkey: string): boolean
     currentRoomTasks?: {available(): boolean; open(): Promise<void>}
+    /** The board of the room that is open. `show` fills the container it is
+     *  given and may be called again and again; `hide` is called when another
+     *  tab is chosen or the destination is left. */
+    roomBoard?: {available(): boolean; label(): string; show(container: HTMLElement): void; hide(): void}
     observe(room: KnownRoom, changed: () => void): WorkspaceObservation | string
     openOrigin(room: KnownRoom, target: { assignment: string } | { message: MessageRef }): Promise<void>
     signIn(): void
@@ -80,12 +88,14 @@ export class WorkspaceWorkPanel {
     }
     this.el('workspaceWorkClose').onclick = () => this.dialog.close()
     this.el('workspaceWorkSignIn').onclick = () => { this.dialog.close(); this.options.signIn() }
+    this.el('workspaceRoomTab').onclick = () => { this.#mode = 'room'; this.#picked = true; this.render() }
     this.el('workspaceInboxTab').onclick = () => { this.#mode = 'inbox'; this.#picked = true; this.render() }
     this.el('workspaceWorkTab').onclick = () => { this.#mode = 'work'; this.#picked = true; this.render() }
     this.el('workspaceWorkProject').onchange = () => this.render()
     this.el('workspaceWorkRefresh').onclick = () => { this.stop(); this.sync() }
     this.dialog.addEventListener('close', () => {
       this.stop(); this.el('workspaceWorkCards').replaceChildren(); this.#error = undefined; this.#renderKey = undefined
+      this.options.roomBoard?.hide()
     })
   }
   el(id: string): HTMLElement { return this.root.getElementById(id)! }
@@ -93,11 +103,11 @@ export class WorkspaceWorkPanel {
    *  tab suits what is there. */
   show(from: HTMLElement): void {
     if (this.dialog.open) return
-    this.#picked = false; this.#mode = 'inbox'
+    this.#picked = false; this.#mode = this.options.roomBoard?.available() ? 'room' : 'inbox'
     this.open(this.#mode, from, false)
   }
   hide(): void { this.dialog.close() }
-  open(mode: 'inbox' | 'work', from: HTMLElement, picked = true): void {
+  open(mode: 'room' | 'inbox' | 'work', from: HTMLElement, picked = true): void {
     this.#mode = mode; this.#return = from; if (picked) this.#picked = true
     if (!this.dialog.open) this.dialog.show()
     this.sync()
@@ -164,6 +174,28 @@ export class WorkspaceWorkPanel {
   render(): void {
     if (!this.dialog.open) return
     if (this.#account !== this.options.account()) { this.reset(); return }
+    // The room's own board: there while a room that has one is open, and gone
+    // with it, so the tab never names a board that cannot be shown.
+    const board = this.options.roomBoard, hasBoard = !!board?.available()
+    if (this.#mode === 'room' && !hasBoard) { this.#mode = 'inbox'; this.#renderKey = undefined }
+    const roomTab = this.el('workspaceRoomTab'), inRoom = this.#mode === 'room'
+    roomTab.hidden = !hasBoard
+    if (hasBoard) { const label = board!.label(); if (roomTab.textContent !== label) roomTab.textContent = label }
+    roomTab.setAttribute('aria-pressed', String(inRoom))
+    this.dialog.dataset.mode = this.#mode
+    // Everything the other two tabs are made of gives way to the board.
+    for (const id of ['workspaceWorkStatus', 'workspaceWorkRefresh', 'workspaceBoardsOpen', 'workspaceWorkCards']) this.el(id).hidden = inRoom
+    for (const el of this.dialog.querySelectorAll<HTMLElement>('label[for="workspaceWorkProject"], #workspaceWorkProject')) el.hidden = inRoom
+    this.el('workspaceRoomBoard').hidden = !inRoom
+    if (inRoom) {
+      this.el('workspaceInboxTab').setAttribute('aria-pressed', 'false'); this.el('workspaceWorkTab').setAttribute('aria-pressed', 'false')
+      this.el('workspaceWorkSignIn').hidden = true; this.el('workspaceWorkCoverage').hidden = true
+      if (this.#currentRoomTasks) this.#currentRoomTasks.hidden = true
+      this.#renderKey = undefined
+      board!.show(this.el('workspaceRoomBoard'))
+      return
+    }
+    board?.hide()
     if (this.#currentRoomTasks) this.#currentRoomTasks.hidden = this.#mode !== 'work' || !this.options.currentRoomTasks?.available()
     const signedIn = !!this.#account
     this.el('workspaceWorkSignIn').hidden = signedIn

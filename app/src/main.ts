@@ -848,6 +848,14 @@ function switchingBlocked(): boolean {
 
 /** Leaving a room with a message waiting for its group's storage loses the message and the files waiting with it: say so, and let the person stay. */
 async function confirmLeavingWaitingMessage(): Promise<boolean> {
+  // The room's board is beside the list of chats, so another chat is one
+  // click from a card somebody is half way through writing. What is typed
+  // and not yet saved to the board goes with the room: ask first.
+  if (roomBoardPanel?.hasPendingEdits && !await confirmRoomAction({
+    title: 'Leave what you were typing on the board?',
+    message: 'Something you typed on this room’s board is not saved to it yet. If you leave now, it will be lost. Everything already on the board is kept.',
+    confirmLabel: 'Leave and lose it', cancelLabel: 'Stay', danger: true,
+  })) return false
   if (!outbox.waitingOnStorage) return true
   return confirmRoomAction({
     title: 'Leave with a message still waiting?',
@@ -2154,7 +2162,7 @@ async function connectPersona(label: string, signetOnly = true): Promise<void> {
 async function changePersona(prepare: () => Promise<PreparedPersona | undefined>): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (loginBusy) return
-    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) {
       throw new Error('Finish the current room action or board edits before switching personas.')
     }
     loginBusy = true
@@ -2168,7 +2176,7 @@ async function changePersona(prepare: () => Promise<PreparedPersona | undefined>
     try {
       prepared = await prepare()
       if (!prepared || generation !== identityGeneration || nostrSession !== previous) return
-      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) {
         throw new Error('Finish the current room action or board edits before switching personas.')
       }
       if (!await confirmLeavingWaitingMessage()) return
@@ -13362,6 +13370,8 @@ function unreadBadge(className: string, count: number, label: string, opts: { st
 
 function renderConversationNav(): void {
   roomBoardPanel?.sync()
+  // The room tab of Boards is named after the room and goes when it does.
+  workspaceWork?.render()
   renderWorkspace()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
@@ -19500,12 +19510,12 @@ function addAnAgent(): void {
   $('inviteAgents').querySelector('summary')?.focus()
 }
 
-/** New task…: in a room with no tasks or board yet, where boards are available,
- *  the room's board panel opens so the first board is one step away; otherwise
- *  the tasks form opens. A room with a board of its own always has one, so
- *  there it is always the tasks form. */
+/** New task…: the tasks form. The one exception is a room with no board of
+ *  its own (a quiet room) that has no tasks or shared board yet, where boards
+ *  are available: there the boards panel opens, so the first board is one
+ *  step away. */
 function newTask(): void {
-  if (nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
+  if (!roomHasOwnBoard() && nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
   const selected = session
   void withAssignmentPanel(selected, panel => panel.newTask()).catch(error => setStatus(describeError(error)))
 }
@@ -20314,10 +20324,22 @@ function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
   roomBoardPanelLoading ??= import('./room-board-panel.js').then(module => {
     roomBoardPanel ??= new module.RoomBoardPanel(document, {
       current: () => session ?? undefined,
-      roomTasks: from => { openDestination('boards'); void openWorkspaceWork('work', from).catch(error => setStatus(describeError(error))) },
-      otherBoards: from => openBoardsPanel(from),
-      otherBoardsCount: () => session ? roomBoards.get(session)?.boards.length ?? 0 : 0,
+      back: () => { showRoomPane(); if (session) $('chatInput').focus({ preventScroll: true }) },
+      // As a card from a board kept outside the room is discussed: its title
+      // goes into the draft for the person to finish and send, never straight
+      // to the room.
+      discuss: card => {
+        if (!session) return
+        showRoomPane(); selectChannel(undefined); showMobileRoomView('chat')
+        const input = $('chatInput') as HTMLTextAreaElement
+        if (input.value.trim()) { setStatus('Your chat draft is still here. Send or clear it before adding this card.'); input.focus(); return }
+        input.value = `About “${card.title.replace(/\s+/g, ' ').trim().slice(0, 200)}” on the board: `
+        input.dispatchEvent(new Event('input', { bubbles: true })); input.focus()
+        setStatus('Card title added to your draft. Finish it before sending to the room.')
+      },
+      invite: () => { if (session && roomMenuModel().invite) { showRoomPane(); openInviteDialog(false) } },
     })
+    roomBoardPanelModule = module
     return module
   }).catch(error => { roomBoardPanelLoading = undefined; throw error })
   return roomBoardPanelLoading
@@ -20361,16 +20383,30 @@ function openRoomBoard(from: HTMLElement): void {
     }).catch(error => setStatus(describeError(error)))
     return
   }
+  // The board is the first tab of Boards, named after the room: one place
+  // for it however it was asked for (the rail, the room's menu, its tab).
+  openDestination('boards')
+  void openWorkspaceWork('room', from).catch(error => setStatus(describeError(error)))
+}
+/** Put the board of the room that is open into `container`: the room tab of
+ *  the Boards destination. Asked again for the same room, it changes nothing. */
+function showRoomBoard(container: HTMLElement): void {
+  const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
+  if (!selected || !roomHasOwnBoard()) return
+  if (roomBoardPanel?.showing(selected) && roomBoardPanel.element.parentElement === container) { roomBoardPanel.show(container, roomBoardRoom(selected, roomBoardPanelModule!)); return }
   void loadRoomBoardPanel().then(module => {
-    if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
-    const opener = from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
-    const room: RoomBoardRoom = {
-      key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
-      members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
-      board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
-    }
-    roomBoardPanel!.open(opener, room)
+    if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity || !roomHasOwnBoard()) return
+    roomBoardPanel!.show(container, roomBoardRoom(selected, module))
   }).catch(error => setStatus(describeError(error)))
+}
+let roomBoardPanelModule: typeof import('./room-board-panel.js') | undefined
+function roomBoardRoom(selected: RoomSession, module: typeof import('./room-board-panel.js')): RoomBoardRoom {
+  return {
+    key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
+    members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
+    board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
+    canInvite: roomMenuModel().invite,
+  }
 }
 let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
 function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
@@ -20382,6 +20418,7 @@ function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
         projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
         projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
         agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
+        roomBoard: { available: roomHasOwnBoard, label: currentRoomLabel, show: showRoomBoard, hide: () => roomBoardPanel?.hide() },
         currentRoomTasks: {available: () => !!session, open: async () => {
           const selected = session
           if (!selected) throw new Error('Open a chat before viewing its tasks')
@@ -20427,7 +20464,7 @@ async function showWorkspaceWork(from: HTMLElement): Promise<void> {
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
   panel.show(from.isConnected ? from : $('railBoards'))
 }
-async function openWorkspaceWork(mode: 'inbox' | 'work', from: HTMLElement): Promise<void> {
+async function openWorkspaceWork(mode: 'room' | 'inbox' | 'work', from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return

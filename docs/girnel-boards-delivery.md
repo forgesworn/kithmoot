@@ -2,9 +2,9 @@
 
 Since November 2026 every room also has [a board of its own](room-board.md),
 which needs none of what follows: it has no keeper, invitation or separate
-membership, and the room's Board tab or ⋯ menu opens it. This document is about boards
-kept outside a room, which are unchanged and are reached from that board's
-**Other boards**, from Boards on the home screen and from the rail.
+membership, and Boards opens on it whenever a room is open. This document is
+about boards kept outside a room, which are unchanged and are reached from
+**Open a board**, under the Needs you and All tabs of Boards.
 
 Boards replaces the user-facing Work destination. Girnel remains usable on its
 own; KithMoot hosts the same durable, encrypted shared board implementation.

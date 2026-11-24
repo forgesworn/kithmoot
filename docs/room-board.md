@@ -1,35 +1,56 @@
 # The room's own board
 
-Every room has a board. Nobody creates it, shares it or joins it: being in
-the room is having the board, and being removed from the room is losing it
-at the same rekey. It is a Girnel board to look at and to use, with columns,
-cards, checklists, labels, due dates, comments and people to assign.
+Every room has a board, and so has every private chat, which is a room of
+two. Nobody creates it, shares it or joins it: being in the room is having
+the board, and being removed from the room is losing it at the same rekey.
+
+It is Girnel, whole: the board, table and calendar views, cards with
+descriptions, checklists, labels, due dates, comments and people to assign,
+the activity log, filters, search, archive and restore, delete, undo, export
+and the keyboard shortcuts. The frame runs the same board screen and the same
+commands as Girnel's own app, on the room's document instead of a circle of
+its own ([how](https://github.com/forgesworn/girnel/blob/main/docs/room-board-view.md)).
 
 This is separate from the boards described in
 [Girnel Boards in KithMoot](girnel-boards-delivery.md). Those are boards kept
 outside any room, each a circle of its own with a keeper, an invitation and
 its own membership, which somebody may choose to share with a room. They are
-unchanged and are one step away, under **Other boards**. The room's own board
-has none of that machinery because it does not need it: the room already has
-a key, an epoch, a roster and relays.
+unchanged, and are reached from **Open a board** under the other tabs of
+Boards. The room's own board has none of that machinery because it does not
+need it: the room already has a key, an epoch, a roster and relays.
 
 ## What a person sees
 
-Every room but a quiet one (see Limits) has **Board** in its ⋯ menu and in
-Room info. Once anybody has put something on the board, the room has a
-**Board** tab beside Chat, for everybody in it, whether or not they have
-opened the board themselves. A room nobody has put anything on keeps its
-whole screen for the conversation. The board opens at once from this
-device's copy. A visitor with only the room's link and a name has it on the
-same terms as somebody signed in.
+**Boards**, in the rail, opens on the board of the room that is open. It is
+the first tab there, named after the room, beside **Needs you** and **All**.
+There is no account to sign in to and nothing to set up: a visitor with only
+the room's link and a name has the board on the same terms as somebody
+signed in, and it opens at once from this device's copy.
 
-The line under the title says where the board stands:
+From inside the room the same place is reached from **Board** in the ⋯ menu
+and in Room info, which is also the way on a phone, where a room hides the
+rail. Once anybody has put something on the board, the room has a **Board**
+tab beside Chat, for everybody in it, whether or not they have opened the
+board themselves. A room nobody has put anything on keeps its whole screen
+for the conversation. **Back to chat**, on the board, returns to it.
+
+The line over the board says where it stands:
 
 - **Shared with everyone in this room.** The room's relays hold everything
   this device holds.
 - **Sending your changes to the room…** An edit is on its way.
 - An error, followed by "Your changes are kept on this device and sent when
   they can be." Nothing is lost; it goes when a relay takes it.
+
+Two things on the board reach into the room. **Invite people** opens the
+room's own invitation, since coming into the room is how somebody comes to
+have the board; a private chat, which nobody can be invited to, has no such
+button. **Discuss in chat**, on a card, puts the card's title into the
+conversation's draft for the person to finish and send.
+
+The chat list stays beside the board, so another chat is one click away.
+If something is typed on the board and not yet saved to it, the room asks
+before it is left.
 
 ## Where the board lives
 
@@ -180,9 +201,15 @@ undo across devices beyond what the board's own archive keeps.
   gives an agent the same document on the same terms, and an agent that
   edits it is saved and sent like anybody. `kithmoot-agent` has no board
   tools, so its brains cannot read or write cards.
-- **No files on cards.** Share a file in the room's chat instead.
-- **No link from a card to the chat**, and no assigning a card to an agent
-  from the board. Room tasks are still reached from **Room tasks**.
+- **No files on cards yet.** Share a file in the room's chat instead. A card's
+  file and a room's file are the same sealed envelope, so a card can carry
+  one through the room's own file sharing; that is not built.
+- **No assigning a card to an agent from the board yet.** The room's tasks
+  are the way to ask an agent, from **New task…** in the room's menu or
+  **Current room tasks** under the All tab of Boards.
+- **A card in the chat is its title**, not a link that opens the card.
+- **Boards opens on the room's board** even when something under Needs you
+  is waiting for this account; that tab is one click along.
 - **The stream is read whole on opening.** A long-lived busy board reads as
   many events as its relays return; snapshots keep a place to start inside
   that.
@@ -206,8 +233,16 @@ undo across devices beyond what the board's own archive keeps.
   copy, an unreadable copy, deletion with everything else a device signed.
 - **Browsers** (`test/room-board.spec.ts`): the same journeys with separate
   browsers for each person, in Chromium, Firefox and WebKit and in the desktop
-  build; two tabs of one browser on one room; forgetting a room. The view
-  under the production content security policy is in `test/boards.spec.ts`.
+  build; the whole of Girnel between two visitors (one click from Boards,
+  table and calendar, filters, an activity line under the name the room
+  knows somebody by, undo across somebody else's change, export, delete,
+  Invite people, Discuss in chat); half-typed text kept through a switch of
+  chat; two tabs of one browser on one room; forgetting a room. The view
+  under the production content security policy, export included, is in
+  `test/boards.spec.ts`.
+- **A private chat** (`src/room-board-log.test.ts`): the board on the same
+  terms for the two, read by the second after the first has gone, and a
+  well-formed change from anybody else refused. Not driven in a browser.
 - **Public relays** (`test/live.test.ts`): a board of several full parts
   written by one session and read whole by another.
 
@@ -222,5 +257,6 @@ hundred kilobytes, or a room whose only relays refuse 45 KB events.
 | `src/room-board-log.ts` | `RoomBoardLog`: the two documents, the stream, the local copy |
 | `src/session.ts` | `RoomSession.board(storage)`: one log per session, rekeyed and closed with it; `watchBoard` |
 | `src/chat.ts` | The `board` statement in the chat envelope |
-| `app/src/room-board-panel.ts` | The panel, and the frame it hands updates to |
-| `forgesworn/girnel` `src/embedded-room.ts` | The view: it holds no key, signer, relay or storage |
+| `app/src/room-board-panel.ts` | The board's surface in Boards, and the frame it hands updates to |
+| `app/src/workspace-work.ts` | Boards, the destination: the room's board is its first tab |
+| `forgesworn/girnel` `src/embedded-room.ts` | The view: Girnel's board screen on the room's document. It holds no key, signer or relay and stores none of the board |

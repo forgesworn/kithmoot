@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
+import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -180,6 +180,8 @@ test('call attribution stays below board shortcuts created during a desktop call
     const frame = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Private Board')
     await ada.page.locator('#boardsClose').click()
+    // Boards was where the older panel was opened from; the room is one step back.
+    await backToRoom(ada.page)
     const board = ada.page.locator('#roomBoards').getByRole('button', {name: 'Private Board', exact: true})
     await expect(board).toBeVisible()
     await expect(ada.page.locator('#callSurfaceOrigin')).toHaveText('Call in Private: Test contact')
@@ -292,6 +294,7 @@ test('a room keeps its board discoverable after popping out, closing the window 
     await expect(page.locator('#boardsContext')).toContainText('Board workshop')
     const opening = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const popup = await opening
     await expect(page.locator('#boardsPanel')).toBeHidden()
+    await backToRoom(page)
     await expect(page.locator('#chatInput')).toBeVisible()
     await expect(page.locator('#chatInput')).toBeEditable()
     await expect(page.locator('#chatInput')).toHaveValue('Keep my room draft')
@@ -685,6 +688,16 @@ test('the room board view loads and runs under the production content security p
     await composer.fill('Under the production policy'); await composer.press('Enter')
     await expect(page.getByRole('link', {name: 'Under the production policy', exact: true})).toBeVisible()
     expect(await page.evaluate(() => (window as typeof window & {pushed?: number}).pushed)).toBeGreaterThan(0)
+    // The rest of the board screen under the same policy: the other two
+    // views, and an export, which is a file made in the page and handed over.
+    await page.getByRole('button', {name: 'Table view', exact: true}).click()
+    await expect(page.getByRole('region', {name: 'Cards table', exact: true}).getByRole('table')).toContainText('Under the production policy')
+    await page.getByRole('button', {name: 'Calendar view', exact: true}).click()
+    await expect(page.getByRole('region', {name: 'Cards calendar', exact: true})).toBeVisible()
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', {name: 'Export board', exact: true}).click()
+    await page.getByRole('dialog', {name: 'Export this board', exact: true}).getByRole('button', {name: 'Save readable JSON', exact: true}).click()
+    expect((await download).suggestedFilename()).toBe('girnel-board.json')
     expect(await page.evaluate(() => (window as typeof window & {cspRefusals?: string[]}).cspRefusals)).toEqual([])
   } finally {await context.close(); await release.close()}
 })

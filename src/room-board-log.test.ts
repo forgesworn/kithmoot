@@ -8,6 +8,8 @@ import { createDeviceCredential } from './credential.js'
 import { SimRelay, SimTransport } from '../test/sim-relay.js'
 import { decodeChatEvent, deriveChannel, encodeChatEvent } from './chat.js'
 import { deriveRoom } from './room.js'
+import { dmPolicy } from './dm.js'
+import { encodeRoomLink, parseRoomLink } from './link.js'
 import { KINDS } from './kinds.js'
 import { RoomBoardLog, ROOM_BOARD_REMOTE } from './room-board-log.js'
 import {
@@ -466,6 +468,54 @@ describe('the room’s own board', () => {
       .flatMap(event => event.tags.filter(tag => tag[0] === 'e').map(tag => tag[1])))
     expect(asked.has(written[0]!.id)).toBe(true)
     expect(a.closed).toBe(true)
+  })
+
+  it('gives a private chat its board on the same terms, and takes nothing from anybody outside the two', async () => {
+    const relay = new SimRelay({ replay: true })
+    // A private chat is a room whose link admits exactly two people.
+    const seed = await RoomAgent.create({ base: BASE, name: 'Seed', agent: false, relays: ['wss://sim'], transport: link(relay).transport, announceJitterMs: 0 })
+    const adaIdentity = localIdentity(generateSecretKey()), boIdentity = localIdentity(generateSecretKey())
+    const policy = dmPolicy(adaIdentity.pubkey, boIdentity.pubkey)
+    const chat = encodeRoomLink(BASE, { ...parseRoomLink(seed.url), policy })
+    const { roomId, roomKey } = deriveRoom(seed.keeperState!.secret)
+    seed.leave()
+    const enter = async (name: string, identity: ReturnType<typeof localIdentity>) => {
+      const agent = await RoomAgent.join({ link: chat, name, identity, agent: false, transport: link(relay).transport, announceJitterMs: 0 })
+      agents.push(agent)
+      const log = await agent.session.board(store(), { timing: FAST })
+      logs.push(log)
+      return { agent, log }
+    }
+    const ada = await enter('Ada', adaIdentity)
+    addCard(ada.log, 'Only between us')
+    await settled(ada.log)
+    // Ada has gone before the other person ever opens the chat.
+    await ada.log.close(); ada.agent.leave()
+    const bo = await enter('Bo', boIdentity)
+    await settled(bo.log)
+    expect(titles(bo.log)).toEqual(['Only between us'])
+    expect(columns(bo.log)).toEqual(['doing', 'done', 'todo'])
+
+    // Somebody who has the link and the key but is neither of the two writes
+    // a well-formed change to the same stream. It is not theirs to write.
+    expect(bo.agent.roomId).toBe(roomId)
+    const stranger = await member(roomId)
+    const forged = new Y.Doc()
+    Y.applyUpdate(forged, bo.log.state())
+    forged.transact(() => { const card = new Y.Map<unknown>(); card.set('title', 'Let me in'); card.set('status', 'todo'); forged.getMap('records').set('forged', card) })
+    const part = splitBoardBlob('update', Y.encodeStateAsUpdate(forged, Y.encodeStateVector(bo.log.doc)), blobId())[0]!
+    const now = Math.floor(Date.now() / 1000)
+    const event = encodeChatEvent({
+      id: blobId(), participant: stranger.identity.pubkey, device: getPublicKey(stranger.deviceSk), credential: stranger.credential,
+      text: 'Board update', sentAt: now, board: part,
+    }, { deviceSk: stranger.deviceSk, roomId, roomKey, channel: ROOM_BOARD_CHANNEL })
+    // Well formed, and a room anybody may join would take it: it is the two-person rule that refuses it.
+    expect(decodeChatEvent(event, { roomId, roomKey, channel: ROOM_BOARD_CHANNEL, now })?.board).toBeDefined()
+    expect(decodeChatEvent(event, { roomId, roomKey, channel: ROOM_BOARD_CHANNEL, now, policy })).toBeNull()
+    relay.publish(event)
+    addCard(bo.log, 'And this')
+    await settled(bo.log)
+    expect(titles(bo.log)).toEqual(['And this', 'Only between us'])
   })
 
   it('tells a member that the board is in use, once, without opening it, in whichever epoch', async () => {
