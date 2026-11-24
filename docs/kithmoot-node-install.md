@@ -20,9 +20,9 @@ Use Node 24. Supply a protected local input directory containing Linux `node`,
 licence. The provenance array has exactly three entries with `name` (`node`,
 `spry`, `shelter`), exact `revision`, `visibility` (`public` or `private`) and
 a provenance description; the `shelter` entry records the Wok revision
-`wok-roomd` was built from. Use the merged node-profile version of Spry and a
-Wok build that has `wok-roomd`; arbitrary older builds lack required access
-and purge controls.
+`wok-roomd` was built from. Use the merged node-profile version of Spry and
+Wok 0.7.0 or later, which has `wok-roomd`; arbitrary older builds lack
+required access and purge controls.
 
 ```
 node deploy/node/build-release.mjs --inputs INPUTS --output NEW_OUTPUT --platform linux-arm64
@@ -120,8 +120,10 @@ preserved and require operator review. No automatic update ping is sent.
 A node installed while the room relay was `bothyd` updates in the same way.
 Its stored configuration keeps the old path, so a rollback still finds the old
 executable, and the new release runs the `wok-roomd` beside it. The room
-stores are read in place. That update has unit tests only: it has not been run
-on an installed host.
+stores are read in place: a directory written by `bothyd`, with a purged
+room's tombstone in it, was opened and read by `wok-roomd` 0.7.0 on one
+machine. The update itself has unit tests only: it has not been run on an
+installed host.
 
 Run `sudo ./kithmoot-node resume` from a verified bundle after an interrupted
 install or update. Initial setup fills only missing secret files and preserves
