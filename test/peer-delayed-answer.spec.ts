@@ -2,12 +2,15 @@ import { test, expect } from '@playwright/test'
 import { build } from 'esbuild'
 import { resolve } from 'node:path'
 
-test('a delayed camera-off answer leaves the replacement camera offer pending', async ({ page }) => {
+test.beforeEach(async ({ page }) => {
   const bundle = await build({ stdin: {
     contents: `import { Peer } from ${JSON.stringify(resolve('src/peer.ts'))}; globalThis.TestPeer = Peer;`,
     resolveDir: process.cwd(), loader: 'ts',
   }, bundle: true, platform: 'browser', format: 'iife', write: false })
   await page.addScriptTag({ content: bundle.outputFiles[0]!.text })
+})
+
+test('a delayed camera-off answer leaves the replacement camera offer pending', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const Peer = (window as unknown as { TestPeer: typeof import('../src/peer.js').Peer }).TestPeer
     type Signal = import('../src/signal.js').SignalBody
@@ -58,4 +61,57 @@ test('a delayed camera-off answer leaves the replacement camera offer pending', 
   })
   expect(result).toEqual({ oldSections: 2, newSections: 3, pendingState: 'have-local-offer',
     pendingUnchanged: true, finalState: 'stable', replacementDirection: 'sendonly' })
+})
+
+test('a screen on a rolled-back offer still gets negotiated when the browser gives no new event', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const Peer = (window as unknown as { TestPeer: typeof import('../src/peer.js').Peer }).TestPeer
+    type Signal = import('../src/signal.js').SignalBody
+    type Connection = import('../src/peer.js').RTCPeerConnectionLike
+    const screenSignals: Signal[] = [], micSignals: Signal[] = []
+    const screenPc = new RTCPeerConnection(), micPc = new RTCPeerConnection()
+    const options = { onTrack: () => {}, candidateGatherMs: 0 }
+    const screenPeer = new Peer({
+      ...options,
+      factory: () => screenPc as unknown as Connection, localDevice: '11'.repeat(32), remoteDevice: '22'.repeat(32),
+      onSignal: body => screenSignals.push(body),
+    })
+    const micPeer = new Peer({
+      ...options,
+      factory: () => micPc as unknown as Connection, localDevice: '22'.repeat(32), remoteDevice: '11'.repeat(32),
+      onSignal: body => micSignals.push(body),
+    })
+    const canvas = document.createElement('canvas')
+    const screen = canvas.captureStream(10).getVideoTracks()[0]!
+    const sound = new AudioContext()
+    const mic = sound.createMediaStreamDestination().stream.getAudioTracks()[0]!
+    const firstOffer = async (signals: Signal[]) => {
+      const end = Date.now() + 5000
+      while (Date.now() < end) {
+        const offer = signals.find(body => body.type === 'offer')
+        if (offer) return offer
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      throw new Error('No initial offer')
+    }
+    try {
+      await Promise.all([screenPeer.start([screen]), micPeer.start([mic])])
+      const [screenOffer, micOffer] = await Promise.all([firstOffer(screenSignals), firstOffer(micSignals)])
+      // Reproduce Chromium's missing event after answering the competing, audio-only offer.
+      screenPc.onnegotiationneeded = null
+      await micPeer.handleSignal(screenOffer)
+      await screenPeer.handleSignal(micOffer)
+      const descriptionOrder = screenSignals.filter(body => body.type !== 'ice').map(body => body.type)
+      const followUp = screenSignals.filter(body => body.type === 'offer')[1]
+      if (followUp) {
+        await micPeer.handleSignal(screenSignals.find(body => body.type === 'answer')!)
+        await micPeer.handleSignal(followUp)
+        await screenPeer.handleSignal(micSignals.find(body => body.type === 'answer')!)
+      }
+      return { descriptionOrder, screenDirection: screenPc.getTransceivers().find(t => t.sender.track === screen)?.currentDirection }
+    } finally {
+      screenPeer.close(); micPeer.close(); screen.stop(); mic.stop(); await sound.close()
+    }
+  })
+  expect(result).toEqual({ descriptionOrder: ['offer', 'answer', 'offer'], screenDirection: 'sendonly' })
 })
