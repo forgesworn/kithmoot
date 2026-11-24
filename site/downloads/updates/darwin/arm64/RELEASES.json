@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.180",
+  "currentRelease": "0.1.181",
   "releases": [
     {
-      "version": "0.1.180",
+      "version": "0.1.181",
       "updateTo": {
-        "version": "0.1.180",
-        "name": "0.1.180",
+        "version": "0.1.181",
+        "name": "0.1.181",
         "pub_date": "2026-11-24T00:00:00Z",
-        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.180/KithMoot-0.1.180-mac-arm64.zip",
-        "sha256": "72f672c384c5ed200c7b0082b30722172fdfd752e3919d53d9a5dda1d6885d78",
-        "size": 198989949
+        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.\nMessage actions stay available when an incoming edit updates the conversation.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.181/KithMoot-0.1.181-mac-arm64.zip",
+        "sha256": "e4fdcb263d4d058b79328afbe6e68b2d84d07565df12e950390eb48ce8e37f40",
+        "size": 198990014
       }
     }
   ]
