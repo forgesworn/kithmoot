@@ -134,18 +134,18 @@ test('participants use separate TLS call servers, group-call and replace a faile
     expect(await pages[0].evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.length)).toBe(0)
     await Promise.all(pages.slice(1).map(page => page.goto(baseURL!)))
     const initial = await Promise.all([account('alpha', 0), account('beta', 1), account('beta', 2)])
-    for (let i = 0; i < pages.length; i++) await configure(pages[i], initial[i], i > 0)
+    await Promise.all(pages.map((page, i) => configure(page, initial[i], i > 0)))
     // The creator joined before choosing a server. Reopening applies that choice.
     await pages[0].reload()
     await joinWithMedia(pages[0], link, 'Ada')
     await joinWithMedia(pages[1], link, 'Rowan')
     phase = 'one-to-one'
-    await media(pages[0], 1, initial[0]); await media(pages[1], 1, initial[1])
+    await Promise.all(pages.slice(0, 2).map((page, i) => media(page, 1, initial[i])))
     const oneToOne = await Promise.all(pages.slice(0, 2).map(pairs))
     completedPhases.push({ phase, pairs: oneToOne })
     await joinWithMedia(pages[2], link, 'PeerC')
     phase = 'initial group'
-    for (let i = 0; i < pages.length; i++) await media(pages[i], 2, initial[i])
+    await Promise.all(pages.map((page, i) => media(page, 2, initial[i])))
     const group = await Promise.all(pages.map(pairs))
     completedPhases.push({ phase, pairs: group })
     for (const page of pages) {
@@ -171,13 +171,14 @@ test('participants use separate TLS call servers, group-call and replace a faile
     await configure(pages[0], replacement)
     await pages[0].reload(); await joinWithMedia(pages[0], link, 'Ada')
     phase = 'restored group'
-    for (let i = 0; i < pages.length; i++) await media(pages[i], 2, i === 0 ? replacement : initial[i])
+    const restoredRelays = [replacement, ...initial.slice(1)]
+    await Promise.all(pages.map((page, i) => media(page, 2, restoredRelays[i])))
     const restored = await Promise.all(pages.map(pairs))
     completedPhases.push({ phase, pairs: restored })
     for (let cycle = 0; cycle < 3; cycle++) {
       phase = `repeat reconnect ${cycle + 1}`
       await pages[0].reload(); await joinWithMedia(pages[0], link, 'Ada')
-      for (let i = 0; i < pages.length; i++) await media(pages[i], 2, i === 0 ? replacement : initial[i])
+      await Promise.all(pages.map((page, i) => media(page, 2, restoredRelays[i])))
       completedPhases.push({ phase, pairs: await Promise.all(pages.map(pairs)) })
     }
     await pages[0].locator('#chatInput').fill('Same room after participant-chosen transport replacement')
