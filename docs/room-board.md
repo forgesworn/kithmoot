@@ -275,13 +275,18 @@ undo across devices beyond what the board's own archive keeps.
   knows somebody by, undo across somebody else's change, export, delete,
   Invite people, Discuss in chat, Assign to agent); a file put on a card,
   opened by somebody else after its sender had gone, and deleted by the
-  sender's tidy-up; half-typed text kept through a switch of chat; two tabs
-  of one browser on one room; forgetting a room. The view
+  sender's tidy-up; half-typed text kept through a switch of chat; the board
+  on a phone, from the room's menu and back to the conversation; an axe scan
+  of Boards with the board showing; two tabs of one browser on one room;
+  forgetting a room. The view
   under the production content security policy, export included, is in
   `test/boards.spec.ts`.
 - **A private chat** (`src/room-board-log.test.ts`): the board on the same
   terms for the two, read by the second after the first has gone, and a
-  well-formed change from anybody else refused. Not driven in a browser.
+  well-formed change from anybody else refused. In a browser
+  (`test/contact-messaging.spec.ts`): two signed-in people in a private
+  chat, a card put there by one and found by the other, each under the name
+  they know the chat by, and no Invite people.
 - **Public relays** (`test/live.test.ts`): a board of several full parts
   written by one session and read whole by another.
 

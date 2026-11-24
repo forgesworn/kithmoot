@@ -1,4 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import type * as Y from 'yjs'
 import { RoomAgent } from '../src/agent.js'
 import { memoryRoomBoardStorage } from '../src/room-board-wire.js'
@@ -213,6 +214,50 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   await expect(bob.locator('#roomArea')).toBeVisible()
   await adaContext.close(); await bobContext.close()
 })
+
+test('on a phone the board is in the room’s menu, and both ways off it land back in the conversation', async ({ browser, baseURL }) => {
+  const context = await newDeviceContext(browser, baseURL!, { viewport: { width: 390, height: 844 }, hasTouch: true })
+  const page = await context.newPage()
+  await createRoom(page, baseURL!, testRelaysFor(baseURL!))
+  // A room on a phone has no rail: the board is Board, in its menu.
+  await expect(page.locator('#railBoards')).toBeHidden()
+  await openRoomBoard(page)
+  await addCard(page, 'Bring the urn')
+  await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
+  // Nothing of the board is wider than the phone.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+
+  // Back to chat is the conversation and its composer, not the list of chats.
+  await closeRoomBoard(page)
+  await expect(page.locator('#chatInput')).toBeVisible()
+  await expect(page.locator('#rooms')).toBeHidden()
+
+  // So is Discuss in chat, with the card's title in the draft.
+  await openRoomBoard(page)
+  await card(page, 'Bring the urn').click()
+  await board(page).getByRole('button', { name: 'Discuss in chat', exact: true }).click()
+  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#chatInput')).toBeVisible()
+  await expect(page.locator('#chatInput')).toHaveValue('About “Bring the urn” on the board: ')
+  await expect(page.locator('#rooms')).toBeHidden()
+  await context.close()
+})
+
+for (const [label, viewport, hasTouch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
+  test(`axe finds nothing on Boards with the room’s board showing at ${label}`, async ({ browser, baseURL }) => {
+    const context = await newDeviceContext(browser, baseURL!, { viewport, hasTouch })
+    const page = await context.newPage()
+    await createRoom(page, baseURL!, testRelaysFor(baseURL!))
+    await openRoomBoard(page)
+    await addCard(page, 'Bring the urn')
+    await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
+    // The page around the board. What is inside the frame is Girnel's own
+    // screen, scanned where Girnel is tested.
+    const scan = await new AxeBuilder({ page }).exclude('#roomBoardPanel iframe').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(scan.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`)).toEqual([])
+    await context.close()
+  })
+}
 
 test('another chat is one click from the board, and what is half typed there is not thrown away unasked', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!)

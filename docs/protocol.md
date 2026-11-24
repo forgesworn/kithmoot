@@ -837,6 +837,13 @@ pinned by `vectors/room-board-v1.json`.
 the size and timing of what is written to it, with the device that signed
 each event as for envelope-1 chat. Nothing of what is on the board.
 
+**A file on a card** is a file shared in the room, with its reference kept
+in the board's document and not in a message. So it gives away what a chat
+file does and nothing more: the file server holds the sealed envelope and
+sees its size and the connection that sent it, and the room's relays carry
+the same kind-1063 announcement of it. The key, the name and the card it is
+on are inside the board. See [The room's own board](room-board.md).
+
 ## Call signalling profile 1
 
 The credited envelope model is [NIP-AC, revision 31c7a41](https://github.com/vitorpamplona/nips/blob/31c7a410dc4bfea12e127b1065e3dcd1ad150d58/AC.md).
