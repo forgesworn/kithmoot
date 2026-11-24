@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.174",
-  "versionCode": 197,
+  "versionName": "0.6.175",
+  "versionCode": 198,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71508352,
-  "apkSha256": "7795e05ed922d1e7c5e49006ecbab883005c446ff509f3f1d9e6c75aa27867e4",
+  "apkSha256": "95e1006d86eef751d78e122b2dc159084934073d81ab950fe7fdabe94caa584b",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.174-production.apk",
+  "downloadFilename": "kithmoot-0.6.175-production.apk",
   "releaseNotes": [
-    "Choose a persona directly on a room invitation. Saved rooms suggest the persona you last used to join.",
-    "After an older room link is exposed, use Invite link to create a protected room with a fresh key and manual admission.",
-    "Enable Private invitation alerts in Notifications for generic lock-screen notices. Tap to review the request."
+    "Incoming video keeps playing when the browser renegotiates an active call.",
+    "Scroll inbox relay settings while the keyboard is open or text is enlarged. Returning to the message keeps your draft."
   ]
 }

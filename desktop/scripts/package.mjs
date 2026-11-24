@@ -40,7 +40,7 @@ if (spawnSync('codesign', [...helperSigning.slice(0, -1), windowHelper.file], { 
 const paths = await packager({
   dir: root, out: resolve(root, 'out'), name: 'KithMoot', platform: 'darwin', arch: 'arm64',
   electronVersion: '44.9.3', appBundleId: 'dev.forgesworn.kithmoot.desktop',
-  appVersion: version, buildVersion: '180', icon, overwrite: true, asar: true, extraResource: [helper.dir, windowHelper.dir],
+  appVersion: version, buildVersion: '183', icon, overwrite: true, asar: true, extraResource: [helper.dir, windowHelper.dir],
   protocols: [{ name: 'KithMoot invitation', schemes: ['kithmoot'] }],
   ignore: [/^\/compositors($|\/)/, /^\/native($|\/)/, /^\/out($|\/)/, /^\/artifacts($|\/)/, /^\/icons($|\/)/, /^\/test-results($|\/)/, /^\/test($|\/)/, /^\/scripts($|\/)/, /^\/README.md$/],
   extendInfo: {

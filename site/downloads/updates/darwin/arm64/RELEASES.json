@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.180",
+  "currentRelease": "0.1.182",
   "releases": [
     {
-      "version": "0.1.180",
+      "version": "0.1.182",
       "updateTo": {
-        "version": "0.1.180",
-        "name": "0.1.180",
+        "version": "0.1.182",
+        "name": "0.1.182",
         "pub_date": "2026-11-24T00:00:00Z",
-        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.180/KithMoot-0.1.180-mac-arm64.zip",
-        "sha256": "72f672c384c5ed200c7b0082b30722172fdfd752e3919d53d9a5dda1d6885d78",
-        "size": 198989949
+        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.\nMessage actions stay available when an incoming edit updates the conversation.\nThe avatar shows your approved My Signet persona name as soon as you sign in.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.182/KithMoot-0.1.182-mac-arm64.zip",
+        "sha256": "9e06ebdcbc0aea2086982d18a3912f4ab636d90cf7df7e55010964f6c933d4bd",
+        "size": 198989352
       }
     }
   ]

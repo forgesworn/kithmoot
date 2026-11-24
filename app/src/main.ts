@@ -5119,8 +5119,9 @@ function renderIdentity(): void {
 
 function personaName(pubkey: string): string {
   const shown = shownAs(pubkey)
+  const approvedName = nostrSession?.pubkey === pubkey ? sanitiseDisplayName(nostrSession.displayName) : undefined
   return (personaMenuSelection ?? personaSelection)?.personas.find(persona => persona.pubkey === pubkey)?.label
-    || shown.name || shown.npub
+    || approvedName || shown.name || shown.npub
 }
 
 function renderPersonas(): void {
@@ -14191,6 +14192,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (renderPlan.kind === 'append') planStats.append++
     else planStats.reasons[renderPlan.reason] = (planStats.reasons[renderPlan.reason] ?? 0) + 1
   }
+  if (messageActions.deferRedraw(repaintActiveChat)) return
   const appending = renderPlan.kind === 'append'
   // ChatScroll restores the unread boundary on every paint. An append keeps
   // the old rows, so retire its old divider before asking it to reconcile.
