@@ -15,6 +15,8 @@ export class MessageActions {
   readonly #panel = document.createElement('div')
   #anchor: HTMLElement | undefined
   #target: { id: string; author: string; focusKey?: string } | undefined
+  #pressedPointer: number | undefined
+  #pendingRedraw: (() => void) | undefined
 
   constructor() {
     this.#panel.id = 'messageActionPanel'
@@ -25,10 +27,27 @@ export class MessageActions {
     this.#panel.setAttribute('role', 'dialog')
     this.#panel.setAttribute('aria-label', 'Message actions')
     document.body.append(this.#panel)
+    const releasePress = (): void => {
+      this.#pressedPointer = undefined
+      const redraw = this.#pendingRedraw
+      this.#pendingRedraw = undefined
+      // Let the button receive its click before replacing its row.
+      if (redraw) window.setTimeout(redraw, 0)
+    }
+    const endPress = (event: PointerEvent): void => {
+      if (event.pointerId === this.#pressedPointer) releasePress()
+    }
     document.addEventListener('pointerdown', event => {
       const target = event.target as Node
       if (this.#target && !this.#panel.contains(target) && !this.#anchor?.contains(target)) this.close(false)
+      if (event.isPrimary && event.button === 0) {
+        if (target instanceof Element && target.closest('#chatLog .messageControls > button')) this.#pressedPointer = event.pointerId
+        else releasePress()
+      }
     }, { capture: true })
+    document.addEventListener('pointerup', endPress, { capture: true })
+    document.addEventListener('pointercancel', endPress, { capture: true })
+    window.addEventListener('blur', releasePress)
     this.#panel.addEventListener('keydown', event => {
       if (event.key === 'Escape') { event.preventDefault(); this.close() }
       if (event.key === 'Tab' && !event.altKey && !event.ctrlKey && !event.metaKey) {
@@ -48,6 +67,13 @@ export class MessageActions {
     window.addEventListener('resize', () => this.#position())
     document.getElementById('chatLog')?.addEventListener('scroll', () => this.#position(), { passive: true })
     window.visualViewport?.addEventListener('resize', () => this.#position())
+  }
+
+  /** Keep the message control mounted from pointer-down through click. */
+  deferRedraw(redraw: () => void): boolean {
+    if (this.#pressedPointer === undefined) return false
+    this.#pendingRedraw = redraw
+    return true
   }
 
   open(anchor: HTMLElement, actions: MessageAction[], reactions: MessageAction[]): void {

@@ -14164,6 +14164,7 @@ function renderLog(logId: string, countId: string | undefined, messages: ChatMes
     if (renderPlan.kind === 'append') planStats.append++
     else planStats.reasons[renderPlan.reason] = (planStats.reasons[renderPlan.reason] ?? 0) + 1
   }
+  if (messageActions.deferRedraw(repaintActiveChat)) return
   const appending = renderPlan.kind === 'append'
   // ChatScroll restores the unread boundary on every paint. An append keeps
   // the old rows, so retire its old divider before asking it to reconcile.
