@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.177",
-  "versionCode": 200,
+  "versionName": "0.6.178",
+  "versionCode": 201,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71512448,
-  "apkSha256": "604f4b16023d4f65ad2f3dd48ba881d9713ea5078e15cf7d51c8ff698659fde8",
+  "apkBytes": 71516544,
+  "apkSha256": "0f18d07fdcc05841040ec0bbfa3f479b736c2ba84b6e147a39c7ec071f53f174",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.177-production.apk",
+  "downloadFilename": "kithmoot-0.6.178-production.apk",
   "releaseNotes": [
-    "Read call notices and their buttons without overlapping text, including at large text sizes.",
-    "See who wants to join a node room while you’re in a call, including in landscape.",
-    "Read and scroll the admission screen while you wait for the room keeper."
+    "Restore call signalling sooner after a network change while honouring relay limits.",
+    "Keep the camera connection message clear of participant names and the floating preview, including at large text sizes."
   ]
 }
