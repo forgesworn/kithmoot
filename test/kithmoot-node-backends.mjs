@@ -74,7 +74,7 @@ try {
     SPRY_TLS_CERT_FILE: cert, SPRY_TLS_KEY_FILE: tlsKey, SPRY_TLS_443: 'true', SPRY_STATE_FILE: join(directory, 'spry.json'),
     SPRY_AGGREGATE_BYTES_PER_SECOND: groupBudget ? '2000000' : '1000000' })
   const socket = join(directory, 'relay.sock')
-  start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', socket, '--listen', `127.0.0.1:${relayPort}`,
+  start(shelter, ['--data', join(directory, 'rooms'), '--control', socket, '--listen', `127.0.0.1:${relayPort}`,
     '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0'])
   const calls = new SpryBackend({ local: `http://127.0.0.1:${spryPort}`, origin, key, turnSecret }), relay = new ShelterBackend(socket)
   await until(async () => (await calls.status()).ready && (await relay.status()).rooms === 0, 'backend readiness')

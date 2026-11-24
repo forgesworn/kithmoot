@@ -55,7 +55,7 @@ it('preserves unrelated files, outside targets and dangling links instead of tre
 it('refuses an existing incomplete stage target and leaves an installed release unchanged when source bytes are tampered', () => {
   const f = fixture(), first = stageRelease(f.source, join(f.installation, 'releases'))
   activateRelease(f.installation, first.directory)
-  unlinkSync(join(first.directory, 'bin/bothyd'))
+  unlinkSync(join(first.directory, 'bin/wok-roomd'))
   expect(() => stageRelease(f.source, join(f.installation, 'releases'))).toThrow()
   expect(readlinkSync(join(f.installation, 'current'))).toBe(first.directory)
   writeFileSync(join(f.source, 'bin/spry-node'), 'tampered')
