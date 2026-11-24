@@ -275,8 +275,11 @@ test.describe.serial('attachment safety', () => {
     try {
       await expect(view.page.locator('#chatLog .attachment')).toHaveCount(SAMPLES.length, { timeout: 60_000 })
       await open(view.page, 'MapSetup.exe'); await open(view.page, 'cat.png')
-      const boxes = await view.page.locator('#chatLog .say').evaluateAll(list => list.map(e => ({
-        border: parseFloat(getComputedStyle(e).borderTopWidth), icon: e.querySelector('svg')!.getBoundingClientRect().width,
+      // Resolve the boxes and read their layout in one browser turn. A chat
+      // repaint between those steps would leave the test with detached nodes.
+      const boxes = await view.page.evaluate(() => Array.from(document.querySelectorAll('#chatLog .say'), box => ({
+        border: parseFloat(getComputedStyle(box).borderTopWidth),
+        icon: box.querySelector('svg')?.getBoundingClientRect().width ?? 0,
       })))
       expect(boxes.length).toBe(2)
       for (const b of boxes) { expect(b.border).toBeGreaterThanOrEqual(2); expect(b.icon).toBeGreaterThan(0) }
