@@ -20495,6 +20495,12 @@ function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
         projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
         agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
         roomBoard: { available: roomHasOwnBoard, label: currentRoomLabel, show: showRoomBoard, hide: () => roomBoardPanel?.hide() },
+        // A quiet room has no board of its own (`roomHasOwnBoard`): somebody who
+        // comes to Boards from one is told so, and why, before anything about
+        // accounts.
+        roomNote: () => session && isQuietPolicy(roomPolicy)
+          ? `${currentRoomLabel()} is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.`
+          : undefined,
         currentRoomTasks: {available: () => !!session, open: async () => {
           const selected = session
           if (!selected) throw new Error('Open a chat before viewing its tasks')

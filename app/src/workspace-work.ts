@@ -75,6 +75,9 @@ export class WorkspaceWorkPanel {
      *  given and may be called again and again; `hide` is called when another
      *  tab is chosen or the destination is left. */
     roomBoard?: {available(): boolean; label(): string; show(container: HTMLElement): void; hide(): void}
+    /** A sentence about the room that is open, where it has no board of its
+     *  own and a person might look for one (a quiet room). */
+    roomNote?(): string | undefined
     observe(room: KnownRoom, changed: () => void): WorkspaceObservation | string
     openOrigin(room: KnownRoom, target: { assignment: string } | { message: MessageRef }): Promise<void>
     signIn(): void
@@ -183,6 +186,9 @@ export class WorkspaceWorkPanel {
     if (hasBoard) { const label = board!.label(); if (roomTab.textContent !== label) roomTab.textContent = label }
     roomTab.setAttribute('aria-pressed', String(inRoom))
     this.dialog.dataset.mode = this.#mode
+    const note = this.el('workspaceRoomNote'), words = inRoom ? undefined : this.options.roomNote?.()
+    note.hidden = !words
+    if (note.textContent !== (words ?? '')) note.textContent = words ?? ''
     // Everything the other two tabs are made of gives way to the board.
     for (const id of ['workspaceWorkStatus', 'workspaceWorkRefresh', 'workspaceBoardsOpen', 'workspaceWorkCards']) this.el(id).hidden = inRoom
     for (const el of this.dialog.querySelectorAll<HTMLElement>('label[for="workspaceWorkProject"], #workspaceWorkProject')) el.hidden = inRoom

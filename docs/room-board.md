@@ -225,12 +225,14 @@ undo across devices beyond what the board's own archive keeps.
 
 ## Limits
 
-- **Not in quiet rooms.** A quiet room writes nothing but what somebody
-  says, in its own slots, and suppresses even delivery receipts for what
-  their timing gives away. A board would write a stream of its own there, so
-  a quiet room has none and keeps what it had before: tasks, and any board
-  handed to it. Whether a quiet room should have one, and on what terms, is
-  undecided.
+- **Not in quiet rooms or quiet chats.** A quiet room writes nothing but what
+  somebody says, in its own slots, and suppresses even delivery receipts for
+  what their timing gives away. A board would write a stream of its own
+  there, and a relay would see when somebody was working on it. So a quiet
+  room has none, by decision: its menu offers no Board, and Boards says
+  that the room is quiet, that it has no board of its own, and why. It keeps
+  what it had before: tasks, and any board handed to it. A board that rode
+  the quiet slots would keep the promise; it is not built.
 - **Web only so far.** The desktop app carries the same web build, which
   passes the same journeys in a browser; the installed desktop app has not
   been run with the board. The Android app does not show it. The vectors are
@@ -246,7 +248,7 @@ undo across devices beyond what the board's own archive keeps.
   a room task from the card; the two are not linked afterwards.
 - **A card in the chat is its title**, not a link that opens the card.
 - **Boards opens on the room's board** even when something under Needs you
-  is waiting for this account; that tab is one click along.
+  is waiting for this account, by decision; that tab is one click along.
 - **The stream is read whole on opening.** A long-lived busy board reads as
   many events as its relays return; snapshots keep a place to start inside
   that.
