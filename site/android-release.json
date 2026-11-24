@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.174",
-  "versionCode": 197,
+  "versionName": "0.6.173",
+  "versionCode": 196,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71508352,
-  "apkSha256": "7795e05ed922d1e7c5e49006ecbab883005c446ff509f3f1d9e6c75aa27867e4",
+  "apkBytes": 71483776,
+  "apkSha256": "a98d97dc15a0ef89ac689d8b23b30ecb3a0c1ecf9d8ef9b04595abfe1af0e9cb",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.174-production.apk",
+  "downloadFilename": "kithmoot-0.6.173-production.apk",
   "releaseNotes": [
-    "Choose a persona directly on a room invitation. Saved rooms suggest the persona you last used to join.",
-    "After an older room link is exposed, use Invite link to create a protected room with a fresh key and manual admission.",
-    "Enable Private invitation alerts in Notifications for generic lock-screen notices. Tap to review the request."
+    "Tap your avatar to see or switch personas. Add a persona from a compatible My Signet app.",
+    "In a room, use More to open Account or search. Switching keeps the draft with its original persona.",
+    "Back from Settings returns to the screen you opened it from."
   ]
 }
