@@ -45,12 +45,12 @@ async function pairs(page: Page) {
         if (stat.kind === 'video') frames += stat.framesDecoded ?? 0
         if (stat.kind === 'audio') audioEnergy += stat.totalAudioEnergy ?? 0
       })
-      report.forEach(stat => {
-        if (stat.type !== 'candidate-pair' || stat.state !== 'succeeded' || !stat.nominated) return
-        const local = report.get(stat.localCandidateId), remote = report.get(stat.remoteCandidateId)
-        out.push({ peer, local: local?.candidateType, remote: remote?.candidateType,
-          relayProtocol: local?.relayProtocol, bytes: stat.bytesReceived, frames, audioEnergy, mediaEpoch: streams.sort().join('|') })
-      })
+      const transport = [...report.values()].find(stat => stat.type === 'transport' && stat.selectedCandidatePairId)
+      const selected = transport && report.get(transport.selectedCandidatePairId)
+      if (!selected || selected.state !== 'succeeded' || !selected.nominated) continue
+      const local = report.get(selected.localCandidateId), remote = report.get(selected.remoteCandidateId)
+      out.push({ peer, local: local?.candidateType, remote: remote?.candidateType,
+        relayProtocol: local?.relayProtocol, bytes: selected.bytesReceived, frames, audioEnergy, mediaEpoch: streams.sort().join('|') })
     }
     return out
   })
@@ -63,24 +63,25 @@ async function media(page: Page, peers: number, relay: CallRelay): Promise<void>
     await chooseCallMore(page, 'Gallery', 'Layout')
     await expect(page.locator('#room video[data-gallery-off-page]')).toHaveCount(0)
   }
-  await expect.poll(async () => (await page.evaluate(inbound)).videoStreams, { timeout: 60_000 }).toBeGreaterThanOrEqual(peers)
-  await expect.poll(async () => (await page.evaluate(inbound)).framesDecoded).toBeGreaterThan(5 * peers)
-  await expect.poll(async () => (await page.evaluate(inbound)).audioEnergy, { timeout: 30_000 }).toBeGreaterThan(0)
-  await expect.poll(async () => (await pairs(page)).filter(pair => pair.bytes > 0).length).toBeGreaterThanOrEqual(peers)
-  await expect.poll(async () => (await pairs(page)).filter(pair => pair.frames > 5 && pair.audioEnergy > 0).length,
-    { timeout: 30_000, message: 'each remote participant must supply decoded video and audio energy' }).toBeGreaterThanOrEqual(peers)
+  let selected: Awaited<ReturnType<typeof pairs>> = []
+  await expect.poll(async () => {
+    selected = await pairs(page)
+    return selected.filter(pair => pair.bytes > 0 && pair.frames > 5 && pair.audioEnergy > 0).length
+  }, { timeout: 60_000, message: 'each remote participant must supply decoded video and audio energy over a selected route' }).toBeGreaterThanOrEqual(peers)
   // Rebuilding a peer or replacing an RTP stream resets its counters. Establish
   // a new baseline for that epoch, then still require fresh video AND audio.
-  const baseline = new Map((await pairs(page)).map(pair => [pair.peer, pair]))
-  await expect.poll(async () => (await pairs(page)).filter(pair => {
-    const previous = baseline.get(pair.peer)
-    if (!previous || previous.mediaEpoch !== pair.mediaEpoch || pair.frames < previous.frames || pair.audioEnergy < previous.audioEnergy) {
-      baseline.set(pair.peer, pair)
-      return false
-    }
-    return pair.frames > previous.frames + 2 && pair.audioEnergy > previous.audioEnergy
-  }).length, { timeout: 30_000, message: 'every peer must still deliver new video and audio; stale RTP counters cannot pass' }).toBeGreaterThanOrEqual(peers)
-  const selected = await pairs(page)
+  const baseline = new Map(selected.map(pair => [pair.peer, pair]))
+  await expect.poll(async () => {
+    selected = await pairs(page)
+    return selected.filter(pair => {
+      const previous = baseline.get(pair.peer)
+      if (!previous || previous.mediaEpoch !== pair.mediaEpoch || pair.frames < previous.frames || pair.audioEnergy < previous.audioEnergy) {
+        baseline.set(pair.peer, pair)
+        return false
+      }
+      return pair.frames > previous.frames + 2 && pair.audioEnergy > previous.audioEnergy
+    }).length
+  }, { timeout: 30_000, message: 'every peer must still deliver new video and audio; stale RTP counters cannot pass' }).toBeGreaterThanOrEqual(peers)
   expect(selected.every(pair => pair.local === 'relay' && pair.remote === 'relay' && pair.relayProtocol === 'tls')).toBe(true)
   const configuration = await page.evaluate(() => (window as unknown as { __pcs: RTCPeerConnection[] }).__pcs.map(pc => ({
     policy: pc.getConfiguration().iceTransportPolicy,
@@ -96,6 +97,9 @@ async function media(page: Page, peers: number, relay: CallRelay): Promise<void>
 }
 
 test('participants use separate TLS call servers, group-call and replace a failed server without replacing the room', async ({ browser, baseURL }) => {
+  // The assertions have their own bounds. Allow time for six call phases and
+  // their trace snapshots on slower runners without expiring mid-sample.
+  test.setTimeout(300_000)
   const contexts = await Promise.all([0, 1, 2].map(() => newDeviceContext(browser, baseURL!, {
     viewport: { width: 1920, height: 1080 },
   })))
