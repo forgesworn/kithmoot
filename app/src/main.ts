@@ -433,6 +433,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import type { ContextPanel } from './context-panel.js'
 import type { AssignmentPanel, BoardSummary } from './assignment-panel.js'
 import type { BoardsPanel } from './boards-panel.js'
+import type { RoomBoardPanel, RoomBoardRoom } from './room-board-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
 import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
@@ -864,7 +865,7 @@ function approvedReload(): void {
   location.reload()
 }
 installUpdates(() => {
-  if (boardsPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
+  if (boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
   if (hasUnsentWork()) return 'Send or discard your unfinished messages, files and Shared Work drafts before updating. Your work stays here until then.'
   if (switchingBlocked()) return 'Finish the current action before updating. You can keep using this version.'
   if (destructing.size > 0) return 'A room is being deleted from this device. Update when that has finished. You can keep using this version.'
@@ -7441,7 +7442,7 @@ function renderRoomInfo(): void {
   const opened = Array.from($('channelBar').querySelectorAll<HTMLElement>('button[data-channel]'), tab => tab.dataset.channel!).filter(name => name && !['agents', 'transcript', 'minutes'].includes(name))
   setInfoSub('infoSubConversations', opened.join(', '))
   const board = boardTab()
-  $('infoRowBoard').hidden = !board
+  $('infoRowBoard').hidden = !board && !roomHasOwnBoard()
   setInfoSub('infoSubBoard', board ? (board.needsYou ? `${board.needsYou} need${board.needsYou === 1 ? 's' : ''} you` : '') : '')
   // Per-room alerts are the ⋯ menu's Notifications; this page is only for what
   // a keeper can offer, so the row is there only then.
@@ -13317,16 +13318,30 @@ let renderedTabKey = ''
  *  the Board tab. Starts empty so the tabs can draw before the panel exists. */
 let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
 
-/** The Board tab's state: undefined when this room has no board to open and
- *  none to make, else how many things on it wait for this person. A room has
- *  one when it holds tasks or a shared board; the first is "New task…" in the
- *  menu. */
+/** Whether the room on screen has a board of its own (`RoomSession.board`).
+ *  Every room does, except a quiet one: a quiet room promises to write
+ *  nothing but what somebody says, in its own slow slots, and a board would
+ *  write a stream of its own there. Until that is decided on its own terms a
+ *  quiet room keeps what it had before, tasks and the boards handed to it. */
+function roomHasOwnBoard(): boolean {
+  return !!session && !isQuietPolicy(roomPolicy)
+}
+
+/** Rooms whose own board somebody has written to: this device keeps a copy,
+ *  or the room's relays hold something of it (`RoomSession.watchBoard`). */
+const roomBoardInUse = new WeakSet<RoomSession>()
+
+/** The Board tab's state: undefined when there is nothing on a board to show,
+ *  else how many of the room's tasks wait for this person. A room has the tab
+ *  once its own board has been written to, or it holds tasks or a shared
+ *  board. Before that the room's board is one step away, as Board in the ⋯
+ *  menu and in Room info, so a room nobody has put anything on keeps its
+ *  whole screen for the conversation. */
 function boardTab(): { needsYou: number } | undefined {
   if (!session) return undefined
   const shared = roomBoards.get(session)?.boards.length ?? 0
-  // Only when there is something to show; the first task or board is made from
-  // the ⋯ menu's New task….
-  if (assignmentSummary.total === 0 && shared === 0) return undefined
+  const own = roomHasOwnBoard() && roomBoardInUse.has(session)
+  if (assignmentSummary.total === 0 && shared === 0 && !own) return undefined
   return { needsYou: assignmentSummary.needsYou }
 }
 /** A small unread badge, capped at "99+" so a busy agent channel does not
@@ -13346,6 +13361,7 @@ function unreadBadge(className: string, count: number, label: string, opts: { st
 }
 
 function renderConversationNav(): void {
+  roomBoardPanel?.sync()
   renderWorkspace()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
@@ -13383,7 +13399,7 @@ function renderConversationNav(): void {
     button.type = 'button'
     button.dataset.board = 'true'
     button.setAttribute('aria-haspopup', 'dialog')
-    button.setAttribute('aria-controls', 'boardsPanel')
+    button.setAttribute('aria-controls', roomHasOwnBoard() ? 'roomBoardPanel' : 'boardsPanel')
     button.append('Board')
     if (board.needsYou > 0) {
       const badge = document.createElement('span')
@@ -16724,6 +16740,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     ingestControl(control.messages())
     followSharedRoomName(s)
     attachRoomBoards(s)
+    resumeRoomBoard(s)
     scheduleRoomNameCarry(s, 30_000, 30_000)
     scheduleNodeRoomName(s)
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
@@ -18810,6 +18827,10 @@ function forgetLocally(roomId: string): void {
   if (roomGroup?.roomId === roomId) stopRoomGroup(false)
   forgetRoomStorageRecord(localStorage, roomId)
   forgetGrantReceiver(localStorage, roomId)
+  // This browser's copy of the room's board, whoever was signed in when it was kept.
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('kithmoot.room-board.v1.') && key.includes(`.${roomId}.r.`)) localStorage.removeItem(key)
+  } catch { /* Storage unavailable: nothing is kept there. */ }
   if (roomStorageCache?.roomId === roomId) roomStorageCache = undefined
   void heldEnvelopes.clear(roomId)
   // A pin names the room too, and a forgotten room is not one to name.
@@ -19481,7 +19502,8 @@ function addAnAgent(): void {
 
 /** New task…: in a room with no tasks or board yet, where boards are available,
  *  the room's board panel opens so the first board is one step away; otherwise
- *  the tasks form opens. */
+ *  the tasks form opens. A room with a board of its own always has one, so
+ *  there it is always the tasks form. */
 function newTask(): void {
   if (nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
   const selected = session
@@ -19506,6 +19528,7 @@ function renderRoomMenu(): void {
     },
     menu => {
       if (roomId) notificationsSubmenu(menu, roomId)
+      if (roomHasOwnBoard()) menuItem(menu, 'Board', () => openRoomBoard($('roomMenu')), { icon: 'board', action: 'board' })
       if (model.task) menuItem(menu, 'New task…', newTask, { icon: 'task', action: 'task' })
       if (room) menuItem(menu, model.pinned ? 'Unpin' : 'Pin', () => togglePinned(room), { icon: 'pin', action: 'pin' })
       if (room && model.project) menuItem(menu, 'Add to project…', () => openProjectEditor(room, $('roomMenu')), { icon: 'folder', action: 'project' })
@@ -20285,15 +20308,68 @@ function openBoardsPanel(from: HTMLElement): void {
   button.setAttribute('aria-controls', 'boardsPanel')
   button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); openBoardsPanel(button)}, {capture: true})
 }
-/** The room's board, opened from its tab (or anything standing in for it). */
+let roomBoardPanel: RoomBoardPanel | undefined
+let roomBoardPanelLoading: Promise<typeof import('./room-board-panel.js')> | undefined
+function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
+  roomBoardPanelLoading ??= import('./room-board-panel.js').then(module => {
+    roomBoardPanel ??= new module.RoomBoardPanel(document, {
+      current: () => session ?? undefined,
+      roomTasks: from => { openDestination('boards'); void openWorkspaceWork('work', from).catch(error => setStatus(describeError(error))) },
+      otherBoards: from => openBoardsPanel(from),
+      otherBoardsCount: () => session ? roomBoards.get(session)?.boards.length ?? 0 : 0,
+    })
+    return module
+  }).catch(error => { roomBoardPanelLoading = undefined; throw error })
+  return roomBoardPanelLoading
+}
+/** Where this browser keeps its copy of a room's board: one entry per
+ *  record under this name. See `browserRoomBoardStorage`. */
+const roomBoardRoot = (s: RoomSession): string => `kithmoot.room-board.v1.${s.participant}.${s.roomId}`
+/** On entering a room: learn whether its board is in use, which is what puts
+ *  the Board tab there, and open a board this device already holds a copy
+ *  of, so what was written offline is sent without waiting for the tab to be
+ *  opened. A room whose board nobody has written to loads nothing. */
+function resumeRoomBoard(s: RoomSession): void {
+  if (session !== s || !roomHasOwnBoard()) return
+  const inUse = () => {
+    if (roomBoardInUse.has(s)) return
+    roomBoardInUse.add(s)
+    if (session === s) renderConversationNav()
+  }
+  // Stopped with the session, which owns the subscription.
+  try { s.watchBoard(inUse) } catch { /* Not in the room after all. */ }
+  const prefix = `${roomBoardRoot(s)}.r.`
+  let kept = false
+  try { for (let i = 0; i < localStorage.length && !kept; i++) kept = localStorage.key(i)?.startsWith(prefix) === true } catch { return }
+  if (!kept) return
+  inUse()
+  void loadRoomBoardPanel().then(module => {
+    if (session !== s || !roomHasOwnBoard()) return
+    return s.board(module.browserRoomBoardStorage(roomBoardRoot(s), localStorage))
+  }).catch(() => {})
+}
+/** The room's own board, opened from its tab (or anything standing in for
+ *  it). In a quiet room, which has none, the boards handed to the room. */
 function openRoomBoard(from: HTMLElement): void {
   closeRoomSheet()
   const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
   if (!selected) return
-  void loadBoardsPanel().then(panel => {
+  if (!roomHasOwnBoard()) {
+    void loadBoardsPanel().then(panel => {
+      if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
+      panel.open(from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu'))
+    }).catch(error => setStatus(describeError(error)))
+    return
+  }
+  void loadRoomBoardPanel().then(module => {
     if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
     const opener = from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
-    panel.open(opener)
+    const room: RoomBoardRoom = {
+      key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
+      members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
+      board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
+    }
+    roomBoardPanel!.open(opener, room)
   }).catch(error => setStatus(describeError(error)))
 }
 let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
@@ -23868,7 +23944,7 @@ window.addEventListener('beforeunload', event => {
   // A recording running, or finished and not yet shared or saved, is lost
   // with the page.
   if (activeRecording || pendingRecording) { event.preventDefault(); event.returnValue = ''; return }
-  if (navigationApproved || (!boardsPanel?.hasPendingEdits && !hasUnsentWork())) return
+  if (navigationApproved || (!boardsPanel?.hasPendingEdits && !roomBoardPanel?.hasPendingEdits && !hasUnsentWork())) return
   event.preventDefault()
   event.returnValue = ''
 })

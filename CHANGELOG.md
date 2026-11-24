@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased, 24 November 2026
+
+- **Every room has a board.** Every room, quiet rooms aside, now has a board of its own: **Board** in the room's ⋯ menu and in Room info, and a Board tab beside Chat for everybody as soon as anybody has put something on it. It opens at once: columns, cards, checklists, labels, due dates, comments and people to assign. There is nothing to create, share or join, and no account to sign in to; a visitor with the room's link has it like anybody else. It is kept on each member's device and on the room's relays, encrypted to the room, with no keeper: any device that holds the board hands it on, so it survives a rekey, a relay forgetting it, and everybody who wrote it leaving. Edits made with no network are kept and sent when there is one. Boards shared with a room before are unchanged, under **Other boards**. Quiet rooms are unchanged and have no board of their own. In the web app, and in the desktop app's copy of it; the Android app does not show the board yet. See `docs/room-board.md`.
+
 ## Unreleased, 6 November 2026
 
 - **Reconnecting no longer refetches a month of history.** When a relay closed a room's subscription after answering, or dropped the connection, the room asked it again for the whole 30-day chat window, every 15 seconds or so for as long as the room stayed open. A resubscription now asks each relay only for what is newer than its last complete answer, less a 15-minute overlap for slow clocks, and asks the full window again at most every 15 minutes so a message sent late from an outbox is still found. Events already received are dropped before they are parsed or verified, and a presence update that changes nothing on screen repaints the room at most once a second.

@@ -811,6 +811,32 @@ in the room was active. Quiet rooms never publish receipts.
 **What members learn.** When each member's device received each message.
 That is the point of the feature, and why no read state is ever carried.
 
+## The room's board
+
+Every room but a quiet one has a board of its own, a Yjs document that every
+member edits and nobody keeps. It adds no kind: its changes are kind 1460 chat envelopes in the
+channel `board` of the room's current epoch, each carrying a single `board`
+statement that is one part of one blob of document updates. The envelope is
+verified exactly as chat is, so a change comes from a device credentialled for
+a participant of the room. A `board` statement outside that channel, beside
+another statement or beside conversation fields is refused.
+
+A part is exactly `{v: 1, kind: "update" | "snapshot", blob, index, count, data}`:
+`blob` is 32 lower-case hex characters, `count` is 1 to 96, `index` is below
+it, and `data` is padded standard base64 of at most 22 KiB. Parts join only
+when the same device sent them. Blobs merge in any order and any number of
+times; a snapshot is a place to start, never a replacement. Every member
+starts from the same fixed 402-byte state, so an empty room's board is never
+two boards.
+
+The design, the rule that keeps devices in step, what happens at a rekey and
+the limits are in [The room's own board](room-board.md). The wire contract is
+pinned by `vectors/room-board-v1.json`.
+
+**What relays learn.** That a room has a `board` stream in each epoch, and
+the size and timing of what is written to it, with the device that signed
+each event as for envelope-1 chat. Nothing of what is on the board.
+
 ## Call signalling profile 1
 
 The credited envelope model is [NIP-AC, revision 31c7a41](https://github.com/vitorpamplona/nips/blob/31c7a410dc4bfea12e127b1065e3dcd1ad150d58/AC.md).

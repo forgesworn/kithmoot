@@ -640,3 +640,11 @@ export type { RelayAuthentication, RelayPoolOptions } from './relay-auth.js'
 export { normaliseArtwork, normaliseOutgoingArtwork, artworkFallbackText, MAX_CHAT_ARTWORK, MAX_ARTWORK_LABEL_LENGTH } from './artwork.js'
 export type { ChatArtwork } from './artwork.js'
 export { ROOM_BOARDS_CHANNEL, encodeRoomBoard, decodeRoomBoard, type RoomBoard, type RoomBoardMessage } from './room-boards.js'
+export {
+  ROOM_BOARD_CHANNEL, ROOM_BOARD_GENESIS, ROOM_BOARD_CACHE_KEY_INFO, MAX_BOARD_PART_BYTES, MAX_BOARD_PARTS, MAX_BOARD_BLOB_BYTES,
+  BoardAssembler, memoryRoomBoardStorage, roomBoardGenesis, roomBoardRecordId, splitBoardBlob, validBoardPart,
+  type BoardBlob, type BoardBlobKind, type BoardPart, type RoomBoardRecord, type RoomBoardStorage,
+} from './room-board-wire.js'
+// The log itself is reached through `RoomSession.board()`, which loads it
+// (and the document library behind it) on first use.
+export type { RoomBoardLog, RoomBoardLogOptions, RoomBoardStatus } from './room-board-log.js'

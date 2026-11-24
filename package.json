@@ -126,11 +126,12 @@
     "signet-login": "0.23.2",
     "spoken-token": "^2.1.0",
     "werift": "^0.24.4",
+    "yjs": "13.6.33",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@forgesworn/girnel-embed": "file:vendor/forgesworn-girnel-embed-1.1.0-kithmoot.6.tgz",
+    "@forgesworn/girnel-embed": "file:vendor/forgesworn-girnel-embed-1.1.0-kithmoot.7.tgz",
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.20.1",
     "@types/qrcode": "1.5.6",

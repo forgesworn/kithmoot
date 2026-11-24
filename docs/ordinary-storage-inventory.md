@@ -58,6 +58,7 @@ loaders as migration validators. Preserve exact original bytes or hold intact.
 | `kithmoot.uploads.v1.H`, `.blob-deletes.v1` | `blob-deletion.ts`: upload URL/hash pairs and signed deletion retry authorisation | Exact signed event/hash/URL correlation; retention before deletion/forget; no guessed target |
 | `kithmoot.context.v1.H` | `context-panel.ts`: signer-encrypted account context | Hide outer account key; owner CAS and authenticated signer decrypt before effects |
 | `kithmoot.assignments.v1.H.H` and `.journal.v2.H` side records | `assignment-panel.ts` and `main.ts`: encrypted assignment base and hash-linked deltas | Strict primary journal/chain binding and awaited retention; audit both read and write embeddings and retain well-formed crash orphans |
+| `kithmoot.room-board.v1.H.H.r.H` | `room-board-panel.ts` and `main.ts`: this device's copy of [the room's own board](room-board.md), one entry per record, each named by the SHA-256 of its text and holding NIP-44 chunks under a key derived from the room key; no root entry and no chain | **Not yet classified.** Holds as an unknown name until a strict classifier is added (exact name, hash of the value, canonical `{v,update}` with visible NIP-44 framing); it must be before protected startup is mounted. Never written for a quiet room; removed when the room is forgotten |
 | `kithmoot.shared-projects.v1.H` and `.journal.v2.H` side records | `shared-projects.ts`: account project journal: an encrypted v1 whole-cache base plus NIP44-encrypted hash-linked deltas | Strict primary project journal/chain binding; awaited retention; no project, logo, request id or participant data visible as a side-record key |
 | `kithmoot.project.v1.A.H` | `room-projects.ts`: personal project label | Metadata snapshot checks exact physical scope/name; no membership authority |
 | `kithmoot.notification-scopes.v1.` + JSON `[A,kind,id]` | `notification-scopes.ts`: account/project/room alert settings | Metadata snapshot checks canonical tuple and `all`/`off`; no notification permission authority |
@@ -309,7 +310,7 @@ the selected board before waiting and refuse a changed board/account. The room-
 board encrypted catalogue family is routed and structurally checked offline;
 its current-room decrypt/save/publication adapter and full native root mount
 remain required. The committed dependency now selects the vendored Girnel
-`1.1.0-kithmoot.6` archive. Historical target-only overlay checks remain recorded
+`1.1.0-kithmoot.7` archive. Historical target-only overlay checks remain recorded
 in their original receipts. The current dependency lockfile and fresh registry
 CI are separate evidence; [SDK provenance](ordinary-sdk-provenance.md) records
 the completed Signet release without claiming the protected consumer is mounted.
