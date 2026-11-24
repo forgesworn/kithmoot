@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.175",
-  "versionCode": 198,
+  "versionName": "0.6.176",
+  "versionCode": 199,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71508352,
-  "apkSha256": "95e1006d86eef751d78e122b2dc159084934073d81ab950fe7fdabe94caa584b",
+  "apkSha256": "cc90e9bfbc7817159414eae242847121a0a5015dbd3eea4f2e1f1d2ad68bc8b2",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.175-production.apk",
+  "downloadFilename": "kithmoot-0.6.176-production.apk",
   "releaseNotes": [
-    "Incoming video keeps playing when the browser renegotiates an active call.",
-    "Scroll inbox relay settings while the keyboard is open or text is enlarged. Returning to the message keeps your draft."
+    "Reopen a node room from its invitation using the persona and device already admitted.",
+    "Node calls reconnect over the relay when your phone moves between Wi-Fi and mobile data.",
+    "See “Waiting to be admitted” once the relay has received your request."
   ]
 }
