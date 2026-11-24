@@ -28,13 +28,17 @@ const OPTIONAL_RTP_EXTENSIONS = new Set([
   'urn:3gpp:video-orientation',
 ])
 
-function bundledExtensionConflicts(sdp: string, establishedMids: ReadonlySet<string>): Map<string, Set<string>> {
-  const conflicts = new Map<string, Set<string>>()
-  const sections = sdp.split(/(?=^m=)/m).slice(1).map(section => ({
+function mediaSections(sdp: string) {
+  return sdp.split(/(?=^m=)/m).slice(1).map(section => ({
     mid: /^a=mid:(\S+)/m.exec(section)?.[1] ?? '',
     kind: /^m=(audio|video) /m.exec(section)?.[1],
     extensions: [...section.matchAll(/^a=extmap:(\d+)(?:\/\S+)?[ \t]+(\S+)/gm)],
   }))
+}
+
+function bundledExtensionConflicts(sdp: string, establishedMids: ReadonlySet<string>): Map<string, Set<string>> {
+  const conflicts = new Map<string, Set<string>>()
+  const sections = mediaSections(sdp)
   for (const [, members] of sdp.matchAll(/^a=group:BUNDLE ([^\r\n]+)/gm)) {
     const mids = new Set(members.trim().split(/\s+/))
     const bundled = sections.filter(section => mids.has(section.mid))
@@ -53,6 +57,24 @@ function bundledExtensionConflicts(sdp: string, establishedMids: ReadonlySet<str
     }
   }
   return conflicts
+}
+
+function firstOffersNeedFreshConnection(
+  local: string | undefined,
+  incoming: string | undefined,
+  pending: readonly RtpTransceiverLike[],
+): boolean {
+  if (!pending.length || !local || !incoming || !/^a=group:BUNDLE /m.test(local) || !/^a=group:BUNDLE /m.test(incoming)) return false
+  const localSections = mediaSections(local)
+  const remoteSections = mediaSections(incoming)
+  const remoteKinds = new Set(remoteSections.map(section => section.kind))
+  const remoteExtensions = new Map(remoteSections.flatMap(section => section.extensions.map(([, id, uri]) => [id, uri] as const)))
+  return pending.some(transceiver => {
+    if (transceiver.setHeaderExtensionsToNegotiate && transceiver.getHeaderExtensionsToNegotiate) return false
+    const section = localSections.find(section => section.mid === transceiver.mid)
+    if (!section?.kind || remoteKinds.has(section.kind)) return false
+    return section.extensions.some(([, id, uri]) => remoteExtensions.has(id) && remoteExtensions.get(id) !== uri)
+  })
 }
 
 /** The half of an `RTCRtpSender` a fixed slot uses, and nothing else:
@@ -495,11 +517,13 @@ export interface PeerOptions {
    * for it that overtook it, and the far-end session id this connection was
    * negotiated with, which can never speak again.
    *
+   * For incompatible first offers, `answerFirst` asks the owner to apply
+   * the offer on the fresh connection before publishing its own tracks.
    * Raised at most once in this peer's life; the peer is finished with once
    * it has. Absent, the peer behaves as it always did - which is right for a
    * forwarder, whose sessions are its own business.
    */
-  onRemoteRestart?: (offer: SignalBody, candidates: SignalBody[], retiredSession?: string) => void
+  onRemoteRestart?: (offer: SignalBody, candidates: SignalBody[], retiredSession?: string, answerFirst?: boolean) => void
   /**
    * Far-end session ids already given up on for a newer one. An offer still
    * carrying one is a late copy from a connection the far end has closed, and
@@ -1478,8 +1502,18 @@ export class Peer implements NegotiatingPeer {
     if (ignoreOffer) return
 
     const pending = collision
-      ? this.#pc.getTransceivers?.().filter(t => t.mid !== null && t.currentDirection === null) ?? []
+      ? this.#pc.getTransceivers?.().filter(({ mid, currentDirection, sender }) =>
+          mid !== null && currentDirection === null && sender.track?.readyState === 'live' &&
+          this.#addedTracks.has(sender.track)) ?? []
       : []
+    // WebKit has no RTP extension control. After the first offers cross, it
+    // can remember incompatible IDs even after rollback. Its first answer can
+    // use a fresh connection on the same route before this pair carries media.
+    if (!this.#remoteSession && this.#opts.onRemoteRestart &&
+        firstOffersNeedFreshConnection(this.#pc.localDescription?.sdp, sdp, pending)) {
+      this.#handOnRemoteRestart(sdp, seq, true)
+      return
+    }
     if (collision) {
       // Only the polite side reaches here: give up its own pending offer so
       // the incoming one can be answered instead.
@@ -1641,7 +1675,7 @@ export class Peer implements NegotiatingPeer {
    * Candidates that overtook the offer were held rather than refused (see
    * `#handleIce`) and go with it.
    */
-  #handOnRemoteRestart(sdp: string | undefined, seq: number | undefined): void {
+  #handOnRemoteRestart(sdp: string | undefined, seq: number | undefined, answerFirst = false): void {
     const restart = this.#opts.onRemoteRestart
     if (!restart) return
     this.#remoteRestarted = true
@@ -1650,11 +1684,10 @@ export class Peer implements NegotiatingPeer {
     const carried = this.#pendingCandidates.filter((candidate) => candidate.usernameFragment != null && candidate.usernameFragment === ufrag)
     this.#pendingCandidates = []
     const retired = this.#remoteSession?.id
-    restart(
-      { type: 'offer', roomId: '', sdp, ...(seq !== undefined ? { seq } : {}) },
-      carried.map((candidate) => ({ type: 'ice', roomId: '', candidate: JSON.stringify(candidate) })),
-      retired !== undefined && retired !== sdpSession(sdp).id ? retired : undefined,
-    )
+    const offer: SignalBody = { type: 'offer', roomId: '', sdp, ...(seq !== undefined ? { seq } : {}) }
+    const candidates: SignalBody[] = carried.map(candidate => ({ type: 'ice', roomId: '', candidate: JSON.stringify(candidate) }))
+    if (answerFirst) restart(offer, candidates, undefined, true)
+    else restart(offer, candidates, retired !== undefined && retired !== sdpSession(sdp).id ? retired : undefined)
   }
 
   /** Stop signalling while a node-owned replacement takes over the media.
