@@ -1,8 +1,8 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import type * as Y from 'yjs'
 import { RoomAgent } from '../src/agent.js'
 import { memoryRoomBoardStorage } from '../src/room-board-wire.js'
-import { closeRoomBoard, createRoom, join, leaveToChats, newDeviceContext, open, openRoomBoard } from './browser.js'
+import { TEST_RELAY_HTTP, allowTestFileStorage, closeRoomBoard, createRoom, join, leaveRoom, leaveToChats, newDeviceContext, open, openRoomBoard } from './browser.js'
 import { agentRelaysFor, testRelaysFor } from './relays.js'
 
 // The room's own board, walked the way people meet it: nobody creates it,
@@ -196,7 +196,21 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   await expect(bob.locator('#conversationNav button[data-board]')).toBeVisible()
   await bob.locator('#conversationNav button[data-board]').click()
   await expect(board(bob).getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Order the tea')
-  await closeRoomBoard(bob)
+  // The room's agents are asked through the room's tasks: the task form
+  // opens filled in from the card, for the person to choose who and share.
+  // Typed as a person types it: into the field they clicked, then on with the keyboard.
+  const description = board(bob).getByRole('textbox', { name: 'Description', exact: true })
+  await description.click()
+  await description.pressSequentially('Enough for forty')
+  await description.press('Tab')
+  // Saved to the board first: the form is filled in from the card as it stands.
+  await expect(board(bob).getByText('Bob changed the description.')).toBeVisible()
+  await tool(bob, 'Assign to agent').click()
+  await expect(bob.locator('#assignmentPanel')).toBeVisible()
+  await expect(bob.locator('#assignmentCreate textarea[name="objective"]')).toHaveValue('Order the tea')
+  await expect(bob.locator('#assignmentCreate textarea[name="criteria"]')).toHaveValue('Enough for forty')
+  await expect(bob.locator('#assignmentPanel')).toContainText('No agent is currently here. Invite an agent to the room before assigning this work.')
+  await expect(bob.locator('#roomArea')).toBeVisible()
   await adaContext.close(); await bobContext.close()
 })
 
@@ -230,6 +244,102 @@ test('another chat is one click from the board, and what is half typed there is 
   await expect(board(page).getByRole('heading', { name: 'To do', exact: true })).toBeVisible()
   await expect(card(page, 'Half a thought')).toHaveCount(0)
   await context.close()
+})
+
+/** A file server at the app's own address that keeps each file at its hash,
+ *  as a Blossom server does, in front of the acceptance store. What it was
+ *  asked to delete is kept in `deleted`. */
+async function fileServer(context: BrowserContext, origin: string): Promise<{ uploaded: string[]; deleted: string[] }> {
+  const seen = { uploaded: [] as string[], deleted: [] as string[] }
+  await context.route(url => url.origin === origin && (url.pathname === '/upload' || /^\/[0-9a-f]{64}$/.test(url.pathname)), async route => {
+    const url = new URL(route.request().url())
+    if (route.request().method() === 'DELETE') seen.deleted.push(url.pathname.slice(1))
+    const response = await route.fetch({ url: TEST_RELAY_HTTP + (url.pathname === '/upload' ? '/upload' : '/blossom' + url.pathname), headers: { ...route.request().headers(), origin } })
+    if (url.pathname !== '/upload' || !response.ok()) { await route.fulfill({ response }); return }
+    const descriptor = await response.json() as { sha256: string; url: string }
+    seen.uploaded.push(descriptor.sha256)
+    await route.fulfill({ response, json: { ...descriptor, url: `${origin}/${descriptor.sha256}` } })
+  })
+  return seen
+}
+
+test('a file goes onto a card through the room’s own file sharing, somebody else opens it after its sender has gone, and the sender’s tidy-up deletes it', async ({ browser, baseURL, browserName }) => {
+  const origin = new URL(baseURL!).origin
+  const adaContext = await newDeviceContext(browser, baseURL!)
+  const store = await fileServer(adaContext, origin)
+  const ada = await adaContext.newPage()
+  await ada.setViewportSize({ width: 1440, height: 900 })
+  const url = await createRoom(ada, baseURL!, testRelaysFor(baseURL!))
+  await openRoomBoard(ada)
+  await addCard(ada, 'Floor plan')
+  await card(ada, 'Floor plan').click()
+  const files = (page: Page) => board(page).locator('.card-files')
+  const pick = async (page: Page, name: string, text: string) => {
+    const choosing = page.waitForEvent('filechooser')
+    await files(page).getByRole('button', { name: 'Add file', exact: true }).click()
+    await (await choosing).setFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(text) })
+  }
+
+  // Before this person has agreed to where the room's files go, nothing
+  // leaves the device and the card says what to do.
+  await pick(ada, 'plan.txt', 'Meet at the hall at seven')
+  await expect(files(ada)).toContainText('Attach a file in the chat first, then add it to the card.')
+  await expect(files(ada).locator('.file-list li')).toHaveCount(0)
+
+  await allowTestFileStorage(ada, origin)
+  await openRoomBoard(ada)
+  await pick(ada, 'plan.txt', 'Meet at the hall at seven')
+  await expect(files(ada).getByRole('button', { name: 'Download plan.txt', exact: true })).toBeVisible()
+  await expect(board(ada).getByText('Ada attached plan.txt.')).toBeVisible()
+  await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
+  expect(store.uploaded).toHaveLength(1)
+  // Ada is gone: no page, no connection.
+  await ada.goto('about:blank')
+
+  // Bob has only the link. The file's sender is gone; the card still has it.
+  const bobContext = await newDeviceContext(browser, baseURL!)
+  await fileServer(bobContext, origin)
+  const bob = await bobContext.newPage()
+  await bob.setViewportSize({ width: 1440, height: 900 })
+  await enter(bob, url, 'Bob')
+  await bob.locator('#conversationNav button[data-board]').click()
+  await card(bob, 'Floor plan').click()
+  await files(bob).getByRole('button', { name: 'Download plan.txt', exact: true }).click()
+  // It opens in the room's own file card: nothing is fetched until asked for.
+  const dialog = bob.locator('#boardFileDialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).not.toContainText('Meet at the hall at seven')
+  await dialog.getByRole('button', { name: /^Show/ }).click()
+  await expect(dialog).toContainText('Meet at the hall at seven')
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  // The upload is this room's like any file Ada sent here: when she leaves
+  // and asks for what she left to be deleted, it is.
+  await enter(ada, url, 'Ada')
+  await leaveRoom(ada, { tidy: true })
+  await ada.locator('#tidyUpRun').click()
+  // The card's upload is among the files this device shared in the room.
+  await expect(ada.locator('#tidyUpSteps li[data-step="files"] .tidyResult')).toContainText('Deleted 1 of 1.', { timeout: 60_000 })
+  // WebKit sends that request past the test's stand-in file server, so what
+  // the server was asked, and the file being gone, are checked in the engines
+  // where the stand-in sees it.
+  if (browserName !== 'webkit') {
+    await expect.poll(() => store.deleted, { timeout: 60_000 }).toEqual(store.uploaded)
+    // The card still names the file, and says plainly that it cannot be had.
+    await files(bob).getByRole('button', { name: 'Download plan.txt', exact: true }).click()
+    await dialog.getByRole('button', { name: /^Show/ }).click()
+    await expect(dialog.getByRole('button', { name: /^Try again/ })).toBeVisible()
+    await expect(dialog).not.toContainText('Meet at the hall at seven')
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  }
+
+  // Taken off the card by somebody else, with a line saying who.
+  await files(bob).getByRole('button', { name: 'Remove plan.txt', exact: true }).click()
+  await board(bob).getByRole('button', { name: 'Take it off', exact: true }).click()
+  await expect(files(bob).locator('.file-list li')).toHaveCount(0)
+  await expect(board(bob).getByText('Bob removed plan.txt.')).toBeVisible()
+  await bobContext.close(); await adaContext.close()
 })
 
 test('a card written with the relay unreachable is kept, and sent when it is back', async ({ browser, baseURL }) => {

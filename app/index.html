@@ -2099,6 +2099,14 @@
       </div>
     </dialog>
 
+    <!-- A file on a card of the room's board, in the card a message's file
+         has. Filled by `openRoomBoardFile` in app/src/main.ts. -->
+    <dialog id="boardFileDialog" aria-labelledby="boardFileTitle">
+      <div class="sheetBar"><h2 id="boardFileTitle" tabindex="-1">File on a card</h2><button type="button" id="boardFileClose">Close</button></div>
+      <p class="note">Attached to a card on this room’s board. It is fetched only when you open it.</p>
+      <div id="boardFileBody"></div>
+    </dialog>
+
     <dialog id="inviteDialog" aria-labelledby="inviteTitle">
       <div class="sheetBar">
         <h2 id="inviteTitle">Invite people</h2>

@@ -3,6 +3,27 @@ import { roomBoardRecordId, type RoomBoardStorage } from '../../src/room-board-w
 import './boards-panel.css'
 import './room-board-panel.css'
 
+/** A file on a card: where the sealed file is kept, the key that opens it, and what it says it is. The same thing as a file
+ *  shared in the room's conversation, in the words a card uses. */
+export interface RoomBoardFile { hash: string; key: string; name: string; type: string; size: number; encryptedSize: number; servers: string[] }
+
+/**
+ * The server a card would name for a file kept at `url`, or undefined where a
+ * card cannot carry it. A card's reference is a server and the envelope's
+ * hash, so the file must be on an https server that keeps it at its hash. A
+ * Blossom server may add an extension to the address it hands back; the hash
+ * alone always answers, so that is accepted. Anything else (a path of the
+ * server's own, a query, credentials, another scheme) is not.
+ */
+export function roomBoardFileServer(url: string, sha256: string): string | undefined {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return undefined
+  let address: URL
+  try { address = new URL(url) } catch { return undefined }
+  const atHash = address.pathname === `/${sha256}` || /^\.[A-Za-z0-9]{1,16}$/.test(address.pathname.slice(sha256.length + 1)) && address.pathname.startsWith(`/${sha256}.`)
+  if (address.protocol !== 'https:' || !atHash || address.search || address.hash || address.username || address.password) return undefined
+  return `${address.origin}/`
+}
+
 /** The room view's own entry in the bundled Girnel package: see `girnel-assets.ts`. */
 interface RoomBoardHost {
   state(): Uint8Array
@@ -12,6 +33,8 @@ interface RoomBoardHost {
   members(): Array<{ pubkey: string; name: string }>
   discuss?(card: { id: string; title: string; description: string }): void
   invite?(): void
+  assign?(card: { id: string; title: string; description: string }): void
+  files?: { add(file: File, signal: AbortSignal): Promise<RoomBoardFile>; open(file: RoomBoardFile, how: 'open' | 'download'): void }
   signal?: AbortSignal
 }
 type RoomBoardWindow = Window & { girnelRoomBoard?: { start(host: RoomBoardHost): void; hasPendingEdits(): boolean } }
@@ -95,6 +118,12 @@ export class RoomBoardPanel {
     discuss(card: { id: string; title: string; description: string }): void
     /** The room's own invitation, for somebody who is to have the board. */
     invite(): void
+    /** A card as the start of a room task for an agent: the room's own task form, filled in from it. */
+    assign(card: { id: string; title: string; description: string }): void
+    /** One file for a card, sealed and uploaded as the room shares any file. Rejects with words for the person. */
+    addFile(file: File, signal: AbortSignal): Promise<RoomBoardFile>
+    /** Show a card's file as the room shows any file: fetched only when the person asks, checked, and never trusted for what it says it is. */
+    openFile(file: RoomBoardFile, from: HTMLElement): void
   }) {
     this.element = root.createElement('section'); this.element.id = 'roomBoardPanel'; this.element.className = 'roomBoardSurface'
     this.#status = root.createElement('p'); this.#status.id = 'roomBoardStatus'; this.#status.className = 'roomBoardStatus'; this.#status.setAttribute('role', 'status')
@@ -164,6 +193,14 @@ export class RoomBoardPanel {
               // What comes back from the frame is another realm's: read as plain text and nothing more.
               discuss: card => { if (current()) this.options.discuss({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
               ...(room.canInvite ? { invite: () => { if (current()) this.options.invite() } } : {}),
+              assign: card => { if (current()) this.options.assign({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
+              files: {
+                add: (file, signal) => current() ? this.options.addFile(file, signal) : Promise.reject(new Error('The room changed. Nothing was uploaded.')),
+                // A reference is something any member can write: every field is read as plain text or a number, and the
+                // room's own reader decides what to make of it.
+                open: file => { if (current()) this.options.openFile({ hash: String(file.hash), key: String(file.key), name: String(file.name), type: String(file.type),
+                  size: Number(file.size), encryptedSize: Number(file.encryptedSize), servers: Array.from(file.servers, server => String(server)) }, frame) },
+              },
               signal: view.abort.signal,
             })
           } catch (error) { if (current()) this.#status.textContent = errorText(error) }

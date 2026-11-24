@@ -292,6 +292,7 @@ import {
   type ControlMessage,
   type ChatMessage,
   type ChatAttachment,
+  normaliseAttachment,
   MAX_CHAT_ATTACHMENTS,
   MAX_UPLOAD_SOURCE_BYTES,
   fetchAttachmentBlob,
@@ -433,7 +434,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import type { ContextPanel } from './context-panel.js'
 import type { AssignmentPanel, BoardSummary } from './assignment-panel.js'
 import type { BoardsPanel } from './boards-panel.js'
-import type { RoomBoardPanel, RoomBoardRoom } from './room-board-panel.js'
+import type { RoomBoardFile, RoomBoardPanel, RoomBoardRoom } from './room-board-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
 import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
@@ -20338,11 +20339,87 @@ function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
         setStatus('Card title added to your draft. Finish it before sending to the room.')
       },
       invite: () => { if (session && roomMenuModel().invite) { showRoomPane(); openInviteDialog(false) } },
+      // The room's agents are asked through the room's tasks, as from New
+      // task…: the form opens filled in from the card, for the person to
+      // choose who and share. What comes of it is in the room's tasks.
+      assign: card => {
+        const selected = session
+        if (!selected) return
+        showRoomPane()
+        void withAssignmentPanel(selected, panel => panel.offerCard(card)).catch(error => setStatus(describeError(error)))
+      },
+      addFile: addRoomBoardFile,
+      openFile: openRoomBoardFile,
     })
     roomBoardPanelModule = module
     return module
   }).catch(error => { roomBoardPanelLoading = undefined; throw error })
   return roomBoardPanelLoading
+}
+/**
+ * One file for a card on the room's board. It takes the road every file
+ * shared in this room takes (`shareDroppedFile`): metadata removed, sealed
+ * here under a fresh key, uploaded to the server this person has allowed,
+ * recorded for the room's tidy-up. Only the last step differs: the reference
+ * goes onto the card and not into a message.
+ *
+ * Only where the room's files go to a server this person has already agreed
+ * to, which keeps each file at its hash. A card's reference is a server and
+ * a hash, so a room that keeps files on its own storage, through Bothy, or
+ * has not yet been asked, says so and uploads nothing.
+ */
+async function addRoomBoardFile(file: File, signal: AbortSignal): Promise<RoomBoardFile> {
+  const selected = session
+  if (!selected || !roomHasOwnBoard()) throw new Error('The room changed. Nothing was uploaded.')
+  const destination = fileDestination()
+  if (destination.kind !== 'server') {
+    throw new Error(destination.kind === 'default' ? `Files in this room go to ${fileHost(destination.origin)} once you have agreed to that. Attach a file in the chat first, then add it to the card.`
+      : destination.kind === 'group' || destination.kind === 'bothy' ? 'This room keeps its files on storage of its own, which a card cannot point to yet. Share the file in the chat instead.'
+        : 'Files are off in this room, so nothing can be attached to a card.')
+  }
+  const draft: ConversationDraft = { channel: undefined, text: '', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', attachments: [], artwork: [], event: '', key: '', panelOpen: false, status: '' }
+  await shareDroppedFile(file, draft, signal, destination.origin)
+  const attachment = draft.attachments[0]
+  if (session !== selected || !attachment) throw new Error(`${file.name} was not attached.`)
+  const hash = attachment.sha256.toLowerCase()
+  const server = (roomBoardPanelModule ?? await loadRoomBoardPanel()).roomBoardFileServer(attachment.url, hash)
+  if (!server) throw new Error('This room’s file server keeps files at an address a card cannot carry. Share the file in the chat instead.')
+  return { hash, key: attachment.key.toLowerCase(), name: attachment.name ?? file.name, type: attachment.type ?? '',
+    size: Math.max(1, file.size), encryptedSize: Math.max(1, attachment.size ?? file.size), servers: [server] }
+}
+/** The key under which the one file a card has open is kept, as a message's would be. */
+let roomBoardFileKey: { log: string; key: string } | undefined
+/**
+ * A file on a card, shown as the room shows any file: in the same card a
+ * message's file has, with nothing fetched until the person presses, the
+ * bytes checked against the hash before the key touches them, and what the
+ * file says it is never taken on trust. Any member can write a reference
+ * onto a card, so it is read here as a stranger's would be.
+ */
+function openRoomBoardFile(file: RoomBoardFile, from: HTMLElement): void {
+  const selected = session
+  if (!selected) return
+  const attachment = file.servers.length ? normaliseAttachment({ url: `${file.servers[0]}${file.hash}`, sha256: file.hash, key: file.key,
+    ...(file.name ? { name: file.name } : {}), ...(file.type ? { type: file.type } : {}), ...(Number.isSafeInteger(file.encryptedSize) && file.encryptedSize > 0 ? { size: file.encryptedSize } : {}) }) : null
+  let https = false
+  try { https = !!attachment && new URL(attachment.url).protocol === 'https:' } catch { /* Not an address. */ }
+  if (!attachment || !https) { setStatus('This file cannot be opened: its address is not one this room reads.'); return }
+  const dialog = $('boardFileDialog') as HTMLDialogElement
+  const forget = (): void => {
+    if (!roomBoardFileKey) return
+    disposeOpenedAttachment(roomBoardFileKey.key); liveAttachmentKeys.delete(roomBoardFileKey.log); roomBoardFileKey = undefined
+  }
+  forget()
+  const log = `board-file/${selected.roomId}`, key = attachmentKey(log, file.hash, 0)
+  roomBoardFileKey = { log, key }
+  liveAttachmentKeys.set(log, new Set([key]))
+  // Nobody is named as its sender: the card's own history says who attached it.
+  const origin = { id: file.hash, participant: '0'.repeat(64), device: '0'.repeat(64), name: 'whoever attached it to the card', text: '', sentAt: nowSeconds() } as ChatMessage
+  $('boardFileBody').replaceChildren(attachmentCard(log, origin, 0, attachment))
+  dialog.onclose = () => { forget(); $('boardFileBody').replaceChildren(); if (from.isConnected) from.focus({ preventScroll: true }) }
+  $('boardFileClose').onclick = () => dialog.close()
+  if (!dialog.open) dialog.showModal()
+  $('boardFileTitle').focus({ preventScroll: true })
 }
 /** Where this browser keeps its copy of a room's board: one entry per
  *  record under this name. See `browserRoomBoardStorage`. */

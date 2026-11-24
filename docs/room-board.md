@@ -5,9 +5,9 @@ two. Nobody creates it, shares it or joins it: being in the room is having
 the board, and being removed from the room is losing it at the same rekey.
 
 It is Girnel, whole: the board, table and calendar views, cards with
-descriptions, checklists, labels, due dates, comments and people to assign,
-the activity log, filters, search, archive and restore, delete, undo, export
-and the keyboard shortcuts. The frame runs the same board screen and the same
+descriptions, checklists, labels, due dates, comments, files and people to
+assign, the activity log, filters, search, archive and restore, delete, undo,
+export and the keyboard shortcuts. The frame runs the same board screen and the same
 commands as Girnel's own app, on the room's document instead of a circle of
 its own ([how](https://github.com/forgesworn/girnel/blob/main/docs/room-board-view.md)).
 
@@ -42,11 +42,19 @@ The line over the board says where it stands:
 - An error, followed by "Your changes are kept on this device and sent when
   they can be." Nothing is lost; it goes when a relay takes it.
 
-Two things on the board reach into the room. **Invite people** opens the
-room's own invitation, since coming into the room is how somebody comes to
-have the board; a private chat, which nobody can be invited to, has no such
-button. **Discuss in chat**, on a card, puts the card's title into the
-conversation's draft for the person to finish and send.
+Four things on the board reach into the room, because the room already has
+them:
+
+- **Invite people** opens the room's own invitation, since coming into the
+  room is how somebody comes to have the board. A private chat, which nobody
+  can be invited to, has no such button.
+- **Discuss in chat**, on a card, puts the card's title into the
+  conversation's draft for the person to finish and send.
+- **Assign to agent**, on a card, opens the room's task form filled in from
+  the card: its title as what needs doing and its description as what will
+  count as done. The person chooses who and shares it. What comes of it is
+  in the room's tasks, not on the card.
+- **Add file**, on a card: see Files on cards, below.
 
 The chat list stays beside the board, so another chat is one click away.
 If something is typed on the board and not yet saved to it, the room asks
@@ -177,6 +185,36 @@ Forgetting a room, a room that self-destructs and **Forget this browser**
 each remove the records. A self-destructing room also asks the relays to
 delete what this device signed there, which includes its board events.
 
+## Files on cards
+
+A file on a card is the same thing as a file shared in the room's
+conversation: sealed on the device under a fresh key, with its metadata
+removed, and uploaded as an opaque envelope. **Add file** sends it down the
+very road a chat file takes (`shareDroppedFile`), to the server this person
+has already allowed, and the upload is recorded with everything else this
+device left in the room. Only the last step differs: the reference (the
+server, the envelope's hash, the key, the name, type and size) goes onto the
+card, in the board's document, and not into a message. It is written only
+once the upload has succeeded.
+
+Opening is the room's too. **Download** or **Open** on a card's file shows
+it in the card a message's file has: nothing is fetched until the person
+presses, the bytes are checked against the hash before the key touches them,
+and what the file says it is is never taken on trust. Any member can write a
+reference onto a card, so it is read as a stranger's would be, and the board's
+frame never fetches one.
+
+A card's reference is a server and a hash, so a file can go onto a card only
+where the room's files go to a server that keeps each file at its hash, and
+only once this person has agreed to that server. Elsewhere **Add file** says
+why and uploads nothing: a room that keeps files on storage of its own or
+through Bothy cannot put one on a card yet, and somebody who has not yet seen
+the room's file notice is told to attach a file in the chat first.
+
+Taking a file off a card removes the reference for everybody. It does not
+delete the upload. The upload goes when its sender leaves the room and asks
+for what they left to be deleted, as a chat file does.
+
 ## Who can change what
 
 Everybody in the room, agents included, edits on equal terms. A change is
@@ -201,12 +239,11 @@ undo across devices beyond what the board's own archive keeps.
   gives an agent the same document on the same terms, and an agent that
   edits it is saved and sent like anybody. `kithmoot-agent` has no board
   tools, so its brains cannot read or write cards.
-- **No files on cards yet.** Share a file in the room's chat instead. A card's
-  file and a room's file are the same sealed envelope, so a card can carry
-  one through the room's own file sharing; that is not built.
-- **No assigning a card to an agent from the board yet.** The room's tasks
-  are the way to ask an agent, from **New task…** in the room's menu or
-  **Current room tasks** under the All tab of Boards.
+- **Files on cards only through a file server.** See Files on cards. A card's
+  file shows no progress beyond "Encrypting…" while it goes, and one that
+  fails is said once and not kept to try again.
+- **An agent's work is not written back to the card.** Assign to agent makes
+  a room task from the card; the two are not linked afterwards.
 - **A card in the chat is its title**, not a link that opens the card.
 - **Boards opens on the room's board** even when something under Needs you
   is waiting for this account; that tab is one click along.
@@ -236,8 +273,10 @@ undo across devices beyond what the board's own archive keeps.
   build; the whole of Girnel between two visitors (one click from Boards,
   table and calendar, filters, an activity line under the name the room
   knows somebody by, undo across somebody else's change, export, delete,
-  Invite people, Discuss in chat); half-typed text kept through a switch of
-  chat; two tabs of one browser on one room; forgetting a room. The view
+  Invite people, Discuss in chat, Assign to agent); a file put on a card,
+  opened by somebody else after its sender had gone, and deleted by the
+  sender's tidy-up; half-typed text kept through a switch of chat; two tabs
+  of one browser on one room; forgetting a room. The view
   under the production content security policy, export included, is in
   `test/boards.spec.ts`.
 - **A private chat** (`src/room-board-log.test.ts`): the board on the same
