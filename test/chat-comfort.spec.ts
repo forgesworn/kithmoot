@@ -129,6 +129,7 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
   const context = await browser.newContext({ ignoreHTTPSErrors: true, serviceWorkers: 'block', viewport: { width: 390, height: 844 } })
   await context.routeWebSocket(url => url.href !== relay.href, ws => ws.close())
   await context.route('**/turn', route => route.fulfill({ status: 503, body: '' }))
+  await context.addInitScript(() => Object.assign(window, { __chatRenderPlans: { append: 0, full: 0, reasons: {} } }))
   const link = encodeRoomLink(baseURL!, { secret: generateRoomSecret(), name: 'Workshop', relays: [relay.href], iceUrls: [] })
   let sentAt = Math.floor(Date.now() / 1000) - 700
   const writer = await RoomAgent.join({ link, relays: [TEST_RELAY_WS], name: 'Rowan', agent: false, now: () => sentAt })
@@ -189,7 +190,22 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     await expect(panel).not.toBeVisible()
     await expect(more).toBeFocused()
     await expect(page.locator('#chatInput')).toHaveValue('Keep my unfinished reply')
-    await more.click()
+    // Finish one press across a repaint from an incoming edit.
+    const updatedAgenda = 'Please review the updated agenda.'
+    await more.scrollIntoViewIfNeeded()
+    const button = await more.boundingBox()
+    await page.mouse.move(button!.x + button!.width / 2, button!.y + button!.height / 2)
+    await page.mouse.down()
+    try {
+      const rebuilds = () => page.evaluate(() => {
+        const plans = (window as unknown as { __chatRenderPlans: { reasons: Record<string, number> } }).__chatRenderPlans
+        return Object.values(plans.reasons).reduce((count, reason) => count + reason, 0)
+      })
+      const beforeEdit = await rebuilds()
+      sentAt++; await writer.chat.send(updatedAgenda, { replaces: original.id })
+      await expect.poll(rebuilds).toBeGreaterThan(beforeEdit)
+    } finally { await page.mouse.up() }
+    await expect(panel.locator('.messageActionPreview')).toHaveText(updatedAgenda, { timeout: 5_000 })
     await page.locator('#chatInput').click()
     await expect(panel).not.toBeVisible()
     await expect(page.locator('#chatInput')).toBeFocused()
@@ -231,7 +247,7 @@ test('busy conversations group senders and keep a stable, keyboard-accessible ac
     expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     await panel.getByRole('button', { name: /^Reply to Rowan/ }).click()
     await expect(page.locator('#composerContext')).toContainText('Replying to Rowan')
-    await expect(page.locator('#composerContext .contextExcerpt')).toHaveText('Please review the revised agenda.')
+    await expect(page.locator('#composerContext .contextExcerpt')).toHaveText(updatedAgenda)
     await expect(page.locator('#chatInput')).toHaveValue('Keep my unfinished reply')
     await expect(page.locator('#chatInput')).toBeFocused()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
