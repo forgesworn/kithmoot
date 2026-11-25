@@ -574,7 +574,12 @@ jobs:
     # Retain the reviewed acceptance job budgets after moving regressions
     # into their own complete per-browser gate. Every Playwright test keeps
     # its existing timeout, assertions and zero retries.
-    timeout-minutes: ${{ (startsWith(matrix.name, 'chromium rest ') || startsWith(matrix.name, 'chromium desktop ') || matrix.name == 'firefox 1 of 2' || matrix.name == 'webkit 1 of 2') && 30 || 20 }}
+    # Both halves of Firefox and WebKit have 30 minutes. The second halves had
+    # 20 until the room board's journeys joined them (test/room-board.spec.ts,
+    # three minutes in Firefox): on 25 November 2026 the Firefox half was
+    # stopped at 20 minutes with every test passing and eight still to run,
+    # and the WebKit half finished in 19.
+    timeout-minutes: ${{ (startsWith(matrix.name, 'chromium rest ') || startsWith(matrix.name, 'chromium desktop ') || startsWith(matrix.name, 'firefox ') || startsWith(matrix.name, 'webkit ')) && 30 || 20 }}
     strategy:
       fail-fast: false
       matrix:
