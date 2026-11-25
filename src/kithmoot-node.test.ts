@@ -616,6 +616,36 @@ describe('pinned KithMoot node client', () => {
       expect(() => managed.factory()).toThrow()
     } finally { managed.close() }
   })
+  it('opens and renews a pinned node call on WebKit with the same authenticated relay', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
+    const f = fixture(); let clock = NOW, issued = 0
+    const fetcher = vi.fn(async () => response(f.login(clock, String(++issued).padStart(24, '0')))) as unknown as typeof fetch
+    const configurations: RTCConfiguration[] = []
+    class Peer {
+      signalingState = 'stable'
+      restartIce = vi.fn()
+      constructor(configuration: RTCConfiguration) { this.setConfiguration(configuration) }
+      setConfiguration(configuration: RTCConfiguration) {
+        const urls = configuration.iceServers?.flatMap(server => [server.urls].flat()) ?? []
+        if (urls.some(url => url.includes('?'))) throw new DOMException('Invalid TURN URL query string', 'SyntaxError')
+        configurations.push(configuration)
+      }
+      close() { this.signalingState = 'closed' }
+    }
+    const managed = await nodeCallFactory(f.node, f.identity, async () => f.access,
+      { fetcher, now: () => clock, PeerConnection: Peer as unknown as typeof RTCPeerConnection })
+    try {
+      const peer = managed.factory() as unknown as Peer
+      clock += 240; await vi.advanceTimersByTimeAsync(240000)
+      expect(configurations).toHaveLength(2)
+      for (const config of configurations) {
+        expect(config.iceTransportPolicy).toBe('relay')
+        expect(config.iceServers?.[0].urls).toEqual([f.node.turnUrls[0].split('?')[0]])
+      }
+      expect(configurations[1].iceServers?.[0].username).not.toBe(configurations[0].iceServers?.[0].username)
+      expect(peer.restartIce).toHaveBeenCalledOnce()
+    } finally { managed.close() }
+  })
   it('replaces allocations through the protocol owner after installing a new login', async () => {
     vi.useFakeTimers(); vi.setSystemTime(NOW * 1000)
     const f = fixture(); let clock = NOW

@@ -3,7 +3,8 @@ import { bytesToHex } from '@noble/hashes/utils'
 import { RELAY_TEST_ANSWER_MS, RELAY_TEST_COOLDOWN_MS, RELAY_TEST_RUN_MS, relayTestFinding, relayTestVerdict,
   type RelayTestObservations, type RelayTestRequest, type RelayTestResult, type RelayTestStage, type RelayTestVerdict } from '../../src/relay-test.js'
 import type { RemoteRelayTest } from '../../src/mesh.js'
-import { callRelayPeerConnection, type CallRelay } from './call-relay.js'
+import { callRelayPeerConnection } from '../../src/turn-configuration.js'
+import type { CallRelay } from './call-relay.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 
 /**

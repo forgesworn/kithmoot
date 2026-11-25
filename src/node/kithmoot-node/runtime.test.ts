@@ -150,7 +150,19 @@ it('imports only independent declared secrets and preserves them through interru
 it.each([undefined, 256, 512])('launches the host-gated backend with allocation count %s and without host certificate paths', async (count) => {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-host-env-')); paths.push(directory)
   const binary = join(directory, 'backend'), capture = join(directory, 'ports.txt')
-  writeFileSync(binary, '#!/bin/sh\nif [ -n "${SPRY_TURN_PORT:-}" ]; then\n  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "' + capture + '"\nfi\nexec /bin/sleep 30\n', { mode: 0o700 })
+  // A capture becomes visible only after the fixture finishes writing all of its values.
+  writeFileSync(binary, [
+    '#!/bin/sh',
+    'if [ -n "${SPRY_TURN_PORT:-}" ]; then',
+    '  capture="$(dirname "$0")/ports.txt"',
+    '  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" \\',
+    '    "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" \\',
+    '    "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "$capture.pending" &&',
+    '    mv "$capture.pending" "$capture"',
+    'fi',
+    'exec /bin/sleep 30',
+    '',
+  ].join('\n'), { mode: 0o700 })
   const ports = await fixturePorts()
   const secrets = manifestSecrets()
   initialise(directory, { ...hostConfiguration(), ...(count === undefined ? {} : { relayPortCount: count }), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] }, false, secrets)

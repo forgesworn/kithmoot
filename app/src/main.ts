@@ -356,7 +356,8 @@ import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritanc
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
-import { callRelayPeerConnection, callRelayServers, callRelaySetConfiguration, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
+import { callRelayPeerConnection, callRelaySetConfiguration } from '../../src/turn-configuration.js'
+import { callRelayServers, loadCallRelay, parseCallRelay, saveCallRelay, type CallRelay } from './call-relay.js'
 import { PUBLIC_CALL_RELAY_SCOPE, PublicCallRelays, PublicRelayCall, PUBLIC_RELAY_LOST, PUBLIC_RELAY_LOST_RELAY_ONLY, publicRelayIceServer, publicRelayPoolHints, publicRelayQueryRelays, publicRelaysMayRun, queryPublicRelayAdverts } from './public-call-relays.js'
 import type { PublicRelayLogin } from '../../src/public-call-relays.js'
 import { completeSpryPairing, parseSpryPairingInput, loadSpryPairing, saveSpryPairing, removeSpryPairing, loadSpryOffer, saveSpryOffer, loadSpryShare, saveSpryShare, loadSpryConsent, saveSpryConsent, parseAccountSpryPairing } from './spry-pairing.js'
@@ -16230,7 +16231,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       const configuration = relayOnly
         ? relayOnlyIceConfiguration(available)
         : { iceServers: context?.tier === 'turn' ? available : stunOnly }
-      const pc = deviceRelay || publicRelayInUse ? callRelayPeerConnection(configuration) : new RTCPeerConnection(configuration)
+      const pc = callRelayPeerConnection(configuration)
       // Every connection contributes to the reachability measurement. It
       // costs nothing - these candidates were gathered anyway - and it is the
       // only honest source for whether this device could carry anybody.
@@ -16498,10 +16499,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // after it did is: a cheap round trip here catches it before the join
     // event is the thing that discovers it, the slow and public way.
     if (lastHiddenAt >= poolCreatedAt) await pool.probe().catch((err) => callTimeline.record('probe-failed', undefined, describeError(err)))
-    // New servers for this session, and its live connections restarted on
-    // them. `viaCallRelay` routes the change through the WebKit TURN/TCP
-    // filter and, for relay-only, keeps only usable relays.
-    const applyCallServers = (servers: RTCIceServer[], viaCallRelay: boolean): boolean => {
+    // Apply new servers to this session and restart its live connections.
+    const applyCallServers = (servers: RTCIceServer[]): boolean => {
       resolvedIceServers = servers
       stunOnly = withoutTurn(resolvedIceServers)
       turnRelayConfigured = hasRelay(resolvedIceServers)
@@ -16514,9 +16513,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         try {
           const config = pc.getConfiguration()
           const serversForLink = relayOnly || key.startsWith('turn:') ? resolvedIceServers : stunOnly
-          if (viaCallRelay) {
-            callRelaySetConfiguration(pc, relayOnly ? { ...config, ...relayOnlyIceConfiguration(serversForLink) } : { ...config, iceServers: serversForLink })
-          } else pc.setConfiguration({ ...config, iceServers: serversForLink })
+          callRelaySetConfiguration(pc, relayOnly ? { ...config, ...relayOnlyIceConfiguration(serversForLink) } : { ...config, iceServers: serversForLink })
           pc.restartIce()
         } catch { failed = true /* Existing media keeps its current allocation until reconnect. */ }
       }
@@ -16533,7 +16530,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         spryActive = true
         // The room's Spry offer outranks a discovered relay.
         if (publicCall) { publicCall.end(); publicCall = undefined; publicRelayInUse = false; beforePublicRelay = undefined; callRelayLostNotice = undefined }
-        applyCallServers(withDeviceStun(servers, deviceStun), false)
+        applyCallServers(withDeviceStun(servers, deviceStun))
       }, (input, init) => accountNetwork.fetch(input, init), deviceSk, loadSpryOffer(localStorage, s.participant, s.roomId), offer => saveSpryOffer(localStorage, s.participant, s.roomId, offer),
       { share: madeHere || chosen,
         ownFailure: at => { if (spryPairing && loadSpryPairing(localStorage, s.participant)) { spryFailedAt = at; renderSpryPage(); renderCalls() } },
@@ -16554,7 +16551,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       const base = withoutTurn(beforePublicRelay)
       if (login) {
         publicRelayInUse = true
-        if (!applyCallServers([...base, publicRelayIceServer(login)], true) && why === 'renew') setStatus('The renewed call relay login could not be applied to every connection. Leave and rejoin the call if it drops.')
+        if (!applyCallServers([...base, publicRelayIceServer(login)]) && why === 'renew') setStatus('The renewed call relay login could not be applied to every connection. Leave and rejoin the call if it drops.')
         return
       }
       // Lost: the relay is dropped. Relay-only now refuses new connections
@@ -16564,7 +16561,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         stunOnly = withoutTurn(base)
         turnRelayConfigured = false
         sessionRelayBlocked.set(s, true)
-      } else applyCallServers(base, true)
+      } else applyCallServers(base)
     }
     publicRelayRoutes.set(s, {
       start: async () => {

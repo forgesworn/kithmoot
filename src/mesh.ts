@@ -2112,7 +2112,7 @@ export class Mesh {
    * speaking ring, roles, tiles - by device and follows a new track object on
    * the same key, as it already does after any other rebuild.
    */
-  #replaceForRemoteSession(endpoint: string, stale: Peer, offer: SignalBody, candidates: SignalBody[], retired?: string): void {
+  #replaceForRemoteSession(endpoint: string, stale: Peer, offer: SignalBody, candidates: SignalBody[], retired?: string, answerFirst = false): void {
     if (this.#closed || this.#quiet) return
     // Only the endpoint's current peer may be replaced this way: an old one
     // finishing a queued signal after some other rebuild has nothing to give.
@@ -2127,7 +2127,8 @@ export class Mesh {
       }
       this.#retiredRemoteSessions.set(endpoint, seen)
     }
-    this.#diagnose({ kind: 'signal-received', device: endpoint, detail: 'offer: far end started a new session; rebuilding' })
+    this.#diagnose({ kind: 'signal-received', device: endpoint,
+      detail: answerFirst ? 'offer: conflicting first media offers; rebuilding' : 'offer: far end started a new session; rebuilding' })
     this.#closePeer(endpoint, stale, true)
     for (const [device, route] of this.#routes) {
       if (route.endpoint !== endpoint || !route.connected) continue
@@ -2141,12 +2142,13 @@ export class Mesh {
     if (sid === undefined) this.#peerSids.delete(endpoint)
     else this.#peerSids.set(endpoint, sid)
     this.#armRouteTimerIfNeeded(endpoint)
-    peer.start(this.#tracksFor(endpoint)).catch(() => {})
+    if (!answerFirst) peer.start(this.#tracksFor(endpoint)).catch(() => {})
     for (const body of [offer, ...candidates]) {
       peer.handleSignal(body).catch((error) =>
         this.#diagnose({ kind: 'signal-handling-failed', device: endpoint, detail: `${body.type}: ${describeError(error)}` }),
       )
     }
+    if (answerFirst) peer.start(this.#tracksFor(endpoint)).catch(() => {})
     this.#armRouteTimerForOffer(endpoint)
   }
 
@@ -2217,7 +2219,8 @@ export class Mesh {
           },
       onRemoteRestart: forwarder
         ? undefined
-        : (offer, candidates, retiredSession) => this.#replaceForRemoteSession(remoteDevice, peer, offer, candidates, retiredSession),
+        : (offer, candidates, retiredSession, answerFirst) =>
+          this.#replaceForRemoteSession(remoteDevice, peer, offer, candidates, retiredSession, answerFirst),
       retiredRemoteSessions: forwarder ? undefined : retired,
     })
     return peer

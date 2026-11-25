@@ -1,4 +1,5 @@
-import { callRelayPeerConnection, callRelayServers, type CallRelay } from './call-relay.js'
+import { callRelayPeerConnection } from '../../src/turn-configuration.js'
+import { callRelayServers, type CallRelay } from './call-relay.js'
 import { relayOnlyIceConfiguration } from './relay-only.js'
 
 export const CALL_RELAY_CHECK_FAILED = 'The relay test did not complete. Check the login, network and server, then try again.'
