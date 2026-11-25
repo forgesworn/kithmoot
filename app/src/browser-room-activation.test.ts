@@ -98,6 +98,18 @@ describe('durable browser room activation', () => {
     f.advance(86400); await f.controller.renew(room, f.input.readiness)
     expect(new Set(f.saved!.grants.map(g => g.active.tags.find(t => t[0] === 'd')![1]))).toEqual(new Set([room,channel]))
   })
+  it('grants the room’s board as a scope of its own, for as many devices as two scopes allowed', async () => {
+    const f = fixture(), control = 'e'.repeat(64), board = 'f'.repeat(64)
+    // The keeper and seven guests: eight devices, as a room with only chat and control could hold.
+    const guests = Array.from({ length: 7 }, () => { const guest = getPublicKey(generateSecretKey()); return { persona: guest, device: guest } })
+    await f.controller.activate({ ...f.input, scopes: [room, control, board], guests })
+    expect(f.saved!.grants).toHaveLength(24)
+    expect(f.saved!.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === board))).toHaveLength(8)
+    f.advance(86400); await f.controller.renew(room, f.input.readiness)
+    expect(new Set(f.saved!.grants.map(g => g.active.tags.find(t => t[0] === 'd')![1]))).toEqual(new Set([room, control, board]))
+    expect(f.saved!.grants).toHaveLength(24)
+  })
+
   it('obtains and persists a fresh withdrawal after expiry, then requires server acknowledgement', async () => {
     const f = fixture(); await f.controller.activate(f.input)
     const original = structuredClone(f.saved!)

@@ -31,6 +31,18 @@ and a server-provided URL is never followed. Public-store file downloads are
 held while this room uses Bothy. Ordinary HTTPS attachments retain their
 existing behaviour outside that route.
 
+## Files on the room's board
+
+**Add file** on a card of the room's board takes the same path, under the same
+permission: a device that has not allowed encrypted files on the room's Bothy
+is told to allow them in the chat's file panel and uploads nothing. The card
+records the box (`fsl://<node>/`), the hash and the key, inside the board's
+encrypted document; **Open** reads it through this device's selected route,
+exactly as a chat's file is read. Taking it off the card does not delete it:
+it is one of this account's private uploads, removed under **Review private
+uploads**. The board travels over the route only where the route was
+activated with the board's scope (`docs/browser-room-activation.md`).
+
 ## Consent, ownership and cleanup
 
 Stopping new private uploads and downloads does not delete uploaded copies or

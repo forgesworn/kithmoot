@@ -1,5 +1,6 @@
 import type { RoomBoardLog } from '../../src/room-board-log.js'
 import { roomBoardRecordId, type RoomBoardStorage } from '../../src/room-board-wire.js'
+import { privateAttachmentLocation } from '../../src/private-attachment.js'
 import './boards-panel.css'
 import './room-board-panel.css'
 
@@ -22,6 +23,16 @@ export function roomBoardFileServer(url: string, sha256: string): string | undef
   const atHash = address.pathname === `/${sha256}` || /^\.[A-Za-z0-9]{1,16}$/.test(address.pathname.slice(sha256.length + 1)) && address.pathname.startsWith(`/${sha256}.`)
   if (address.protocol !== 'https:' || !atHash || address.search || address.hash || address.username || address.password) return undefined
   return `${address.origin}/`
+}
+
+/**
+ * The box a card would name for a file kept on a room's Bothy, from the private reference the upload gave
+ * (`fsl://<node>/<hash>`, `src/private-attachment.ts`): `fsl://<node>/`, or undefined for anything else. A card names the
+ * box and nothing more; only a device routed through that box can open the file (Girnel `isPrivateFileServer`).
+ */
+export function roomBoardPrivateServer(url: string, sha256: string): string | undefined {
+  const location = /^[0-9a-f]{64}$/.test(sha256) ? privateAttachmentLocation(url, sha256) : undefined
+  return location ? `fsl://${location.node}/` : undefined
 }
 
 /** The room view's own entry in the bundled Girnel package: see `girnel-assets.ts`. */

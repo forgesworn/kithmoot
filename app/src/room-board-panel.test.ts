@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { roomBoardFileServer } from './room-board-panel.js'
+import { roomBoardFileServer, roomBoardPrivateServer } from './room-board-panel.js'
 
 const HASH = 'ab'.repeat(32)
 
@@ -26,5 +26,19 @@ describe('the server a card names for a file', () => {
       'not an address',
     ]) expect(roomBoardFileServer(url, HASH), url).toBeUndefined()
     expect(roomBoardFileServer(`https://files.example/${HASH.toUpperCase()}`, HASH.toUpperCase())).toBeUndefined()
+  })
+})
+
+describe('the box a card names for a file kept on a room’s Bothy', () => {
+  const node = 'ugq2dinb'.repeat(6) + 'ugqq'
+  it('is the box in the private reference the upload gave, and nothing after it', () => {
+    expect(roomBoardPrivateServer(`fsl://${node}/${HASH}`, HASH)).toBe(`fsl://${node}/`)
+  })
+  it('is nothing for any other address, or a reference to another file', () => {
+    for (const url of [
+      `https://files.example/${HASH}`, `fsl://${node}/${'cd'.repeat(32)}`, `fsl://${node}/${HASH}.bin`, `fsl://${node}/`,
+      `fsl://${node.toUpperCase()}/${HASH}`, `fsl://${node.slice(1)}/${HASH}`, `fsl://${node}/${HASH}?x=1`, 'not an address',
+    ]) expect(roomBoardPrivateServer(url, HASH), url).toBeUndefined()
+    expect(roomBoardPrivateServer(`fsl://${node}/${HASH.toUpperCase()}`, HASH.toUpperCase())).toBeUndefined()
   })
 })

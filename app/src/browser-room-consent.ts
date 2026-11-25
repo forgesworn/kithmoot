@@ -73,8 +73,11 @@ export class BrowserRoomConsents {
 }
 
 function terms(event: Event): string[][] { return event.tags.filter(t => t[0] !== 'status') }
+/** Devices a saved room permission may grant, in each scope it carries: eight, as when a room had two scopes and sixteen
+ *  grants in all. A grant is one device in one scope, so a third scope (the room's board) adds eight more, not fewer devices. */
+const ROOM_DEVICES_PER_SCOPE = 8
 export function validateConsent(c: RoomConsent): void {
-  if (!c || !hex.test(c.account) || !hex.test(c.room) || !hex.test(c.device) || !/^[A-Za-z0-9._:-]{1,128}$/.test(c.box?.routeId) || !canonicalRoomServer(c.box?.eventUrl) || !Number.isSafeInteger(c.expires) || c.expires <= 0 || !['installing','active','renewing','withdrawing','retired'].includes(c.phase) || !Array.isArray(c.grants) || c.grants.length > 16 || !Array.isArray(c.scopes) || c.scopes.length < 1 || c.scopes.length > 8 || !c.scopes.includes(c.room) || c.scopes.some(s => !hex.test(s)) || new Set(c.scopes).size !== c.scopes.length || !Array.isArray(c.aliases) || c.aliases.length > 4 || c.aliases.some(s => !/^lookup:[0-9a-f]{64}$/.test(s))) throw new Error('Invalid Bothy room permission.')
+  if (!c || !hex.test(c.account) || !hex.test(c.room) || !hex.test(c.device) || !/^[A-Za-z0-9._:-]{1,128}$/.test(c.box?.routeId) || !canonicalRoomServer(c.box?.eventUrl) || !Number.isSafeInteger(c.expires) || c.expires <= 0 || !['installing','active','renewing','withdrawing','retired'].includes(c.phase) || !Array.isArray(c.grants) || c.grants.length > ROOM_DEVICES_PER_SCOPE * (Array.isArray(c.scopes) ? c.scopes.length : 0) || !Array.isArray(c.scopes) || c.scopes.length < 1 || c.scopes.length > 8 || !c.scopes.includes(c.room) || c.scopes.some(s => !hex.test(s)) || new Set(c.scopes).size !== c.scopes.length || !Array.isArray(c.aliases) || c.aliases.length > 4 || c.aliases.some(s => !/^lookup:[0-9a-f]{64}$/.test(s))) throw new Error('Invalid Bothy room permission.')
   const seen = new Set<string>()
   for (const plan of c.grants) {
     for (const [event, status] of [[plan.active, 'active'], [plan.revoked, 'revoked']] as const) {
