@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.183",
+  "currentRelease": "0.1.184",
   "releases": [
     {
-      "version": "0.1.183",
+      "version": "0.1.184",
       "updateTo": {
-        "version": "0.1.183",
-        "name": "0.1.183",
-        "pub_date": "2026-11-24T00:00:00Z",
-        "notes": "Invitations suggest the persona you last used here. Review it, switch if needed, then join.\nIf an older room link gets shared too widely, use Invite link to create a protected room and approve who joins.\nCalls recover microphone audio after reconnecting or changing call server in Chromium and the desktop app.\nMessage actions stay available when an incoming edit updates the conversation.\nThe avatar shows your approved My Signet persona name as soon as you sign in.\nView a screen shared from your other device when the share and microphone start at the same time.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.183/KithMoot-0.1.183-mac-arm64.zip",
-        "sha256": "e4d2e8c3d498272bd8cb33d3959ecbf5015d4febb4979ec25146c37fd0aaae92",
-        "size": 198990109
+        "version": "0.1.184",
+        "name": "0.1.184",
+        "pub_date": "2026-11-25T00:00:00Z",
+        "notes": "When you ask to join a room, the waiting screen explains who can let you in. For a room hosted on a node, it shows the host address from your invitation.\nOpen the room’s own board from Boards. Boards you previously shared with a room still open from that conversation.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.184/KithMoot-0.1.184-mac-arm64.zip",
+        "sha256": "e48bf41988b3453cc3cb47f2fc68c9d97704573e21d4d6b4a6dc26faa27440be",
+        "size": 199032223
       }
     }
   ]
