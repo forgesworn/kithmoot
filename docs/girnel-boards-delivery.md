@@ -1,10 +1,16 @@
 # Girnel Boards in KithMoot
 
-Since November 2026 every room also has [a board of its own](room-board.md),
+Since November 2026 every room has [a board of its own](room-board.md),
 which needs none of what follows: it has no keeper, invitation or separate
 membership, and Boards opens on it whenever a room is open. This document is
-about boards kept outside a room, which are unchanged and are reached from
-**Open a board**, under the Needs you and All tabs of Boards.
+about a person's own boards, kept outside a room and reached from **Your own
+boards**, under the Needs you and All tabs of Boards.
+
+**Since 25 November 2026 a room is not offered one of these.** A room has one
+board, its own. The journeys below that create a board in a chat or share one
+with a chat describe what was built and is no longer offered: Share with this
+chat is not shown, and a new board does not take the open chat as its own.
+Boards shared with a chat before then are still listed there and still open.
 
 Boards replaces the user-facing Work destination. Girnel remains usable on its
 own; KithMoot hosts the same durable, encrypted shared board implementation.

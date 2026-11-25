@@ -11,13 +11,24 @@ export and the keyboard shortcuts. The frame runs the same board screen and the 
 commands as Girnel's own app, on the room's document instead of a circle of
 its own ([how](https://github.com/forgesworn/girnel/blob/main/docs/room-board-view.md)).
 
-This is separate from the boards described in
-[Girnel Boards in KithMoot](girnel-boards-delivery.md). Those are boards kept
-outside any room, each a circle of its own with a keeper, an invitation and
-its own membership, which somebody may choose to share with a room. They are
-unchanged, and are reached from **Open a board** under the other tabs of
-Boards. The room's own board has none of that machinery because it does not
-need it: the room already has a key, an epoch, a roster and relays.
+**A room has one board, and it is this one.** It is separate from the boards
+described in [Girnel Boards in KithMoot](girnel-boards-delivery.md). Those are
+a person's own boards, kept outside any room, each a circle of its own with a
+keeper, an invitation and its own membership. They are reached from **Your
+own boards** under the other tabs of Boards, and are as they were, with one
+exception decided on 25 November 2026: **a room is no longer offered one.**
+
+- Nothing offers to share such a board with a chat, and a new one no longer
+  takes the open chat as its own. The app's means of sharing are kept in the
+  code and are not offered (`offersRoomSharing` in `app/src/boards-panel.ts`).
+- A board shared with a chat before that is still there: the chat's list of
+  them is still read, they are in the strip above its conversation, and they
+  open and are edited as before.
+- A person may still keep one of their own boards beside a chat, with their
+  own label. That puts it in the strip for them alone and tells nobody.
+
+The room's own board has none of that machinery because it does not need it:
+the room already has a key, an epoch, a roster and relays.
 
 ## What a person sees
 
@@ -249,7 +260,9 @@ undo across devices beyond what the board's own archive keeps.
   there, and a relay would see when somebody was working on it. So a quiet
   room has none, by decision: its menu offers no Board, and Boards says
   that the room is quiet, that it has no board of its own, and why. It keeps
-  what it had before: tasks, and any board handed to it. A board that rode
+  its tasks, and any board that was shared with it before 25 November 2026.
+  It is offered no new one, like any room, so a quiet room that had none has
+  none. A board that rode
   the quiet slots would keep the promise; it is not built.
 - **Web and desktop.** The desktop app carries the same web build, and has
   been run with the board from source: see What has been checked. A packaged,

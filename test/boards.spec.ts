@@ -2,13 +2,13 @@ import {test, expect, type Browser, type BrowserContext, type Frame, type Page} 
 import {generateSecretKey, getPublicKey, finalizeEvent} from 'nostr-tools/pure'
 import {encrypt, decrypt, getConversationKey} from 'nostr-tools/nip44'
 import {RoomAgent} from '../src/agent.js'
-import {decodeRoomBoard, ROOM_BOARDS_CHANNEL} from '../src/room-boards.js'
+import {decodeRoomBoard, encodeRoomBoard, ROOM_BOARDS_CHANNEL} from '../src/room-boards.js'
 import {agentRelaysFor, TEST_RELAY_HTTP} from './relays.js'
 import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
+import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoard, openRoomBoards, openSettings, closeSettings } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -89,17 +89,35 @@ async function createBoard(frame: Frame, name: string) {
   if (await reminder.isVisible()) await reminder.click()
   await frame.getByRole('link', {name: /^Create (a )?board$/}).click()
   await frame.getByRole('textbox', {name: 'Board name', exact: true}).fill(name)
-  const inRoom = await frame.getByText(/^This board will be shared with /).count()
+  // Wherever it is made, a board of this kind is its maker's: no chat is offered it.
+  await expect(frame.getByText(/^This board will be shared with /)).toHaveCount(0)
   await frame.getByRole('button', {name: 'Create board', exact: true}).click()
   await expect(frame.getByRole('heading', {name, exact: true})).toBeVisible()
-  if (inRoom) {
-    const share = frame.getByRole('dialog', {name: new RegExp(`^Share ${name} with `)})
-    await expect(share).toBeVisible()
-    const server = share.getByLabel('Add a file server', {exact: true})
-    if (await server.isVisible()) {await server.fill('https://board-files.test/'); await share.getByRole('button', {name: 'Add file server', exact: true}).click()}
-    await expect(share.getByText(/^Shared with .+ People in the chat/)).toBeVisible({timeout: 60000})
-    await share.getByRole('button', {name: 'Close', exact: true}).click()
-  }
+  await expect(frame.getByRole('dialog', {name: new RegExp(`^Share ${name} with `)})).toHaveCount(0)
+}
+/** A person's own label on their own board: the chat they keep it beside. It
+ *  puts the board in the strip above that chat for them, and tells nobody. */
+async function keepBeside(page: Page, chat: string) {
+  await page.locator('#boardsRoom').selectOption({label: chat})
+  await page.locator('#boardsAssociate').click()
+  await expect(page.locator('#boardsStatus')).toHaveText('Labels saved on this browser. Board membership is unchanged.')
+}
+/** The open board as a chat holds one that was shared with it before chats had
+ *  a board of their own: its invitation in the chat's `boards` channel. The
+ *  app no longer puts one there, so the room's keeper does, as an earlier
+ *  version of the app did for whoever pressed Share. */
+async function sharedEarlier(owner: Frame, keeper: RoomAgent, name: string) {
+  await owner.getByRole('button', {name: 'Invite people', exact: true}).click()
+  const invite = owner.getByRole('dialog', {name: `Invite people to ${name}`, exact: true})
+  const server = invite.getByRole('textbox', {name: 'Add a file server', exact: true})
+  const link = invite.getByRole('textbox', {name: 'Invite link', exact: true})
+  await expect(server.or(link).first()).toBeVisible()
+  if (await server.isVisible()) {await server.fill('https://board-files.test/'); await invite.getByRole('button', {name: 'Add file server', exact: true}).click()}
+  await expect(link).toBeVisible()
+  const invitation = await link.inputValue()
+  await invite.getByRole('button', {name: 'Close', exact: true}).click()
+  const boardId = new URL(owner.url()).hash.split('/')[2]!
+  await keeper.session.channel(ROOM_BOARDS_CHANNEL).send(encodeRoomBoard({boardId, name, invitation}))
 }
 async function addCard(frame: Frame, text: string) {
   const composer = frame.getByRole('textbox', {name: 'Add a card to To do', exact: true})
@@ -107,7 +125,7 @@ async function addCard(frame: Frame, text: string) {
   await expect(frame.getByRole('link', {name: text, exact: true})).toBeVisible()
 }
 
-test('boards created in a chat are discovered on another device and edited together without copying an invitation', async ({browser, baseURL}) => {
+test('a board shared with a chat earlier is still found there on another device and edited together without copying an invitation', async ({browser, baseURL}) => {
   const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!), outsider = await device(browser, baseURL!)
   const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Shared board room', agent: false, ...agentRelaysFor(baseURL!)})
   const enter = async (who: typeof ada, name: string) => {
@@ -122,13 +140,15 @@ test('boards created in a chat are discovered on another device and edited toget
     await expect(who.page.locator('#roomArea')).toHaveJSProperty('inert', false)
   }
   try {
-    // Keep the second person offline until the board has been created/shared.
+    // Keep the second person offline until the board is in the chat's list.
     await enter(ada, 'Ada')
     await openRoomBoards(ada.page)
     const owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(owner, 'Room delivery')
     await addCard(owner, 'Shared from the start')
-    await expect.poll(() => keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(true)
+    // Made with the chat open, it is still hers alone: the chat was told nothing.
+    expect(keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(false)
+    await sharedEarlier(owner, keeper, 'Room delivery')
     await enter(bo, 'Bo')
     await bo.page.locator('#roomBoards').getByRole('button', {name: 'Room delivery', exact: true}).click()
     let guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
@@ -179,6 +199,7 @@ test('call attribution stays below board shortcuts created during a desktop call
     await openRoomBoards(ada.page)
     const frame = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Private Board')
+    await keepBeside(ada.page, 'Private: Test contact')
     await ada.page.locator('#boardsClose').click()
     // Boards was where the older panel was opened from; the room is one step back.
     await backToRoom(ada.page)
@@ -236,7 +257,7 @@ test('card colour saves when the colour label is clicked and survives reopening'
   } finally {await context.close()}
 })
 
-test('an existing private board keeps its cards and is shared only after the explicit room sharing action', async ({browser, baseURL}) => {
+test('a chat is offered no board but its own: one made beside it stays its maker’s, and the chat is told nothing', async ({browser, baseURL}) => {
   const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
   const keeper = await RoomAgent.create({base: baseURL!, name: 'Keeper', roomName: 'Existing board room', agent: false, ...agentRelaysFor(baseURL!)})
   const enter = async (who: typeof ada, name: string) => {
@@ -248,33 +269,47 @@ test('an existing private board keeps its cards and is shared only after the exp
     await expect(who.page.locator('#roomArea')).toBeVisible()
     await expect(who.page.locator('#roomArea')).toHaveJSProperty('inert', false)
   }
+  const told = () => keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')
   try {
     let owner = await openBoards(ada.page)
     await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
     await ada.page.locator('#boardsClose').click()
     await enter(ada, 'Ada')
-    await openRoomBoards(ada.page)
+    // With the chat open, Boards names what is hers as hers, and says where the chat's own board is.
+    await openRoomBoard(ada.page)
+    await ada.page.locator('#workspaceWorkTab').click()
+    await expect(ada.page.locator('#workspaceBoardsOpen')).toHaveText('Your own boards')
+    await ada.page.locator('#workspaceBoardsOpen').click()
     await expect(ada.page.locator('#boardsPanel')).toBeVisible()
     await expect(ada.page.locator('#boardsPanel iframe')).toBeVisible()
     owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await ada.page.getByRole('button', {name: 'Choose another board', exact: true}).click()
+    await expect(ada.page.locator('#boardsContext')).toHaveText('Boards of your own. Existing board room has a board of its own: it is the first tab in Boards.')
+    // Nothing offers the chat a board: no Share, and the open chat is not put forward as a new board's chat.
+    await expect(ada.page.locator('#boardsShareRoom')).toBeHidden()
+    await expect(ada.page.locator('#boardsRoom')).toHaveValue('')
+    await createBoard(owner, 'Made beside the chat')
+    await expect(ada.page.locator('#boardsContext')).not.toContainText('Existing board room')
+    await expect(ada.page.locator('#boardsShareRoom')).toBeHidden()
+    // Her earlier board, kept beside the chat by her own label: still no Share, and still nothing told.
+    await ada.page.getByRole('button', {name: 'Choose another board', exact: true}).click()
     await owner.getByRole('link', {name: /^Existing notes/}).click()
-    await ada.page.locator('#boardsRoom').selectOption({label: 'Existing board room'}); await ada.page.locator('#boardsAssociate').click()
-    expect(keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(false)
-    await ada.page.locator('#boardsShareRoom').click()
-    const share = owner.getByRole('dialog', {name: 'Share Existing notes with Existing board room', exact: true})
-    await share.getByLabel('Add a file server', {exact: true}).fill('https://board-files.test/')
-    await share.getByRole('button', {name: 'Add file server', exact: true}).click()
-    await expect(share.getByText(/^Shared with Existing board room\. People in the chat/)).toBeVisible({timeout: 60000})
-    await share.getByRole('button', {name: 'Close', exact: true}).click()
+    await expect(owner.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible()
+    await keepBeside(ada.page, 'Existing board room')
+    await expect(ada.page.locator('#boardsShareRoom')).toBeHidden()
+    expect(told()).toBe(false)
+    await ada.page.locator('#boardsClose').click()
+    await backToRoom(ada.page)
+    await expect(ada.page.locator('#roomBoards').getByRole('button', {name: 'Existing notes', exact: true})).toBeVisible()
+    await expect(ada.page.locator('#roomBoards').getByRole('button', {name: 'Made beside the chat', exact: true})).toHaveCount(0)
+    // Bo, in the same chat, has the chat's own board and neither of hers.
     await enter(bo, 'Bo')
-    await expect(bo.page.locator('#chatLog')).toContainText('Shared board: Existing notes')
-    await bo.page.locator('#roomBoards').getByRole('button', {name: 'Existing notes', exact: true}).click()
-    const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
-    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
-    await expect(reminder.or(guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/})).first()).toBeVisible()
-    if (await reminder.isVisible()) await reminder.click()
-    await guest.getByRole('button', {name: /^Join (?:board|Existing notes)$/}).click()
-    await expect(guest.getByRole('link', {name: 'Keep my existing card', exact: true})).toBeVisible({timeout: 60000})
+    await openRoomBoard(bo.page)
+    await expect(bo.page.frameLocator('#roomBoardPanel iframe').getByRole('heading', {name: 'To do', exact: true})).toBeVisible()
+    await backToRoom(bo.page)
+    await expect(bo.page.locator('#roomBoards').getByRole('button')).toHaveCount(0)
+    await expect(bo.page.locator('#chatLog')).not.toContainText('Shared board')
+    expect(told()).toBe(false)
   } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
 })
 
@@ -291,6 +326,7 @@ test('a room keeps its board discoverable after popping out, closing the window 
     await openRoomBoards(page)
     let frame = (await (await page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Workshop board'); await addCard(frame, 'Still here after closing')
+    await keepBeside(page, 'Board workshop')
     await expect(page.locator('#boardsContext')).toContainText('Board workshop')
     const opening = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const popup = await opening
     await expect(page.locator('#boardsPanel')).toBeHidden()

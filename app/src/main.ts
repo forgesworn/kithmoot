@@ -13414,7 +13414,7 @@ function renderConversationNav(): void {
     button.type = 'button'
     button.dataset.board = 'true'
     button.setAttribute('aria-haspopup', 'dialog')
-    button.setAttribute('aria-controls', roomHasOwnBoard() ? 'roomBoardPanel' : 'boardsPanel')
+    button.setAttribute('aria-controls', roomHasOwnBoard() ? 'roomBoardPanel' : 'workspaceWorkPanel')
     button.append('Board')
     if (board.needsYou > 0) {
       const badge = document.createElement('span')
@@ -19512,12 +19512,8 @@ function addAnAgent(): void {
   $('inviteAgents').querySelector('summary')?.focus()
 }
 
-/** New task…: the tasks form. The one exception is a room with no board of
- *  its own (a quiet room) that has no tasks or shared board yet, where boards
- *  are available: there the boards panel opens, so the first board is one
- *  step away. */
+/** New task…: the tasks form, in every room. */
 function newTask(): void {
-  if (!roomHasOwnBoard() && nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
   const selected = session
   void withAssignmentPanel(selected, panel => panel.newTask()).catch(error => setStatus(describeError(error)))
 }
@@ -20270,6 +20266,9 @@ function loadBoardsPanel(): Promise<BoardsPanel> {
           const s = session?.roomId === id ? session : dockedCall?.session.roomId === id ? dockedCall.session : undefined
           return s ? roomBoards.get(s)?.boards ?? [] : []
         },
+        // A chat has one board, its own. Nothing here offers to put another in it;
+        // those shared before are still read, listed in the chat and opened.
+        offersRoomSharing: () => false,
         shareBoard: async (room, board) => {
           const s = session?.roomId === room.id ? session : dockedCall?.session.roomId === room.id ? dockedCall.session : undefined
           if (!s || nostrSession?.pubkey !== s.participant) throw new Error(`Open ${room.name} and join the chat before sharing this board.`)
@@ -20511,13 +20510,14 @@ function resumeRoomBoard(s: RoomSession): void {
  *  it). In a quiet room, which has none, the boards handed to the room. */
 function openRoomBoard(from: HTMLElement): void {
   closeRoomSheet()
-  const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
-  if (!selected) return
+  if (!session) return
   if (!roomHasOwnBoard()) {
-    void loadBoardsPanel().then(panel => {
-      if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
-      panel.open(from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu'))
-    }).catch(error => setStatus(describeError(error)))
+    // A quiet room has no board of its own, and no room is offered another
+    // kind. What it does have is its tasks, under All, where Boards also
+    // says why there is no board; a board shared with it before is in the
+    // strip above its conversation.
+    openDestination('boards')
+    void openWorkspaceWork('work', from).catch(error => setStatus(describeError(error)))
     return
   }
   // The board is the first tab of Boards, named after the room: one place

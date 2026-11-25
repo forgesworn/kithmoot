@@ -66,6 +66,11 @@ export class BoardsPanel {
     showChat(): void
     roomBoards(id: string): RoomBoard[]
     shareBoard(room: Scope, board: RoomBoard): Promise<void>
+    /** Whether a board is offered to a chat: the Share button, the open chat as a new board's chat, and the board app's own
+     * offer to share one as it is made. KithMoot no longer offers it, because a chat has one board and that is its own
+     * (docs/room-board.md). Boards shared with a chat before that are still listed and opened, and the means of sharing
+     * are kept here for them. */
+    offersRoomSharing(): boolean
   }) {
     this.dialog = root.createElement('dialog'); this.dialog.id = 'boardsPanel'; this.dialog.setAttribute('aria-labelledby', 'boardsTitle')
     const shell = this.el('div'); shell.className = 'boardsShell'
@@ -101,6 +106,7 @@ export class BoardsPanel {
     }
     this.#link = this.button('Use these labels', () => {void this.associate()}); this.#link.id = 'boardsAssociate'
     this.#share = this.button('Share with this chat', () => this.#view?.share?.()); this.#share.id = 'boardsShareRoom'; this.#share.disabled = true
+    this.#share.hidden = !options.offersRoomSharing()
     this.#scope.append(this.#link, this.#share)
     this.#project.onchange = () => {this.fillRooms(); this.#link.disabled = !this.#view?.context}
     this.#room.onchange = () => {this.#link.disabled = !this.#view?.context}
@@ -119,7 +125,14 @@ export class BoardsPanel {
   }
   private labels(view: BoardView) {
     if (!view.context && view.popup) {view.popup.document.title = 'Boards · KithMoot'; return}
-    if (!view.context) {this.#context.textContent = view.room ? `Create a board to share with ${view.room.name}, or choose an existing board.` : 'Choose or create a personal board, or link a chat to share it.'; this.#pop.disabled = this.#link.disabled = this.#share.disabled = true; return}
+    if (!view.context) {
+      const here = this.options.currentRoom()
+      this.#context.textContent = this.options.offersRoomSharing()
+        ? view.room ? `Create a board to share with ${view.room.name}, or choose an existing board.` : 'Choose or create a personal board, or link a chat to share it.'
+        // These are a person's own boards, wherever they are opened from. The chat behind them has one of its own.
+        : here ? `Boards of your own. ${here.name} has a board of its own: it is the first tab in Boards.` : 'Choose or create a board of your own.'
+      this.#pop.disabled = this.#link.disabled = this.#share.disabled = true; return
+    }
     const title = boardContextTitle(view.context)
     if (view.popup) {
       view.popup.document.title = title
@@ -238,7 +251,10 @@ export class BoardsPanel {
     if (!session) {this.#status.textContent = 'Sign in with your Nostr account to use shared boards.'; this.#pop.disabled = this.#link.disabled = true}
     else {
       const current = context ?? this.#view?.context
-      const project = current?.project ?? this.options.currentProject(), room = current?.room ?? this.options.currentRoom()
+      // A board keeps the labels it has. A new one took the open chat and its project for its own only while boards were
+      // offered to chats: now it starts with none, and the person chooses.
+      const offered = this.options.offersRoomSharing()
+      const project = current?.project ?? (offered ? this.options.currentProject() : undefined), room = current?.room ?? (offered ? this.options.currentRoom() : undefined)
       this.#project.replaceChildren(new Option('No project', ''), ...this.options.projects().map(project => new Option(project.name, project.id)))
       this.#project.value = project?.id ?? ''; this.fillRooms(room?.id)
       if (!this.#view || this.#view.account !== session || invitation) {
@@ -335,7 +351,7 @@ export class BoardsPanel {
           },
           roomShare: () => {
             const room = view.context?.room ?? view.room
-            if (!room || !current()) return
+            if (!room || !current() || !this.options.offersRoomSharing()) return
             const linked = {...room}
             return {name:linked.name,publish:async (board,invitation) => {
               const chosen = {...board,invitation}, generation = view.boardGeneration
@@ -351,7 +367,7 @@ export class BoardsPanel {
               } catch(error) {if(current()) this.report(error); throw error}
             }}
           },
-          onRoomShareReady: share => {if (current()) {view.share = share ? () => {if(current()) share()} : undefined; this.labels(view)}},
+          onRoomShareReady: share => {if (current()) {view.share = share && this.options.offersRoomSharing() ? () => {if(current()) share()} : undefined; this.labels(view)}},
           roomInvitation: () => current() && view.context?.room ? this.options.roomInvitation(view.context.room.id) : undefined,
           discuss: (_board, card) => {if (current() && view.context) {this.dialog.close(); void this.options.discuss(view.context, card).catch(error => {if (current()) {this.report(error); if (!this.dialog.open) this.dialog.showModal()}})}},
         }) } catch (error) {if (current()) this.report(error)}
