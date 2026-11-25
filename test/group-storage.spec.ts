@@ -394,6 +394,45 @@ test.describe('a room that keeps its files on its group’s own computers', () =
     } finally { await ada.context.close(); await bob.context.close(); await r.stop() }
   })
 
+  test('a card’s file from a device with no grant says the keeper has yet to let it in, asks the keeper, and goes on Try again once they have', async ({ browser, baseURL }) => {
+    test.setTimeout(180_000)
+    const r = await rig(baseURL!, { slow: true })
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsList(p, [r.node.origin])
+      const asked = () => r.keeper.channel(CONTROL_CHANNEL).messages().filter((m) => m.text === JSON.stringify({ op: 'storage-grant?' })).length
+      expect(asked()).toBe(0)
+      await openRoomBoard(p)
+      const board = p.frameLocator('#roomBoardPanel iframe')
+      const composer = board.getByRole('textbox', { name: 'Add a card to To do', exact: true })
+      await composer.fill('Hilltop walk')
+      await composer.press('Enter')
+      await board.getByRole('link', { name: 'Hilltop walk', exact: true }).click()
+      const files = board.locator('.card-files')
+      const chooser = p.waitForEvent('filechooser')
+      await files.getByRole('button', { name: 'Add file', exact: true }).click()
+      await (await chooser).setFiles(PHOTO())
+
+      // The file is tried at once and finds no grant. The card says what it is waiting for, and the device asks the keeper.
+      const row = files.locator('.file-list li')
+      await expect(row).toContainText(GROUP_STORAGE_MESSAGES['no-grant'], { timeout: 30_000 })
+      await expect(board.getByText('Ada attached hilltop.png.')).toHaveCount(0)
+      await expect.poll(asked, { timeout: 30_000 }).toBe(1)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(0)
+
+      // The keeper answers a live ask with this device's grants, and the same file goes.
+      await holdsGrants(p, r.node)
+      await row.getByRole('button', { name: 'Try again hilltop.png', exact: true }).click()
+      await expect(files.getByRole('button', { name: 'Download hilltop.png', exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(row).toHaveCount(1)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(1)
+      expect(asked()).toBe(1)
+      expect(ada.offsite).toEqual([])
+    } finally { await ada.context.close(); await r.stop() }
+  })
+
   test('a device with no grant asks the keeper for them, and the file goes as soon as they come', async ({ browser, baseURL }) => {
     test.setTimeout(180_000)
     const r = await rig(baseURL!, { slow: true })

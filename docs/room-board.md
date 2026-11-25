@@ -312,7 +312,9 @@ undo across devices beyond what the board's own archive keeps.
   (`test/files-public-first.spec.ts`). A room with storage of its own: the
   file goes to the node with a token and no announcement, another member
   opens it from the card, and with the node down the card says so, names
-  nothing, and takes the file on Try again (`test/group-storage.spec.ts`).
+  nothing, and takes the file on Try again; a device the keeper has not yet
+  let in says so, asks the keeper, and sends the file on Try again once it
+  has been (`test/group-storage.spec.ts`).
 - **The desktop app itself** (`desktop/test/room-board.spec.ts`, run by hand
   on a Mac, not in CI): two copies of the Electron app from source, each with
   a profile of its own and a visitor with only the link. Boards opens the
@@ -329,8 +331,10 @@ undo across devices beyond what the board's own archive keeps.
   written by one session and read whole by another.
 
 Not checked: a desktop app installed from a release, a phone, a room whose
-files go through Bothy, a board of more than a few hundred kilobytes, or a
-room whose only relays refuse 45 KB events.
+files go through Bothy, a room whose storage is listed with a path after its
+host (the card names the host, and the room's list is relied on for the
+rest), a board of more than a few hundred kilobytes, or a room whose only
+relays refuse 45 KB events.
 
 ## In the code
 
