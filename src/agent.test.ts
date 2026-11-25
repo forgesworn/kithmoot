@@ -254,6 +254,48 @@ describe('RoomAgent', () => {
     mallory.leave()
   })
 
+  it('a keeper opens no channel under a name the room already keeps a stream under, and lets one opened before go', async () => {
+    const relay = new SimRelay({ replay: true })
+    const admin = localIdentity(generateSecretKey())
+    const states: KeeperState[] = []
+    const keeper = await RoomAgent.create({
+      base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0,
+      admins: [admin.pubkey], onState: (s) => { states.push(s) },
+    })
+    const ada = await RoomAgent.join({ link: keeper.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0 })
+    await settle()
+
+    // A channel is its name: one called board would be the board's own stream.
+    for (const name of ['board', 'boards', 'assignments', 'control']) {
+      await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name, open: true }))
+      await expect(keeper.setChannel(name, true)).rejects.toThrow(/used by the room itself/)
+    }
+    // Asked after them, so it is answered after them.
+    await ada.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'shipping', open: true }))
+    await settleUntil(() => ada.announcedChannels.has('shipping'))
+    expect([...ada.announcedChannels]).toEqual(['shipping'])
+    expect(states.at(-1)?.channels).toEqual(['shipping'])
+    const state = keeper.keeperState!
+    keeper.leave()
+    ada.leave()
+
+    // A room that opened one before the rule: its keeper still starts, still
+    // announces it, and can still close it.
+    const again = await RoomAgent.create({
+      base: BASE, name: 'Keeper', relays: ['wss://sim'], transport: transportFor(relay), announceJitterMs: 0,
+      admins: [admin.pubkey], state: { ...state, channels: ['board', 'shipping'] }, onState: (s) => { states.push(s) },
+    })
+    const back = await RoomAgent.join({ link: again.url, name: 'Ada', identity: admin, transport: transportFor(relay), announceJitterMs: 0 })
+    await settleUntil(() => back.announcedChannels.has('board'))
+    expect([...back.announcedChannels].sort()).toEqual(['board', 'shipping'])
+    await back.channel(CONTROL_CHANNEL).send(encodeControl({ op: 'channel', name: 'board', open: false }))
+    await settleUntil(() => !back.announcedChannels.has('board'))
+    expect([...back.announcedChannels]).toEqual(['shipping'])
+    expect(states.at(-1)?.channels).toEqual(['shipping'])
+    again.leave()
+    back.leave()
+  })
+
   it('a keeper removes a member on an admin’s signed request, and not on anybody else’s', async () => {
     const relay = new SimRelay({ replay: true })
     const adminSk = generateSecretKey()

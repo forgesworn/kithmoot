@@ -91,6 +91,17 @@ Yjs updates: they merge in any order and any number of times.
 root exactly as any channel is (`deriveChannel`). A new epoch is a new
 stream.
 
+**No channel shares it.** A channel is derived from its name and nothing
+else, so a channel opened as `board` would be this stream read as
+conversation. A keeper opens no channel named `board`, `boards`,
+`assignments` or `control`, the streams a room already keeps
+(`src/channel-names.ts`), and the app does not ask it to. A room whose
+signed list held one before 26 November 2026 still loads that list and can
+close the channel. Either way, each reader takes only its own: a conversation
+shows no board part (`ChatLog`), and the board reads no line of
+conversation. A keeper running older code would still open one if asked by
+an app running older code.
+
 **Envelope.** An ordinary chat envelope (kind 1460, envelope 1) whose single
 statement is `board`. Everything the chat envelope checks is checked: the
 event's signature, the device that signed it, that device's credential for

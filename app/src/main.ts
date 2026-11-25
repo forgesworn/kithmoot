@@ -288,6 +288,7 @@ import {
   verifyRoomRelays,
   canonicalRoomRelays,
   CHANNEL_NAME,
+  RESERVED_CHANNELS,
   type RekeyNotice,
   type ControlMessage,
   type ChatMessage,
@@ -355,6 +356,7 @@ import { clearLogo, renderLogo } from './logo-view.js'
 import { deliverGuardedProjectInbox } from './project-inbox-delivery.js'
 import { inheritedRoomLogo, projectAdmissionBrand } from './room-logo-inheritance.js'
 import { followRoomLogo, compareRoomLogos, type RoomLogoRecord, type RoomLogoFollower } from '../../src/room-logo.js'
+import { roomStreamName } from '../../src/channel-names.js'
 import { DEFAULT_ICE_URLS, isDefaultIceUrls, originStunGuess } from '../../src/ice-defaults.js'
 import { resolveIceServers as resolveIceServersFor, hasRelay, liveIceServers, RELAY_MISSING_NOTICE } from './ice-resolve.js'
 import { callRelayPeerConnection, callRelaySetConfiguration } from '../../src/turn-configuration.js'
@@ -24865,6 +24867,11 @@ $('channelNew').addEventListener('submit', (event) => {
   // spot rather than by a request that quietly does nothing.
   if (!CHANNEL_NAME.test(name)) {
     setStatus('A channel name is lower case letters, digits and hyphens, starting with a letter or digit.')
+    return
+  }
+  // The keeper refuses these too; an old keeper does not, so ask nothing of it.
+  if (roomStreamName(name) || RESERVED_CHANNELS.includes(name)) {
+    setStatus(`"${name}" is used by the room itself. Choose another name.`)
     return
   }
   input.value = ''
