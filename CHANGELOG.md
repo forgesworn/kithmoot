@@ -2,6 +2,9 @@
 
 ## Unreleased, 25 November 2026
 
+- The guest waiting screen explains who can let you in and how to follow up.
+  For rooms hosted on a node, it shows the host address from your invitation.
+
 - **One board per room.** A room has its own board and is no longer offered any other. **Open a board** under Boards is now **Your own boards**, and it is only that: it no longer offers to create a board for the chat that is open, and **Share with this chat** is gone. A board you make there is yours until you invite somebody to it yourself. Boards that were shared with a chat before this are still in the strip above its conversation and still open and work as they did. You can still keep one of your own boards beside a chat with your own label, which nobody else sees. In a quiet room, which has no board of its own, **New task…** always opens the task form.
 
 ## Unreleased, 24 November 2026

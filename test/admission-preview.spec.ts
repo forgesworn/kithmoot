@@ -43,6 +43,7 @@ test('a phone guest reviews details before one deliberate request, and retry nee
   try {
     await f.guest.goto(f.link)
     await expect(f.guest.locator('#requestAdmission')).toBeVisible()
+    await expect(f.guest.locator('#arrivalLead')).toContainText('A room member with permission can let you in.')
     await expect(f.guest.locator('#identityMore')).toBeHidden()
     await expect(f.guest.locator('#notify')).toBeHidden()
     await f.guest.locator('#displayName').fill('Synthetic visitor')
@@ -64,7 +65,8 @@ test('a phone guest reviews details before one deliberate request, and retry nee
     await f.guest.locator('#displayName').press('Enter')
     await f.guest.locator('#requestAdmission').evaluate(button => (button as HTMLButtonElement).click())
     await expect(f.host.locator('#approvals .approvalCard.knock')).toContainText('Synthetic visitor wants to join')
-    await expect(f.guest.locator('#admissionPreviewStatus')).toContainText('Waiting for someone')
+    await expect(f.guest.locator('#admissionPreviewStatus')).toHaveText('Your request reached a relay. Waiting for a member who can admit guests.')
+    await expect(f.guest.locator('#arrivalLead')).toHaveText('If you need to follow up, ask the person who shared the link to tell the room you’re waiting.')
     expect(new Set(f.requests).size).toBe(1)
     await f.guest.locator('#cancelAdmission').click()
     await expect(f.guest.locator('#arrivalTitle')).toHaveText('Your request was cancelled')
