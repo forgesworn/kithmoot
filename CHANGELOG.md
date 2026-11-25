@@ -2,6 +2,8 @@
 
 ## Unreleased, 25 November 2026
 
+- **No channel can be called `board`.** A channel is its name, so one called `board` was the room's board itself: every change to the board showed in it as a "Board update" line. The room no longer opens a channel named `board`, `boards`, `assignments` or `control`, the names it uses for its own streams, and the Conversations sheet says so when one is typed. A room that already had such a channel keeps it and can close it, and it no longer shows board changes.
+
 - The guest waiting screen explains who can let you in and how to follow up.
   For rooms hosted on a node, it shows the host address from your invitation.
 

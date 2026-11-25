@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { bytesToHex } from '@noble/hashes/utils'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
-import { goToConversation, newDeviceContext, open, startRelay, openRoomInfoPage } from './browser.js'
+import { closeRoomBoard, goToConversation, newDeviceContext, open, openRoomBoard, startRelay, openRoomInfoPage } from './browser.js'
 import { RoomAgent } from '../src/agent.js'
 
 /**
@@ -105,6 +105,77 @@ test.describe('channels', () => {
 
       await goToConversation(adminPage, 'Chat')
       await expect(adminPage.locator('#chatLog')).not.toContainText('the crates are late')
+    } finally {
+      await adminCtx.close()
+      await memberCtx.close()
+    }
+  })
+
+  test('a channel called board, opened before the name was refused, never shows the board, and no new one can be opened', async ({ browser, baseURL }) => {
+    test.skip(!baseURL, 'no baseURL resolved from playwright.config.ts')
+    test.setTimeout(240_000)
+    relay = await startRelay(RELAY_PORT)
+    const adminSk = generateSecretKey()
+    const made = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: [relay.url], admins: [getPublicKey(adminSk)] })
+    const state = made.keeperState!
+    made.leave()
+    // The same room, its keeper restarted with a list an older keeper signed.
+    keeper = await RoomAgent.create({ base: baseURL!, name: 'Keeper', relays: [relay.url], admins: [getPublicKey(adminSk)], state: { ...state, channels: ['board'] } })
+
+    const adminCtx = await newDeviceContext(browser, baseURL!)
+    await adminCtx.addInitScript((hex) => localStorage.setItem('kithmoot.participant', hex as string), bytesToHex(adminSk))
+    const memberCtx = await newDeviceContext(browser, baseURL!)
+    try {
+      const ada = await adminCtx.newPage(), bob = await memberCtx.newPage()
+      await open(ada, keeper.url, 'Ada')
+      await ada.locator('#join').click()
+      await open(bob, keeper.url, 'Bob')
+      await bob.locator('#join').click()
+      await openRoomInfoPage(bob, 'Conversations')
+      const tab = bob.locator('#channelBar button[data-channel="board"]')
+      await expect(tab).toBeVisible({ timeout: 60_000 })
+      await goToConversation(bob, 'Chat')
+
+      // Ada puts a card on the room's board, and Bob's board has it: its
+      // parts are on the stream the channel reads.
+      await openRoomBoard(ada)
+      const board = (page: typeof ada) => page.frameLocator('#roomBoardPanel iframe')
+      const composer = board(ada).getByRole('textbox', { name: 'Add a card to To do', exact: true })
+      await composer.click()
+      await composer.fill('Book the hall')
+      await composer.press('Enter')
+      await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.', { timeout: 60_000 })
+      await closeRoomBoard(ada)
+      await openRoomBoard(bob)
+      await expect(board(bob).getByRole('link', { name: 'Book the hall', exact: true })).toBeVisible({ timeout: 60_000 })
+      await closeRoomBoard(bob)
+
+      // The channel shows none of it: nothing said, nothing unread, no line.
+      await openRoomInfoPage(bob, 'Conversations')
+      await expect(tab.locator('.tabDot')).toHaveCount(0)
+      await expect(tab.locator('.channelDesc')).not.toContainText('Board update')
+      await goToConversation(bob, 'board')
+      await expect(bob.locator('#chatLog')).not.toContainText('Board update')
+
+      // What is typed there stays conversation, and the board is untouched.
+      await bob.locator('#chatInput').fill('The hall is booked')
+      await bob.locator('#chatForm button[type=submit]').click()
+      await goToConversation(ada, 'board')
+      await expect(ada.locator('#chatLog')).toContainText('The hall is booked', { timeout: 60_000 })
+      await expect(ada.locator('#chatLog')).not.toContainText('Board update')
+      await openRoomBoard(ada)
+      await expect(board(ada).getByRole('link', { name: 'Book the hall', exact: true })).toBeVisible()
+      await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
+      await closeRoomBoard(ada)
+
+      // No new channel takes a name the room already uses; asking is answered on the spot.
+      await openRoomInfoPage(ada, 'Conversations')
+      await expect(ada.locator('#channelNew')).toBeVisible({ timeout: 60_000 })
+      await ada.locator('#channelName').fill('boards')
+      await ada.locator('#channelAdd').click()
+      await expect(ada.locator('#status')).toHaveText('"boards" is used by the room itself. Choose another name.')
+      await expect(ada.locator('#channelName')).toHaveValue('boards')
+      await expect(ada.locator('#channelBar button[data-channel="boards"]')).toHaveCount(0)
     } finally {
       await adminCtx.close()
       await memberCtx.close()

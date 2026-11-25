@@ -1058,8 +1058,9 @@ export class ChatLog {
       if (d === undefined || !this.streams().some(stream => stream.d === d)) return false
       const past = d === this.#stream ? undefined : this.#past.get(d)
       const root = past ? past.root : this.#epoch
-      return decodeChatEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey,
-        now: this.#now(), policy: this.#opts.policy, channel: this.#opts.channel, ...(root ? { epoch: root } : {}) }) !== null
+      const message = decodeChatEvent(event, { roomId: this.#opts.roomId, roomKey: this.#opts.roomKey,
+        now: this.#now(), policy: this.#opts.policy, channel: this.#opts.channel, ...(root ? { epoch: root } : {}) })
+      return message !== null && message.board === undefined
     } catch { return false }
   }
 
@@ -1653,6 +1654,11 @@ export class ChatLog {
       ...(epoch ? { epoch } : {}),
     })
     if (!msg || this.#blocked(msg.participant) || (msg.speaker && this.#blocked(msg.speaker))) return false
+    // A part of a change to the room's board is not conversation. It reaches
+    // a chat log only in a channel named like the board's stream, which a
+    // room could open before src/channel-names.ts refused it; the board
+    // reads that stream itself (src/room-board-log.ts).
+    if (msg.board !== undefined) return false
     if (this.#opts.files === 'off') delete msg.attachments
     if (past && this.#removed(msg.participant)) return false
     // An archived event has no relay to name, and the lane it once took is
