@@ -5,8 +5,8 @@ import { resolve, dirname, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-// Private inputs are supplied locally. This command never uploads binaries or
-// turns a private Shelter build into a public release.
+// Inputs are supplied locally. This command never uploads binaries or turns
+// a private candidate into a public release.
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const options = new Map()
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -24,7 +24,7 @@ function add(path, source, executable = false) {
   const target = join(output, path); mkdirSync(dirname(target), { recursive: true, mode: 0o755 }); copyFileSync(source, target); chmodSync(target, executable ? 0o755 : 0o644)
 }
 add('runtime/bin/node', join(inputs, 'node'), true)
-add('bin/spry-node', join(inputs, 'spry-node'), true); add('bin/bothyd', join(inputs, 'bothyd'), true)
+add('bin/spry-node', join(inputs, 'spry-node'), true); add('bin/wok-roomd', join(inputs, 'wok-roomd'), true)
 for (const name of ['Node', 'Spry', 'Shelter']) add(`licenses/${name}-LICENSE.txt`, join(inputs, `${name}-LICENSE.txt`))
 for (const name of ['kithmoot-node.service', 'kithmoot-node-front.service']) add(`deploy/${name}`, join(repository, 'deploy/node', name))
 mkdirSync(join(output, 'lib'), { mode: 0o755 })

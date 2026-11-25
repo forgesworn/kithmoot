@@ -25,7 +25,7 @@ ufw('insert', '1', 'allow', '443/tcp', 'comment', 'KithMoot-node-managed')
 assert.deepEqual(added(), before)
 const configuration = { v: 1, host: 'node.example', hosting: 'archy', relayIp: '1.2.3.4', aggregateBytesPerSecond: 1000000,
   maxBytes: 16777216, minFreeBytes: 16777216, maxRooms: 8, origins: ['https://kithmoot.app'],
-  spryBinary: '/opt/bin/spry-node', shelterBinary: '/opt/bin/bothyd', deskPort: 3746, spryPort: 3744, shelterPort: 3745,
+  spryBinary: '/opt/bin/spry-node', shelterBinary: '/opt/bin/wok-roomd', deskPort: 3746, spryPort: 3744, shelterPort: 3745,
   tlsGate: true, turnPorts: { udpTcp: 34790, tls: 53499 }, relayPortFirst: 49192 }
 mkdirSync('/etc/kithmoot-node', { mode: 0o755 })
 const marker = '/etc/kithmoot-node/installation.json'

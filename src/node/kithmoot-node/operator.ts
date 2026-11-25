@@ -121,7 +121,7 @@ export async function installSystemNode(bundle: string, input: unknown, certific
   if (management.acme && management.acme !== acmeName((input as NodeConfiguration).host)) throw Error('Managed certificate does not match this node')
   const checked = verifyRelease(bundle)
   if (checked.release.platform !== `linux-${process.arch}`) throw Error('Release architecture does not match this server')
-  const configuration = validateConfiguration({ ...(input as object), spryBinary: join(paths.installation, 'current/bin/spry-node'), shelterBinary: join(paths.installation, 'current/bin/bothyd'),
+  const configuration = validateConfiguration({ ...(input as object), spryBinary: join(paths.installation, 'current/bin/spry-node'), shelterBinary: join(paths.installation, 'current/bin/wok-roomd'),
     certificate: join(paths.configuration, 'tls/fullchain.pem'), certificateKey: join(paths.configuration, 'tls/privkey.pem') })
   if (configuration.tlsGate) throw Error('Host-managed TLS requires the declarative Archy package')
   if (!Object.values(networkInterfaces()).flat().some(address => address?.family === 'IPv4' && address.address === configuration.relayIp)) throw Error('Relay IP is not assigned to this server')

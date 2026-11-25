@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { constants, lstatSync, readFileSync, openSync, closeSync, fstatSync, mkdirSync, writeFileSync, fsyncSync, unlinkSync } from 'node:fs'
 import { createServer as netServer, connect } from 'node:net'
-import { join, isAbsolute } from 'node:path'
+import { join, isAbsolute, basename, dirname } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure'
 import { isHostName } from '../../group-grants.js'
@@ -123,12 +123,18 @@ export function readConfiguration(directory: string): NodeConfiguration {
   try { lstatSync(join(directory, 'initialising')); throw Error('Node initialisation is incomplete') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   return validateConfiguration(JSON.parse(privateRead(join(directory, 'node.json'))))
 }
+/** The room relay is `wok-roomd`. A node installed while it was `bothyd`
+ * keeps that path in its stored configuration, so that a rollback still finds
+ * the old executable; this release runs the `wok-roomd` beside it. */
+export function relayExecutable(configured: string): string {
+  return basename(configured) === 'bothyd' ? join(dirname(configured), 'wok-roomd') : configured
+}
 /** Children are restarted here; their fail-closed leases cover desk death.
  * stdout/stderr are deliberately disconnected, including native diagnostics. */
 export async function runNode(directory: string, declared?: InitialNodeSecrets): Promise<{ supervisor: NodeSupervisor; close(): Promise<void> }> {
   if (process.getuid?.() === 0) throw Error('Run the node as its unprivileged service user')
-  const c = readConfiguration(directory), origin = `https://${c.host}`, ports = readNodeTurnPorts(c.turnPorts)!
-  for (const binary of [c.spryBinary, c.shelterBinary]) {
+  const c = readConfiguration(directory), origin = `https://${c.host}`, ports = readNodeTurnPorts(c.turnPorts)!, relayBinary = relayExecutable(c.shelterBinary)
+  for (const binary of [c.spryBinary, relayBinary]) {
     const info = lstatSync(binary)
     if (!info.isFile() || info.mode & 0o022 || !(info.mode & 0o111)) throw Error('Backend executables must be regular, executable and not writable by other users')
   }
@@ -212,7 +218,7 @@ export async function runNode(directory: string, declared?: InitialNodeSecrets):
       SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
       SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_AGGREGATE_BYTES_PER_SECOND: String(c.aggregateBytesPerSecond), SPRY_ALLOWED_ORIGINS: c.origins.join(',') })
-    launch(c.shelterBinary, ['room-relay', '--data', join(directory, 'rooms'), '--control', relaySocket, '--listen', `127.0.0.1:${c.shelterPort}`,
+    launch(relayBinary, ['--data', join(directory, 'rooms'), '--control', relaySocket, '--listen', `127.0.0.1:${c.shelterPort}`,
       '--url', `wss://${c.host}/events`, '--max-bytes', String(c.maxBytes), '--min-free-bytes', String(c.minFreeBytes), '--max-rooms', String(c.maxRooms)], {})
     supervisor.start()
     return { supervisor, close }

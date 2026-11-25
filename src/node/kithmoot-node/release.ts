@@ -10,8 +10,14 @@ export interface NodeRelease {
   dependencies: { name: 'node' | 'spry' | 'shelter'; revision: string; visibility: 'private' | 'public'; provenance: string }[]
   files: ReleaseFile[]
 }
-export const REQUIRED_RELEASE_FILES = ['kithmoot-node', 'runtime/bin/node', 'lib/kithmoot-node.mjs', 'bin/spry-node', 'bin/bothyd',
+export const REQUIRED_RELEASE_FILES = ['kithmoot-node', 'runtime/bin/node', 'lib/kithmoot-node.mjs', 'bin/spry-node', 'bin/wok-roomd',
   'deploy/kithmoot-node.service', 'deploy/kithmoot-node-front.service', 'licenses/NOTICE.txt', 'licenses/Node-LICENSE.txt', 'licenses/Spry-LICENSE.txt', 'licenses/Shelter-LICENSE.txt'] as const
+/** `bin/bothyd` was the room relay before `wok-roomd`. It stands in for it
+ * only in a release this server has already recorded, so a node installed with
+ * it can still be updated, rolled back and removed. A bundle offered from
+ * outside must carry `bin/wok-roomd`. */
+const requiredFiles = (recorded: boolean, has: (path: string) => boolean): readonly string[] =>
+  recorded && !has('bin/wok-roomd') ? REQUIRED_RELEASE_FILES.map(path => path === 'bin/wok-roomd' ? 'bin/bothyd' : path) : REQUIRED_RELEASE_FILES
 const allowedPath = (path: string): boolean => path === 'kithmoot-node' || /^(?:runtime\/bin|lib|bin|deploy|licenses|provenance)\/[A-Za-z0-9_.-]+$/.test(path)
 export function fileDigest(path: string): { bytes: number; sha256: string } {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -56,7 +62,7 @@ export function verifyRelease(directory: string, expected?: NodeRelease): { root
       || !Number.isSafeInteger(file.bytes) || file.bytes < 1 || file.bytes > 536870912 || !/^[a-f0-9]{64}$/.test(file.sha256) || typeof file.executable !== 'boolean') throw Error('Invalid node release file')
     entries.set(file.path, file); total += file.bytes
   }
-  if (total > 1073741824 || REQUIRED_RELEASE_FILES.some(path => !entries.has(path))) throw Error('Incomplete or oversized node release')
+  if (total > 1073741824 || requiredFiles(expected !== undefined, path => entries.has(path)).some(path => !entries.has(path))) throw Error('Incomplete or oversized node release')
   const actual = new Set<string>()
   const walk = (relative: string): void => {
     for (const item of readdirSync(join(root, relative), { withFileTypes: true })) {

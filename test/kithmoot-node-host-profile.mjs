@@ -18,7 +18,7 @@ const base = '/opt/kithmoot-node/current', directory = '/var/lib/kithmoot-node',
 const certificate = readFileSync('/fixture/host-tls/cert.pem'), key = readFileSync('/fixture/host-tls/key.pem')
 const configuration = { v: 1, host: 'node.example', hosting: 'archy', relayIp: '1.2.3.4', aggregateBytesPerSecond: 1000000,
   maxBytes: 16777216, minFreeBytes: 16777216, maxRooms: 8, origins: ['https://kithmoot.app'],
-  spryBinary: base + '/bin/spry-node', shelterBinary: base + '/bin/bothyd', deskPort: 3746, spryPort: 3744, shelterPort: 3745,
+  spryBinary: base + '/bin/spry-node', shelterBinary: base + '/bin/wok-roomd', deskPort: 3746, spryPort: 3744, shelterPort: 3745,
   tlsGate: true, turnPorts: { udpTcp: 34790, tls: 53499 }, relayPortFirst: 49192 }
 const declared = { KITHMOOT_NODE_SERVICE_KEY: Buffer.from(generateSecretKey()).toString('hex'),
   KITHMOOT_NODE_TURN_SECRET: randomBytes(32).toString('hex'), KITHMOOT_NODE_STATE_SALT: randomBytes(32).toString('hex') }

@@ -27,7 +27,7 @@ it('scopes the renewal hook to its own ACME lineage and rejects shell input', ()
 it('keeps the legacy firewall range and includes every explicitly configured group allocation port', () => {
   const configuration = { v: 1 as const, host: 'node.example', hosting: 'rented' as const, relayIp: '8.8.8.8',
     aggregateBytesPerSecond: 2000000, maxBytes: 1073741824, minFreeBytes: 1073741824, maxRooms: 8,
-    origins: ['https://app.example'], spryBinary: '/opt/node/spry-node', shelterBinary: '/opt/node/bothyd',
+    origins: ['https://app.example'], spryBinary: '/opt/node/spry-node', shelterBinary: '/opt/node/wok-roomd',
     certificate: '/private/cert.pem', certificateKey: '/private/key.pem', deskPort: 3746, spryPort: 3744, shelterPort: 3745 }
   expect(nodeFirewallRules(configuration)).toEqual(['443/tcp', '3478/tcp', '3478/udp', '5349/tcp', '49160:49191/udp'])
   expect(nodeFirewallRules({ ...configuration, relayPortFirst: 49192, relayPortCount: 512 })).toEqual([
