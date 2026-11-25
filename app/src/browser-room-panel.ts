@@ -30,7 +30,7 @@ export class BrowserRoomPanel {
       return 'This room now uses its selected private relay for granted text channels. Other account connections keep their own settings.'
     }) }
     this.el('bothyRoomRenew').onclick = () => { void this.run(async context => {
-      await this.activation.renew(context.room, context.readiness); await context.resume()
+      await this.activation.renew(context.room, context.readiness, context.scopes); await context.resume()
       return 'The private relay confirmed renewed room grants and readiness.'
     }) }
     this.el('bothyRoomWithdraw').onclick = () => { void this.run(async context => {

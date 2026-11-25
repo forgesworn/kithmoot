@@ -61,6 +61,13 @@ export class BrowserRoomActivation {
           consent = { ...consent, phase: 'installing', expires: this.now() + ROOM_GRANT_TERM }
           await this.#save(consent)
         }
+        // A member's own selection learns a stream this version carries and an earlier one did not (the room's board).
+        // It grants nothing: only the keeper's grant lets this device use it, so the keeper renews first.
+        const added = consent.grants.length ? [] : input.scopes.filter(scope => !consent!.scopes.includes(scope))
+        if (added.length) {
+          consent = { ...consent, scopes: [...consent.scopes, ...added] }
+          await this.#save(consent)
+        }
       } else {
         const at = this.now()
         const planned = { grants: [] as RoomConsent['grants'], expires: at + ROOM_GRANT_TERM }
@@ -93,7 +100,9 @@ export class BrowserRoomActivation {
       await this.#save({ ...consent, phase: 'active' })
     })
   }
-  async renew(room: string, readiness: () => Promise<Event>): Promise<void> {
+  /** Renews the keeper's grants. `wanted` names streams the room should carry: one this permission does not yet carry
+   *  (the room's board, for a route activated by an earlier version) is granted to the devices its room stream is. */
+  async renew(room: string, readiness: () => Promise<Event>, wanted: readonly string[] = []): Promise<void> {
     const account = this.#identity().pubkey
     await this.exclusive(room, async () => {
       const consent = (await this.store.all()).find(c => c.account === account && c.room === room)
@@ -101,15 +110,19 @@ export class BrowserRoomActivation {
       if (!consent.grants.length) throw new Error('Ask the Bothy keeper to renew this device’s grant, then resume the room.')
       const at = this.now()
       const plans = { grants: [] as RoomConsent['grants'], expires: consent.expires }
+      // An interrupted renewal already saved the scopes it was granting.
+      const scopes = consent.phase === 'renewing' ? consent.scopes : [...consent.scopes, ...wanted.filter(scope => !consent.scopes.includes(scope))]
+      const granted = (scope: string) => consent.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope))
       if (consent.phase === 'renewing') plans.grants = consent.grants
-      else for (const scope of consent.scopes) {
-        const previous = consent.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope))
-        const selected = previous.map(g => ({ persona: g.active.tags.find(t => t[0] === 'p')![1], device: g.active.tags.find(t => t[0] === 'device')![1] }))
+      else for (const scope of scopes) {
+        const previous = granted(scope)
+        const selected = (previous.length ? previous : granted(consent.room))
+          .map(g => ({ persona: g.active.tags.find(t => t[0] === 'p')![1], device: g.active.tags.find(t => t[0] === 'device')![1] }))
         const planned = await planRoomGrants(this.#identity(account), consent.box, scope, selected, at, previous)
         plans.grants.push(...planned.grants); plans.expires = planned.expires
       }
       this.#identity(account)
-      const next: RoomConsent = { ...consent, ...plans, phase: 'renewing' }
+      const next: RoomConsent = { ...consent, scopes, ...plans, phase: 'renewing' }
       await this.#save(next)
       await this.#install(next, readiness)
     })

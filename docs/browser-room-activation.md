@@ -24,9 +24,11 @@ This first journey carries main-chat text and presence, plus the control
 scope and the room's board, for ordinary rooms before their first rekey.
 Each is a stream of its own with its own grant: three grants per device, and
 a saved permission holds eight devices in each. A route activated by an earlier
-version of the app was granted the first two only; renewal keeps a permission's
-scopes, so its room has no board until the route is withdrawn and activated
-again. Calls, media, new invitations, quiet rooms, the room's tasks and
+version of the app was granted the first two only. **Renew keeper grants**
+adds the board's grant for the devices the room's own grant names, and
+**Activate or resume room** adds the board to a member's own selection; the
+keeper goes first, since a member's selection grants nothing. Each renewal
+asks the keeper's signer for one more pair of signed statements per device. Calls, media, new invitations, quiet rooms, the room's tasks and
 ungranted channels/epochs are unavailable. It
 does not supply MLS, restore-witness gating or membership administration.
 Account and profile connections retain their separate public-relay policy.

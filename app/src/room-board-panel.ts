@@ -63,6 +63,8 @@ export interface RoomBoardRoom {
   board(): Promise<RoomBoardLog>
   /** Whether this room can be invited to. A private chat cannot. */
   canInvite: boolean
+  /** The room carries tasks, so Assign to agent can share one. A room routed through Bothy does not yet. */
+  canAssign: boolean
 }
 
 interface View {
@@ -210,7 +212,7 @@ export class RoomBoardPanel {
               // What comes back from the frame is another realm's: read as plain text and nothing more.
               discuss: card => { if (current()) this.options.discuss({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
               ...(room.canInvite ? { invite: () => { if (current()) this.options.invite() } } : {}),
-              assign: card => { if (current()) this.options.assign({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
+              ...(room.canAssign ? { assign: (card: { id: unknown; title: unknown; description: unknown }) => { if (current()) this.options.assign({ id: String(card.id), title: String(card.title), description: String(card.description) }) } } : {}),
               files: {
                 add: (file, signal, said) => current()
                   ? this.options.addFile(file, signal, words => { if (current() && !signal.aborted) said(String(words)) })

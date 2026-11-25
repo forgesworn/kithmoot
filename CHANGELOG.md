@@ -2,7 +2,7 @@
 
 ## Unreleased, 25 November 2026
 
-- **The room's board works in a room routed through Bothy, and its cards can carry files.** A Bothy route carried only a room's chat and control messages, so its board stayed on each device. Activating Bothy routing for a room now grants the board too, and a file added to a card goes to the room's Bothy, sealed first, as a chat's file does, and opens through the same route. A room whose route was activated by an earlier version of the app has no board until its routing is withdrawn and activated again, and Boards says so. The room's tasks are not carried over Bothy yet.
+- **The room's board works in a room routed through Bothy, and its cards can carry files.** A Bothy route carried only a room's chat and control messages, so its board stayed on each device. Activating Bothy routing for a room now grants the board too, and a file added to a card goes to the room's Bothy, sealed first, as a chat's file does, and opens through the same route. A room whose route was activated by an earlier version of the app has no board until its keeper chooses Renew keeper grants and each member Activate or resume room, and Boards says so. The room's tasks are not carried over Bothy yet.
 
 - The guest waiting screen explains who can let you in and how to follow up.
   For rooms hosted on a node, it shows the host address from your invitation.

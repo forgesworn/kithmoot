@@ -253,9 +253,16 @@ Bothy stays on the box: it is listed, with the uploads of chat files, under
 **A room routed through Bothy** carries its board over that route as a stream
 of its own, granted beside the main chat and the room's control messages
 (`docs/browser-room-activation.md`). A route activated by an earlier version
-of the app was granted only those two, so its room has no board: Boards says why,
-and that withdrawing the room's Bothy routing and activating it again brings
-the board. The room's tasks are not carried over Bothy yet.
+of the app was granted only those two, so its room has no board, and Boards
+says why. It gains one in place, without leaving the route: the keeper
+chooses **Renew keeper grants**, which grants the board to the devices the
+room is granted to, then each member chooses **Activate or resume room**,
+which adds the board to that device's own selection. Withdrawing instead
+would hand the room back to public relays. A member who does this before the
+keeper has a board the box refuses to carry, so its changes stay unsent. The
+cards a device wrote meanwhile are kept on it and sent once the board can go.
+The board offers neither **Invite people** nor **Assign to agent** in such a
+room: the route carries no new invitations, and not the room's tasks yet.
 
 ## Who can change what
 

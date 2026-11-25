@@ -20567,7 +20567,9 @@ function roomBoardRoom(selected: RoomSession, module: typeof import('./room-boar
     key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
     members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
     board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
-    canInvite: roomMenuModel().invite,
+    // A Bothy route carries no new invitations and no tasks yet: the board offers neither there.
+    canInvite: roomMenuModel().invite && !roomUsesBothy,
+    canAssign: !roomUsesBothy,
   }
 }
 let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
@@ -20587,7 +20589,7 @@ function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
         roomNote: () => session && isQuietPolicy(roomPolicy)
           ? `${currentRoomLabel()} is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.`
           : session && roomUsesBothy && !roomBothyBoard
-            ? `${currentRoomLabel()} goes through a Bothy route that was set up before boards could go that way, so its board is not here. To bring it, withdraw this room’s Bothy routing and activate it again.`
+            ? `${currentRoomLabel()} goes through a Bothy route set up before boards could go that way, so its board is not here. To bring it, the room’s keeper chooses Renew keeper grants in the room’s Bothy routing, then each member chooses Activate or resume room there.`
             : undefined,
         currentRoomTasks: {available: () => !!session, open: async () => {
           const selected = session
