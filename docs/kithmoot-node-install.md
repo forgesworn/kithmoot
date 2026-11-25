@@ -114,16 +114,35 @@ Run `sudo ./kithmoot-node update` from a separately verified new bundle.
 Updates interrupt calls, retain ownership and durable access and close
 operations, and keep the previous release for rollback. A journal is committed
 before services stop. A failed update restores the old release and requires
-its doctor to pass before reporting recovery. Modified service units are
+its doctor to pass before reporting recovery; the next two paragraphs give the
+one case where the old release cannot run again. Modified service units are
 preserved and require operator review. No automatic update ping is sent.
 
 A node installed while the room relay was `bothyd` updates in the same way.
-Its stored configuration keeps the old path, so a rollback still finds the old
-executable, and the new release runs the `wok-roomd` beside it. The room
-stores are read in place: a directory written by `bothyd`, with a purged
-room's tombstone in it, was opened and read by `wok-roomd` 0.7.0 on one
-machine. The update itself has unit tests only: it has not been run on an
-installed host.
+Its stored configuration keeps the old path, and the new release runs the
+`wok-roomd` beside it. The update itself has unit tests only: it has not been
+run on an installed host.
+
+Such a node may not be able to go back. `wok-roomd` 0.7.0 keeps room stores
+at schema 5 and, at its first start, moves every store in the directory to
+it. A `bothyd` built before the Bothy node took Wok 0.6, on 15 November 2026,
+reads up to schema 4: it refuses a schema 5 store, leaves it unchanged and
+does not start. On a node with such a relay, a rollback after the new release
+has started once still finds the old executable, and the old relay then stops
+at the first store. That holds for a rollback an operator asks for and for
+the one a failed update makes. A room store reports its schema as SQLite's
+`user_version`; 4 means the node is one of these. Take a cold copy of the data
+directory before updating it, and treat the update as one way.
+
+Checked on one machine, with made-up rooms: stores written by a `bothyd` of
+8 November 2026, one room purged, were opened by `wok-roomd` 0.7.0. All of
+them were at schema 5 once it had started, their events read back the same and
+the purged room stayed closed. The old build then refused the directory as
+above. Schema 5 is schema 4 with one more index, `events_kind`. Dropping that
+index and setting `user_version` back to 4 by hand, with the relay stopped,
+let the old build read the stores again, events written in between included.
+That is not a route Wok supports: its own way back is an export with the newer
+build and an import with the older one.
 
 Run `sudo ./kithmoot-node resume` from a verified bundle after an interrupted
 install or update. Initial setup fills only missing secret files and preserves
