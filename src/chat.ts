@@ -17,6 +17,7 @@ import { roomLogoPayload } from './room-logo-payload.js'
 import type { LogoImage } from './logo-image.js'
 import { compareMessages } from './message-order.js'
 import { assignmentPayload, ASSIGNMENT_CHANNEL } from './assignments.js'
+import { ROOM_BOARD_CHANNEL, validBoardPart, type BoardPart } from './room-board-wire.js'
 import {
   normaliseInvite,
   normaliseMentions,
@@ -65,6 +66,9 @@ export type ChatMessageKind = 'transcript' | 'directive'
 export interface ChatMessage {
   /** Authenticated shared-work operation, inside room encryption only. */
   assignment?: Event
+  /** One part of a change to the room's own board, in the board channel
+   *  only. Not conversation: see `room-board-wire.ts`. */
+  board?: BoardPart
   /**
    * The lane this message actually travelled, worked out by the reader
    * from the relay that delivered it. Never on the wire: a decoder strips
@@ -437,6 +441,7 @@ export function encodeChatEvent(msg: ChatMessage, opts: EncodeChatOptions): Even
     if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
         (payload.device !== undefined && payload.device !== msg.device)) throw new Error('Invalid assignment envelope')
   }
+  if (msg.board !== undefined && (opts.channel !== ROOM_BOARD_CHANNEL || !validBoardPart(msg.board))) throw new Error('Invalid board envelope')
   // Sanitised on the way out as well as on the way in - see
   // `encodeRosterEvent` for why both. `name: undefined` is dropped by
   // JSON.stringify, so a message with no name is byte-identical to one
@@ -661,9 +666,9 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
     // favour.
     const raw = msg as unknown as Record<string, unknown>
     const has = (field: string): boolean => raw[field] !== undefined
-    const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment', 'roomLogo'].filter(has)
+    const statements = ['reaction', 'replaces', 'retracts', 'invite', 'assignment', 'roomLogo', 'board'].filter(has)
     if (statements.length > 1) return null
-    if ((has('reaction') || has('retracts') || has('invite') || has('assignment') || has('roomLogo')) &&
+    if ((has('reaction') || has('retracts') || has('invite') || has('assignment') || has('roomLogo') || has('board')) &&
         (has('kind') || has('attachments') || has('artwork') || has('reply') || has('thread') || has('mentions'))) return null
     if (has('replaces') && (has('kind') || has('reply') || has('thread'))) return null
     if (has('roomLogo')) {
@@ -676,6 +681,9 @@ export function decodeChatEvent(event: Event, opts: DecodeChatOptions): ChatMess
       if (opts.channel !== ASSIGNMENT_CHANNEL || !payload || msg.assignment.pubkey !== msg.participant ||
           (payload.device !== undefined && payload.device !== msg.device)) return null
     }
+    // A board part outside the board channel, or out of shape, is not one
+    // to make the best of: shown as conversation it would be noise.
+    if (has('board') && (opts.channel !== ROOM_BOARD_CHANNEL || !validBoardPart(msg.board))) return null
 
     if (msg.reaction !== undefined) {
       const reaction = normaliseReaction(msg.reaction)

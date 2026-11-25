@@ -292,6 +292,7 @@ import {
   type ControlMessage,
   type ChatMessage,
   type ChatAttachment,
+  normaliseAttachment,
   MAX_CHAT_ATTACHMENTS,
   MAX_UPLOAD_SOURCE_BYTES,
   fetchAttachmentBlob,
@@ -434,6 +435,7 @@ import { BrowserRendezvousVaultStorage, RendezvousVault } from './rendezvous-vau
 import type { ContextPanel } from './context-panel.js'
 import type { AssignmentPanel, BoardSummary } from './assignment-panel.js'
 import type { BoardsPanel } from './boards-panel.js'
+import type { RoomBoardFile, RoomBoardPanel, RoomBoardRoom } from './room-board-panel.js'
 import { legacyBoardContextCustody } from './board-context-custody.js'
 import { RoomBoards } from './room-boards.js'
 import { legacyRoomBoardCatalogueCustody } from './room-board-custody.js'
@@ -848,6 +850,14 @@ function switchingBlocked(): boolean {
 
 /** Leaving a room with a message waiting for its group's storage loses the message and the files waiting with it: say so, and let the person stay. */
 async function confirmLeavingWaitingMessage(): Promise<boolean> {
+  // The room's board is beside the list of chats, so another chat is one
+  // click from a card somebody is half way through writing. What is typed
+  // and not yet saved to the board goes with the room: ask first.
+  if (roomBoardPanel?.hasPendingEdits && !await confirmRoomAction({
+    title: 'Leave what you were typing on the board?',
+    message: 'Something you typed on this room’s board is not saved to it yet. If you leave now, it will be lost. Everything already on the board is kept.',
+    confirmLabel: 'Leave and lose it', cancelLabel: 'Stay', danger: true,
+  })) return false
   if (!outbox.waitingOnStorage) return true
   return confirmRoomAction({
     title: 'Leave with a message still waiting?',
@@ -865,7 +875,7 @@ function approvedReload(): void {
   location.reload()
 }
 installUpdates(() => {
-  if (boardsPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
+  if (boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) return 'Finish or save your open board edits before updating. Your boards stay here until then.'
   if (hasUnsentWork()) return 'Send or discard your unfinished messages, files and Shared Work drafts before updating. Your work stays here until then.'
   if (switchingBlocked()) return 'Finish the current action before updating. You can keep using this version.'
   if (destructing.size > 0) return 'A room is being deleted from this device. Update when that has finished. You can keep using this version.'
@@ -958,6 +968,8 @@ let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } 
 const heldEnvelopes = new HeldEnvelopes()
 /** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
 const waitingAttachments = new WeakSet<ChatAttachment>()
+/** Why each of those is waiting, kept with the attachment: the held bytes are swept as soon as no draft names them. */
+const waitingReasons = new WeakMap<ChatAttachment, string>()
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserRoomConnections, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
   if (session?.roomId === room && !roomUsesBothy) {
@@ -2154,7 +2166,7 @@ async function connectPersona(label: string, signetOnly = true): Promise<void> {
 async function changePersona(prepare: () => Promise<PreparedPersona | undefined>): Promise<void> {
   return withLegacyMessagesClosed(async () => {
     if (loginBusy) return
-    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+    if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) {
       throw new Error('Finish the current room action or board edits before switching personas.')
     }
     loginBusy = true
@@ -2168,7 +2180,7 @@ async function changePersona(prepare: () => Promise<PreparedPersona | undefined>
     try {
       prepared = await prepare()
       if (!prepared || generation !== identityGeneration || nostrSession !== previous) return
-      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits) {
+      if (switchingRoom || switchingBlocked() || boardsPanel?.hasPendingEdits || roomBoardPanel?.hasPendingEdits) {
         throw new Error('Finish the current room action or board edits before switching personas.')
       }
       if (!await confirmLeavingWaitingMessage()) return
@@ -7443,7 +7455,7 @@ function renderRoomInfo(): void {
   const opened = Array.from($('channelBar').querySelectorAll<HTMLElement>('button[data-channel]'), tab => tab.dataset.channel!).filter(name => name && !['agents', 'transcript', 'minutes'].includes(name))
   setInfoSub('infoSubConversations', opened.join(', '))
   const board = boardTab()
-  $('infoRowBoard').hidden = !board
+  $('infoRowBoard').hidden = !board && !roomHasOwnBoard()
   setInfoSub('infoSubBoard', board ? (board.needsYou ? `${board.needsYou} need${board.needsYou === 1 ? 's' : ''} you` : '') : '')
   // Per-room alerts are the ⋯ menu's Notifications; this page is only for what
   // a keeper can offer, so the row is there only then.
@@ -13319,16 +13331,30 @@ let renderedTabKey = ''
  *  the Board tab. Starts empty so the tabs can draw before the panel exists. */
 let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
 
-/** The Board tab's state: undefined when this room has no board to open and
- *  none to make, else how many things on it wait for this person. A room has
- *  one when it holds tasks or a shared board; the first is "New task…" in the
- *  menu. */
+/** Whether the room on screen has a board of its own (`RoomSession.board`).
+ *  Every room does, except a quiet one: a quiet room promises to write
+ *  nothing but what somebody says, in its own slow slots, and a board would
+ *  write a stream of its own there. Until that is decided on its own terms a
+ *  quiet room keeps what it had before, tasks and the boards handed to it. */
+function roomHasOwnBoard(): boolean {
+  return !!session && !isQuietPolicy(roomPolicy)
+}
+
+/** Rooms whose own board somebody has written to: this device keeps a copy,
+ *  or the room's relays hold something of it (`RoomSession.watchBoard`). */
+const roomBoardInUse = new WeakSet<RoomSession>()
+
+/** The Board tab's state: undefined when there is nothing on a board to show,
+ *  else how many of the room's tasks wait for this person. A room has the tab
+ *  once its own board has been written to, or it holds tasks or a shared
+ *  board. Before that the room's board is one step away, as Board in the ⋯
+ *  menu and in Room info, so a room nobody has put anything on keeps its
+ *  whole screen for the conversation. */
 function boardTab(): { needsYou: number } | undefined {
   if (!session) return undefined
   const shared = roomBoards.get(session)?.boards.length ?? 0
-  // Only when there is something to show; the first task or board is made from
-  // the ⋯ menu's New task….
-  if (assignmentSummary.total === 0 && shared === 0) return undefined
+  const own = roomHasOwnBoard() && roomBoardInUse.has(session)
+  if (assignmentSummary.total === 0 && shared === 0 && !own) return undefined
   return { needsYou: assignmentSummary.needsYou }
 }
 /** A small unread badge, capped at "99+" so a busy agent channel does not
@@ -13348,6 +13374,9 @@ function unreadBadge(className: string, count: number, label: string, opts: { st
 }
 
 function renderConversationNav(): void {
+  roomBoardPanel?.sync()
+  // The room tab of Boards is named after the room and goes when it does.
+  workspaceWork?.render()
   renderWorkspace()
   renderedTabKey = navTabs().map(([name]) => name ?? '').join('\n')
   const next = nextUnreadConversation()
@@ -13385,7 +13414,7 @@ function renderConversationNav(): void {
     button.type = 'button'
     button.dataset.board = 'true'
     button.setAttribute('aria-haspopup', 'dialog')
-    button.setAttribute('aria-controls', 'boardsPanel')
+    button.setAttribute('aria-controls', roomHasOwnBoard() ? 'roomBoardPanel' : 'boardsPanel')
     button.append('Board')
     if (board.needsYou > 0) {
       const badge = document.createElement('span')
@@ -16723,6 +16752,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     ingestControl(control.messages())
     followSharedRoomName(s)
     attachRoomBoards(s)
+    resumeRoomBoard(s)
     scheduleRoomNameCarry(s, 30_000, 30_000)
     scheduleNodeRoomName(s)
     control.send(encodeControl({ op: 'catalogue?' })).catch(() => {})
@@ -18809,6 +18839,10 @@ function forgetLocally(roomId: string): void {
   if (roomGroup?.roomId === roomId) stopRoomGroup(false)
   forgetRoomStorageRecord(localStorage, roomId)
   forgetGrantReceiver(localStorage, roomId)
+  // This browser's copy of the room's board, whoever was signed in when it was kept.
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('kithmoot.room-board.v1.') && key.includes(`.${roomId}.r.`)) localStorage.removeItem(key)
+  } catch { /* Storage unavailable: nothing is kept there. */ }
   if (roomStorageCache?.roomId === roomId) roomStorageCache = undefined
   void heldEnvelopes.clear(roomId)
   // A pin names the room too, and a forgotten room is not one to name.
@@ -19478,11 +19512,12 @@ function addAnAgent(): void {
   $('inviteAgents').querySelector('summary')?.focus()
 }
 
-/** New task…: in a room with no tasks or board yet, where boards are available,
- *  the room's board panel opens so the first board is one step away; otherwise
- *  the tasks form opens. */
+/** New task…: the tasks form. The one exception is a room with no board of
+ *  its own (a quiet room) that has no tasks or shared board yet, where boards
+ *  are available: there the boards panel opens, so the first board is one
+ *  step away. */
 function newTask(): void {
-  if (nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
+  if (!roomHasOwnBoard() && nostrSession?.signer.nip44 && !boardTab()) { openRoomBoard($('roomMenu')); return }
   const selected = session
   void withAssignmentPanel(selected, panel => panel.newTask()).catch(error => setStatus(describeError(error)))
 }
@@ -19505,6 +19540,7 @@ function renderRoomMenu(): void {
     },
     menu => {
       if (roomId) notificationsSubmenu(menu, roomId)
+      if (roomHasOwnBoard()) menuItem(menu, 'Board', () => openRoomBoard($('roomMenu')), { icon: 'board', action: 'board' })
       if (model.task) menuItem(menu, 'New task…', newTask, { icon: 'task', action: 'task' })
       if (room) menuItem(menu, model.pinned ? 'Unpin' : 'Pin', () => togglePinned(room), { icon: 'pin', action: 'pin' })
       if (room && model.project) menuItem(menu, 'Add to project…', () => openProjectEditor(room, $('roomMenu')), { icon: 'folder', action: 'project' })
@@ -20284,16 +20320,230 @@ function openBoardsPanel(from: HTMLElement): void {
   button.setAttribute('aria-controls', 'boardsPanel')
   button.addEventListener('click', event => {event.preventDefault(); event.stopImmediatePropagation(); closeRoomSheet(); openBoardsPanel(button)}, {capture: true})
 }
-/** The room's board, opened from its tab (or anything standing in for it). */
+let roomBoardPanel: RoomBoardPanel | undefined
+let roomBoardPanelLoading: Promise<typeof import('./room-board-panel.js')> | undefined
+function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
+  roomBoardPanelLoading ??= import('./room-board-panel.js').then(module => {
+    roomBoardPanel ??= new module.RoomBoardPanel(document, {
+      current: () => session ?? undefined,
+      back: () => { showRoomPane(); if (session) $('chatInput').focus({ preventScroll: true }) },
+      // As a card from a board kept outside the room is discussed: its title
+      // goes into the draft for the person to finish and send, never straight
+      // to the room.
+      discuss: card => {
+        if (!session) return
+        showRoomPane(); selectChannel(undefined); showMobileRoomView('chat')
+        const input = $('chatInput') as HTMLTextAreaElement
+        if (input.value.trim()) { setStatus('Your chat draft is still here. Send or clear it before adding this card.'); input.focus(); return }
+        input.value = `About “${card.title.replace(/\s+/g, ' ').trim().slice(0, 200)}” on the board: `
+        input.dispatchEvent(new Event('input', { bubbles: true })); input.focus()
+        setStatus('Card title added to your draft. Finish it before sending to the room.')
+      },
+      invite: () => { if (session && roomMenuModel().invite) { showRoomPane(); openInviteDialog(false) } },
+      // The room's agents are asked through the room's tasks, as from New
+      // task…: the form opens filled in from the card, for the person to
+      // choose who and share. What comes of it is in the room's tasks.
+      assign: card => {
+        const selected = session
+        if (!selected) return
+        showRoomPane()
+        void withAssignmentPanel(selected, panel => panel.offerCard(card)).catch(error => setStatus(describeError(error)))
+      },
+      addFile: addRoomBoardFile,
+      openFile: openRoomBoardFile,
+    })
+    roomBoardPanelModule = module
+    return module
+  }).catch(error => { roomBoardPanelLoading = undefined; throw error })
+  return roomBoardPanelLoading
+}
+/**
+ * One file for a card on the room's board. It takes the road every file
+ * shared in this room takes (`shareDroppedFile`): metadata removed, sealed
+ * here under a fresh key, uploaded to the server this person has allowed,
+ * recorded for the room's tidy-up. Only the last step differs: the reference
+ * goes onto the card and not into a message.
+ *
+ * It goes where a file shared in this room goes. To the server this person
+ * has agreed to, which keeps each file at its hash. To the room's own storage
+ * where it has some, on the first of the group's computers that takes it. A
+ * person who has never sent a file is asked here what a chat asks beside
+ * Send, once, because a card has no Send to be the act.
+ *
+ * A card's reference is a server and a hash, so a file is put on a card only
+ * once it is somewhere: one the group's storage cannot take yet is let go and
+ * said so, where a chat would hold it and send later. A room whose files go
+ * through Bothy has no address a card can carry, and says that.
+ */
+async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardFile> {
+  const selected = session
+  const gone = (): Error => new Error('The room changed. Nothing was uploaded.')
+  if (!selected || !roomHasOwnBoard()) throw gone()
+  let destination = fileDestination()
+  if (destination.kind === 'default') {
+    const origin = destination.origin
+    said('Waiting for you to say where files may go…')
+    // One question for however many files were picked together.
+    roomBoardFileConsent ??= confirmRoomAction({
+      title: `Store files you send on ${fileHost(origin)}?`,
+      message: `${forgeSwornStorageClosed ? `${FORGESWORN_STORAGE_CLOSED}\n\n` : ''}${fileNoticeBody(origin)}`,
+      confirmLabel: 'Store files there', cancelLabel: 'Not now',
+    }).finally(() => { roomBoardFileConsent = undefined })
+    const agreed = await roomBoardFileConsent
+    signal.throwIfAborted()
+    if (session !== selected || !roomHasOwnBoard()) throw gone()
+    if (!agreed) throw new Error('Not attached. Nothing is uploaded until you have said where files may go.')
+    const asked = fileDestination()
+    // Still the server that was asked about: the choice is written down, as pressing Send writes it.
+    if (asked.kind === 'default' && asked.origin === origin) { acceptDefaultFileServer(localStorage, origin); fileDestinationChanged() }
+    destination = fileDestination()
+  }
+  if (destination.kind !== 'server' && destination.kind !== 'group') {
+    throw new Error(destination.kind === 'bothy' ? 'Files in this room go through Bothy, which a card cannot point to yet. Share the file in the chat instead.'
+      : destination.kind === 'withdrawn' ? `${GROUP_NO_STORAGE} Nothing was attached.`
+        : destination.kind === 'default' ? 'Not attached. Where files go changed while you were asked.'
+          : nodeRoom && !nodeRoom.node.existing ? 'Files are off in this hosted room.'
+            : destination.reason === 'chosen' ? 'File uploads are off on this device. Turn them on in Settings, under Privacy, then try again.'
+              : 'This app has no file server set. Choose one in Settings, under Privacy, then try again.')
+  }
+  const draft: ConversationDraft = { channel: undefined, text: '', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', attachments: [], artwork: [], event: '', key: '', panelOpen: false, status: '' }
+  draftStages.set(draft, said)
+  if (destination.kind === 'group') await shareDroppedFileToGroup(file, draft, signal)
+  else await shareDroppedFile(file, draft, signal, destination.origin)
+  const attachment = draft.attachments[0]
+  if (session !== selected || !attachment) throw new Error(`${file.name} was not attached.`)
+  const hash = attachment.sha256.toLowerCase()
+  let server: string | undefined
+  if (destination.kind === 'group') {
+    // Not on any of the group's computers yet. A chat keeps such a file and sends when one takes it; a card does not wait.
+    if (waitingAttachments.has(attachment)) {
+      await heldEnvelopes.release(hash)
+      throw new Error(waitingReasons.get(attachment) === 'no-grant' ? GROUP_STORAGE_MESSAGES['no-grant'] : 'None of the group’s computers could take this file just now. Nothing was attached.')
+    }
+    const base = listedBaseOf(roomStorageRecord()?.nodes ?? [], attachment.url, hash)
+    server = base ? roomBoardGroupServer(base) : undefined
+    if (!server) throw new Error('The group’s storage kept this file at an address a card cannot carry. Share the file in the chat instead.')
+  } else {
+    // The server the file was sent to, not the address its answer gave: a
+    // Blossom server answers for a file at its hash (BUD-01), which is what a
+    // card names, while the address may be a path or a host of its own.
+    server = (roomBoardPanelModule ?? await loadRoomBoardPanel()).roomBoardFileServer(`${normaliseBlossomServer(destination.origin)}/${hash}`, hash)
+    if (!server) throw new Error('This room’s file server has an address a card cannot carry. Share the file in the chat instead.')
+  }
+  return { hash, key: attachment.key.toLowerCase(), name: attachment.name ?? file.name, type: attachment.type ?? '',
+    size: Math.max(1, file.size), encryptedSize: Math.max(1, attachment.size ?? file.size), servers: [server] }
+}
+/** The question about where files go, while it is being asked of a card's file. */
+let roomBoardFileConsent: Promise<boolean> | undefined
+/** What a card calls one of the group's computers: its origin. The room's own
+ *  list says where on that computer its files are (`roomBoardGroupBase`). */
+function roomBoardGroupServer(base: string): string | undefined {
+  try { return usableGroupBase(base) ? `${new URL(base).origin}/` : undefined } catch { return undefined }
+}
+/** The listed computer of this room's a card's server names, if it is one. */
+function roomBoardGroupBase(server: string): string | undefined {
+  return (roomStorageRecord()?.nodes ?? []).find(base => roomBoardGroupServer(base) === server)
+}
+/** The key under which the one file a card has open is kept, as a message's would be. */
+let roomBoardFileKey: { log: string; key: string } | undefined
+/**
+ * A file on a card, shown as the room shows any file: in the same card a
+ * message's file has, with nothing fetched until the person presses, the
+ * bytes checked against the hash before the key touches them, and what the
+ * file says it is never taken on trust. Any member can write a reference
+ * onto a card, so it is read here as a stranger's would be.
+ */
+function openRoomBoardFile(file: RoomBoardFile, from: HTMLElement): void {
+  const selected = session
+  if (!selected) return
+  // A file on one of the room's own computers is read as the room reads its
+  // files: at the place its signed list gives, with this device's own leave.
+  const listed = file.servers.map(roomBoardGroupBase).find(base => base !== undefined)
+  const attachment = file.servers.length ? normaliseAttachment({ url: listed ? `${listed}/${file.hash}` : `${file.servers[0]}${file.hash}`, sha256: file.hash, key: file.key,
+    ...(file.name ? { name: file.name } : {}), ...(file.type ? { type: file.type } : {}), ...(Number.isSafeInteger(file.encryptedSize) && file.encryptedSize > 0 ? { size: file.encryptedSize } : {}) }) : null
+  let https = false
+  try { https = !!attachment && new URL(attachment.url).protocol === 'https:' } catch { /* Not an address. */ }
+  if (!attachment || !https) { setStatus('This file cannot be opened: its address is not one this room reads.'); return }
+  const dialog = $('boardFileDialog') as HTMLDialogElement
+  const forget = (): void => {
+    if (!roomBoardFileKey) return
+    disposeOpenedAttachment(roomBoardFileKey.key); liveAttachmentKeys.delete(roomBoardFileKey.log); roomBoardFileKey = undefined
+  }
+  forget()
+  const log = `board-file/${selected.roomId}`, key = attachmentKey(log, file.hash, 0)
+  roomBoardFileKey = { log, key }
+  liveAttachmentKeys.set(log, new Set([key]))
+  // Nobody is named as its sender: the card's own history says who attached it.
+  const origin = { id: file.hash, participant: '0'.repeat(64), device: '0'.repeat(64), name: 'whoever attached it to the card', text: '', sentAt: nowSeconds() } as ChatMessage
+  $('boardFileBody').replaceChildren(attachmentCard(log, origin, 0, attachment))
+  dialog.onclose = () => { forget(); $('boardFileBody').replaceChildren(); if (from.isConnected) from.focus({ preventScroll: true }) }
+  $('boardFileClose').onclick = () => dialog.close()
+  if (!dialog.open) dialog.showModal()
+  $('boardFileTitle').focus({ preventScroll: true })
+}
+/** Where this browser keeps its copy of a room's board: one entry per
+ *  record under this name. See `browserRoomBoardStorage`. */
+const roomBoardRoot = (s: RoomSession): string => `kithmoot.room-board.v1.${s.participant}.${s.roomId}`
+/** On entering a room: learn whether its board is in use, which is what puts
+ *  the Board tab there, and open a board this device already holds a copy
+ *  of, so what was written offline is sent without waiting for the tab to be
+ *  opened. A room whose board nobody has written to loads nothing. */
+function resumeRoomBoard(s: RoomSession): void {
+  if (session !== s || !roomHasOwnBoard()) return
+  const inUse = () => {
+    if (roomBoardInUse.has(s)) return
+    roomBoardInUse.add(s)
+    if (session === s) renderConversationNav()
+  }
+  // Stopped with the session, which owns the subscription.
+  try { s.watchBoard(inUse) } catch { /* Not in the room after all. */ }
+  const prefix = `${roomBoardRoot(s)}.r.`
+  let kept = false
+  try { for (let i = 0; i < localStorage.length && !kept; i++) kept = localStorage.key(i)?.startsWith(prefix) === true } catch { return }
+  if (!kept) return
+  inUse()
+  void loadRoomBoardPanel().then(module => {
+    if (session !== s || !roomHasOwnBoard()) return
+    return s.board(module.browserRoomBoardStorage(roomBoardRoot(s), localStorage))
+  }).catch(() => {})
+}
+/** The room's own board, opened from its tab (or anything standing in for
+ *  it). In a quiet room, which has none, the boards handed to the room. */
 function openRoomBoard(from: HTMLElement): void {
   closeRoomSheet()
   const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
   if (!selected) return
-  void loadBoardsPanel().then(panel => {
-    if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
-    const opener = from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu')
-    panel.open(opener)
+  if (!roomHasOwnBoard()) {
+    void loadBoardsPanel().then(panel => {
+      if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity) return
+      panel.open(from.isConnected ? from : $('conversationNav').querySelector<HTMLElement>('button[data-board]') ?? $('roomMenu'))
+    }).catch(error => setStatus(describeError(error)))
+    return
+  }
+  // The board is the first tab of Boards, named after the room: one place
+  // for it however it was asked for (the rail, the room's menu, its tab).
+  openDestination('boards')
+  void openWorkspaceWork('room', from).catch(error => setStatus(describeError(error)))
+}
+/** Put the board of the room that is open into `container`: the room tab of
+ *  the Boards destination. Asked again for the same room, it changes nothing. */
+function showRoomBoard(container: HTMLElement): void {
+  const selected = session, roomId = currentRoomId(), generation = roomGeneration, identity = identityGeneration
+  if (!selected || !roomHasOwnBoard()) return
+  if (roomBoardPanel?.showing(selected) && roomBoardPanel.element.parentElement === container) { roomBoardPanel.show(container, roomBoardRoom(selected, roomBoardPanelModule!)); return }
+  void loadRoomBoardPanel().then(module => {
+    if (session !== selected || currentRoomId() !== roomId || roomGeneration !== generation || identityGeneration !== identity || !roomHasOwnBoard()) return
+    roomBoardPanel!.show(container, roomBoardRoom(selected, module))
   }).catch(error => setStatus(describeError(error)))
+}
+let roomBoardPanelModule: typeof import('./room-board-panel.js') | undefined
+function roomBoardRoom(selected: RoomSession, module: typeof import('./room-board-panel.js')): RoomBoardRoom {
+  return {
+    key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
+    members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
+    board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
+    canInvite: roomMenuModel().invite,
+  }
 }
 let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
 function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
@@ -20305,6 +20555,13 @@ function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
         projects: () => projectChoices(workspaceActivityRooms()), inProject: (room, project) => matchesRoom(room, '', project),
         projectLabel: projectOf, person: personLabel, observe: observeWorkspaceRoom,
         agent: (room, participant) => sharedProjects.forRoom(room.roomId).some(p => p.definition?.members.some(member => member.pubkey === participant && member.kind === 'agent')),
+        roomBoard: { available: roomHasOwnBoard, label: currentRoomLabel, show: showRoomBoard, hide: () => roomBoardPanel?.hide() },
+        // A quiet room has no board of its own (`roomHasOwnBoard`): somebody who
+        // comes to Boards from one is told so, and why, before anything about
+        // accounts.
+        roomNote: () => session && isQuietPolicy(roomPolicy)
+          ? `${currentRoomLabel()} is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.`
+          : undefined,
         currentRoomTasks: {available: () => !!session, open: async () => {
           const selected = session
           if (!selected) throw new Error('Open a chat before viewing its tasks')
@@ -20350,7 +20607,7 @@ async function showWorkspaceWork(from: HTMLElement): Promise<void> {
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
   panel.show(from.isConnected ? from : $('railBoards'))
 }
-async function openWorkspaceWork(mode: 'inbox' | 'work', from: HTMLElement): Promise<void> {
+async function openWorkspaceWork(mode: 'room' | 'inbox' | 'work', from: HTMLElement): Promise<void> {
   const identity = identityGeneration, account = nostrSession
   const panel = await loadWorkspaceWorkPanel()
   if (identity !== identityGeneration || account !== nostrSession || currentDestination() !== 'boards') return
@@ -23867,7 +24124,7 @@ window.addEventListener('beforeunload', event => {
   // A recording running, or finished and not yet shared or saved, is lost
   // with the page.
   if (activeRecording || pendingRecording) { event.preventDefault(); event.returnValue = ''; return }
-  if (navigationApproved || (!boardsPanel?.hasPendingEdits && !hasUnsentWork())) return
+  if (navigationApproved || (!boardsPanel?.hasPendingEdits && !roomBoardPanel?.hasPendingEdits && !hasUnsentWork())) return
   event.preventDefault()
   event.returnValue = ''
 })
@@ -24696,14 +24953,11 @@ function renderStaged(): void {
   notice.hidden = !noticeShown
   if (destination.kind === 'default') {
     const host = fileHost(destination.origin)
-    const operator = publicFileServer(destination.origin)?.operator
     $('fileNoticeTitle').textContent = `Files you send are stored on ${host}`
     const closed = $('fileNoticeClosed')
     closed.textContent = FORGESWORN_STORAGE_CLOSED
     closed.hidden = !forgeSwornStorageClosed
-    // A deployer's own default is not on the vetted list, so nobody has
-    // checked that it is public: say who chose it instead.
-    $('fileNoticeBody').textContent = `${operator ? `It’s a public server run by ${plainOperator(operator)}.` : 'It’s the server chosen by whoever runs this copy of KithMoot.'} Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.`
+    $('fileNoticeBody').textContent = fileNoticeBody(destination.origin)
   }
   const send = $('chatForm').querySelector('button[type=submit]')!
   if (noticeShown) send.setAttribute('aria-describedby', `${forgeSwornStorageClosed ? 'fileNoticeClosed ' : ''}fileNoticeTitle fileNoticeBody`); else send.removeAttribute('aria-describedby')
@@ -24860,6 +25114,14 @@ function blossomServer(): string {
 const fileHost = (origin: string): string => new URL(origin).host
 /** "Yakihonne LLC" reads "Yakihonne" in running text. */
 const plainOperator = (operator: string): string => operator.replace(/,?\s+(?:LLC|Ltd\.?|Inc\.?)$/i, '')
+/** What the one-time notice says about the default server, wherever it is
+ *  asked: beside Send in a chat, and before the first file on a card. */
+function fileNoticeBody(origin: string): string {
+  const operator = publicFileServer(origin)?.operator
+  // A deployer's own default is not on the vetted list, so nobody has
+  // checked that it is public: say who chose it instead.
+  return `${operator ? `It’s a public server run by ${plainOperator(operator)}.` : 'It’s the server chosen by whoever runs this copy of KithMoot.'} Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.`
+}
 
 /** The tray's line for a destination that cannot upload (S4, S5, S7, S8), and
  *  what its button does. Undefined when files can go. */
@@ -25015,8 +25277,13 @@ function requireFileStorage(server: string): void {
  *  line with the file's name and size says what is being waited for. */
 function dropProgress(draft: ConversationDraft, stage: string, file: File): void {
   draft.status = `${stage} ${file.name} (${formatBytes(file.size)})…`
+  draftStages.get(draft)?.(`${stage.replace(/:$/, '')}…`)
   draftChanged(draft)
 }
+/** A draft that belongs to no conversation (a file on its way to a card on
+ *  the room's board) has no tray to show a stage in: whoever made it hears
+ *  each stage here, without the name and size its own row already shows. */
+const draftStages = new WeakMap<ConversationDraft, (stage: string) => void>()
 
 /**
  * One dropped file, from bytes on this device to a staged attachment:
@@ -25254,7 +25521,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
-  if (held) waitingAttachments.add(attachment)
+  if (held) { waitingAttachments.add(attachment); if (result.status !== 'stored') waitingReasons.set(attachment, result.reason) }
   settled?.(file)
   if (pendingRecording?.file === file && pendingRecording.roomId === roomId) {
     pendingRecording.addedTo = draft

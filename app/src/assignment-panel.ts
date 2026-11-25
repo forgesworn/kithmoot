@@ -188,6 +188,32 @@ export class AssignmentPanel {
       : 'No agent is currently here. Invite an agent to the room before assigning this work.'
     objective.focus()
   }
+  /** A card from the room's board, as the start of a task: its title is what
+   *  needs doing and its description, where it has one, what will count as
+   *  done. The person chooses who and reviews it; only sharing submits it,
+   *  and what comes of it is in the room's tasks, not on the card. */
+  offerCard(card: { title: string; description: string }): void {
+    if (!this.#roomKey) return
+    const form = this.root.getElementById('assignmentCreate') as HTMLFormElement
+    const objective = form.elements.namedItem('objective') as HTMLTextAreaElement
+    const criteria = form.elements.namedItem('criteria') as HTMLTextAreaElement
+    form.closest('details')!.open = true
+    this.#decisionsOnly = false
+    this.#open()
+    if (this.#busy || [objective.value, criteria.value, ...[...this.#inputs.querySelectorAll<HTMLInputElement>('input')].map(input => input.value)].some(Boolean)) {
+      this.#status.textContent = this.#busy ? 'Wait for the current update to finish.' : 'You have an unfinished assignment. Share or discard that draft before starting another.'
+      this.#status.focus({ preventScroll: true })
+      return
+    }
+    this.#owner.value = this.people().find(person => person.agent)?.pubkey ?? ''
+    this.#actions()
+    objective.value = card.title.trim().slice(0, objective.maxLength > 0 ? objective.maxLength : 1000)
+    criteria.value = card.description.trim().slice(0, criteria.maxLength > 0 ? criteria.maxLength : 2000)
+    this.#status.textContent = this.people().some(person => person.agent)
+      ? 'Choose the agent and review the task, then share it. The agent must accept before work starts.'
+      : 'No agent is currently here. Invite an agent to the room before assigning this work.'
+    ;(criteria.value ? objective : criteria).focus()
+  }
   /** Choosing an advertised capability prepares a form; only sharing submits it. */
   offerTo(owner: string, action: string): void {
     if (!this.#roomKey) return

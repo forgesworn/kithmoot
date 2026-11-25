@@ -4,7 +4,7 @@ import type { Event } from 'nostr-tools/pure'
 import { generateRoomSecret } from '../src/room.js'
 import { encodeRoomLink } from '../src/link.js'
 import { KINDS } from '../src/kinds.js'
-import { allowTestFileStorage, TEST_RELAY_WS, leaveToChats, openMember, openRoomInfoPage } from './browser.js'
+import { allowTestFileStorage, TEST_RELAY_WS, leaveToChats, openBoardsDestination, openMember, openRoomInfoPage, switchToRoom } from './browser.js'
 import { fetchFromTestBlossom, routeTestBlossom } from './blossom.js'
 
 /**
@@ -67,6 +67,22 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     await openRoomInfoPage(rowan, 'Privacy and connection')
     await expect(rowan.locator('#quietState')).toContainText('cannot tell whether anything was said')
     await rowan.locator('#roomSheetClose').click()
+
+    // A quiet room has no board of its own: its menu does not offer one, and
+    // Boards says so, and why, before anything about accounts. Looking there
+    // puts nothing on the relay, which is counted below.
+    await rowan.locator('#roomMenu').click()
+    const menu = rowan.getByRole('menu', { name: 'More for this room' })
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: 'Board', exact: true })).toHaveCount(0)
+    await rowan.keyboard.press('Escape')
+    await openBoardsDestination(rowan)
+    await expect(rowan.locator('#workspaceRoomTab')).toBeHidden()
+    await expect(rowan.locator('#roomBoardPanel')).toHaveCount(0)
+    await expect(rowan.locator('#workspaceRoomNote')).toHaveText('Quiet: Ada is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.')
+    await switchToRoom(rowan, 'Quiet: Ada')
+    await expect(rowan.locator('#roomTitle')).toHaveText('Quiet: Ada')
+    await expect(rowan.locator('#chatInput')).toBeVisible()
 
     // What the relay has been given so far: the workshop's chat and nothing of the quiet room.
     await expect.poll(() => seen.length).toBeGreaterThan(0)

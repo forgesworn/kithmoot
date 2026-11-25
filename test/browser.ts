@@ -457,29 +457,45 @@ export async function openRoomSearch(page: Page): Promise<void> {
   await expect(page.locator('#conversationSearch')).toBeVisible()
 }
 
-/** The room's board, from its tab, which is there once the room has tasks or a
- *  shared board; before that, from the menu's New task…. */
+/** The room's own board: the tab of Boards that is named after the room.
+ *  From inside the room it is its Board tab, once something is on a board or
+ *  the room has tasks; before that, and wherever the tab row is not on
+ *  screen, it is Board in the room's ⋯ menu. */
 export async function openRoomBoard(page: Page): Promise<void> {
   const tab = page.locator('#conversationNav button[data-board]')
   if (await tab.isVisible()) await tab.click()
-  else await roomMenuItem(page, 'New task…')
-  await expect(page.locator('dialog[open]:is(#boardsPanel, #assignmentPanel)')).toBeVisible()
+  else await roomMenuItem(page, 'Board')
+  await expect(page.locator('#roomBoardPanel')).toBeVisible()
+  await expect(page.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
 }
 
-/** The boards panel for the room on screen: from the room's Board tab where it
- *  has one, else from the Boards destination, which opens on the room in view. */
+/** From the room's board back to the room's conversation. */
+export async function closeRoomBoard(page: Page): Promise<void> {
+  await page.locator('#roomBoardBack').click()
+  await expect(page.locator('#roomArea')).toBeVisible()
+  await expect(page.locator('#roomBoardPanel')).toBeHidden()
+}
+
+/** From Boards back to the room that is open, by the rail. */
+export async function backToRoom(page: Page): Promise<void> {
+  await page.locator('#railChats').click()
+  await expect(page.locator('#roomArea')).toBeVisible()
+}
+
+/** The older boards panel, for boards kept outside the room and shared with
+ *  it: Open a board, under the other tabs of Boards. */
 export async function openRoomBoards(page: Page): Promise<void> {
   await openRoomBoard(page)
+  await page.locator('#workspaceWorkTab').click()
+  await page.locator('#workspaceBoardsOpen').click()
   await expect(page.locator('#boardsPanel')).toBeVisible()
 }
 
-/** The room's tasks panel, the way these specs always reached it: through the
- *  boards panel's Room tasks, which the room's Board tab opens where the room
- *  has one and the Boards destination opens where it does not. */
+/** The room's tasks panel, the way these specs always reached it: through
+ *  Boards, whose All tab has the tasks of the room that is open. */
 export async function openRoomTasks(page: Page): Promise<void> {
-  if (await page.locator('#conversationNav button[data-board]').isVisible()) await page.locator('#conversationNav button[data-board]').click()
-  else await openBoardsPanel(page)
-  await page.getByRole('button', { name: 'Room tasks', exact: true }).click()
+  await openRoomBoard(page)
+  await page.locator('#workspaceWorkTab').click()
   await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
   await expect(page.locator('#assignmentPanel')).toBeVisible()
 }

@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
+import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoards, openSettings, closeSettings } from './browser.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -180,6 +180,8 @@ test('call attribution stays below board shortcuts created during a desktop call
     const frame = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await createBoard(frame, 'Private Board')
     await ada.page.locator('#boardsClose').click()
+    // Boards was where the older panel was opened from; the room is one step back.
+    await backToRoom(ada.page)
     const board = ada.page.locator('#roomBoards').getByRole('button', {name: 'Private Board', exact: true})
     await expect(board).toBeVisible()
     await expect(ada.page.locator('#callSurfaceOrigin')).toHaveText('Call in Private: Test contact')
@@ -292,6 +294,7 @@ test('a room keeps its board discoverable after popping out, closing the window 
     await expect(page.locator('#boardsContext')).toContainText('Board workshop')
     const opening = page.waitForEvent('popup'); await page.locator('#boardsPopOut').click(); const popup = await opening
     await expect(page.locator('#boardsPanel')).toBeHidden()
+    await backToRoom(page)
     await expect(page.locator('#chatInput')).toBeVisible()
     await expect(page.locator('#chatInput')).toBeEditable()
     await expect(page.locator('#chatInput')).toHaveValue('Keep my room draft')
@@ -474,8 +477,10 @@ test('two agents handle separate cards while a second person edits the shared bo
       if (!await panel.isVisible()) {
         const roomBoards = page.locator('#conversationNav button[data-board]')
         if (await roomBoards.isVisible()) {
-          await expect(roomBoards).toHaveAttribute('aria-controls', 'boardsPanel')
+          // The tab opens the room's own board; boards shared with the room are one step on.
+          await expect(roomBoards).toHaveAttribute('aria-controls', 'roomBoardPanel')
           await roomBoards.click()
+          await page.locator('#roomBoardOthers').click()
         } else await openBoardsPanel(page)
       }
       await expect(panel).toBeVisible()
@@ -647,5 +652,52 @@ test('Boards fits a narrow screen and reopens its durable board offline from cac
     await frame.getByRole('link', {name: 'Offline board', exact: true}).click()
     await expect(frame.getByRole('link', {name: 'Saved before disconnecting', exact: true})).toBeVisible()
     await addCard(frame, 'Saved while offline')
+  } finally {await context.close(); await release.close()}
+})
+
+test('the room board view loads and runs under the production content security policy', async ({browser}) => {
+  // The view is served from /j/girnel/ under the same policy as the boards
+  // frame (deploy/Caddyfile.kithmoot). A script, style or connection the
+  // policy refuses would leave an empty frame with nothing on the page to
+  // say why, so the refusals themselves are what is counted.
+  const release = await offlineRelease()
+  const context = await browser.newContext({serviceWorkers: 'block'})
+  await context.addInitScript(() => {
+    const host = window as typeof window & {cspRefusals?: string[]}
+    host.cspRefusals = []
+    document.addEventListener('securitypolicyviolation', event => host.cspRefusals!.push(`${event.violatedDirective} ${event.blockedURI}`))
+  })
+  const page = await context.newPage()
+  try {
+    const response = await page.goto(release.base + 'girnel/embedded/room.html')
+    const policy = response!.headers()['content-security-policy']!
+    expect(policy).toContain("script-src 'self'")
+    expect(policy).toContain("frame-ancestors 'self'")
+    await page.waitForFunction(() => 'girnelRoomBoard' in window)
+    await page.evaluate(() => {
+      const host = window as typeof window & {pushed?: number; girnelRoomBoard: {start(host: unknown): void}}
+      host.pushed = 0
+      host.girnelRoomBoard.start({
+        // An empty document update: the view supplies the starting state itself.
+        state: () => new Uint8Array([0, 0]), push: () => {host.pushed!++}, subscribe: () => () => {},
+        self: 'a'.repeat(64), members: () => [{pubkey: 'a'.repeat(64), name: 'Ada'}],
+      })
+    })
+    for (const column of ['To do', 'Doing', 'Done']) await expect(page.getByRole('heading', {name: column, exact: true})).toBeVisible()
+    const composer = page.getByRole('textbox', {name: 'Add a card to To do', exact: true})
+    await composer.fill('Under the production policy'); await composer.press('Enter')
+    await expect(page.getByRole('link', {name: 'Under the production policy', exact: true})).toBeVisible()
+    expect(await page.evaluate(() => (window as typeof window & {pushed?: number}).pushed)).toBeGreaterThan(0)
+    // The rest of the board screen under the same policy: the other two
+    // views, and an export, which is a file made in the page and handed over.
+    await page.getByRole('button', {name: 'Table view', exact: true}).click()
+    await expect(page.getByRole('region', {name: 'Cards table', exact: true}).getByRole('table')).toContainText('Under the production policy')
+    await page.getByRole('button', {name: 'Calendar view', exact: true}).click()
+    await expect(page.getByRole('region', {name: 'Cards calendar', exact: true})).toBeVisible()
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', {name: 'Export board', exact: true}).click()
+    await page.getByRole('dialog', {name: 'Export this board', exact: true}).getByRole('button', {name: 'Save readable JSON', exact: true}).click()
+    expect((await download).suggestedFilename()).toBe('girnel-board.json')
+    expect(await page.evaluate(() => (window as typeof window & {cspRefusals?: string[]}).cspRefusals)).toEqual([])
   } finally {await context.close(); await release.close()}
 })

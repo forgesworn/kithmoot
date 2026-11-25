@@ -17,6 +17,7 @@ import { credentialSeal, generateSealKey, newerCredential } from './seal.js'
 import { hexEquals, normaliseHex } from './hex.js'
 import type { ParticipantIdentity } from './identity.js'
 import { AssignmentLog, type AssignmentStorage } from './assignment-log.js'
+import type { RoomBoardLog, RoomBoardLogOptions, RoomBoardStorage } from './room-board-log.js'
 import { sanitiseDisplayName } from './display-name.js'
 import { encodeRosterEvent, decodeRosterEvent, newSid, presenceKey, sanitiseSid, MAX_FUTURE_SKEW_SECONDS } from './roster.js'
 import { sanitiseLightningAddress } from './donations.js'
@@ -36,7 +37,9 @@ import type { ScreenAnnotation } from './signal.js'
 import type { PeerRelay, RelayPair } from './peer-relay.js'
 import { encodeDescriptorEvent, decodeDescriptorEvent } from './descriptor.js'
 import { CALL_BELL_TTL_SECONDS, encodeCallBellEvent, type CallBellState } from './call-bell.js'
-import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf } from './chat.js'
+import { ChatLog, MAX_PAST_EPOCHS, chatStreamsOf, deriveChannel } from './chat.js'
+import { ROOM_BOARD_CHANNEL } from './room-board-wire.js'
+import { verifyEventUncached } from './verify.js'
 import type { ChatMessage, ChatStream, DeliveryReceiptHooks, EpochRoot, PastEpoch } from './chat.js'
 import { CONTROL_CHANNEL } from './control.js'
 import { ASSIGNMENT_CHANNEL } from './assignments.js'
@@ -799,6 +802,10 @@ export class RoomSession {
   readonly #channels = new Map<string, ChatLog>()
   #assignments?: AssignmentLog
   #assignmentsOpening?: Promise<AssignmentLog>
+  #board?: RoomBoardLog
+  #boardOpening?: Promise<RoomBoardLog>
+  /** Who asked to be told when the room's board is first written to. */
+  readonly #boardWatches = new Set<{ told: boolean; onActive: () => void; stop?: () => void }>()
   /** What this device is currently advertising, so an answer to a new
    *  arrival carries the same state as the announcement did. */
   #self?: { credential: DeviceCredential; tracks: TrackAdvert[]; claims: Partial<Record<SingularRole, number>>; call?: CallMembership }
@@ -2444,6 +2451,8 @@ export class RoomSession {
     this.#chat?.rekey(root, { leftAt: fromLeftAt, crossed })
     for (const log of this.#channels.values()) log.rekey(root, { leftAt: fromLeftAt, crossed })
     this.#assignments?.rekey(root)
+    this.#board?.rekey(root)
+    for (const watch of this.#boardWatches) this.#listenForBoard(watch)
     const gap = next.epoch > from + 1 + between.length ? { from, to: next.epoch, at: this.#now() } : undefined
     if (gap) this.#gaps.push(gap)
     try {
@@ -3593,6 +3602,78 @@ export class RoomSession {
     return this.#assignmentsOpening
   }
 
+  /**
+   * Told, once, when anything has been written to the room's board: one
+   * stored event of its stream is asked for, and the first to arrive is
+   * listened for, in whichever epoch the room is in. Nothing is decrypted
+   * and no board is loaded, so a client can show that the room's board is
+   * in use without opening it. Returns its stop.
+   */
+  watchBoard(onActive: () => void): () => void {
+    if (!this.#chat || this.#left) throw new Error('Join the room before watching its board')
+    const watch: { told: boolean; onActive: () => void; stop?: () => void } = { told: false, onActive }
+    this.#boardWatches.add(watch)
+    this.#listenForBoard(watch)
+    return () => { this.#boardWatches.delete(watch); try { watch.stop?.() } catch { /* Already closed. */ } }
+  }
+
+  #listenForBoard(watch: { told: boolean; onActive: () => void; stop?: () => void }): void {
+    try { watch.stop?.() } catch { /* Already closed. */ }
+    watch.stop = undefined
+    if (watch.told) return
+    const root = this.#epochRoot() ?? { id: this.roomId, key: this.#roomKey }
+    const { id } = deriveChannel(root.id, root.key, ROOM_BOARD_CHANNEL)
+    watch.stop = this.#opts.transport.subscribe([{ kinds: [KINDS.CHAT], '#d': [id], limit: 1 }], event => {
+      if (watch.told || !this.#boardWatches.has(watch) || !verifyEventUncached(event)) return
+      watch.told = true
+      try { watch.stop?.() } catch { /* Already closed. */ }
+      watch.stop = undefined
+      try { watch.onActive() } catch { /* A caller's problem, not the room's. */ }
+    })
+  }
+
+  /**
+   * The room's own board: one per room, shared by everybody in it, carried
+   * on the room's key and epoch like chat. There is nothing to create, share
+   * or join; being in the room is having the board. See `RoomBoardLog`.
+   *
+   * Loaded on first use, so a room that never opens its board never loads
+   * the document library behind it.
+   */
+  async board(storage: RoomBoardStorage, options: Pick<RoomBoardLogOptions, 'timing'> = {}): Promise<RoomBoardLog> {
+    this.#opts.protocol?.check('board-construction')
+    if (!this.#chat || this.#left) throw new Error('Join the room before opening its board')
+    if (this.#boardOpening) return this.#boardOpening
+    // A board its caller closed is opened afresh from this device's copy.
+    if (this.#board && !this.#board.closed) return this.#board
+    const opening = (async () => {
+      const { RoomBoardLog } = await import('./room-board-log.js')
+      if (!this.#chat || this.#left) throw new Error('Join the room before opening its board')
+      const log = new RoomBoardLog({
+        roomId: this.roomId, roomKey: this.#roomKey, transport: this.#opts.transport,
+        deviceSk: this.#opts.deviceSk, credential: () => this.#self?.credential,
+        renewCredential: () => this.ensureCredential(), name: this.#name,
+        policy: this.#opts.policy, proof: this.#opts.proof, owner: this.#ownerToCarry(),
+        now: this.#now, epoch: this.#epochRoot(), storage, expiresAt: this.#eventExpiration(),
+        ...(options.timing ? { timing: options.timing } : {}),
+      })
+      // Held before it opens, so a rekey that lands meanwhile reaches it.
+      this.#board = log
+      try {
+        await log.open()
+      } catch (e) {
+        void log.close()
+        if (this.#board === log) this.#board = undefined
+        throw e
+      }
+      if (this.#left) { void log.close(); throw new Error('Join the room before opening its board') }
+      return log
+    })()
+    this.#boardOpening = opening
+    void opening.catch(() => {}).finally(() => { if (this.#boardOpening === opening) this.#boardOpening = undefined })
+    return opening
+  }
+
   channel(name: string): ChatLog {
     this.#opts.protocol?.check('channel-construction')
     if (!this.#chat) throw new Error('join the room before using a channel')
@@ -4098,6 +4179,10 @@ export class RoomSession {
     this.#mesh?.close()
     this.#chat?.close()
     this.#assignments?.close()
+    void this.#board?.close()
+    this.#board = undefined
+    for (const watch of this.#boardWatches) { try { watch.stop?.() } catch { /* The transport has gone. */ } }
+    this.#boardWatches.clear()
     for (const log of this.#channels.values()) log.close()
     this.#channels.clear()
     this.#listeners.clear()

@@ -7,7 +7,7 @@ import { RoomAgent, type KeeperState } from '../src/agent.js'
 import { CONTROL_CHANNEL } from '../src/control.js'
 import { signRoomStorage } from '../src/room-storage.js'
 import { GROUP_STORAGE_MESSAGES, GROUP_STORAGE_WAITING } from '../src/group-storage.js'
-import { open, openRoomInfoPage, leaveRoom, newDeviceContext, showChats, startRoom, switchToRoom, TEST_RELAY_HTTP, createRoom } from './browser.js'
+import { open, openRoomBoard, openRoomInfoPage, leaveRoom, newDeviceContext, showChats, startRoom, switchToRoom, TEST_RELAY_HTTP, createRoom } from './browser.js'
 import { agentRelaysFor } from './relays.js'
 import { MemoryStore } from './group-grants-fixtures.js'
 import { GroupNodeServer, routeGroupNode } from './group-node.js'
@@ -318,6 +318,119 @@ test.describe('a room that keeps its files on its group’s own computers', () =
       expect(r.node.hitsTo('PUT')).toMatchObject([{ token: true, status: 201 }])
       expect(await p.evaluate(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented })).toBe(false)
     } finally { await ada.context.close(); await back?.leave().catch(() => {}); await r.stop() }
+  })
+
+  test('a file on a card of the room’s board goes to the node, another member opens it from the card, and one the node cannot take says so and can be tried again', async ({ browser, baseURL }) => {
+    test.setTimeout(240_000)
+    const r = await rig(baseURL!)
+    const ada = await device(browser, baseURL!, r)
+    const bob = await device(browser, baseURL!, r)
+    const announced = await stored1063()
+    const board = (page: Page) => page.frameLocator('#roomBoardPanel iframe')
+    const files = (page: Page) => board(page).locator('.card-files')
+    const add = async (page: Page, file: { name: string; mimeType: string; buffer: Buffer }) => {
+      const chooser = page.waitForEvent('filechooser')
+      await files(page).getByRole('button', { name: 'Add file', exact: true }).click()
+      await (await chooser).setFiles(file)
+    }
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsList(p, [r.node.origin])
+      await holdsGrants(p, r.node)
+      await openRoomBoard(p)
+      const composer = board(p).getByRole('textbox', { name: 'Add a card to To do', exact: true })
+      await composer.fill('Hilltop walk')
+      await composer.press('Enter')
+      await board(p).getByRole('link', { name: 'Hilltop walk', exact: true }).click()
+
+      // Nothing is asked of her: where this room's files go is the room's, not a choice of hers.
+      await add(p, PHOTO())
+      await expect(files(p).getByRole('button', { name: 'Download hilltop.png', exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(p.locator('#actionDialog')).toBeHidden()
+      await expect(board(p).getByText('Ada attached hilltop.png.')).toBeVisible()
+      expect(await p.evaluate((key) => localStorage.getItem(key), CONSENT)).toBeNull()
+      // One upload, to the node, with a token; written down for the tidy-up; no bare announcement; nothing off this machine.
+      expect(r.node.hitsTo('PUT')).toMatchObject([{ path: '/upload', token: true, status: 201 }])
+      const hash = [...r.node.blobs.keys()][0]!
+      const uploads = await p.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith('kithmoot.uploads.v1.')).map(([, v]) => v))
+      expect(uploads.map((entry) => JSON.parse(entry))).toEqual([[{ url: `${r.node.origin}/${hash}`, sha256: hash, key: 'device' }]])
+      expect(await stored1063()).toBe(announced)
+      expect(ada.offsite).toEqual([])
+
+      // Bob joins later, is given his grants, and opens the file from the card: read from the node, with a token.
+      await enter(bob.page, r.link, 'Bob')
+      await holdsGrants(bob.page, r.node)
+      await bob.page.locator('#conversationNav button[data-board]').click()
+      await board(bob.page).getByRole('link', { name: 'Hilltop walk', exact: true }).click()
+      await files(bob.page).getByRole('button', { name: 'Open hilltop.png', exact: true }).click()
+      const dialog = bob.page.locator('#boardFileDialog')
+      await expect(dialog).toBeVisible()
+      await dialog.getByRole('button', { name: /^Show / }).click()
+      const picture = dialog.frameLocator('iframe.attachmentPreviewFrame').locator('img')
+      await expect(picture).toHaveCount(1, { timeout: 30_000 })
+      expect(await picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(96)
+      const reads = r.node.hits.filter((h) => h.method === 'GET')
+      expect(reads.length).toBeGreaterThan(0)
+      expect(reads.every((h) => h.token && h.status === 200)).toBe(true)
+      expect(bob.offsite).toEqual([])
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+
+      // With the node down a chat would hold the file and send later. A card does not wait: it says so, keeps
+      // the file for her to try again, and names nothing that is not there.
+      r.node.down = true
+      await add(p, PHOTO('summit.png', [200, 90, 40]))
+      const stuck = files(p).locator('.file-list li').filter({ hasText: 'summit.png' })
+      await expect(stuck).toContainText('None of the group’s computers could take this file just now. Nothing was attached.', { timeout: 30_000 })
+      await expect(board(p).getByText('Ada attached summit.png.')).toHaveCount(0)
+      await expect(files(bob.page).locator('.file-list li')).toHaveCount(1)
+      r.node.down = false
+      await stuck.getByRole('button', { name: 'Try again summit.png', exact: true }).click()
+      await expect(files(p).getByRole('button', { name: 'Download summit.png', exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(files(bob.page).locator('.file-list li')).toHaveCount(2, { timeout: 30_000 })
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(2)
+      expect(await stored1063()).toBe(announced)
+      expect(ada.offsite).toEqual([])
+    } finally { await ada.context.close(); await bob.context.close(); await r.stop() }
+  })
+
+  test('a card’s file from a device with no grant says the keeper has yet to let it in, asks the keeper, and goes on Try again once they have', async ({ browser, baseURL }) => {
+    test.setTimeout(180_000)
+    const r = await rig(baseURL!, { slow: true })
+    const ada = await device(browser, baseURL!, r)
+    try {
+      const p = ada.page
+      await enter(p, r.link, 'Ada')
+      await holdsList(p, [r.node.origin])
+      const asked = () => r.keeper.channel(CONTROL_CHANNEL).messages().filter((m) => m.text === JSON.stringify({ op: 'storage-grant?' })).length
+      expect(asked()).toBe(0)
+      await openRoomBoard(p)
+      const board = p.frameLocator('#roomBoardPanel iframe')
+      const composer = board.getByRole('textbox', { name: 'Add a card to To do', exact: true })
+      await composer.fill('Hilltop walk')
+      await composer.press('Enter')
+      await board.getByRole('link', { name: 'Hilltop walk', exact: true }).click()
+      const files = board.locator('.card-files')
+      const chooser = p.waitForEvent('filechooser')
+      await files.getByRole('button', { name: 'Add file', exact: true }).click()
+      await (await chooser).setFiles(PHOTO())
+
+      // The file is tried at once and finds no grant. The card says what it is waiting for, and the device asks the keeper.
+      const row = files.locator('.file-list li')
+      await expect(row).toContainText(GROUP_STORAGE_MESSAGES['no-grant'], { timeout: 30_000 })
+      await expect(board.getByText('Ada attached hilltop.png.')).toHaveCount(0)
+      await expect.poll(asked, { timeout: 30_000 }).toBe(1)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(0)
+
+      // The keeper answers a live ask with this device's grants, and the same file goes.
+      await holdsGrants(p, r.node)
+      await row.getByRole('button', { name: 'Try again hilltop.png', exact: true }).click()
+      await expect(files.getByRole('button', { name: 'Download hilltop.png', exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(row).toHaveCount(1)
+      expect(r.node.hitsTo('PUT').filter((h) => h.status === 201)).toHaveLength(1)
+      expect(asked()).toBe(1)
+      expect(ada.offsite).toEqual([])
+    } finally { await ada.context.close(); await r.stop() }
   })
 
   test('a device with no grant asks the keeper for them, and the file goes as soon as they come', async ({ browser, baseURL }) => {

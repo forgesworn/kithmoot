@@ -21,6 +21,45 @@ async function settle(ms = 4000) {
 }
 
 describe('live relays', () => {
+  it('carries a board too large for one event from one session to another, over public relays', async () => {
+    // The largest thing a room publishes: a full board part is an event of
+    // about 45 KB. This is whether real relays take it, which no local
+    // relay can say. The room ends in fifteen minutes, so every event here
+    // carries that expiry and the relays drop them.
+    const Y = await import('yjs')
+    const { memoryRoomBoardStorage } = await import('../src/room-board-wire.js')
+    const secret = generateRoomSecret()
+    const endsAt = Math.floor(Date.now() / 1000) + 900
+    const writer = new RoomSession({ transport: pool(), secret, endsAt, identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey() })
+    await writer.join([], {})
+    const board = await writer.board(memoryRoomBoardStorage())
+    const titles = Array.from({ length: 6 }, (_, i) => `${i}:${Array.from({ length: 10_000 }, (_, j) => ((i * 31 + j * 7) % 36).toString(36)).join('')}`)
+    board.doc.transact(() => {
+      for (const [i, title] of titles.entries()) {
+        const card = new Y.Map<unknown>()
+        card.set('title', title); card.set('status', 'todo')
+        board.doc.getMap('records').set(`card-${i}`, card)
+      }
+    })
+    const until = async (done: () => boolean, ms: number) => {
+      const end = Date.now() + ms
+      while (!done() && Date.now() < end) await new Promise((r) => setTimeout(r, 250))
+    }
+    await until(() => board.status().ready && !board.status().pending, 45_000)
+    expect(board.status(), 'the relays did not take the board').toEqual({ ready: true, pending: false })
+    expect(board.state().byteLength, 'the board should need more than two parts').toBeGreaterThan(2 * 22 * 1024)
+
+    const reader = new RoomSession({ transport: pool(), secret, endsAt, identity: localIdentity(generateSecretKey()), deviceSk: generateSecretKey() })
+    await reader.join([], {})
+    const copy = await reader.board(memoryRoomBoardStorage())
+    const read = () => [...copy.doc.getMap('records').values()].map((card) => (card as InstanceType<typeof Y.Map>).get('title') as string).sort()
+    await until(() => read().length === titles.length, 45_000)
+    expect(read(), 'the second session did not read the whole board back').toEqual([...titles].sort())
+    await writer.leave()
+    await reader.leave()
+  }, 120_000)
+
+
   it('carries two devices of one participant into one view', async () => {
     const secret = generateRoomSecret()
     const participantSk = generateSecretKey()

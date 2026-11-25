@@ -42,6 +42,7 @@ import { PERSISTENT_INVITATION_LABELS } from './persistent-invitation.js'
 import { PROJECT_DIRECTORY_LABELS } from './project-directory.js'
 import { READ_POSITION_LABELS } from './read-position.js'
 import { ROOM_LABELS } from './room.js'
+import { ROOM_BOARD_LABELS } from './room-board-wire.js'
 import { ROOM_RELAYS_LABELS } from './room-relays.js'
 import { ROOM_STORAGE_LABELS } from './room-storage.js'
 import { ROSTER_ENVELOPE_2 } from './roster.js'
@@ -108,6 +109,9 @@ const FROZEN_LOCAL_LABELS: readonly string[] = [
   'kithmoot/v1/recording:',
   'kithmoot/v1/recording-capture:',
   'kithmoot/v1/relays:',
+  // The key this device's own copy of the room's board is sealed under
+  // (`room-board-log.ts`): HKDF info, never on the wire.
+  'kithmoot/v1/room-board-cache',
   'kithmoot/v1/room-id',
   'kithmoot/v1/room-key',
   'kithmoot/v1/roster-envelope-2',
@@ -217,6 +221,7 @@ const MODULE_LABEL_LISTS: ReadonlyArray<readonly [string, readonly string[]]> = 
   ['pairing.ts', PAIRING_LABELS],
   ['project-directory.ts', PROJECT_DIRECTORY_LABELS],
   ['read-position.ts', READ_POSITION_LABELS],
+  ['room-board-wire.ts', ROOM_BOARD_LABELS],
   ['room-relays.ts', ROOM_RELAYS_LABELS],
   ['room-storage.ts', ROOM_STORAGE_LABELS],
   // Roster exports its single versioned marker directly.
