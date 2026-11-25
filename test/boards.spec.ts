@@ -8,7 +8,10 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoard, openRoomBoards, openSettings, closeSettings } from './browser.js'
+import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoard, openRoomBoards, openRoomDetails, openRoomMenu, openSettings, closeSettings } from './browser.js'
+import {generateRoomSecret} from '../src/room.js'
+import {encodeRoomLink} from '../src/link.js'
+import {localIdentity} from '../src/identity.js'
 
 async function offlineRelease() {
   // HTTP loopback is secure for workers without weakening TLS in the browser.
@@ -310,6 +313,88 @@ test('a chat is offered no board but its own: one made beside it stays its maker
     await expect(bo.page.locator('#roomBoards').getByRole('button')).toHaveCount(0)
     await expect(bo.page.locator('#chatLog')).not.toContainText('Shared board')
     expect(told()).toBe(false)
+  } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
+})
+
+test('a quiet chat is offered no board either: its Board tab leads to its tasks, and a board shared with it earlier is still opened from above its conversation', async ({browser, baseURL}) => {
+  test.setTimeout(300_000)
+  const ada = await device(browser, baseURL!), bo = await device(browser, baseURL!)
+  const relay = new URL('/__test-relay', baseURL); relay.protocol = 'wss:'
+  const identity = localIdentity(generateSecretKey())
+  const link = encodeRoomLink(baseURL!, {secret: generateRoomSecret(), name: 'Quiet lab', relays: [relay.href], iceUrls: [],
+    policy: {tier: 'open', members: [ada.pubkey, bo.pubkey, identity.pubkey], quiet: true}})
+  // The acceptance build's slot (playwright.config.ts), so the keeper and the browsers post in the same ones.
+  const keeper = await RoomAgent.join({link, name: 'Keeper', agent: false, identity, hostInvitation: false, quiet: {intervalSeconds: 8}, ...agentRelaysFor(baseURL!)})
+  const quietNote = 'Quiet lab is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.'
+  const enter = async (who: typeof ada, name: string) => {
+    // A room link changes only the fragment: leave the document first, as opening an invitation does.
+    await who.page.goto('about:blank'); await who.page.goto(link)
+    const join = who.page.locator('#join'), room = who.page.locator('#roomArea')
+    await expect.poll(async () => await join.isVisible() || await room.isVisible()).toBe(true)
+    if (await join.isVisible()) {if (await who.page.locator('#displayName').isVisible()) await who.page.locator('#displayName').fill(name); await join.click()}
+    await expect(room).toBeVisible()
+    await expect(room).toHaveJSProperty('inert', false)
+    await expect(who.page.locator('#roomTitle')).toHaveText('Quiet lab')
+  }
+  /** Boards on All, saying why this chat has no board, and not the list where one is made. */
+  const onItsTasks = async (page: Page) => {
+    await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
+    await expect(page.locator('#workspaceWorkTab')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.locator('#workspaceRoomTab')).toBeHidden()
+    await expect(page.locator('#workspaceRoomNote')).toHaveText(quietNote)
+    await expect(page.locator('#boardsPanel')).toBeHidden()
+    await expect(page.locator('#roomBoardPanel')).toHaveCount(0)
+  }
+  try {
+    await enter(ada, 'Ada')
+    // Nothing on a board yet: no tab, no Board in the menu, and New task… is the task form.
+    await expect(ada.page.locator('#conversationNav button[data-board]')).toHaveCount(0)
+    await openRoomMenu(ada.page)
+    const menu = ada.page.locator('#roomMoreMenu')
+    await expect(menu.getByRole('menuitem', {name: 'Board', exact: true})).toHaveCount(0)
+    await menu.getByRole('menuitem', {name: 'New task…', exact: true}).click()
+    await expect(ada.page.locator('#assignmentPanel')).toBeVisible()
+    await expect(ada.page.locator('#boardsPanel')).toBeHidden()
+    await ada.page.locator('#assignmentClose').click()
+    // A board of Ada's own, made with the quiet chat open: the chat is not offered it.
+    const owner = await openBoards(ada.page)
+    await expect(ada.page.locator('#boardsShareRoom')).toBeHidden()
+    await expect(ada.page.locator('#boardsRoom')).toHaveValue('')
+    await createBoard(owner, 'Quiet delivery')
+    await addCard(owner, 'Kept from before')
+    expect(keeper.session.channel(ROOM_BOARDS_CHANNEL).messages().some(message => decodeRoomBoard(message.text)?.op === 'share')).toBe(false)
+    await sharedEarlier(owner, keeper, 'Quiet delivery')
+    await ada.page.locator('#boardsClose').click()
+    // Bo arrives afterwards and finds it where it was.
+    await enter(bo, 'Bo')
+    const strip = bo.page.locator('#roomBoards').getByRole('button', {name: 'Quiet delivery', exact: true})
+    await expect(strip).toBeVisible({timeout: 90_000})
+    const tab = bo.page.locator('#conversationNav button[data-board]')
+    await expect(tab).toBeVisible()
+    await expect(tab).toHaveAttribute('aria-controls', 'workspaceWorkPanel')
+    await tab.click()
+    await onItsTasks(bo.page)
+    await backToRoom(bo.page)
+    await openRoomDetails(bo.page)
+    await expect(bo.page.locator('#infoRowBoard')).toBeVisible()
+    await bo.page.locator('#infoRowBoard').click()
+    await onItsTasks(bo.page)
+    await backToRoom(bo.page)
+    await strip.click()
+    await expect(bo.page.locator('#boardsPanel')).toBeVisible()
+    const guest = (await (await bo.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    const reminder = guest.getByRole('button', {name: 'Not yet, remind me', exact: true})
+    const join = guest.getByRole('button', {name: /^Join (?:board|Quiet delivery)$/})
+    await expect(reminder.or(join).first()).toBeVisible()
+    if (await reminder.isVisible()) await reminder.click()
+    await join.click()
+    await expect(guest.getByRole('link', {name: 'Kept from before', exact: true})).toBeVisible({timeout: 60_000})
+    await addCard(guest, 'Bo adds to it')
+    // Its maker finds it above the conversation too, and has what Bo added.
+    await backToRoom(ada.page)
+    await ada.page.locator('#roomBoards').getByRole('button', {name: 'Quiet delivery', exact: true}).click()
+    const again = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
+    await expect(again.getByRole('link', {name: 'Bo adds to it', exact: true})).toBeVisible({timeout: 60_000})
   } finally {await keeper.leave(); await ada.context.close(); await bo.context.close()}
 })
 
