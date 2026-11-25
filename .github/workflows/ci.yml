@@ -579,7 +579,11 @@ jobs:
     # three minutes in Firefox): on 25 November 2026 the Firefox half was
     # stopped at 20 minutes with every test passing and eight still to run,
     # and the WebKit half finished in 19.
-    timeout-minutes: ${{ (startsWith(matrix.name, 'chromium rest ') || startsWith(matrix.name, 'chromium desktop ') || startsWith(matrix.name, 'firefox ') || startsWith(matrix.name, 'webkit ')) && 30 || 20 }}
+    # Both Chromium rest halves have 40. The second half usually takes 22 to
+    # 25 minutes of its 30, and once 29; on 25 November 2026 it was stopped at
+    # 30 twice on slow runners with no test failed, the second time with 246
+    # of 249 tests finished.
+    timeout-minutes: ${{ startsWith(matrix.name, 'chromium rest ') && 40 || ((startsWith(matrix.name, 'chromium desktop ') || startsWith(matrix.name, 'firefox ') || startsWith(matrix.name, 'webkit ')) && 30 || 20) }}
     strategy:
       fail-fast: false
       matrix:

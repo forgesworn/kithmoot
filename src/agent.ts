@@ -29,6 +29,7 @@ import { DEFAULT_PUBLIC_RELAYS } from './public-relays.js'
 import type { ParticipantIdentity } from './identity.js'
 import { generateRoomSecret, deriveRoom } from './room.js'
 import { canonicalAdmins, canonicalChannels, deriveEpoch, epochsInWindow, hostRoomEpoch, signAdmins, signChannels, verifyAdmins, verifyChannels } from './epoch.js'
+import { roomStreamName } from './channel-names.js'
 import type { LeftEpoch, RekeyNotice, RoomEpoch } from './epoch.js'
 import { deleteSignedEvents } from './self-destruct.js'
 import type { DeletionKey, DeletionReport } from './self-destruct.js'
@@ -1489,6 +1490,8 @@ export class RoomAgent {
         return
       case 'channel':
         if (!this.#keeper || !this.admins.includes(m.participant)) return
+        // Refused, not thrown: an app from before the rule may still ask.
+        if (control.open && roomStreamName(control.name)) return
         await this.setChannel(control.name, control.open)
         return
       default:
@@ -1660,6 +1663,9 @@ export class RoomAgent {
   async setChannel(name: string, open: boolean): Promise<void> {
     if (!this.#keeper) return
     const [canonical] = canonicalChannels([name])
+    // Closing one is still allowed, so a room that opened one of these
+    // before the rule can take it off its list (src/channel-names.ts).
+    if (open && roomStreamName(canonical!)) throw new Error(`"${canonical}" is used by the room itself, so no channel can have that name`)
     const had = this.#channels.has(canonical!)
     if (had === open) return
     if (open) this.#channels.add(canonical!)

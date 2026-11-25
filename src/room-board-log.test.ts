@@ -551,6 +551,33 @@ describe('the room’s own board', () => {
     await vi.waitFor(() => expect(cyTold).toBe(1))
   }, 15_000)
 
+  it('keeps the board out of a conversation that shares its stream, and that conversation out of the board', async () => {
+    // A room could open a channel called board before src/channel-names.ts
+    // refused it, and a channel is its name: the same stream as the board.
+    const f = await room()
+    const ada = await f.join('Ada'), bob = await f.join('Bob')
+    const a = await f.board(ada.agent), b = await f.board(bob.agent)
+    const adaChat = ada.agent.session.channel(ROOM_BOARD_CHANNEL), bobChat = bob.agent.session.channel(ROOM_BOARD_CHANNEL)
+    addCard(a, 'Book the hall')
+    await vi.waitFor(() => expect(titles(b)).toEqual(['Book the hall']))
+    await settled(a, b)
+    await bobChat.send('The hall is booked')
+    await vi.waitFor(() => expect(adaChat.messages().map(m => m.text)).toEqual(['The hall is booked']))
+    addCard(b, 'Order the tea')
+    await vi.waitFor(() => expect(titles(a)).toEqual(['Book the hall', 'Order the tea']))
+    await settled(a, b)
+    // Both kinds are on the one stream; each reader takes only its own.
+    expect(boardEvents(f.relay, f.keeper).length).toBeGreaterThanOrEqual(3)
+    for (const chat of [adaChat, bobChat]) {
+      expect(chat.messages().map(m => m.text)).toEqual(['The hall is booked'])
+      expect(chat.messages().every(m => m.board === undefined)).toBe(true)
+    }
+    for (const log of [a, b]) {
+      expect(titles(log)).toEqual(['Book the hall', 'Order the tea'])
+      expect(log.status()).toEqual({ ready: true, pending: false })
+    }
+  })
+
   it('reads the board stream as the envelope it is: a member’s, in this room and this channel', async () => {
     const f = await room()
     const a = await f.board(f.keeper)

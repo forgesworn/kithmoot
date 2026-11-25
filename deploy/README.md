@@ -208,6 +208,21 @@ directory under `/var/www/kithmoot/releases/` on the box, and atomically flips
 `deploy.sh` for the full sequence, the `--prune` flag, and why it's safe
 to re-run.
 
+Then check the site as it is served:
+
+```bash
+SITE_E2E_BASE_URL=https://YOUR_HOST/j/ npm run test:live-site
+```
+
+`test/live-site-board.spec.ts` makes a throwaway room on the deployed site,
+on the app's own public relays. One visitor puts a card on the room's board,
+a second sees it and adds another, both leave, and a third arriving afterwards
+must read both cards. It fails if the site's own headers refuse anything its
+pages ask for, which the acceptance suite cannot see because it never runs
+behind them, and attaches any page errors and failed requests to the report
+for reading. Public relays are weather: run a red result again before
+believing it.
+
 The release also carries the short-link page at `/n/`, built into
 `app/short-link/dist` by the same `npm run build`. It turns a short (version 7)
 node-room link back into the long one and moves the browser on to `/j/`, so a
