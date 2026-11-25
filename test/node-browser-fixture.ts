@@ -70,7 +70,7 @@ export async function nodeBrowserFixture(appOrigin: string, options: { chatOnly?
       SPRY_MAX_ALLOCATIONS: String(range.count), SPRY_MAX_ALLOCATIONS_PER_USER: String(Math.min(range.count, range.count > 256 ? 64 : range.count > 32 ? 32 : 8)),
       SPRY_MAX_TCP_CONNECTIONS: String(Math.max(64, range.count)),
       SPRY_STATE_FILE: join(directory, 'spry.json'), SPRY_AGGREGATE_BYTES_PER_SECOND: String(bandwidth), SPRY_ALLOWED_ORIGINS: appOrigin })
-    start(shelter, ['room-relay', '--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0', ...(options.maxRooms ? ['--max-rooms', String(options.maxRooms)] : [])])
+    start(shelter, ['--data', join(directory, 'rooms'), '--control', control, '--listen', `127.0.0.1:${relayPort}`, '--url', 'wss://node.example/events', '--max-bytes', '8388608', '--min-free-bytes', '0', ...(options.maxRooms ? ['--max-rooms', String(options.maxRooms)] : [])])
     // Explicit chat-only runs exercise real signed admission and the native
     // relay. Their synthetic credential issuer cannot qualify media or TURN.
     const tokens = new Map<string, string>()

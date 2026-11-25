@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync, existsSync,
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initialise, validateConfiguration, readConfiguration, runNode, localControl } from './runtime.js'
+import { initialise, validateConfiguration, readConfiguration, runNode, localControl, relayExecutable } from './runtime.js'
 
 const paths: string[] = []
 afterEach(() => { for (const path of paths.splice(0)) rmSync(path, { force: true, recursive: true }) })
 const configuration = () => ({ v: 1, host: 'node.example', hosting: 'rented', relayIp: '8.8.8.8', aggregateBytesPerSecond: 1000000,
   maxBytes: 1073741824, minFreeBytes: 1073741824, maxRooms: 8, origins: ['https://app.example'],
-  spryBinary: '/opt/kithmoot-node/bin/spry-node', shelterBinary: '/opt/kithmoot-node/bin/bothyd', certificate: '/var/lib/kithmoot-node/tls/fullchain.pem',
+  spryBinary: '/opt/kithmoot-node/bin/spry-node', shelterBinary: '/opt/kithmoot-node/bin/wok-roomd', certificate: '/var/lib/kithmoot-node/tls/fullchain.pem',
   certificateKey: '/var/lib/kithmoot-node/tls/privkey.pem', deskPort: 3746, spryPort: 3744, shelterPort: 3745 })
 
 /** Keep ephemeral front ports distinct and outside these fixtures' fixed TURN ranges. */
@@ -62,6 +62,27 @@ it('creates private independent service secrets and never overwrites an existing
   expect(() => initialise(directory, configuration())).toThrow()
   expect(readFileSync(join(directory, 'service.key'), 'utf8').trim()).toBe(values[0])
   expect(readConfiguration(directory)).toEqual(configuration())
+})
+it('names wok-roomd beside a stored bothyd path and leaves any other path alone', () => {
+  expect(relayExecutable('/opt/kithmoot-node/current/bin/bothyd')).toBe('/opt/kithmoot-node/current/bin/wok-roomd')
+  expect(relayExecutable('/opt/kithmoot-node/current/bin/wok-roomd')).toBe('/opt/kithmoot-node/current/bin/wok-roomd')
+  expect(relayExecutable('/srv/relay/custom')).toBe('/srv/relay/custom')
+})
+it('starts the relay beside a stored bothyd path with its flags and no subcommand', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-relay-')); paths.push(directory)
+  const spry = join(directory, 'spry-node'), relay = join(directory, 'wok-roomd'), capture = join(directory, 'relay-arguments.txt')
+  writeFileSync(spry, '#!/bin/sh\nexec /bin/sleep 30\n', { mode: 0o700 })
+  writeFileSync(relay, '#!/bin/sh\nprintf "%s\\n" "$@" > "' + capture + '.part" && /bin/mv "' + capture + '.part" "' + capture + '"\nexec /bin/sleep 30\n', { mode: 0o700 })
+  const ports = await fixturePorts()
+  initialise(directory, { ...configuration(), spryBinary: spry, shelterBinary: join(directory, 'bothyd'), deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] })
+  const node = await runNode(directory)
+  try {
+    for (let i = 0; i < 500 && !existsSync(capture); i++) await new Promise(r => setTimeout(r, 10))
+    expect(readFileSync(capture, 'utf8').trimEnd().split('\n')).toEqual(['--data', join(directory, 'rooms'), '--control', join(directory, 'shelter.sock'),
+      '--listen', `127.0.0.1:${ports[2]}`, '--url', 'wss://node.example/events', '--max-bytes', '1073741824', '--min-free-bytes', '1073741824', '--max-rooms', '8'])
+    // The stored path is left as it was written, for a rollback to use.
+    expect(readConfiguration(directory).shelterBinary).toBe(join(directory, 'bothyd'))
+  } finally { await node.close() }
 })
 it('runs a private local control socket and cleans up its children, socket and writer lock', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-run-')); paths.push(directory)
@@ -129,7 +150,19 @@ it('imports only independent declared secrets and preserves them through interru
 it.each([undefined, 256, 512])('launches the host-gated backend with allocation count %s and without host certificate paths', async (count) => {
   const directory = mkdtempSync(join(tmpdir(), 'kithmoot-node-host-env-')); paths.push(directory)
   const binary = join(directory, 'backend'), capture = join(directory, 'ports.txt')
-  writeFileSync(binary, '#!/bin/sh\nif [ -n "${SPRY_TURN_PORT:-}" ]; then\n  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "' + capture + '"\nfi\nexec /bin/sleep 30\n', { mode: 0o700 })
+  // A capture becomes visible only after the fixture finishes writing all of its values.
+  writeFileSync(binary, [
+    '#!/bin/sh',
+    'if [ -n "${SPRY_TURN_PORT:-}" ]; then',
+    '  capture="$(dirname "$0")/ports.txt"',
+    '  printf "%s\\n" "$SPRY_TURN_PORT" "$SPRY_TLS_PORT" "$SPRY_RELAY_PORTS" "$SPRY_TLS_GATE" \\',
+    '    "${SPRY_TLS_CERT_FILE+present}" "${SPRY_TLS_KEY_FILE+present}" "$SPRY_MAX_ALLOCATIONS" \\',
+    '    "$SPRY_MAX_ALLOCATIONS_PER_USER" "$SPRY_MAX_TCP_CONNECTIONS" > "$capture.pending" &&',
+    '    mv "$capture.pending" "$capture"',
+    'fi',
+    'exec /bin/sleep 30',
+    '',
+  ].join('\n'), { mode: 0o700 })
   const ports = await fixturePorts()
   const secrets = manifestSecrets()
   initialise(directory, { ...hostConfiguration(), ...(count === undefined ? {} : { relayPortCount: count }), spryBinary: binary, shelterBinary: binary, deskPort: ports[0], spryPort: ports[1], shelterPort: ports[2] }, false, secrets)

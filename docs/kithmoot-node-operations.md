@@ -136,12 +136,12 @@ devices to self-destruct without the keeper's signed proof.
 
 ## Reproducing the current backend test
 
-Build the matching Spry `spry-node` executable and private Shelter `bothyd`
-executable, then run `npm run build:lib` and:
+Build the matching Spry `spry-node` executable and Wok's `wok-roomd`
+executable, which is Shelter, then run `npm run build:lib` and:
 
 ```
 E2E_NODE_SPRY_BINARY=<local-spry-node> \
-E2E_NODE_SHELTER_BINARY=<local-bothyd> \
+E2E_NODE_SHELTER_BINARY=<local-wok-roomd> \
 node test/kithmoot-node-backends.mjs
 ```
 
@@ -154,8 +154,8 @@ The [delivery receipt](evidence/kithmoot-node-20261102.json) records that limit.
 
 The public installer must refuse release packaging until approved, signed
 Shelter and Spry releases, corresponding source, licences and the other node
-release gates exist. This implementation does not publish private Shelter
-source or binaries and does not deploy a new public service.
+release gates exist. This implementation publishes no binaries and does not
+deploy a new public service.
 
 
 ## Host-managed TLS and separate listener profiles

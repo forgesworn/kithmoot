@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, symlinkSync, unlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, symlinkSync, unlinkSync, renameSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { NODE_VERSION } from './version.js'
@@ -25,8 +25,17 @@ it('checks every bundled byte and executable flag before a copied release can ac
   const { root, release } = fixture()
   expect(verifyRelease(root).release).toEqual(release)
   const expected = structuredClone(release)
-  writeFileSync(join(root, 'bin/bothyd'), 'substituted binary')
+  writeFileSync(join(root, 'bin/wok-roomd'), 'substituted binary')
   expect(() => verifyRelease(root, expected)).toThrow('integrity')
+})
+it('still verifies a recorded release whose relay is bothyd, and refuses the same release offered as new', () => {
+  const { root, release, save } = fixture()
+  renameSync(join(root, 'bin/wok-roomd'), join(root, 'bin/bothyd')); release.files.find(file => file.path === 'bin/wok-roomd')!.path = 'bin/bothyd'; save()
+  expect(() => verifyRelease(root)).toThrow('Incomplete')
+  expect(verifyRelease(root, structuredClone(release)).release).toEqual(release)
+  // Neither relay: a recorded release is not excused the file altogether.
+  unlinkSync(join(root, 'bin/bothyd')); release.files = release.files.filter(file => file.path !== 'bin/bothyd'); save()
+  expect(() => verifyRelease(root, structuredClone(release))).toThrow()
 })
 it('rejects private dependencies labelled as a public release and keeps provenance decisions explicit', () => {
   const { root, release, save } = fixture()
@@ -39,9 +48,9 @@ it('refuses unexpected data, traversal, symlinks and writable release contents',
   unlinkSync(join(root, 'unexpected-state'))
   const last = release.files.at(-1)!.path; release.files.at(-1)!.path = '../outside'; save(); expect(() => verifyRelease(root)).toThrow('file')
   release.files.at(-1)!.path = last; save()
-  unlinkSync(join(root, 'bin/bothyd')); symlinkSync(join(root, 'bin/spry-node'), join(root, 'bin/bothyd'))
+  unlinkSync(join(root, 'bin/wok-roomd')); symlinkSync(join(root, 'bin/spry-node'), join(root, 'bin/wok-roomd'))
   expect(() => verifyRelease(root)).toThrow('links')
-  unlinkSync(join(root, 'bin/bothyd')); writeFileSync(join(root, 'bin/bothyd'), 'writable', { mode: 0o777 }); chmodSync(join(root, 'bin/bothyd'), 0o777)
+  unlinkSync(join(root, 'bin/wok-roomd')); writeFileSync(join(root, 'bin/wok-roomd'), 'writable', { mode: 0o777 }); chmodSync(join(root, 'bin/wok-roomd'), 0o777)
   expect(() => verifyRelease(root)).toThrow('writable')
   chmodSync(root, 0o777); expect(() => verifyRelease(root)).toThrow('directory')
 })

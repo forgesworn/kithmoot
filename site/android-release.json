@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.176",
-  "versionCode": 199,
+  "versionName": "0.6.178",
+  "versionCode": 201,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71508352,
-  "apkSha256": "cc90e9bfbc7817159414eae242847121a0a5015dbd3eea4f2e1f1d2ad68bc8b2",
+  "apkBytes": 71516544,
+  "apkSha256": "0f18d07fdcc05841040ec0bbfa3f479b736c2ba84b6e147a39c7ec071f53f174",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.176-production.apk",
+  "downloadFilename": "kithmoot-0.6.178-production.apk",
   "releaseNotes": [
-    "Reopen a node room from its invitation using the persona and device already admitted.",
-    "Node calls reconnect over the relay when your phone moves between Wi-Fi and mobile data.",
-    "See “Waiting to be admitted” once the relay has received your request."
+    "Restore call signalling sooner after a network change while honouring relay limits.",
+    "Keep the camera connection message clear of participant names and the floating preview, including at large text sizes."
   ]
 }

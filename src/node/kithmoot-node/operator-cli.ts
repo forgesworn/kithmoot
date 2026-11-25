@@ -80,7 +80,7 @@ export async function operatorCommand(command: string, args: string[], bundle: s
     if (typeof input.certificateKey === 'string') suppliedKey = input.certificateKey
     if (typeof options.get('--public-ip') === 'string') input.publicIp = options.get('--public-ip')
     // Validate all resource and hosting choices before ACME or filesystem changes.
-    input = validateConfiguration({ ...input, spryBinary: '/opt/kithmoot-node/current/bin/spry-node', shelterBinary: '/opt/kithmoot-node/current/bin/bothyd',
+    input = validateConfiguration({ ...input, spryBinary: '/opt/kithmoot-node/current/bin/spry-node', shelterBinary: '/opt/kithmoot-node/current/bin/wok-roomd',
       certificate: '/etc/kithmoot-node/tls/fullchain.pem', certificateKey: '/etc/kithmoot-node/tls/privkey.pem' }) as unknown as Record<string, unknown>
     console.log('Whoever deploys it runs it. The node must be on a rented server or hosted Archy, never a home connection.')
     console.log('Required inbound IPv4 rules: ' + nodeFirewallRules(input as unknown as import('./runtime.js').NodeConfiguration).join(', ') + '. DNS must name this server for both hostnames.')

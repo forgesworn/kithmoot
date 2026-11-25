@@ -8,17 +8,20 @@ and backups where the deployment permits it; deletion cannot erase those copies.
 
 The candidate is not publicly downloadable. A public release still needs
 approved signed Spry and Shelter artefacts, corresponding source and complete
-licence notices. This workflow does not publish the private Shelter repository.
+licence notices. Shelter here is `wok-roomd`, the room relay in the public Wok
+repository. This workflow builds from binaries you supply and publishes none.
 The existing ForgeSworn public TURN service remains unchanged.
 
 ## Build and verify a private candidate
 
 Use Node 24. Supply a protected local input directory containing Linux `node`,
-`spry-node`, `bothyd`, `Node-LICENSE.txt`, `Spry-LICENSE.txt`,
-`Shelter-LICENSE.txt` and `provenance.json`. The provenance array has exactly
-three entries with `name` (`node`, `spry`, `shelter`), exact `revision`,
-`visibility` (`public` or `private`) and a provenance description. Use the
-merged node-profile versions of Spry and Shelter; arbitrary older builds lack
+`spry-node`, `wok-roomd`, `Node-LICENSE.txt`, `Spry-LICENSE.txt`,
+`Shelter-LICENSE.txt` and `provenance.json`. `Shelter-LICENSE.txt` is Wok's
+licence. The provenance array has exactly three entries with `name` (`node`,
+`spry`, `shelter`), exact `revision`, `visibility` (`public` or `private`) and
+a provenance description; the `shelter` entry records the Wok revision
+`wok-roomd` was built from. Use the merged node-profile version of Spry and
+Wok 0.7.0 or later, which has `wok-roomd`; arbitrary older builds lack
 required access and purge controls.
 
 ```
@@ -113,6 +116,14 @@ operations, and keep the previous release for rollback. A journal is committed
 before services stop. A failed update restores the old release and requires
 its doctor to pass before reporting recovery. Modified service units are
 preserved and require operator review. No automatic update ping is sent.
+
+A node installed while the room relay was `bothyd` updates in the same way.
+Its stored configuration keeps the old path, so a rollback still finds the old
+executable, and the new release runs the `wok-roomd` beside it. The room
+stores are read in place: a directory written by `bothyd`, with a purged
+room's tombstone in it, was opened and read by `wok-roomd` 0.7.0 on one
+machine. The update itself has unit tests only: it has not been run on an
+installed host.
 
 Run `sudo ./kithmoot-node resume` from a verified bundle after an interrupted
 install or update. Initial setup fills only missing secret files and preserves
