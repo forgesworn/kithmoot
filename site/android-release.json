@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.178",
-  "versionCode": 201,
+  "versionName": "0.6.179",
+  "versionCode": 202,
   "minSdk": 33,
   "targetSdk": 35,
   "apkBytes": 71516544,
-  "apkSha256": "0f18d07fdcc05841040ec0bbfa3f479b736c2ba84b6e147a39c7ec071f53f174",
+  "apkSha256": "5fb4c3cee523d10a3a96dec18e67fd5b21cfe1e34f323a1754a2601a74d20815",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.178-production.apk",
+  "downloadFilename": "kithmoot-0.6.179-production.apk",
   "releaseNotes": [
-    "Restore call signalling sooner after a network change while honouring relay limits.",
-    "Keep the camera connection message clear of participant names and the floating preview, including at large text sizes."
+    "See who can let you in and how to follow up while you wait.",
+    "Node rooms show the host address from the invitation.",
+    "Cancel request stays visible as you scroll, including at large text sizes."
   ]
 }
