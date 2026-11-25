@@ -113,12 +113,14 @@ export class BrowserRoomActivation {
       // An interrupted renewal already saved the scopes it was granting.
       const scopes = consent.phase === 'renewing' ? consent.scopes : [...consent.scopes, ...wanted.filter(scope => !consent.scopes.includes(scope))]
       const granted = (scope: string) => consent.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope))
+      // One expiry for the whole permission, a stream granted for the first time included.
+      const floor = Math.max(0, ...consent.grants.map(g => Number(g.active.tags.find(t => t[0] === 'expiration')?.[1]) + 1))
       if (consent.phase === 'renewing') plans.grants = consent.grants
       else for (const scope of scopes) {
         const previous = granted(scope)
         const selected = (previous.length ? previous : granted(consent.room))
           .map(g => ({ persona: g.active.tags.find(t => t[0] === 'p')![1], device: g.active.tags.find(t => t[0] === 'device')![1] }))
-        const planned = await planRoomGrants(this.#identity(account), consent.box, scope, selected, at, previous)
+        const planned = await planRoomGrants(this.#identity(account), consent.box, scope, selected, at, previous, floor)
         plans.grants.push(...planned.grants); plans.expires = planned.expires
       }
       this.#identity(account)

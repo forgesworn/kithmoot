@@ -117,9 +117,10 @@ describe('durable browser room activation', () => {
     const before = structuredClone(keeper.saved!)
     const devicesIn = (scope: string) => keeper.saved!.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope))
       .map(g => g.active.tags.find(t => t[0] === 'device')![1]).sort()
-    // Interrupted after the plan was saved: the next renewal finishes the same plan, board included.
+    // Interrupted after the plan was saved: the next renewal finishes the same plan, board included. Straight after
+    // activation, so the new scope's grants must take the expiry the existing ones already carry.
     keeper.writeFails = true
-    keeper.advance(60); await expect(keeper.controller.renew(room, keeper.input.readiness, [room, control, board])).rejects.toThrow('lost OK')
+    await expect(keeper.controller.renew(room, keeper.input.readiness, [room, control, board])).rejects.toThrow('lost OK')
     expect(keeper.saved!.phase).toBe('renewing'); expect(keeper.saved!.scopes).toEqual([room, control, board])
     keeper.writeFails = false
     await keeper.controller.renew(room, keeper.input.readiness)

@@ -95,11 +95,13 @@ export function validateConsent(c: RoomConsent): void {
   }
 }
 
+/** `expiryFloor`: the soonest the grants may expire, so a scope granted for the first time in a renewal ends when the
+ *  permission's other grants do (a saved permission has one expiry). */
 export async function planRoomGrants(identity: ParticipantIdentity, box: PairedBox, room: string,
-  devices: { persona: string; device: string }[], now: number, previous: RoomGrant[] = []): Promise<{ grants: RoomGrant[]; expires: number }> {
+  devices: { persona: string; device: string }[], now: number, previous: RoomGrant[] = [], expiryFloor = 0): Promise<{ grants: RoomGrant[]; expires: number }> {
   if (!canonicalRoomServer(box.eventUrl)) throw new Error('The room relay URL is not canonical.')
   if (!hex.test(room) || !devices.length || devices.length > 16 || devices.some(d => !hex.test(d.persona) || !hex.test(d.device))) throw new Error('Choose current room devices before granting access.')
-  const expires = Math.max(now + ROOM_GRANT_TERM, ...previous.map(p => Number(p.active.tags.find(t => t[0] === 'expiration')?.[1]) + 1))
+  const expires = Math.max(now + ROOM_GRANT_TERM, expiryFloor, ...previous.map(p => Number(p.active.tags.find(t => t[0] === 'expiration')?.[1]) + 1))
   const grants: RoomGrant[] = []
   for (const d of devices) {
     const old = previous.find(p => p.active.tags.some(t => t[0] === 'p' && t[1] === d.persona) && p.active.tags.some(t => t[0] === 'device' && t[1] === d.device))
