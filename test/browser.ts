@@ -482,8 +482,8 @@ export async function backToRoom(page: Page): Promise<void> {
   await expect(page.locator('#roomArea')).toBeVisible()
 }
 
-/** The older boards panel, for boards kept outside the room and shared with
- *  it: Open a board, under the other tabs of Boards. */
+/** A person's own boards, opened with a room open: Your own boards, under
+ *  the other tabs of Boards. The room is not offered any of them. */
 export async function openRoomBoards(page: Page): Promise<void> {
   await openRoomBoard(page)
   await page.locator('#workspaceWorkTab').click()
@@ -627,7 +627,7 @@ export async function openBoardsDestination(page: Page): Promise<void> {
   await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
 }
 
-/** Open a board (the embedded boards panel) from the Boards destination. */
+/** Your own boards (the embedded boards panel) from the Boards destination. */
 export async function openBoardsPanel(page: Page): Promise<void> {
   await openBoardsDestination(page)
   await page.locator('#workspaceBoardsOpen').click()
