@@ -190,12 +190,32 @@ delete what this device signed there, which includes its board events.
 A file on a card is the same thing as a file shared in the room's
 conversation: sealed on the device under a fresh key, with its metadata
 removed, and uploaded as an opaque envelope. **Add file** sends it down the
-very road a chat file takes (`shareDroppedFile`), to the server this person
-has already allowed, and the upload is recorded with everything else this
-device left in the room. Only the last step differs: the reference (the
+very road a chat file takes, and the upload is recorded with everything else
+this device left in the room. Only the last step differs: the reference (the
 server, the envelope's hash, the key, the name, type and size) goes onto the
 card, in the board's document, and not into a message. It is written only
 once the upload has succeeded.
+
+Where it goes is where a file shared in that room goes:
+
+- **To the file server this person uses** (`shareDroppedFile`). Somebody who
+  has never sent a file is asked on the card what a chat asks beside Send,
+  once and in the same words, because a card has no Send to be the act.
+  Agreeing writes the choice down exactly as Send does; declining uploads
+  nothing. The card names the server the file was sent to, since a Blossom
+  server answers for a file at its hash whatever address its reply gave.
+- **To the room's own storage**, where the room lists some
+  (`shareDroppedFileToGroup`): the first of the group's computers that takes
+  it, with this device's token, and no announcement on any relay. The card
+  names that computer by its origin, and the room's signed list says where on
+  it the file is, so another member reads it with a token of their own.
+
+While a file is on its way its row says which stage it has reached. One that
+did not go stays on the card, for that person only, with the reason and
+**Try again**: nothing is put on the card for anybody else until a file is
+somewhere. That is also what happens when none of the group's computers can
+take a file just now. A chat would hold it and send later; a card does not
+wait.
 
 Opening is the room's too. **Download** or **Open** on a card's file shows
 it in the card a message's file has: nothing is fetched until the person
@@ -204,12 +224,10 @@ and what the file says it is is never taken on trust. Any member can write a
 reference onto a card, so it is read as a stranger's would be, and the board's
 frame never fetches one.
 
-A card's reference is a server and a hash, so a file can go onto a card only
-where the room's files go to a server that keeps each file at its hash, and
-only once this person has agreed to that server. Elsewhere **Add file** says
-why and uploads nothing: a room that keeps files on storage of its own or
-through Bothy cannot put one on a card yet, and somebody who has not yet seen
-the room's file notice is told to attach a file in the chat first.
+A card's reference is an https server and a hash. A room whose files go
+through Bothy has no such address for one, so **Add file** there says so and
+uploads nothing. So does a device with uploads turned off, with the way to
+turn them on.
 
 Taking a file off a card removes the reference for everybody. It does not
 delete the upload. The upload goes when its sender leaves the room and asks
@@ -233,17 +251,20 @@ undo across devices beyond what the board's own archive keeps.
   that the room is quiet, that it has no board of its own, and why. It keeps
   what it had before: tasks, and any board handed to it. A board that rode
   the quiet slots would keep the promise; it is not built.
-- **Web only so far.** The desktop app carries the same web build, which
-  passes the same journeys in a browser; the installed desktop app has not
-  been run with the board. The Android app does not show it. The vectors are
-  what a native client follows; it needs a Yjs-compatible document library.
+- **Web and desktop.** The desktop app carries the same web build, and has
+  been run with the board from source: see What has been checked. A packaged,
+  signed build installed from a release has not. The Android app does not
+  show the board. The vectors are what a native client follows; it needs a
+  Yjs-compatible document library.
 - **Agents hold the board, with no tools for it yet.** `RoomSession.board()`
   gives an agent the same document on the same terms, and an agent that
   edits it is saved and sent like anybody. `kithmoot-agent` has no board
   tools, so its brains cannot read or write cards.
-- **Files on cards only through a file server.** See Files on cards. A card's
-  file shows no progress beyond "Encrypting…" while it goes, and one that
-  fails is said once and not kept to try again.
+- **No files on cards in a room whose files go through Bothy.** See Files on
+  cards. A card's file shows which stage it has reached, not how many bytes
+  have gone.
+- **Export is the board's text.** It names the files on cards and does not
+  include them; nothing in the frame can read a file, so no bundle is offered.
 - **An agent's work is not written back to the card.** Assign to agent makes
   a room task from the card; the two are not linked afterwards.
 - **A card in the chat is its title**, not a link that opens the card.
@@ -275,14 +296,29 @@ undo across devices beyond what the board's own archive keeps.
   build; the whole of Girnel between two visitors (one click from Boards,
   table and calendar, filters, an activity line under the name the room
   knows somebody by, undo across somebody else's change, export, delete,
-  Invite people, Discuss in chat, Assign to agent); a file put on a card,
-  opened by somebody else after its sender had gone, and deleted by the
-  sender's tidy-up; half-typed text kept through a switch of chat; the board
+  Invite people, Discuss in chat, Assign to agent); a first file on a card
+  asking where files may go, declined, kept on the card and tried again; a
+  file put on a card, said to be uploading while it went, opened by somebody
+  else after its sender had gone, and deleted by the sender's tidy-up;
+  half-typed text kept through a switch of chat; the board
   on a phone, from the room's menu and back to the conversation; an axe scan
   of Boards with the board showing; two tabs of one browser on one room;
   forgetting a room. The view
   under the production content security policy, export included, is in
   `test/boards.spec.ts`.
+- **Where a card's file goes** (Chromium and the desktop build). The public
+  server a new device would use, agreed to on the card, for two files with
+  one question, and written down as Send writes it
+  (`test/files-public-first.spec.ts`). A room with storage of its own: the
+  file goes to the node with a token and no announcement, another member
+  opens it from the card, and with the node down the card says so, names
+  nothing, and takes the file on Try again (`test/group-storage.spec.ts`).
+- **The desktop app itself** (`desktop/test/room-board.spec.ts`, run by hand
+  on a Mac, not in CI): two copies of the Electron app from source, each with
+  a profile of its own and a visitor with only the link. Boards opens the
+  room's board; a card written in one is found in the other, which arrived
+  afterwards; a move is seen with its author's name; the frame has no Node
+  and no service worker; export saves a file through the app's own download.
 - **A private chat** (`src/room-board-log.test.ts`): the board on the same
   terms for the two, read by the second after the first has gone, and a
   well-formed change from anybody else refused. In a browser
@@ -292,8 +328,9 @@ undo across devices beyond what the board's own archive keeps.
 - **Public relays** (`test/live.test.ts`): a board of several full parts
   written by one session and read whole by another.
 
-Not checked: an installed desktop app, a phone, a board of more than a few
-hundred kilobytes, or a room whose only relays refuse 45 KB events.
+Not checked: a desktop app installed from a release, a phone, a room whose
+files go through Bothy, a board of more than a few hundred kilobytes, or a
+room whose only relays refuse 45 KB events.
 
 ## In the code
 
@@ -305,4 +342,6 @@ hundred kilobytes, or a room whose only relays refuse 45 KB events.
 | `src/chat.ts` | The `board` statement in the chat envelope |
 | `app/src/room-board-panel.ts` | The board's surface in Boards, and the frame it hands updates to |
 | `app/src/workspace-work.ts` | Boards, the destination: the room's board is its first tab |
+| `app/src/main.ts` | `addRoomBoardFile`, `openRoomBoardFile`: a card's file, by the room's own file sharing |
+| `desktop/test/room-board.spec.ts` | The board in the desktop app itself, two copies of it |
 | `forgesworn/girnel` `src/embedded-room.ts` | The view: Girnel's board screen on the room's document. It holds no key, signer or relay and stores none of the board |

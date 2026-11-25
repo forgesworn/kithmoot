@@ -968,6 +968,8 @@ let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } 
 const heldEnvelopes = new HeldEnvelopes()
 /** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
 const waitingAttachments = new WeakSet<ChatAttachment>()
+/** Why each of those is waiting, kept with the attachment: the held bytes are swept as soon as no draft names them. */
+const waitingReasons = new WeakMap<ChatAttachment, string>()
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserRoomConnections, async room => {
   if (dockedCall?.session.roomId === room) await endDockedCall('user', 'Bothy routing changed for this room; its call was closed.')
   if (session?.roomId === room && !roomUsesBothy) {
@@ -20362,29 +20364,85 @@ function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
  * recorded for the room's tidy-up. Only the last step differs: the reference
  * goes onto the card and not into a message.
  *
- * Only where the room's files go to a server this person has already agreed
- * to, which keeps each file at its hash. A card's reference is a server and
- * a hash, so a room that keeps files on its own storage, through Bothy, or
- * has not yet been asked, says so and uploads nothing.
+ * It goes where a file shared in this room goes. To the server this person
+ * has agreed to, which keeps each file at its hash. To the room's own storage
+ * where it has some, on the first of the group's computers that takes it. A
+ * person who has never sent a file is asked here what a chat asks beside
+ * Send, once, because a card has no Send to be the act.
+ *
+ * A card's reference is a server and a hash, so a file is put on a card only
+ * once it is somewhere: one the group's storage cannot take yet is let go and
+ * said so, where a chat would hold it and send later. A room whose files go
+ * through Bothy has no address a card can carry, and says that.
  */
-async function addRoomBoardFile(file: File, signal: AbortSignal): Promise<RoomBoardFile> {
+async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardFile> {
   const selected = session
-  if (!selected || !roomHasOwnBoard()) throw new Error('The room changed. Nothing was uploaded.')
-  const destination = fileDestination()
-  if (destination.kind !== 'server') {
-    throw new Error(destination.kind === 'default' ? `Files in this room go to ${fileHost(destination.origin)} once you have agreed to that. Attach a file in the chat first, then add it to the card.`
-      : destination.kind === 'group' || destination.kind === 'bothy' ? 'This room keeps its files on storage of its own, which a card cannot point to yet. Share the file in the chat instead.'
-        : 'Files are off in this room, so nothing can be attached to a card.')
+  const gone = (): Error => new Error('The room changed. Nothing was uploaded.')
+  if (!selected || !roomHasOwnBoard()) throw gone()
+  let destination = fileDestination()
+  if (destination.kind === 'default') {
+    const origin = destination.origin
+    said('Waiting for you to say where files may go…')
+    // One question for however many files were picked together.
+    roomBoardFileConsent ??= confirmRoomAction({
+      title: `Store files you send on ${fileHost(origin)}?`,
+      message: `${forgeSwornStorageClosed ? `${FORGESWORN_STORAGE_CLOSED}\n\n` : ''}${fileNoticeBody(origin)}`,
+      confirmLabel: 'Store files there', cancelLabel: 'Not now',
+    }).finally(() => { roomBoardFileConsent = undefined })
+    const agreed = await roomBoardFileConsent
+    signal.throwIfAborted()
+    if (session !== selected || !roomHasOwnBoard()) throw gone()
+    if (!agreed) throw new Error('Not attached. Nothing is uploaded until you have said where files may go.')
+    const asked = fileDestination()
+    // Still the server that was asked about: the choice is written down, as pressing Send writes it.
+    if (asked.kind === 'default' && asked.origin === origin) { acceptDefaultFileServer(localStorage, origin); fileDestinationChanged() }
+    destination = fileDestination()
+  }
+  if (destination.kind !== 'server' && destination.kind !== 'group') {
+    throw new Error(destination.kind === 'bothy' ? 'Files in this room go through Bothy, which a card cannot point to yet. Share the file in the chat instead.'
+      : destination.kind === 'withdrawn' ? `${GROUP_NO_STORAGE} Nothing was attached.`
+        : destination.kind === 'default' ? 'Not attached. Where files go changed while you were asked.'
+          : nodeRoom && !nodeRoom.node.existing ? 'Files are off in this hosted room.'
+            : destination.reason === 'chosen' ? 'File uploads are off on this device. Turn them on in Settings, under Privacy, then try again.'
+              : 'This app has no file server set. Choose one in Settings, under Privacy, then try again.')
   }
   const draft: ConversationDraft = { channel: undefined, text: '', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', attachments: [], artwork: [], event: '', key: '', panelOpen: false, status: '' }
-  await shareDroppedFile(file, draft, signal, destination.origin)
+  draftStages.set(draft, said)
+  if (destination.kind === 'group') await shareDroppedFileToGroup(file, draft, signal)
+  else await shareDroppedFile(file, draft, signal, destination.origin)
   const attachment = draft.attachments[0]
   if (session !== selected || !attachment) throw new Error(`${file.name} was not attached.`)
   const hash = attachment.sha256.toLowerCase()
-  const server = (roomBoardPanelModule ?? await loadRoomBoardPanel()).roomBoardFileServer(attachment.url, hash)
-  if (!server) throw new Error('This room’s file server keeps files at an address a card cannot carry. Share the file in the chat instead.')
+  let server: string | undefined
+  if (destination.kind === 'group') {
+    // Not on any of the group's computers yet. A chat keeps such a file and sends when one takes it; a card does not wait.
+    if (waitingAttachments.has(attachment)) {
+      await heldEnvelopes.release(hash)
+      throw new Error(waitingReasons.get(attachment) === 'no-grant' ? GROUP_STORAGE_MESSAGES['no-grant'] : 'None of the group’s computers could take this file just now. Nothing was attached.')
+    }
+    const base = listedBaseOf(roomStorageRecord()?.nodes ?? [], attachment.url, hash)
+    server = base ? roomBoardGroupServer(base) : undefined
+    if (!server) throw new Error('The group’s storage kept this file at an address a card cannot carry. Share the file in the chat instead.')
+  } else {
+    // The server the file was sent to, not the address its answer gave: a
+    // Blossom server answers for a file at its hash (BUD-01), which is what a
+    // card names, while the address may be a path or a host of its own.
+    server = (roomBoardPanelModule ?? await loadRoomBoardPanel()).roomBoardFileServer(`${normaliseBlossomServer(destination.origin)}/${hash}`, hash)
+    if (!server) throw new Error('This room’s file server has an address a card cannot carry. Share the file in the chat instead.')
+  }
   return { hash, key: attachment.key.toLowerCase(), name: attachment.name ?? file.name, type: attachment.type ?? '',
     size: Math.max(1, file.size), encryptedSize: Math.max(1, attachment.size ?? file.size), servers: [server] }
+}
+/** The question about where files go, while it is being asked of a card's file. */
+let roomBoardFileConsent: Promise<boolean> | undefined
+/** What a card calls one of the group's computers: its origin. The room's own
+ *  list says where on that computer its files are (`roomBoardGroupBase`). */
+function roomBoardGroupServer(base: string): string | undefined {
+  try { return usableGroupBase(base) ? `${new URL(base).origin}/` : undefined } catch { return undefined }
+}
+/** The listed computer of this room's a card's server names, if it is one. */
+function roomBoardGroupBase(server: string): string | undefined {
+  return (roomStorageRecord()?.nodes ?? []).find(base => roomBoardGroupServer(base) === server)
 }
 /** The key under which the one file a card has open is kept, as a message's would be. */
 let roomBoardFileKey: { log: string; key: string } | undefined
@@ -20398,7 +20456,10 @@ let roomBoardFileKey: { log: string; key: string } | undefined
 function openRoomBoardFile(file: RoomBoardFile, from: HTMLElement): void {
   const selected = session
   if (!selected) return
-  const attachment = file.servers.length ? normaliseAttachment({ url: `${file.servers[0]}${file.hash}`, sha256: file.hash, key: file.key,
+  // A file on one of the room's own computers is read as the room reads its
+  // files: at the place its signed list gives, with this device's own leave.
+  const listed = file.servers.map(roomBoardGroupBase).find(base => base !== undefined)
+  const attachment = file.servers.length ? normaliseAttachment({ url: listed ? `${listed}/${file.hash}` : `${file.servers[0]}${file.hash}`, sha256: file.hash, key: file.key,
     ...(file.name ? { name: file.name } : {}), ...(file.type ? { type: file.type } : {}), ...(Number.isSafeInteger(file.encryptedSize) && file.encryptedSize > 0 ? { size: file.encryptedSize } : {}) }) : null
   let https = false
   try { https = !!attachment && new URL(attachment.url).protocol === 'https:' } catch { /* Not an address. */ }
@@ -24892,14 +24953,11 @@ function renderStaged(): void {
   notice.hidden = !noticeShown
   if (destination.kind === 'default') {
     const host = fileHost(destination.origin)
-    const operator = publicFileServer(destination.origin)?.operator
     $('fileNoticeTitle').textContent = `Files you send are stored on ${host}`
     const closed = $('fileNoticeClosed')
     closed.textContent = FORGESWORN_STORAGE_CLOSED
     closed.hidden = !forgeSwornStorageClosed
-    // A deployer's own default is not on the vetted list, so nobody has
-    // checked that it is public: say who chose it instead.
-    $('fileNoticeBody').textContent = `${operator ? `It’s a public server run by ${plainOperator(operator)}.` : 'It’s the server chosen by whoever runs this copy of KithMoot.'} Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.`
+    $('fileNoticeBody').textContent = fileNoticeBody(destination.origin)
   }
   const send = $('chatForm').querySelector('button[type=submit]')!
   if (noticeShown) send.setAttribute('aria-describedby', `${forgeSwornStorageClosed ? 'fileNoticeClosed ' : ''}fileNoticeTitle fileNoticeBody`); else send.removeAttribute('aria-describedby')
@@ -25056,6 +25114,14 @@ function blossomServer(): string {
 const fileHost = (origin: string): string => new URL(origin).host
 /** "Yakihonne LLC" reads "Yakihonne" in running text. */
 const plainOperator = (operator: string): string => operator.replace(/,?\s+(?:LLC|Ltd\.?|Inc\.?)$/i, '')
+/** What the one-time notice says about the default server, wherever it is
+ *  asked: beside Send in a chat, and before the first file on a card. */
+function fileNoticeBody(origin: string): string {
+  const operator = publicFileServer(origin)?.operator
+  // A deployer's own default is not on the vetted list, so nobody has
+  // checked that it is public: say who chose it instead.
+  return `${operator ? `It’s a public server run by ${plainOperator(operator)}.` : 'It’s the server chosen by whoever runs this copy of KithMoot.'} Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can. The server sees your IP address, a key made for this device, when files are sent and opened, and how big they are. It decides how long to keep them.`
+}
 
 /** The tray's line for a destination that cannot upload (S4, S5, S7, S8), and
  *  what its button does. Undefined when files can go. */
@@ -25211,8 +25277,13 @@ function requireFileStorage(server: string): void {
  *  line with the file's name and size says what is being waited for. */
 function dropProgress(draft: ConversationDraft, stage: string, file: File): void {
   draft.status = `${stage} ${file.name} (${formatBytes(file.size)})…`
+  draftStages.get(draft)?.(`${stage.replace(/:$/, '')}…`)
   draftChanged(draft)
 }
+/** A draft that belongs to no conversation (a file on its way to a card on
+ *  the room's board) has no tray to show a stage in: whoever made it hears
+ *  each stage here, without the name and size its own row already shows. */
+const draftStages = new WeakMap<ConversationDraft, (stage: string) => void>()
 
 /**
  * One dropped file, from bytes on this device to a staged attachment:
@@ -25450,7 +25521,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
-  if (held) waitingAttachments.add(attachment)
+  if (held) { waitingAttachments.add(attachment); if (result.status !== 'stored') waitingReasons.set(attachment, result.reason) }
   settled?.(file)
   if (pendingRecording?.file === file && pendingRecording.roomId === roomId) {
     pendingRecording.addedTo = draft

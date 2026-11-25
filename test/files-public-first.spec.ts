@@ -4,7 +4,7 @@ import { mkdtempSync, truncateSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateRoomSecret, encodeJoinUrl } from '../src/room.js'
-import { openSettings, closeSettings, allowTestFileStorage, leaveRoom } from './browser.js'
+import { openSettings, closeSettings, allowTestFileStorage, leaveRoom, openRoomBoard, closeRoomBoard } from './browser.js'
 import { routeTestBlossom } from './blossom.js'
 
 /**
@@ -90,6 +90,50 @@ test('the first file is held with the one-time notice, and Send is the act', asy
     await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ B|\d+ KB/, { timeout: 30_000 })
     await expect(page.locator('#fileNotice')).toBeHidden()
     expect(gate.uploads).toBe(2)
+  } finally { await context.close() }
+})
+
+test('the first file on a card of the room’s board asks the same question, and agreeing there is the act', async ({ browser, baseURL }) => {
+  const { page, context, gate } = await setup(browser, baseURL!, { width: 1280, height: 860 })
+  try {
+    await openRoomBoard(page)
+    const board = page.frameLocator('#roomBoardPanel iframe')
+    const composer = board.getByRole('textbox', { name: 'Add a card to To do', exact: true })
+    await composer.fill('Floor plan')
+    await composer.press('Enter')
+    await board.getByRole('link', { name: 'Floor plan', exact: true }).click()
+    const files = board.locator('.card-files')
+    const choosing = page.waitForEvent('filechooser')
+    await files.getByRole('button', { name: 'Add file', exact: true }).click()
+    await (await choosing).setFiles([JPEG('IMG_2041.jpg'), JPEG('hilltop.jpg')])
+
+    // Two files, one question, in the words the tray uses beside Send.
+    const asking = page.locator('#actionDialog')
+    await expect(asking).toBeVisible()
+    await expect(asking).toContainText('Store files you send on blossom.yakihonne.com?')
+    await expect(asking).toContainText(NOTICE_BODY)
+    await expect(files.locator('.file-list li')).toHaveCount(2)
+    await expect(files.locator('.file-list li').first()).toContainText('Waiting for you to say where files may go…')
+    // Nothing has been asked of any file server, and nothing is stored.
+    expect(gate.hits).toEqual([])
+    expect(await stored(page)).toBeNull()
+
+    gate.mode = 'serve'
+    await asking.getByRole('button', { name: 'Store files there', exact: true }).click()
+    await expect(asking).toBeHidden()
+    await expect(files.getByRole('button', { name: 'Download IMG_2041.jpg', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(files.getByRole('button', { name: 'Download hilltop.jpg', exact: true })).toBeVisible({ timeout: 30_000 })
+    await expect(files.locator('.file-list li')).toHaveCount(2)
+    expect(gate.uploads).toBe(2)
+    // Written down exactly as pressing Send writes it.
+    expect(JSON.parse((await stored(page))!)).toEqual({ mode: 'shared', disclosure: 3, origin: DEFAULT, via: 'default' })
+
+    // The chat now uploads on pick with no notice: the choice was one choice.
+    await closeRoomBoard(page)
+    await pick(page, JPEG('third.jpg'))
+    await expect(page.locator('#attachStaged .attachChip .s')).toHaveText(/\d+ B|\d+ KB/, { timeout: 30_000 })
+    await expect(page.locator('#fileNotice')).toBeHidden()
+    expect(gate.uploads).toBe(3)
   } finally { await context.close() }
 })
 

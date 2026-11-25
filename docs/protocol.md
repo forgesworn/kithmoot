@@ -841,8 +841,10 @@ each event as for envelope-1 chat. Nothing of what is on the board.
 in the board's document and not in a message. So it gives away what a chat
 file does and nothing more: the file server holds the sealed envelope and
 sees its size and the connection that sent it, and the room's relays carry
-the same kind-1063 announcement of it. The key, the name and the card it is
-on are inside the board. See [The room's own board](room-board.md).
+the same kind-1063 announcement of it. In a room with storage of its own the
+file is on one of the group's computers and nothing is announced, as for a
+chat file there. The key, the name and the card it is on are inside the
+board. See [The room's own board](room-board.md).
 
 ## Call signalling profile 1
 

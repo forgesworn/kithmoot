@@ -13,6 +13,8 @@ import { agentRelaysFor, testRelaysFor } from './relays.js'
 // it have gone: a board that only its author can see proves nothing.
 
 const board = (page: Page) => page.frameLocator('#roomBoardPanel iframe')
+/** The public server a device that has chosen nothing would send files to. No test lets a request reach it. */
+const DEFAULT_FILE_SERVER = 'https://blossom.yakihonne.com'
 const card = (page: Page, title: string) => board(page).getByRole('link', { name: title, exact: true })
 
 async function addCard(page: Page, title: string): Promise<void> {
@@ -165,6 +167,10 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   const download = bob.waitForEvent('download')
   await tool(bob, 'Export board').click()
   const exporting = board(bob).getByRole('dialog', { name: 'Export this board', exact: true })
+  // No bundle of file contents is offered: nothing in the frame can read a
+  // card's file, so one could only list every file as missing.
+  await expect(exporting.getByRole('button', { name: /bundle/i })).toHaveCount(0)
+  await expect(exporting).toContainText('It includes the names of files on cards, not the files.')
   await exporting.getByRole('button', { name: 'Save readable JSON', exact: true }).click()
   const saved = await download
   expect(saved.suggestedFilename()).toBe('girnel-board.json')
@@ -293,12 +299,14 @@ test('another chat is one click from the board, and what is half typed there is 
 
 /** A file server at the app's own address that keeps each file at its hash,
  *  as a Blossom server does, in front of the acceptance store. What it was
- *  asked to delete is kept in `deleted`. */
-async function fileServer(context: BrowserContext, origin: string): Promise<{ uploaded: string[]; deleted: string[] }> {
-  const seen = { uploaded: [] as string[], deleted: [] as string[] }
+ *  asked to delete is kept in `deleted`. An upload waits for `hold`, when
+ *  one is set, so a test can look at the card while a file is on its way. */
+async function fileServer(context: BrowserContext, origin: string): Promise<{ uploaded: string[]; deleted: string[]; hold?: Promise<void> }> {
+  const seen: { uploaded: string[]; deleted: string[]; hold?: Promise<void> } = { uploaded: [], deleted: [] }
   await context.route(url => url.origin === origin && (url.pathname === '/upload' || /^\/[0-9a-f]{64}$/.test(url.pathname)), async route => {
     const url = new URL(route.request().url())
     if (route.request().method() === 'DELETE') seen.deleted.push(url.pathname.slice(1))
+    if (url.pathname === '/upload' && route.request().method() === 'PUT') await seen.hold
     const response = await route.fetch({ url: TEST_RELAY_HTTP + (url.pathname === '/upload' ? '/upload' : '/blossom' + url.pathname), headers: { ...route.request().headers(), origin } })
     if (url.pathname !== '/upload' || !response.ok()) { await route.fulfill({ response }); return }
     const descriptor = await response.json() as { sha256: string; url: string }
@@ -325,16 +333,41 @@ test('a file goes onto a card through the room’s own file sharing, somebody el
     await (await choosing).setFiles({ name, mimeType: 'text/plain', buffer: Buffer.from(text) })
   }
 
-  // Before this person has agreed to where the room's files go, nothing
-  // leaves the device and the card says what to do.
+  // Ada has never sent a file. The card asks her what a chat asks beside
+  // Send, in the same words, and until she agrees nothing leaves the device.
+  const reached: string[] = []
+  await adaContext.route(address => address.origin === DEFAULT_FILE_SERVER, route => { reached.push(route.request().url()); return route.abort() })
   await pick(ada, 'plan.txt', 'Meet at the hall at seven')
-  await expect(files(ada)).toContainText('Attach a file in the chat first, then add it to the card.')
-  await expect(files(ada).locator('.file-list li')).toHaveCount(0)
+  const asking = ada.locator('#actionDialog')
+  await expect(asking).toBeVisible()
+  await expect(asking).toContainText(`Store files you send on ${new URL(DEFAULT_FILE_SERVER).host}?`)
+  await expect(asking).toContainText('Files are encrypted on this device first, so the server can’t open them, but anyone in this chat can.')
+  await asking.getByRole('button', { name: 'Not now', exact: true }).click()
+  // The file stays on the card, for her only, with the reason and a way to try again.
+  const row = files(ada).locator('.file-list li')
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('plan.txt')
+  // Still where she was looking: the card has not jumped back to its top.
+  await expect(row).toBeInViewport()
+  await expect(row).toContainText('Not attached. Nothing is uploaded until you have said where files may go.')
+  await expect(board(ada).getByText('Ada attached plan.txt.')).toHaveCount(0)
+  expect(reached).toEqual([])
+  expect(await ada.evaluate(() => localStorage.getItem('kithmoot.file-storage.v1'))).toBeNull()
 
+  // She chooses a server of her own instead. The file she picked is still on
+  // the card when she comes back, and Try again sends it without asking.
   await allowTestFileStorage(ada, origin)
   await openRoomBoard(ada)
-  await pick(ada, 'plan.txt', 'Meet at the hall at seven')
+  let release = (): void => {}
+  store.hold = new Promise<void>(resolve => { release = resolve })
+  await files(ada).getByRole('button', { name: 'Try again plan.txt', exact: true }).click()
+  // While it is going the row says where it has got to, and offers only to stop it.
+  await expect(row).toContainText(`Uploading to ${new URL(origin).hostname}…`)
+  await expect(row.getByRole('button')).toHaveText(['Remove'])
+  release()
   await expect(files(ada).getByRole('button', { name: 'Download plan.txt', exact: true })).toBeVisible()
+  await expect(row).toHaveCount(1)
+  expect(reached).toEqual([])
   await expect(board(ada).getByText('Ada attached plan.txt.')).toBeVisible()
   await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
   expect(store.uploaded).toHaveLength(1)

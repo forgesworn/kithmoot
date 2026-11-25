@@ -34,7 +34,7 @@ interface RoomBoardHost {
   discuss?(card: { id: string; title: string; description: string }): void
   invite?(): void
   assign?(card: { id: string; title: string; description: string }): void
-  files?: { add(file: File, signal: AbortSignal): Promise<RoomBoardFile>; open(file: RoomBoardFile, how: 'open' | 'download'): void }
+  files?: { add(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardFile>; open(file: RoomBoardFile, how: 'open' | 'download'): void }
   signal?: AbortSignal
 }
 type RoomBoardWindow = Window & { girnelRoomBoard?: { start(host: RoomBoardHost): void; hasPendingEdits(): boolean } }
@@ -120,8 +120,9 @@ export class RoomBoardPanel {
     invite(): void
     /** A card as the start of a room task for an agent: the room's own task form, filled in from it. */
     assign(card: { id: string; title: string; description: string }): void
-    /** One file for a card, sealed and uploaded as the room shares any file. Rejects with words for the person. */
-    addFile(file: File, signal: AbortSignal): Promise<RoomBoardFile>
+    /** One file for a card, sealed and uploaded as the room shares any file. `said` takes each stage as it is reached,
+     *  in a few words. Rejects with words for the person, which the card shows beside Try again. */
+    addFile(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardFile>
     /** Show a card's file as the room shows any file: fetched only when the person asks, checked, and never trusted for what it says it is. */
     openFile(file: RoomBoardFile, from: HTMLElement): void
   }) {
@@ -183,8 +184,13 @@ export class RoomBoardPanel {
               self: room.self,
               members: () => view.room.members(),
               state: () => log.state(),
-              // The view is this edit's source, so its own echo is not sent back to it.
-              push: update => { if (current()) log.apply(Uint8Array.from(update), view) },
+              // The view is this edit's source, so its own echo is not sent back to it. An edit the room cannot take
+              // (the room has changed, or the board is closed) is refused by throwing: the view then undoes it, and
+              // never holds a change the room lacks.
+              push: update => {
+                if (!current()) throw new Error('The room changed, so this edit was not saved.')
+                log.apply(Uint8Array.from(update), view)
+              },
               subscribe: listener => {
                 const stop = log.onUpdate((update, source) => { if (source !== view && current()) listener(update) })
                 view.abort.signal.addEventListener('abort', stop, { once: true })
@@ -195,7 +201,9 @@ export class RoomBoardPanel {
               ...(room.canInvite ? { invite: () => { if (current()) this.options.invite() } } : {}),
               assign: card => { if (current()) this.options.assign({ id: String(card.id), title: String(card.title), description: String(card.description) }) },
               files: {
-                add: (file, signal) => current() ? this.options.addFile(file, signal) : Promise.reject(new Error('The room changed. Nothing was uploaded.')),
+                add: (file, signal, said) => current()
+                  ? this.options.addFile(file, signal, words => { if (current() && !signal.aborted) said(String(words)) })
+                  : Promise.reject(new Error('The room changed. Nothing was uploaded.')),
                 // A reference is something any member can write: every field is read as plain text or a number, and the
                 // room's own reader decides what to make of it.
                 open: file => { if (current()) this.options.openFile({ hash: String(file.hash), key: String(file.key), name: String(file.name), type: String(file.type),
