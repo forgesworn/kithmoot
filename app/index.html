@@ -1257,9 +1257,10 @@
     <!-- New room, and the two ways of opening a room somebody else made.
          Each is the form that used to sit on the start page, now a sheet the
          New menu opens from any screen, in a room or out of one. -->
-    <dialog id="nodeWaiting" class="profileSettings" aria-labelledby="nodeWaitingTitle">
-      <h2 id="nodeWaitingTitle">Waiting to be let in</h2>
-      <p class="note" role="status">The keeper needs to be online. Leave this open while they decide. The request expires after ten minutes.</p>
+    <dialog id="nodeWaiting" class="profileSettings" aria-labelledby="nodeWaitingTitle" aria-describedby="nodeWaitingHost nodeWaitingHelp">
+      <h2 id="nodeWaitingTitle">Waiting for the room host</h2>
+      <p id="nodeWaitingHost" class="note"></p>
+      <p id="nodeWaitingHelp" class="note">Ask the host to open this room in KithMoot and look for your request. Keep this open for their reply. The request expires after ten minutes.</p>
       <form method="dialog"><button type="submit">Cancel request</button></form>
     </dialog>
     <dialog id="newRoomDialog" class="profileSettings" aria-labelledby="newRoomHeading">

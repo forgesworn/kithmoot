@@ -5821,8 +5821,10 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
       // the account's other devices to be online.
       if (ownRoom) held = await admitOwnNodeDevice(node, participant, current)
       if (!held) {
-        if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${new URL(node.origin).hostname}. Its keeper decides who can join. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
+        const host = new URL(node.origin).hostname
+        if (!ownRoom && !await confirmAction({ title: 'Ask to join this room?', message: `This room is hosted on ${host}. The room host can approve your request. The node sees your IP address.`, confirmLabel: 'Ask to join', isCurrent: current })) throw Error('The request was cancelled.')
         const waiting = $('nodeWaiting') as HTMLDialogElement, controller = new AbortController()
+        $('nodeWaitingHost').textContent = `Hosted on ${host}.`
         const cancel = () => controller.abort(); waiting.addEventListener('close', cancel, { once: true }); waiting.showModal()
         try { held = await askBrowserNodeRoom(deviceStore, node, participant, { name: joiningName() ?? 'Guest', allowed: current, signal: controller.signal }) }
         catch (error) { if (controller.signal.aborted) throw new AdmissionPreviewCancelled(true); throw error }
@@ -5908,7 +5910,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
         $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : roomName ? `Ask to join ${roomName}` : 'Ask to join this room'
         $('arrivalLead').textContent = invitation.persistent
           ? 'Checking the room invitation…'
-          : 'Someone in the room needs to let you in. Check your details before sending a request.'
+          : 'A room member with permission can let you in. Check your details before asking to join.'
         $('arrivalLead').hidden = false
         setStatus(invitation.persistent ? 'Getting you in…' : '', 'progress')
         if (!invitation.persistent) showDoorWhileSwitching()
@@ -5937,7 +5939,7 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
             await preview.ready
             if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview.requested)
             $('arrivalTitle').textContent = 'Waiting to be admitted'
-            $('arrivalLead').textContent = 'Your details are ready. Someone in the room needs to accept your request.'
+            $('arrivalLead').textContent = 'If you need to follow up, ask the person who shared the link to tell the room you’re waiting.'
             armStopOpening()
           }
           const identityAtRequest = identityGeneration, generationAtRequest = roomGeneration, hashAtRequest = location.hash

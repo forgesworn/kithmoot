@@ -1511,9 +1511,15 @@ test('a guest who knocks on a node room while its owner is on the start page is 
     await expect(owner.getByRole('button', { name: 'Open Knock from afar' })).toBeVisible({ timeout: 60_000 })
 
     const guest = await nodeGuest(browser, baseURL!, fixture, contexts, log)
+    await guest.setViewportSize({ width: 390, height: 844 })
     await openRoomUrl(guest, link)
     if (await guest.locator('#displayName').isVisible()) await guest.locator('#displayName').fill('Guest')
+    await expect(guest.locator('#actionDialog')).toContainText('The room host can approve your request.')
     await guest.getByRole('button', { name: 'Ask to join' }).click({ timeout: 60_000 })
+    const waiting = guest.getByRole('dialog', { name: 'Waiting for the room host' })
+    await expect(waiting).toContainText('Hosted on node.example.')
+    await expect(waiting).toContainText('Ask the host to open this room in KithMoot and look for your request.')
+    await expect(waiting.getByRole('button', { name: 'Cancel request' })).toBeInViewport()
 
     const card = owner.locator('#awayKnocks .approvalCard.knock')
     await expect(card).toContainText('wants to join Knock from afar', { timeout: 60_000 })

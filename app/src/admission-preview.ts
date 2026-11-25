@@ -62,7 +62,7 @@ export class AdmissionPreview {
       preparing: 'Preparing your request…',
       signing: 'Waiting for your account to sign the request. You can cancel while your signer is open.',
       sending: 'Sending your request…',
-      waiting: 'Your request reached a relay. Waiting for someone in the room to let you in.',
+      waiting: 'Your request reached a relay. Waiting for a member who can admit guests.',
       reconnecting: 'Checking the connection and retrying the same request. This does not create another request.',
     }[phase]
     this.view.request.textContent = phase === 'preview' ? 'Request to join' : 'Requesting…'
