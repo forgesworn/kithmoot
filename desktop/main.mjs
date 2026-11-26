@@ -16,7 +16,7 @@ import { SPRY_MANIFEST, helperKey, verifiedHelper } from './spry-bundle.mjs'
 import { keepSpellingLocal, usesSystemSpellchecker } from './spellcheck.mjs'
 import { AttachmentWindows, attachmentViewerAsset, registerAttachmentScheme } from './attachment-window.mjs'
 import { applyLocalAddressPolicy } from './local-address-policy.mjs'
-import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol, safeStorage } from 'electron'
+import { app, autoUpdater, BrowserWindow, screen, session, net, Menu, dialog, shell, systemPreferences, desktopCapturer, ipcMain, powerSaveBlocker, powerMonitor, Notification, clipboard, nativeTheme, protocol, safeStorage, webContents } from 'electron'
 import { access, readFile } from 'node:fs/promises'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { restoreBounds, readWindowState } from './window-state.mjs'
@@ -541,11 +541,19 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
     })
     // First, before any window: no spelling dictionaries from Google.
     for (const ses of [session.defaultSession, session.fromPartition(DESKTOP_PARTITION)]) keepSpellingLocal(ses)
-    const trustedAttachment = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame
-    ipcMain.handle('desktop:attachment-begin', (event, metadata) => trustedAttachment(event) ? attachments.begin(event.sender, metadata) : null)
-    ipcMain.handle('desktop:attachment-write', (event, id, chunk, finish) => trustedAttachment(event) && attachments.write(event.sender, id, chunk, finish))
-    ipcMain.on('desktop:attachment-close', (event, id) => { if (trustedAttachment(event)) attachments.close(event.sender, id) })
-    ipcMain.on('desktop:attachment-close-all', event => { if (trustedAttachment(event)) attachments.closeOwner(event.sender) })
+    const trustedMainFrame = event => trusted(event.sender) && event.senderFrame === win?.webContents.mainFrame
+    ipcMain.handle('desktop:attachment-begin', (event, metadata) => trustedMainFrame(event) ? attachments.begin(event.sender, metadata) : null)
+    ipcMain.handle('desktop:attachment-write', (event, id, chunk, finish) => trustedMainFrame(event) && attachments.write(event.sender, id, chunk, finish))
+    ipcMain.on('desktop:attachment-close', (event, id) => { if (trustedMainFrame(event)) attachments.close(event.sender, id) })
+    ipcMain.on('desktop:attachment-close-all', event => { if (trustedMainFrame(event)) attachments.closeOwner(event.sender) })
+    // The profile's single-instance lock excludes other processes. The
+    // main window must also be the sole room client in this session.
+    ipcMain.handle('desktop:bothy-room-window-ready', event => {
+      if (!trustedMainFrame(event)) return false
+      const owner = event.sender
+      return webContents.getAllWebContents().every(contents =>
+        contents === owner || contents.session !== owner.session || !isAppUrl(contents.getURL()))
+    })
     ipcMain.handle('desktop:area-arm', event => { if (!trusted(event.sender) || !shareArea.window) return false; configureDisplayCapture(true); return true })
     ipcMain.handle('desktop:area-state', event => trusted(event.sender) ? shareArea.state() : null)
     ipcMain.handle('desktop:area-check', event => trusted(event.sender) ? shareArea.check() : null)
@@ -676,9 +684,13 @@ if (!testProfile && !app.requestSingleInstanceLock()) {
       contents.setWindowOpenHandler(({ url }) => { void external(url); return { action: 'deny' } })
       attachContextMenu(contents)
       contents.on('will-navigate', (event, url) => {
-        if (!isAppUrl(url)) { event.preventDefault(); void external(url) }
+        if (contents === win?.webContents && isAppUrl(url)) return
+        event.preventDefault()
+        if (!isAppUrl(url)) void external(url)
       })
-      contents.on('will-redirect', (event, url) => { if (!isAppUrl(url)) event.preventDefault() })
+      contents.on('will-redirect', (event, url) => {
+        if (contents !== win?.webContents || !isAppUrl(url)) event.preventDefault()
+      })
       contents.on('will-attach-webview', event => event.preventDefault())
     })
     // Browsers hand kithmoot://join links to the installed app. Never from

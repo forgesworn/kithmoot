@@ -49,7 +49,10 @@ hold shared Web Locks for their lifetime. Activation takes exclusive locks,
 closes session/media work, then requires both publication acknowledgement and
 exact signed readiness readback. A service-worker preflight requires a gate
 acknowledgement from every current app tab. Old or frozen tabs block activation.
-Broadcasts carry only a change notification, with no room or account IDs.
+The desktop shell permits only one app instance per profile and checks that
+the caller is the only room window in that session. The same Web Locks close
+public traffic before changing the route. Broadcasts carry only a change
+notification, with no room or account IDs.
 
 Reload, sign-out, a different account, expiry and route failure cannot choose
 public relays implicitly. Background room watches cannot take Link endpoint
