@@ -3,6 +3,7 @@ import { directChatName } from './direct-chat-name.js'
 import { admin2ProductSelected, browserMlsEnabled } from './mls-invitation-profile.js'
 import { NodeSettings } from './node-settings.js'
 import { NodeMigrationFrameReceiver, encodeNodeMigrationFrames } from '@forgesworn/fold-kit/node-migration'
+import { requestOwnerApprovedRoomAdmission } from '@forgesworn/fold-kit'
 import { copyNodeMigrationHistory, nodeMigrationHistoryTarget } from '../../src/node-migration-history.js'
 import { prepareExistingBrowserNodeRoom, acceptExistingBrowserNodeRoom, matchesExistingBrowserRoom, type ExistingBrowserRoom } from './existing-node-room.js'
 import { parseNodeRoomLink, encodeNodeRoomLink, longNodeRoomLink, inspectNodeRoomLink, readNodeRoom, verifyNodeRoomGrant, type NodeRoomRecord, type NodeJoinRequest } from '@forgesworn/fold-kit/node-room'
@@ -170,6 +171,8 @@ import {
 } from './device-store.js'
 import { ASSIGNMENT_CHANNEL } from '../../src/assignments.js'
 import { forgetRoomEpoch, keepFollowedRekey, keptEpochIds, keptEpochRoots, loadKeptRoomEpoch, loadWatchedEpoch, pastRootsOf, storeKeptRoomEpoch } from './room-epoch-store.js'
+import { forgetRoomRotation, hasRoomRotation, loadRoomRotation, requireRoomRotationOwner, ROOM_ROTATION_PREFIX, rotationHistory, storeRoomRotation, type RoomRotation } from './room-rotation-store.js'
+import { generateEpochSecret } from '../../src/epoch.js'
 import { CallRecorder, recordingFileName, recordingMimeType } from './call-recorder.js'
 import { INVITATION_OWNER_PREFIX, forgetRoomAccess, loadInvitationOwner as readInvitationOwner, storeInvitationOwner as writeInvitationOwner } from './invitation-store.js'
 import { storeTabAdmission } from './admission-store.js'
@@ -2823,6 +2826,7 @@ function safeIceUrls(urls: string[]): string[] {
 
 function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array): string {
   if (nodeRoom) throw Error('A hosted room shares only its ask-to-join link.')
+  if (roomInvitationCapability?.ownerApprovedRoom) throw new Error('Ask the host to approve the other device using this room’s invitation.')
   const relays = linkRelays(pool)
   // A member's own link names the room's authority beside its inviter, as
   // fold-kit's `encodeRoomLink` writes it; every other link is unchanged.
@@ -2848,6 +2852,13 @@ function encodePayload(pool: string[], urls: string[], pairingCode?: Uint8Array)
 
 function encodeRoomUrl(base: string, relays: string[], urls: string[]): string {
   if (nodeRoom) return encodeNodeRoomLink(base, nodeRoom.node.event, nowSeconds())
+  if (roomInvitationCapability?.ownerApprovedRoom) return encodeRoomLink(base, {
+    invitation: roomInvitationCapability,
+    relays: invitationRelaysFrom(relays),
+    iceUrls: urls,
+    policy: roomPolicy,
+    name: roomName,
+  })
   return `${base}#${encodePayload(relays, urls)}`
 }
 
@@ -3178,7 +3189,7 @@ function refreshKeptAdmission(): void {
 
 function setKeepRoomChoice(on: boolean): void {
   const roomId = currentRoomId()
-  if (!roomId || !roomInvitationCapability) return
+  if (!roomId || !roomInvitationCapability || roomInvitationCapability.ownerApprovedRoom) return
   if (!setKeepRoom(roomStore(), roomId, on)) {
     rememberCurrentRoom()
     setKeepRoom(roomStore(), roomId, on)
@@ -3647,7 +3658,8 @@ function forgetKnocks(): void {
 function renderKnockChoice(): void {
   const row = $('knockRow')
   const roomId = currentRoomId()
-  const answers = roomId !== undefined && roomInvitationCapability !== undefined && !roomInvitationCapability.persistent && invitationAuthoritySk !== undefined
+  const answers = roomId !== undefined && roomInvitationCapability !== undefined && !roomInvitationCapability.persistent &&
+    !roomInvitationCapability.ownerApprovedRoom && invitationAuthoritySk !== undefined
   row.hidden = !answers
   if (!answers) return
   const on = knockOn(roomId)
@@ -3774,7 +3786,7 @@ function renderKeepChoice(): void {
   const roomId = currentRoomId()
   const on = roomId !== undefined && knownRoom(roomStore(), roomId)?.keep === true
   const creator = isRoomAuthority()
-  row.hidden = creator || !roomId || !roomInvitationCapability || (!currentJoinerAdmission() && !on)
+  row.hidden = creator || !roomId || !roomInvitationCapability || !!roomInvitationCapability.ownerApprovedRoom || (!currentJoinerAdmission() && !on)
   setToggle('toggleKeep', on)
   $('toggleKeep').setAttribute('aria-pressed', String(on))
   $('keepNote').textContent = roomInvitationCapability?.persistent
@@ -3871,6 +3883,9 @@ function serveCurrentInvitation(): void {
   const invitation = roomInvitationCapability
   if (invitation?.persistent && invitationAuthoritySk && invitationDelegation.length === 0 && !roomPolicy?.members?.length) keepGroupInvitationAlive(invitation, roomSecret, invitationAuthoritySk, roomEndsAt, roomDestruct)
   if (!invitation || !invitationAuthoritySk || invitation.persistent) return
+  const ownerRoom = invitation.ownerApprovedRoom
+  const hostSession = ownerRoom ? session : undefined
+  if (ownerRoom && (!hostSession || !liveRotatedHost(hostSession, invitation))) return
   invitationTransport = configuredPool(relays)
   const admissionRoom = deriveRoom(roomSecret).roomId
   try {
@@ -3883,15 +3898,23 @@ function serveCurrentInvitation(): void {
       // Which epoch a grant from this browser opens. The session knows once
       // joined; before that, what this browser was itself told, or 0 for a
       // room this browser made.
-      epoch: () => session?.epoch ?? expectedEpoch ?? 0,
+      ...(hostSession ? {
+        approvedEpoch: () => {
+          const held = liveRotatedHost(hostSession, invitation)
+          if (!held) throw new Error('The host’s room key changed while sending this approval.')
+          return held.admission.epoch
+        },
+      } : { epoch: () => session?.epoch ?? expectedEpoch ?? 0 }),
       admit: async request => {
         if (currentRoomId() !== admissionRoom || (request.participant && contactIsBlocked(request.participant))) return false
         const decidingSession = session
-        const yes = knockOn(admissionRoom) ? await askToLetIn(request) : true
+        if (hostSession && (!liveRotatedHost(hostSession, invitation) || (request.participant && hostSession.removed.has(request.participant)))) return false
+        const yes = hostSession || knockOn(admissionRoom) ? await askToLetIn(request) : true
         // A decision can settle while navigation or contact policy changes.
         // It must never authorise the session opened in another room.
         if (currentRoomId() !== admissionRoom || session !== decidingSession || roomInvitationCapability !== invitation ||
             (request.participant && contactIsBlocked(request.participant))) return false
+        if (hostSession && (!liveRotatedHost(hostSession, invitation) || (request.participant && hostSession.removed.has(request.participant)))) return false
         // Only a proved account becomes known to the room's member desk.
         // Manual bearer admission does not endorse the claimed account.
         if (yes && request.verifiedParticipant) session?.letIn(request.verifiedParticipant)
@@ -3934,6 +3957,18 @@ function serveCurrentInvitation(): void {
     invitationAuthoritySk = undefined
     invitationDelegation = []
   }
+}
+
+const readyRotationHosts = new WeakSet<RoomSession>()
+const rotatedSessions = new WeakSet<RoomSession>()
+
+function liveRotatedHost(s: RoomSession, invitation: RoomInvitation): RoomRotation | undefined {
+  if (!readyRotationHosts.has(s) || session !== s || s.roomId !== invitation.ownerApprovedRoom || s.closed || s.behind ||
+      roomInvitationCapability !== invitation || rotationParticipant() !== s.participant) return undefined
+  const held = loadRoomRotation(deviceStore, s.roomId, s.participant)
+  if (!held?.ownerSk || held.needsApproval || getPublicKey(held.ownerSk) !== invitation.inviter) return undefined
+  const active = s.currentEpoch()
+  return held.admission.epoch.epoch === active.epoch && bytesToHex(held.admission.epoch.secret) === bytesToHex(active.secret) ? held : undefined
 }
 
 // The creator can have the same room open in two tabs. Both restore the
@@ -5800,6 +5835,91 @@ async function admitOwnNodeDevice(node: NodeRoomRecord, participant: Participant
  * src/room.ts so old links do not break during rollout.
  */
 interface ContactNodeOpening { record: string; allowed(): boolean }
+const OLD_ROOM_KEY_REPLACED = 'This room’s shared key has been replaced. Open the room from Chats or ask the host for the current invitation.'
+const ROOM_KEY_APPROVAL_NEEDED = 'This room has a new key. Ask the host to approve this device again.'
+
+function rotationParticipant(): string | undefined {
+  return nostrSession?.pubkey ?? (!visitorChosen() ? expectedAccount : undefined) ?? currentParticipant()
+}
+
+function withRoomRotationLock<T>(roomId: string, action: () => T): Promise<T> {
+  if (!navigator.locks) throw new Error('This browser cannot safely save a room key change. Open the invitation on a supported device.')
+  return navigator.locks.request(ROOM_ROTATION_PREFIX + roomId, action)
+}
+
+function discardRotationAccess(roomId: string, participant: string | undefined): void {
+  void withRoomRotationLock(roomId, () => forgetRoomRotation(deviceStore, roomId, participant)).catch(() => {
+    if (currentRoomId() === roomId) setStatus('This device could not forget its saved room key. Check storage and try again.')
+  })
+}
+
+function flagRoomKeyApproval(roomId: string, participant: string, epoch: number): Promise<void> {
+  return withRoomRotationLock(roomId, () => {
+    const held = loadRoomRotation(deviceStore, roomId, participant)
+    if (!held || held.needsApproval || held.admission.epoch.epoch > epoch) return
+    storeRoomRotation(deviceStore, roomId, { ...held, needsApproval: true }, nowSeconds())
+  })
+}
+
+async function closeRoomForKeyChange(s: RoomSession, message: string): Promise<void> {
+  if (dockedCall?.session === s) { await endDockedCall('user', message); return }
+  if (session !== s) return
+  captureDraft()
+  const closing = closeRoomSession({ backgroundFarewell: true })
+  const generation = roomGeneration
+  await closing
+  if (generation !== roomGeneration) return
+  resetRoomState()
+  history.replaceState(null, '', joinLinkBase())
+  showRoomsList()
+  setStatus(message)
+}
+
+window.addEventListener('storage', event => {
+  if (event.storageArea !== localStorage || !event.key?.startsWith(ROOM_ROTATION_PREFIX)) return
+  const [roomId, participant] = event.key.slice(ROOM_ROTATION_PREFIX.length).split('.')
+  if (!roomId || !/^[0-9a-f]{64}$/.test(roomId)) return
+  stopWatching(roomId)
+  for (const s of [session, dockedCall?.session]) {
+    if (s?.roomId !== roomId) continue
+    if (!rotatedSessions.has(s) || (participant === s.participant && event.newValue === null)) {
+      void closeRoomForKeyChange(s, OLD_ROOM_KEY_REPLACED).catch(error => setStatus(describeError(error)))
+    }
+  }
+  const saved = knownRoom(roomStore(), roomId)
+  if (saved) watchKnownRoom(saved)
+})
+
+function adoptRoomRotation(link: RoomLink, rotation: RoomRotation): void {
+  const invitation = link.invitation!
+  const roomId = invitation.ownerApprovedRoom!
+  roomSecret = rotation.admission.secret
+  invitationAuthoritySk = rotation.ownerSk
+  startedHere = !!rotation.ownerSk
+  invitationDelegation = []
+  expectedEpoch = undefined
+  admittedRoom = undefined
+  roomRelayScope = `room:${roomId}`
+  roomPolicy = link.policy
+  relayConnections.setRoomRelays(roomId, { fixed: invitationRelaysFrom(link.relays) })
+  useRoomRelays(link.relays)
+}
+
+function roomRotationForSession(roomId: string, participant: string): RoomRotation | undefined {
+  const invitation = roomInvitationCapability
+  if (!invitation?.ownerApprovedRoom) {
+    if (hasRoomRotation(deviceStore, roomId)) throw new Error(OLD_ROOM_KEY_REPLACED)
+    return undefined
+  }
+  if (nodeRoom || roomUsesBothy || invitation.ownerApprovedRoom !== roomId) throw new Error('Open the rotated room from its host’s invitation.')
+  const held = loadRoomRotation(deviceStore, roomId, participant)
+  if (held?.needsApproval) throw new Error(ROOM_KEY_APPROVAL_NEEDED)
+  if (!held || parseRoomLink(held.link).invitation?.inviter !== invitation.inviter) {
+    throw new Error('This persona needs host approval to open the room with its new key.')
+  }
+  return held
+}
+
 async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boolean> {
   if (location.hash.length <= 1) return false
   if (identityRestoring && expectingSavedPersonas()) await identityReady
@@ -5855,23 +5975,35 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
   // One parser for every link the app opens, so the bounds it enforces -
   // fragment size, how many relays and ICE servers a link may name, and
   // that a public relay is wss - hold here as they do in the library.
-  const parsedLink = parseRoomLink(location.href)
+  let parsedLink = parseRoomLink(location.href)
   // A returning account restores its live signer asynchronously. Do not
   // issue an unproved guest request while that matching signer is arriving.
   if (parsedLink.invitation && !parsedLink.invitation.persistent && identityRestoring && expectedAccount) await identityReady
   if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
+
+  const rotatedRoomId = parsedLink.invitation?.ownerApprovedRoom
+  const savedRotation = rotatedRoomId ? loadRoomRotation(deviceStore, rotatedRoomId, rotationParticipant()) : undefined
+  const keptRotation = savedRotation?.needsApproval ? undefined : savedRotation
+  if (rotatedRoomId) {
+    requireRoomRotationOwner(deviceStore, rotatedRoomId, parsedLink.invitation!.inviter)
+    // Retained access uses the relay hints kept with this approval.
+    if (keptRotation) parsedLink = parseRoomLink(keptRotation.link)
+  }
+  const knownSecret = keptRotation?.admission.secret ?? (rotatedRoomId ? undefined : secretForKnownRoom(parsedLink))
+  if (!rotatedRoomId && knownSecret && hasRoomRotation(deviceStore, deriveRoom(knownSecret).roomId)) {
+    throw new Error(OLD_ROOM_KEY_REPLACED)
+  }
 
   // The room's name, when the link says. Text a stranger wrote, so it gets
   // the display-name treatment before it lands anywhere.
   roomName = parsedLink.name
 
   const invitation = parsedLink.invitation
-  const knownSecret = secretForKnownRoom(parsedLink)
-  roomRelayScope = `room:${knownSecret ? deriveRoom(knownSecret).roomId : deriveInvitationId(invitation!)}`
+  roomRelayScope = `room:${rotatedRoomId ?? (knownSecret ? deriveRoom(knownSecret).roomId : deriveInvitationId(invitation!))}`
   if (invitation) {
     roomInvitationCapability = invitation
     invitationLinkRelays = parsedLink.relays
-    const owner = loadInvitationOwner(invitation)
+    const owner = rotatedRoomId ? undefined : loadInvitationOwner(invitation)
     // The room's own relays, when its secret is already known here: the
     // device that made it signs what it holds (or the link's, for a room
     // made before invitations carried relays); anybody else keeps what it
@@ -5887,7 +6019,9 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
     useRoomRelays(owner && relayConnections.inherits(roomRelayScope) ? [] : parsedLink.relays)
     roomPolicy = parsedLink.policy
 
-    if (owner) {
+    if (keptRotation) {
+      adoptRoomRotation(parsedLink, keptRotation)
+    } else if (owner) {
       roomSecret = owner.roomSecret
       roomEndsAt = owner.endsAt
       roomDestruct = owner.destruct === true
@@ -5900,8 +6034,8 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
     } else {
       // This tab's session first, then what the person chose to keep on
       // this device, then the live rendezvous.
-      const tabCached = loadCachedAdmission(invitation)
-      const saved = tabCached ?? loadKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), nowSeconds())
+      const tabCached = rotatedRoomId ? undefined : loadCachedAdmission(invitation)
+      const saved = rotatedRoomId ? undefined : tabCached ?? loadKeptAdmission(roomDeviceStore(), deriveInvitationId(invitation), nowSeconds())
       // An updated group link must load its signed durable invitation once,
       // so an earlier temporary grant cannot keep the twelve-hour storage rule.
       const cached = invitation.persistent && saved && 'delegate' in saved ? undefined : saved
@@ -5926,7 +6060,11 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
         $('arrivalTitle').textContent = invitation.persistent ? 'Opening this room' : roomName ? `Ask to join ${roomName}` : 'Ask to join this room'
         $('arrivalLead').textContent = invitation.persistent
           ? 'Checking the room invitation…'
-          : 'A room member with permission can let you in. Check your details before asking to join.'
+          : savedRotation?.needsApproval
+            ? ROOM_KEY_APPROVAL_NEEDED
+            : rotatedRoomId
+            ? 'Ask to join if this invitation came from the host you trust. The host approves each device. Your access is kept here until you forget the room.'
+            : 'A room member with permission can let you in. Check your details before asking to join.'
         $('arrivalLead').hidden = false
         setStatus(invitation.persistent ? 'Getting you in…' : '', 'progress')
         if (!invitation.persistent) showDoorWhileSwitching()
@@ -5965,58 +6103,77 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
           // been asked first: the request says who is asking, and the wait
           // is long enough for somebody to read a card and press a button.
           const askedAs = joiningName()
-          const askedFrom = currentParticipant()
+          if (rotatedRoomId && expectedAccount && !nostrSession && !visitorChosen()) {
+            throw new Error('Reconnect the selected account before asking to join this room.')
+          }
+          const askedFrom = currentParticipant() ?? (rotatedRoomId ? currentIdentity().pubkey : undefined)
           // A cached room pass or paired device cannot sign a new account
           // proof. Use only the matching live signer or local identity.
           const proofIdentity = askedFrom === nostrSession?.pubkey ? nostrSession?.signer
             : askedFrom && !expectedAccount && !isPairedSecondary(deviceStore) ? localIdentity(participantKey()) : undefined
           preview?.phase(proofIdentity && nostrSession ? 'signing' : 'preparing')
+          const current = () => !pending.signal.aborted && identityAtRequest === identityGeneration &&
+            generationAtRequest === roomGeneration && hashAtRequest === location.hash &&
+            roomInvitationCapability === invitation && Date.now() < deadline
           const requestTransport = admissionRequestTransport(transport, {
-            current: () => !pending.signal.aborted && identityAtRequest === identityGeneration &&
-              generationAtRequest === roomGeneration && hashAtRequest === location.hash &&
-              roomInvitationCapability === invitation && Date.now() < deadline,
+            current,
             phase: phase => preview?.phase(phase),
           })
-          let foundFurther: string[] = []
-          const admission = invitation.persistent
-            ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
-            : await requestRoomAdmissionCapability({
-              transport: requestTransport, invitation, timeoutMs: KNOCK_WAIT_MS,
-              signal: pending.signal,
-              ...(askedAs !== undefined ? { name: askedAs } : {}),
-              ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
-              ...(proofIdentity !== undefined ? { identity: proofIdentity } : {}),
+          const request = {
+            transport: requestTransport, invitation, timeoutMs: KNOCK_WAIT_MS, signal: pending.signal,
+            ...(askedAs !== undefined ? { name: askedAs } : {}),
+            ...(askedFrom !== undefined ? { participant: askedFrom } : {}),
+            ...(proofIdentity !== undefined ? { identity: proofIdentity } : {}),
+          }
+          if (rotatedRoomId) {
+            if (!askedFrom) throw new Error('Choose a persona before asking to join this room.')
+            const admission = await requestOwnerApprovedRoomAdmission(request)
+            const link = encodeRoomLink(joinLinkBase(), parsedLink)
+            const rotation = await withRoomRotationLock(rotatedRoomId, () => {
+              if (!current() || currentParticipant() !== askedFrom) throw new Error('Room admission cancelled.')
+              const prior = loadRoomRotation(deviceStore, rotatedRoomId, askedFrom)
+              return storeRoomRotation(deviceStore, rotatedRoomId, { participant: askedFrom, link, admission, past: prior?.past ?? [] }, nowSeconds())
             })
-          if (pending.signal.aborted || identityAtRequest !== identityGeneration) throw new Error('Room admission cancelled.')
-          roomSecret = admission.secret
-          roomEndsAt = 'endsAt' in admission ? admission.endsAt : undefined
-          roomDestruct = 'destruct' in admission && admission.destruct === true
-          // A relay that ignores NIP-40 can still hand out the invitation of
-          // a conference room that has ended. Nobody joins it.
-          if (conferenceEnded(roomEndsAt, nowSeconds())) throw new Error(conferenceEndedMessage(roomEndsAt!))
-          roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
-          // The room's own relays: what its signed invitation names wins;
-          // else the link's, on first sight.
-          const signed = 'relays' in admission ? admission.relays : undefined
-          relayConnections.setRoomRelays(deriveRoom(roomSecret).roomId, signed ? { fixed: signed, signed: true } : { fixed: invitationRelaysFrom(parsedLink.relays) })
-          // The room's own storage, when its signed invitation names any (or
-          // none, having withdrawn them). A copy that says nothing leaves what
-          // this device holds alone, and an older list never replaces a newer.
-          const listed = 'storage' in admission ? recordFromAdmission(admission) : undefined
-          if (listed) adoptRoomStorageRecord(deriveRoom(roomSecret).roomId, listed)
-          // Found beyond the link's relays: the room evidently lives there
-          // too, so it is read and written there as well.
-          useRoomRelays([...parsedLink.relays, ...foundFurther])
-          admittedRoom = admission
-          invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
-          invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
-          expectedEpoch = admissionEpochHint(admission)
-          cacheAdmission(invitation, admission, roomDeviceStore(browserDeviceStore(sessionStorage)))
-          // The ending to "Getting you in…". It says the waiting is over
-          // and that the next move is the reader's, which is the thing they
-          // could not tell while a line saying "in progress" sat under a
-          // button that was ready to be pressed.
-          setStatus('')
+            if (!current()) throw new Error('Room admission cancelled.')
+            adoptRoomRotation(parsedLink, rotation)
+            setStatus('')
+          } else {
+            let foundFurther: string[] = []
+            const admission = invitation.persistent
+              ? await admitFromGroupInvitation(invitation, parsedLink.relays, transport, wider => { foundFurther = wider })
+              : await requestRoomAdmissionCapability(request)
+            if (pending.signal.aborted || identityAtRequest !== identityGeneration) throw new Error('Room admission cancelled.')
+            if (hasRoomRotation(deviceStore, deriveRoom(admission.secret).roomId)) throw new Error(OLD_ROOM_KEY_REPLACED)
+            roomSecret = admission.secret
+            roomEndsAt = 'endsAt' in admission ? admission.endsAt : undefined
+            roomDestruct = 'destruct' in admission && admission.destruct === true
+            // A relay that ignores NIP-40 can still hand out the invitation of
+            // a conference room that has ended. Nobody joins it.
+            if (conferenceEnded(roomEndsAt, nowSeconds())) throw new Error(conferenceEndedMessage(roomEndsAt!))
+            roomRelayScope = `room:${deriveRoom(roomSecret).roomId}`
+            // The room's own relays: what its signed invitation names wins;
+            // else the link's, on first sight.
+            const signed = 'relays' in admission ? admission.relays : undefined
+            relayConnections.setRoomRelays(deriveRoom(roomSecret).roomId, signed ? { fixed: signed, signed: true } : { fixed: invitationRelaysFrom(parsedLink.relays) })
+            // The room's own storage, when its signed invitation names any (or
+            // none, having withdrawn them). A copy that says nothing leaves what
+            // this device holds alone, and an older list never replaces a newer.
+            const listed = 'storage' in admission ? recordFromAdmission(admission) : undefined
+            if (listed) adoptRoomStorageRecord(deriveRoom(roomSecret).roomId, listed)
+            // Found beyond the link's relays: the room evidently lives there
+            // too, so it is read and written there as well.
+            useRoomRelays([...parsedLink.relays, ...foundFurther])
+            admittedRoom = admission
+            invitationAuthoritySk = 'delegate' in admission ? admission.delegate.delegateSk : sharedAuthorityFor(invitation, roomSecret)
+            invitationDelegation = 'delegate' in admission ? admission.delegate.chain : []
+            expectedEpoch = admissionEpochHint(admission)
+            cacheAdmission(invitation, admission, roomDeviceStore(browserDeviceStore(sessionStorage)))
+            // The ending to "Getting you in…". It says the waiting is over
+            // and that the next move is the reader's, which is the thing they
+            // could not tell while a line saying "in progress" sat under a
+            // button that was ready to be pressed.
+            setStatus('')
+          }
         } catch (error) {
           if (pending.signal.aborted) throw new AdmissionPreviewCancelled(preview?.requested ?? false)
           throw error
@@ -6087,10 +6244,10 @@ async function roomFromLocation(nodeOpening?: ContactNodeOpening): Promise<boole
   // Admitted, one way or another: this is now a room this device has been
   // in, and the list on the front page will offer it again - and, if the
   // person chose to keep it here, readable from there.
-  restoreExistingNodeRoom()
+  if (!rotatedRoomId) restoreExistingNodeRoom()
   rememberCurrentRoom()
   refreshKeptAdmission()
-  if (!nodeRoom && invitation && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
+  if (!nodeRoom && invitation && !rotatedRoomId && !loadInvitationOwner(invitation)) readRoomRelaysOnce(invitation, deriveRoom(roomSecret).roomId)
   return true
 }
 
@@ -6245,6 +6402,7 @@ if (import.meta.env.VITE_TEST_DIAGNOSTICS === 'true') {
 
 function existingBrowserRoomSource(s: RoomSession): ExistingBrowserRoom {
   if (session !== s || nodeRoom || !roomAuthority()) throw Error('Open the original room before moving it')
+  if (roomInvitationCapability?.ownerApprovedRoom) throw new Error('This room uses host-approved access after a key change.')
   const devices = s.nodeMigrationDevices()
   const own = devices.find(device => device.device === s.device)
   if (!own) throw Error('This device needs a current room pass')
@@ -6420,6 +6578,7 @@ $('moveRoomToNode').addEventListener('click', async () => {
 /** Read the selected identity's saved migration without creating a visitor
  *  key. Rechecked at entry because the room link can arrive before sign-in. */
 function restoreExistingNodeRoom(): void {
+  if (roomInvitationCapability?.ownerApprovedRoom) return
   if (nodeRoom || identityRestoring && !nostrSession && !accountPassForRoom()) return
   const participant = joinIdentityNow()
   const destination = participant ? loadNodeRoom(deviceStore, participant, currentRoomId() ?? '') : undefined
@@ -6438,15 +6597,8 @@ function adoptNodeRoom(held: BrowserNodeRoom): void {
   iceUrls = []; roomUsesBothy = false; roomBothyBoard = false
 }
 
-interface RoomReplacement {
-  name: string | undefined
-  relays: string[]
-  ice: string[]
-  policy: RoomPolicy | undefined
-}
-
-async function startNewRoom(replacement?: RoomReplacement): Promise<void> {
-  if (!replacement && ($('roomOnNode') as HTMLInputElement).checked) {
+async function startNewRoom(): Promise<void> {
+  if (($('roomOnNode') as HTMLInputElement).checked) {
     const owner = nostrSession?.signer, pair = owner && loadPairedNode(deviceStore, owner.pubkey)
     if (!owner || !pair) throw new PersonError('Pair your node under Settings → Calls → Your KithMoot node first.')
     const choice = ($('roomEnds') as HTMLSelectElement).value
@@ -6484,7 +6636,7 @@ async function startNewRoom(replacement?: RoomReplacement): Promise<void> {
     // asking its owner, see `askToLetIn`. It cannot be self-service from the
     // relay, which is exactly the point, and it is why such a room needs
     // somebody online to let people in.
-    const ask = !!replacement || ($('roomAsk') as HTMLInputElement).checked
+    const ask = ($('roomAsk') as HTMLInputElement).checked
     const persistent = !ask
     // Only a group can be a conference room: a meeting that asks before
     // anybody joins already ends when its people leave.
@@ -6502,11 +6654,10 @@ async function startNewRoom(replacement?: RoomReplacement): Promise<void> {
     const relayScope = `room:${deriveRoom(secret).roomId}`
     // Snapshot access modes too: an invitation carries URLs, so reconstructing
     // this room from its link must not turn a read-only default into a writer.
-    if (replacement) relayConnections.save(relayScope, replacement.relays.map(url => ({ url, read: true, write: true })))
-    else relayConnections.inheritDefaults(relayScope)
+    relayConnections.inheritDefaults(relayScope)
     // The room's own relays: the ones this device reads and writes, fixed
     // now and named in its signed invitation, so every member uses them.
-    const roomRelays = replacement?.relays ?? invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
+    const roomRelays = invitationRelaysFrom(relayConnections.configuration(relayScope.replace(/^room:/, 'inherited:')).filter(relay => relay.read && relay.write).map(relay => relay.url))
     relayConnections.setRoomRelays(deriveRoom(secret).roomId, { fixed: roomRelays, signed: true })
     // Persist the owner's recovery before publishing. Failure leaves the form
     // usable and never offers a link whose asynchronous admission was not saved.
@@ -6518,15 +6669,15 @@ async function startNewRoom(replacement?: RoomReplacement): Promise<void> {
     roomDestruct = destruct
     roomStartsAt = nowSeconds()
     expectedEpoch = 0
-    roomPolicy = replacement?.policy
+    roomPolicy = undefined
     roomSecret = secret
     roomInvitationCapability = created.invitation
     invitationAuthoritySk = created.inviterSk
     invitationDelegation = []
     roomRelayScope = relayScope
     useRoomRelays()
-    iceUrls = replacement?.ice ?? parseIceInput()
-    roomName = replacement ? replacement.name : sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
+    iceUrls = parseIceInput()
+    roomName = sanitiseDisplayName(($('roomName') as HTMLInputElement).value)
     profiles.restartRoom()
     serveCurrentInvitation()
     history.replaceState(null, '', encodeRoomUrl(joinLinkBase(), relays, iceUrls))
@@ -6607,7 +6758,8 @@ function renderShareControls(): void {
   setShareLink()
   ;($('shareRoom') as HTMLButtonElement).hidden = navigator.share === undefined
   ;($('rotateShare') as HTMLButtonElement).hidden =
-    roomInvitationCapability === undefined || invitationAuthoritySk === undefined || invitationDelegation.length !== 0
+    roomInvitationCapability === undefined || !!roomInvitationCapability.ownerApprovedRoom ||
+    invitationAuthoritySk === undefined || invitationDelegation.length !== 0
   $('recoverExposedLink').hidden = !canRecoverExposedLink()
   // The sentence about a new link goes with the button that makes one.
   // Only the browser that opened the room has that button, so everybody
@@ -6631,6 +6783,11 @@ function renderInvitationAvailability(): void {
     $('invitationAvailability').textContent = 'This older link carries the key for this room.'
     return
   }
+  if (roomInvitationCapability.ownerApprovedRoom) {
+    $('ownLink').hidden = true
+    $('invitationAvailability').textContent = 'Share this invitation privately. The host needs to have the room open and approve each new device.'
+    return
+  }
   const lapsed = cannotAnswerRoomLink()
   ;($('ownLink') as HTMLButtonElement).hidden = !lapsed
   $('invitationAvailability').textContent = roomInvitationCapability?.persistent
@@ -6651,7 +6808,7 @@ function renderInvitationAvailability(): void {
  */
 function cannotAnswerRoomLink(now = nowSeconds()): boolean {
   if (roomUsesBothy || keeperParticipant !== undefined || !session || session.closed) return false
-  if (!roomInvitationCapability || roomInvitationCapability.persistent || !roomAuthority()) return false
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || roomInvitationCapability.ownerApprovedRoom || !roomAuthority()) return false
   if (!invitationAuthoritySk) return true
   return invitationDelegation.length > 0 && Math.min(...invitationDelegation.map(cert => cert.expiresAt)) <= now
 }
@@ -7518,6 +7675,7 @@ function showInfoPage(name: string, row?: HTMLElement): void {
   if (name === 'invite') {
     $('inviteStatus').textContent = ''
     $('meetingCodeStatus').textContent = ''
+    $('recoverExposedLink').hidden = !canRecoverExposedLink()
     meetingCodePasswordTouched = false
     renderInviteEnds()
     renderMeetingCode()
@@ -7889,6 +8047,7 @@ async function shareRoomLink(): Promise<void> {
 }
 
 async function rotateRoomInvitation(): Promise<void> {
+  if (roomInvitationCapability?.ownerApprovedRoom) throw new Error('This room’s invitation already requires the host to approve each new device.')
   if (await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)) throw new Error('New invitations are unavailable on this Bothy text route.')
   if (!roomInvitationCapability || !invitationAuthoritySk || invitationDelegation.length !== 0) {
     throw new Error('Only the browser that opened this room can rotate its invitation.')
@@ -7977,7 +8136,8 @@ function closeWhenSettled(pool: ManagedRelayPool): void {
 
 async function makeRoomPersistent(): Promise<void> {
   // The room's authority alone: a member's own link only ever asks.
-  if (!roomInvitationCapability || roomInvitationCapability.persistent || !invitationAuthoritySk || invitationDelegation.length || !isRoomAuthority()) return
+  if (!roomInvitationCapability || roomInvitationCapability.persistent || roomInvitationCapability.ownerApprovedRoom ||
+      !invitationAuthoritySk || invitationDelegation.length || !isRoomAuthority()) return
   // A fresh bearer prevents an old, never-used meeting link from silently
   // becoming durable access. Keep the room's authority and conversation.
   const invitation: RoomInvitation = {
@@ -10564,6 +10724,23 @@ function loadRoomEpoch(roomId: string): (EpochRoot & { epoch: number }) | undefi
 function rememberRoomEpoch(s: RoomSession): void {
   const current = s.currentEpoch()
   if (current.epoch < 1) return
+  if (rotatedSessions.has(s)) {
+    void withRoomRotationLock(s.roomId, () => {
+      const previous = loadRoomRotation(deviceStore, s.roomId, s.participant)
+      if (!previous || current.epoch <= previous.admission.epoch.epoch || (session !== s && dockedCall?.session !== s)) return
+      storeRoomRotation(deviceStore, s.roomId, {
+        ...previous,
+        admission: { ...previous.admission, epoch: { ...current, rotatedAt: previous.admission.epoch.rotatedAt } },
+        past: s.pastSecrets(),
+        removed: [...s.removed],
+        members: s.memberList(),
+      }, nowSeconds())
+    }).catch(() => {
+      if (session === s) setStatus('This device could not save the room’s latest key. Keep the room open while you check storage.')
+    })
+    return
+  }
+  if (hasRoomRotation(deviceStore, s.roomId)) return
   const before = loadRoomEpoch(s.roomId)?.epoch ?? 0
   try {
     storeKeptRoomEpoch(deviceStore, s.roomId, { epoch: current, past: s.pastSecrets(), removed: [...s.removed], members: s.memberList() }, nowSeconds())
@@ -10577,7 +10754,7 @@ function rememberRoomEpoch(s: RoomSession): void {
 /** A rekey the rooms list followed in a room not open here. Written down
  *  only: the watch has already moved itself, so it is not restarted. */
 function keepWatchedRekey(roomId: string, roomSecret: Uint8Array, moved: WatchedRekey): void {
-  if (session?.roomId === roomId) return
+  if (session?.roomId === roomId || hasRoomRotation(deviceStore, roomId)) return
   try {
     keepFollowedRekey(deviceStore, roomId, { roomSecret, left: moved.left.epoch, next: moved.epoch, notice: moved.notice }, nowSeconds())
   } catch { /* Followed again from the epoch held, on the next look at the list. */ }
@@ -10920,6 +11097,18 @@ function renderEpochWaiting(waiting: boolean, why: EpochWaitReason = 'unanswered
   const notice = $('epochNotice')
   notice.textContent = waiting ? (why === 'unknown' ? EPOCH_LET_IN_NOTICE : EPOCH_WAITING_NOTICE) : ''
   notice.hidden = !waiting
+}
+
+function sessionEpochWaiting(s: RoomSession, waiting: boolean, why: EpochWaitReason): void {
+  if (waiting && rotatedSessions.has(s)) {
+    if (!joining || dockedCall?.session === s) {
+      void flagRoomKeyApproval(s.roomId, s.participant, s.epoch)
+        .then(() => closeRoomForKeyChange(s, ROOM_KEY_APPROVAL_NEEDED))
+        .catch(error => setStatus(describeError(error)))
+    }
+    return
+  }
+  if (session === s) renderEpochWaiting(waiting, why)
 }
 
 function onEpochChange(notice: RekeyNotice): void {
@@ -16091,6 +16280,10 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // Account restoration may reveal this identity's saved node route.
     // Select it before checking which network the room needs or its key.
     restoreExistingNodeRoom()
+    const sessionRoomId = deriveRoom(roomSecret).roomId
+    const credential = loadCredential()
+    const participant = credential?.pubkey ?? currentIdentity().pubkey
+    roomRotationForSession(sessionRoomId, participant)
     requireOpeningNetwork(roomUsesBothy || !!nodeRoom)
     if (!roomUsesBothy && !nodeRoom) accountNetwork.requireNostr()
     const credentialStore = roomDeviceStore()
@@ -16099,7 +16292,6 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // call's, because every media decision is made against it.
     const deviceId = getPublicKey(deviceSk)
     if (!chatOnly) myDeviceId = deviceId
-    const credential = loadCredential()
     const roomNode = nodeRoom
     const ownConnections = new Set<string>()
     const latestConnections = new Map<string, RTCPeerConnection>()
@@ -16310,6 +16502,8 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
       browserRoomRoutes.changed()
     }
     requireOpeningNetwork(roomUsesBothy || !!roomNode)
+    if (generation !== roomGeneration) return
+    const rotation = roomRotationForSession(sessionRoomId, participant)
     const pool = nodeRuntime?.pool ?? configuredPool(relays)
     sessionTransport = pool
     const poolCreatedAt = Date.now()
@@ -16317,12 +16511,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // hands the wrapper the epoch key. The device holding the identity is
     // slot 0, the device it paired slot 1; each draws from its own half of
     // the member's drop keys, so no key is used twice. See src/quiet.ts.
-    const sessionRoomId = deriveRoom(roomSecret).roomId
     // Where this device last left the room, so the session opens there and
     // reads the last month, rather than replaying every rekey from epoch 0
     // and stalling at one sealed to a seal key since dropped.
-    const kept = loadKeptRoomEpoch(deviceStore, sessionRoomId)
-    const keptEpoch = kept ? { epoch: kept.epoch, pastEpochs: kept.past } : {}
+    const kept = rotation ? undefined : loadKeptRoomEpoch(deviceStore, sessionRoomId)
+    const keptEpoch = rotation
+      ? { epoch: rotation.admission.epoch, pastEpochs: rotationHistory(rotation, nowSeconds()), memberEpochDesk: false, epochCatchUp: false }
+      : kept ? { epoch: kept.epoch, pastEpochs: kept.past } : {}
     quietTransport = isQuietPolicy(roomPolicy)
       ? (roomNode ? (inner: RelayTransport, options: Parameters<typeof quietRoomTransport>[1]) => nodeQuietRoomTransport(roomNode.node, localIdentity(roomNode.deviceSk), inner, options) : quietRoomTransport)(pool, {
           policy: roomPolicy!,
@@ -16377,12 +16572,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           ...keptEpoch,
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
-          onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
-          onEpochWaiting: (waiting, why) => { if (created && session === created) renderEpochWaiting(waiting, why) },
+          onEpoch: notice => { if (created && session === created) onEpochChange(notice); else if (created && rotatedSessions.has(created)) rememberRoomEpoch(created) },
+          onEpochWaiting: (waiting, why) => { if (created) sessionEpochWaiting(created, waiting, why) },
           onUnknownAsking: asker => { if (created) askAboutUnknown(created, asker) },
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
+            if (rotation) discardRotationAccess(sessionRoomId, participant)
             if (roomNode && created && session === created) { roomWasClosed(roomNode.node.existing ? notice : { destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -16443,12 +16639,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
           ...keptEpoch,
           // A conference room: everything signed for it lapses at its end.
           endsAt: roomEndsAt,
-          onEpoch: notice => { if (created && session === created) onEpochChange(notice) },
-          onEpochWaiting: (waiting, why) => { if (created && session === created) renderEpochWaiting(waiting, why) },
+          onEpoch: notice => { if (created && session === created) onEpochChange(notice); else if (created && rotatedSessions.has(created)) rememberRoomEpoch(created) },
+          onEpochWaiting: (waiting, why) => { if (created) sessionEpochWaiting(created, waiting, why) },
           onUnknownAsking: asker => { if (created) askAboutUnknown(created, asker) },
           onEpochGap: () => { if (created) reportEpochTrouble(created) },
           onEpochConflict: () => { if (created) reportEpochTrouble(created) },
           onRemoved: (notice) => {
+            if (rotation) discardRotationAccess(sessionRoomId, participant)
             if (roomNode && created && session === created) { roomWasClosed(roomNode.node.existing ? notice : { destruct: true }); return }
             if (created && dockedCall?.session === created) void endDockedCall('user', `You were removed from ${dockedCall.label}${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
             else if (created && session === created) void leaveWithNotice(`You were removed from this room${notice.by ? ` by ${personLabel(notice.by)}` : ''}.`)
@@ -16470,9 +16667,11 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
         })
     // Who the room removed and who it knows, as kept: a session that opens
     // past the rekeys that said so would otherwise not know until the next.
-    if (kept) {
-      s.forgetParticipants(kept.removed)
-      s.rememberMembers(kept.members)
+    if (rotation) rotatedSessions.add(s)
+    const membership = rotation ?? kept
+    if (membership) {
+      s.forgetParticipants(membership.removed ?? [])
+      s.rememberMembers(membership.members ?? [])
     }
     session = s
     created = s
@@ -16650,6 +16849,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     void spryRooms.get(s)?.publish().catch(() => {})
 
     if (session !== s) return
+    if (rotation?.ownerSk) { readyRotationHosts.add(s); serveCurrentInvitation() }
     // Another tab of this browser, same account, may already be on this
     // room's call under the identical device key - see call-tab-lock.ts.
     // Asked once, now, because a fresh tab's own heartbeat asserting no
@@ -16848,6 +17048,13 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
     // trying, for as long as the person stays on this screen, until a
     // member comes online and brings this device up to date.
     if (err instanceof EpochUnreachableError) {
+      if (failed && rotatedSessions.has(failed)) {
+        try {
+          await flagRoomKeyApproval(failed.roomId, failed.participant, failed.epoch)
+          if (generation === roomGeneration) showArrivalFailure(new Error(ROOM_KEY_APPROVAL_NEEDED))
+        } catch (error) { if (generation === roomGeneration) setStatus(describeError(error)) }
+        return
+      }
       retrying = true
       console.error('join waiting for the room key:', describeError(err))
       setStatus(err.unknown ? EPOCH_LET_IN_NOTICE : EPOCH_WAITING_NOTICE, 'progress')
@@ -17011,6 +17218,11 @@ let listFilter = 'all'
 function secretForKnownRoom(link: RoomLink): Uint8Array | undefined {
   if (link.secret) return link.secret
   if (!link.invitation) return undefined
+  if (link.invitation.ownerApprovedRoom) {
+    const held = loadRoomRotation(deviceStore, link.invitation.ownerApprovedRoom, rotationParticipant())
+    if (held && parseRoomLink(held.link).invitation?.inviter === link.invitation.inviter) return held.admission.secret
+    return undefined
+  }
   return (
     loadInvitationOwner(link.invitation)?.roomSecret ??
     loadCachedAdmission(link.invitation)?.secret ??
@@ -17024,12 +17236,15 @@ function watchKnownRoom(room: KnownRoom): void {
   if (room.roomId === currentRoomId()) return
   if (roomWatches.has(room.roomId) || room.endedAt !== undefined || conferenceEnded(room.endsAt, nowSeconds())) return
   let link: RoomLink
+  let rotation: RoomRotation | undefined
   try {
-    link = parseRoomLink(room.link)
+    rotation = loadRoomRotation(deviceStore, room.roomId, rotationParticipant())
+    if (rotation?.needsApproval || (!rotation && hasRoomRotation(deviceStore, room.roomId))) return
+    link = parseRoomLink(rotation?.link ?? room.link)
   } catch {
     return
   }
-  const secret = secretForKnownRoom(link)
+  const secret = rotation?.admission.secret ?? secretForKnownRoom(link)
   if (!secret) return
   const { roomId, roomKey } = deriveRoom(secret)
   // A key that does not open this room is not this room's key.
@@ -17048,10 +17263,11 @@ function watchKnownRoom(room: KnownRoom): void {
     direct: () => dmPeerOf(room) !== undefined,
     self: () => roomSelf(roomId),
   })
-  const epoch = loadRoomEpoch(roomId)
+  const epoch = rotation ? deriveEpoch(rotation.admission.epoch) : loadRoomEpoch(roomId)
   // The epochs before it, when what this device kept says where the room is.
-  const kept = loadKeptRoomEpoch(deviceStore, roomId)
-  const pastEpochs = kept && epoch && kept.epoch.epoch === epoch.epoch ? pastRootsOf(kept) : []
+  const kept = rotation ? undefined : loadKeptRoomEpoch(deviceStore, roomId)
+  const past = rotation ? rotationHistory(rotation, nowSeconds()) : kept && epoch && kept.epoch.epoch === epoch.epoch ? kept.past : []
+  const pastEpochs = pastRootsOf({ past })
   // This device's copy of a rekey opens with its key for the room and the
   // seal keys its credentials named there, as the session's does.
   const authority = link.invitation ? invitationAuthority(link.invitation) : undefined
@@ -17105,7 +17321,22 @@ function watchKnownRoom(room: KnownRoom): void {
       authority,
       deviceSk,
       sealSks: () => loadOwnSealKeysFor(credentialStore, roomId).reverse(),
-      onEpoch: (moved: WatchedRekey) => keepWatchedRekey(roomId, secret, moved),
+      onEpoch: (moved: WatchedRekey) => {
+        if (!rotation) { keepWatchedRekey(roomId, secret, moved); return }
+        const { participant } = rotation
+        void withRoomRotationLock(roomId, () => {
+          const held = loadRoomRotation(deviceStore, roomId, participant)
+          if (!held || held.admission.epoch.epoch !== moved.left.epoch || rotationParticipant() !== participant) return
+          const { rotatedAt, ...left } = held.admission.epoch
+          storeRoomRotation(deviceStore, roomId, {
+            ...held,
+            admission: { ...held.admission, epoch: { ...moved.epoch, rotatedAt } },
+            past: [...held.past, { ...left, leftAt: moved.notice.at }],
+            members: moved.notice.members ?? held.members,
+            removed: [...new Set([...(held.removed ?? []), ...moved.notice.removed])],
+          }, nowSeconds())
+        }).catch(() => {})
+      },
       // Closed while this device was not in it: the list says so, and a
       // room that self-destructs is tidied away from here.
       onClosed: (notice: { destruct?: true }) => {
@@ -18210,6 +18441,8 @@ async function switchRoom(room: KnownRoom, project?: string, invitation?: Contac
     resetRoomState()
     if (intent === 'undock') { resumeDockedCall(); return }
     roomProjectContext = project
+    const retained = loadRoomRotation(deviceStore, room.roomId, rotationParticipant())
+    if (retained) room = { ...room, link: retained.link }
     const hash = new URL(room.link, location.href).hash
     // Bookmarks provide an invitation fragment, never an external redirect.
     history.replaceState(null, '', joinLinkBase() + hash)
@@ -18230,7 +18463,7 @@ async function switchRoom(room: KnownRoom, project?: string, invitation?: Contac
     // unless joining fails and there is something to change.
     showOpening(room)
     await startSession()
-    if (!session) {
+    if (!session && $('arrivalActions').hidden) {
       $('joinRoomForm').hidden = false
       renderArrival()
     }
@@ -18837,6 +19070,7 @@ async function forgetKnownRoom(room: KnownRoom): Promise<void> {
  *  The browser's own list entry goes too, or it would be offered straight
  *  back as a room "already here" to add to the account. */
 function forgetLocally(roomId: string): void {
+  if (hasRoomRotation(deviceStore, roomId)) discardRotationAccess(roomId, rotationParticipant())
   forgetNodeRoom(deviceStore, roomId)
   forgetNodeRoom(browserDeviceStore(sessionStorage), roomId)
   roomLogoCache.forget(roomId)
@@ -22582,6 +22816,7 @@ let pairingTransport: ManagedRelayPool | undefined
 
 $('addDevice').addEventListener('click', () => {
   try {
+    if (roomInvitationCapability?.ownerApprovedRoom) throw new Error('Open this room’s invitation on the other device and ask the host to approve it.')
     const identity = currentIdentity()
     pairingHost?.close()
     pairingTransport?.close()
@@ -22939,30 +23174,48 @@ $('rotateShare').addEventListener('click', async () => {
 })
 
 function canRecoverExposedLink(): boolean {
-  return !!roomSecret && !session?.closed && !nodeRoom && !roomUsesBothy && !roomInvitationCapability && accountNetwork.nostr
+  return !!session && !session.closed && !session.behind && session.epoch === 0 && session.participant === rotationParticipant() &&
+    !nodeRoom && !roomUsesBothy && !isQuietPolicy(roomPolicy) && !roomInvitationCapability && accountNetwork.nostr &&
+    !hasRoomRotation(deviceStore, session.roomId)
 }
 
 $('recoverExposedLink').addEventListener('click', async () => {
   const original = session
   if (!original || !canRecoverExposedLink()) return
   if (!await confirmRoomAction({
-    title: 'Move to a protected room?',
-    message: 'Start a room with a fresh key and send its invitation privately to the people you want to bring across. Each person asks to join. The earlier conversation remains in the original room. This ends any call you have in this room.',
-    confirmLabel: 'Create protected room',
+    title: 'Replace this room’s shared key?',
+    message: 'The conversation stays in this room. Send the new invitation privately to the people you want to keep in the room and approve each device as it returns. This ends any call you have in this room. This device keeps the host key.',
+    confirmLabel: 'Replace shared key',
   }) || session !== original || !canRecoverExposedLink()) return
   const destinationRelays = invitationRelaysFrom(roomRelayConfig.filter(relay => relay.read && relay.write).map(relay => relay.url))
   if (!destinationRelays.length) { setStatus('This room needs a relay that can both read and write before it can be replaced.'); return }
-  const replacement: RoomReplacement = { name: roomName, relays: destinationRelays, ice: [...iceUrls], policy: roomPolicy }
+  const { roomId, participant } = original
+  const name = roomName
+  const secret = roomSecret.slice()
+  const identity = identityGeneration
+  const project = roomProjectContext
+  const kept = knownRoom(roomStore(), roomId)
+  const created = createRoomInvitation(false)
+  const link = encodeRoomLink(joinLinkBase(), {
+    invitation: { ...created.invitation, ownerApprovedRoom: roomId },
+    relays: destinationRelays, iceUrls, policy: roomPolicy, name,
+  })
   try {
     const left = await leaveRoomForNewOne(true)
-    if (left === 'busy') setStatus('Finish the current room action before starting its replacement.')
+    if (left === 'busy') setStatus('Finish the current room action before replacing its key.')
     if (left !== 'left') return
-    await startNewRoom(replacement)
-    linkArrivalOver = true
-    showRoomUi()
-    await startSession()
-    if (session && session !== original) {
-      setStatus('Protected room ready. Share its invitation with the people you want to bring across.', 'done')
+    const rotated = await withRoomRotationLock(roomId, () => {
+      if (identity !== identityGeneration || rotationParticipant() !== participant || session || switchingRoom) throw new Error('The room or persona changed. Open the room to try again.')
+      if (hasRoomRotation(deviceStore, roomId)) throw new Error(OLD_ROOM_KEY_REPLACED)
+      const now = nowSeconds()
+      return storeRoomRotation(deviceStore, roomId, {
+        participant, link, past: [], ownerSk: created.inviterSk,
+        admission: { secret, epoch: { epoch: 1, secret: generateEpochSecret(), rotatedAt: now } },
+      }, now)
+    })
+    await switchRoom({ roomId, name, openedAt: nowSeconds(), readAt: 0, ...kept, link: rotated.link }, project)
+    if (session?.roomId === roomId && session.epoch > 0) {
+      setStatus('Room key replaced. Share the new invitation privately and approve each device as it returns.', 'done')
       openInviteDialog(false)
     }
   } catch (error) { setStatus(describeFailureForPerson(error)) }
@@ -26164,6 +26417,17 @@ roomArrival
   .catch(showArrivalFailure)
 
 function showArrivalFailure(err: unknown): void {
+  const reason = describeError(err)
+  if (reason === OLD_ROOM_KEY_REPLACED || reason === ROOM_KEY_APPROVAL_NEEDED) {
+    $('arrivalTitle').textContent = 'This room has a new key'
+    $('arrivalLead').textContent = reason
+    $('arrivalLead').hidden = false
+    $('joinRoomForm').hidden = true; $('identityMore').hidden = true
+    $('arrivalActions').hidden = false; $('retryArrival').hidden = reason === OLD_ROOM_KEY_REPLACED
+    $('arrivalRelays').hidden = true
+    setStatus('')
+    return
+  }
   if (err instanceof AdmissionPreviewCancelled) {
     $('arrivalTitle').textContent = err.requested ? 'Your request was cancelled' : 'Invitation closed'
     $('arrivalLead').textContent = err.requested
@@ -26177,7 +26441,6 @@ function showArrivalFailure(err: unknown): void {
     return
   }
   const declined = err instanceof InvitationDeclinedError
-  const reason = describeError(err)
   const nodeAtDoor = parseNodeRoomLink(location.href, nowSeconds())
   let valid = !!nodeAtDoor
   try { if (!valid) { parseRoomLink(location.href); valid = true } } catch { /* Incomplete or malformed invitation. */ }

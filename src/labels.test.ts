@@ -147,6 +147,8 @@ const FROZEN_KIT_ONLY_LABELS: readonly string[] = [
   'kithmoot/v2/invitation-id',
   'kithmoot/v2/invitation-request-key',
   'kithmoot/v3/group-invitation-key',
+  'kithmoot/v8/invitation-id',
+  'kithmoot/v8/invitation-request-key',
 ]
 
 /**
@@ -315,6 +317,8 @@ describe('labels moved to @forgesworn/fold-kit (re-exported unchanged, no longer
       'kithmoot/v2/invitation-delegation:',
       'kithmoot/v2/invitation-id',
       'kithmoot/v2/invitation-request-key',
+      'kithmoot/v8/invitation-id',
+      'kithmoot/v8/invitation-request-key',
     ])
   })
 
