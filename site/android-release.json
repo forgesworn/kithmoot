@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.183",
-  "versionCode": 206,
+  "versionName": "0.6.184",
+  "versionCode": 207,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 72525340,
-  "apkSha256": "01ea0c92a414ec6e2d3c4601483d40158671ee47712544725d45170b8f493455",
+  "apkBytes": 72529436,
+  "apkSha256": "a07781fdba7b8f99b713700234f567e94d395a3366cb25fb417a5a9dc0c7da78",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.183-production.apk",
+  "downloadFilename": "kithmoot-0.6.184-production.apk",
   "releaseNotes": [
-    "Replace a leaked shared key in the original room from Invite people.",
-    "Share the new invitation privately. The host approves each returning device before it receives the new key."
+    "See saved card adds and moves on other open boards as soon as they arrive.",
+    "Resize, hide or show the room chat below the board.",
+    "Return to the board from a card, see its checklist near the description and save each description edit as one change."
   ]
 }

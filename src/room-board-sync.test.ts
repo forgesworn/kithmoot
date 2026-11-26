@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { build } from 'esbuild'
 import { bytesToHex, randomBytes } from '@noble/hashes/utils'
-import { RoomBoardSync, type RoomBoardCopy, type RoomBoardEnvelope, type RoomBoardStream } from './room-board-sync.js'
+import { RoomBoardSync, type RoomBoardCopy, type RoomBoardEnvelope, type RoomBoardStream, type RoomBoardSyncTiming } from './room-board-sync.js'
 import { roomBoardGenesis, roomBoardRecordId, splitBoardBlob, type BoardPart } from './room-board-wire.js'
 
 const FAST = { flushMs: 5, flushMaxMs: 25, settleMs: [5, 15] as const, retryMs: 20, persistMs: 1 }
@@ -49,14 +49,14 @@ function memoryCopy(records = new Map<string, Uint8Array>()): RoomBoardCopy & { 
 const boards: RoomBoardSync<Plain>[] = []
 afterEach(async () => { for (const board of boards.splice(0)) await board.close() })
 
-async function device(stream: ReturnType<typeof plainStream>, copy: RoomBoardCopy = memoryCopy()) {
+async function device(stream: ReturnType<typeof plainStream>, copy: RoomBoardCopy = memoryCopy(), timing: RoomBoardSyncTiming = FAST) {
   const name = bytesToHex(randomBytes(32))
   let sent = 0
   const board = new RoomBoardSync<Plain>({
     envelope: async part => ({ id: bytesToHex(randomBytes(32)), created_at: Math.floor(Date.now() / 1000) + sent++, device: name, part }),
     publish: event => stream.publish(event),
     copy,
-    timing: FAST,
+    timing,
   })
   boards.push(board)
   await board.open()
@@ -78,6 +78,51 @@ const settled = (...all: RoomBoardSync<Plain>[]) => vi.waitFor(() => {
 }, { timeout: 4_000 })
 
 describe('the room board without its keys', () => {
+  it('shares a new card and a move on the next timer turn with the default settings', async () => {
+    vi.useFakeTimers()
+    try {
+      const stream = plainStream()
+      const writer = await device(stream, memoryCopy(), {})
+      const reader = await device(stream, memoryCopy(), {})
+      addCard(writer, 'Book the hall')
+      expect(titles(reader)).toEqual([])
+      await vi.advanceTimersByTimeAsync(0)
+      expect(titles(reader)).toEqual(['Book the hall'])
+
+      const records = writer.doc.getMap<Y.Map<string>>('records')
+      const [key, card] = [...records][0]!
+      card.set('status', 'doing')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(reader.doc.getMap<Y.Map<string>>('records').get(key)?.get('status')).toBe('doing')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the retry delay when a second edit arrives during a failed send', async () => {
+    vi.useFakeTimers()
+    try {
+      const stream = plainStream()
+      let fail!: (error: Error) => void
+      const firstSend = new Promise<void>((_, reject) => { fail = reject })
+      const publish = vi.spyOn(stream, 'publish').mockReturnValueOnce(firstSend)
+      const writer = await device(stream, memoryCopy(), {})
+      addCard(writer, 'Book the hall')
+      await vi.advanceTimersByTimeAsync(0)
+      addCard(writer, 'Print the notices')
+      await vi.advanceTimersByTimeAsync(0)
+      fail(new Error('No relay accepted the event'))
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(publish).toHaveBeenCalledTimes(1)
+      expect(writer.status()).toEqual({ ready: true, pending: true, error: 'No relay accepted the event' })
+      await vi.advanceTimersByTimeAsync(1)
+      expect(publish).toHaveBeenCalledTimes(2)
+      expect(writer.status()).toEqual({ ready: true, pending: false })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps two devices in step through a host that only carries parts, and shows a late arrival what both wrote', async () => {
     const stream = plainStream()
     const a = await device(stream), b = await device(stream)
