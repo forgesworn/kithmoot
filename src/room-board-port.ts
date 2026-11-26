@@ -1,6 +1,7 @@
 import { base64 } from '@scure/base'
 import { RoomBoardSync, type RoomBoardCopyRecord, type RoomBoardEnvelope, type RoomBoardStream, type RoomBoardSyncTiming } from './room-board-sync.js'
 import { validBoardPart, type BoardPart } from './room-board-wire.js'
+import { roomBoardStatusWords } from './room-board-words.js'
 
 /**
  * The room's board on a page that holds none of the room's keys, kept in step
@@ -55,17 +56,21 @@ export interface RoomBoardPortStart {
 export interface RoomBoardPortFile { hash: string; key: string; name: string; type: string; size: number; encryptedSize: number; servers: string[] }
 export interface RoomBoardPortCard { id: string; title: string; description: string }
 
-/** What Girnel's room view is started with (`girnelRoomBoard.start`). */
+/** What Girnel's room view is started with (`girnelRoomBoard.start`): its
+ *  `RoomBoardHost` (Girnel `src/embedded-room.ts`), kept to the same shape. */
 export interface RoomBoardPortViewHost {
   self: string
   members(): Array<{ pubkey: string; name: string }>
   state(): Uint8Array
   push(update: Uint8Array): void
   subscribe(listener: (update: Uint8Array) => void): () => void
-  discuss(card: RoomBoardPortCard): void
+  /** Where the board stands, drawn by the view itself: a page has no bar of the room's around it. */
+  status(): string | null
+  changed(listener: () => void): () => void
+  discuss?(card: RoomBoardPortCard): void
   invite?(): void
   assign?(card: RoomBoardPortCard): void
-  files?: { add(file: Blob & { name: string }, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile>; open(file: RoomBoardPortFile, how: 'open' | 'download'): void }
+  files?: { add(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile>; open(file: RoomBoardPortFile, how: 'open' | 'download'): void }
   signal: AbortSignal
 }
 
@@ -108,6 +113,8 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
   const waiting = new Map<string, Waiting>()
   let next = 0
   let reading: { generation: number; stream: RoomBoardStream } | undefined
+  let listening = false
+  const membersChanged = new Set<() => void>()
   let generation = 0
   let members: Array<{ pubkey: string; name: string }> = []
   let started: RoomBoardPortStart | undefined
@@ -148,6 +155,7 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
   }
 
   const listen = () => {
+    listening = true
     sync!.listen(stream => {
       const mine = ++generation
       reading = { generation: mine, stream }
@@ -235,6 +243,7 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
         if (Array.isArray(message.members)) {
           members = message.members.filter((m): m is { pubkey: string; name: string } => object(m) && text(m.pubkey, 64) && HEX64.test(m.pubkey) && text(m.name, 200))
             .map(m => ({ pubkey: m.pubkey, name: m.name }))
+          for (const cb of [...membersChanged]) { try { cb() } catch { /* a view's problem */ } }
         }
         return
       case 'part': {
@@ -248,7 +257,8 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
         if (reading && message.gen === reading.generation) reading.stream.caughtUp()
         return
       case 'rekey':
-        if (sync?.opened && !closed) listen()
+        // Before the copy is read there is no reading yet: the first one starts in the current epoch.
+        if (listening && !closed) listen()
         return
       case 'copy.record':
       case 'file.ack':
@@ -320,6 +330,15 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
         signal.addEventListener('abort', stop, { once: true })
         return stop
       },
+      status: () => roomBoardStatusWords(own.status()).words,
+      changed: listener => {
+        const told = () => { if (live()) listener() }
+        const stopStatus = own.onStatus(told)
+        membersChanged.add(told)
+        const stop = () => { stopStatus(); membersChanged.delete(told) }
+        signal.addEventListener('abort', stop, { once: true })
+        return stop
+      },
       discuss: value => { if (live()) safePost({ t: 'discuss', card: card(value) }) },
       ...(start.invite ? { invite: () => { if (live()) safePost({ t: 'invite' }) } } : {}),
       ...(start.assign ? { assign: (value: RoomBoardPortCard) => { if (live()) safePost({ t: 'assign', card: card(value) }) } } : {}),
@@ -335,7 +354,7 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
       signal,
     }
 
-    async function addFile(picked: Blob & { name: string }, aborted: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile> {
+    async function addFile(picked: File, aborted: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile> {
       if (!live()) throw new Error('The room changed. Nothing was uploaded.')
       const re = `r${++next}`
       let acknowledged: ((value: void) => void) | undefined

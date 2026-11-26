@@ -81,6 +81,9 @@ Requests carry `re`, a name chosen by the side that asks, and are answered by
   relays. It answers `ok` only once a relay has accepted it, and refuses in
   words otherwise. Until then the page counts the change as not yet the
   room's, and tries again.
+- The page has at most one part sealed and not yet published at a time, and
+  asks to publish it only in the reading it was sealed in. The app forgets an
+  event sealed and never asked for at the next `unlisten` or `close`.
 
 ### This device's copy
 
@@ -98,10 +101,12 @@ Requests carry `re`, a name chosen by the side that asks, and are answered by
 
 The page sends `status` whenever it changes: `ready` (the stream has been
 read), `pending` (this device holds changes the room is not known to hold)
-and, until it is put right, `error`. The app shows it beside the board, as the
-web does: "Reading the room's board…", "Sending your changes to the room…",
-"Shared with everyone in this room.", or the error followed by "Your changes
-are kept on this device and sent when they can be."
+and, until it is put right, `error`. The view draws it itself, in the words
+the web shows over the board (`roomBoardStatusWords`): "Reading the room's
+board…", "Sending your changes to the room…", "Shared with everyone in this
+room.", or the error followed by "Your changes are kept on this device and
+sent when they can be." The app needs `status` only for what it shows
+elsewhere, such as a note that a board's changes are still waiting.
 
 ### The view's buttons
 

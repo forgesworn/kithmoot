@@ -211,8 +211,9 @@ describe('the room board over a message port', () => {
     addCardFromView(bob.page, 'Print the notices')
     await vi.waitFor(() => expect(titles(ada.log.doc)).toEqual(['Book the hall', 'Print the notices']))
     await settled(ada.log, bob.page.sync)
-    // The app was told, as the board went, where it stands.
+    // The app was told, as the board went, where it stands, and the view can say it in the room's words.
     expect(bob.statuses.at(-1)).toEqual({ ready: true, pending: false })
+    expect(bob.page.view(new AbortController().signal).status()).toBe('Shared with everyone in this room.')
 
     await ada.log.close(); ada.agent.leave()
     await bob.page.close()
@@ -244,7 +245,12 @@ describe('the room board over a message port', () => {
     first.link.state.down = true
     await settled(first.page.sync)
     addCardFromView(first.page, 'Written on the bus')
+    const view = first.page.view(new AbortController().signal)
+    let told = 0
+    view.changed(() => { told++ })
     await vi.waitFor(() => expect(first.statuses.at(-1)).toEqual({ ready: true, pending: true, error: 'No relay accepted the event' }))
+    expect(view.status()).toBe('No relay accepted the event. Your changes are kept on this device and sent when they can be.')
+    expect(told).toBeGreaterThan(0)
     await vi.waitFor(() => expect(first.copy.size).toBeGreaterThan(0))
     await first.page.close()
     const again = await phone(f, 'Bob', first.copy)
@@ -277,13 +283,32 @@ describe('the room board over a message port', () => {
     expect(titles(bob.page.sync.doc)).toEqual(['Said before the move'])
   })
 
+  it('starts no reading before its copy is read, even when the room moves meanwhile', async () => {
+    const channel = new MessageChannel()
+    const heard: Array<{ t: string; gen?: number }> = []
+    channel.port1.onmessage = (event: MessageEvent) => {
+      const m = JSON.parse(event.data as string)
+      heard.push(m)
+      const send = (body: Record<string, unknown>) => channel.port1.postMessage(JSON.stringify({ v: 1, ...body }))
+      if (m.t === 'ready') send({ t: 'start', self: 'c'.repeat(64), invite: false, assign: false, files: false })
+      // The room moves while the copy is still on its way.
+      if (m.t === 'copy.read') { send({ t: 'rekey' }); setTimeout(() => send({ t: 'reply', re: m.re, ok: true, unread: 0 }), 20) }
+    }
+    const page = await openRoomBoardOverPort(channel.port2 as unknown as Parameters<typeof openRoomBoardOverPort>[0], { timing: FAST })
+    closers.push(async () => { await page.close(); channel.port1.close() })
+    await vi.waitFor(() => expect(heard.some(m => m.t === 'listen')).toBe(true))
+    await new Promise(resolve => setTimeout(resolve, 30))
+    expect(heard.filter(m => m.t === 'listen' || m.t === 'unlisten')).toEqual([{ v: 1, t: 'listen', gen: 1 }])
+    expect(heard.findIndex(m => m.t === 'listen')).toBeGreaterThan(heard.findIndex(m => m.t === 'copy.read'))
+  })
+
   it('hands a card’s file to the app in acknowledged pieces, and opens one through it', async () => {
     const f = await room()
     const bob = await phone(f, 'Bob')
     const host = bob.page.view(new AbortController().signal)
     const bytes = noise(70_000)
     const words: string[] = []
-    const picked = Object.assign(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'text/plain' }), { name: 'notes.txt' })
+    const picked = new File([bytes as Uint8Array<ArrayBuffer>], 'notes.txt', { type: 'text/plain' })
     const reference = await host.files!.add(picked, new AbortController().signal, said => words.push(said))
     expect(reference).toEqual({ hash: 'a'.repeat(64), key: 'k'.repeat(64), name: 'notes.txt', type: 'text/plain', size: 70_000, encryptedSize: 65_536, servers: ['https://files.example/'] })
     expect(words).toEqual(['Uploading…'])
@@ -303,7 +328,7 @@ describe('the room board over a message port', () => {
     bob.native.onmessage = event => { if (JSON.parse(event.data as string).t !== 'file.chunk') void silent?.call(bob.native, event) }
     const host = bob.page.view(new AbortController().signal)
     const stop = new AbortController()
-    const adding = host.files!.add(Object.assign(new Blob([noise(90_000) as Uint8Array<ArrayBuffer>]), { name: 'big.bin' }), stop.signal, () => {})
+    const adding = host.files!.add(new File([noise(90_000) as Uint8Array<ArrayBuffer>], 'big.bin'), stop.signal, () => {})
     await vi.waitFor(() => expect(bob.toPage.length).toBeGreaterThan(0))
     stop.abort()
     await expect(adding).rejects.toThrow('Stopped. Nothing was uploaded.')
@@ -330,7 +355,7 @@ describe('the room board over a message port', () => {
   it('brings nothing to the page that signs, seals, opens or checks', async () => {
     const result = await build({ entryPoints: ['src/room-board-port.ts'], bundle: true, write: false, metafile: true, format: 'esm', platform: 'browser', target: 'es2022', logLevel: 'silent' })
     const inputs = Object.keys(result.metafile.inputs)
-    expect(inputs.filter(path => path.startsWith('src/')).sort()).toEqual(['src/room-board-port.ts', 'src/room-board-sync.ts', 'src/room-board-wire.ts'])
+    expect(inputs.filter(path => path.startsWith('src/')).sort()).toEqual(['src/room-board-port.ts', 'src/room-board-sync.ts', 'src/room-board-wire.ts', 'src/room-board-words.ts'])
     expect(inputs.filter(path => /nostr-tools|@noble\/curves|@noble\/ciphers|hkdf|hmac|nip44|secp256k1|schnorr/.test(path))).toEqual([])
   })
 })
