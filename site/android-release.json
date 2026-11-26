@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.179",
-  "versionCode": 202,
+  "versionName": "0.6.180",
+  "versionCode": 203,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71516544,
-  "apkSha256": "5fb4c3cee523d10a3a96dec18e67fd5b21cfe1e34f323a1754a2601a74d20815",
+  "apkBytes": 71524736,
+  "apkSha256": "05ad5d105853ac49a4037b19948f88b2da3f32af4665ad7a823d1a7327441088",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.179-production.apk",
+  "downloadFilename": "kithmoot-0.6.180-production.apk",
   "releaseNotes": [
-    "See who can let you in and how to follow up while you wait.",
-    "Node rooms show the host address from the invitation.",
-    "Cancel request stays visible as you scroll, including at large text sizes."
+    "Retry can send a pending message once the relay is ready again.",
+    "Unsent drafts reopen in the same room and persona after a restart."
   ]
 }
