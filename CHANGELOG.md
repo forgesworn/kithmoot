@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.187, 26 November 2026
+
+- Replace a leaked shared key from the room’s invite settings. The conversation keeps its room and earlier history. Share the new invitation privately and approve each returning device before it receives the new key.
+
 ## Desktop 0.1.186, 26 November 2026
 
 - Open a private or group chat's shared board directly from **Board** in its header. **Back to chat** returns to the same conversation. Tasks and personal boards are still available from the workspace.
