@@ -61,30 +61,50 @@ export async function runWokRoomAcceptance({ server, port, keeperSecret, restart
   await guestActivation.activate({ room, box: connection().boxes()[0]!, device: getPublicKey(guestDevice), scopes: [room], aliases: [],
     readiness: readiness(guestDevice) })
   const consent = guestStore.get()!
-  const publishAndRead = async (text: string) => {
-    const relay = new TextRoomRelay(connection(), consent, guest)
+  const publishAndRead = async (text: string, stream = room, carried = consent) => {
+    const relay = new TextRoomRelay(connection(), carried, guest)
     try {
       const received = new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('Scoped room readback timed out.')), 10_000)
-        const stop = relay.subscribe([{ kinds: [1460], '#d': [room] }], event => {
+        const stop = relay.subscribe([{ kinds: [1460], '#d': [stream] }], event => {
           if (event.content === text) { clearTimeout(timer); stop(); resolve(event.id) }
         })
       })
-      const event = finalizeEvent({ kind: 1460, content: text, created_at: Math.floor(Date.now() / 1000), tags: [['d', room]] }, guestDevice)
+      const event = finalizeEvent({ kind: 1460, content: text, created_at: Math.floor(Date.now() / 1000), tags: [['d', stream]] }, guestDevice)
       await relay.publish(event)
       return await received
     } finally { relay.close() }
   }
+  const refusedOn = async (stream: string, carried: RoomConsent) => {
+    const relay = new TextRoomRelay(connection(), carried, guest)
+    try {
+      await relay.publish(finalizeEvent({ kind: 1460, content: 'must not be accepted', created_at: Math.floor(Date.now() / 1000), tags: [['d', stream]] }, guestDevice))
+      return false
+    } catch { return true } finally { relay.close() }
+  }
   const first = await publishAndRead('encrypted room fixture one')
   await restart()
   const second = await publishAndRead('encrypted room fixture two')
+
+  // The room's board, added in place to a route activated without it. A member who adds it to their own selection
+  // before the keeper has granted it is refused by the box; once the keeper renews for the same devices and the member
+  // activates again, a board part of full size (about 45 KB) is carried and read back on the board's own stream.
+  const board = '22'.repeat(32)
+  const boardRefusedEarly = await refusedOn(board, { ...consent, scopes: [room, board] })
+  await keeperActivation.renew(room, readiness(keeperDevice), [room, board])
+  await guestActivation.activate({ room, box: connection().boxes()[0]!, device: getPublicKey(guestDevice), scopes: [room, board], aliases: [],
+    readiness: readiness(guestDevice) })
+  const upgraded = guestStore.get()!
+  if (JSON.stringify(upgraded.scopes) !== JSON.stringify([room, board])) throw new Error('The member’s selection did not gain the board.')
+  if (keeperStore.get()!.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === board)).length !== 2) throw new Error('The keeper did not grant the board to both devices.')
+  const boardPart = `board part ${'x'.repeat(45_000)}`
+  const boardCarried = !!await publishAndRead(boardPart, board, upgraded)
+
   await keeperActivation.renew(room, readiness(keeperDevice))
   await keeperActivation.withdraw(room)
-  const stopped = new TextRoomRelay(connection(), consent, guest)
-  let refused = false
-  try {
-    await stopped.publish(finalizeEvent({ kind: 1460, content: 'must not be accepted', created_at: Math.floor(Date.now() / 1000), tags: [['d', room]] }, guestDevice))
-  } catch { refused = true } finally { stopped.close() }
+  const refused = await refusedOn(room, consent)
   if (!refused) throw new Error('A withdrawn grant still accepted room traffic.')
-  return { activated: true, scopedReadback: first !== second, restart: true, renewed: true, withdrawn: refused }
+  const boardWithdrawn = await refusedOn(board, upgraded)
+  return { activated: true, scopedReadback: first !== second, restart: true, renewed: true, withdrawn: refused,
+    board: { refusedBeforeTheKeeper: boardRefusedEarly, carried: boardCarried, withdrawn: boardWithdrawn } }
 }

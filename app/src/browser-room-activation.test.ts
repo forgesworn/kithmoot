@@ -98,6 +98,49 @@ describe('durable browser room activation', () => {
     f.advance(86400); await f.controller.renew(room, f.input.readiness)
     expect(new Set(f.saved!.grants.map(g => g.active.tags.find(t => t[0] === 'd')![1]))).toEqual(new Set([room,channel]))
   })
+  it('grants the room’s board as a scope of its own, for as many devices as two scopes allowed', async () => {
+    const f = fixture(), control = 'e'.repeat(64), board = 'f'.repeat(64)
+    // The keeper and seven guests: eight devices, as a room with only chat and control could hold.
+    const guests = Array.from({ length: 7 }, () => { const guest = getPublicKey(generateSecretKey()); return { persona: guest, device: guest } })
+    await f.controller.activate({ ...f.input, scopes: [room, control, board], guests })
+    expect(f.saved!.grants).toHaveLength(24)
+    expect(f.saved!.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === board))).toHaveLength(8)
+    f.advance(86400); await f.controller.renew(room, f.input.readiness)
+    expect(new Set(f.saved!.grants.map(g => g.active.tags.find(t => t[0] === 'd')![1]))).toEqual(new Set([room, control, board]))
+    expect(f.saved!.grants).toHaveLength(24)
+  })
+
+  it('adds the board to a route activated without it, in place: the keeper renews for the same devices, a member adds it to its own selection', async () => {
+    const control = 'e'.repeat(64), board = 'f'.repeat(64)
+    const keeper = fixture()
+    await keeper.controller.activate({ ...keeper.input, scopes: [room, control] })
+    const before = structuredClone(keeper.saved!)
+    const devicesIn = (scope: string) => keeper.saved!.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope))
+      .map(g => g.active.tags.find(t => t[0] === 'device')![1]).sort()
+    // Interrupted after the plan was saved: the next renewal finishes the same plan, board included. Straight after
+    // activation, so the new scope's grants must take the expiry the existing ones already carry.
+    keeper.writeFails = true
+    await expect(keeper.controller.renew(room, keeper.input.readiness, [room, control, board])).rejects.toThrow('lost OK')
+    expect(keeper.saved!.phase).toBe('renewing'); expect(keeper.saved!.scopes).toEqual([room, control, board])
+    keeper.writeFails = false
+    await keeper.controller.renew(room, keeper.input.readiness)
+    expect(keeper.saved!.phase).toBe('active')
+    expect(keeper.saved!.grants).toHaveLength(6)
+    expect(devicesIn(board)).toEqual(devicesIn(room))
+    // The streams it already carried keep their grant ids.
+    const ids = (c: RoomConsent, scope: string) => c.grants.filter(g => g.active.tags.some(t => t[0] === 'd' && t[1] === scope)).map(g => g.active.tags.find(t => t[0] === 'grant')![1]).sort()
+    expect(ids(keeper.saved!, room)).toEqual(ids(before, room)); expect(ids(keeper.saved!, control)).toEqual(ids(before, control))
+    expect(keeper.publications.filter(e => e.kind === 24242 && e.tags.some(t => t[0] === 'd' && t[1] === board))).not.toHaveLength(0)
+
+    const member = fixture()
+    await member.controller.activate({ ...member.input, scopes: [room, control], guests: undefined })
+    expect(member.saved!.grants).toEqual([])
+    await member.controller.activate({ ...member.input, scopes: [room, control, board], guests: undefined })
+    expect(member.saved!.scopes).toEqual([room, control, board])
+    expect(member.saved!.grants).toEqual([])
+    expect(member.publications.filter(e => e.kind === 24242)).toEqual([])
+  })
+
   it('obtains and persists a fresh withdrawal after expiry, then requires server acknowledgement', async () => {
     const f = fixture(); await f.controller.activate(f.input)
     const original = structuredClone(f.saved!)

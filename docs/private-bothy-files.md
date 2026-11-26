@@ -31,6 +31,22 @@ and a server-provided URL is never followed. Public-store file downloads are
 held while this room uses Bothy. Ordinary HTTPS attachments retain their
 existing behaviour outside that route.
 
+## Files on the room's board
+
+**Add file** on a card of the room's board takes the same path, under the same
+permission: a device that has not allowed encrypted files on the room's Bothy
+is told to allow them in the chat's file panel and uploads nothing. The card
+records the box (`fsl://<node>/`), the hash and the key, inside the board's
+encrypted document; **Open** reads it through this device's selected route,
+exactly as a chat's file is read. As in the chat, only the box's keeper can
+store a file there for now: Bothy admits uploads from its keeper, and admitting
+a member against a grant is not built yet, so the box refuses a member's
+upload (401) and the card keeps the file on that device with **Try again**.
+Taking it off the card does not delete it:
+it is one of this account's private uploads, removed under **Review private
+uploads**. The board travels over the route only where the route was
+activated with the board's scope (`docs/browser-room-activation.md`).
+
 ## Consent, ownership and cleanup
 
 Stopping new private uploads and downloads does not delete uploaded copies or
@@ -77,7 +93,17 @@ The existing real claimed-runtime browser journey has an optional
 `ROOM_PRIVATE_FILES=1` extension. With its usual local Bothy and WebPKI Link
 fixtures, it exercises separate consent, upload, two-profile decryption, fresh
 reads after app/box/relay restart, owner cleanup outside a room, and actual
-IndexedDB erasure through Forget this browser. `ROOM_ARTIFACT_DIR` must be an
+IndexedDB erasure through Forget this browser. The same journey always takes
+the room's board through the route: each member writes a card that the other
+sees, with no public frame for the board's stream; a card the keeper writes
+while the member is away reaches the member after the keeper has gone too, so
+it came from the box. With `ROOM_PRIVATE_FILES=1` the keeper's card carries a
+file that the member opens, before and after the box restarts. `test/browser-room-board-upgrade.mjs` runs
+under the same services in place of `test/browser-room-live.mjs`: a room
+activated by an earlier build (`ROOM_UPGRADE_FROM`, that build's `app/dist`)
+is updated through **Update now**, shows the note, is renewed by its keeper
+and activated again by its member, and its card from before the update then
+reaches the member. `ROOM_ARTIFACT_DIR` must be an
 owned repository release directory or retained evidence directory, never `/tmp`.
 Declared fixture signers and local browser acceptance do not establish physical,
 Android, whole-mode anonymity or full Vennel conformance. Mocked adapter deletion

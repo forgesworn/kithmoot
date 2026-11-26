@@ -71,7 +71,8 @@ try {
       await start()
     } else { await stop(); await start() }
   } })
-  assert.deepEqual(result, { activated: true, scopedReadback: true, restart: true, renewed: true, withdrawn: true })
+  assert.deepEqual(result, { activated: true, scopedReadback: true, restart: true, renewed: true, withdrawn: true,
+    board: { refusedBeforeTheKeeper: true, carried: true, withdrawn: true } })
   console.log(JSON.stringify({ passed: true, ...result }))
 } catch (error) {
   console.error(error)

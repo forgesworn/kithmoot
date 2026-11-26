@@ -38,6 +38,7 @@ import { BrowserRoomConnections, StandaloneRoomConnection } from './standalone-r
 import { BrowserBothyFiles } from './browser-bothy-files.js'
 import { PrivateFileVault } from './private-file-vault.js'
 import { privateAttachmentLocation } from '../../src/private-attachment.js'
+import { ROOM_BOARD_CHANNEL } from '../../src/room-board-wire.js'
 import { nostrEventSigner, nostrMessageIdentity } from './nostr-message-signer.js'
 import { PrivateFileUploadsPanel } from './private-file-uploads-panel.js'
 import { BrowserRoomActivation } from './browser-room-activation.js'
@@ -962,6 +963,16 @@ async function pauseBrowserMls(): Promise<void> {
 }
 
 let roomUsesBothy = false
+/** The room's Bothy route carries its board: its grant names the board's stream. A route activated before boards
+ *  travelled over Bothy names only the main chat and control, so the room has no board there (`roomHasOwnBoard`). */
+let roomBothyBoard = false
+/** Whether a saved Bothy route carries this room's board. Epoch 0 only, as the route is. */
+async function readBothyRoute(roomSecret: Uint8Array): Promise<void> {
+  const { roomId, roomKey } = deriveRoom(roomSecret)
+  const consent = await browserRoomRoutes.selected(roomId)
+  roomUsesBothy = !!consent
+  roomBothyBoard = !!consent?.scopes.includes(deriveChannel(roomId, roomKey, ROOM_BOARD_CHANNEL).id)
+}
 /** A room that keeps its files on its group's own computers: the list its
  *  authority signed, held across visits. Read through `roomStorageRecord()`;
  *  declared up here because the file tray asks for it before a room opens. */
@@ -6421,7 +6432,7 @@ function adoptNodeRoom(held: BrowserNodeRoom): void {
   invitationAuthoritySk = held.authoritySk; expectedEpoch = held.epochHint
   startedHere = !!held.authoritySk; roomRelayScope = `room:${held.node.room}`
   relays = [held.node.relay]; roomRelayConfig = [{ url: held.node.relay, read: true, write: true }]; roomRelayHints = []
-  iceUrls = []; roomUsesBothy = false
+  iceUrls = []; roomUsesBothy = false; roomBothyBoard = false
 }
 
 interface RoomReplacement {
@@ -13341,7 +13352,7 @@ let assignmentSummary: BoardSummary = { total: 0, active: 0, needsYou: 0 }
  *  write a stream of its own there. Until that is decided on its own terms a
  *  quiet room keeps what it had before, tasks and the boards handed to it. */
 function roomHasOwnBoard(): boolean {
-  return !!session && !isQuietPolicy(roomPolicy)
+  return !!session && !isQuietPolicy(roomPolicy) && (!roomUsesBothy || roomBothyBoard)
 }
 
 /** Rooms whose own board somebody has written to: this device keeps a copy,
@@ -16053,7 +16064,7 @@ async function startSession(asVisitor = false, retry?: { deadline: number, signe
 
   try {
     if (browserMlsPanel || browserMlsGrantPanel || browserMlsRoomPanel) await pauseBrowserMls()
-    roomUsesBothy = !!await browserRoomRoutes.selected(deriveRoom(roomSecret).roomId)
+    await readBothyRoute(roomSecret)
     chatOnly = chatOnly || roomUsesBothy
     // A restored signer can arrive after the invitation. Joining first
     // would mint a visitor identity that a known-contact clerk rejects,
@@ -20376,7 +20387,8 @@ function loadRoomBoardPanel(): Promise<typeof import('./room-board-panel.js')> {
  * A card's reference is a server and a hash, so a file is put on a card only
  * once it is somewhere: one the group's storage cannot take yet is let go and
  * said so, where a chat would hold it and send later. A room whose files go
- * through Bothy has no address a card can carry, and says that.
+ * through its Bothy puts the file there, as a chat does, and the card names
+ * that box (`fsl://<node>/`): only a device routed through it can open it.
  */
 async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardFile> {
   const selected = session
@@ -20401,9 +20413,14 @@ async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: s
     if (asked.kind === 'default' && asked.origin === origin) { acceptDefaultFileServer(localStorage, origin); fileDestinationChanged() }
     destination = fileDestination()
   }
-  if (destination.kind !== 'server' && destination.kind !== 'group') {
-    throw new Error(destination.kind === 'bothy' ? 'Files in this room go through Bothy, which a card cannot point to yet. Share the file in the chat instead.'
-      : destination.kind === 'withdrawn' ? `${GROUP_NO_STORAGE} Nothing was attached.`
+  if (destination.kind === 'bothy') {
+    // The chat's own permission, given beside its file panel: a card asks for no second one.
+    if (!await privateFiles.enabled().catch(() => false)) throw new Error('Encrypted files on this room’s Bothy are not allowed on this device yet. Allow them in the chat’s file panel, then try again.')
+    signal.throwIfAborted()
+    if (session !== selected || !roomHasOwnBoard()) throw gone()
+  }
+  if (destination.kind !== 'server' && destination.kind !== 'group' && destination.kind !== 'bothy') {
+    throw new Error(destination.kind === 'withdrawn' ? `${GROUP_NO_STORAGE} Nothing was attached.`
         : destination.kind === 'default' ? 'Not attached. Where files go changed while you were asked.'
           : nodeRoom && !nodeRoom.node.existing ? 'Files are off in this hosted room.'
             : destination.reason === 'chosen' ? 'File uploads are off on this device. Turn them on in Settings, under Privacy, then try again.'
@@ -20412,7 +20429,7 @@ async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: s
   const draft: ConversationDraft = { channel: undefined, text: '', selectionStart: 0, selectionEnd: 0, selectionDirection: 'none', attachments: [], artwork: [], event: '', key: '', panelOpen: false, status: '' }
   draftStages.set(draft, said)
   if (destination.kind === 'group') await shareDroppedFileToGroup(file, draft, signal)
-  else await shareDroppedFile(file, draft, signal, destination.origin)
+  else await shareDroppedFile(file, draft, signal, destination.kind === 'bothy' ? '' : destination.origin)
   const attachment = draft.attachments[0]
   if (session !== selected || !attachment) throw new Error(`${file.name} was not attached.`)
   const hash = attachment.sha256.toLowerCase()
@@ -20426,6 +20443,9 @@ async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: s
     const base = listedBaseOf(roomStorageRecord()?.nodes ?? [], attachment.url, hash)
     server = base ? roomBoardGroupServer(base) : undefined
     if (!server) throw new Error('The group’s storage kept this file at an address a card cannot carry. Share the file in the chat instead.')
+  } else if (destination.kind === 'bothy') {
+    server = (roomBoardPanelModule ?? await loadRoomBoardPanel()).roomBoardPrivateServer(attachment.url, hash)
+    if (!server) throw new Error('This room’s Bothy kept this file at an address a card cannot carry. Share the file in the chat instead.')
   } else {
     // The server the file was sent to, not the address its answer gave: a
     // Blossom server answers for a file at its hash (BUD-01), which is what a
@@ -20464,9 +20484,12 @@ function openRoomBoardFile(file: RoomBoardFile, from: HTMLElement): void {
   const listed = file.servers.map(roomBoardGroupBase).find(base => base !== undefined)
   const attachment = file.servers.length ? normaliseAttachment({ url: listed ? `${listed}/${file.hash}` : `${file.servers[0]}${file.hash}`, sha256: file.hash, key: file.key,
     ...(file.name ? { name: file.name } : {}), ...(file.type ? { type: file.type } : {}), ...(Number.isSafeInteger(file.encryptedSize) && file.encryptedSize > 0 ? { size: file.encryptedSize } : {}) }) : null
-  let https = false
-  try { https = !!attachment && new URL(attachment.url).protocol === 'https:' } catch { /* Not an address. */ }
-  if (!attachment || !https) { setStatus('This file cannot be opened: its address is not one this room reads.'); return }
+  let readable = false
+  try { readable = !!attachment && new URL(attachment.url).protocol === 'https:' } catch { /* Not an address. */ }
+  // A file on a Bothy box is named by that box alone, and read only through this device's own route to it:
+  // the same path a chat's file takes, which refuses any other box and never tries a public server instead.
+  if (attachment && !readable && file.servers.length === 1) readable = !!privateAttachmentLocation(attachment.url, file.hash)
+  if (!attachment || !readable) { setStatus('This file cannot be opened: its address is not one this room reads.'); return }
   const dialog = $('boardFileDialog') as HTMLDialogElement
   const forget = (): void => {
     if (!roomBoardFileKey) return
@@ -20546,7 +20569,9 @@ function roomBoardRoom(selected: RoomSession, module: typeof import('./room-boar
     key: selected, roomId: selected.roomId, name: currentRoomLabel(), self: selected.participant,
     members: () => selected.participants().map(view => ({ pubkey: view.participant, name: view.name ?? personLabel(view.participant) })),
     board: () => selected.board(module.browserRoomBoardStorage(roomBoardRoot(selected), localStorage)),
-    canInvite: roomMenuModel().invite,
+    // A Bothy route carries no new invitations and no tasks yet: the board offers neither there.
+    canInvite: roomMenuModel().invite && !roomUsesBothy,
+    canAssign: !roomUsesBothy,
   }
 }
 let workspaceWorkLoading: Promise<WorkspaceWorkPanel> | undefined
@@ -20565,7 +20590,9 @@ function loadWorkspaceWorkPanel(): Promise<WorkspaceWorkPanel> {
         // accounts.
         roomNote: () => session && isQuietPolicy(roomPolicy)
           ? `${currentRoomLabel()} is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.`
-          : undefined,
+          : session && roomUsesBothy && !roomBothyBoard
+            ? `${currentRoomLabel()} goes through a Bothy route set up before boards could go that way, so its board is not here. To bring it, the room’s keeper chooses Renew keeper grants in the room’s Bothy routing, then each member chooses Activate or resume room there.`
+            : undefined,
         currentRoomTasks: {available: () => !!session, open: async () => {
           const selected = session
           if (!selected) throw new Error('Open a chat before viewing its tasks')
@@ -20702,7 +20729,8 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
   const device = getPublicKey(deviceSk)
   const devices = (s?.participants() ?? []).flatMap(p => p.devices.filter(d => d !== device).map(d => ({ persona: p.participant, device: d, label: p.name ?? p.participant.slice(0, 12) + '…' })))
   return {
-    account: account.pubkey, room, device, scopes: [room, deriveChannel(room, roomKey, CONTROL_CHANNEL).id],
+    // The main chat, the room's control messages and its board. Each is a stream of its own, granted on its own.
+    account: account.pubkey, room, device, scopes: [room, deriveChannel(room, roomKey, CONTROL_CHANNEL).id, deriveChannel(room, roomKey, ROOM_BOARD_CHANNEL).id],
     aliases: roomInvitationCapability ? [`lookup:${deriveInvitationId(roomInvitationCapability)}`] : [],
     label: knownRoom(roomStore(), room) ? knownRoomLabel(knownRoom(roomStore(), room)!) : 'Current room',
     devices,
@@ -20713,13 +20741,18 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
     leave: async () => {
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to continue.')
       await closeRoomSession({ backgroundFarewell: true })
-      roomUsesBothy = false
+      roomUsesBothy = false; roomBothyBoard = false
     },
     resume: async () => {
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to resume.')
       if (!session) await startSession()
-      roomUsesBothy = !!await browserRoomRoutes.selected(room)
-      setStatus('Bothy route selected for text and permitted encrypted files. Calls, live media and ungranted channels are unavailable.', 'done')
+      const hadBoard = roomHasOwnBoard()
+      await readBothyRoute(roomSecret)
+      // A route that has just gained the board (Renew keeper grants, or Activate or resume room, on a route set up
+      // before boards went over Bothy): start the board as entering the room would, so what this device already
+      // holds is sent now rather than after the room is next opened.
+      if (session && !hadBoard && roomHasOwnBoard()) resumeRoomBoard(session)
+      setStatus(`Bothy route selected for text${roomBothyBoard ? ', the room’s board' : ''} and permitted encrypted files. Calls, live media and ungranted channels are unavailable.`, 'done')
     },
   }
 })

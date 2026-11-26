@@ -42,7 +42,8 @@ export async function privateFileReadAfterRestart(guest, label, proof) {
   }
   await show(guest.page); proof.restarts.push(label)
 }
-export async function privateFileOwnerCleanup(owner, app, proof) {
+/** `uploads`: how many private uploads the owner made in the journey, each deleted here. */
+export async function privateFileOwnerCleanup(owner, app, proof, uploads = 1) {
   const page = owner.page
   await page.goto(app)
   await expect(page.locator('#roomArea')).toBeHidden()
@@ -61,11 +62,14 @@ export async function privateFileOwnerCleanup(owner, app, proof) {
   await expect(page.locator('#forgetBrowserStatus')).toContainText('Private upload records are retained.')
   await expect(page.locator('#homeSignIn')).toBeHidden()
   proof.unresolvedUploadBlocksForget = true
-  await page.locator('#privateFileUploadsOpen').click()
-  await expect(page.locator('#privateFileUploads')).toContainText('stored')
-  await page.locator('#privateFileUploads').getByRole('button',{name:'Delete this upload',exact:true}).click()
-  await expect(page.locator('#privateFileUploads')).toContainText('The box confirmed deletion of your upload.',{timeout:60000})
-  await page.locator('#privateFileUploads').getByRole('button',{name:'Close',exact:true}).click()
+  for (let deleted = 0; deleted < uploads; deleted++) {
+    await page.locator('#privateFileUploadsOpen').click()
+    await expect(page.locator('#privateFileUploads')).toContainText('stored')
+    await expect(page.locator('#privateFileUploads').getByRole('button',{name:'Delete this upload',exact:true})).toHaveCount(uploads - deleted)
+    await page.locator('#privateFileUploads').getByRole('button',{name:'Delete this upload',exact:true}).first().click()
+    await expect(page.locator('#privateFileUploads')).toContainText('The box confirmed deletion of your upload.',{timeout:60000})
+    await page.locator('#privateFileUploads').getByRole('button',{name:'Close',exact:true}).click()
+  }
   await page.locator('#privateFileUploadsOpen').click()
   await expect(page.locator('#privateFileUploads')).toContainText('No private uploads are recorded for this account.')
   await page.locator('#privateFileUploads').getByRole('button',{name:'Close',exact:true}).click()

@@ -246,14 +246,34 @@ and what the file says it is is never taken on trust. Any member can write a
 reference onto a card, so it is read as a stranger's would be, and the board's
 frame never fetches one.
 
-A card's reference is an https server and a hash. A room whose files go
-through Bothy has no such address for one, so **Add file** there says so and
-uploads nothing. So does a device with uploads turned off, with the way to
-turn them on.
+A card's reference is an https server and a hash, or, in a room whose files
+go through its Bothy, that box and a hash (`fsl://<node>/`). The file goes to
+the box as a chat's file does, sealed here first, under the same permission:
+a device that has not allowed encrypted files on the room's Bothy is told
+where to allow them, in the chat's file panel, and nothing is uploaded. Only a
+device routed through that box can open the file, through its own route,
+which refuses any other box and never tries a public server instead. A device
+with uploads turned off is told so too, with the way to turn them on.
 
 Taking a file off a card removes the reference for everybody. It does not
 delete the upload. The upload goes when its sender leaves the room and asks
-for what they left to be deleted, as a chat file does.
+for what they left to be deleted, as a chat file does. A file on a room's
+Bothy stays on the box: it is listed, with the uploads of chat files, under
+**Settings → Account → Review private uploads**, which removes it.
+
+**A room routed through Bothy** carries its board over that route as a stream
+of its own, granted beside the main chat and the room's control messages
+(`docs/browser-room-activation.md`). A route activated by an earlier version
+of the app was granted only those two, so its room has no board, and Boards
+says why. It gains one in place, without leaving the route: the keeper
+chooses **Renew keeper grants**, which grants the board to the devices the
+room is granted to, then each member chooses **Activate or resume room**,
+which adds the board to that device's own selection. Withdrawing instead
+would hand the room back to public relays. A member who does this before the
+keeper has a board the box refuses to carry, so its changes stay unsent. The
+cards a device wrote meanwhile are kept on it and sent once the board can go.
+The board offers neither **Invite people** nor **Assign to agent** in such a
+room: the route carries no new invitations, and not the room's tasks yet.
 
 ## Who can change what
 
@@ -284,8 +304,7 @@ undo across devices beyond what the board's own archive keeps.
   gives an agent the same document on the same terms, and an agent that
   edits it is saved and sent like anybody. `kithmoot-agent` has no board
   tools, so its brains cannot read or write cards.
-- **No files on cards in a room whose files go through Bothy.** See Files on
-  cards. A card's file shows which stage it has reached, not how many bytes
+- **A card's file shows which stage it has reached**, not how many bytes
   have gone.
 - **Export is the board's text.** It names the files on cards and does not
   include them; nothing in the frame can read a file, so no bundle is offered.
@@ -354,8 +373,8 @@ undo across devices beyond what the board's own archive keeps.
 - **Public relays** (`test/live.test.ts`): a board of several full parts
   written by one session and read whole by another.
 
-Not checked: a desktop app installed from a release, a phone, a room whose
-files go through Bothy, a room whose storage is listed with a path after its
+Not checked: a desktop app installed from a release, a phone, a room routed
+through a real Bothy (its board, or a file on a card there), a room whose storage is listed with a path after its
 host (the card names the host, and the room's list is relied on for the
 rest), a board of more than a few hundred kilobytes, or a room whose only
 relays refuse 45 KB events.

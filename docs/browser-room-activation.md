@@ -21,8 +21,15 @@ membership rules. Calls, protected MLS and broader channels remain outside
 this first profile.
 
 This first journey carries main-chat text and presence, plus the control
-scope, for ordinary rooms before their first rekey. Calls, media, new
-invitations, quiet rooms and ungranted channels/epochs are unavailable. It
+scope and the room's board, for ordinary rooms before their first rekey.
+Each is a stream of its own with its own grant: three grants per device, and
+a saved permission holds eight devices in each. A route activated by an earlier
+version of the app was granted the first two only. **Renew keeper grants**
+adds the board's grant for the devices the room's own grant names, and
+**Activate or resume room** adds the board to a member's own selection; the
+keeper goes first, since a member's selection grants nothing. Each renewal
+asks the keeper's signer for one more pair of signed statements per device. Calls, media, new invitations, quiet rooms, the room's tasks and
+ungranted channels/epochs are unavailable. It
 does not supply MLS, restore-witness gating or membership administration.
 Account and profile connections retain their separate public-relay policy.
 The Link relay can observe connection timing and volume.
