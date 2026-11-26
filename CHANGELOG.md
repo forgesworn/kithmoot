@@ -2,7 +2,7 @@
 
 ## Unreleased, 26 November 2026
 
-- **Closing a picture, video or audio window in the desktop app no longer shows an error, and Quit no longer stops at one.** Tidying up after such a window read the window again after it was gone, and also expected an answer from a call that gives none. Both threw in the app's main process, so Electron put up "A JavaScript error occurred in the main process" each time one was closed, and with one open, Quit (⌘Q) waited behind that box until it was dismissed. In the desktop app from its next release.
+- **Closing a picture, video or audio window in the desktop app no longer shows an error, and Quit no longer stops at one.** Tidying up after such a window read the window again after it was gone, and also expected an answer from a call that gives none. Both threw in the app's main process, so Electron put up "A JavaScript error occurred in the main process" each time one was closed, and with one open, Quit (⌘Q) waited behind that box until it was dismissed. Included in Desktop 0.1.185.
 
 - **A picture on a board card gives one size.** A file's metadata is taken off on the device before it is sealed, and for a picture that means a fresh copy of it, often of a different size. The card stated the size of the file as picked, and its file card said 64 KB, the padded size of the sealed copy, until it was opened. Both now give the size of the file that was sent.
 
