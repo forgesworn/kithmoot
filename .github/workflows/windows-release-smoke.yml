@@ -1,0 +1,46 @@
+name: KithMoot 0.1.186 Windows release smoke
+
+on:
+  push:
+    branches: [test/windows-0.1.186]
+
+permissions:
+  contents: write
+
+jobs:
+  exact-portable-build:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24
+      - name: Download and hash the portable build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_ID: '796179276'
+          ARCHIVE_SHA256: '9ab9687e251b594ab0ed757e670b07995913c6786df502def4ff1f3647a6376b'
+        run: |
+          $candidate = Join-Path $env:RUNNER_TEMP 'km-candidate.zip'
+          gh api -H 'Accept: application/octet-stream' "repos/forgesworn/kithmoot/releases/assets/$env:ASSET_ID" > $candidate
+          if ($LASTEXITCODE) { throw "GitHub did not return the draft archive" }
+          $sha = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne $env:ARCHIVE_SHA256) { throw "Windows archive SHA-256 differs: $sha" }
+          Write-Output "Verified archive SHA-256 $sha"
+          Expand-Archive -LiteralPath $candidate -DestinationPath (Join-Path $env:RUNNER_TEMP 'km-candidate')
+      - name: Install the pinned test dependencies
+        run: |
+          git config --global url.https://github.com/.insteadOf ssh://git@github.com/
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE) { throw "Test dependency installation failed" }
+      - name: Exercise the room board and the desktop shell with disposable profiles
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'km-candidate/KithMoot-win32-x64/KithMoot.exe'
+          $relay = Join-Path $env:GITHUB_WORKSPACE 'test/ws-relay.mjs'
+          node .github/release-test/packaged-room-board.mjs $file 0.1.186 $relay
+          if ($LASTEXITCODE) { throw "The exact Windows app failed its room board check" }
+          node .github/release-test/packaged-signet-avatar.mjs $file
+          if ($LASTEXITCODE) { throw "The exact Windows app failed its desktop shell check" }
