@@ -352,7 +352,9 @@ export class RoomBoardSync<E extends RoomBoardEnvelope = RoomBoardEnvelope> {
     // A failed send is already waiting its turn; more edits do not hurry it.
     if (this.#retryMs && this.#flushTimer) return
     this.#firstDirtyAt ??= Date.now()
-    const quiet = this.#opts.timing?.flushMs ?? 1_200
+    // Send committed edits on the next turn, coalescing changes made in the
+    // same turn without delaying what another open board can show.
+    const quiet = this.#opts.timing?.flushMs ?? 0
     const longest = this.#opts.timing?.flushMaxMs ?? 5_000
     this.#schedule(Math.max(0, Math.min(quiet, this.#firstDirtyAt + longest - Date.now())))
   }
@@ -376,7 +378,11 @@ export class RoomBoardSync<E extends RoomBoardEnvelope = RoomBoardEnvelope> {
     if (this.#flushing) { this.#again = true; return this.#flushing }
     const run = this.#send().finally(() => {
       this.#flushing = undefined
-      if (this.#again && !this.#closed) { this.#again = false; this.#schedule(0) }
+      if (this.#again) {
+        this.#again = false
+        // A send that failed may already be waiting to retry.
+        if (!this.#flushTimer) this.#schedule(0)
+      }
     })
     this.#flushing = run
     return run

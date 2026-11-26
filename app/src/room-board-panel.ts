@@ -5,6 +5,8 @@ import { privateAttachmentLocation } from '../../src/private-attachment.js'
 import './boards-panel.css'
 import './room-board-panel.css'
 
+const BOARD_CHAT_LAYOUT = 'kithmoot.room-board-chat.v1'
+
 /** A file on a card: where the sealed file is kept, the key that opens it, and what it says it is. The same thing as a file
  *  shared in the room's conversation, in the words a card uses. */
 export interface RoomBoardFile { hash: string; key: string; name: string; type: string; size: number; encryptedSize: number; servers: string[] }
@@ -143,13 +145,42 @@ export class RoomBoardPanel {
     this.element = root.createElement('section'); this.element.id = 'roomBoardPanel'; this.element.className = 'roomBoardSurface'
     this.#status = root.createElement('p'); this.#status.id = 'roomBoardStatus'; this.#status.className = 'roomBoardStatus'; this.#status.setAttribute('role', 'status')
     const bar = root.createElement('div'); bar.className = 'roomBoardBar'
-    const heading = root.createElement('div'); heading.className = 'roomBoardHeading'
-    this.#title = root.createElement('h2'); this.#title.id = 'roomBoardTitle'
-    heading.append(this.#title, this.#status)
-    const back = root.createElement('button'); back.type = 'button'; back.id = 'roomBoardBack'; back.className = 'quiet'; back.textContent = 'Back to chat'
+    this.#title = root.createElement('h2'); this.#title.id = 'roomBoardTitle'; this.#title.className = 'sr-only'
+    const back = root.createElement('button'); back.type = 'button'; back.id = 'roomBoardBack'; back.className = 'quiet'
+    const arrow = root.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    arrow.classList.add('i'); arrow.setAttribute('aria-hidden', 'true'); arrow.setAttribute('focusable', 'false')
+    const use = root.createElementNS(arrow.namespaceURI, 'use')
+    use.setAttribute('href', '#i-back')
+    arrow.append(use)
+    back.append(arrow, 'Back to chat')
     back.onclick = () => this.options.back()
-    bar.append(heading, back)
-    this.element.append(bar)
+    const chatToggle = root.createElement('button')
+    chatToggle.type = 'button'; chatToggle.className = 'quiet roomBoardChatToggle'
+    chatToggle.setAttribute('aria-controls', 'boardChatBar chatViewport chatForm')
+    const roomArea = root.getElementById('roomArea')!
+    const chatSize = root.getElementById('boardChatSize') as HTMLInputElement
+    let chatVisible = true
+    try {
+      const layout = JSON.parse(localStorage.getItem(BOARD_CHAT_LAYOUT) ?? 'null')
+      chatVisible = layout?.visible !== false
+      if (Number.isFinite(layout?.height)) chatSize.value = String(layout.height)
+    } catch { /* The layout still works with storage unavailable. */ }
+    const renderChatLayout = () => {
+      roomArea.toggleAttribute('data-board-chat-hidden', !chatVisible)
+      roomArea.style.setProperty('--board-chat-height', chatSize.value + 'dvh')
+      chatToggle.textContent = chatVisible ? 'Hide chat' : 'Show chat'
+      chatToggle.setAttribute('aria-expanded', String(chatVisible))
+    }
+    const saveChatLayout = () => {
+      try { localStorage.setItem(BOARD_CHAT_LAYOUT, JSON.stringify({ visible: chatVisible, height: chatSize.valueAsNumber })) }
+      catch { /* The layout still works with storage unavailable. */ }
+    }
+    chatToggle.onclick = () => { chatVisible = !chatVisible; renderChatLayout(); saveChatLayout() }
+    chatSize.addEventListener('input', renderChatLayout)
+    chatSize.addEventListener('change', saveChatLayout)
+    renderChatLayout()
+    bar.append(back, this.#status, chatToggle)
+    this.element.append(this.#title, bar)
     this.element.setAttribute('aria-labelledby', 'roomBoardTitle')
     window.addEventListener('pagehide', () => this.reset())
   }
