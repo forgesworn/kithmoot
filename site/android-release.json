@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.184",
-  "versionCode": 207,
+  "versionName": "0.6.185",
+  "versionCode": 208,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 72529436,
-  "apkSha256": "a07781fdba7b8f99b713700234f567e94d395a3366cb25fb417a5a9dc0c7da78",
+  "apkBytes": 72537628,
+  "apkSha256": "a9e4cc6559b49bace5a0ded5ca40c12dd57e61fc53bd2d8c60f551ee2ec6848e",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,10 +24,10 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.184-production.apk",
+  "downloadFilename": "kithmoot-0.6.185-production.apk",
   "releaseNotes": [
-    "See saved card adds and moves on other open boards as soon as they arrive.",
-    "Resize, hide or show the room chat below the board.",
-    "Return to the board from a card, see its checklist near the description and save each description edit as one change."
+    "Drag the divider between the Board and chat to resize them.",
+    "Hide chat and Show chat remember the split.",
+    "Export the board as readable JSON and choose where to save it."
   ]
 }

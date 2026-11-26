@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.188",
+  "currentRelease": "0.1.189",
   "releases": [
     {
-      "version": "0.1.188",
+      "version": "0.1.189",
       "updateTo": {
-        "version": "0.1.188",
-        "name": "0.1.188",
+        "version": "0.1.189",
+        "name": "0.1.189",
         "pub_date": "2026-11-26T00:00:00Z",
-        "notes": "Open the room board and chat together. Resize or hide chat, see saved card adds and moves as they arrive, and return to the board directly from an open card.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.188/KithMoot-0.1.188-mac-arm64.zip",
-        "sha256": "4918c581939d6a156aeb5c01bee2e4a9cada30eb5f6bbc7ef3f5672f37c56d38",
-        "size": 199046703
+        "notes": "Drag the divider between the Board and chat to resize the two panes. Hide chat and Show chat remember the split.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.189/KithMoot-0.1.189-mac-arm64.zip",
+        "sha256": "39a6a831dd0a7bb17900cf9e20eba2741cbcdc3e56b9990c4b406c7a7a9f83d7",
+        "size": 199045887
       }
     }
   ]
