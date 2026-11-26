@@ -735,6 +735,15 @@ media keys all derive from that pair (`deriveEpoch`, `src/epoch.ts`). The
 *room id* does not move: a credential binds to it, a signal names it, a
 forwarder is given it. It is the room's identity; the epoch is its key.
 
+**A shared-key room can replace its original key in place.** The host's
+device creates a fresh traffic key for the same room ID and shares a v8
+invitation naming that room and its new host key. Send this invitation
+privately so returning members can identify the host. Each returning device
+needs the host's approval before it can receive the current key. The old
+secret stays usable for earlier history within the usual retention window.
+Every message sent in the recovered room uses the new key. The host's
+authority key stays on the device that performed the recovery.
+
 **A rekey is announced by a durable event addressed by the room id.**
 `KINDS.ROOM_REKEY` carries `['d', roomId]` and `['epoch', 'n']`, and is
 signed by the room's authority - the root inviter pinned in the link, which

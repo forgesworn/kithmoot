@@ -29,7 +29,7 @@ export function uiFixture(mode: UiMode = 'browser-all') {
   if (kind === 'tab') {
     const encodePayload = main('encodePayload',[],{nodeRoom:undefined,linkRelays:(r:string[])=>r,roomInvitationCapability:undefined,
       base64urlnopad,roomSecret:new Uint8Array(32).fill(11),roomPolicy:undefined,roomName:'Library',bytesToHex,TextEncoder}) as unknown as (...args:unknown[])=>string
-    const encodeRoomUrl = main('encodeRoomUrl',[],{nodeRoom:undefined,encodePayload})
+    const encodeRoomUrl = main('encodeRoomUrl',[],{nodeRoom:undefined,roomInvitationCapability:undefined,encodePayload})
     main('rememberWayBack',['WAY_BACK_KEY'],{currentRoomId:()=>UI_ROOM,sessionStorage:storage,encodeRoomUrl,
       joinLinkBase:()=> 'https://room.invalid/j/',relays:['wss://route.invalid/'],iceUrls:[],currentRoomLabel:()=> 'Library'})()
     expression({receiver:'sessionStorage',key:'ROOM_SWITCH_KEY',constants:['ROOM_SWITCH_KEY'],globals:{sessionStorage:storage,

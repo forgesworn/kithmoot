@@ -2146,8 +2146,9 @@ export class RoomSession {
    *  authority's. */
   #catchUp(): Promise<void> {
     if (this.#opts.epochCatchUp === false) {
+      this.#setAwaitingEpoch(true)
       void this.leave().catch(() => {})
-      throw new Error('epoch catch-up is unavailable for this session')
+      return Promise.reject(new Error('epoch catch-up is unavailable for this session'))
     }
     if (this.#catchingUp) return this.#catchingUp
     if (this.#epochRetryTimer !== undefined) clearTimeout(this.#epochRetryTimer)

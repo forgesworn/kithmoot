@@ -154,7 +154,7 @@ export function forgetRoomEpoch(store: DeviceStore, roomId: string): void {
 }
 
 /** What a log is handed to go on reading a v2 record's left epochs. */
-export function pastRootsOf(kept: KeptRoomEpoch): PastEpoch[] {
+export function pastRootsOf(kept: Pick<KeptRoomEpoch, 'past'>): PastEpoch[] {
   return kept.past.map((e) => {
     if (e.epoch === 0) return { leftAt: e.leftAt }
     const keys = deriveEpoch(e)
