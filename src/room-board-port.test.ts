@@ -63,7 +63,7 @@ async function room() {
  * part; seals, signs and checks what the page asks it to send; keeps the
  * copy; takes a card's file. Every message is recorded, both ways.
  */
-async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = new Map<string, Uint8Array>()) {
+async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = new Map<string, Uint8Array>(), keeps: 'keep' | 'refuse' | 'none' = 'none') {
   const identity = localIdentity(generateSecretKey()), deviceSk = generateSecretKey()
   const credential = await createDeviceCredential({ identity, devicePubkey: getPublicKey(deviceSk), roomId: f.roomId, expiresAt: Math.floor(Date.now() / 1000) + 3600 })
   const link = connection(f.relay)
@@ -78,6 +78,9 @@ async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = n
   const sealed = new Map<string, Event>()
   const adding = new Map<string, string[]>()
   const receiving = new Map<string, { name: string; type: string; size: number; pieces: Uint8Array[]; got: number }>()
+  const saving = new Map<string, { name: string; type: string; size: number; pieces: Uint8Array[]; got: number }>()
+  const kept: Array<{ name: string; type: string; bytes: Uint8Array }> = []
+  const cancelled: string[] = []
   let listening: { gen: number; stop: () => void } | undefined
   const send = (message: Record<string, unknown>) => { const raw = JSON.stringify({ v: 1, ...message }); toPage.push(raw); native.postMessage(raw) }
   const now = () => Math.floor(Date.now() / 1000)
@@ -89,7 +92,7 @@ async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = n
     const reply = (body: Record<string, unknown>) => send({ t: 'reply', re: m.re, ...body })
     switch (m.t) {
       case 'ready':
-        send({ t: 'start', self: identity.pubkey, invite: false, assign: false, files: true })
+        send({ t: 'start', self: identity.pubkey, invite: false, assign: false, files: true, save: keeps !== 'none' })
         send({ t: 'members', members: [{ pubkey: identity.pubkey, name }] })
         return
       case 'listen': {
@@ -163,6 +166,24 @@ async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = n
       case 'file.open':
         opened.push(m.file)
         return
+      case 'save':
+        saving.set(m.re, { name: m.name, type: m.type, size: m.size, pieces: [], got: 0 })
+        return
+      case 'save.chunk': {
+        const entry = saving.get(m.re)!
+        const piece = base64.decode(m.data)
+        entry.pieces.push(piece); entry.got += piece.byteLength
+        send({ t: 'save.ack', re: m.re, offset: m.offset })
+        if (entry.got < entry.size) return
+        saving.delete(m.re)
+        // Here the app asks the person where the file goes.
+        if (keeps === 'refuse') return reply({ ok: false, error: 'Not saved: the save screen was closed.' })
+        kept.push({ name: entry.name, type: entry.type, bytes: Uint8Array.from(entry.pieces.flatMap(p => [...p])) })
+        return reply({ ok: true })
+      }
+      case 'save.cancel':
+        saving.delete(m.re); cancelled.push(m.re)
+        return
       case 'discuss': case 'pendingEdits': case 'flushed': case 'closed':
         said.push(m)
         return
@@ -171,7 +192,7 @@ async function phone(f: Awaited<ReturnType<typeof room>>, name: string, copy = n
   const page = await openRoomBoardOverPort(channel.port2 as unknown as Parameters<typeof openRoomBoardOverPort>[0], { timing: FAST })
   closers.push(async () => { await page.close(); listening?.stop(); native.close() })
   const secrets = [bytesToHex(f.roomKey), bytesToHex(deviceSk), credential.sig]
-  return { page, native, send, link, toPage, toNative, statuses, files, opened, said, copy, identity, secrets }
+  return { page, native, send, link, toPage, toNative, statuses, files, opened, said, copy, identity, secrets, kept, cancelled }
 }
 
 /** Random bytes past the 65,536 that one call to the system's generator gives. */
@@ -332,6 +353,54 @@ describe('the room board over a message port', () => {
     await vi.waitFor(() => expect(bob.toPage.length).toBeGreaterThan(0))
     stop.abort()
     await expect(adding).rejects.toThrow('Stopped. Nothing was uploaded.')
+  })
+
+  it('hands an export to an app that keeps it, in acknowledged pieces, and is done only once it is kept', async () => {
+    const f = await room()
+    const bob = await phone(f, 'Bob', new Map(), 'keep')
+    const host = bob.page.view(new AbortController().signal)
+    const bytes = noise(70_000)
+    await host.save!(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/json' }), 'girnel-board.json')
+    expect(bob.kept).toHaveLength(1)
+    expect(bob.kept[0]!.name).toBe('girnel-board.json')
+    expect(bob.kept[0]!.type).toBe('application/json')
+    expect(bytesToHex(bob.kept[0]!.bytes)).toBe(bytesToHex(bytes))
+    expect(bob.toNative.map(raw => JSON.parse(raw)).filter(m => m.t === 'save.chunk').map(m => m.offset)).toEqual([0, 30_000, 60_000])
+  })
+
+  it('passes on the app’s words when the export was not kept', async () => {
+    const f = await room()
+    const bob = await phone(f, 'Bob', new Map(), 'refuse')
+    const host = bob.page.view(new AbortController().signal)
+    await expect(host.save!(new Blob(['{}'], { type: 'application/json' }), 'girnel-board.json')).rejects.toThrow('Not saved: the save screen was closed.')
+    expect(bob.kept).toEqual([])
+  })
+
+  it('leaves saving to the browser where the app keeps nothing itself, and refuses an export too large to hand over', async () => {
+    const f = await room()
+    const web = await phone(f, 'Ada')
+    expect(web.page.start.save).toBe(false)
+    expect(web.page.view(new AbortController().signal).save).toBeUndefined()
+    const bob = await phone(f, 'Bob', new Map(), 'keep')
+    const host = bob.page.view(new AbortController().signal)
+    await expect(host.save!(new Blob([new Uint8Array(32 * 1024 * 1024 + 1)]), 'girnel-board.json')).rejects.toThrow('This export is too large for this app to save.')
+    expect(bob.toNative.map(raw => JSON.parse(raw)).filter(m => m.t === 'save' || m.t === 'save.chunk')).toEqual([])
+  })
+
+  it('tells the app to drop an export when the view goes before it is kept, and says nothing was saved', async () => {
+    const f = await room()
+    const bob = await phone(f, 'Bob', new Map(), 'keep')
+    // This app never acknowledges, as one still waiting on the person.
+    const silent = bob.native.onmessage
+    let pieces = 0
+    bob.native.onmessage = event => { if (JSON.parse(event.data as string).t === 'save.chunk') pieces++; else void silent?.call(bob.native, event) }
+    const shown = new AbortController()
+    const saving = bob.page.view(shown.signal).save!(new Blob([noise(90_000) as Uint8Array<ArrayBuffer>], { type: 'application/json' }), 'girnel-board.json')
+    await vi.waitFor(() => expect(pieces).toBe(1))
+    shown.abort()
+    await expect(saving).rejects.toThrow('The board was closed. Nothing was saved.')
+    await vi.waitFor(() => expect(bob.cancelled).toHaveLength(1))
+    expect(bob.kept).toEqual([])
   })
 
   it('never lets a view’s own edit come back to it, and refuses edits once its view has gone', async () => {

@@ -14,7 +14,8 @@ import { roomBoardStatusWords } from './room-board-words.js'
  * the page the part inside; it seals and signs each part the page asks it
  * to, and publishes it; it keeps this device's copy; and it answers the
  * view's buttons (Invite, Discuss in chat, Assign to agent, a card's files)
- * as the room does anywhere else. No key, credential, relay address or
+ * as the room does anywhere else, and, where it has no browser downloads,
+ * keeps Export board's file where the person says. No key, credential, relay address or
  * account crosses the port. `docs/room-board-port.md` is the contract.
  */
 
@@ -24,6 +25,8 @@ export const ROOM_BOARD_PORT_MAX_MESSAGE = 48_000
 /** Bytes of a copy record or a file that one message carries: 40,000
  *  characters of base64. */
 export const ROOM_BOARD_PORT_CHUNK_BYTES = 30_000
+/** The largest file the page hands the app to keep: a board's export. */
+export const ROOM_BOARD_PORT_MAX_SAVE = 32 * 1024 * 1024
 /** Pieces one copy record is carried in. */
 const MAX_RECORD_CHUNKS = 4096
 /** Records the page reads from the copy. More are counted as unread. */
@@ -51,6 +54,9 @@ export interface RoomBoardPortStart {
   invite: boolean
   assign: boolean
   files: boolean
+  /** Whether the app keeps a file the person exports itself, asking them
+   *  where it goes: an app with no browser downloads. */
+  save: boolean
 }
 
 export interface RoomBoardPortFile { hash: string; key: string; name: string; type: string; size: number; encryptedSize: number; servers: string[] }
@@ -71,6 +77,8 @@ export interface RoomBoardPortViewHost {
   invite?(): void
   assign?(card: RoomBoardPortCard): void
   files?: { add(file: File, signal: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile>; open(file: RoomBoardPortFile, how: 'open' | 'download'): void }
+  /** Export board's file, kept by the app. Resolves once it is kept; rejects with the app's words. */
+  save?(file: Blob, name: string): Promise<void>
   signal: AbortSignal
 }
 
@@ -236,7 +244,7 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
     switch (message.t) {
       case 'start':
         if (started || !opening || !text(message.self, 64) || !HEX64.test(message.self)) return
-        started = { self: message.self, invite: message.invite === true, assign: message.assign === true, files: message.files === true }
+        started = { self: message.self, invite: message.invite === true, assign: message.assign === true, files: message.files === true, save: message.save === true }
         opening(started)
         return
       case 'members':
@@ -262,7 +270,8 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
         return
       case 'copy.record':
       case 'file.ack':
-      case 'file.said': {
+      case 'file.said':
+      case 'save.ack': {
         const entry = typeof message.re === 'string' ? waiting.get(message.re) : undefined
         entry?.chunk?.(message)
         return
@@ -351,7 +360,42 @@ export function openRoomBoardOverPort(port: RoomBoardPort, options: RoomBoardOve
           },
         },
       } : {}),
+      ...(start.save ? { save: (picked: Blob, name: string) => saveFile(picked, name) } : {}),
       signal,
+    }
+
+    async function saveFile(picked: Blob, name: string): Promise<void> {
+      if (!live()) throw new Error('The room changed. Nothing was saved.')
+      if (picked.size > ROOM_BOARD_PORT_MAX_SAVE) throw new Error('This export is too large for this app to save.')
+      const re = `r${++next}`
+      let acknowledged: ((value: void) => void) | undefined
+      let sent = -1
+      const reply = new Promise<Message>((resolve, reject) => waiting.set(re, {
+        resolve, reject,
+        chunk: message => { if (message.t === 'save.ack' && message.offset === sent) { const done = acknowledged; acknowledged = undefined; done?.() } },
+      }))
+      const cancel = () => {
+        if (!waiting.has(re)) return
+        safePost({ t: 'save.cancel', re })
+        waiting.get(re)?.reject(new Error('The board was closed. Nothing was saved.'))
+        waiting.delete(re)
+      }
+      signal.addEventListener('abort', cancel, { once: true })
+      try {
+        post({ t: 'save', re, name: String(name).slice(0, MAX_NAME), type: String(picked.type).slice(0, MAX_TYPE), size: picked.size })
+        // As a card's file: one acknowledged piece at a time. The app asks the person where it goes once it holds them all.
+        for (let offset = 0; offset < picked.size; offset += ROOM_BOARD_PORT_CHUNK_BYTES) {
+          if (!waiting.has(re)) break
+          const piece = new Uint8Array(await picked.slice(offset, offset + ROOM_BOARD_PORT_CHUNK_BYTES).arrayBuffer())
+          const ack = new Promise<void>(resolve => { acknowledged = resolve })
+          sent = offset
+          post({ t: 'save.chunk', re, offset, data: base64.encode(piece) })
+          await Promise.race([ack, reply.then(() => {}, () => {})])
+        }
+        await reply
+      } finally {
+        signal.removeEventListener('abort', cancel)
+      }
     }
 
     async function addFile(picked: File, aborted: AbortSignal, said: (words: string) => void): Promise<RoomBoardPortFile> {
