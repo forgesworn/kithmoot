@@ -662,14 +662,20 @@ async function controlsAboveLog(page: Page): Promise<string[]> {
 }
 
 for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
-  test(`at ${label} a room has four controls above its log: the way back where there is one, the title, Start call, ⋯ (and Search where it fits)`, async ({ browser, baseURL }) => {
+  test(`at ${label} a room keeps its board in the header beside the call and room controls`, async ({ browser, baseURL }) => {
     const { context, page } = await visitor(browser, baseURL!, size, { touch })
     try {
       await joinRoom(page)
-      const controls = await controlsAboveLog(page)
-      expect(controls.length, controls.join(', ')).toBeLessThanOrEqual(4)
+      const header = [
+        ...(size.width < 900 ? ['backToRooms'] : []),
+        'roomIdentity', 'callToggle', 'roomBoardButton',
+        ...(size.width >= 600 ? ['chatSearch'] : []),
+        'roomMenu',
+      ]
+      await expect.poll(() => controlsAboveLog(page)).toEqual(header)
       await expect(page.locator('#callToggle')).toBeVisible()
       await expect(page.locator('#callToggle')).toHaveAccessibleName('Start call')
+      await expect(page.getByRole('button', { name: 'Room board', exact: true })).toBeVisible()
       await expect(page.locator('#roomMenu')).toHaveAccessibleName('More for this room')
       await expect(page.locator('#roomMenu')).toHaveAttribute('aria-haspopup', 'menu')
       // Search is an icon from 600 px and a menu item below it.
@@ -742,7 +748,7 @@ test('the menu of a room lists what a person does and leaves out what the room c
     await joinRoom(page, 2)
     await openRoomMenu(page)
     const menu = page.locator('#roomMoreMenu')
-    await expect(menu.getByRole('menuitem')).toHaveText(['Room info', 'Search in room', 'Invite people…', 'Add an agent…', 'Notifications', 'Board', 'New task…', 'Pin', 'Add to project…', 'Leave room…'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['Room info', 'Search in room', 'Invite people…', 'Add an agent…', 'Notifications', 'New task…', 'Pin', 'Add to project…', 'Leave room…'])
     // Two groups of separators and no stray one at an edge.
     expect(await menu.evaluate(el => [...el.children].map(child => child.tagName === 'HR' ? '-' : 'i').join('').replace(/i+/g, 'i'))).toBe('i-i-i')
     // A sheet from the bottom edge.
@@ -781,8 +787,9 @@ test('a private chat has no invitation, no agent, no project, and says it is a p
     await page.locator('#join').click()
     await expect(page.locator('#chatLog')).toBeVisible({ timeout: 60_000 })
     await expect(page.locator('#roomWho')).toHaveText('Private chat')
+    await expect(page.getByRole('button', { name: 'Room board', exact: true })).toBeVisible()
     await openRoomMenu(page)
-    await expect(page.locator('#roomMoreMenu').getByRole('menuitem')).toHaveText(['Room info', 'Notifications', 'Board', 'New task…', 'Pin', 'Leave private chat…'])
+    await expect(page.locator('#roomMoreMenu').getByRole('menuitem')).toHaveText(['Room info', 'Notifications', 'New task…', 'Pin', 'Leave private chat…'])
     await page.keyboard.press('Escape')
     // No block about nobody being here: nobody is invited by a link.
     await expect(page.locator('#emptyRoom')).toBeHidden()
