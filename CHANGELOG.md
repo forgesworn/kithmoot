@@ -1,8 +1,12 @@
 # Changelog
 
+## Unreleased, 26 November 2026
+
+- **Opening a room's board no longer stops its Bothy routing being changed.** Before a room's Bothy routing is activated, renewed or withdrawn, every KithMoot tab is asked whether it is ready. The board's editor runs in a frame inside the tab and was asked too, as if it were a tab, and it never answers. So in a tab where the board had been opened, those buttons failed after a wait with "Update, wake or close the other KithMoot tabs". A frame inside a tab is no longer asked: the tab answers for it.
+
 ## Unreleased, 25 November 2026
 
-- **The room's board works in a room routed through Bothy, and its cards can carry files.** A Bothy route carried only a room's chat and control messages, so its board stayed on each device. Activating Bothy routing for a room now grants the board too, and a file added to a card goes to the room's Bothy, sealed first, as a chat's file does, and opens through the same route. A room whose route was activated by an earlier version of the app has no board until its keeper chooses Renew keeper grants and each member Activate or resume room, and Boards says so. The room's tasks are not carried over Bothy yet.
+- **The room's board works in a room routed through Bothy, and its cards can carry files.** A Bothy route carried only a room's chat and control messages, so its board stayed on each device. Activating Bothy routing for a room now grants the board too, and a file added to a card goes to the room's Bothy, sealed first, as a chat's file does, and opens through the same route. As with a file sent in the chat, only the Bothy's keeper can store one there for now: the box refuses a member's upload. A room whose route was activated by an earlier version of the app has no board until its keeper chooses Renew keeper grants and each member Activate or resume room, and Boards says so. The room's tasks are not carried over Bothy yet.
 
 - **No channel can be called `board`.** A channel is its name, so one called `board` was the room's board itself: every change to the board showed in it as a "Board update" line. The room no longer opens a channel named `board`, `boards`, `assignments` or `control`, the names it uses for its own streams, and the Conversations sheet says so when one is typed. A room that already had such a channel keeps it and can close it, and it no longer shows board changes.
 

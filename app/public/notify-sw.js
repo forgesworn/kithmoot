@@ -29,8 +29,11 @@ self.addEventListener('message', event => {
   event.waitUntil((async () => {
     try {
       const scope = new URL(self.registration.scope)
+      // Tabs only. A frame inside a tab (a board's editor, an attachment preview) is part of that tab,
+      // which answers for itself: the app refuses to be framed (frame-ancestors 'none'), so a frame
+      // is never a KithMoot of its own, and asking one would hold every change until it timed out.
       const clients = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true }))
-        .filter(client => { const url = new URL(client.url); return url.origin === scope.origin && url.pathname.startsWith(scope.pathname) })
+        .filter(client => { const url = new URL(client.url); return client.frameType !== 'nested' && url.origin === scope.origin && url.pathname.startsWith(scope.pathname) })
       const results = await Promise.all(clients.map(client => new Promise(resolve => {
         const channel = new MessageChannel()
         const timer = setTimeout(() => { channel.port1.close(); resolve(false) }, 8000)

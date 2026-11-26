@@ -20746,7 +20746,12 @@ const browserRoomPanel = new BrowserRoomPanel(browserRoomActivation, browserRoom
     resume: async () => {
       if (nostrSession !== account || currentRoomId() !== room) throw new Error('The account or room changed. Reopen the saved room to resume.')
       if (!session) await startSession()
+      const hadBoard = roomHasOwnBoard()
       await readBothyRoute(roomSecret)
+      // A route that has just gained the board (Renew keeper grants, or Activate or resume room, on a route set up
+      // before boards went over Bothy): start the board as entering the room would, so what this device already
+      // holds is sent now rather than after the room is next opened.
+      if (session && !hadBoard && roomHasOwnBoard()) resumeRoomBoard(session)
       setStatus(`Bothy route selected for text${roomBothyBoard ? ', the room’s board' : ''} and permitted encrypted files. Calls, live media and ungranted channels are unavailable.`, 'done')
     },
   }
