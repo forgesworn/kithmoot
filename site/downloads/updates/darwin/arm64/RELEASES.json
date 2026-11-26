@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.187",
+  "currentRelease": "0.1.188",
   "releases": [
     {
-      "version": "0.1.187",
+      "version": "0.1.188",
       "updateTo": {
-        "version": "0.1.187",
-        "name": "0.1.187",
+        "version": "0.1.188",
+        "name": "0.1.188",
         "pub_date": "2026-11-26T00:00:00Z",
-        "notes": "Replace a leaked shared key from the room’s invite settings. The conversation keeps its room and earlier history. Share the new invitation privately and approve each returning device.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.187/KithMoot-0.1.187-mac-arm64.zip",
-        "sha256": "d8c26c902670f2152552bee91372c503c15578836df8efbe28ac0955ef19b832",
-        "size": 199045524
+        "notes": "Open the room board and chat together. Resize or hide chat, see saved card adds and moves as they arrive, and return to the board directly from an open card.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.188/KithMoot-0.1.188-mac-arm64.zip",
+        "sha256": "4918c581939d6a156aeb5c01bee2e4a9cada30eb5f6bbc7ef3f5672f37c56d38",
+        "size": 199046703
       }
     }
   ]
