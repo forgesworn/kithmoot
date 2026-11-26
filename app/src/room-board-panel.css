@@ -14,10 +14,30 @@ html[data-desktop] #roomArea[data-board-open] #chatDrawer { display: contents; v
 .roomBoardChatToggle { grid-column: 3; margin: 0; min-height: 44px; }
 .roomBoardStatus { margin: 0; color: var(--muted); font-size: var(--fs-1); text-align: end; overflow-wrap: anywhere; }
 .roomBoardStatus[data-state="held"] { font-weight: 600; }
-#boardChatBar:not([hidden]) { display: flex; align-items: center; gap: .5rem; flex: 0 0 auto; padding-inline: .75rem; border-top: 1px solid var(--border); }
-#boardChatHeading { flex: 1; margin: 0; font-size: var(--fs-2); overflow-wrap: anywhere; }
-#boardChatBar label { margin: 0; color: var(--muted); font-size: var(--fs-1); }
-#boardChatSize { width: clamp(5rem, 20vw, 9rem); height: 44px; min-width: 0; margin: 0; accent-color: var(--accent); }
+#boardChatDivider:not([hidden]) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+#boardChatDivider::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid var(--border);
+}
+#boardChatDivider::after {
+  content: "";
+  position: relative;
+  width: 2rem;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--muted);
+}
+#boardChatDivider:is(:hover, :focus-visible, [data-dragging])::after { background: var(--accent); }
 #workspaceContent > #roomArea[data-board-open] #chatViewport {
   flex: 0 1 var(--board-chat-height, 16dvh);
   min-height: 0;

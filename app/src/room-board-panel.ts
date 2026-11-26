@@ -6,6 +6,8 @@ import './boards-panel.css'
 import './room-board-panel.css'
 
 const BOARD_CHAT_LAYOUT = 'kithmoot.room-board-chat.v1'
+const CHAT_MIN_HEIGHT = 10
+const CHAT_MAX_HEIGHT = 44
 
 /** A file on a card: where the sealed file is kept, the key that opens it, and what it says it is. The same thing as a file
  *  shared in the room's conversation, in the words a card uses. */
@@ -156,28 +158,69 @@ export class RoomBoardPanel {
     back.onclick = () => this.options.back()
     const chatToggle = root.createElement('button')
     chatToggle.type = 'button'; chatToggle.className = 'quiet roomBoardChatToggle'
-    chatToggle.setAttribute('aria-controls', 'boardChatBar chatViewport chatForm')
+    chatToggle.setAttribute('aria-controls', 'boardChatDivider chatViewport chatForm')
     const roomArea = root.getElementById('roomArea')!
-    const chatSize = root.getElementById('boardChatSize') as HTMLInputElement
+    const divider = root.getElementById('boardChatDivider')!
+    divider.setAttribute('aria-valuemin', String(CHAT_MIN_HEIGHT))
+    divider.setAttribute('aria-valuemax', String(CHAT_MAX_HEIGHT))
     let chatVisible = true
+    let chatHeight = 16
+    const resizeChat = (height: number): void => {
+      chatHeight = Math.min(CHAT_MAX_HEIGHT, Math.max(CHAT_MIN_HEIGHT, Math.round(height)))
+      roomArea.style.setProperty('--board-chat-height', chatHeight + 'dvh')
+      divider.setAttribute('aria-valuenow', String(chatHeight))
+      divider.setAttribute('aria-valuetext', `Chat height ${chatHeight}%`)
+    }
     try {
       const layout = JSON.parse(localStorage.getItem(BOARD_CHAT_LAYOUT) ?? 'null')
       chatVisible = layout?.visible !== false
-      if (Number.isFinite(layout?.height)) chatSize.value = String(layout.height)
+      if (Number.isFinite(layout?.height)) chatHeight = layout.height
     } catch { /* The layout still works with storage unavailable. */ }
     const renderChatLayout = () => {
       roomArea.toggleAttribute('data-board-chat-hidden', !chatVisible)
-      roomArea.style.setProperty('--board-chat-height', chatSize.value + 'dvh')
       chatToggle.textContent = chatVisible ? 'Hide chat' : 'Show chat'
       chatToggle.setAttribute('aria-expanded', String(chatVisible))
     }
     const saveChatLayout = () => {
-      try { localStorage.setItem(BOARD_CHAT_LAYOUT, JSON.stringify({ visible: chatVisible, height: chatSize.valueAsNumber })) }
+      try { localStorage.setItem(BOARD_CHAT_LAYOUT, JSON.stringify({ visible: chatVisible, height: chatHeight })) }
       catch { /* The layout still works with storage unavailable. */ }
     }
     chatToggle.onclick = () => { chatVisible = !chatVisible; renderChatLayout(); saveChatLayout() }
-    chatSize.addEventListener('input', renderChatLayout)
-    chatSize.addEventListener('change', saveChatLayout)
+    let drag: { id: number; startY: number; startHeight: number; viewportHeight: number } | undefined
+    divider.addEventListener('pointerdown', event => {
+      if (drag || (event.pointerType === 'mouse' && event.button !== 0)) return
+      drag = { id: event.pointerId, startY: event.clientY, startHeight: chatHeight, viewportHeight: Math.max(1, window.innerHeight) }
+      divider.setPointerCapture(event.pointerId)
+      divider.dataset.dragging = ''
+      divider.focus({ preventScroll: true })
+      event.preventDefault()
+    })
+    const move = (event: PointerEvent): void => {
+      if (drag?.id === event.pointerId) resizeChat(drag.startHeight + 100 * (drag.startY - event.clientY) / drag.viewportHeight)
+    }
+    divider.addEventListener('pointermove', move)
+    const finish = (event: PointerEvent): void => {
+      if (drag?.id !== event.pointerId) return
+      if (event.type === 'pointerup') move(event)
+      drag = undefined
+      delete divider.dataset.dragging
+      saveChatLayout()
+    }
+    divider.addEventListener('pointerup', finish)
+    divider.addEventListener('pointercancel', finish)
+    divider.addEventListener('lostpointercapture', finish)
+    divider.addEventListener('keydown', event => {
+      switch (event.key) {
+        case 'ArrowUp': resizeChat(chatHeight + 4); break
+        case 'ArrowDown': resizeChat(chatHeight - 4); break
+        case 'Home': resizeChat(CHAT_MIN_HEIGHT); break
+        case 'End': resizeChat(CHAT_MAX_HEIGHT); break
+        default: return
+      }
+      event.preventDefault()
+      saveChatLayout()
+    })
+    resizeChat(chatHeight)
     renderChatLayout()
     bar.append(back, this.#status, chatToggle)
     this.element.append(this.#title, bar)
