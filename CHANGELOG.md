@@ -1,5 +1,9 @@
 # Changelog
 
+## Desktop 0.1.186, 26 November 2026
+
+- Open a private or group chat's shared board directly from **Board** in its header. **Back to chat** returns to the same conversation. Tasks and personal boards are still available from the workspace.
+
 ## Unreleased, 26 November 2026
 
 - **Closing a picture, video or audio window in the desktop app no longer shows an error, and Quit no longer stops at one.** Tidying up after such a window read the window again after it was gone, and also expected an answer from a call that gives none. Both threw in the app's main process, so Electron put up "A JavaScript error occurred in the main process" each time one was closed, and with one open, Quit (⌘Q) waited behind that box until it was dismissed. Included in Desktop 0.1.185.
