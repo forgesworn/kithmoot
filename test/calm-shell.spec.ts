@@ -662,14 +662,20 @@ async function controlsAboveLog(page: Page): Promise<string[]> {
 }
 
 for (const [label, size, touch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
-  test(`at ${label} a room has four controls above its log: the way back where there is one, the title, Start call, ⋯ (and Search where it fits)`, async ({ browser, baseURL }) => {
+  test(`at ${label} a room keeps its board in the header beside the call and room controls`, async ({ browser, baseURL }) => {
     const { context, page } = await visitor(browser, baseURL!, size, { touch })
     try {
       await joinRoom(page)
-      const controls = await controlsAboveLog(page)
-      expect(controls.length, controls.join(', ')).toBeLessThanOrEqual(4)
+      const header = [
+        ...(size.width < 900 ? ['backToRooms'] : []),
+        'roomIdentity', 'callToggle', 'roomBoardButton',
+        ...(size.width >= 600 ? ['chatSearch'] : []),
+        'roomMenu',
+      ]
+      await expect.poll(() => controlsAboveLog(page)).toEqual(header)
       await expect(page.locator('#callToggle')).toBeVisible()
       await expect(page.locator('#callToggle')).toHaveAccessibleName('Start call')
+      await expect(page.getByRole('button', { name: 'Room board', exact: true })).toBeVisible()
       await expect(page.locator('#roomMenu')).toHaveAccessibleName('More for this room')
       await expect(page.locator('#roomMenu')).toHaveAttribute('aria-haspopup', 'menu')
       // Search is an icon from 600 px and a menu item below it.
