@@ -1,7 +1,12 @@
 /* The current room's board and its existing conversation. */
-#roomArea[data-board-open] > :not(.roomBar, #roomBoardView, #roomFuse, #recordingBanner, #callBanner, [data-board-chat]) { display: none; }
-#roomArea[data-board-open][data-board-chat-hidden] > [data-board-chat] { display: none; }
-#roomArea[data-board-open] :is(#backToRooms, #emptyRoom) { display: none; }
+#roomArea[data-board-open] > :not(.roomBar, #roomBoardView, #roomFuse, #recordingBanner, #callBanner, .desktopRoomContent, [data-board-chat]) { display: none; }
+/* Desktop wraps the same conversation in the call drawer. The board uses
+   its chat controls below the board, without changing the drawer settings. */
+html[data-desktop] #roomArea[data-board-open] > .desktopRoomContent,
+html[data-desktop] #roomArea[data-board-open] #chatDrawer { display: contents; visibility: visible; }
+#roomArea[data-board-open] #chatDrawer > :not([data-board-chat]),
+#roomArea[data-board-open][data-board-chat-hidden] [data-board-chat],
+#roomArea[data-board-open] :is(#backToRooms, #emptyRoom, #chatDrawerToggle) { display: none; }
 #roomBoardView:not([hidden]) { display: flex; flex: 1 1 0; min-height: 0; min-width: 0; }
 .roomBoardSurface { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; background: var(--bg); }
 .roomBoardBar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0 .5rem; padding-inline: .5rem; border-bottom: 1px solid var(--border); }
@@ -13,7 +18,7 @@
 #boardChatHeading { flex: 1; margin: 0; font-size: var(--fs-2); overflow-wrap: anywhere; }
 #boardChatBar label { margin: 0; color: var(--muted); font-size: var(--fs-1); }
 #boardChatSize { width: clamp(5rem, 20vw, 9rem); height: 44px; min-width: 0; margin: 0; accent-color: var(--accent); }
-#workspaceContent > #roomArea[data-board-open] > #chatViewport {
+#workspaceContent > #roomArea[data-board-open] #chatViewport {
   flex: 0 1 var(--board-chat-height, 16dvh);
   min-height: 0;
 }
