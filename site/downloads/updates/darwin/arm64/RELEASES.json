@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.185",
+  "currentRelease": "0.1.186",
   "releases": [
     {
-      "version": "0.1.185",
+      "version": "0.1.186",
       "updateTo": {
-        "version": "0.1.185",
-        "name": "0.1.185",
+        "version": "0.1.186",
+        "name": "0.1.186",
         "pub_date": "2026-11-26T00:00:00Z",
-        "notes": "Room boards sync privately over Bothy, and card files are stored on the room’s box.\nClose picture, video and audio windows without an error. Quit works with a viewer open.\nPictures on board cards show the size of the file that was sent.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.185/KithMoot-0.1.185-mac-arm64.zip",
-        "sha256": "3d5b1a8c6889c8da0ce1d9afee40237c1b04efba5a3b7cceaf586e2b7afd9441",
-        "size": 199038243
+        "notes": "Open a private or group chat’s shared board from Board in the chat header.\nBack to chat takes you back to the same conversation.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.186/KithMoot-0.1.186-mac-arm64.zip",
+        "sha256": "f2b0abc0bcc1cb03bf55f4315d68c0ced1d41146f4fab5be07f8f8164d9f2c28",
+        "size": 199039802
       }
     }
   ]
