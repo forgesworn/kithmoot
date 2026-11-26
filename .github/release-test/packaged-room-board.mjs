@@ -1,33 +1,23 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
-import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron as electron, expect } from '@playwright/test'
 import { encodeRoomLink } from '@forgesworn/fold-kit'
 import { stopIsolatedApp } from './isolated-app.mjs'
+import { startLocalTlsRelay } from './local-tls-relay.mjs'
 
 const [executable, version, relayScript] = process.argv.slice(2)
 assert.ok(executable && version && relayScript)
 const origin = 'https://kithmoot.forgesworn.dev'
-const relay = 'wss://room-board-fixture.invalid'
+const fixture = await startLocalTlsRelay(relayScript)
 const roomName = 'Packaged room board fixture'
 const title = 'A card shared from the room header'
 const link = encodeRoomLink(origin + '/j/', {
-  secret: randomBytes(32), name: roomName, relays: [relay], iceUrls: [],
-})
-const reserve = createServer()
-await new Promise((resolve, reject) => reserve.listen(0, '127.0.0.1', resolve).once('error', reject))
-const port = reserve.address().port
-await new Promise((resolve, reject) => reserve.close(error => error ? reject(error) : resolve()))
-const server = spawn(process.execPath, [relayScript], {
-  env: { ...process.env, RELAY_PORT: String(port), RELAY_HOST: '127.0.0.1' },
-  stdio: ['ignore', 'ignore', 'inherit'],
+  secret: randomBytes(32), name: roomName, relays: [fixture.relayURL], iceUrls: [],
 })
 const participants = []
-const sockets = new Set()
 const pageErrors = []
 
 async function openBoard(page) {
@@ -44,7 +34,7 @@ async function joinRoom(name) {
   participants.push(participant)
   const app = await electron.launch({
     executablePath: executable,
-    args: [`--user-data-dir=${profile}`, ...(process.env.KITHMOOT_LAB_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])],
+    args: [`--user-data-dir=${profile}`, ...fixture.browserArgs, ...(process.env.KITHMOOT_LAB_NO_SANDBOX === '1' ? ['--no-sandbox'] : [])],
     timeout: 45_000,
   })
   participant.app = app
@@ -57,24 +47,6 @@ async function joinRoom(name) {
   await page.context().route('**/*', route => {
     const url = new URL(route.request().url())
     return url.origin === origin && url.pathname.startsWith('/j/') ? route.continue() : route.abort()
-  })
-  await page.context().routeWebSocket(/.*/, route => {
-    if (route.url().replace(/\/$/, '') !== relay) {
-      route.close({ code: 1008, reason: 'Only the isolated room relay is allowed' })
-      return
-    }
-    const socket = new WebSocket(`ws://127.0.0.1:${port}`)
-    sockets.add(socket)
-    const pending = []
-    socket.onopen = () => { for (const data of pending.splice(0)) socket.send(data) }
-    socket.onmessage = event => route.send(event.data)
-    socket.onerror = () => route.close()
-    socket.onclose = () => { sockets.delete(socket); route.close() }
-    route.onMessage(data => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(data)
-      else if (socket.readyState === WebSocket.CONNECTING) pending.push(data)
-    })
-    route.onClose(() => { if (socket.readyState <= WebSocket.OPEN) socket.close() })
   })
   await page.goto(link, { waitUntil: 'domcontentloaded' })
   const joinButton = page.locator('#join')
@@ -90,7 +62,7 @@ async function joinRoom(name) {
 
 try {
   await expect.poll(async () => {
-    try { return (await fetch(`http://127.0.0.1:${port}/`)).ok } catch { return false }
+    try { return (await fetch(fixture.healthURL)).ok } catch { return false }
   }, { timeout: 10_000 }).toBe(true)
   const first = await joinRoom('Board fixture one')
   const second = await joinRoom('Board fixture two')
@@ -116,6 +88,5 @@ try {
     await stopIsolatedApp(app, profile)
     await rm(profile, { recursive: true, force: true, maxRetries: 4 })
   }
-  for (const socket of sockets) socket.close()
-  server.kill()
+  await fixture.shutdown()
 }

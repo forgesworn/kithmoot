@@ -40,6 +40,15 @@ jobs:
         run: |
           $file = Join-Path $env:RUNNER_TEMP 'km-candidate/KithMoot-win32-x64/KithMoot.exe'
           $relay = Join-Path $env:GITHUB_WORKSPACE 'test/ws-relay.mjs'
+          $openssl = Get-Command openssl.exe -ErrorAction SilentlyContinue
+          if ($openssl) {
+            $env:KM_TEST_OPENSSL = $openssl.Source
+          } else {
+            $git = Join-Path $env:ProgramFiles 'Git'
+            $env:KM_TEST_OPENSSL = @('mingw64/bin/openssl.exe', 'usr/bin/openssl.exe') |
+              ForEach-Object { Join-Path $git $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (!$env:KM_TEST_OPENSSL) { throw "OpenSSL is required for the disposable test relay" }
+          }
           node .github/release-test/packaged-room-board.mjs $file 0.1.186 $relay
           if ($LASTEXITCODE) { throw "The exact Windows app failed its room board check" }
           node .github/release-test/packaged-signet-avatar.mjs $file
