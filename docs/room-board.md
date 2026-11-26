@@ -330,10 +330,23 @@ undo across devices beyond what the board's own archive keeps.
 ## What has been checked
 
 - **Unit and protocol** (`src/room-board-log.test.ts`,
-  `vectors/room-board-v1.test.ts`): convergence, a late arrival after every
+  `src/room-board-sync.test.ts`, `vectors/room-board-v1.test.ts`): convergence, a late arrival after every
   author has gone, edits made offline and after a restart, a relay that has
   forgotten the board, removal and rekey, parts, refusals, two writers on one
   copy, an unreadable copy, deletion with everything else a device signed.
+  The keyless part on its own, through a host that carries parts in the
+  clear: a change counted as the room's only once a relay has it, a reading
+  the room has moved on from taking nothing, and nothing in its bundle that
+  signs, seals or checks.
+- **Over a message port** (`src/room-board-port.test.ts`): a page holding no
+  key, and a stand-in for the app at the other end of a real `MessageChannel`
+  that opens and seals with the room's own reader and writer, beside a member
+  on the web. Each reads the other's card; the last to arrive on each side,
+  web then port, reads both after the writers have gone. An edit made with no
+  network is kept in the app's copy and sent from it later; a reading the
+  room has moved on from takes nothing; a card's file goes over in
+  acknowledged pieces and can be stopped; and no message carries the room's
+  key, the device's key, the credential or a relay address.
 - **Browsers** (`test/room-board.spec.ts`): the same journeys with separate
   browsers for each person, in Chromium, Firefox and WebKit and in the desktop
   build; the whole of Girnel between two visitors (one click from Boards,
@@ -384,7 +397,9 @@ relays refuse 45 KB events.
 | File | What it is |
 |------|------------|
 | `src/room-board-wire.ts` | Channel, part, limits, splitting and joining, the starting state |
-| `src/room-board-log.ts` | `RoomBoardLog`: the two documents, the stream, the local copy |
+| `src/room-board-sync.ts` | `RoomBoardSync`: the two documents, the reading of the stream, what is owed, the local copy. It holds no key: its host opens and checks what arrives and seals what goes |
+| `src/room-board-log.ts` | `RoomBoardLog`: `RoomBoardSync` with the room's keys, opening and sealing the envelopes and sealing this device's copy |
+| `src/room-board-port.ts` | The board on a page that holds no key, kept in step over a message port by an app that does ([the contract](room-board-port.md)) |
 | `src/session.ts` | `RoomSession.board(storage)`: one log per session, rekeyed and closed with it; `watchBoard` |
 | `src/chat.ts` | The `board` statement in the chat envelope |
 | `app/src/room-board-panel.ts` | The board's surface in Boards, and the frame it hands updates to |

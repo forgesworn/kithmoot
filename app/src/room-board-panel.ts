@@ -1,5 +1,6 @@
 import type { RoomBoardLog } from '../../src/room-board-log.js'
 import { roomBoardRecordId, type RoomBoardStorage } from '../../src/room-board-wire.js'
+import { roomBoardStatusWords } from '../../src/room-board-words.js'
 import { privateAttachmentLocation } from '../../src/private-attachment.js'
 import './boards-panel.css'
 import './room-board-panel.css'
@@ -237,13 +238,9 @@ export class RoomBoardPanel {
   private render(): void {
     const log = this.#view?.log
     if (!log) return
-    const status = log.status()
-    this.#status.dataset.state = status.error ? 'held' : status.pending || !status.ready ? 'busy' : 'shared'
-    this.#status.textContent = status.error
-      ? `${status.error}. Your changes are kept on this device and sent when they can be.`
-      : !status.ready ? 'Reading the room’s board…'
-        : status.pending ? 'Sending your changes to the room…'
-          : 'Shared with everyone in this room.'
+    const { state, words } = roomBoardStatusWords(log.status())
+    this.#status.dataset.state = state
+    this.#status.textContent = words
   }
 
   private closeView(): void {
