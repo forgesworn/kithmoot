@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.184",
+  "currentRelease": "0.1.185",
   "releases": [
     {
-      "version": "0.1.184",
+      "version": "0.1.185",
       "updateTo": {
-        "version": "0.1.184",
-        "name": "0.1.184",
-        "pub_date": "2026-11-25T00:00:00Z",
-        "notes": "When you ask to join a room, the waiting screen explains who can let you in. For a room hosted on a node, it shows the host address from your invitation.\nOpen the room’s own board from Boards. Boards you previously shared with a room still open from that conversation.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.184/KithMoot-0.1.184-mac-arm64.zip",
-        "sha256": "e48bf41988b3453cc3cb47f2fc68c9d97704573e21d4d6b4a6dc26faa27440be",
-        "size": 199032223
+        "version": "0.1.185",
+        "name": "0.1.185",
+        "pub_date": "2026-11-26T00:00:00Z",
+        "notes": "Room boards sync privately over Bothy, and card files are stored on the room’s box.\nClose picture, video and audio windows without an error. Quit works with a viewer open.\nPictures on board cards show the size of the file that was sent.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.185/KithMoot-0.1.185-mac-arm64.zip",
+        "sha256": "3d5b1a8c6889c8da0ce1d9afee40237c1b04efba5a3b7cceaf586e2b7afd9441",
+        "size": 199038243
       }
     }
   ]
