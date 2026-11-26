@@ -1,5 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { crc32, deflateSync } from 'node:zlib'
 import type * as Y from 'yjs'
 import { RoomAgent } from '../src/agent.js'
 import { memoryRoomBoardStorage } from '../src/room-board-wire.js'
@@ -418,6 +419,52 @@ test('a file goes onto a card through the room’s own file sharing, somebody el
   await expect(files(bob).locator('.file-list li')).toHaveCount(0)
   await expect(board(bob).getByText('Bob removed plan.txt.')).toBeVisible()
   await bobContext.close(); await adaContext.close()
+})
+
+/** A still PNG of one grey colour, carrying a text chunk: what a camera or an editor leaves in a file. */
+function pictureWithNote(width: number, height: number, note: string): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+    const length = Buffer.alloc(4); length.writeUInt32BE(data.length)
+    const check = Buffer.alloc(4); check.writeUInt32BE(crc32(body))
+    return Buffer.concat([length, body, check])
+  }
+  const header = Buffer.alloc(13); header.writeUInt32BE(width, 0); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2
+  const rows = Buffer.concat(Array.from({ length: height }, () => Buffer.concat([Buffer.from([0]), Buffer.alloc(width * 3, 0x7f)])))
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header),
+    chunk('tEXt', Buffer.from(`Comment\0${note}`, 'latin1')), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))])
+}
+
+test('a picture on a card gives one size: the cleaned file’s, on the card, before it is opened and after', async ({ browser, baseURL }) => {
+  const origin = new URL(baseURL!).origin
+  const adaContext = await newDeviceContext(browser, baseURL!)
+  await fileServer(adaContext, origin)
+  const ada = await adaContext.newPage()
+  await ada.setViewportSize({ width: 1440, height: 900 })
+  await createRoom(ada, baseURL!, testRelaysFor(baseURL!))
+  await allowTestFileStorage(ada, origin)
+  await openRoomBoard(ada)
+  await addCard(ada, 'Hall photo')
+  await card(ada, 'Hall photo').click()
+  const files = board(ada).locator('.card-files')
+  const picked = pictureWithNote(48, 32, 'Taken in the hall, with the camera’s notes')
+  const choosing = ada.waitForEvent('filechooser')
+  await files.getByRole('button', { name: 'Add file', exact: true }).click()
+  await (await choosing).setFiles({ name: 'hall.png', mimeType: 'image/png', buffer: picked })
+  await expect(files.getByRole('button', { name: 'Download hall.png', exact: true })).toBeVisible({ timeout: 60_000 })
+  // Its metadata is taken off on this device before it is sealed, so what goes up is not what was picked.
+  const stated = Number(/(\d+) bytes/.exec(await files.locator('.file-list li').innerText())?.[1])
+  expect(stated).toBeGreaterThan(0)
+  expect(stated).not.toBe(picked.length)
+  await files.getByRole('button', { name: 'Download hall.png', exact: true }).click()
+  const dialog = ada.locator('#boardFileDialog')
+  await expect(dialog).toBeVisible()
+  // Not the padded size of its sealed copy.
+  await expect(dialog).toContainText(`· ${stated} B`)
+  await dialog.getByRole('button', { name: /^Show/ }).click()
+  await expect(dialog.locator('iframe.attachmentPreviewFrame')).toBeVisible({ timeout: 60_000 })
+  await expect(dialog).toContainText(`· ${stated} B`)
+  await adaContext.close()
 })
 
 test('a card written with the relay unreachable is kept, and sent when it is back', async ({ browser, baseURL }) => {

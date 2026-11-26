@@ -981,6 +981,9 @@ let roomStorageCache: { roomId: string; record: RoomStorageRecord | undefined } 
 const heldEnvelopes = new HeldEnvelopes()
 /** The staged attachments whose files are waiting for a group computer, so a draft that has lost the file is known and never sent as if it were ready. */
 const waitingAttachments = new WeakSet<ChatAttachment>()
+/** What an upload actually sealed weighs, before encryption: the file after `cleanAttachment`, which rewrites
+ *  pictures to drop their metadata, so it can differ from the file as picked. A card states this size. */
+const cleanedSizes = new WeakMap<ChatAttachment, number>()
 /** Why each of those is waiting, kept with the attachment: the held bytes are swept as soon as no draft names them. */
 const waitingReasons = new WeakMap<ChatAttachment, string>()
 const browserRoomRoutes = new BrowserRoomRoutes(() => nostrSession?.signer, browserRoomConnections, async room => {
@@ -12603,15 +12606,19 @@ async function openGroupAttachment(a: ChatAttachment, base: string): Promise<Dec
  * own. Once fetched, the envelope is checked against the hash the message
  * named before the key touches it, then opened here and shown inline if it
  * is a picture, or offered to save if it is anything else.
+ *
+ * `size` is the file's own size where the caller knows it (a card on a board
+ * records it); otherwise the closed card gives the sealed size the message names.
  */
-function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAttachment): HTMLElement {
+function attachmentCard(logId: string, m: ChatMessage, index: number, a: ChatAttachment, size?: number): HTMLElement {
   const generation = roomGeneration
   const card = document.createElement('div')
   card.className = 'attachment'
   const key = attachmentKey(logId, m.id, index)
   // Before opening, the message's own name (cleaned) and what it claims to be.
   const closed = cleanFileName(a.name ?? 'Encrypted file')
-  const closedMeta = `${familyLabel({ ext: closed.ext, declaredType: a.type })}${a.size !== undefined ? ` \u00b7 ${formatBytes(a.size)}` : ''}`
+  const shownSize = size ?? a.size
+  const closedMeta = `${familyLabel({ ext: closed.ext, declaredType: a.type })}${shownSize !== undefined ? ` \u00b7 ${formatBytes(shownSize)}` : ''}`
   const host = (() => { try { return new URL(a.url).host } catch { return 'the server' } })()
   const focusInto = (focus: 'first' | 'save' | 'copy' | undefined): void => {
     if (!focus) return
@@ -20454,7 +20461,7 @@ async function addRoomBoardFile(file: File, signal: AbortSignal, said: (words: s
     if (!server) throw new Error('This room’s file server has an address a card cannot carry. Share the file in the chat instead.')
   }
   return { hash, key: attachment.key.toLowerCase(), name: attachment.name ?? file.name, type: attachment.type ?? '',
-    size: Math.max(1, file.size), encryptedSize: Math.max(1, attachment.size ?? file.size), servers: [server] }
+    size: Math.max(1, cleanedSizes.get(attachment) ?? file.size), encryptedSize: Math.max(1, attachment.size ?? file.size), servers: [server] }
 }
 /** The question about where files go, while it is being asked of a card's file. */
 let roomBoardFileConsent: Promise<boolean> | undefined
@@ -20501,7 +20508,8 @@ function openRoomBoardFile(file: RoomBoardFile, from: HTMLElement): void {
   liveAttachmentKeys.set(log, new Set([key]))
   // Nobody is named as its sender: the card's own history says who attached it.
   const origin = { id: file.hash, participant: '0'.repeat(64), device: '0'.repeat(64), name: 'whoever attached it to the card', text: '', sentAt: nowSeconds() } as ChatMessage
-  $('boardFileBody').replaceChildren(attachmentCard(log, origin, 0, attachment))
+  // The size the card states, which is the file's own: the sealed copy is padded, so a small file would read as 64 KB.
+  $('boardFileBody').replaceChildren(attachmentCard(log, origin, 0, attachment, Number.isSafeInteger(file.size) && file.size > 0 ? file.size : undefined))
   dialog.onclose = () => { forget(); $('boardFileBody').replaceChildren(); if (from.isConnected) from.focus({ preventScroll: true }) }
   $('boardFileClose').onclick = () => dialog.close()
   if (!dialog.open) dialog.showModal()
@@ -25376,6 +25384,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     signal.throwIfAborted()
     if (roomGeneration !== startGeneration || !bothyFiles()) throw new Error('The room changed. Its private upload record was retained; nothing was added to this draft.')
     draft.attachments.push(attachment)
+    cleanedSizes.set(attachment, cleaned.size)
     draft.status = ''
     draftChanged(draft)
     return
@@ -25456,6 +25465,7 @@ async function shareDroppedFile(file: File, draft: ConversationDraft, signal: Ab
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
+  cleanedSizes.set(attachment, cleaned.size)
   // It is an attachment now; the held copy goes in the same step, so the
   // tray never shows both.
   settled?.(file)
@@ -25563,6 +25573,7 @@ async function shareDroppedFileToGroup(file: File, draft: ConversationDraft, sig
     size: sealed.envelope.size,
   }
   draft.attachments.push(attachment)
+  cleanedSizes.set(attachment, cleaned.size)
   if (held) { waitingAttachments.add(attachment); if (result.status !== 'stored') waitingReasons.set(attachment, result.reason) }
   settled?.(file)
   if (pendingRecording?.file === file && pendingRecording.roomId === roomId) {

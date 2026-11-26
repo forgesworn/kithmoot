@@ -50,6 +50,8 @@ export class AttachmentWindows {
   #streams = new Map()
   #owners = new WeakMap()
   #contents = new Set()
+  /** Streams already torn down: destroying a window emits its 'closed', which comes back to `#invalidate`. */
+  #invalidated = new WeakSet()
   #creating = false
   #icon
 
@@ -177,7 +179,9 @@ export class AttachmentWindows {
       })
     } finally { this.#creating = false }
     stream.window = window
-    this.#contents.add(window.webContents)
+    // Kept apart from the window: a destroyed window's webContents can no longer be read.
+    stream.contents = window.webContents
+    this.#contents.add(stream.contents)
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     window.webContents.on('will-navigate', event => event.preventDefault())
     window.webContents.on('will-frame-navigate', event => { if (event.isMainFrame) event.preventDefault() })
@@ -221,15 +225,21 @@ export class AttachmentWindows {
   }
 
   #invalidate(stream, closeWindow = true) {
+    // Once only. Destroying the window below emits its 'closed', which calls back in here; reading that
+    // window again threw "Object has been destroyed", an uncaught error in the main process that showed
+    // Electron's error box whenever a viewer was closed, and held up Quit until somebody dismissed it.
+    if (this.#invalidated.has(stream)) return
+    this.#invalidated.add(stream)
     stream.invalidate()
     this.#streams.delete(stream.id)
     this.#releaseOwner(stream)
-    if (stream.window) {
-      this.#contents.delete(stream.window.webContents)
-      if (closeWindow && !stream.window.isDestroyed()) stream.window.destroy()
-    }
+    if (stream.contents) this.#contents.delete(stream.contents)
+    if (closeWindow && stream.window && !stream.window.isDestroyed()) stream.window.destroy()
     if (stream.session) {
-      for (const scheme of ['https', 'http', ATTACHMENT_SCHEME]) void stream.session.protocol.unhandle(scheme).catch(() => {})
+      // protocol.unhandle returns nothing, so there is no promise to catch: it throws, if anything.
+      for (const scheme of ['https', 'http', ATTACHMENT_SCHEME]) {
+        try { stream.session.protocol.unhandle(scheme) } catch { /* Never handled, or the session is gone. */ }
+      }
     }
   }
 }

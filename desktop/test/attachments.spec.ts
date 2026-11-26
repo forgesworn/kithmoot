@@ -160,6 +160,56 @@ test('native attachment windows render streamed PNG bytes in an isolated session
   }
 })
 
+test('closing a picture’s own window raises no error in the app', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-attachments-'))
+  let app: ElectronApplication | undefined
+  try {
+    app = await launch(profile)
+    const main = await app.firstWindow()
+    await expect(main.getByRole('button', { name: 'Start a room', exact: true })).toBeVisible({ timeout: 30_000 })
+    // An uncaught error in the main process is what puts Electron's error box in front of the person.
+    await app.evaluate(() => {
+      const seen: string[] = []
+      ;(globalThis as unknown as { uncaughtSeen: string[] }).uncaughtSeen = seen
+      process.on('uncaughtException', error => { seen.push(String(error)) })
+    })
+    const id = await streamAttachment(main, { name: 'closed.png', type: 'image/png', kind: 'image', size: PNG.length }, PNG)
+    const viewer = await viewerFor(app, id)
+    await expect.poll(() => viewer.locator('#attachment-surface img').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(1)
+    // As its close button does.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes('/j/attachment-frame.html'))!.close())
+    await expect.poll(() => attachmentWindowCount(app!)).toBe(0)
+    expect(await app.evaluate(() => (globalThis as unknown as { uncaughtSeen: string[] }).uncaughtSeen)).toEqual([])
+    expect(await main.evaluate(id => (window as unknown as { kithmootDesktop: AttachmentBridge }).kithmootDesktop.writeAttachment(id, new Uint8Array(), true), id)).toBe(false)
+  } finally {
+    await stopIsolatedApp(app, profile)
+    await rm(profile, { recursive: true, force: true })
+  }
+})
+
+test('quitting with a picture open closes its window and the app exits, as Quit and ⌘Q do', async () => {
+  const profile = await mkdtemp(join(tmpdir(), 'kithmoot-desktop-attachments-'))
+  let app: ElectronApplication | undefined
+  try {
+    app = await launch(profile)
+    const main = await app.firstWindow()
+    await expect(main.getByRole('button', { name: 'Start a room', exact: true })).toBeVisible({ timeout: 30_000 })
+    const id = await streamAttachment(main, { name: 'open.png', type: 'image/png', kind: 'image', size: PNG.length }, PNG)
+    const viewer = await viewerFor(app, id)
+    await expect.poll(() => viewer.locator('#attachment-surface img').evaluate((node: HTMLImageElement) => node.naturalWidth)).toBe(1)
+    // No error handler here: an uncaught error during Quit would show Electron's error box, which holds Quit.
+    const running = app
+    const exited = new Promise<number | null>(resolve => running.process().once('exit', code => resolve(code)))
+    // The app menu's Quit, and so ⌘Q, is Electron's quit role: app.quit().
+    await running.evaluate(({ app }) => { setTimeout(() => app.quit(), 0) })
+    expect(await Promise.race([exited, new Promise(resolve => setTimeout(() => resolve('still running after 15 s'), 15_000))])).toBe(0)
+    app = undefined
+  } finally {
+    await stopIsolatedApp(app, profile)
+    await rm(profile, { recursive: true, force: true })
+  }
+})
+
 test('hostile SVG stays inert and the attachment window cannot navigate, open popups or reach the network', async () => {
   const requests: string[] = []
   const server = createServer((request, response) => {
