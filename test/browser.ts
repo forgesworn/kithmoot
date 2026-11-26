@@ -457,16 +457,12 @@ export async function openRoomSearch(page: Page): Promise<void> {
   await expect(page.locator('#conversationSearch')).toBeVisible()
 }
 
-/** The room's own board: the tab of Boards that is named after the room.
- *  From inside the room it is its Board tab, once something is on a board or
- *  the room has tasks; before that, and wherever the tab row is not on
- *  screen, it is Board in the room's ⋯ menu. */
+/** Open the active room's board from its chat header. */
 export async function openRoomBoard(page: Page): Promise<void> {
-  const tab = page.locator('#conversationNav button[data-board]')
-  if (await tab.isVisible()) await tab.click()
-  else await roomMenuItem(page, 'Board')
-  await expect(page.locator('#roomBoardPanel')).toBeVisible()
-  await expect(page.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
+  const button = page.getByRole('button', { name: 'Room board', exact: true })
+  await button.click()
+  await expect(page.locator('#roomArea #roomBoardPanel')).toBeVisible()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
 }
 
 /** From the room's board back to the room's conversation. */
@@ -485,7 +481,7 @@ export async function backToRoom(page: Page): Promise<void> {
 /** A person's own boards, opened with a room open: Your own boards, under
  *  the other tabs of Boards. The room is not offered any of them. */
 export async function openRoomBoards(page: Page): Promise<void> {
-  await openRoomBoard(page)
+  await openBoardsDestination(page)
   await page.locator('#workspaceWorkTab').click()
   await page.locator('#workspaceBoardsOpen').click()
   await expect(page.locator('#boardsPanel')).toBeVisible()
@@ -494,7 +490,7 @@ export async function openRoomBoards(page: Page): Promise<void> {
 /** The room's tasks panel, the way these specs always reached it: through
  *  Boards, whose All tab has the tasks of the room that is open. */
 export async function openRoomTasks(page: Page): Promise<void> {
-  await openRoomBoard(page)
+  await openBoardsDestination(page)
   await page.locator('#workspaceWorkTab').click()
   await page.getByRole('button', { name: 'Current room tasks', exact: true }).click()
   await expect(page.locator('#assignmentPanel')).toBeVisible()

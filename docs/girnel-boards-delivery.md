@@ -1,9 +1,7 @@
 # Girnel Boards in KithMoot
 
-Since November 2026 every room has [a board of its own](room-board.md),
-which needs none of what follows: it has no keeper, invitation or separate
-membership, and Boards opens on it whenever a room is open. This document is
-about a person's own boards, kept outside a room and reached from **Your own
+Open [a room's own board](room-board.md) from its chat header. Its access
+follows room membership. A person's own boards are reached from **Your own
 boards**, under the Needs you and All tabs of Boards.
 
 **Since 25 November 2026 a room is not offered one of these.** A room has one

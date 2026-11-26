@@ -110,15 +110,15 @@ function errorText(error: unknown): string {
  * it: there is nothing to create, name, share or join, and no account to
  * sign in to beyond being in the room.
  *
- * It is shown in the Boards destination, as the tab named after the room
- * (`WorkspaceWorkPanel` gives it the container). The frame holds Girnel's
- * whole board screen. The room keeps the board (`RoomBoardLog`): this panel
+ * It is shown inside the conversation. The frame holds Girnel's whole
+ * board screen. The room keeps the board (`RoomBoardLog`): this panel
  * hands the screen the board's state and its later changes, and hands the
  * room each edit the screen accepts. No key, signer or relay crosses into
  * the frame.
  */
 export class RoomBoardPanel {
   readonly element: HTMLElement
+  readonly #title: HTMLElement
   #view?: View
   readonly #status: HTMLElement
   #watch?: ReturnType<typeof setInterval>
@@ -142,13 +142,15 @@ export class RoomBoardPanel {
   }) {
     this.element = root.createElement('section'); this.element.id = 'roomBoardPanel'; this.element.className = 'roomBoardSurface'
     this.#status = root.createElement('p'); this.#status.id = 'roomBoardStatus'; this.#status.className = 'roomBoardStatus'; this.#status.setAttribute('role', 'status')
-    // One line over the board: where it stands with the room, and the way
-    // back to the conversation, which a phone has no rail to offer.
     const bar = root.createElement('div'); bar.className = 'roomBoardBar'
+    const heading = root.createElement('div'); heading.className = 'roomBoardHeading'
+    this.#title = root.createElement('h2'); this.#title.id = 'roomBoardTitle'
+    heading.append(this.#title, this.#status)
     const back = root.createElement('button'); back.type = 'button'; back.id = 'roomBoardBack'; back.className = 'quiet'; back.textContent = 'Back to chat'
     back.onclick = () => this.options.back()
-    bar.append(this.#status, back)
+    bar.append(heading, back)
     this.element.append(bar)
+    this.element.setAttribute('aria-labelledby', 'roomBoardTitle')
     window.addEventListener('pagehide', () => this.reset())
   }
 
@@ -158,21 +160,18 @@ export class RoomBoardPanel {
   show(container: HTMLElement, room: RoomBoardRoom): void {
     if (this.#view && (this.#view.room.key !== room.key || this.#view.abort.signal.aborted || this.#view.log?.closed)) this.closeView()
     if (this.element.parentElement !== container) container.append(this.element)
-    this.element.setAttribute('aria-label', `Board · ${room.name}`)
+    this.#title.textContent = `Board · ${room.name}`
     if (!this.#view) this.mount(room)
     else { this.#view.room = room; if (this.#view.frame) this.#view.frame.title = `Board · ${room.name}`; this.render() }
     // A room left or changed under an open board takes the board with it.
     this.#watch ??= setInterval(() => this.sync(), 1000)
   }
 
-  /** Another tab was chosen, or Boards was left. The board stays as it is,
+  /** The board was closed. Its view stays out of sight,
    *  out of sight, so what was half typed is still there on the way back. */
   hide(): void {
     if (this.#watch) { clearInterval(this.#watch); this.#watch = undefined }
   }
-
-  /** Whether a board is showing for the room `key`. */
-  showing(key: object): boolean { return this.#view?.room.key === key && !this.#view.abort.signal.aborted }
 
   private mount(room: RoomBoardRoom): void {
     const view: View = { room, abort: new AbortController() }

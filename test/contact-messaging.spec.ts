@@ -96,12 +96,9 @@ test('Signet contacts start a private conversation without a shared room, delive
     await alice.locator('#roomRenameReset').click()
     await expect(alice.locator('#roomTitle')).toHaveText('Bob from Signet')
     await expect(bob.locator('#roomTitle')).toHaveText('Alice from the club')
-    // A private chat is a room of two, so it has a board of its own on the
-    // same terms: Boards opens on it, under the name this person knows the
-    // chat by, and what one puts there the other finds.
-    await alice.locator('#railBoards:visible').click()
-    await expect(alice.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
-    await expect(alice.locator('#workspaceRoomTab')).toHaveText('Bob from Signet')
+    // Both people open the same board from their private chat.
+    await openRoomBoard(alice)
+    await expect(alice.locator('#roomBoardTitle')).toHaveText('Board · Bob from Signet')
     const composer = alice.frameLocator('#roomBoardPanel iframe').getByRole('textbox', { name: 'Add a card to To do', exact: true })
     await composer.click(); await composer.pressSequentially('Between the two of us'); await composer.press('Enter')
     await expect(alice.frameLocator('#roomBoardPanel iframe').getByRole('link', { name: 'Between the two of us', exact: true })).toBeVisible()
@@ -110,7 +107,7 @@ test('Signet contacts start a private conversation without a shared room, delive
     // Bob still has Room info open from naming the chat.
     await bob.locator('#roomSheetClose').click()
     await openRoomBoard(bob)
-    await expect(bob.locator('#workspaceRoomTab')).toHaveText('Alice from the club')
+    await expect(bob.locator('#roomBoardTitle')).toHaveText('Board · Alice from the club')
     await expect(bob.frameLocator('#roomBoardPanel iframe').getByRole('link', { name: 'Between the two of us', exact: true })).toBeVisible()
   } finally { publisher.close(); await ac.close(); await bc.close() }
 })

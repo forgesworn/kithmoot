@@ -39,9 +39,7 @@ test('every room has a board that everybody in it shares, with nothing to set up
   const ada = await adaContext.newPage()
   const url = await createRoom(ada, baseURL!, testRelaysFor(baseURL!))
 
-  // A room nobody has put anything on keeps its screen for the conversation:
-  // no tab yet, and the board one step away in the room's menu.
-  await expect(ada.locator('#conversationNav button[data-board]')).toHaveCount(0)
+  await expect(ada.getByRole('button', { name: 'Room board', exact: true })).toBeVisible()
   await openRoomBoard(ada)
   for (const column of ['To do', 'Doing', 'Done']) {
     await expect(board(ada).getByRole('heading', { name: column, exact: true })).toBeVisible()
@@ -49,19 +47,14 @@ test('every room has a board that everybody in it shares, with nothing to set up
   await expect(board(ada).getByText('On this device only')).toHaveCount(0)
   await addCard(ada, 'Book the hall')
   await expect(ada.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
-  // Now that something is on it, the room has a Board tab.
   await closeRoomBoard(ada)
-  await expect(ada.locator('#conversationNav button[data-board]')).toBeVisible()
   await openRoomBoard(ada)
 
-  // Bob has only the link and a name. The board is simply there, and its
-  // tab with it, before he has opened anything.
+  // Bob has only the room link and a name.
   const bobContext = await newDeviceContext(browser, baseURL!)
   const bob = await bobContext.newPage()
   await enter(bob, url, 'Bob')
-  await expect(bob.locator('#conversationNav button[data-board]')).toBeVisible()
-  await bob.locator('#conversationNav button[data-board]').click()
-  await expect(bob.locator('#roomBoardPanel')).toBeVisible()
+  await openRoomBoard(bob)
   await expect(card(bob, 'Book the hall')).toBeVisible()
   await expect(board(bob).getByRole('heading', { name: 'To do', exact: true })).toHaveCount(1)
 
@@ -104,17 +97,14 @@ test('every room has a board that everybody in it shares, with nothing to set up
   await cyContext.close()
 })
 
-test('the room’s board is the whole of Girnel, one click from Boards, for people with only the link', async ({ browser, baseURL }) => {
+test('the room’s board opens from its chat for people with only the link', async ({ browser, baseURL }) => {
   const adaContext = await newDeviceContext(browser, baseURL!)
   const ada = await adaContext.newPage()
   await ada.setViewportSize({ width: 1440, height: 900 })
   const url = await createRoom(ada, baseURL!, testRelaysFor(baseURL!))
-  // Boards, in a room nobody has touched: the board of this room, first, with
-  // no account asked for and nothing to set up.
-  await ada.locator('#railBoards').click()
-  await expect(ada.locator('#workspaceRoomTab')).toHaveAttribute('aria-pressed', 'true')
-  await expect(ada.locator('#roomBoardPanel')).toBeVisible()
-  await expect(ada.locator('#workspaceWorkSignIn')).toBeHidden()
+  await openRoomBoard(ada)
+  await expect(ada.locator('#workspaceWorkPanel')).toBeHidden()
+  await expect(ada.locator('#chatInput')).toBeHidden()
   for (const column of ['To do', 'Doing', 'Done']) await expect(board(ada).getByRole('heading', { name: column, exact: true })).toBeVisible()
   await addCard(ada, 'Book the hall')
   await addCard(ada, 'Order the tea')
@@ -123,7 +113,7 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   const bob = await bobContext.newPage()
   await bob.setViewportSize({ width: 1440, height: 900 })
   await enter(bob, url, 'Bob')
-  await bob.locator('#railBoards').click()
+  await openRoomBoard(bob)
   await expect(card(bob, 'Book the hall')).toBeVisible()
   const tool = (page: Page, name: string) => board(page).getByRole('button', { name, exact: true })
 
@@ -194,15 +184,14 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   await expect(bob.locator('#inviteDialog')).toBeVisible()
   await bob.keyboard.press('Escape')
   await expect(bob.locator('#inviteDialog')).toBeHidden()
-  await bob.locator('#railBoards').click()
+  await openRoomBoard(bob)
   await card(bob, 'Order the tea').click()
   await tool(bob, 'Discuss in chat').click()
   await expect(bob.locator('#roomArea')).toBeVisible()
   await expect(bob.locator('#chatInput')).toHaveValue('About “Order the tea” on the board: ')
   await expect(bob.locator('#chatInput')).toBeFocused()
-  // The room now has its Board tab, which leads back to the same card.
-  await expect(bob.locator('#conversationNav button[data-board]')).toBeVisible()
-  await bob.locator('#conversationNav button[data-board]').click()
+  // Reopening the board leads back to the same card.
+  await openRoomBoard(bob)
   await expect(board(bob).getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Order the tea')
   // The room's agents are asked through the room's tasks: the task form
   // opens filled in from the card, for the person to choose who and share.
@@ -222,11 +211,11 @@ test('the room’s board is the whole of Girnel, one click from Boards, for peop
   await adaContext.close(); await bobContext.close()
 })
 
-test('on a phone the board is in the room’s menu, and both ways off it land back in the conversation', async ({ browser, baseURL }) => {
+test('on a phone the board opens from the chat header and returns to the same conversation', async ({ browser, baseURL }) => {
   const context = await newDeviceContext(browser, baseURL!, { viewport: { width: 390, height: 844 }, hasTouch: true })
   const page = await context.newPage()
   await createRoom(page, baseURL!, testRelaysFor(baseURL!))
-  // A room on a phone has no rail: the board is Board, in its menu.
+  // The phone can open the board directly from this room's chat header.
   await expect(page.locator('#railBoards')).toBeHidden()
   await openRoomBoard(page)
   await addCard(page, 'Bring the urn')
@@ -237,6 +226,7 @@ test('on a phone the board is in the room’s menu, and both ways off it land ba
   // Back to chat is the conversation and its composer, not the list of chats.
   await closeRoomBoard(page)
   await expect(page.locator('#chatInput')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Room board', exact: true })).toBeFocused()
   await expect(page.locator('#rooms')).toBeHidden()
 
   // So is Discuss in chat, with the card's title in the draft.
@@ -251,7 +241,7 @@ test('on a phone the board is in the room’s menu, and both ways off it land ba
 })
 
 for (const [label, viewport, hasTouch] of [['1440 by 900', { width: 1440, height: 900 }, false], ['390 by 844', { width: 390, height: 844 }, true]] as const) {
-  test(`axe finds nothing on Boards with the room’s board showing at ${label}`, async ({ browser, baseURL }) => {
+  test(`axe finds nothing with the room’s board showing at ${label}`, async ({ browser, baseURL }) => {
     const context = await newDeviceContext(browser, baseURL!, { viewport, hasTouch })
     const page = await context.newPage()
     await createRoom(page, baseURL!, testRelaysFor(baseURL!))
@@ -274,7 +264,7 @@ test('another chat is one click from the board, and what is half typed there is 
   await createRoom(page, baseURL!, testRelaysFor(baseURL!))
   const other = page.locator('#roomList .open:not([aria-current="true"])')
   await expect(other).toHaveCount(1)
-  await page.locator('#railBoards').click()
+  await openRoomBoard(page)
   const composer = board(page).getByRole('textbox', { name: 'Add a card to To do', exact: true })
   await composer.fill('Half a thought')
   // The other chat, in the list beside the board.
@@ -292,7 +282,7 @@ test('another chat is one click from the board, and what is half typed there is 
   await other.click()
   await expect(page.locator('#roomArea')).toBeVisible({ timeout: 60_000 })
   await expect(asking).toBeHidden()
-  await page.locator('#railBoards').click()
+  await openRoomBoard(page)
   await expect(board(page).getByRole('heading', { name: 'To do', exact: true })).toBeVisible()
   await expect(card(page, 'Half a thought')).toHaveCount(0)
   await context.close()
@@ -381,7 +371,7 @@ test('a file goes onto a card through the room’s own file sharing, somebody el
   const bob = await bobContext.newPage()
   await bob.setViewportSize({ width: 1440, height: 900 })
   await enter(bob, url, 'Bob')
-  await bob.locator('#conversationNav button[data-board]').click()
+  await openRoomBoard(bob)
   await card(bob, 'Floor plan').click()
   await files(bob).getByRole('button', { name: 'Download plan.txt', exact: true }).click()
   // It opens in the room's own file card: nothing is fetched until asked for.

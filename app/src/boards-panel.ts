@@ -130,7 +130,7 @@ export class BoardsPanel {
       this.#context.textContent = this.options.offersRoomSharing()
         ? view.room ? `Create a board to share with ${view.room.name}, or choose an existing board.` : 'Choose or create a personal board, or link a chat to share it.'
         // These are a person's own boards, wherever they are opened from. The chat behind them has one of its own.
-        : here ? `Boards of your own. ${here.name} has a board of its own: it is the first tab in Boards.` : 'Choose or create a board of your own.'
+        : here ? `Boards of your own. Open the board for ${here.name} from its chat header.` : 'Choose or create a board of your own.'
       this.#pop.disabled = this.#link.disabled = this.#share.disabled = true; return
     }
     const title = boardContextTitle(view.context)
