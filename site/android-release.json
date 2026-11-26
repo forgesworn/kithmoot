@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.181",
-  "versionCode": 204,
+  "versionName": "0.6.182",
+  "versionCode": 205,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 71524736,
-  "apkSha256": "c9c4681304f91fef9cc1ffd888ddaf0cefa68aac9d27c4059bc0bab5e4e4194c",
+  "apkBytes": 72517148,
+  "apkSha256": "48ec7d2505a9311ef58ea579e02c1445894ef9c82cfe513dc4e8f4ef5f55263c",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.181-production.apk",
+  "downloadFilename": "kithmoot-0.6.182-production.apk",
   "releaseNotes": [
-    "Camera capture pauses while KithMoot is hidden.",
-    "Returning to an ongoing call resumes a camera you had turned on."
+    "Tap Board in the header of a supported private or group chat to open that room’s shared board.",
+    "Back to chat and the Android back gesture take you back to the same conversation."
   ]
 }
