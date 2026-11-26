@@ -310,7 +310,7 @@ the selected board before waiting and refuse a changed board/account. The room-
 board encrypted catalogue family is routed and structurally checked offline;
 its current-room decrypt/save/publication adapter and full native root mount
 remain required. The committed dependency now selects the vendored Girnel
-`1.1.0-kithmoot.11` archive. Historical target-only overlay checks remain recorded
+`1.1.0-kithmoot.14` archive. Historical target-only overlay checks remain recorded
 in their original receipts. The current dependency lockfile and fresh registry
 CI are separate evidence; [SDK provenance](ordinary-sdk-provenance.md) records
 the completed Signet release without claiming the protected consumer is mounted.

@@ -66,21 +66,32 @@ test('every room has a board that everybody in it shares, with nothing to set up
 
   // The same live conversation is below both boards, including on a phone.
   const bobComposer = bob.locator('#chatInput')
-  await expect(bob.locator('#boardChatHeading')).toBeVisible()
+  const divider = bob.getByRole('separator', { name: 'Resize chat' })
+  await expect(divider).toBeVisible()
+  await expect(bob.getByRole('slider', { name: 'Chat size' })).toHaveCount(0)
   await expect(bobComposer).toBeInViewport()
   await bobComposer.fill('I moved the planning into this room.')
   await bobComposer.press('Enter')
   await expect(ada.locator('#chatLog').getByText('I moved the planning into this room.', { exact: true })).toBeVisible()
   await expect(card(ada, 'Order the tea')).toBeVisible()
-  const chatSize = bob.getByRole('slider', { name: 'Chat size' })
-  const before = (await bob.locator('#chatViewport').boundingBox())!.height
-  await chatSize.fill('30')
-  await expect.poll(async () => (await bob.locator('#chatViewport').boundingBox())!.height).toBeGreaterThan(before)
+  const chatHeight = async () => (await bob.locator('#chatViewport').boundingBox())!.height
+  const before = await chatHeight()
+  const handle = (await divider.boundingBox())!
+  await bob.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await bob.mouse.down()
+  await bob.mouse.move(handle.x + handle.width / 2, handle.y - 90, { steps: 6 })
+  await bob.mouse.up()
+  await expect.poll(chatHeight).toBeGreaterThan(before + 50)
+  const stretched = await chatHeight()
+  await divider.press('ArrowDown')
+  await expect.poll(chatHeight).toBeLessThan(stretched)
+  const heightPreference = (await divider.getAttribute('aria-valuenow'))!
   await bob.getByRole('button', { name: 'Hide chat', exact: true }).click()
   await expect(bobComposer).toBeHidden()
+  await expect(divider).toBeHidden()
   await expect(card(bob, 'Order the tea')).toBeVisible()
   await bob.getByRole('button', { name: 'Show chat', exact: true }).click()
-  await expect(chatSize).toHaveValue('30')
+  await expect(divider).toHaveAttribute('aria-valuenow', heightPreference)
 
   // Both write at the same moment; both cards are kept, on both boards.
   await Promise.all([addCard(ada, 'Print the notices'), addCard(bob, 'Find the urn')])
@@ -92,7 +103,7 @@ test('every room has a board that everybody in it shares, with nothing to set up
   await bobComposer.fill('Keep this draft.')
   await closeRoomBoard(bob)
   await expect(bobComposer).toHaveValue('Keep this draft.')
-  await expect(bob.locator('#boardChatHeading')).toBeHidden()
+  await expect(divider).toBeHidden()
 
   // Everybody who wrote the board goes. Nobody is left to hand it over.
   await adaContext.close()
@@ -279,13 +290,16 @@ test('on a phone the board opens from the chat header and returns to the same co
   await tools.press('Escape')
   await expect(search).toBeHidden()
   await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
-  await page.getByRole('slider', { name: 'Chat size' }).fill('24')
+  const divider = page.getByRole('separator', { name: 'Resize chat' })
+  await divider.press('ArrowUp')
+  await divider.press('ArrowUp')
+  await expect(divider).toHaveAttribute('aria-valuenow', '24')
   await page.getByRole('button', { name: 'Hide chat', exact: true }).click()
   await page.reload()
   await expect(page.locator('#roomArea')).toBeVisible()
   await openRoomBoard(page)
   await page.getByRole('button', { name: 'Show chat', exact: true }).click()
-  await expect(page.getByRole('slider', { name: 'Chat size' })).toHaveValue('24')
+  await expect(divider).toHaveAttribute('aria-valuenow', '24')
   // Nothing of the board is wider than the phone.
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
 

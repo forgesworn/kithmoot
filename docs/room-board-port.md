@@ -39,7 +39,9 @@ Requests carry `re`, a name chosen by the side that asks, and are answered by
 2. The app sends `start`: `self`, this person's key as 64 lower-case hex
    characters, and `invite`, `assign` and `files`, which say whether the room
    offers those buttons (a private chat cannot be invited to; a room routed
-   through Bothy does not carry tasks yet).
+   through Bothy does not carry tasks yet), and `save`, which says the app
+   keeps Export board's file itself: an app with no browser downloads. Left
+   out, the view downloads it as a browser does.
 3. The app sends `members` whenever the room's members change: `members`, a
    list of `{pubkey, name}`, as the room knows them. A list too long for one
    message is cut short; a member left out shows by key.
@@ -123,6 +125,16 @@ elsewhere, such as a note that a board's changes are still waiting.
   `file.cancel` (`re`) means the person stopped: nothing is uploaded.
 - `file.open` (`file`, `how`: `open` or `download`): show a card's file as
   the room shows any file, fetched only when the person asks, and checked.
+- `save` (`re`, `name`, `type`, `size`), then `save.chunk` (`re`, `offset`,
+  `data`), one at a time, each answered `save.ack` (`re`, `offset`): Export
+  board's file, at most 32 MiB, offered only where `start` said `save`. Once
+  the app holds `size` bytes (at once, for none) it asks the person where the
+  file goes, writes it there, and answers (`reply`) once it is kept. It
+  refuses in words when the person chose not to keep it or it could not be
+  written, and it answers every `save`, whatever happens: the view waits for
+  it. `save.cancel` (`re`) means the view went away: nothing is kept. Treat
+  the name and type as the page's suggestion: the app picks the type of file
+  it writes, and the person picks the name and place.
 
 ### Asked by the app
 

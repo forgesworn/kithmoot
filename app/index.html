@@ -922,11 +922,8 @@
              below ticks, so it is hidden from screen readers. -->
         <p id="fuseAnnounce" class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-board-chat></p>
         <div id="fuseBanner" class="fuseBanner" aria-hidden="true" hidden data-board-chat></div>
-        <div id="boardChatBar" hidden data-board-chat>
-          <h2 id="boardChatHeading">Chat</h2>
-          <label for="boardChatSize">Chat size</label>
-          <input id="boardChatSize" type="range" min="10" max="44" value="16" />
-        </div>
+        <div id="boardChatDivider" role="separator" aria-label="Resize chat" aria-orientation="horizontal"
+             aria-controls="chatViewport" tabindex="0" hidden data-board-chat></div>
         <div id="chatViewport" data-board-chat>
           <div id="chatLog" role="region" aria-label="Conversation" aria-describedby="messageKeyboardHint" tabindex="0"></div>
           <button id="newMessages" type="button" hidden>Jump to latest ↓</button>

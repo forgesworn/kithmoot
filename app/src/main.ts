@@ -13237,7 +13237,6 @@ function selectChannel(name: string | undefined): void {
   try { sessionStorage.setItem(conversationStorageKey(), name ?? '') } catch { /* Optional tab preference. */ }
   currentChannel = name
   $('conversationHeading').textContent = conversationLabel(name)
-  $('boardChatHeading').textContent = conversationLabel(name)
   restoreDraft()
   delete $('channelClose').dataset.arm
   renderChannels()
@@ -20583,7 +20582,7 @@ let roomBoardPanel: RoomBoardPanel | undefined
 let roomBoardPanelLoading: Promise<typeof import('./room-board-panel.js')> | undefined
 function closeRoomBoardView(): void {
   $('roomBoardView').hidden = true
-  $('boardChatBar').hidden = true
+  $('boardChatDivider').hidden = true
   delete $('roomArea').dataset.boardOpen
   $('roomBoardButton').setAttribute('aria-expanded', 'false')
   roomBoardPanel?.hide()
@@ -20800,8 +20799,7 @@ function openRoomBoard(from: HTMLElement): void {
     showMobileRoomView('chat')
     roomBoardPanel!.show(view, roomBoardRoom(selected, module))
     view.hidden = false
-    $('boardChatHeading').textContent = conversationLabel(currentChannel)
-    $('boardChatBar').hidden = false
+    $('boardChatDivider').hidden = false
     $('roomArea').dataset.boardOpen = 'true'
     $('roomBoardButton').setAttribute('aria-expanded', 'true')
     $('roomBoardBack').focus({ preventScroll: true })
