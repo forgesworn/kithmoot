@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld('kithmootDesktop', Object.freeze({
     return () => ipcRenderer.removeListener('desktop:spry-relay-state', handler)
   },
   updateState() { return ipcRenderer.invoke('desktop:update-state') },
+  bothyRoomWindowReady() { return ipcRenderer.invoke('desktop:bothy-room-window-ready') },
   installUpdate() { return ipcRenderer.invoke('desktop:update-install') },
   onUpdateState(listener) {
     const handler = (_event, state) => listener(state)

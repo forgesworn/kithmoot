@@ -57,11 +57,16 @@ export class BrowserRoomBarrier {
   close(): void { navigator.serviceWorker?.removeEventListener('message', this.#workerReady); this.#channel.close(); this.#listeners.clear() }
 }
 
-/** A Web Lock cannot see tabs running an older build which predates the
- * gate. The controlling worker enumerates every same-app client, including
- * uncontrolled clients, and requires this build's gate acknowledgement.
- * Old/frozen/uncontrolled tabs cause refusal, never a timed-out success. */
+/** A Web Lock cannot see clients running an older build which predates the
+ * gate. The desktop shell checks its own session. In a browser, the controlling
+ * worker requires every same-app client, including uncontrolled clients, to
+ * acknowledge this build's gate. */
 async function checkRoomTabs(): Promise<void> {
+  if (import.meta.env.VITE_DESKTOP === 'true') {
+    const desktop = (window as Window & { kithmootDesktop?: { bothyRoomWindowReady?(): Promise<boolean> } }).kithmootDesktop
+    if (await desktop?.bothyRoomWindowReady?.()) return
+    throw new Error('Close other KithMoot room windows or restart KithMoot after updating, then retry activation.')
+  }
   const worker = navigator.serviceWorker?.controller
   if (!worker) throw new Error('Reload KithMoot after its update finishes before activating a Bothy room.')
   await new Promise<void>((resolve, reject) => {

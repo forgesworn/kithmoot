@@ -35,10 +35,24 @@ try {
   }))
   expect(state.secure).toBe(true)
   expect(state.node).toBe('undefined'); expect(state.process).toBe('undefined')
-  expect(state.bridge).toEqual(['onSpryPairing', 'titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'marksAction', 'onMarksDrawing', 'supportsCompositorMarks', 'compositorMarksBegin', 'compositorMarksPaint', 'compositorMarksEnd', 'onCompositorMark', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'clearNotice', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'setRelayContext', 'relayState', 'relayStart', 'relayStop', 'relaySetStartOnOpen', 'relayRemoveKeys', 'onRelayState', 'updateState', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments']); expect(state.workers).toBe(0)
+  expect(state.bridge).toEqual(['onSpryPairing', 'titleBar', 'onWindowState', 'supportsShareArea', 'shareAreaMode', 'armShareArea', 'shareAreaState', 'shareAreaCheck', 'screenAccess', 'ownCaptureIds', 'shareAreaAction', 'supportsRedaction', 'marksAction', 'onMarksDrawing', 'supportsCompositorMarks', 'compositorMarksBegin', 'compositorMarksPaint', 'compositorMarksEnd', 'onCompositorMark', 'redactionBegin', 'redactionState', 'redactionAction', 'onRedactionState', 'onShareAreaState', 'onShareAreaCheck', 'setUnread', 'notify', 'clearRoomNotices', 'clearNotice', 'onOpenRoom', 'setRoomMenuState', 'onMenuCommand', 'setCallActive', 'setRelayContext', 'relayState', 'relayStart', 'relayStop', 'relaySetStartOnOpen', 'relayRemoveKeys', 'onRelayState', 'updateState', 'bothyRoomWindowReady', 'installUpdate', 'onUpdateState', 'beginAttachment', 'writeAttachment', 'closeAttachment', 'closeAttachments']); expect(state.workers).toBe(0)
   expect(state.workerStatus).toBe(404); expect(state.traversalStatus).toBe(404)
   expect(state.csp).toContain("object-src 'none'")
   expect(state.notifications).not.toBe('denied')
+  const bothyWindowReady = () => page.evaluate(() => window.kithmootDesktop.bothyRoomWindowReady())
+  expect(await bothyWindowReady()).toBe(true)
+  const extraRoom = await app.evaluate(async ({ BrowserWindow }) => {
+    const owner = BrowserWindow.getAllWindows()[0]
+    const extra = new BrowserWindow({ show: false, webPreferences: { session: owner.webContents.session, sandbox: true } })
+    await extra.loadURL(owner.webContents.getURL())
+    return extra.id
+  })
+  try {
+    expect(await bothyWindowReady()).toBe(false)
+  } finally {
+    await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.destroy(), extraRoom)
+  }
+  expect(await bothyWindowReady()).toBe(true)
   expect(await page.evaluate(() => window.kithmootDesktop.updateState())).toEqual({ phase: packaged ? 'idle' : 'disabled' })
   expect(await page.evaluate(() => window.kithmootDesktop.installUpdate())).toBe(false)
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('desktop:update-state', { phase: 'error', message: 'x', unverified: true }))
@@ -64,6 +78,8 @@ try {
     desktopCapturer.getSources = async () => { globalThis.__areaChooserReached = true; return [] }
   })
   const areaPage = app.windows().find(window => window !== page)
+  expect(await areaPage.evaluate(() => window.kithmootDesktop.bothyRoomWindowReady())).toBe(false)
+  expect(await bothyWindowReady()).toBe(true)
   await areaPage.evaluate(() => {
     const button = document.createElement('button'); button.textContent = 'Test capture gesture'
     button.onclick = () => navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).catch(error => { window.__captureError = error.name + ': ' + error.message })
