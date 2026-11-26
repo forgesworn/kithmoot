@@ -1,5 +1,11 @@
 # Changelog
 
+## Desktop 0.1.188, 26 November 2026
+
+- Open a room's board and chat together. Resize, hide or show the chat below the board.
+- Card adds and moves reach other open boards without the previous pause.
+- Back to board stays visible within a card. Checklists are easier to reach and each description edit has one activity entry.
+
 ## Desktop 0.1.187, 26 November 2026
 
 - Replace a leaked shared key from the room’s invite settings. The conversation keeps its room and earlier history. Share the new invitation privately and approve each returning device before it receives the new key.
