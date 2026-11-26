@@ -290,13 +290,16 @@ test('on a phone the board opens from the chat header and returns to the same co
   await tools.press('Escape')
   await expect(search).toBeHidden()
   await expect(page.locator('#roomBoardStatus')).toHaveText('Shared with everyone in this room.')
-  await page.getByRole('slider', { name: 'Chat size' }).fill('24')
+  const divider = page.getByRole('separator', { name: 'Resize chat' })
+  await divider.press('ArrowUp')
+  await divider.press('ArrowUp')
+  await expect(divider).toHaveAttribute('aria-valuenow', '24')
   await page.getByRole('button', { name: 'Hide chat', exact: true }).click()
   await page.reload()
   await expect(page.locator('#roomArea')).toBeVisible()
   await openRoomBoard(page)
   await page.getByRole('button', { name: 'Show chat', exact: true }).click()
-  await expect(page.getByRole('slider', { name: 'Chat size' })).toHaveValue('24')
+  await expect(divider).toHaveAttribute('aria-valuenow', '24')
   // Nothing of the board is wider than the phone.
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
 
