@@ -2,6 +2,8 @@
 // Only the disposable fixture's consent is observed; it is never logged.
 export async function installRoomFaults(context) {
   await context.addInitScript(() => {
+    // A page with no app on it (about:blank, which is not a secure context) has no crypto.subtle to watch.
+    if (!crypto.subtle || !navigator.locks) return
     let latest
     const remember = data => {
       const entries = JSON.parse(new TextDecoder().decode(data))
