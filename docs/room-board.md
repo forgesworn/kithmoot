@@ -32,18 +32,13 @@ the room already has a key, an epoch, a roster and relays.
 
 ## What a person sees
 
-**Boards**, in the rail, opens on the board of the room that is open. It is
-the first tab there, named after the room, beside **Needs you** and **All**.
-There is no account to sign in to and nothing to set up: a visitor with only
-the room's link and a name has the board on the same terms as somebody
-signed in, and it opens at once from this device's copy.
+**Board** in the chat header opens that room's board, on a phone as well as
+on desktop. A two-person private chat and a group room each have their own
+board. A visitor with the room's link and a name can open it as soon as
+they join. **Back to chat** returns to the same conversation.
 
-From inside the room the same place is reached from **Board** in the ⋯ menu
-and in Room info, which is also the way on a phone, where a room hides the
-rail. Once anybody has put something on the board, the room has a **Board**
-tab beside Chat, for everybody in it, whether or not they have opened the
-board themselves. A room nobody has put anything on keeps its whole screen
-for the conversation. **Back to chat**, on the board, returns to it.
+The **Boards** destination holds **Needs you**, **All** and **Your own
+boards**.
 
 The line over the board says where it stands:
 
@@ -159,15 +154,9 @@ or the whole board as a snapshot when the stream has none or has gathered
 100 updates since the last.
 
 A failed send is retried, 5 s doubling to 60 s, for as long as the room is
-open. A device that already holds a copy of a room's board opens it with the
-room, so work written offline goes without the tab being opened.
-
-**Knowing the board is in use.** A client that has not opened the board asks
-the room's relays for one stored event of the board stream and listens for
-the first (`RoomSession.watchBoard`). It decrypts nothing and loads no
-document; any event there means somebody has written to the board, which is
-what puts the Board tab in the room. The watch moves with the room at a
-rekey.
+open. A device that already holds a copy of a room's board resumes sending
+offline edits as it rejoins the room. The chat header offers the board as
+soon as the room is open.
 
 ## Removal and rekey
 
@@ -289,7 +278,7 @@ undo across devices beyond what the board's own archive keeps.
   somebody says, in its own slots, and suppresses even delivery receipts for
   what their timing gives away. A board would write a stream of its own
   there, and a relay would see when somebody was working on it. So a quiet
-  room has none, by decision: its menu offers no Board, and Boards says
+  room has none: its chat header omits Board, and Boards says
   that the room is quiet, that it has no board of its own, and why. It keeps
   its tasks, and any board that was shared with it before 25 November 2026.
   It is offered no new one, like any room, so a quiet room that had none has
@@ -311,8 +300,6 @@ undo across devices beyond what the board's own archive keeps.
 - **An agent's work is not written back to the card.** Assign to agent makes
   a room task from the card; the two are not linked afterwards.
 - **A card in the chat is its title**, not a link that opens the card.
-- **Boards opens on the room's board** even when something under Needs you
-  is waiting for this account, by decision; that tab is one click along.
 - **The stream is read whole on opening.** A long-lived busy board reads as
   many events as its relays return; snapshots keep a place to start inside
   that.
@@ -403,7 +390,6 @@ relays refuse 45 KB events.
 | `src/session.ts` | `RoomSession.board(storage)`: one log per session, rekeyed and closed with it; `watchBoard` |
 | `src/chat.ts` | The `board` statement in the chat envelope |
 | `app/src/room-board-panel.ts` | The board's surface in Boards, and the frame it hands updates to |
-| `app/src/workspace-work.ts` | Boards, the destination: the room's board is its first tab |
 | `app/src/main.ts` | `addRoomBoardFile`, `openRoomBoardFile`: a card's file, by the room's own file sharing |
 | `desktop/test/room-board.spec.ts` | The board in the desktop app itself, two copies of it |
 | `forgesworn/girnel` `src/embedded-room.ts` | The view: Girnel's board screen on the room's document. It holds no key, signer or relay and stores none of the board |

@@ -8,7 +8,7 @@ import {npubEncode} from 'nostr-tools/nip19'
 import {createServer} from 'node:http'
 import {readFile} from 'node:fs/promises'
 import {resolve, extname} from 'node:path'
-import { backToRoom, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoard, openRoomBoards, openRoomDetails, openRoomMenu, openSettings, closeSettings } from './browser.js'
+import { backToRoom, closeRoomBoard, turnOnMedia, leaveToChats, openProjects, openBoardsPanel, openRoomBoard, openRoomBoards, openRoomDetails, openRoomMenu, openSettings, closeSettings } from './browser.js'
 import {generateRoomSecret} from '../src/room.js'
 import {encodeRoomLink} from '../src/link.js'
 import {localIdentity} from '../src/identity.js'
@@ -278,16 +278,14 @@ test('a chat is offered no board but its own: one made beside it stays its maker
     await createBoard(owner, 'Existing notes'); await addCard(owner, 'Keep my existing card')
     await ada.page.locator('#boardsClose').click()
     await enter(ada, 'Ada')
-    // With the chat open, Boards names what is hers as hers, and says where the chat's own board is.
-    await openRoomBoard(ada.page)
-    await ada.page.locator('#workspaceWorkTab').click()
+    // The personal boards picker points back to the current conversation.
+    await openRoomBoards(ada.page)
     await expect(ada.page.locator('#workspaceBoardsOpen')).toHaveText('Your own boards')
-    await ada.page.locator('#workspaceBoardsOpen').click()
     await expect(ada.page.locator('#boardsPanel')).toBeVisible()
     await expect(ada.page.locator('#boardsPanel iframe')).toBeVisible()
     owner = (await (await ada.page.locator('#boardsPanel iframe').elementHandle())!.contentFrame())!
     await ada.page.getByRole('button', {name: 'Choose another board', exact: true}).click()
-    await expect(ada.page.locator('#boardsContext')).toHaveText('Boards of your own. Existing board room has a board of its own: it is the first tab in Boards.')
+    await expect(ada.page.locator('#boardsContext')).toHaveText('Boards of your own. Open the board for Existing board room from its chat header.')
     // Nothing offers the chat a board: no Share, and the open chat is not put forward as a new board's chat.
     await expect(ada.page.locator('#boardsShareRoom')).toBeHidden()
     await expect(ada.page.locator('#boardsRoom')).toHaveValue('')
@@ -309,7 +307,7 @@ test('a chat is offered no board but its own: one made beside it stays its maker
     await enter(bo, 'Bo')
     await openRoomBoard(bo.page)
     await expect(bo.page.frameLocator('#roomBoardPanel iframe').getByRole('heading', {name: 'To do', exact: true})).toBeVisible()
-    await backToRoom(bo.page)
+    await closeRoomBoard(bo.page)
     await expect(bo.page.locator('#roomBoards').getByRole('button')).toHaveCount(0)
     await expect(bo.page.locator('#chatLog')).not.toContainText('Shared board')
     expect(told()).toBe(false)
@@ -340,7 +338,7 @@ test('a quiet chat is offered no board either: its Board tab leads to its tasks,
   const onItsTasks = async (page: Page) => {
     await expect(page.locator('#workspaceWorkPanel')).toBeVisible()
     await expect(page.locator('#workspaceWorkTab')).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.locator('#workspaceRoomTab')).toBeHidden()
+    await expect(page.locator('#roomBoardButton')).toBeHidden()
     await expect(page.locator('#workspaceRoomNote')).toHaveText(quietNote)
     await expect(page.locator('#boardsPanel')).toBeHidden()
     await expect(page.locator('#roomBoardPanel')).toHaveCount(0)
@@ -595,15 +593,7 @@ test('two agents handle separate cards while a second person edits the shared bo
     // document bypasses its move/custody handoff and can retire that view.
     const returnToBoard = async (page: Page): Promise<Frame> => {
       const panel = page.locator('#boardsPanel')
-      if (!await panel.isVisible()) {
-        const roomBoards = page.locator('#conversationNav button[data-board]')
-        if (await roomBoards.isVisible()) {
-          // The tab opens the room's own board; boards shared with the room are one step on.
-          await expect(roomBoards).toHaveAttribute('aria-controls', 'roomBoardPanel')
-          await roomBoards.click()
-          await page.locator('#roomBoardOthers').click()
-        } else await openBoardsPanel(page)
-      }
+      if (!await panel.isVisible()) await openBoardsPanel(page)
       await expect(panel).toBeVisible()
       await expect(panel.locator('iframe')).toBeVisible()
       const currentFrame = async (): Promise<Frame | undefined> => {

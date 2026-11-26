@@ -77,7 +77,7 @@ test('a quiet conversation reaches the other person with only gift wraps on the 
     await expect(menu.getByRole('menuitem', { name: 'Board', exact: true })).toHaveCount(0)
     await rowan.keyboard.press('Escape')
     await openBoardsDestination(rowan)
-    await expect(rowan.locator('#workspaceRoomTab')).toBeHidden()
+    await expect(rowan.locator('#roomBoardButton')).toBeHidden()
     await expect(rowan.locator('#roomBoardPanel')).toHaveCount(0)
     await expect(rowan.locator('#workspaceRoomNote')).toHaveText('Quiet: Ada is quiet, so it has no board of its own. Writing to a board would show a relay that somebody is active here, which a quiet room hides.')
     await switchToRoom(rowan, 'Quiet: Ada')

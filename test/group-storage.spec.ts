@@ -361,7 +361,7 @@ test.describe('a room that keeps its files on its group’s own computers', () =
       // Bob joins later, is given his grants, and opens the file from the card: read from the node, with a token.
       await enter(bob.page, r.link, 'Bob')
       await holdsGrants(bob.page, r.node)
-      await bob.page.locator('#conversationNav button[data-board]').click()
+      await openRoomBoard(bob.page)
       await board(bob.page).getByRole('link', { name: 'Hilltop walk', exact: true }).click()
       await files(bob.page).getByRole('button', { name: 'Open hilltop.png', exact: true }).click()
       const dialog = bob.page.locator('#boardFileDialog')
