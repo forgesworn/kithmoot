@@ -1,16 +1,16 @@
 {
-  "currentRelease": "0.1.186",
+  "currentRelease": "0.1.187",
   "releases": [
     {
-      "version": "0.1.186",
+      "version": "0.1.187",
       "updateTo": {
-        "version": "0.1.186",
-        "name": "0.1.186",
+        "version": "0.1.187",
+        "name": "0.1.187",
         "pub_date": "2026-11-26T00:00:00Z",
-        "notes": "Open a private or group chat’s shared board from Board in the chat header.\nBack to chat takes you back to the same conversation.",
-        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.186/KithMoot-0.1.186-mac-arm64.zip",
-        "sha256": "f2b0abc0bcc1cb03bf55f4315d68c0ced1d41146f4fab5be07f8f8164d9f2c28",
-        "size": 199039802
+        "notes": "Replace a leaked shared key from the room’s invite settings. The conversation keeps its room and earlier history. Share the new invitation privately and approve each returning device.",
+        "url": "https://kithmoot.forgesworn.dev/apk/desktop/0.1.187/KithMoot-0.1.187-mac-arm64.zip",
+        "sha256": "d8c26c902670f2152552bee91372c503c15578836df8efbe28ac0955ef19b832",
+        "size": 199045524
       }
     }
   ]

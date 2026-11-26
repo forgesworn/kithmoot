@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "channel": "production",
   "applicationId": "dev.forgesworn.kithmoot",
-  "versionName": "0.6.182",
-  "versionCode": 205,
+  "versionName": "0.6.183",
+  "versionCode": 206,
   "minSdk": 33,
   "targetSdk": 35,
-  "apkBytes": 72517148,
-  "apkSha256": "48ec7d2505a9311ef58ea579e02c1445894ef9c82cfe513dc4e8f4ef5f55263c",
+  "apkBytes": 72525340,
+  "apkSha256": "01ea0c92a414ec6e2d3c4601483d40158671ee47712544725d45170b8f493455",
   "currentCertificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
   "signatureSchemes": {
     "v1": false,
@@ -24,9 +24,9 @@
       "auth": false
     }
   },
-  "downloadFilename": "kithmoot-0.6.182-production.apk",
+  "downloadFilename": "kithmoot-0.6.183-production.apk",
   "releaseNotes": [
-    "Tap Board in the header of a supported private or group chat to open that room’s shared board.",
-    "Back to chat and the Android back gesture take you back to the same conversation."
+    "Replace a leaked shared key in the original room from Invite people.",
+    "Share the new invitation privately. The host approves each returning device before it receives the new key."
   ]
 }
